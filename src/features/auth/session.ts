@@ -5,11 +5,18 @@ export interface SessionUser {
   email: string;
   name?: string | null;
   image?: string | null;
+  role?: string | null;
 }
 
 export function getSessionUser(
   session: {
-    user?: { id: string; email: string; name?: string | null; image?: string | null };
+    user?: {
+      id: string;
+      email: string;
+      name?: string | null;
+      image?: string | null;
+      role?: string | null;
+    };
   } | null
 ): SessionUser | null {
   if (!session?.user) {
@@ -21,6 +28,7 @@ export function getSessionUser(
     email: session.user.email,
     name: session.user.name,
     image: session.user.image,
+    role: session.user.role,
   };
 }
 

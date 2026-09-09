@@ -11,7 +11,6 @@ import {
   session,
   account,
   verification,
-  passkey,
   userRelations,
   sessionRelations,
   accountRelations,
@@ -28,10 +27,10 @@ describe("Database Schema Definitions", () => {
 
   it("defines auth schema tables and column names", () => {
     expect(getTableColumns(user).email.name).toBe("email");
+    expect(getTableColumns(user).role.name).toBe("role");
     expect(getTableColumns(session).token.name).toBe("token");
     expect(getTableColumns(account).providerId.name).toBe("provider_id");
     expect(getTableColumns(verification).identifier.name).toBe("identifier");
-    expect(getTableColumns(passkey).credentialID.name).toBe("credential_id");
   });
 
   it("defines relations between user, session, and account", () => {

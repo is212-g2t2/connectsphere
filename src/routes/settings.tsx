@@ -1,8 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Trash2, KeyRound, Link } from "lucide-react";
-import type { Passkey } from "@better-auth/passkey";
+import { Trash2, Link } from "lucide-react";
 import { toast } from "sonner";
 
 import { getCurrentUser } from "#/features/auth/session";
@@ -11,8 +10,6 @@ import { Button } from "#/components/ui/button";
 import { createSeoHead } from "#/lib/seo";
 
 const PROVIDER_LABELS: Record<string, string> = {
-  google: "Google",
-  "email-otp": "Email OTP",
   credential: "Password",
 };
 
@@ -49,7 +46,6 @@ async function handleDeleteAccount() {
 
 function SettingsPage() {
   const { user } = Route.useRouteContext();
-  const { data: passkeys } = authClient.useListPasskeys();
   const { data: accounts = [] } = useQuery({
     queryKey: ["auth", "accounts"],
     queryFn: async () => {
@@ -57,17 +53,7 @@ function SettingsPage() {
       return res.data ?? [];
     },
   });
-  const [deletingPasskey, setDeletingPasskey] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  async function handleDeletePasskey(passkeyId: string) {
-    setDeletingPasskey(passkeyId);
-    const { error } = await authClient.passkey.deletePasskey({ id: passkeyId });
-    if (error) {
-      toast.error(error.message ?? "Failed to delete passkey");
-    }
-    setDeletingPasskey(null);
-  }
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-16">
@@ -85,6 +71,7 @@ function SettingsPage() {
         <SettingsSection title="Profile">
           <Row label="Email" value={user.email} />
           {user.name && <Row label="Name" value={user.name} />}
+          <Row label="Role" value={user.role ?? "attendee"} />
         </SettingsSection>
 
         {/* Linked providers */}
@@ -101,52 +88,6 @@ function SettingsPage() {
               ))}
             </ul>
           )}
-        </SettingsSection>
-
-        {/* Passkeys */}
-        <SettingsSection title="Passkeys">
-          {!passkeys || passkeys.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No passkeys registered.</p>
-          ) : (
-            <ul className="space-y-2">
-              {passkeys.map((pk: Passkey) => (
-                <li key={pk.id} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <KeyRound className="size-4 text-muted-foreground" />
-                    <span className="text-sm">{pk.name ?? "Passkey"}</span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={deletingPasskey === pk.id}
-                    aria-label={`Delete passkey: ${pk.name ?? "Passkey"}`}
-                    onClick={() => void handleDeletePasskey(pk.id)}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-3"
-              onClick={() =>
-                void (async () => {
-                  const { error } = await authClient.passkey.addPasskey();
-                  if (error) toast.error(error.message ?? "Failed to add passkey");
-                })()
-              }
-            >
-              <KeyRound className="size-4" />
-              Add passkey
-            </Button>
-          </div>
         </SettingsSection>
 
         {/* Danger zone */}

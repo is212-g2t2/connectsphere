@@ -99,15 +99,6 @@ test.describe("SEO and Metadata", () => {
     await expect(page).toHaveTitle(/Reset Password/i);
   });
 
-  test("verify-otp route contains noindex directive and title", async ({ page }) => {
-    await page.goto("/verify-otp?email=test%40example.com&flow=sign-in");
-    await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
-      "content",
-      "noindex, nofollow"
-    );
-    await expect(page).toHaveTitle(/Verify Code/i);
-  });
-
   test("404 error page includes noindex directive", async ({ page }) => {
     await page.goto("/non-existent-page-url");
     await expect(page.getByText("404 - Not Found")).toBeVisible();
@@ -130,7 +121,7 @@ test.describe("SEO and Metadata", () => {
     expect(text).toContain("Allow: /");
     expect(text).toContain("Disallow: /dashboard");
     expect(text).toContain("Disallow: /settings");
-    expect(text).toContain("Disallow: /verify-otp");
+    expect(text).not.toContain("/verify-otp");
     expect(text).toContain("Disallow: /sentry-example");
     expect(text).toContain("Disallow: /api/");
     expect(text).toContain("Sitemap:");

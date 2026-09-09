@@ -14,40 +14,75 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("#/lib/auth-client", () => ({
   authClient: {
-    signIn: {
-      social: vi
-        .fn<() => Promise<{ data: null; error: null }>>()
-        .mockResolvedValue({ data: null, error: null }),
-    },
     signUp: {
       email: vi
-        .fn<() => Promise<{ data: null; error: null }>>()
-        .mockResolvedValue({ data: null, error: null }),
-    },
-    emailOtp: {
-      sendVerificationOtp: vi
         .fn<() => Promise<{ data: null; error: null }>>()
         .mockResolvedValue({ data: null, error: null }),
     },
   },
 }));
 
+// "Password" and "Confirm password" both match /password/i, so every lookup here is anchored.
+const labels = {
+  name: /^name$/i,
+  email: /^email$/i,
+  password: /^password$/i,
+  confirmPassword: /^confirm password$/i,
+  role: /^role$/i,
+};
+
+const VALID = {
+  name: "Ada Lovelace",
+  email: "newuser@example.com",
+  password: "long-enough-pass1!",
+};
+
+/**
+ * Fills every field with something valid, so a test only has to say what it wants to be wrong.
+ * `confirmPassword` follows `password` unless a test overrides it explicitly.
+ */
+async function fillSignupForm(
+  user: ReturnType<typeof userEvent.setup>,
+  overrides: Partial<typeof VALID & { confirmPassword: string }> = {}
+): Promise<void> {
+  const values = {
+    ...VALID,
+    confirmPassword: overrides.password ?? VALID.password,
+    ...overrides,
+  };
+
+  // Sequential on purpose — user-event dispatches real keystrokes, so typing these in parallel
+  // would interleave them across fields.
+  const type = async (label: RegExp, value: string): Promise<void> => {
+    if (value !== "") {
+      await user.type(screen.getByLabelText(label), value);
+    }
+  };
+
+  await type(labels.name, values.name);
+  await type(labels.email, values.email);
+  await type(labels.password, values.password);
+  await type(labels.confirmPassword, values.confirmPassword);
+}
+
 describe("SignupForm component", () => {
-  it("renders email and password inputs, create account button, and Google OAuth button", () => {
+  it("renders name, email, password, confirm password, role inputs and create account button", () => {
     render(<SignupForm />);
 
     expect(screen.getByText("Create an account")).toBeTruthy();
-    expect(screen.getByLabelText(/email/i)).toBeTruthy();
-    expect(screen.getByLabelText(/password/i)).toBeTruthy();
+    expect(screen.getByLabelText(labels.name)).toBeTruthy();
+    expect(screen.getByLabelText(labels.email)).toBeTruthy();
+    expect(screen.getByLabelText(labels.password)).toBeTruthy();
+    expect(screen.getByLabelText(labels.confirmPassword)).toBeTruthy();
+    expect(screen.getByLabelText(labels.role)).toBeTruthy();
     expect(screen.getByRole("button", { name: /create account/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /sign up with an email code/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /continue with google/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /sign in/i })).toBeTruthy();
   });
 
   it("shows validation error when submitting an invalid email", async () => {
     render(<SignupForm />);
 
-    const emailInput = screen.getByLabelText(/email/i);
+    const emailInput = screen.getByLabelText(labels.email);
     fireEvent.change(emailInput, { target: { value: "invalid-email" } });
 
     const form = emailInput.closest("form");
@@ -66,8 +101,7 @@ describe("SignupForm component", () => {
     const user = userEvent.setup();
     render(<SignupForm />);
 
-    await user.type(screen.getByLabelText(/email/i), "newuser@example.com");
-    await user.type(screen.getByLabelText(/password/i), "short");
+    await fillSignupForm(user, { password: "short" });
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {
@@ -82,8 +116,7 @@ describe("SignupForm component", () => {
     const user = userEvent.setup();
     render(<SignupForm />);
 
-    await user.type(screen.getByLabelText(/email/i), "newuser@example.com");
-    await user.type(screen.getByLabelText(/password/i), "alllowercaseletters");
+    await fillSignupForm(user, { password: "alllowercaseletters" });
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {
@@ -93,20 +126,75 @@ describe("SignupForm component", () => {
     expect(authClient.signUp.email).not.toHaveBeenCalled();
   });
 
-  it("creates an account with email and password", async () => {
+  it("rejects a name that is blank or only whitespace", async () => {
     const { authClient } = await import("#/lib/auth-client");
+    vi.mocked(authClient.signUp.email).mockClear();
     const user = userEvent.setup();
     render(<SignupForm />);
 
-    await user.type(screen.getByLabelText(/email/i), "newuser@example.com");
-    await user.type(screen.getByLabelText(/password/i), "long-enough-pass1!");
+    await fillSignupForm(user, { name: "   " });
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Enter your name")).toBeTruthy();
+    });
+    expect(authClient.signUp.email).not.toHaveBeenCalled();
+  });
+
+  it("rejects a confirmation that does not match the password", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    vi.mocked(authClient.signUp.email).mockClear();
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    await fillSignupForm(user, { confirmPassword: "long-enough-pass2!" });
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Passwords do not match")).toBeTruthy();
+    });
+    expect(screen.getByLabelText(labels.confirmPassword).getAttribute("aria-invalid")).toBe("true");
+    expect(authClient.signUp.email).not.toHaveBeenCalled();
+  });
+
+  it("creates an account with a trimmed name and the default attendee role", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    vi.mocked(authClient.signUp.email).mockClear();
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    await fillSignupForm(user, { name: "  Ada Lovelace  " });
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {
       expect(authClient.signUp.email).toHaveBeenCalledWith({
-        name: "",
+        name: "Ada Lovelace",
         email: "newuser@example.com",
         password: "long-enough-pass1!",
+        role: "attendee",
+      });
+    });
+  });
+
+  it("creates an account with event_organiser role when selected", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    vi.mocked(authClient.signUp.email).mockClear();
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    await fillSignupForm(user, { name: "Grace Hopper", email: "organiser@example.com" });
+
+    await user.click(screen.getByLabelText(labels.role));
+    await user.click(await screen.findByRole("option", { name: /event organiser/i }));
+
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(authClient.signUp.email).toHaveBeenCalledWith({
+        name: "Grace Hopper",
+        email: "organiser@example.com",
+        password: "long-enough-pass1!",
+        role: "event_organiser",
       });
     });
   });
@@ -115,15 +203,11 @@ describe("SignupForm component", () => {
     const user = userEvent.setup();
     render(<SignupForm />);
 
-    await user.type(screen.getByLabelText(/email/i), "newuser@example.com");
-    await user.type(screen.getByLabelText(/password/i), "long-enough-pass1!");
+    await fillSignupForm(user);
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Check your email")).toBeTruthy();
-      expect(
-        screen.getByText(/signing in with an email code before you verify clears it/i)
-      ).toBeTruthy();
     });
     expect(mockNavigate).not.toHaveBeenCalled();
   });
@@ -138,48 +222,11 @@ describe("SignupForm component", () => {
     const user = userEvent.setup();
     render(<SignupForm />);
 
-    await user.type(screen.getByLabelText(/email/i), "existing@example.com");
-    await user.type(screen.getByLabelText(/password/i), "long-enough-pass1!");
+    await fillSignupForm(user, { email: "existing@example.com" });
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Account already exists")).toBeTruthy();
-    });
-  });
-
-  it("sends an OTP and navigates to verify-otp when signing up with a code", async () => {
-    const { authClient } = await import("#/lib/auth-client");
-    const user = userEvent.setup();
-    render(<SignupForm />);
-
-    await user.type(screen.getByLabelText(/email/i), "newuser@example.com");
-    await user.click(screen.getByRole("button", { name: /sign up with an email code/i }));
-
-    await waitFor(() => {
-      expect(authClient.emailOtp.sendVerificationOtp).toHaveBeenCalledWith({
-        email: "newuser@example.com",
-        type: "sign-in",
-      });
-      expect(mockNavigate).toHaveBeenCalledWith({
-        to: "/verify-otp",
-        search: { email: "newuser@example.com", flow: "sign-up" },
-      });
-    });
-  });
-
-  it("triggers Google social sign-in when clicking Continue with Google", async () => {
-    const { authClient } = await import("#/lib/auth-client");
-    const user = userEvent.setup();
-    render(<SignupForm />);
-
-    const googleButton = screen.getByRole("button", { name: /continue with google/i });
-    await user.click(googleButton);
-
-    await waitFor(() => {
-      expect(authClient.signIn.social).toHaveBeenCalledWith({
-        provider: "google",
-        callbackURL: "/",
-      });
     });
   });
 });
