@@ -67,6 +67,19 @@ A production-ready full-stack web application template, built with TanStack Star
    bun run db:seed
    ```
 
+   This also creates three internal staff accounts that self-registration cannot
+   produce (sign-up only allows external roles). They exist for building, testing
+   and demonstrating the role-restricted stories:
+
+   | Role                    | Email                         | Password        |
+   | ----------------------- | ----------------------------- | --------------- |
+   | Event Coordinator       | coordinator.seed@example.com  | `Seed-Pass123!` |
+   | Venue Staff             | venue.staff.seed@example.com  | `Seed-Pass123!` |
+   | Technical Support Staff | tech.support.seed@example.com | `Seed-Pass123!` |
+
+   These credentials are non-production (shared password, `example.com`
+   addresses, no real personal data) and must never be used outside local/demo environments.
+
 5. **Start the dev server**
 
    ```bash

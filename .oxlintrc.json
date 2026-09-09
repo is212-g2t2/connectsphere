@@ -103,7 +103,6 @@
     {
       "files": [
         "src/features/auth/components/login-form.tsx",
-        "src/features/auth/components/verify-otp.tsx",
         "src/features/auth/components/signup-form.tsx"
       ],
       "rules": {

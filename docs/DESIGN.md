@@ -165,7 +165,7 @@ Minimal radius. `--radius: 0.5rem (8px)` — `rounded-md` for inputs, `rounded-l
 ## Components
 
 - **Primary button:** `bg-primary text-primary-foreground h-10 px-5 rounded-md text-sm font-medium`, hover opacity-80, focus ring `ring-ring/50`. Used for “Get started” and “Continue with email”.
-- **Secondary / outline button:** `variant="outline"` — `border-border bg-background` with `hover:bg-muted`; used for “Sign in with passkey”, “Continue with Google”, “Choose file”.
+- **Secondary / outline button:** `variant="outline"` — `border-border bg-background` with `hover:bg-muted`; used for “Choose file” and “Cancel”.
 - **Links (text):** `text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground`. The hero secondary link and “Account settings” use this; header/footer nav links are `text-muted-foreground hover:text-foreground` (with underline on hover for the doc links).
 - **Input:** `h-9 border-input rounded-md bg-background px-3 text-sm`, focus `ring-ring/50`.
 - **Table:** `border-b border-border` header, `border-b border-border/60` rows, mono dates (`font-mono text-xs text-muted-foreground`), ghost icon button for delete.
