@@ -27,10 +27,11 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
         password: value.password,
       });
       if (error) {
-        setServerError(error.message ?? "Invalid email or password.");
+        // Never render the server message: it must not reveal whether the email exists (PTR-6 AC2).
+        setServerError("Invalid email or password.");
         return;
       }
-      await navigate({ to: "/" });
+      await navigate({ to: "/dashboard" });
     },
   });
 

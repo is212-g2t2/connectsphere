@@ -45,11 +45,10 @@ test.describe("Auth and Notes Lifecycle Loop", () => {
     await fillCredentials();
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
-    // After sign-in, redirect completes to home page
-    await page.waitForURL("/", { timeout: 10_000 });
+    // After sign-in, redirect completes to dashboard (PTR-6 AC1)
+    await page.waitForURL("/dashboard", { timeout: 10_000 });
 
-    // 4. Navigate to /dashboard
-    await page.goto("/dashboard");
+    // 4. Verify landing on /dashboard
     await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible({
       timeout: 10_000,
@@ -76,5 +75,12 @@ test.describe("Auth and Notes Lifecycle Loop", () => {
     await expect(page.getByRole("cell", { name: noteTitle, exact: true })).not.toBeVisible({
       timeout: 10_000,
     });
+
+    // 7. Sign out and go back — no protected info may display (PTR-6 AC3)
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await page.waitForURL("/", { timeout: 10_000 });
+    await page.goBack();
+    await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: /welcome,/i })).toHaveCount(0);
   });
 });

@@ -212,6 +212,20 @@ describe("SignupForm component", () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it("navigates to the dashboard when continuing from the verification screen", async () => {
+    mockNavigate.mockClear();
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    await fillSignupForm(user);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await screen.findByText("Check your email");
+    await user.click(screen.getByRole("button", { name: /continue/i }));
+
+    expect(mockNavigate).toHaveBeenCalledWith({ to: "/dashboard" });
+  });
+
   it("displays server error message when sign-up fails", async () => {
     const { authClient } = await import("#/lib/auth-client");
     vi.mocked(authClient.signUp.email).mockResolvedValueOnce({

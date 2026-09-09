@@ -78,7 +78,7 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
             </FieldDescription>
           </div>
           <Field>
-            <Button type="button" onClick={() => void navigate({ to: "/" })}>
+            <Button type="button" onClick={() => void navigate({ to: "/dashboard" })}>
               Continue
             </Button>
           </Field>
