@@ -14,7 +14,7 @@ import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
 import { authClient } from "#/lib/auth-client";
 import { PasswordSchema } from "#/features/auth/schema/password";
-import { DEFAULT_ROLE, RoleSchema } from "#/features/auth/schema/role";
+import { DEFAULT_ROLE, SelfAssignableRoleSchema } from "#/features/auth/schema/role";
 import { useState } from "react";
 
 const schema = z
@@ -29,7 +29,7 @@ const schema = z
     // Deliberately unconstrained on its own: the policy belongs to `password`, and running
     // PasswordSchema here too would bury the mismatch error under duplicate policy errors.
     confirmPassword: z.string(),
-    role: RoleSchema,
+    role: SelfAssignableRoleSchema,
   })
   .refine(value => value.password === value.confirmPassword, {
     path: ["confirmPassword"],
@@ -188,7 +188,7 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
                   items={ROLE_LABELS}
                   value={field.state.value}
                   onValueChange={value =>
-                    field.handleChange(RoleSchema.catch(DEFAULT_ROLE).parse(value))
+                    field.handleChange(SelfAssignableRoleSchema.catch(DEFAULT_ROLE).parse(value))
                   }
                 >
                   <SelectTrigger id="role" className="w-full">

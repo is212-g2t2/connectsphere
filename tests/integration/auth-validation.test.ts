@@ -91,7 +91,7 @@ function uniqueEmail(prefix: string): string {
 
 describe("auth server-side validation (PTR-5)", () => {
   describe("role cannot be self-assigned beyond the external roles", () => {
-    it("refuses an internal-looking role at sign-up", async () => {
+    it("refuses a role that does not exist at all at sign-up", async () => {
       const response = await auth.handler(
         post("/sign-up/email", {
           name: "",
@@ -105,7 +105,7 @@ describe("auth server-side validation (PTR-5)", () => {
       expect(await messageOf(response)).toMatch(/invalid option|expected one of/i);
     });
 
-    it("refuses an arbitrary string as a role at sign-up", async () => {
+    it("refuses a real but internal role at sign-up", async () => {
       const response = await auth.handler(
         post("/sign-up/email", {
           name: "",
@@ -131,29 +131,67 @@ describe("auth server-side validation (PTR-5)", () => {
       expect(response.status).toBe(200);
     });
 
-    it("refuses escalation through /update-user after a valid sign-up", async () => {
-      const email = uniqueEmail("promote");
-      const signUp = await auth.handler(
-        post("/sign-up/email", { name: "", email, password: STRONG_PASSWORD, role: "attendee" })
-      );
-      expect(signUp.status).toBe(200);
+    /**
+     * `event_organiser` is the case that matters (PTR-7): it is self-assignable at sign-up, so
+     * the field validator would let it through and only the `/update-user` guard refuses it.
+     * `event_coordinator` rides along to cover an internal role. `admin` is left to the sign-up
+     * tests above — it takes the identical branch and costs a round trip to say the same thing.
+     */
+    it.each(["event_coordinator", "event_organiser"])(
+      "refuses escalation to %s through /update-user after a valid sign-up",
+      async role => {
+        const email = uniqueEmail("promote");
+        const signUp = await auth.handler(
+          post("/sign-up/email", { name: "", email, password: STRONG_PASSWORD, role: "attendee" })
+        );
+        expect(signUp.status).toBe(200);
 
+        const cookie = signUp.headers.get("set-cookie");
+        expect(cookie).toBeTruthy();
+
+        const response = await auth.handler(
+          post("/update-user", { role }, { cookie: cookie as string })
+        );
+
+        expect(response.status).toBe(403);
+        expect(await messageOf(response)).toMatch(/role cannot be changed/i);
+
+        // The assertion that matters: the stored role is unchanged, not merely that the request
+        // was refused. Criterion 2 requires that the function is not performed either.
+        const session = await auth.handler(
+          new Request(`${BASE_URL}/api/auth/get-session`, { headers: { cookie: cookie as string } })
+        );
+        const body = (await session.json()) as { user?: { role?: string } };
+        expect(body.user?.role).toBe("attendee");
+      }
+    );
+
+    // The guard must refuse the role without breaking legitimate updates, and must not let a
+    // rename quietly reset the role to its sign-up default either.
+    it("still allows /update-user to change a field that is not the role", async () => {
+      const email = uniqueEmail("rename");
+      const signUp = await auth.handler(
+        post("/sign-up/email", {
+          name: "Old Name",
+          email,
+          password: STRONG_PASSWORD,
+          role: "event_organiser",
+        })
+      );
       const cookie = signUp.headers.get("set-cookie");
-      expect(cookie).toBeTruthy();
 
       const response = await auth.handler(
-        post("/update-user", { role: "admin" }, { cookie: cookie as string })
+        post("/update-user", { name: "New Name" }, { cookie: cookie as string })
       );
 
-      expect(response.status).toBe(400);
-      expect(await messageOf(response)).toMatch(/invalid option|expected one of/i);
+      expect(response.status).toBe(200);
 
-      // The assertion that matters: the stored role is unchanged, not merely that a 400 came back.
       const session = await auth.handler(
         new Request(`${BASE_URL}/api/auth/get-session`, { headers: { cookie: cookie as string } })
       );
-      const body = (await session.json()) as { user?: { role?: string } };
-      expect(body.user?.role).toBe("attendee");
+      const body = (await session.json()) as { user?: { name?: string; role?: string } };
+      expect(body.user?.name).toBe("New Name");
+      expect(body.user?.role).toBe("event_organiser");
     });
   });
 

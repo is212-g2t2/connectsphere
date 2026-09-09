@@ -6,14 +6,18 @@ import * as schema from "#/db/schema";
 import { handleListNotes, handleCreateNote, handleDeleteNote } from "#/features/notes/server-fns";
 import type { SessionUser } from "#/features/auth/session";
 
+// Roles mirror scripts/seed.ts. Both hold the note permissions, so these fixtures exercise the
+// note logic rather than the gate; the gate itself is covered by "refuses a role" below.
 const testUser: SessionUser = {
   id: "test-user-1",
   email: "john.doe@example.com",
+  role: "attendee",
 };
 
 const otherUser: SessionUser = {
   id: "test-user-2",
   email: "jane.doe@example.com",
+  role: "event_organiser",
 };
 
 describe("Notes Server Logic (Database Integration)", () => {
@@ -34,6 +38,22 @@ describe("Notes Server Logic (Database Integration)", () => {
   beforeEach(async () => {
     // Clean up notes table between tests to ensure test isolation
     await db.delete(schema.notes);
+  });
+
+  describe("permission gate (PTR-7)", () => {
+    const roleless: SessionUser = { id: "test-user-1", email: "john.doe@example.com" };
+    const unknownRole: SessionUser = { ...roleless, role: "admin" };
+
+    it.each([
+      ["a user with no role", roleless],
+      ["a user with an unrecognised role", unknownRole],
+    ])("refuses %s", async (_label, user) => {
+      await expect(handleListNotes(user, db as never)).rejects.toThrow("Forbidden");
+      await expect(handleCreateNote({ title: "Note" }, user, db as never)).rejects.toThrow(
+        "Forbidden"
+      );
+      await expect(handleDeleteNote({ id: 1 }, user, db as never)).rejects.toThrow("Forbidden");
+    });
   });
 
   describe("handleListNotes", () => {

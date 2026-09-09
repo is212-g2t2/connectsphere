@@ -68,9 +68,35 @@ describe("POST /api/upload-url", () => {
     expect(json.error).toBe("Unauthorized");
   });
 
+  // PTR-7 criterion 2: hiding the upload control is not the control. This endpoint takes a
+  // direct POST, so the role has to be checked here as well — and before the body is even read.
+  it("returns 403 Forbidden if the role does not permit uploading", async () => {
+    vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+      user: { id: "usr_123", email: "user@example.com", role: "attendee" },
+      session: { id: "sess_123" },
+    } as never);
+
+    currentRequest = new Request("http://localhost:3000/api/upload-url", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        filename: "photo.jpg",
+        contentType: "image/jpeg",
+        size: 2048,
+      }),
+    });
+
+    const handler = getPostHandler();
+    const response = await handler();
+    expect(response.status).toBe(403);
+
+    const json = (await response.json()) as { error: string };
+    expect(json.error).toBe("Forbidden");
+  });
+
   it("returns 400 Bad Request if body format is invalid", async () => {
     vi.mocked(auth.api.getSession).mockResolvedValueOnce({
-      user: { id: "usr_123", email: "user@example.com" },
+      user: { id: "usr_123", email: "user@example.com", role: "event_organiser" },
       session: { id: "sess_123" },
     } as never);
 
@@ -93,7 +119,7 @@ describe("POST /api/upload-url", () => {
 
   it("returns 422 Unprocessable Entity if file exceeds size limit or has disallowed type", async () => {
     vi.mocked(auth.api.getSession).mockResolvedValueOnce({
-      user: { id: "usr_123", email: "user@example.com" },
+      user: { id: "usr_123", email: "user@example.com", role: "event_organiser" },
       session: { id: "sess_123" },
     } as never);
 
@@ -117,7 +143,7 @@ describe("POST /api/upload-url", () => {
 
   it("returns 200 and presigned URL details on valid request", async () => {
     vi.mocked(auth.api.getSession).mockResolvedValueOnce({
-      user: { id: "usr_123", email: "user@example.com" },
+      user: { id: "usr_123", email: "user@example.com", role: "event_organiser" },
       session: { id: "sess_123" },
     } as never);
 
@@ -145,7 +171,7 @@ describe("POST /api/upload-url", () => {
 
   it("returns 503 Service Unavailable if storage is not configured", async () => {
     vi.mocked(auth.api.getSession).mockResolvedValueOnce({
-      user: { id: "usr_123", email: "user@example.com" },
+      user: { id: "usr_123", email: "user@example.com", role: "event_organiser" },
       session: { id: "sess_123" },
     } as never);
 

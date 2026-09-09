@@ -10,7 +10,7 @@ import * as schema from "#/db/schema";
 import { env } from "#/env";
 import { sendEmail } from "#/lib/mailer";
 import { PasswordSchema } from "#/features/auth/schema/password";
-import { DEFAULT_ROLE, RoleSchema } from "#/features/auth/schema/role";
+import { DEFAULT_ROLE, SelfAssignableRoleSchema } from "#/features/auth/schema/role";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
 import { logger } from "#/lib/logger";
@@ -50,7 +50,9 @@ export const auth = betterAuth({
         input: true,
         // `input: true` means the client supplies this, on /sign-up/email *and* /update-user.
         // Without a validator any string persists, letting anyone self-assign an internal role.
-        validator: { input: RoleSchema },
+        // Deliberately the self-assignable subset, not the full `RoleSchema`: the roles this
+        // accepts are exactly the roles a stranger is trusted to pick for themselves.
+        validator: { input: SelfAssignableRoleSchema },
       },
     },
   },
@@ -79,6 +81,16 @@ export const auth = betterAuth({
   // a symbol, a 128 maximum) has to be applied here or it exists only in the browser.
   hooks: {
     before: createAuthMiddleware(async ctx => {
+      // `/update-user` carries `role` for the same reason `/sign-up/email` does — the field is
+      // `input: true`. The validator below already stops an internal role landing here, but it
+      // would still let an attendee promote itself to `event_organiser`, so the field is refused
+      // outright: nobody re-grades their own account (PTR-7).
+      if (ctx.path === "/update-user") {
+        if (ctx.body !== null && typeof ctx.body === "object" && "role" in ctx.body) {
+          throw new APIError("FORBIDDEN", { message: "Your role cannot be changed here." });
+        }
+        return;
+      }
       if (!PASSWORD_SETTING_PATHS.has(ctx.path)) {
         return;
       }
