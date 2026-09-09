@@ -1,0 +1,15 @@
+node_modules
+.output
+.nitro
+.vinxi
+.tanstack
+.git
+.env
+data
+docs
+scratch
+playwright.config.ts
+tests
+coverage
+test-results
+playwright-report

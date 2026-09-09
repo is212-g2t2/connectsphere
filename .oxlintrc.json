@@ -1,0 +1,145 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "react",
+    "vitest",
+    "jsx-a11y",
+    "promise",
+    "node"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "options": {
+    "typeAware": true,
+    "typeCheck": true
+  },
+  "rules": {
+    "no-alert": "error",
+    "no-console": "error",
+    "no-debugger": "error",
+    "eqeqeq": ["error", "always"],
+    "no-var": "error",
+    "prefer-const": "error",
+    "import/no-cycle": "error",
+    "react/react-in-jsx-scope": "off",
+    "import/no-named-export": "off",
+    "import/prefer-default-export": "off",
+    "import/exports-last": "off",
+    "sort-imports": "off",
+    "sort-keys": "off",
+    "func-style": "off",
+    "no-magic-numbers": "off",
+    "no-ternary": "off",
+    "vitest/no-importing-vitest-globals": "off",
+    "vitest/prefer-describe-function-title": "off",
+    "node/no-process-env": "error",
+    "unicorn/prefer-node-protocol": "off",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+
+    "unicorn/no-null": "off",
+
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "typescript/consistent-type-imports": [
+      "warn",
+      { "prefer": "type-imports", "fixStyle": "separate-type-imports" }
+    ],
+    "typescript/no-unnecessary-condition": ["error", { "allowConstantLoopConditions": true }],
+    "typescript/no-non-null-assertion": "error",
+    "typescript/no-explicit-any": "warn",
+
+    "import/no-duplicates": "error",
+    "import/first": "error",
+    "import/extensions": "off",
+    "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
+    "no-underscore-dangle": ["error", { "allow": ["__dirname", "__appSentryInitialized__"] }],
+    "no-restricted-imports": [
+      "error",
+      {
+        "name": "zod/v3",
+        "message": "Zod 3 is legacy. Use `import { z } from 'zod'` for Zod 4.5."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["tests/**", "instrument.server.mjs"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["src/env.ts", "playwright.config.ts", "instrument.server.mjs"],
+      "rules": {
+        "node/no-process-env": "off"
+      }
+    },
+    {
+      "files": ["src/env.ts"],
+      "rules": {
+        "no-unnecessary-condition": "off"
+      }
+    },
+    {
+      "files": ["tests/**"],
+      "rules": {
+        "no-unnecessary-condition": "off",
+        "typescript/no-unsafe-type-assertion": "off"
+      }
+    },
+    {
+      "files": ["src/routes/api/send-email.ts"],
+      "rules": {
+        "no-unnecessary-condition": "off"
+      }
+    },
+    {
+      "files": [
+        "src/features/auth/components/login-form.tsx",
+        "src/features/auth/components/verify-otp.tsx",
+        "src/features/auth/components/signup-form.tsx"
+      ],
+      "rules": {
+        "no-base-to-string": "off"
+      }
+    },
+    // Upstream components generated/copied from shadcn/ui and not maintained locally
+    {
+      "files": ["src/components/ui/**"],
+      "rules": {
+        "eqeqeq": "off",
+        "no-shadow": "off",
+        "no-underscore-dangle": "off",
+        "import/consistent-type-specifier-style": "off",
+        "jsx-a11y/anchor-has-content": "off",
+        "jsx-a11y/click-events-have-key-events": "off",
+        "jsx-a11y/no-noninteractive-element-interactions": "off",
+        "jsx-a11y/prefer-tag-over-role": "off",
+        "react/jsx-no-constructed-context-values": "off",
+        "react/no-array-index-key": "off",
+        "react/no-object-type-as-default-prop": "off",
+        "react/no-unstable-nested-components": "off",
+        "typescript/consistent-return": "off",
+        "typescript/no-explicit-any": "off",
+        "typescript/no-unnecessary-condition": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-unnecessary-type-conversion": "off",
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/restrict-template-expressions": "off"
+      }
+    }
+  ],
+  "env": {
+    "builtin": true,
+    "node": true,
+    "browser": true
+  },
+  "ignorePatterns": [".output/**", ".nitro/**", "node_modules/**", "src/routeTree.gen.ts"]
+}
