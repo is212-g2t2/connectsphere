@@ -19,7 +19,11 @@ test.describe("Auth and Notes Lifecycle Loop", () => {
       timeout: 10_000,
     });
 
+    // Only the sign-up form has name and confirm-password fields; fillCredentials is shared
+    // with /login, which has neither.
+    await page.locator("#name").fill("E2E User");
     await fillCredentials();
+    await page.locator("#confirmPassword").fill(testPassword);
     await page.getByRole("button", { name: "Create account" }).click();
 
     // Verify signup confirmation heading
@@ -47,7 +51,10 @@ test.describe("Auth and Notes Lifecycle Loop", () => {
     // 4. Navigate to /dashboard
     await page.goto("/dashboard");
     await page.waitForLoadState("networkidle");
-    await expect(page.getByRole("heading", { name: `Welcome, ${testEmail}` })).toBeVisible({
+    await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(testEmail)).toBeVisible({
       timeout: 10_000,
     });
 

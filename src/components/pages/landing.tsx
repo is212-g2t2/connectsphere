@@ -18,7 +18,7 @@ const TREE: TreeEntry[][] = [
   [
     { glyph: "", path: "src/" },
     { glyph: "├─", path: "routes/", note: "File-based routing, auth-guarded loaders" },
-    { glyph: "├─", path: "features/auth/", note: "Better Auth: email OTP, passkeys, Google" },
+    { glyph: "├─", path: "features/auth/", note: "Better Auth: email + password, roles" },
     { glyph: "├─", path: "db/", note: "Drizzle ORM schema and migrations" },
     { glyph: "├─", path: "lib/", note: "Mailer (Resend), storage (S3 presign), Redis" },
     { glyph: "└─", path: "components/ui/", note: "shadcn primitives, themed once here" },
@@ -80,7 +80,7 @@ function HeroSection() {
         </h1>
 
         <p className="mt-6 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg">
-          Auth with OTP and passkeys, Postgres through Drizzle, transactional email, presigned
+          Auth with email and password, Postgres through Drizzle, transactional email, presigned
           uploads, production-mirrored tests, tracing on day one. Clone it, delete the demo notes,
           build your product.
         </p>

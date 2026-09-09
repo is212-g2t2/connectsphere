@@ -21,7 +21,7 @@ This guide covers the local development environment, scripts catalog, database m
    cp .env.example .env
    ```
 
-   Inspect `.env` and fill in any optional credentials needed for your feature work (e.g. `GOOGLE_CLIENT_ID`, `RESEND_API_KEY`). Defaults for local services work out of the box.
+   Inspect `.env` and fill in any optional credentials needed for your feature work (e.g. `RESEND_API_KEY`). Defaults for local services work out of the box.
 
 3. **Start local infrastructure services**:
 
@@ -61,26 +61,24 @@ This guide covers the local development environment, scripts catalog, database m
 
 ## Environment Variables
 
-| Variable               | Required | Description                                                                                                                                              |
-| ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`         | ✅       | PostgreSQL connection string                                                                                                                             |
-| `BETTER_AUTH_SECRET`   | ✅       | 32+ character secret for session signing                                                                                                                 |
-| `BETTER_AUTH_URL`      | ✅       | App origin (default: `http://localhost:3000`)                                                                                                            |
-| `SERVER_URL`           | Optional | Canonical public application URL                                                                                                                         |
-| `GOOGLE_CLIENT_ID`     | Optional | Enables Google OAuth when set together with secret                                                                                                       |
-| `GOOGLE_CLIENT_SECRET` | Optional | Enables Google OAuth when set together with ID                                                                                                           |
-| `RESEND_API_KEY`       | Optional | Required to send email. App boots without it; email calls throw a clear error                                                                            |
-| `EMAIL_FROM`           | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                        |
-| `MINIO_ENDPOINT`       | Optional | S3-compatible endpoint — enables file uploads. Accepts MinIO, AWS S3, Cloudflare R2, or Supabase Storage (`https://<project>.supabase.co/storage/v1/s3`) |
-| `MINIO_BUCKET`         | Optional | Bucket name (default: `app`)                                                                                                                             |
-| `MINIO_ACCESS_KEY`     | Optional | Storage access key (default: `admin`)                                                                                                                    |
-| `MINIO_SECRET_KEY`     | Optional | Storage secret key (default: `password`)                                                                                                                 |
-| `REDIS_URL`            | Optional | Redis connection string (`redis://localhost:6379`) — enables Bun native Redis session cache for multi-instance deployments                               |
-| `SENTRY_AUTH_TOKEN`    | Optional | Auth token for Sentry source map uploads at build time                                                                                                   |
-| `VITE_APP_TITLE`       | Optional | Application title displayed in UI branding                                                                                                               |
-| `VITE_SENTRY_DSN`      | Optional | Enables Sentry error tracking                                                                                                                            |
-| `VITE_SENTRY_ORG`      | Optional | Sentry organization slug                                                                                                                                 |
-| `VITE_SENTRY_PROJECT`  | Optional | Sentry project slug                                                                                                                                      |
+| Variable              | Required | Description                                                                                                                                              |
+| --------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | ✅       | PostgreSQL connection string                                                                                                                             |
+| `BETTER_AUTH_SECRET`  | ✅       | 32+ character secret for session signing                                                                                                                 |
+| `BETTER_AUTH_URL`     | ✅       | App origin (default: `http://localhost:3000`)                                                                                                            |
+| `SERVER_URL`          | Optional | Canonical public application URL                                                                                                                         |
+| `RESEND_API_KEY`      | Optional | Required to send email. App boots without it; email calls throw a clear error                                                                            |
+| `EMAIL_FROM`          | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                        |
+| `MINIO_ENDPOINT`      | Optional | S3-compatible endpoint — enables file uploads. Accepts MinIO, AWS S3, Cloudflare R2, or Supabase Storage (`https://<project>.supabase.co/storage/v1/s3`) |
+| `MINIO_BUCKET`        | Optional | Bucket name (default: `app`)                                                                                                                             |
+| `MINIO_ACCESS_KEY`    | Optional | Storage access key (default: `admin`)                                                                                                                    |
+| `MINIO_SECRET_KEY`    | Optional | Storage secret key (default: `password`)                                                                                                                 |
+| `REDIS_URL`           | Optional | Redis connection string (`redis://localhost:6379`) — enables Bun native Redis session cache for multi-instance deployments                               |
+| `SENTRY_AUTH_TOKEN`   | Optional | Auth token for Sentry source map uploads at build time                                                                                                   |
+| `VITE_APP_TITLE`      | Optional | Application title displayed in UI branding                                                                                                               |
+| `VITE_SENTRY_DSN`     | Optional | Enables Sentry error tracking                                                                                                                            |
+| `VITE_SENTRY_ORG`     | Optional | Sentry organization slug                                                                                                                                 |
+| `VITE_SENTRY_PROJECT` | Optional | Sentry project slug                                                                                                                                      |
 
 ---
 
@@ -124,7 +122,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 ### Schema Locations
 
 - `src/db/schema.ts` — Application domain schemas (e.g. `notes`).
-- `src/db/auth-schema.ts` — Better Auth schemas (`user`, `session`, `account`, `verification`, `passkey`).
+- `src/db/auth-schema.ts` — Better Auth schemas (`user` with `role`, `session`, `account`, `verification`).
 - `src/db/drizzle/` — Generated SQL migration files and metadata.
 
 ### Migration Rules

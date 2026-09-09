@@ -18,28 +18,9 @@ vi.mock("#/lib/auth-client", () => ({
       email: vi
         .fn<() => Promise<{ data: null; error: null }>>()
         .mockResolvedValue({ data: null, error: null }),
-      passkey: vi
-        .fn<() => Promise<{ data: null; error: null }>>()
-        .mockResolvedValue({ data: null, error: null }),
-      social: vi
-        .fn<() => Promise<{ data: null; error: null }>>()
-        .mockResolvedValue({ data: null, error: null }),
-    },
-    emailOtp: {
-      sendVerificationOtp: vi
-        .fn<() => Promise<{ data: null; error: null }>>()
-        .mockResolvedValue({ data: null, error: null }),
     },
   },
 }));
-
-// Mock PublicKeyCredential for jsdom environment
-if (typeof globalThis.PublicKeyCredential === "undefined") {
-  // @ts-ignore
-  globalThis.PublicKeyCredential = {
-    isConditionalMediationAvailable: vi.fn<() => Promise<boolean>>().mockResolvedValue(false),
-  };
-}
 
 describe("LoginForm component", () => {
   it("renders email and password inputs plus submission controls", () => {
@@ -49,8 +30,7 @@ describe("LoginForm component", () => {
     expect(screen.getByLabelText(/email/i)).toBeTruthy();
     expect(screen.getByLabelText(/password/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /^sign in$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /email me a sign-in code/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /sign in with passkey/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /sign up/i })).toBeTruthy();
   });
 
   it("shows validation error for invalid email on submit", async () => {
@@ -103,36 +83,5 @@ describe("LoginForm component", () => {
     await waitFor(() => {
       expect(screen.getByText("Invalid email or password")).toBeTruthy();
     });
-  });
-
-  it("calls sendVerificationOtp when requesting a sign-in code", async () => {
-    const { authClient } = await import("#/lib/auth-client");
-    const user = userEvent.setup();
-    render(<LoginForm />);
-
-    await user.type(screen.getByLabelText(/email/i), "test@example.com");
-    await user.click(screen.getByRole("button", { name: /email me a sign-in code/i }));
-
-    await waitFor(() => {
-      expect(authClient.emailOtp.sendVerificationOtp).toHaveBeenCalledWith({
-        email: "test@example.com",
-        type: "sign-in",
-      });
-    });
-  });
-
-  it("does not request a code without a valid email", async () => {
-    const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.emailOtp.sendVerificationOtp).mockClear();
-    const user = userEvent.setup();
-    render(<LoginForm />);
-
-    await user.type(screen.getByLabelText(/email/i), "nope");
-    await user.click(screen.getByRole("button", { name: /email me a sign-in code/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/enter a valid email address to receive a code/i)).toBeTruthy();
-    });
-    expect(authClient.emailOtp.sendVerificationOtp).not.toHaveBeenCalled();
   });
 });

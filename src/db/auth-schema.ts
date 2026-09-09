@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -7,6 +7,7 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
+  role: text("role").default("attendee").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -72,22 +73,6 @@ export const verification = pgTable(
   },
   table => [index("verification_identifier_idx").on(table.identifier)]
 );
-
-export const passkey = pgTable("passkey", {
-  id: text("id").primaryKey(),
-  name: text("name"),
-  publicKey: text("public_key").notNull(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  credentialID: text("credential_id").notNull(),
-  counter: integer("counter").notNull(),
-  deviceType: text("device_type").notNull(),
-  backedUp: boolean("backed_up").notNull(),
-  transports: text("transports"),
-  createdAt: timestamp("created_at").defaultNow(),
-  aaguid: text("aaguid"),
-});
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),

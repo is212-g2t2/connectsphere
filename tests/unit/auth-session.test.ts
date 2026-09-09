@@ -14,6 +14,7 @@ describe("getSessionUser helper", () => {
         email: "alice@example.com",
         name: "Alice",
         image: "https://example.com/avatar.jpg",
+        role: "attendee",
         createdAt: new Date(),
         updatedAt: new Date(),
         emailVerified: true,
@@ -34,6 +35,25 @@ describe("getSessionUser helper", () => {
       email: "alice@example.com",
       name: "Alice",
       image: "https://example.com/avatar.jpg",
+      role: "attendee",
+    });
+  });
+
+  it("handles user without role by returning role as undefined", () => {
+    const rawSession = {
+      user: {
+        id: "usr_43",
+        email: "bob@example.com",
+      },
+    };
+
+    const user = getSessionUser(rawSession);
+    expect(user).toEqual({
+      id: "usr_43",
+      email: "bob@example.com",
+      name: undefined,
+      image: undefined,
+      role: undefined,
     });
   });
 });

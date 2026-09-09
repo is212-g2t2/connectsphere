@@ -197,7 +197,6 @@ export function generateRobotsTxt(explicitBaseUrl?: string): string {
 Allow: /
 Disallow: /dashboard
 Disallow: /settings
-Disallow: /verify-otp
 Disallow: /sentry-example
 Disallow: /api/
 

@@ -8,6 +8,13 @@
       "when": 1788856810557,
       "tag": "0000_brief_justice",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788929844083,
+      "tag": "0001_abandoned_blackheart",
+      "breakpoints": true
     }
   ]
 }

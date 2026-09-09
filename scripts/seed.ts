@@ -14,18 +14,21 @@ export const seedUsers: SeedUser[] = [
     name: "John Doe",
     email: "john.doe@example.com",
     emailVerified: true,
+    role: "attendee",
   },
   {
     id: "test-user-2",
     name: "Jane Doe",
     email: "jane.doe@example.com",
     emailVerified: true,
+    role: "event_organiser",
   },
   {
     id: "user-demo-1",
     name: "Demo User",
     email: "demo@example.com",
     emailVerified: true,
+    role: "attendee",
   },
 ];
 

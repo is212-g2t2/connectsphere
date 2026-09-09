@@ -1,7 +1,6 @@
 import { render } from "@react-email/render";
 import { describe, expect, it } from "vitest";
 import { Layout } from "#/features/emails/components/layout";
-import { OtpEmail } from "#/features/emails/components/otp-email";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
 
@@ -39,23 +38,5 @@ describe("Email templates rendering", () => {
     expect(html).toContain(url);
     expect(html).toContain("Reset Your Password");
     expect(html).toContain("This link will expire in 1 hour.");
-  });
-
-  it("renders OtpEmail for sign-in with 6-digit code", async () => {
-    const html = await render(<OtpEmail otp="123456" type="sign-in" />);
-
-    expect(html).toContain("Sign in to TanStack Start");
-    expect(html).toContain("123456");
-    expect(html).toContain("Your sign-in code");
-    expect(html).toContain("This code expires in 10 minutes.");
-  });
-
-  it("renders OtpEmail for email-verification", async () => {
-    const html = await render(<OtpEmail otp="654321" type="email-verification" />);
-
-    expect(html).toContain("Welcome to TanStack Start!");
-    expect(html).toContain("654321");
-    expect(html).toContain("Verify your email");
-    expect(html).toContain("verify your email address");
   });
 });

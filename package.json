@@ -34,7 +34,6 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
-    "@better-auth/passkey": "^1.7.3",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/schibsted-grotesk": "^5.3.0",
     "@logtape/logtape": "^2.3.3",

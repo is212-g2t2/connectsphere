@@ -7,7 +7,7 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 - **Framework**: [TanStack Start](https://tanstack.com/start) — full-stack React with TanStack Router, server functions, and SSR.
 - **Server**: [Nitro](https://nitro.unjs.io/) — handles server-side logic and deployment presets.
 - **ORM & Database**: [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL driver (`bun:sql` / `drizzle-orm/bun-sql`) — high-performance, zero-dependency PostgreSQL access.
-- **Auth**: [Better Auth](https://better-auth.com/) — email + password, email OTP, passkeys, and optional Google OAuth. Rate limited at the Better Auth layer (20 req/60 s).
+- **Auth**: [Better Auth](https://better-auth.com/) — email + password authentication with user roles (`attendee`, `event_organiser`). Rate limited at the Better Auth layer (20 req/60 s).
 - **Theme**: [next-themes](https://github.com/pacocoursey/next-themes) — class-based theme management on `html` with a mounted client toggle.
 
 ## Directory Structure
@@ -34,7 +34,7 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 │   │   ├── schema.ts     # notes table (with userId FK)
 │   │   └── auth-schema.ts# Better Auth tables
 │   ├── features/
-│   │   ├── auth/         # Session helpers and server fn, login/signup/OTP/reset forms
+│   │   ├── auth/         # Session helpers and server fn, login/signup/reset forms
 │   │   ├── emails/       # Email templates
 │   │   └── notes/        # Notes server functions
 │   ├── lib/              # Shared integrations and utilities
@@ -51,10 +51,9 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 │   │   ├── index.tsx     # Landing page
 │   │   ├── login.tsx     # Auth route — redirects signed-in users
 │   │   ├── signup.tsx    # Auth route — redirects signed-in users
-│   │   ├── verify-otp.tsx
 │   │   ├── reset-password.tsx # Request a reset link, or set a new password with ?token=
 │   │   ├── dashboard.tsx # Protected route — notes CRUD, upload widget
-│   │   ├── settings.tsx  # Protected route — profile, providers, passkeys, delete account
+│   │   ├── settings.tsx  # Protected route — profile, linked providers, delete account
 │   │   ├── sentry-example.tsx # Dev only
 │   │   ├── robots[.]txt.ts   # Plain text crawler directives
 │   │   ├── sitemap[.]xml.ts  # XML sitemap
@@ -78,14 +77,14 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 2. **SSR**: TanStack Start handles the initial HTML render on the server via Nitro.
 3. **Protected routes**: `dashboard.tsx` and `settings.tsx` call `getCurrentUser()` in `beforeLoad`. Unauthenticated requests redirect to `/login`. Auth routes (`/login`, `/signup`) redirect already-signed-in users to `/dashboard`.
 4. **Server functions**: `src/features/notes/server-fns.ts` exposes `listNotes`, `createNote`, and `deleteNote` via `createServerFn`. Each function re-checks the session server-side.
-5. **Auth flow**: Forms in `src/features/auth/components/*` call `src/lib/auth-client.ts`. `/login` supports email + password, email OTP, passkeys, and Google OAuth (when configured). `/signup` creates a password account (then holds the user on a "check your email" prompt) or sends an OTP; `/verify-otp` confirms the code and offers passkey enrollment; `/reset-password` both requests a reset link and consumes it (`?token=`).
+5. **Auth flow**: Forms in `src/features/auth/components/*` call `src/lib/auth-client.ts`. `/login` handles email + password sign-in. `/signup` handles email + password sign-up with role selection (`attendee` or `event_organiser`), holding the user on a "check your email" prompt; `/reset-password` both requests a reset link and consumes it (`?token=`).
 6. **File uploads**: `src/routes/api/upload-url.ts` generates a presigned PUT URL (S3-compatible). The client uploads directly to storage; the server never proxies file bytes.
 
 ## Database & Migrations
 
 PostgreSQL is accessed using [Drizzle ORM](https://orm.drizzle.team/) paired with Bun's native SQL driver (`bun:sql` via `drizzle-orm/bun-sql`).
 
-- **Schemas**: Defined in `src/db/schema.ts` (application tables such as `notes`) and `src/db/auth-schema.ts` (Better Auth tables: `user`, `session`, `account`, `verification`, `passkey`).
+- **Schemas**: Defined in `src/db/schema.ts` (application tables such as `notes`) and `src/db/auth-schema.ts` (Better Auth tables: `user` with `role`, `session`, `account`, `verification`).
 - **Migrations Directory**: Configured in `drizzle.config.ts` to output migrations to `src/db/drizzle/`.
 - **Generating Migrations**: When schema files are updated, run `bun run db:generate` to produce timestamped SQL migration files and update the snapshot journal in `src/db/drizzle/meta/`. Never handwrite SQL migrations.
 - **Applying Migrations**: Run `bun run db:migrate` to execute pending SQL migrations against the configured database (`DATABASE_URL`). For quick local development without migration tracking, `bun run db:push` can be used.
@@ -96,12 +95,9 @@ For developer commands, seeding, and local workflows, see the [Development Guide
 
 Handled by **Better Auth**. Supported flows:
 
-- **Email + password** — sign up and sign in with a password. The sign-up and reset forms share `PasswordSchema` (`src/features/auth/schema/password.ts`): 8–128 characters with at least one number and one symbol. That policy is client-side; Better Auth itself only enforces its 8-character minimum, so add a `before` hook on `/sign-up/email` and `/reset-password` if you need it enforced server-side too. Always available. Password hashes live in the existing `account.password` column, so no migration is involved. Sign-ups are stored with an empty `name`, matching what the email-OTP flow does, and are auto-signed-in (`requireEmailVerification` is off, so an unverified user can still sign in).
-- **Email verification** — `emailVerification.sendOnSignUp` mails a link via the `VerificationEmail` template; Better Auth's own `/api/auth/verify-email` endpoint consumes it, so there is no app route for it. `/signup` shows a "check your email" prompt after a password sign-up rather than navigating away, because the window this closes is otherwise invisible: an email-OTP sign-in by an **unverified** user triggers Better Auth's `revokeUnprovenAccountAccess`, which deletes every account row and session that user has (its defence against someone registering a password on an address they do not own) — so an unverified password would be discarded the first time that user signs in with a code. Verified users keep their password across an OTP sign-in. Set `emailAndPassword.requireEmailVerification: true` if you would rather block sign-in until the link is clicked.
-- **Password reset** — `/reset-password` sends a link (1 hour expiry) via `ResetPasswordEmail`. Better Auth's callback bounces the emailed link off `/api/auth/reset-password/:token` and back to `/reset-password?token=…`, or `?error=INVALID_TOKEN` when it has expired. Reset also _creates_ a credential account when the user has none, so OTP-only and Google-only users can adopt a password this way. It does not create a session; the user signs in afterwards.
-- **Email OTP** — sign in and sign up via one-time code. Always available.
-- **Passkeys** — register and authenticate with a device credential. Always available.
-- **Google OAuth** — enabled only when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set. The app boots and functions without them.
+- **Email + password** — sign up and sign in with a password. The sign-up form collects a name, email, password (with a confirmation field matched client-side only — the confirmation is never sent, so there is nothing for the server to compare) and user role (`attendee` or `event_organiser`, default `attendee`). Both roles come from `RoleSchema` (`src/features/auth/schema/role.ts`), which is also wired as the `validator.input` on the Better Auth `role` field — the field is client-supplied on `/sign-up/email` _and_ `/update-user`, so without that validator any string would persist and a visitor could self-assign an internal role. Internal roles are never selectable here. The sign-up and reset forms share `PasswordSchema` (`src/features/auth/schema/password.ts`): 8–128 characters with at least one number and one symbol. Better Auth of its own accord enforces only a length range, so a `hooks.before` middleware in `src/lib/auth.ts` re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). `/sign-in/email` is deliberately excluded, so accounts whose password predates the policy can still sign in. Always available. Password hashes live in the `account.password` column. Sign-ups store the name supplied on the form (trimmed, 1-100 characters, enforced client-side) and are auto-signed-in (`requireEmailVerification` is off, so an unverified user can still sign in).
+- **Email verification** — `emailVerification.sendOnSignUp` mails a link via the `VerificationEmail` template; Better Auth's own `/api/auth/verify-email` endpoint consumes it, so there is no app route for it.
+- **Password reset** — `/reset-password` sends a link (1 hour expiry) via `ResetPasswordEmail`. Better Auth's callback bounces the emailed link off `/api/auth/reset-password/:token` and back to `/reset-password?token=…`, or `?error=INVALID_TOKEN` when it has expired. It does not create a session; the user signs in afterwards.
 
 Rate limiting is configured at 20 requests per 60-second window using Better Auth's built-in `rateLimit` option.
 
