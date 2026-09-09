@@ -6,7 +6,7 @@ A production-ready full-stack web application template, built with TanStack Star
 
 - **SSR & Routing**: [TanStack Start](https://tanstack.com/start) with file-based routes and type-safe navigation.
 - **Server Engine**: [Nitro](https://nitro.unjs.io/) for high-performance server-side logic.
-- **Authentication**: [Better Auth](https://better-auth.com/) — email + password (with reset and verification emails) and external user roles (`attendee`, `event_organiser`). Rate limited (20 req/60 s). Session-guarded protected routes and redirect logic included.
+- **Authentication**: [Better Auth](https://better-auth.com/) — email + password (with reset and verification emails) and five user roles, of which two are self-assignable at registration (`attendee`, `event_organiser`). Rate limited (20 req/60 s). Session-guarded protected routes, plus a role/function matrix enforced on the server — see [Authorisation](./docs/ARCHITECTURE.md#authorisation).
 - **Database**: [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL driver (`bun.SQL` / `drizzle-orm/bun-sql`).
 - **Account management**: `/settings` route — profile, role, linked providers, and account deletion via Better Auth.
 - **File uploads**: Bun-native S3 client (`Bun.s3`) generating presigned PUT upload URLs for S3-compatible storage (MinIO locally; swap to AWS S3, Cloudflare R2, or Supabase Storage with an env var change).

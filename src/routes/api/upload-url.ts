@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { env } from "#/env";
 import { auth } from "#/lib/auth";
+import { can } from "#/features/auth/permissions";
 import { getStorageClient, validateUploadRequest, safeExtension } from "#/lib/storage";
 import { logger } from "#/lib/logger";
 import { getRequest } from "@tanstack/react-start/server";
@@ -15,6 +16,11 @@ export const Route = createFileRoute("/api/upload-url")({
         const session = await auth.api.getSession({ headers: request.headers });
         if (!session?.user) {
           return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        // Signed in, but not entitled: the dashboard hides the control, this refuses the POST.
+        if (!can(session.user.role, { upload: ["create"] })) {
+          return Response.json({ error: "Forbidden" }, { status: 403 });
         }
 
         const body = await request.json();

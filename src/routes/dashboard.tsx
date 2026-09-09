@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { toast } from "sonner";
 
 import { getCurrentUser } from "#/features/auth/session";
+import { can } from "#/features/auth/permissions";
 import { listNotes, createNote, deleteNote } from "#/features/notes/server-fns";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -177,7 +178,7 @@ function DashboardPage() {
           )}
         </section>
 
-        <FileUploadCard />
+        {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
 
         <div className="mt-12 border-t border-border pt-6">
           <Link

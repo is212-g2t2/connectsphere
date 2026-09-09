@@ -2,34 +2,39 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-function getServerFnFiles(dir: string): string[] {
+/**
+ * Every module under `src/features`, not only the ones declaring a server function.
+ *
+ * Selecting on `createServerFn(` used to leave a hole: a pure module a route imports — the
+ * role/function matrix, say — carries no server function of its own, yet reaches the client
+ * bundle just the same. A server import there fails `bun run build` alone, so nothing else in
+ * the suite would have caught it.
+ */
+function getFeatureModules(dir: string): string[] {
   const results: string[] = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...getServerFnFiles(fullPath));
+      results.push(...getFeatureModules(fullPath));
     } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
-      const content = fs.readFileSync(fullPath, "utf-8");
-      if (content.includes("createServerFn(")) {
-        results.push(fullPath);
-      }
+      results.push(fullPath);
     }
   }
 
   return results;
 }
 
-describe("Route-Reachable Server Functions Client Safety", () => {
+describe("Route-Reachable Feature Module Client Safety", () => {
   const featuresDir = path.resolve(process.cwd(), "src/features");
-  const serverFnFiles = getServerFnFiles(featuresDir);
+  const featureModules = getFeatureModules(featuresDir);
 
-  it("finds at least one server function file to guard", () => {
-    expect(serverFnFiles.length).toBeGreaterThan(0);
+  it("finds feature modules to guard", () => {
+    expect(featureModules.length).toBeGreaterThan(0);
   });
 
-  serverFnFiles.forEach(filePath => {
+  featureModules.forEach(filePath => {
     const relPath = path.relative(process.cwd(), filePath).replace(/\\/g, "/");
 
     it(`${relPath} does not statically import server-only modules at top level`, () => {
