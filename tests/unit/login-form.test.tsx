@@ -66,22 +66,23 @@ describe("LoginForm component", () => {
     });
   });
 
-  it("displays server error when password sign-in fails", async () => {
+  it("displays a generic error that hides whether the email exists", async () => {
     const { authClient } = await import("#/lib/auth-client");
     vi.mocked(authClient.signIn.email).mockResolvedValueOnce({
       data: null,
-      error: { message: "Invalid email or password", status: 401 } as never,
+      error: { message: "User not found", status: 401 } as never,
     });
 
     const user = userEvent.setup();
     render(<LoginForm />);
 
-    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/email/i), "unknown@example.com");
     await user.type(screen.getByLabelText(/password/i), "wrong-password");
     await user.click(screen.getByRole("button", { name: /^sign in$/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Invalid email or password")).toBeTruthy();
+      expect(screen.getByText("Invalid email or password.")).toBeTruthy();
     });
+    expect(screen.queryByText("User not found")).toBeNull();
   });
 });
