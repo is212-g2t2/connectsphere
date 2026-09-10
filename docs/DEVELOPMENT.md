@@ -4,7 +4,7 @@ This guide covers the local development environment, scripts catalog, database m
 
 ## Prerequisites
 
-- **[Bun](https://bun.sh/)** v1.3.14 or later
+- **[Bun](https://bun.sh/)** v1.4.2 or later
 - **[Docker](https://www.docker.com/)** and Docker Compose (for local PostgreSQL, MinIO, and Redis)
 
 ## Local Setup

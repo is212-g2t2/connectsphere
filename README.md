@@ -26,7 +26,7 @@ A production-ready full-stack web application template, built with TanStack Star
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) v1.3.14 or later
+- [Bun](https://bun.sh/) v1.4.2 or later
 - [Docker](https://www.docker.com/) for local services (Postgres, MinIO, Redis)
 
 ### Setup
