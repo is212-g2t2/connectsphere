@@ -24,22 +24,11 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background">
       <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-6">
-        <Link
-          to="/"
-          className="font-mono text-sm font-medium tracking-tight transition-opacity hover:opacity-60"
-        >
-          tanstack-start
+        <Link to="/" className="transition-opacity hover:opacity-60">
+          <img src="/favicon.svg" alt="ConnectSphere" className="size-7" />
         </Link>
 
         <nav className="flex items-center gap-1">
-          <a
-            href="https://github.com/zek01svg/tanstack-start-template"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            GitHub
-          </a>
           {session?.user && (
             <Button
               type="button"

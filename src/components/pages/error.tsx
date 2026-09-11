@@ -41,14 +41,14 @@ export function ErrorPage({
             <button
               type="button"
               onClick={reset}
-              className="cursor-pointer text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+              className="cursor-pointer text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               Try again
             </button>
           )}
           <a
             href="/"
-            className="text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+            className="text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             Back to home
           </a>

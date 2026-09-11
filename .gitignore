@@ -20,3 +20,5 @@ data
 scratch
 .gstack/
 .claude
+# Local scratch space (briefs, prototypes) — not part of the app
+.scratch/

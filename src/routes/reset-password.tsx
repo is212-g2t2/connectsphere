@@ -20,7 +20,7 @@ function ResetPasswordPage() {
 export const Route = createFileRoute("/reset-password")({
   head: () =>
     createSeoHead({
-      title: "Reset Password — TanStack Start Template",
+      title: "Reset Password — ConnectSphere",
       noindex: true,
     }),
   validateSearch: searchSchema,

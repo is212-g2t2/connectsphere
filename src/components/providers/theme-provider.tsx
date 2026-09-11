@@ -26,7 +26,7 @@ export function ThemeProvider({
   children,
   attribute = "class",
   defaultTheme = "light",
-  storageKey = "template-theme",
+  storageKey = "connectsphere-theme",
   enableColorScheme = true,
   enableSystem = true,
   ...props

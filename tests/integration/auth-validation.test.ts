@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 // integration-setup.ts provides the database (container, DATABASE_URL, schema, seed), but `#/db`
 // builds its client from `bun:sql`, which vitest.config.ts aliases to a no-op stub
 // (tests/shims/bun.ts) — so `db` cannot execute a query no matter what DATABASE_URL says.
-// notes.test.ts sidesteps this by taking `db` as a parameter; `betterAuth()` captures the
+// Suites that take `db` as a parameter sidestep this; `betterAuth()` captures the
 // module-level `db` at import time and exposes no such seam, so the module itself has to be
 // replaced. Mocking it rather than rebuilding `betterAuth()` keeps src/lib/auth.ts under test.
 // Built via vi.hoisted so the mock factory and afterAll share one pool this file can close.

@@ -5,9 +5,9 @@ import { createSeoHead, getStructuredData } from "#/lib/seo";
 export const Route = createFileRoute("/")({
   head: () =>
     createSeoHead({
-      title: "TanStack Start Template — Production-Ready Full-Stack React",
+      title: "ConnectSphere — Event Planning & Venue Booking",
       description:
-        "Full-stack React template with TanStack Start, Nitro, React 19, Better Auth, Drizzle ORM, and Tailwind CSS v4.",
+        "Event planning and venue booking for organisers, coordinators, venue staff and technical support.",
       path: "/",
       structuredData: getStructuredData(),
     }),

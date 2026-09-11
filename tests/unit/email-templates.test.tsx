@@ -12,17 +12,17 @@ describe("Email templates rendering", () => {
       </Layout>
     );
 
-    expect(html).toContain("TanStack Start");
+    expect(html).toContain("ConnectSphere");
     expect(html).toContain("Custom email body content");
     expect(html).toContain("Test Preview Text");
-    expect(html).toContain("Sent from TanStack Start Template.");
+    expect(html).toContain("Sent from ConnectSphere.");
   });
 
   it("renders VerificationEmail with verification link", async () => {
     const url = "https://example.com/verify-email?token=xyz123";
     const html = await render(<VerificationEmail url={url} />);
 
-    expect(html).toContain("Welcome to TanStack Start!");
+    expect(html).toContain("Welcome to ConnectSphere!");
     expect(html).toContain(url);
     expect(html).toContain("Verify Email Address");
     expect(html).toContain("Verify your email address");

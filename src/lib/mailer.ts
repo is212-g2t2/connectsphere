@@ -31,7 +31,7 @@ export async function sendEmail(to: string, subject: string, react: React.ReactE
 
   logger.info("Sending email", { to, subject });
 
-  const from = env.EMAIL_FROM ?? "TanStack Start <onboarding@resend.dev>";
+  const from = env.EMAIL_FROM ?? "ConnectSphere <onboarding@resend.dev>";
 
   const { data, error } = await client.emails.send({
     from,

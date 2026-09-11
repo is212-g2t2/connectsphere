@@ -14,7 +14,7 @@ function SignupPage() {
 export const Route = createFileRoute("/signup")({
   head: () =>
     createSeoHead({
-      title: "Sign Up — TanStack Start Template",
+      title: "Sign Up — ConnectSphere",
       noindex: true,
     }),
   beforeLoad: async () => {

@@ -15,7 +15,6 @@ import type { Role } from "#/features/auth/schema/role";
  * would reach the client bundle and fail `bun run build` alone.
  */
 const statement = {
-  note: ["create", "read", "delete"],
   upload: ["create"],
 } as const;
 
@@ -26,12 +25,13 @@ const ac = createAccessControl(statement);
  * coordination rows arrive with the stories that build them (PTR-26, PTR-8 and the rest).
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
-  // Notes are each user's own scratch space; uploads attach documents to a request or a venue.
-  attendee: ac.newRole({ note: ["create", "read", "delete"] }),
-  event_organiser: ac.newRole({ note: ["create", "read", "delete"], upload: ["create"] }),
-  event_coordinator: ac.newRole({ note: ["create", "read", "delete"], upload: ["create"] }),
-  venue_staff: ac.newRole({ note: ["create", "read", "delete"], upload: ["create"] }),
-  technical_support_staff: ac.newRole({ note: ["create", "read", "delete"], upload: ["create"] }),
+  // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
+  // an empty role authorizes nothing, which is the fail-closed default we want.
+  attendee: ac.newRole({}),
+  event_organiser: ac.newRole({ upload: ["create"] }),
+  event_coordinator: ac.newRole({ upload: ["create"] }),
+  venue_staff: ac.newRole({ upload: ["create"] }),
+  technical_support_staff: ac.newRole({ upload: ["create"] }),
 };
 
 export type PermissionRequest = RoleAuthorizeRequest<typeof statement>;

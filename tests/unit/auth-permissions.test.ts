@@ -13,32 +13,43 @@ import type { Role } from "#/features/auth/schema/role";
  * slip. `Record<Role, …>` covers completeness, so a new role fails `type:check` before it
  * reaches here.
  */
-const EXPECTED: Record<Role, { note: boolean; upload: boolean }> = {
-  attendee: { note: true, upload: false },
-  event_organiser: { note: true, upload: true },
-  event_coordinator: { note: true, upload: true },
-  venue_staff: { note: true, upload: true },
-  technical_support_staff: { note: true, upload: true },
+const EXPECTED: Record<Role, { upload: boolean }> = {
+  attendee: { upload: false },
+  event_organiser: { upload: true },
+  event_coordinator: { upload: true },
+  venue_staff: { upload: true },
+  technical_support_staff: { upload: true },
 };
 
 describe("role/function matrix (PTR-7)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
-    expect(can(role, { note: ["create", "read", "delete"] })).toBe(EXPECTED[role].note);
     expect(can(role, { upload: ["create"] })).toBe(EXPECTED[role].upload);
   });
 
   describe("fails closed", () => {
-    it.each<string | null | undefined>([null, undefined, "", "admin", "Attendee"])(
-      "refuses the role %o",
-      role => {
-        expect(can(role, { note: ["read"] })).toBe(false);
-      }
-    );
+    /**
+     * Every probe is a malformed spelling of a role that *does* hold `upload:create`, or a role
+     * that does not exist. Spelling them as `attendee` would prove nothing: attendee holds an
+     * empty role, so a `can()` that quietly defaulted an unknown string to it would still answer
+     * false and this block would pass while enforcing nothing.
+     */
+    it.each<string | null | undefined>([
+      null,
+      undefined,
+      "",
+      "admin",
+      "Event_Organiser",
+      "EVENT_ORGANISER",
+      " event_organiser ",
+      "event-organiser",
+    ])("refuses the role %o", role => {
+      expect(can(role, { upload: ["create"] })).toBe(false);
+    });
 
     // Criterion 4. Better Auth's `admin` plugin reads such a string as two roles at once,
     // which is precisely why this project does not use it.
     it("refuses a comma-separated pair of roles", () => {
-      expect(can("attendee,event_coordinator", { note: ["read"] })).toBe(false);
+      expect(can("attendee,event_coordinator", { upload: ["create"] })).toBe(false);
     });
   });
 });
@@ -61,9 +72,10 @@ function refusalFrom(run: () => unknown): AuthorizationError {
 
 describe("requirePermission carries a refusal status", () => {
   const attendee: SessionUser = { id: "u1", email: "a@example.com", role: "attendee" };
+  const organiser: SessionUser = { id: "u2", email: "o@example.com", role: "event_organiser" };
 
   it("refuses a missing session with 401 Unauthorized", () => {
-    const refusal = refusalFrom(() => requirePermission(null, { note: ["read"] }));
+    const refusal = refusalFrom(() => requirePermission(null, { upload: ["create"] }));
 
     expect(refusal.status).toBe(401);
     expect(refusal.message).toBe("Unauthorized");
@@ -77,6 +89,6 @@ describe("requirePermission carries a refusal status", () => {
   });
 
   it("returns the user when the role permits the action", () => {
-    expect(requirePermission(attendee, { note: ["read"] })).toBe(attendee);
+    expect(requirePermission(organiser, { upload: ["create"] })).toBe(organiser);
   });
 });

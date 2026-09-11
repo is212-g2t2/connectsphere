@@ -58,8 +58,9 @@ test.describe("Role-gated interface", () => {
     await expect(page.getByRole("heading", { name: "File upload" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Choose file" })).toHaveCount(0);
 
-    // The notes controls stay, so this proves a gated function is missing rather than the page.
-    await expect(page.getByPlaceholder("New note title…")).toBeVisible();
+    // The session summary every role sees stays, so this proves a gated function is missing
+    // rather than the whole page.
+    await expect(page.locator("dt", { hasText: "Role" })).toBeVisible();
   });
 
   test("shows the upload control to an event organiser", async ({ page }) => {

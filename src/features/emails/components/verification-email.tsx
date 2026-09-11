@@ -9,7 +9,7 @@ export const VerificationEmail = ({ url }: VerificationEmailProps) => {
   return (
     <Layout previewText="Verify your email address">
       <Section>
-        <Text style={h1}>Welcome to TanStack Start!</Text>
+        <Text style={h1}>Welcome to ConnectSphere!</Text>
         <Text style={text}>
           Thanks for signing up! we're excited to have you join our community. Please click the
           button below to verify your email address and get started.

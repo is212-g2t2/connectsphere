@@ -5,54 +5,85 @@
 
 @import "shadcn/tailwind.css";
 
-@import "@fontsource-variable/schibsted-grotesk";
-@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
 
+/* ConnectSphere design system — documented in docs/DESIGN.md, the doc to change alongside this
+   file. Two layers on purpose: the palette is the source of truth and the shadcn semantic roles
+   below it are aliases onto it, so a primitive names a role and a token rename never has to be
+   chased through src/components/ui/. */
 :root {
-  --background: oklch(0.99 0 0);
-  --foreground: oklch(0.16 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.16 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.16 0 0);
-  --primary: oklch(0.16 0 0);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.965 0 0);
-  --secondary-foreground: oklch(0.16 0 0);
-  --muted: oklch(0.965 0 0);
-  --muted-foreground: oklch(0.52 0 0);
-  --accent: oklch(0.965 0 0);
-  --accent-foreground: oklch(0.16 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.99 0.01 240);
-  --border: oklch(0.92 0 0);
-  --input: oklch(0.92 0 0);
-  --ring: oklch(0.556 0 0);
-  --radius: 0.5rem;
+  /* Palette. Ink at three opacities carries the whole text hierarchy; harbor is the only
+     accent; amber and coral are reserved for status semantics. */
+  --paper: #f6f6f4;
+  --paper-tint: #efefec;
+  --surface: #ffffff;
+  --ink: #151515;
+  --ink-60: rgba(21, 21, 21, 0.64);
+  --ink-30: rgba(21, 21, 21, 0.4);
+  --harbor: #1c1c1e;
+  --harbor-tint: rgba(21, 21, 21, 0.05);
+  --amber: #926500;
+  --amber-tint: #faf3e3;
+  --coral: #b93f28;
+  --coral-tint: #fbeae6;
+  --mist: rgba(21, 21, 21, 0.08);
+  --mist-dark: rgba(21, 21, 21, 0.14);
+  /* Form-control borders, not dividers: mist is a hairline at 1.3:1, which is fine for a
+     decorative rule and fails WCAG 1.4.11 for the border that *identifies* an input. */
+  --stroke: rgba(21, 21, 21, 0.46);
+
+  /* Radii. Pill for anything you act on, soft rectangle for anything you read inside. 8px is the
+     floor for a surface; control glyphs and nested inner corners are the documented exceptions. */
+  --rounded-sm: 8px;
+  --rounded-md: 16px;
+  --rounded-lg: 20px;
+
+  /* shadcn semantic roles, aliased onto the palette. */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--harbor);
+  --primary-foreground: var(--surface);
+  --secondary: var(--harbor-tint);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-tint);
+  --muted-foreground: var(--ink-60);
+  --accent: var(--harbor-tint);
+  --accent-foreground: var(--ink);
+  --destructive: var(--coral);
+  --destructive-tint: var(--coral-tint);
+  --destructive-foreground: var(--surface);
+  --border: var(--mist);
+  --input: var(--stroke);
+  --ring: var(--harbor);
+  --radius: var(--rounded-sm);
 }
 
+/* Class-based, driven by next-themes on <html>, not prefers-color-scheme. Only the palette
+   inverts; every semantic alias above follows from it. Amber and coral are the exception to a
+   straight inversion: their light values land near 2:1 on the dark tints, so both are lightened
+   to clear AA. See docs/DESIGN.md before changing either. */
 .dark {
-  --background: oklch(0.155 0 0);
-  --foreground: oklch(0.96 0 0);
-  --card: oklch(0.185 0 0);
-  --card-foreground: oklch(0.96 0 0);
-  --popover: oklch(0.185 0 0);
-  --popover-foreground: oklch(0.96 0 0);
-  --primary: oklch(0.96 0 0);
-  --primary-foreground: oklch(0.16 0 0);
-  --secondary: oklch(0.235 0 0);
-  --secondary-foreground: oklch(0.96 0 0);
-  --muted: oklch(0.235 0 0);
-  --muted-foreground: oklch(0.68 0 0);
-  --accent: oklch(0.235 0 0);
-  --accent-foreground: oklch(0.96 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.98 0.01 240);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 16%);
-  --ring: oklch(0.68 0 0);
+  --paper: #131313;
+  --paper-tint: #1a1a1a;
+  --surface: #1e1e1e;
+  --ink: #ffffff;
+  --ink-60: rgba(255, 255, 255, 0.64);
+  --ink-30: rgba(255, 255, 255, 0.4);
+  --harbor: #ffffff;
+  --harbor-tint: rgba(255, 255, 255, 0.08);
+  --amber: #c9a154;
+  --amber-tint: #3a2e12;
+  --coral: #dc8271;
+  --coral-tint: #431610;
+  --mist: rgba(255, 255, 255, 0.1);
+  --mist-dark: rgba(255, 255, 255, 0.14);
+  --stroke: rgba(255, 255, 255, 0.36);
 }
 
 @theme inline {
@@ -71,17 +102,43 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-tint: var(--destructive-tint);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-heading: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+
+  /* The palette as utilities. A semantic alias covers the common case; these are for the
+     places the system names a colour directly — the status pills below reach for amber and
+     coral this way. */
+  --color-paper: var(--paper);
+  --color-paper-tint: var(--paper-tint);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-60: var(--ink-60);
+  --color-ink-30: var(--ink-30);
+  --color-harbor: var(--harbor);
+  --color-harbor-tint: var(--harbor-tint);
+  --color-amber: var(--amber);
+  --color-amber-tint: var(--amber-tint);
+  --color-coral: var(--coral);
+  --color-coral-tint: var(--coral-tint);
+  --color-mist: var(--mist);
+  --color-mist-dark: var(--mist-dark);
+  --color-stroke: var(--stroke);
+
+  /* One family, no display/body split — voice comes from weight and negative tracking.
+     `mono` is Inter too: it signals "data" — timestamps, reference codes — not a mono rhythm. */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Tailwind's radius scale mapped onto the two corner languages. */
+  --radius-sm: var(--rounded-sm);
+  --radius-md: var(--rounded-sm);
+  --radius-lg: var(--rounded-md);
+  --radius-xl: var(--rounded-md);
+  --radius-2xl: var(--rounded-lg);
 }
 
 html,
@@ -92,15 +149,27 @@ body,
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
 
   body {
-    @apply antialiased bg-background text-foreground selection:bg-foreground selection:text-background;
+    @apply bg-background text-foreground selection:bg-foreground selection:text-background text-[0.9375rem] leading-[1.5] antialiased;
   }
 
   html {
     @apply font-sans;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold tracking-[-0.03em];
+  }
+
+  /* One focus affordance, so links and bare buttons never need their own. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 }
 

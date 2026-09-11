@@ -159,9 +159,9 @@ export function getStructuredData(explicitBaseUrl?: string) {
         "@type": "WebSite",
         "@id": `${baseUrl}/#website`,
         url: baseUrl,
-        name: "TanStack Start Template",
+        name: "ConnectSphere",
         description:
-          "Full-stack React template with TanStack Start, Nitro, React 19, Better Auth, Drizzle ORM, and Tailwind CSS v4.",
+          "Event planning and venue booking for organisers, coordinators, venue staff and technical support — every approval, booking and change on one record.",
         publisher: {
           "@id": `${baseUrl}/#organization`,
         },
@@ -169,7 +169,7 @@ export function getStructuredData(explicitBaseUrl?: string) {
       {
         "@type": "Organization",
         "@id": `${baseUrl}/#organization`,
-        name: "TanStack Start Template",
+        name: "ConnectSphere",
         url: baseUrl,
         logo: {
           "@type": "ImageObject",
@@ -179,12 +179,12 @@ export function getStructuredData(explicitBaseUrl?: string) {
       {
         "@type": "SoftwareSourceCode",
         "@id": `${baseUrl}/#software`,
-        name: "TanStack Start Template",
+        name: "ConnectSphere",
         programmingLanguage: "TypeScript",
         runtimePlatform: "Bun / Node.js",
-        codeRepository: "https://github.com/zek01svg/tanstack-start-template",
+        codeRepository: "https://github.com/is212-g2t2/connectsphere",
         description:
-          "Production-ready template for full-stack React applications with TanStack Start, Better Auth, Drizzle ORM, and Tailwind CSS.",
+          "Event-operations platform: event requests, venue bookings, equipment assignment and role-restricted functions across five roles.",
       },
     ],
   };
@@ -197,7 +197,6 @@ export function generateRobotsTxt(explicitBaseUrl?: string): string {
 Allow: /
 Disallow: /dashboard
 Disallow: /settings
-Disallow: /sentry-example
 Disallow: /api/
 
 Sitemap: ${baseUrl}/sitemap.xml
