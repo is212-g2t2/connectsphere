@@ -18,7 +18,7 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 │   ├── ARCHITECTURE.md   # This file
 │   ├── CHANGELOG.md      # Release history
 │   ├── CONTRIBUTING.md   # Branch, commit, and test conventions
-│   ├── DEPLOYMENT.md     # Hosting options and platform config
+│   ├── DEPLOYMENT.md     # Local Docker workflow and hosting trade-offs
 │   ├── DESIGN.md         # Visual system notes
 │   └── DEVELOPMENT.md    # Local setup, scripts, database, and testing guide
 ├── AGENTS.md             # Developer guide for agents (also CLAUDE.md)

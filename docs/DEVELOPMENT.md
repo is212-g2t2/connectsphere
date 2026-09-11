@@ -26,7 +26,7 @@ This guide covers the local development environment, scripts catalog, database m
 3. **Start local infrastructure services**:
 
    ```bash
-   docker compose up -d
+   docker compose up -d postgres redis minio minio_init
    ```
 
    This provisions:
@@ -34,6 +34,8 @@ This guide covers the local development environment, scripts catalog, database m
    - **MinIO S3** on `localhost:9000` (API) and `localhost:9001` (web console: `admin` / `password`)
    - **MinIO Init** bucket provisioner (`app` bucket created automatically)
    - **Redis 7** on `localhost:6379`
+
+   The `connectsphere` app container is deliberately excluded: it binds port 3000, and Playwright's `reuseExistingServer` would attach to it instead of your dev server. See [Deployment](./DEPLOYMENT.md#the-normal-loop-services-in-docker-app-on-the-host) for the full stack.
 
 4. **Prepare the database**:
 

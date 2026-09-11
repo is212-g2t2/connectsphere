@@ -1,6 +1,6 @@
 # ConnectSphere
 
-Event planning and venue booking attendees, event organisers, event coordinators, venue staff, and technical support staff.
+Event planning and venue booking for attendees, event organisers, event coordinators, venue staff, and technical support staff.
 
 Built with TanStack Start, Better Auth, and Drizzle ORM.
 
@@ -30,8 +30,10 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
 3. **Start local services**
 
    ```bash
-   docker compose up -d
+   docker compose up -d postgres redis minio minio_init
    ```
+
+   This starts the infrastructure only. The `connectsphere` app service binds port 3000 and would clash with the local dev server — see the [Deployment Guide](./docs/DEPLOYMENT.md).
 
 4. **Prepare the database**
 
@@ -78,5 +80,6 @@ For complete workflow instructions, script catalogs, testing guidelines, and env
 - [Architecture](./docs/ARCHITECTURE.md) — project structure, data flow, auth, and observability.
 - [Design System](./docs/DESIGN.md) — the ConnectSphere design system and its tokens.
 - [Agents Guide](./AGENTS.md) — rules for coding agents working in this repo.
+- [Deployment](./docs/DEPLOYMENT.md) — local Docker workflow, migrations, and hosting trade-offs.
 - [Changelog](./docs/CHANGELOG.md) — version history.
 - [Contributing](./docs/CONTRIBUTING.md) — branch, commit, and test conventions.
