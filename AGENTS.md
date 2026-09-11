@@ -34,7 +34,7 @@ bun run playwright test tests/e2e/landing.test.ts     # one E2E file
 - Never statically import runtime built-ins or server-only dependencies (`#/db`, `"bun"`) at module level if any exported helper references them (e.g. via default parameters like `database = db`). This anchors the dependency in the AST and prevents Dead Code Elimination, leaking server built-ins into client bundles.
 - Instead, reach server dependencies dynamically inside `.handler()` via `await import("#/db")`, import server types with `import type`, and require injected dependencies in exported helpers (e.g. `database: Database`).
 - Do **not** name either kind `<feature>.server.ts`. `@tanstack/start-plugin-core`'s import-protection plugin denies `**/*.server.*` in the client environment, so the first route that imports it fails `bun run build` — and only `build`, not `type:check` and not the test suites. That suffix is only for modules nothing client-reachable imports.
-- No `-model` suffix, and no entity-name stutter (`notes/notes-fns.ts`). A helper with only one caller lives in that caller's file — even if a unit test also imports and tests it (export it from the caller's file for the test). Only extract a helper into its own file when it has two or more application callers.
+- No `-model` suffix, and no entity-name stutter (`venues/venues-fns.ts`). A helper with only one caller lives in that caller's file — even if a unit test also imports and tests it (export it from the caller's file for the test). Only extract a helper into its own file when it has two or more application callers.
 - Server-function validation lives in the Zod schema, parsed with `safeParse` rethrowing `issues[0].message` — never let a raw `ZodError` reach a route.
 
 ## Imports

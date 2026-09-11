@@ -77,7 +77,7 @@ describe("sendEmail", () => {
     await sendEmail("to@example.com", "Hello", element);
 
     expect(mockEmailsSend).toHaveBeenCalledWith(
-      expect.objectContaining({ from: "TanStack Start <onboarding@resend.dev>" })
+      expect.objectContaining({ from: "ConnectSphere <onboarding@resend.dev>" })
     );
   });
 

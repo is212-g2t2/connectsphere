@@ -20,7 +20,7 @@ function getProviderLabel(providerId: string) {
 export const Route = createFileRoute("/settings")({
   head: () =>
     createSeoHead({
-      title: "Settings — TanStack Start Template",
+      title: "Settings — ConnectSphere",
       noindex: true,
     }),
   beforeLoad: async () => {

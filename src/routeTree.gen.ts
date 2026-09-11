@@ -14,12 +14,10 @@ import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
-import { Route as SentryExampleRouteImport } from './routes/sentry-example'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
-import { Route as ApiSentryExampleRouteImport } from './routes/api/sentry-example'
 import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -48,11 +46,6 @@ const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
   path: '/robots.txt',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SentryExampleRoute = SentryExampleRouteImport.update({
-  id: '/sentry-example',
-  path: '/sentry-example',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -73,11 +66,6 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSentryExampleRoute = ApiSentryExampleRouteImport.update({
-  id: '/api/sentry-example',
-  path: '/api/sentry-example',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiUploadUrlRoute = ApiUploadUrlRouteImport.update({
   id: '/api/upload-url',
   path: '/api/upload-url',
@@ -95,12 +83,10 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/sentry-example': typeof SentryExampleRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/sentry-example': typeof ApiSentryExampleRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -110,12 +96,10 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/sentry-example': typeof SentryExampleRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/sentry-example': typeof ApiSentryExampleRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -126,12 +110,10 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/sentry-example': typeof SentryExampleRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/sentry-example': typeof ApiSentryExampleRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -143,12 +125,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/robots.txt'
-    | '/sentry-example'
     | '/settings'
     | '/signup'
     | '/sitemap.xml'
     | '/api/health'
-    | '/api/sentry-example'
     | '/api/upload-url'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
@@ -158,12 +138,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/robots.txt'
-    | '/sentry-example'
     | '/settings'
     | '/signup'
     | '/sitemap.xml'
     | '/api/health'
-    | '/api/sentry-example'
     | '/api/upload-url'
     | '/api/auth/$'
   id:
@@ -173,12 +151,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/robots.txt'
-    | '/sentry-example'
     | '/settings'
     | '/signup'
     | '/sitemap.xml'
     | '/api/health'
-    | '/api/sentry-example'
     | '/api/upload-url'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -189,12 +165,10 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
-  SentryExampleRoute: typeof SentryExampleRoute
   SettingsRoute: typeof SettingsRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiHealthRoute: typeof ApiHealthRoute
-  ApiSentryExampleRoute: typeof ApiSentryExampleRoute
   ApiUploadUrlRoute: typeof ApiUploadUrlRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -236,13 +210,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RobotsDottxtRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sentry-example': {
-      id: '/sentry-example'
-      path: '/sentry-example'
-      fullPath: '/sentry-example'
-      preLoaderRoute: typeof SentryExampleRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -271,13 +238,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/sentry-example': {
-      id: '/api/sentry-example'
-      path: '/api/sentry-example'
-      fullPath: '/api/sentry-example'
-      preLoaderRoute: typeof ApiSentryExampleRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/upload-url': {
       id: '/api/upload-url'
       path: '/api/upload-url'
@@ -301,12 +261,10 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
-  SentryExampleRoute: SentryExampleRoute,
   SettingsRoute: SettingsRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiHealthRoute: ApiHealthRoute,
-  ApiSentryExampleRoute: ApiSentryExampleRoute,
   ApiUploadUrlRoute: ApiUploadUrlRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

@@ -1,5 +1,4 @@
 // oxlint-disable node/no-process-env, no-console
-import { eq } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -7,7 +6,6 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 
 export type SeedUser = typeof schema.user.$inferInsert;
-export type SeedNote = typeof schema.notes.$inferInsert;
 
 export const seedUsers: SeedUser[] = [
   {
@@ -30,17 +28,6 @@ export const seedUsers: SeedUser[] = [
     email: "demo@example.com",
     emailVerified: true,
     role: "attendee",
-  },
-];
-
-export const seedNotes: SeedNote[] = [
-  {
-    title: "Welcome to TanStack Start Template",
-    userId: "user-demo-1",
-  },
-  {
-    title: "Inspect server functions in src/features/notes",
-    userId: "user-demo-1",
   },
 ];
 
@@ -82,7 +69,7 @@ export const seedStaffUsers: SeedUser[] = [
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 /**
- * Executes idempotent insertion of seed users, staff credentials, and default notes.
+ * Executes idempotent insertion of seed users and staff credentials.
  */
 export async function runSeed(database: Database): Promise<void> {
   await database.insert(schema.user).values(seedUsers).onConflictDoNothing();
@@ -103,15 +90,6 @@ export async function runSeed(database: Database): Promise<void> {
       }))
     )
     .onConflictDoNothing();
-
-  const existingDemoNotes = await database
-    .select()
-    .from(schema.notes)
-    .where(eq(schema.notes.userId, "user-demo-1"));
-
-  if (existingDemoNotes.length === 0) {
-    await database.insert(schema.notes).values(seedNotes);
-  }
 }
 
 /**

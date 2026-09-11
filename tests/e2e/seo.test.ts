@@ -7,9 +7,9 @@ test.describe("SEO and Metadata", () => {
     await page.goto("/");
 
     // Title & Description
-    await expect(page).toHaveTitle(/TanStack Start Template/i);
+    await expect(page).toHaveTitle(/ConnectSphere/i);
     const description = page.locator('meta[name="description"]');
-    await expect(description).toHaveAttribute("content", /Full-stack React template/i);
+    await expect(description).toHaveAttribute("content", /Event planning and venue booking/i);
 
     // Canonical link
     const canonical = page.locator('link[rel="canonical"]');
@@ -17,10 +17,10 @@ test.describe("SEO and Metadata", () => {
 
     // OpenGraph meta
     const ogTitle = page.locator('meta[property="og:title"]');
-    await expect(ogTitle).toHaveAttribute("content", /TanStack Start Template/i);
+    await expect(ogTitle).toHaveAttribute("content", /ConnectSphere/i);
 
     const ogDescription = page.locator('meta[property="og:description"]');
-    await expect(ogDescription).toHaveAttribute("content", /Full-stack React template/i);
+    await expect(ogDescription).toHaveAttribute("content", /Event planning and venue booking/i);
 
     const ogType = page.locator('meta[property="og:type"]');
     await expect(ogType).toHaveAttribute("content", "website");
@@ -33,11 +33,11 @@ test.describe("SEO and Metadata", () => {
     await expect(twitterCard).toHaveAttribute("content", "summary_large_image");
 
     const twitterTitle = page.locator('meta[name="twitter:title"]');
-    await expect(twitterTitle).toHaveAttribute("content", /TanStack Start Template/i);
+    await expect(twitterTitle).toHaveAttribute("content", /ConnectSphere/i);
 
     // Favicon & Icons & Theme color
     const themeColor = page.locator('meta[name="theme-color"]');
-    await expect(themeColor).toHaveAttribute("content", "#09090b");
+    await expect(themeColor).toHaveAttribute("content", "#f6f6f4");
 
     const faviconIco = page.locator('link[rel="icon"][href="/favicon.ico"]');
     await expect(faviconIco).toBeAttached();
@@ -122,7 +122,6 @@ test.describe("SEO and Metadata", () => {
     expect(text).toContain("Disallow: /dashboard");
     expect(text).toContain("Disallow: /settings");
     expect(text).not.toContain("/verify-otp");
-    expect(text).toContain("Disallow: /sentry-example");
     expect(text).toContain("Disallow: /api/");
     expect(text).toContain("Sitemap:");
     expect(text).toContain("/sitemap.xml");

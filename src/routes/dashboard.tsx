@@ -1,19 +1,16 @@
-import { createFileRoute, redirect, useRouter, Link } from "@tanstack/react-router";
-import { Trash2, Plus, Upload, CheckCircle } from "lucide-react";
+import { createFileRoute, redirect, Link } from "@tanstack/react-router";
+import { Upload, CheckCircle } from "lucide-react";
 import { useState, useRef } from "react";
-import { toast } from "sonner";
 
 import { getCurrentUser } from "#/features/auth/session";
 import { can } from "#/features/auth/permissions";
-import { listNotes, createNote, deleteNote } from "#/features/notes/server-fns";
 import { Button } from "#/components/ui/button";
-import { Input } from "#/components/ui/input";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/dashboard")({
   head: () =>
     createSeoHead({
-      title: "Dashboard — TanStack Start Template",
+      title: "Dashboard — ConnectSphere",
       noindex: true,
     }),
   beforeLoad: async () => {
@@ -25,48 +22,11 @@ export const Route = createFileRoute("/dashboard")({
 
     return { user };
   },
-  loader: async () => {
-    const notes = await listNotes();
-    return { notes };
-  },
   component: DashboardPage,
 });
 
 function DashboardPage() {
   const { user } = Route.useRouteContext();
-  const { notes } = Route.useLoaderData();
-  const router = useRouter();
-
-  const [newTitle, setNewTitle] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-
-  async function handleDeleteNote(id: number) {
-    setDeletingId(id);
-    try {
-      await deleteNote({ data: { id } });
-      await router.invalidate();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete note");
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
-  async function handleCreateNote(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-    setCreating(true);
-    try {
-      await createNote({ data: { title: newTitle } });
-      setNewTitle("");
-      await router.invalidate();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to create note");
-    } finally {
-      setCreating(false);
-    }
-  }
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-16">
@@ -79,8 +39,8 @@ function DashboardPage() {
             Welcome, {user.name?.trim() || user.email}
           </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
-            A protected route exercising the full loop: session, server functions, database,
-            uploads.
+            Your ConnectSphere home. Event, venue and equipment workspaces arrive with the stories
+            that build them; what your role may do is enforced on the server either way.
           </p>
         </div>
 
@@ -99,84 +59,11 @@ function DashboardPage() {
           </div>
           <div>
             <dt className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
-              Notes
+              Role
             </dt>
-            <dd className="mt-2 text-lg font-medium">{notes.length}</dd>
+            <dd className="mt-2 truncate text-lg font-medium">{user.role ?? "attendee"}</dd>
           </div>
         </dl>
-
-        <section className="mt-12" aria-label="Notes">
-          <div className="flex items-baseline justify-between gap-4">
-            <h2 className="text-lg font-semibold">Notes</h2>
-          </div>
-
-          <form onSubmit={e => void handleCreateNote(e)} className="mt-4 flex gap-2">
-            <Input
-              placeholder="New note title…"
-              value={newTitle}
-              onChange={e => setNewTitle(e.target.value)}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={creating || !newTitle.trim()} size="sm">
-              <Plus className="size-4" />
-              Add
-            </Button>
-          </form>
-
-          {notes.length === 0 ? (
-            <p className="py-6 text-sm text-muted-foreground">
-              No notes yet. Add your first one above.
-            </p>
-          ) : (
-            <table className="mt-4 w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th
-                    scope="col"
-                    className="py-2 pr-4 text-left font-mono text-xs tracking-widest text-muted-foreground uppercase"
-                  >
-                    Note
-                  </th>
-                  <th
-                    scope="col"
-                    className="py-2 pr-4 text-left font-mono text-xs tracking-widest text-muted-foreground uppercase"
-                  >
-                    Created
-                  </th>
-                  <th
-                    scope="col"
-                    className="py-2 text-right font-mono text-xs tracking-widest text-muted-foreground uppercase"
-                  >
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {notes.map(note => (
-                  <tr key={note.id} className="border-b border-border/60">
-                    <td className="py-2.5 pr-4">{note.title}</td>
-                    <td className="py-2.5 pr-4 font-mono text-xs text-muted-foreground">
-                      {note.createdAt ? new Date(note.createdAt).toLocaleDateString() : "—"}
-                    </td>
-                    <td className="py-2.5 text-right">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        disabled={deletingId === note.id}
-                        aria-label={`Delete note: ${note.title}`}
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => void handleDeleteNote(note.id)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
 
         {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
 

@@ -1,26 +1,8 @@
-# TanStack Start Template
+# ConnectSphere
 
-A production-ready full-stack web application template, built with TanStack Start, Better Auth, and Drizzle ORM, embracing Bun-native APIs and drivers (`bun.SQL`, `Bun.s3`, and `Bun.redis`) for maximum runtime performance and lightning-fast startup.
+Event planning and venue booking attendees, event organisers, event coordinators, venue staff, and technical support staff.
 
-## Features
-
-- **SSR & Routing**: [TanStack Start](https://tanstack.com/start) with file-based routes and type-safe navigation.
-- **Server Engine**: [Nitro](https://nitro.unjs.io/) for high-performance server-side logic.
-- **Authentication**: [Better Auth](https://better-auth.com/) — email + password (with reset and verification emails) and five user roles, of which two are self-assignable at registration (`attendee`, `event_organiser`). Rate limited (20 req/60 s). Session-guarded protected routes, plus a role/function matrix enforced on the server — see [Authorisation](./docs/ARCHITECTURE.md#authorisation).
-- **Database**: [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL driver (`bun.SQL` / `drizzle-orm/bun-sql`).
-- **Account management**: `/settings` route — profile, role, linked providers, and account deletion via Better Auth.
-- **File uploads**: Bun-native S3 client (`Bun.s3`) generating presigned PUT upload URLs for S3-compatible storage (MinIO locally; swap to AWS S3, Cloudflare R2, or Supabase Storage with an env var change).
-- **Email**: Transactional email with [Resend](https://resend.com/) and [React Email](https://react.email/). Verification and password-reset templates included. Auth-guarded dispatch endpoint.
-- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
-- **Theme System**: Class-based light/dark switching via [next-themes](https://github.com/pacocoursey/next-themes).
-- **Observability**: LogTape structured logging with a [Sentry](https://sentry.io/) sink. PII off by default, conservative sample rate. Debug routes gated to development.
-- **Architecture**: Feature-based structure (`src/features`) with clear server-function data boundaries.
-- **DX**:
-  - [Oxlint](https://oxc.rs/docs/guide/usage/linter.html) & [Oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) for fast linting and formatting.
-  - [Playwright](https://playwright.dev/) for E2E tests in `tests/e2e/`.
-  - [Vitest](https://vitest.dev/) for unit tests in `tests/unit/`.
-  - [Lefthook](https://github.com/evilmartians/lefthook) for git hooks.
-  - CI on GitHub Actions: lint, typecheck, format, unit tests, E2E, and build.
+Built with TanStack Start, Better Auth, and Drizzle ORM.
 
 ## Getting Started
 
@@ -90,21 +72,11 @@ A production-ready full-stack web application template, built with TanStack Star
 
 For complete workflow instructions, script catalogs, testing guidelines, and environment configuration, see the [Development Guide](./docs/DEVELOPMENT.md).
 
-## Deployment
-
-The template ships a `Dockerfile` and `docker-compose.yaml` for containerised deployment.
-
-```bash
-docker build -t tanstack-start-template .
-docker run -p 3000:3000 tanstack-start-template
-```
-
 ## Documentation
 
 - [Development](./docs/DEVELOPMENT.md) — local setup, scripts catalog, database management, testing, and tooling.
 - [Architecture](./docs/ARCHITECTURE.md) — project structure, data flow, auth, and observability.
-- [Design System](./docs/DESIGN.md) — aesthetic and design tokens.
+- [Design System](./docs/DESIGN.md) — the ConnectSphere design system and its tokens.
 - [Agents Guide](./AGENTS.md) — rules for coding agents working in this repo.
-- [Deployment](./docs/DEPLOYMENT.md) — hosting options and platform-specific configuration.
 - [Changelog](./docs/CHANGELOG.md) — version history.
 - [Contributing](./docs/CONTRIBUTING.md) — branch, commit, and test conventions.

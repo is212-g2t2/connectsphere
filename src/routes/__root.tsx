@@ -25,14 +25,14 @@ export const Route = createRootRouteWithContext<AppRouterContext>()({
       },
       {
         name: "theme-color",
-        content: "#09090b",
+        content: "#f6f6f4",
       },
       {
         name: "color-scheme",
         content: "light dark",
       },
       {
-        title: "TanStack Start Template",
+        title: "ConnectSphere",
       },
     ],
     links: [
@@ -85,7 +85,7 @@ function RootDocument({ children, meta }: { children: React.ReactNode; meta?: Re
         {meta}
       </head>
       <body>
-        <ThemeProvider defaultTheme="light" storageKey="template-theme">
+        <ThemeProvider defaultTheme="light" storageKey="connectsphere-theme">
           {children}
         </ThemeProvider>
         <Scripts />

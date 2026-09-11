@@ -7,14 +7,14 @@ Before opening a pull request, ensure your local environment is configured and w
 ## Branches
 
 - Base all work off `main`.
-- Use short, lowercase, hyphen-separated names: `feat/notes-crud`, `fix/auth-redirect`, `chore/ci-cache`.
+- Use short, lowercase, hyphen-separated names: `feat/venue-booking`, `fix/auth-redirect`, `chore/ci-cache`.
 
 ## Commits
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-feat: add notes CRUD to dashboard
+feat: add venue booking to the coordinator workspace
 fix: redirect signed-in users away from /login
 chore: pin Bun version in CI
 ```

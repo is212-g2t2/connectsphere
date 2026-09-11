@@ -1,11 +1,11 @@
 {
-  "name": "TanStack Start Template",
-  "short_name": "TanStack Start",
-  "description": "Production-ready template for full-stack React applications with TanStack Start, Nitro, React 19, Better Auth, Drizzle ORM, and Tailwind CSS v4.",
+  "name": "ConnectSphere",
+  "short_name": "ConnectSphere",
+  "description": "Event planning and venue booking for organisers, coordinators, venue staff and technical support.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#09090b",
-  "theme_color": "#09090b",
+  "background_color": "#f6f6f4",
+  "theme_color": "#f6f6f4",
   "icons": [
     {
       "src": "/favicon.svg",

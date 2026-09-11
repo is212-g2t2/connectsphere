@@ -6,7 +6,6 @@ import {
 } from "drizzle-orm";
 import * as schema from "#/db/schema";
 import {
-  notes,
   user,
   session,
   account,
@@ -17,14 +16,6 @@ import {
 } from "#/db/schema";
 
 describe("Database Schema Definitions", () => {
-  it("defines notes table with expected columns", () => {
-    const columns = getTableColumns(notes);
-    expect(columns.id.name).toBe("id");
-    expect(columns.title.name).toBe("title");
-    expect(columns.userId.name).toBe("user_id");
-    expect(columns.createdAt.name).toBe("created_at");
-  });
-
   it("defines auth schema tables and column names", () => {
     expect(getTableColumns(user).email.name).toBe("email");
     expect(getTableColumns(user).role.name).toBe("role");

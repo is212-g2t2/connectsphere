@@ -14,12 +14,12 @@ export const Layout = ({ previewText, children }: LayoutProps) => {
       <Body style={main}>
         <Container style={container}>
           <Section style={header}>
-            <Text style={logo}>TanStack Start</Text>
+            <Text style={logo}>ConnectSphere</Text>
           </Section>
           <Section style={content}>{children}</Section>
           <Hr style={hr} />
           <Section style={footer}>
-            <Text style={footerText}>Sent from TanStack Start Template.</Text>
+            <Text style={footerText}>Sent from ConnectSphere.</Text>
           </Section>
         </Container>
       </Body>

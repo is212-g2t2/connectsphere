@@ -1,11 +1,10 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Auth and Notes Lifecycle Loop", () => {
-  test("completes signup, login, and note creation/deletion loop", async ({ page }) => {
+test.describe("Auth Lifecycle Loop", () => {
+  test("completes signup, sign-out, login, and sign-out loop", async ({ page }) => {
     const uniqueId = Date.now();
     const testEmail = `e2e-user-${uniqueId}@example.com`;
     const testPassword = "Password123!";
-    const noteTitle = `E2E Note ${uniqueId}`;
 
     async function fillCredentials() {
       await page.locator("#email").fill(testEmail);
@@ -57,26 +56,7 @@ test.describe("Auth and Notes Lifecycle Loop", () => {
       timeout: 10_000,
     });
 
-    // 5. Create a note
-    const noteInput = page.getByPlaceholder("New note title…");
-    await noteInput.fill(noteTitle);
-    await page.getByRole("button", { name: "Add" }).click();
-
-    // Verify note is rendered in the table
-    await expect(page.getByRole("cell", { name: noteTitle, exact: true })).toBeVisible({
-      timeout: 10_000,
-    });
-
-    // 6. Delete the note
-    const deleteButton = page.getByRole("button", { name: `Delete note: ${noteTitle}` });
-    await deleteButton.click();
-
-    // Verify note is removed from table
-    await expect(page.getByRole("cell", { name: noteTitle, exact: true })).not.toBeVisible({
-      timeout: 10_000,
-    });
-
-    // 7. Sign out and go back — no protected info may display (PTR-6 AC3)
+    // 5. Sign out and go back — no protected info may display (PTR-6 AC3)
     await page.getByRole("button", { name: "Sign out" }).click();
     await page.waitForURL("/", { timeout: 10_000 });
     await page.goBack();
