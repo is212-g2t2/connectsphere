@@ -52,7 +52,7 @@ function NewVenuePage() {
             await navigate({
               to: "/venues/$venueId",
               params: { venueId: String(venue.id) },
-              search: { saved: true },
+              search: { saved: "true" },
             });
           }}
         />

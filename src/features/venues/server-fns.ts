@@ -15,6 +15,9 @@ async function loadServer() {
   ]);
 }
 
+/** A venue row as the client sees it — derived here so no route has to import the server module. */
+export type Venue = Awaited<ReturnType<typeof listVenues>>[number];
+
 function asResponse(error: unknown): never {
   if (error instanceof AuthorizationError) {
     throw new Response(error.message, { status: error.status });

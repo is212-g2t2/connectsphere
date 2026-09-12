@@ -34,10 +34,33 @@ export async function handleGetVenue(
   return rows.at(0) ?? null;
 }
 
+export const DUPLICATE_NAME_MESSAGE = "A venue with this name already exists";
+
+/**
+ * Postgres reports a unique violation as a driver error that Drizzle wraps; the constraint
+ * name is on `cause`. Turned into the sentence the form is built to show, since a duplicate
+ * name is the one conflict the UI can trigger by itself.
+ */
+function rethrowReadable(error: unknown): never {
+  if (
+    error instanceof Error &&
+    typeof error.cause === "object" &&
+    error.cause !== null &&
+    "constraint" in error.cause &&
+    error.cause.constraint === "venues_name_unique"
+  ) {
+    throw new Error(DUPLICATE_NAME_MESSAGE, { cause: error });
+  }
+  throw error;
+}
+
 /**
  * Create when no `id` is supplied, otherwise a full replace of that row (PTR-26 criterion 1).
- * The permission is checked *before* the payload is parsed, so a Coordinator posting a
- * malformed record is told "Forbidden", not what was wrong with it (criterion 4).
+ * The permission is checked before the payload is parsed here, which matters for direct
+ * callers such as the integration tests. At the HTTP boundary the payload arrives already
+ * validated — `.validator(parseVenueInput)` on `saveVenue` runs before the handler — so a
+ * malformed record from any caller gets the first Zod message, not "Forbidden"; the real
+ * 401/403 come from the `AuthorizationError` conversion in `server-fns.ts` (criterion 4).
  */
 export async function handleSaveVenue(
   data: unknown,
@@ -51,11 +74,20 @@ export async function handleSaveVenue(
   const { id, ...fields } = parseVenueInput(data);
 
   if (id === undefined) {
-    const [created] = await database.insert(venues).values(fields).returning();
+    const [created] = await database
+      .insert(venues)
+      .values(fields)
+      .returning()
+      .catch(rethrowReadable);
     return created;
   }
 
-  const updated = await database.update(venues).set(fields).where(eq(venues.id, id)).returning();
+  const updated = await database
+    .update(venues)
+    .set(fields)
+    .where(eq(venues.id, id))
+    .returning()
+    .catch(rethrowReadable);
 
   if (updated.length === 0) {
     // No such venue. A 404 would be the purist answer, but `AuthorizationError` is the one

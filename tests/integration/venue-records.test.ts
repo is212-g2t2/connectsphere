@@ -7,6 +7,7 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
+  DUPLICATE_NAME_MESSAGE,
   handleGetVenue,
   handleListVenues,
   handleSaveVenue,
@@ -141,11 +142,22 @@ describe("Venue records (PTR-26)", () => {
     ).rejects.toMatchObject({ status: 403 });
   });
 
-  it("refuses a second venue with the same name", async () => {
+  it("refuses a second venue with the same name, in words the form can show", async () => {
     await handleSaveVenue(record, venueStaff, database as never);
-    await expect(handleSaveVenue(record, venueStaff, database as never)).rejects.toMatchObject({
-      cause: { constraint: "venues_name_unique" },
-    });
+    await expect(handleSaveVenue(record, venueStaff, database as never)).rejects.toThrow(
+      DUPLICATE_NAME_MESSAGE
+    );
+  });
+
+  it("refuses renaming a venue onto a name another venue holds", async () => {
+    const created = await handleSaveVenue(record, venueStaff, database as never);
+    await expect(
+      handleSaveVenue(
+        { ...record, id: created.id, name: "Harbour Hall" },
+        venueStaff,
+        database as never
+      )
+    ).rejects.toThrow(DUPLICATE_NAME_MESSAGE);
   });
 
   it("returns null for an id that no venue holds", async () => {

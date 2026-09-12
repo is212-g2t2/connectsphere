@@ -6,8 +6,8 @@ import { can } from "#/features/auth/permissions";
 import { getCurrentUser } from "#/features/auth/session";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";
-import type { Venue } from "#/features/venues/records.server";
 import { getVenue, saveVenue } from "#/features/venues/server-fns";
+import type { Venue } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 const NAV_LINK =
@@ -19,7 +19,9 @@ export const Route = createFileRoute("/venues/$venueId")({
       title: "Venue — ConnectSphere",
       noindex: true,
     }),
-  validateSearch: z.object({ saved: z.boolean().optional() }),
+  // Kept as a string like `reset-password.tsx` does: a hand-typed `?saved=abc` should not
+  // drop a cosmetic banner into the route's error boundary.
+  validateSearch: z.object({ saved: z.string().optional() }),
   beforeLoad: async () => {
     const user = await getCurrentUser();
 
@@ -49,7 +51,7 @@ function VenuePage() {
   const { user } = Route.useRouteContext();
   const venue = Route.useLoaderData();
   const { saved: justCreated } = Route.useSearch();
-  const [saved, setSaved] = useState(justCreated === true);
+  const [saved, setSaved] = useState(justCreated === "true");
   const [current, setCurrent] = useState(venue);
   const canUpdate = can(user.role, { venue: ["update"] });
 
