@@ -1,4 +1,6 @@
-import { integer, pgEnum, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, jsonb, pgEnum, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+
+import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 
 import { user } from "./auth-schema";
 
@@ -18,14 +20,23 @@ export const eventRequests = pgTable("event_requests", {
   eventName: text("event_name").notNull().default(""),
   purpose: text("purpose").notNull().default(""),
   /**
-   * A real `timestamp` so Postgres orders and indexes these itself, but in `mode: "string"`:
-   * no JS `Date` is constructed on either side of the driver, so the wall-clock the organiser
-   * typed cannot be shifted by the host timezone. Postgres returns it canonicalised
-   * (`2026-11-18 09:30:00`), which is what a reader gets back.
+   * JSONB rather than a `timestamp` pair (PTR-10): an organiser may propose several date windows, and the strings round-trip exactly as the `datetime-local` inputs submitted them
    */
-  proposedStart: timestamp("proposed_start", { mode: "string" }),
-  proposedEnd: timestamp("proposed_end", { mode: "string" }),
+  proposedDates: jsonb("proposed_dates")
+    .$type<EventRequestDraftValues["proposedDates"]>()
+    .notNull()
+    .default([]),
   expectedAttendance: integer("expected_attendance"),
+  description: text("description").notNull().default(""),
+  eventType: text("event_type").notNull().default(""),
+  venueRequirements: text("venue_requirements").notNull().default(""),
+  roomLayoutPreference: text("room_layout_preference").notNull().default(""),
+  accessibilityRequirements: text("accessibility_requirements").notNull().default(""),
+  equipmentRequirements: jsonb("equipment_requirements")
+    .$type<EventRequestDraftValues["equipmentRequirements"]>()
+    .notNull()
+    .default([]),
+  specialArrangements: text("special_arrangements").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
