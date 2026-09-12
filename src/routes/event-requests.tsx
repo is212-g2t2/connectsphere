@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { can } from "#/features/auth/permissions";
 import { getCurrentUser } from "#/features/auth/session";
-import { EventRequestDraftForm } from "#/features/event-requests/components/draft-form";
+import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import { saveEventRequestDraft } from "#/features/event-requests/server-fns";
 import { createSeoHead } from "#/lib/seo";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -50,7 +50,7 @@ function EventRequestsPage() {
       )}
 
       <div className="mt-10">
-        <EventRequestDraftForm
+        <EventRequestForm
           onSave={async values => {
             setSaved(false);
             const request = await saveEventRequestDraft({ data: { ...values, id: draftId } });

@@ -6,7 +6,12 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleSaveEventRequestDraft } from "#/features/event-requests/drafts.server";
-import { ATTENDANCE_MESSAGE, END_BEFORE_START_MESSAGE } from "#/features/event-requests/schema";
+import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import {
+  ATTENDANCE_MESSAGE,
+  END_BEFORE_START_MESSAGE,
+  EQUIPMENT_QUANTITY_MESSAGE,
+} from "#/features/event-requests/schema";
 
 const organiser: SessionUser = {
   id: "test-user-2",
@@ -19,6 +24,26 @@ const otherOrganiser: SessionUser = {
   role: "event_organiser",
 };
 const attendee: SessionUser = { id: "user-demo-1", email: "demo@example.com", role: "attendee" };
+
+const fullRequest: EventRequestDraftValues = {
+  eventName: "  Community workshop  ",
+  purpose: "Meet neighbours\n  Plan next steps  ",
+  proposedDates: [
+    { start: "2026-10-12T14:30", end: "2026-10-12T18:45" },
+    { start: "2026-10-10T09:00", end: "2026-10-11T00:15" },
+  ],
+  expectedAttendance: 25,
+  description: "  First line\nSecond line  ",
+  eventType: " Workshop / Q&A ",
+  venueRequirements: "  Near MRT\nGround floor ",
+  roomLayoutPreference: " U-shape  ",
+  accessibilityRequirements: "  Step-free access ",
+  equipmentRequirements: [
+    { type: "  Wireless microphone ", quantity: 2 },
+    { type: "Projector", quantity: 1 },
+  ],
+  specialArrangements: "  Quiet room\nDietary options  ",
+};
 
 describe("Event request drafts", () => {
   let pool: Pool;
@@ -53,11 +78,51 @@ describe("Event request drafts", () => {
       status: "draft",
       eventName: "",
       purpose: "",
-      proposedStart: null,
-      proposedEnd: null,
+      proposedDates: [],
       expectedAttendance: null,
+      description: "",
+      eventType: "",
+      venueRequirements: "",
+      roomLayoutPreference: "",
+      accessibilityRequirements: "",
+      equipmentRequirements: [],
+      specialArrangements: "",
     });
     expect(await findById(saved.id)).toEqual(saved);
+  });
+
+  it("reopens every captured value exactly as it was entered, repeated lines included", async () => {
+    const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    const reopened = await findById(saved.id);
+
+    expect(reopened).toEqual(saved);
+    expect(reopened).toMatchObject({
+      ...fullRequest,
+      organiserId: organiser.id,
+      status: "draft",
+    });
+  });
+
+  it("saves a request with only some fields completed, half-typed lines included", async () => {
+    const saved = await handleSaveEventRequestDraft(
+      {
+        eventName: "Community workshop",
+        proposedDates: [{ start: "2026-11-18T09:30" }],
+        equipmentRequirements: [{ type: "Projector" }],
+      },
+      organiser,
+      database as never
+    );
+
+    expect(saved).toMatchObject({
+      status: "draft",
+      eventName: "Community workshop",
+      purpose: "",
+      // Stored as JSONB, so the `datetime-local` spelling survives untouched.
+      proposedDates: [{ start: "2026-11-18T09:30" }],
+      expectedAttendance: null,
+      equipmentRequirements: [{ type: "Projector" }],
+    });
   });
 
   it("replaces the full row on update rather than merging fields", async () => {
@@ -65,8 +130,9 @@ describe("Event request drafts", () => {
       {
         eventName: "Community workshop",
         purpose: "Meet neighbours",
-        proposedStart: "2026-11-18T09:30",
+        proposedDates: [{ start: "2026-11-18T09:30", end: "2026-11-18T12:00" }],
         expectedAttendance: 25,
+        equipmentRequirements: [{ type: "Projector", quantity: 1 }],
       },
       organiser,
       database as never
@@ -84,36 +150,19 @@ describe("Event request drafts", () => {
       id: created.id,
       eventName: "",
       purpose: "",
-      proposedStart: null,
-      proposedEnd: null,
+      proposedDates: [],
       expectedAttendance: null,
+      equipmentRequirements: [],
+      description: "",
+      specialArrangements: "",
     });
   });
 
-  it("saves a request with only some fields completed", async () => {
-    const saved = await handleSaveEventRequestDraft(
-      { eventName: "Community workshop", proposedStart: "2026-11-18T09:30" },
-      organiser,
-      database as never
-    );
-
-    // Stored as a real `timestamp`, so Postgres hands it back canonicalised rather than in the
-    // `datetime-local` spelling that went in.
-    expect(saved).toMatchObject({
-      status: "draft",
-      eventName: "Community workshop",
-      purpose: "",
-      proposedStart: "2026-11-18 09:30:00",
-      proposedEnd: null,
-    });
-  });
-
-  it("refuses a malformed or out-of-order field before writing", async () => {
+  it("refuses a malformed or invalid field before writing", async () => {
     await expect(
       handleSaveEventRequestDraft(
         {
-          proposedStart: "2026-11-18T09:30",
-          proposedEnd: "2026-11-18T09:00",
+          proposedDates: [{ start: "2026-11-18T09:30", end: "2026-11-18T09:00" }],
           expectedAttendance: 25,
         },
         organiser,
@@ -124,6 +173,14 @@ describe("Event request drafts", () => {
     await expect(
       handleSaveEventRequestDraft({ expectedAttendance: -1 }, organiser, database as never)
     ).rejects.toThrow(ATTENDANCE_MESSAGE);
+
+    await expect(
+      handleSaveEventRequestDraft(
+        { equipmentRequirements: [{ type: "Projector", quantity: 0 }] },
+        organiser,
+        database as never
+      )
+    ).rejects.toThrow(EQUIPMENT_QUANTITY_MESSAGE);
 
     expect(await database.select().from(schema.eventRequests)).toHaveLength(0);
   });

@@ -29,6 +29,20 @@
       "when": 1789192783284,
       "tag": "0003_huge_scarlet_witch",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789238820778,
+      "tag": "0004_add_full_event_requirements",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789238829673,
+      "tag": "0005_replace_date_range_with_lines",
+      "breakpoints": true
     }
   ]
 }
