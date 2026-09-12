@@ -65,6 +65,23 @@ export class AuthorizationError extends Error {
 }
 
 /**
+ * The other status a server function has to be able to answer with. Deliberately not a wider
+ * `AuthorizationError`: a row that does not exist was never refused, and telling a Venue Staff
+ * member their role forbids an id they mistyped blames them for someone else's deletion. It sits
+ * here rather than in `records.server.ts` because the module that converts it (`server-fns.ts`)
+ * is client-reachable and may not statically import a `*.server.*` module — and next to
+ * `AuthorizationError` because both halves of this boundary protocol already live in this file.
+ */
+export class NotFoundError extends Error {
+  readonly status = 404;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "NotFoundError";
+  }
+}
+
+/**
  * The authorisation gate every server-side entry point calls (PTR-7). It lives here rather than
  * in `permissions.ts` so the matrix stays free of any session dependency and safe for the
  * browser to import.

@@ -72,6 +72,12 @@ function DashboardPage() {
           </Link>
         )}
 
+        {can(user.role, { venue: ["read"] }) && (
+          <Link to="/venues" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
+            Venues
+          </Link>
+        )}
+
         {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
 
         <div className="mt-12 border-t border-border pt-6">

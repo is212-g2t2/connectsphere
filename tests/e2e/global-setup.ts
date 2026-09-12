@@ -4,6 +4,8 @@ import type { StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import net from "node:net";
 import { execFileSync } from "node:child_process";
 
+import { seed } from "../../scripts/seed";
+
 let container: StartedPostgreSqlContainer | undefined;
 
 function isPortReachable(host: string, port: number, timeout = 1500): Promise<boolean> {
@@ -65,6 +67,15 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       });
     } catch (err: unknown) {
       console.warn("Migration execution warning in E2E setup:", err);
+    }
+
+    // Seed once, here, rather than per worker: the internal staff accounts (PTR-59) only
+    // exist through the seed, and the venue flows (PTR-26) sign in as one of them. Idempotent,
+    // so a database that is already seeded is left as it is.
+    try {
+      await seed(connectionUri);
+    } catch (err: unknown) {
+      console.warn("Seed warning in E2E setup:", err);
     }
   }
 
