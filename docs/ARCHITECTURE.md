@@ -113,8 +113,11 @@ Source of truth is `src/features/auth/permissions.ts`, restated here and held to
 | Function        | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
 | --------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
 | `upload:create` |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
+| `venue:read`    |    —     |        —        |        ✅         |     ✅      |           ✅            |
+| `venue:create`  |    —     |        —        |         —         |     ✅      |            —            |
+| `venue:update`  |    —     |        —        |         —         |     ✅      |            —            |
 
-Three limits: `upload:create` is the only function that varies by role today, so `attendee` holds an empty role — `ac.newRole({})` authorizes nothing, which is the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one — both roles are self-assignable, so anyone set on uploading can simply register again as an organiser. And there is no internal/external split yet, so a request for a venue or equipment function is refused only because the resource is unknown.
+Two limits: `attendee` holds an empty role — `ac.newRole({})` authorizes nothing, which is the fail-closed default. And the attendee/organiser line is an entitlement boundary, not a security one — both roles are self-assignable, so anyone set on uploading can simply register again as an organiser. The `venue` rows (PTR-26) are the first internal/external split: both external roles hold nothing on the catalogue, so an organiser is refused a venue record on the server whichever way they reach it, and a request for an equipment function is still refused only because the resource is unknown.
 
 ### Enforcing it
 
