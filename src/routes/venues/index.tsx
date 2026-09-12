@@ -1,7 +1,7 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { getCurrentUser } from "#/features/auth/session";
+import { assertNotRefused, getCurrentUser } from "#/features/auth/session";
 import { listVenues } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
@@ -27,7 +27,7 @@ export const Route = createFileRoute("/venues/")({
 
     return { user };
   },
-  loader: () => listVenues(),
+  loader: async () => assertNotRefused(await listVenues()),
   component: VenuesPage,
 });
 

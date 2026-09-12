@@ -2,9 +2,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { NOT_PERMITTED_MESSAGE } from "#/features/auth/session";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";
-import { CAPACITY_MESSAGE, DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import {
+  CAPACITY_MESSAGE,
+  DEFAULT_OPERATING_HOURS,
+  DUPLICATE_NAME_MESSAGE,
+} from "#/features/venues/schema";
 import type { VenueValues } from "#/features/venues/schema";
 
 function fill(label: string, value: string) {
@@ -131,15 +136,19 @@ describe("VenueForm (PTR-26)", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("shows the server's refusal instead of a generic failure", async () => {
-    const user = userEvent.setup();
-    const onSave = saveSpy().mockRejectedValue(new Error("Forbidden"));
-    render(<VenueForm initial={harbourHall} onSave={onSave} />);
+  it.each([NOT_PERMITTED_MESSAGE, DUPLICATE_NAME_MESSAGE])(
+    "shows the server's own words for a refusal: %s",
+    async message => {
+      const user = userEvent.setup();
+      const onSave = saveSpy().mockRejectedValue(new Error(message));
+      render(<VenueForm initial={harbourHall} onSave={onSave} />);
 
-    await user.click(screen.getByRole("button", { name: "Save venue" }));
+      await user.click(screen.getByRole("button", { name: "Save venue" }));
 
-    expect(await screen.findByText("Forbidden")).not.toBeNull();
-  });
+      expect(await screen.findByText(message)).not.toBeNull();
+      expect(screen.getByRole("button", { name: "Save venue" })).not.toBeNull();
+    }
+  );
 });
 
 describe("VenueDetails (PTR-26 criterion 4, read-only)", () => {

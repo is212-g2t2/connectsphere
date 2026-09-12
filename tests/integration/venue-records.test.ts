@@ -7,12 +7,15 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
-  DUPLICATE_NAME_MESSAGE,
   handleGetVenue,
   handleListVenues,
   handleSaveVenue,
 } from "#/features/venues/records.server";
-import { CAPACITY_MESSAGE, DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import {
+  CAPACITY_MESSAGE,
+  DEFAULT_OPERATING_HOURS,
+  DUPLICATE_NAME_MESSAGE,
+} from "#/features/venues/schema";
 
 const venueStaff: SessionUser = {
   id: "seed-venue-staff-1",

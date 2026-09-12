@@ -1,7 +1,7 @@
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { getCurrentUser } from "#/features/auth/session";
+import { assertNotRefused, getCurrentUser } from "#/features/auth/session";
 import { VenueForm } from "#/features/venues/components/venue-form";
 import { saveVenue } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
@@ -48,7 +48,7 @@ function NewVenuePage() {
         <VenueForm
           submitLabel="Create venue"
           onSave={async values => {
-            const venue = await saveVenue({ data: values });
+            const venue = assertNotRefused(await saveVenue({ data: values }));
             await navigate({
               to: "/venues/$venueId",
               params: { venueId: String(venue.id) },

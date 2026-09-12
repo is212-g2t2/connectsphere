@@ -3,7 +3,7 @@ import { useState } from "react";
 import { z } from "zod";
 
 import { can } from "#/features/auth/permissions";
-import { getCurrentUser } from "#/features/auth/session";
+import { assertNotRefused, getCurrentUser } from "#/features/auth/session";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";
 import { getVenue, saveVenue } from "#/features/venues/server-fns";
@@ -38,7 +38,9 @@ export const Route = createFileRoute("/venues/$venueId")({
   loader: async ({ params }): Promise<Venue> => {
     const id = Number(params.venueId);
     const { venue } =
-      Number.isInteger(id) && id > 0 ? await getVenue({ data: { id } }) : { venue: null };
+      Number.isInteger(id) && id > 0
+        ? assertNotRefused(await getVenue({ data: { id } }))
+        : { venue: null };
     if (!venue) {
       throw notFound();
     }
@@ -79,7 +81,9 @@ function VenuePage() {
             initial={current}
             onSave={async values => {
               setSaved(false);
-              const updated = await saveVenue({ data: { ...values, id: current.id } });
+              const updated = assertNotRefused(
+                await saveVenue({ data: { ...values, id: current.id } })
+              );
               setCurrent(updated);
               setSaved(true);
             }}

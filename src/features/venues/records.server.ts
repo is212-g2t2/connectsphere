@@ -4,7 +4,7 @@ import type { db as Db } from "#/db";
 import { venues } from "#/db/schema";
 import { AuthorizationError, requirePermission } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { parseVenueId, parseVenueInput } from "#/features/venues/schema";
+import { DUPLICATE_NAME_MESSAGE, parseVenueId, parseVenueInput } from "#/features/venues/schema";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -33,8 +33,6 @@ export async function handleGetVenue(
   const rows = await database.select().from(venues).where(eq(venues.id, id));
   return rows.at(0) ?? null;
 }
-
-export const DUPLICATE_NAME_MESSAGE = "A venue with this name already exists";
 
 /**
  * Postgres reports a unique violation as a driver error that Drizzle wraps; the constraint

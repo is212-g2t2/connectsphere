@@ -48,6 +48,7 @@ export const TAGS_COUNT_MESSAGE = `List ${TAGS_MAX_COUNT} entries or fewer`;
 export const LAYOUT_MESSAGE = "Choose only from the supported room layouts";
 export const TIME_MESSAGE = "Enter opening and closing times as HH:MM";
 export const CLOSES_BEFORE_OPENS_MESSAGE = "Closing time must be later than opening time";
+export const DUPLICATE_NAME_MESSAGE = "A venue with this name already exists";
 
 /** What `<input type="time">` submits: 24-hour `HH:MM`, no seconds. */
 const TIME_SHAPE = /^([01]\d|2[0-3]):[0-5]\d$/;
