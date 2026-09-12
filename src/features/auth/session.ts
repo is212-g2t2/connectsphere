@@ -77,3 +77,21 @@ export function requirePermission(
   if (!can(user.role, request)) throw new AuthorizationError("Forbidden", 403);
   return user;
 }
+
+export const SIGNED_OUT_MESSAGE = "Your session has ended. Sign in again to continue.";
+export const NOT_PERMITTED_MESSAGE = "Your role does not permit this action.";
+
+/**
+ * The client half of the boundary conversion. A server function that throws a `Response` is
+ * served with `x-tss-raw: true`, and the client fetcher hands that Response back as a
+ * *resolved* value rather than rejecting — so `await saveVenue(...)` would otherwise put a
+ * `Response` where a venue row is expected. In-app callers wrap the call in this so an
+ * expired session or a revoked permission becomes a readable error the form can show, while
+ * direct HTTP callers still see the real 401/403.
+ */
+export function assertNotRefused<T>(result: T): T {
+  if (result instanceof Response) {
+    throw new Error(result.status === 401 ? SIGNED_OUT_MESSAGE : NOT_PERMITTED_MESSAGE);
+  }
+  return result;
+}

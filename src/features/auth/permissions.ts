@@ -16,22 +16,27 @@ import type { Role } from "#/features/auth/schema/role";
  */
 const statement = {
   upload: ["create"],
+  venue: ["create", "update", "read"],
 } as const;
 
 const ac = createAccessControl(statement);
 
 /**
- * ponytail: the matrix covers only the functions that exist today. The venue, equipment and
- * coordination rows arrive with the stories that build them (PTR-26, PTR-8 and the rest).
+ * ponytail: the matrix covers only the functions that exist today. The equipment and
+ * coordination rows arrive with the stories that build them (PTR-8, PTR-38 and the rest).
+ *
+ * `venue` (PTR-26) is the first internal/external split: Venue Staff maintain the catalogue,
+ * the other two internal roles read it, and the external roles hold nothing — PTR-28
+ * criterion 5 refuses them the calendar, so they are refused the record beneath it too.
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
   // an empty role authorizes nothing, which is the fail-closed default we want.
   attendee: ac.newRole({}),
   event_organiser: ac.newRole({ upload: ["create"] }),
-  event_coordinator: ac.newRole({ upload: ["create"] }),
-  venue_staff: ac.newRole({ upload: ["create"] }),
-  technical_support_staff: ac.newRole({ upload: ["create"] }),
+  event_coordinator: ac.newRole({ upload: ["create"], venue: ["read"] }),
+  venue_staff: ac.newRole({ upload: ["create"], venue: ["create", "update", "read"] }),
+  technical_support_staff: ac.newRole({ upload: ["create"], venue: ["read"] }),
 };
 
 export type PermissionRequest = RoleAuthorizeRequest<typeof statement>;

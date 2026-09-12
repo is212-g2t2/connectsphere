@@ -19,6 +19,9 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
+import { Route as VenuesIndexRouteImport } from './routes/venues/index'
+import { Route as VenuesVenueIdRouteImport } from './routes/venues/$venueId'
+import { Route as VenuesNewRouteImport } from './routes/venues/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -71,6 +74,21 @@ const ApiUploadUrlRoute = ApiUploadUrlRouteImport.update({
   path: '/api/upload-url',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VenuesIndexRoute = VenuesIndexRouteImport.update({
+  id: '/venues/',
+  path: '/venues/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VenuesVenueIdRoute = VenuesVenueIdRouteImport.update({
+  id: '/venues/$venueId',
+  path: '/venues/$venueId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VenuesNewRoute = VenuesNewRouteImport.update({
+  id: '/venues/new',
+  path: '/venues/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -88,6 +106,9 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
+  '/venues/$venueId': typeof VenuesVenueIdRoute
+  '/venues/new': typeof VenuesNewRoute
+  '/venues/': typeof VenuesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -101,6 +122,9 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
+  '/venues/$venueId': typeof VenuesVenueIdRoute
+  '/venues/new': typeof VenuesNewRoute
+  '/venues': typeof VenuesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -115,6 +139,9 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
+  '/venues/$venueId': typeof VenuesVenueIdRoute
+  '/venues/new': typeof VenuesNewRoute
+  '/venues/': typeof VenuesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -130,6 +157,9 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/api/health'
     | '/api/upload-url'
+    | '/venues/$venueId'
+    | '/venues/new'
+    | '/venues/'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -143,6 +173,9 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/api/health'
     | '/api/upload-url'
+    | '/venues/$venueId'
+    | '/venues/new'
+    | '/venues'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -156,6 +189,9 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/api/health'
     | '/api/upload-url'
+    | '/venues/$venueId'
+    | '/venues/new'
+    | '/venues/'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -170,6 +206,9 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiUploadUrlRoute: typeof ApiUploadUrlRoute
+  VenuesVenueIdRoute: typeof VenuesVenueIdRoute
+  VenuesNewRoute: typeof VenuesNewRoute
+  VenuesIndexRoute: typeof VenuesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -245,6 +284,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiUploadUrlRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/venues/': {
+      id: '/venues/'
+      path: '/venues'
+      fullPath: '/venues/'
+      preLoaderRoute: typeof VenuesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/venues/$venueId': {
+      id: '/venues/$venueId'
+      path: '/venues/$venueId'
+      fullPath: '/venues/$venueId'
+      preLoaderRoute: typeof VenuesVenueIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/venues/new': {
+      id: '/venues/new'
+      path: '/venues/new'
+      fullPath: '/venues/new'
+      preLoaderRoute: typeof VenuesNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -266,6 +326,9 @@ const rootRouteChildren: RootRouteChildren = {
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiUploadUrlRoute: ApiUploadUrlRoute,
+  VenuesVenueIdRoute: VenuesVenueIdRoute,
+  VenuesNewRoute: VenuesNewRoute,
+  VenuesIndexRoute: VenuesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
