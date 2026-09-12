@@ -6,6 +6,7 @@ import { getCurrentUser } from "#/features/auth/session";
 import { can } from "#/features/auth/permissions";
 import { Button } from "#/components/ui/button";
 import { createSeoHead } from "#/lib/seo";
+import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 export const Route = createFileRoute("/dashboard")({
   head: () =>
@@ -65,13 +66,16 @@ function DashboardPage() {
           </div>
         </dl>
 
+        {can(user.role, { event_request: ["create"] }) && (
+          <Link to="/event-requests" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
+            Event requests
+          </Link>
+        )}
+
         {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
 
         <div className="mt-12 border-t border-border pt-6">
-          <Link
-            to="/settings"
-            className="text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground"
-          >
+          <Link to="/settings" className={NAV_LINK_CLASSNAME}>
             Account settings
           </Link>
         </div>

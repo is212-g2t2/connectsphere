@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Password policy** (PTR-5): enforced server-side on sign-up, reset and change; a failing password is refused with the specific rule it broke, not a generic error.
 - **Role/function matrix** (PTR-7): five roles — `attendee`, `event_organiser`, `event_coordinator`, `venue_staff`, `technical_support_staff`. Declared once in `src/features/auth/permissions.ts` and mirrored in [ARCHITECTURE.md](./ARCHITECTURE.md#authorisation); enforced on server functions, `POST /api/upload-url`, and the interface.
 - **Staff account seeding** (PTR-59): `bun run db:seed` creates one Event Coordinator, one Venue Staff and one Technical Support Staff account, each with a working credential for direct sign-in. Re-runnable without duplicating records; demo credentials documented in [README.md](../README.md).
+- **Draft event requests** (PTR-9): an Event Organiser can start a request at `/event-requests` and save it before it is complete. The draft is stored with status `draft` (a Postgres enum, so no other value can reach the column), belongs only to the organiser who created it, and has no Coordinator assigned; supplied fields are still validated — an end date/time not later than its start, a non-positive whole attendance, or over-long free text is refused — while blank fields may be omitted. Saving again during the same sitting edits that draft rather than opening a second one; resuming one in a later sitting is PTR-12.
 
 ### Changed
 

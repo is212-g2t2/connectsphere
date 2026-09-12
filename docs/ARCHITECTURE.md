@@ -35,7 +35,9 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 │   │   └── auth-schema.ts# Better Auth tables
 │   ├── features/
 │   │   ├── auth/         # Session helpers, role/function matrix, login/signup/reset forms
-│   │   └── emails/       # Email templates
+│   │   ├── emails/       # Email templates
+│   │   └── event-requests/ # Draft saving, schema and form for event requests
+│   │       └── drafts.server.ts # Server-only draft writes; never client-reachable
 │   ├── lib/              # Shared integrations and utilities
 │   │   ├── auth.ts       # Better Auth server config
 │   │   ├── auth-client.ts# Better Auth React client
@@ -52,6 +54,7 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 │   │   ├── signup.tsx    # Auth route — redirects signed-in users
 │   │   ├── reset-password.tsx # Request a reset link, or set a new password with ?token=
 │   │   ├── dashboard.tsx # Protected route — session summary, upload widget
+│   │   ├── event-requests.tsx # Protected route — start an event request draft (organisers)
 │   │   ├── settings.tsx  # Protected route — profile, linked providers, delete account
 │   │   ├── robots[.]txt.ts   # Plain text crawler directives
 │   │   ├── sitemap[.]xml.ts  # XML sitemap
@@ -73,7 +76,7 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 1. **Routing**: Managed by TanStack Router. `src/routes/__root.tsx` composes the shell, theme provider, header, and page outlet.
 2. **SSR**: TanStack Start handles the initial HTML render on the server via Nitro.
 3. **Protected routes**: `dashboard.tsx` and `settings.tsx` call `getCurrentUser()` in `beforeLoad`. Unauthenticated requests redirect to `/login`. Auth routes (`/login`, `/signup`) redirect already-signed-in users to `/dashboard`.
-4. **Server functions**: none today. A `createServerFn` endpoint is a POST reachable without ever loading the route, so the first one re-checks the session inside its own handler rather than relying on the route guard; see [Authorisation](#authorisation).
+4. **Server functions**: `saveEventRequestDraft` (`src/features/event-requests/server-fns.ts`) is a `createServerFn` POST reachable without ever loading the route, so it re-checks the session and the `event_request:create` permission inside its own handler rather than relying on the route guard. An `AuthorizationError` becomes a 401/403 `Response` at that boundary — a thrown `Response` is returned verbatim — so a direct POST gets the real status. The database work lives in `drafts.server.ts` and is reached by dynamic `import()` inside the handler: a static import of `#/db/schema` would ship every table definition to the browser without failing the build, so `server-fns.ts` stays free of server imports and `tests/unit/client-bundle-safety.test.ts` holds it there. See [Authorisation](#authorisation).
 5. **Auth flow**: Forms in `src/features/auth/components/*` call `src/lib/auth-client.ts`. `/login` handles email + password sign-in. `/signup` handles email + password sign-up with role selection (`attendee` or `event_organiser`), holding the user on a "check your email" prompt; `/reset-password` both requests a reset link and consumes it (`?token=`).
 6. **File uploads**: `src/routes/api/upload-url.ts` generates a presigned PUT URL (S3-compatible). The client uploads directly to storage; the server never proxies file bytes.
 
@@ -110,22 +113,24 @@ Rate limiting is configured at 20 requests per 60-second window using Better Aut
 
 Source of truth is `src/features/auth/permissions.ts`, restated here and held to both by `tests/unit/auth-permissions.test.ts`. Rows arrive with the stories that build them, so only role-varying functions appear.
 
-| Function        | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
-| --------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
-| `upload:create` |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
+| Function               | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
+| ---------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
+| `upload:create`        |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
+| `event_request:create` |    —     |       ✅        |         —         |      —      |            —            |
 
-Three limits: `upload:create` is the only function that varies by role today, so `attendee` holds an empty role — `ac.newRole({})` authorizes nothing, which is the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one — both roles are self-assignable, so anyone set on uploading can simply register again as an organiser. And there is no internal/external split yet, so a request for a venue or equipment function is refused only because the resource is unknown.
+Three limits: the two existing functions both vary by role, and `attendee` holds an empty role — `ac.newRole({})` authorizes nothing, the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one — both roles are self-assignable, so anyone set on uploading or starting an event request can simply register again as an organiser. And there is no internal/external split yet, so a request for a venue or equipment function is refused only because the resource is unknown.
 
 ### Enforcing it
 
 Built with `createAccessControl` from `better-auth/plugins/access` — despite the import path, **not** a plugin, and never in `betterAuth({ plugins })`. The `admin` plugin was rejected: it adds ban and impersonation columns nothing asks for, redefines the `role` field this project already owns (as `input: false`, silently disabling the sign-up role selector), and reads a comma-separated string as several roles at once.
 
-`permissions.ts` stays pure data because the browser imports it too — a server import there fails `bun run build` alone. The session-aware half is `requirePermission(user, request)` in `src/features/auth/session.ts`: `Unauthorized` without a session, `Forbidden` without the permission. It throws an `AuthorizationError` carrying the status the refusal deserves (401 or 403) rather than a bare `Error`, because criterion 2 asks for an authorisation error and not a generic failure. It stays an `Error` rather than a `Response` so it can be called directly from tests; a server function converting it at its boundary — where a thrown `Response` is returned verbatim — is how a direct POST gets the real status rather than a generic failure. No server function exists to do that today, so `requirePermission` is currently exercised only by `tests/unit/auth-permissions.test.ts`; `upload-url.ts` is a route handler and answers with `Response.json` itself. Hiding a control is presentation, not enforcement, so each entry point checks for itself:
+`permissions.ts` stays pure data because the browser imports it too — a server import there fails `bun run build` alone. The session-aware half is `requirePermission(user, request)` in `src/features/auth/session.ts`: `Unauthorized` without a session, `Forbidden` without the permission. It throws an `AuthorizationError` carrying the status the refusal deserves (401 or 403) rather than a bare `Error`, because criterion 2 asks for an authorisation error and not a generic failure. It stays an `Error` rather than a `Response` so it can be called directly from tests; `saveEventRequestDraft` is the first server function to convert it at its boundary — where a thrown `Response` is returned verbatim — so a direct POST gets the real status rather than a generic failure. Hiding a control is presentation, not enforcement, so each entry point checks for itself:
 
+- **Server functions** — `saveEventRequestDraft` calls `requirePermission` next to its own session read; its route guard is presentation only.
 - **API route handlers** — `src/routes/api/upload-url.ts`, which calls `can()` next to its session check.
-- **The interface** — `src/routes/dashboard.tsx` asks the same `can()` before rendering the upload control.
+- **The interface** — `src/routes/dashboard.tsx` asks the same `can()` before rendering the upload control, and `src/routes/event-requests.tsx` redirects a role the matrix refuses.
 
-No `beforeLoad` checks a role today; every one checks only that a session exists. A role-restricted page would add its own `can()` there, and would still need the matching check on whatever server function it calls.
+`src/routes/event-requests.tsx` is the first `beforeLoad` to check a role; the other protected routes still check only that a session exists. It would still need the matching check on whatever server function it calls, and it has one.
 
 ## Styling
 
