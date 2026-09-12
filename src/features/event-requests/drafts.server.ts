@@ -31,13 +31,7 @@ export async function handleSaveEventRequestDraft(
   const currentUser = requirePermission(user, { event_request: ["create"] });
   const { id, ...values } = parseDraftInput(data);
 
-  const fields = {
-    eventName: values.eventName,
-    purpose: values.purpose,
-    proposedStart: values.proposedStart ?? null,
-    proposedEnd: values.proposedEnd ?? null,
-    expectedAttendance: values.expectedAttendance ?? null,
-  };
+  const fields = { ...values, expectedAttendance: values.expectedAttendance ?? null };
 
   if (id === undefined) {
     const [created] = await database
