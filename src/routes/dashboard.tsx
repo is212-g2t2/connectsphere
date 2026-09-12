@@ -65,6 +65,15 @@ function DashboardPage() {
           </div>
         </dl>
 
+        {can(user.role, { venue: ["read"] }) && (
+          <Link
+            to="/venues"
+            className="mt-8 w-fit text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground"
+          >
+            Venues
+          </Link>
+        )}
+
         {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
 
         <div className="mt-12 border-t border-border pt-6">

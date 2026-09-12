@@ -10,7 +10,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-import type { OperatingHours } from "#/features/venues/schema";
+import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 
 export const venues = pgTable(
   "venues",
@@ -25,7 +25,11 @@ export const venues = pgTable(
     accessibilityFeatures: text("accessibility_features").array().notNull().default([]),
     // Values are constrained to `VENUE_LAYOUTS` by `VenueInput`, not by a Postgres enum, so
     // widening the list is a code change rather than an `ALTER TYPE` migration.
-    supportedLayouts: text("supported_layouts").array().notNull().default([]),
+    supportedLayouts: text("supported_layouts")
+      .array()
+      .$type<VenueLayout[]>()
+      .notNull()
+      .default([]),
     // Shape documented on `OperatingHours`; `OperatingHoursSchema` is what refuses a bad one.
     operatingHours: jsonb("operating_hours").$type<OperatingHours>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
