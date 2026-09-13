@@ -2,6 +2,10 @@
 
 This project is opinionated towards [Bun](https://bun.sh/) and follows a modern SSR architecture using TanStack Start and Nitro.
 
+## Decision Records
+
+Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
+
 ## Core Stack
 
 - **Framework**: [TanStack Start](https://tanstack.com/start) — full-stack React with TanStack Router, server functions, and SSR.
@@ -15,6 +19,7 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 ```
 .
 ├── docs/
+│   ├── adrs/             # Architecture decision records
 │   ├── ARCHITECTURE.md   # This file
 │   ├── CHANGELOG.md      # Release history
 │   ├── CONTRIBUTING.md   # Branch, commit, and test conventions
