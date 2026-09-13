@@ -7,23 +7,24 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import type { Role } from "#/features/auth/schema/role";
 
 /**
- * The role/function matrix of PTR-7, restated independently of `permissions.ts`.
+ * The role/function matrix of PTR-7 and PTR-9, restated independently of `permissions.ts`.
  *
  * The duplication is deliberate: widening a role has to be written twice and can never be a
  * slip. `Record<Role, …>` covers completeness, so a new role fails `type:check` before it
  * reaches here.
  */
-const EXPECTED: Record<Role, { upload: boolean }> = {
-  attendee: { upload: false },
-  event_organiser: { upload: true },
-  event_coordinator: { upload: true },
-  venue_staff: { upload: true },
-  technical_support_staff: { upload: true },
+const EXPECTED: Record<Role, { upload: boolean; event_request: boolean }> = {
+  attendee: { upload: false, event_request: false },
+  event_organiser: { upload: true, event_request: true },
+  event_coordinator: { upload: true, event_request: false },
+  venue_staff: { upload: true, event_request: false },
+  technical_support_staff: { upload: true, event_request: false },
 };
 
-describe("role/function matrix (PTR-7)", () => {
+describe("role/function matrix (PTR-7, PTR-9)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
     expect(can(role, { upload: ["create"] })).toBe(EXPECTED[role].upload);
+    expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
   });
 
   describe("fails closed", () => {
