@@ -1,6 +1,7 @@
 // oxlint-disable node/no-process-env
 import { test as base, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { eq } from "drizzle-orm";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
@@ -71,6 +72,26 @@ async function selectLiveRange(page: Page, venueName: string, start: string, end
   await page.getByRole("button", { name: "Show availability" }).click();
 }
 
+async function seededBlockDate(venueName: string): Promise<string> {
+  if (!process.env.DATABASE_URL)
+    throw new Error("Set DATABASE_URL explicitly for PTR-28 browser fixtures");
+
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const [period] = await drizzle(pool, { schema })
+      .select({ startsAt: schema.venueUnavailability.startsAt })
+      .from(schema.venueUnavailability)
+      .innerJoin(schema.venues, eq(schema.venueUnavailability.venueId, schema.venues.id))
+      .where(eq(schema.venues.name, venueName))
+      .limit(1);
+
+    if (!period) throw new Error(`No seeded block found for ${venueName}`);
+    return period.startsAt.slice(0, 10);
+  } finally {
+    await pool.end();
+  }
+}
+
 test("[PTR-28-TC01][AC1] coordinator opens the calendar from the dashboard (supplemental fixture data)", async ({
   page,
 }) => {
@@ -100,7 +121,7 @@ test.describe("Venue Staff", () => {
     page,
   }) => {
     await page.goto("/venues/availability");
-    await selectLiveRange(page, "Seminar Room 2A", "2027-04-12");
+    await selectLiveRange(page, "Seminar Room 2A", await seededBlockDate("Seminar Room 2A"));
     const results = page.getByRole("region", { name: "Availability results" });
     await expect(
       results.getByRole("heading", { name: "Seminar Room 2A", exact: true })

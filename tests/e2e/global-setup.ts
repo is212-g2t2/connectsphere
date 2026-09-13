@@ -56,7 +56,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     }
   }
 
-  if (connectionUri) {
+  if (connectionUri && !alreadyRunning) {
     try {
       execFileSync("bun", ["run", "db:migrate"], {
         env: {
@@ -68,7 +68,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     } catch (err: unknown) {
       console.warn("Migration execution warning in E2E setup:", err);
     }
+  }
 
+  if (connectionUri) {
     // Seed once, here, rather than per worker: the internal staff accounts (PTR-59) only
     // exist through the seed, and the venue flows (PTR-26) sign in as one of them. Idempotent,
     // so a database that is already seeded is left as it is.
