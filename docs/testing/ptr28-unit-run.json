@@ -1,0 +1,456 @@
+{
+  "numTotalTestSuites": 5,
+  "numPassedTestSuites": 5,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 33,
+  "numPassedTests": 33,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1789220625260,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC01][AC1] grants the story's event_coordinator role availability read access",
+          "status": "passed",
+          "title": "[PTR-28-TC01][AC1] grants the story's event_coordinator role availability read access",
+          "duration": 2.1162000000001626,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC02][AC1] grants the story's venue_staff role availability read access",
+          "status": "passed",
+          "title": "[PTR-28-TC02][AC1] grants the story's venue_staff role availability read access",
+          "duration": 0.17039999999997235,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC14-A][AC5] refuses attendee at the permission helper",
+          "status": "passed",
+          "title": "[PTR-28-TC14-A][AC5] refuses attendee at the permission helper",
+          "duration": 0.65300000000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC14-B][AC5] refuses event_organiser at the permission helper",
+          "status": "passed",
+          "title": "[PTR-28-TC14-B][AC5] refuses event_organiser at the permission helper",
+          "duration": 0.18509999999992033,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC18-B][AC1][AC5] refuses a missing session at the permission helper",
+          "status": "passed",
+          "title": "[PTR-28-TC18-B][AC1][AC5] refuses a missing session at the permission helper",
+          "duration": 0.13740000000007058,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC14][AC5] fails closed for the malformed role undefined",
+          "status": "passed",
+          "title": "[PTR-28-TC14][AC5] fails closed for the malformed role undefined",
+          "duration": 0.13229999999998654,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC14][AC5] fails closed for the malformed role null",
+          "status": "passed",
+          "title": "[PTR-28-TC14][AC5] fails closed for the malformed role null",
+          "duration": 0.0805000000000291,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC14][AC5] fails closed for the malformed role ''",
+          "status": "passed",
+          "title": "[PTR-28-TC14][AC5] fails closed for the malformed role ''",
+          "duration": 0.06999999999993634,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC14][AC5] fails closed for the malformed role 'admin'",
+          "status": "passed",
+          "title": "[PTR-28-TC14][AC5] fails closed for the malformed role 'admin'",
+          "duration": 0.07580000000007203,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC14][AC5] fails closed for the malformed role 'attendee,event_coordinator'",
+          "status": "passed",
+          "title": "[PTR-28-TC14][AC5] fails closed for the malformed role 'attendee,event_coordinator'",
+          "duration": 0.09510000000000218,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["PTR-28 availability permission (unit)"],
+          "fullName": "PTR-28 availability permission (unit) [PTR-28-TC14][AC5] fails closed for the malformed role 'event_coordinator '",
+          "status": "passed",
+          "title": "[PTR-28-TC14][AC5] fails closed for the malformed role 'event_coordinator '",
+          "duration": 0.04809999999997672,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1789220626919,
+      "endTime": 1789220626923.048,
+      "status": "passed",
+      "message": "",
+      "name": "D:/SMU/SPM/connectsphere/tests/unit/venue-availability-permissions.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC05][AC2] separates available, confirmed and blocked periods",
+          "status": "passed",
+          "title": "[PTR-28-TC05][AC2] separates available, confirmed and blocked periods",
+          "duration": 3.6243999999999232,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC06][AC3] preserves exact 10:15–11:45 booking times",
+          "status": "passed",
+          "title": "[PTR-28-TC06][AC3] preserves exact 10:15–11:45 booking times",
+          "duration": 0.576799999999821,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC07][AC3] includes another coordinator's booking in the projection",
+          "status": "passed",
+          "title": "[PTR-28-TC07][AC3] includes another coordinator's booking in the projection",
+          "duration": 0.4172000000000935,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC08][AC3] retains an overnight booking's original extent",
+          "status": "passed",
+          "title": "[PTR-28-TC08][AC3] retains an overnight booking's original extent",
+          "duration": 0.22769999999991342,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC09-A][AC1][AC3] includes overlap without changing stored times",
+          "status": "passed",
+          "title": "[PTR-28-TC09-A][AC1][AC3] includes overlap without changing stored times",
+          "duration": 0.3223000000000411,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC09-B][AC1][AC3] includes overlap without changing stored times",
+          "status": "passed",
+          "title": "[PTR-28-TC09-B][AC1][AC3] includes overlap without changing stored times",
+          "duration": 0.22900000000004184,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC10-A][AC1][AC3][AC4] excludes B04 while retaining positive controls",
+          "status": "passed",
+          "title": "[PTR-28-TC10-A][AC1][AC3][AC4] excludes B04 while retaining positive controls",
+          "duration": 0.678000000000111,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC10-B][AC1][AC3][AC4] excludes U03 while retaining positive controls",
+          "status": "passed",
+          "title": "[PTR-28-TC10-B][AC1][AC3][AC4] excludes U03 while retaining positive controls",
+          "duration": 0.22810000000004038,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC10-C][AC1][AC3][AC4] excludes B05 while retaining positive controls",
+          "status": "passed",
+          "title": "[PTR-28-TC10-C][AC1][AC3][AC4] excludes B05 while retaining positive controls",
+          "duration": 0.21100000000001273,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC10-D][AC1][AC3][AC4] excludes U04 while retaining positive controls",
+          "status": "passed",
+          "title": "[PTR-28-TC10-D][AC1][AC3][AC4] excludes U04 while retaining positive controls",
+          "duration": 0.2602999999999156,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC11][AC2][AC4] returns blocks alongside bookings",
+          "status": "passed",
+          "title": "[PTR-28-TC11][AC2][AC4] returns blocks alongside bookings",
+          "duration": 0.1331000000000131,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC12][AC4] returns blocks independently of bookings",
+          "status": "passed",
+          "title": "[PTR-28-TC12][AC4] returns blocks independently of bookings",
+          "duration": 0.1065000000000964,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC16][AC2] derives an available day only from explicitly supplied opening periods",
+          "status": "passed",
+          "title": "[PTR-28-TC16][AC2] derives an available day only from explicitly supplied opening periods",
+          "duration": 0.07940000000007785,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC17][AC2][AC3] never labels a pending request as confirmed",
+          "status": "passed",
+          "title": "[PTR-28-TC17][AC2][AC3] never labels a pending request as confirmed",
+          "duration": 0.09550000000012915,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC05][AC2] preserves overlapping booking/block records without false free gaps",
+          "status": "passed",
+          "title": "[PTR-28-TC05][AC2] preserves overlapping booking/block records without false free gaps",
+          "duration": 0.10779999999999745,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC16][AC2] does not assume a venue is open when opening periods are absent",
+          "status": "passed",
+          "title": "[PTR-28-TC16][AC2] does not assume a venue is open when opening periods are absent",
+          "duration": 0.07770000000004984,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 availability projection (pure unit coverage; no database or endpoint)"
+          ],
+          "fullName": "PTR-28 availability projection (pure unit coverage; no database or endpoint) [PTR-28-TC17][AC2][AC3] requires the caller's pending-hold policy and supports a hold without confirmation",
+          "status": "passed",
+          "title": "[PTR-28-TC17][AC2][AC3] requires the caller's pending-hold policy and supports a hold without confirmation",
+          "duration": 0.1533999999999196,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 explicit-instant request validation (proposed adapter contract)"
+          ],
+          "fullName": "PTR-28 explicit-instant request validation (proposed adapter contract) [PTR-28-TC15-A][AC1] rejects invalid input with a plain message",
+          "status": "passed",
+          "title": "[PTR-28-TC15-A][AC1] rejects invalid input with a plain message",
+          "duration": 2.1145000000001346,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 explicit-instant request validation (proposed adapter contract)"
+          ],
+          "fullName": "PTR-28 explicit-instant request validation (proposed adapter contract) [PTR-28-TC15-C][AC1] rejects invalid input with a plain message",
+          "status": "passed",
+          "title": "[PTR-28-TC15-C][AC1] rejects invalid input with a plain message",
+          "duration": 0.3324999999999818,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 explicit-instant request validation (proposed adapter contract)"
+          ],
+          "fullName": "PTR-28 explicit-instant request validation (proposed adapter contract) [PTR-28-TC15-D][AC1] rejects invalid input with a plain message",
+          "status": "passed",
+          "title": "[PTR-28-TC15-D][AC1] rejects invalid input with a plain message",
+          "duration": 0.1550999999999476,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 explicit-instant request validation (proposed adapter contract)"
+          ],
+          "fullName": "PTR-28 explicit-instant request validation (proposed adapter contract) [PTR-28-TC15-E][AC1] rejects invalid input with a plain message",
+          "status": "passed",
+          "title": "[PTR-28-TC15-E][AC1] rejects invalid input with a plain message",
+          "duration": 0.17150000000015098,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "PTR-28 explicit-instant request validation (proposed adapter contract)"
+          ],
+          "fullName": "PTR-28 explicit-instant request validation (proposed adapter contract) [PTR-28-TC15][AC1] compares offset timestamps by instant rather than text",
+          "status": "passed",
+          "title": "[PTR-28-TC15][AC1] compares offset timestamps by instant rather than text",
+          "duration": 0.08330000000000837,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1789220626088,
+      "endTime": 1789220626099.1714,
+      "status": "passed",
+      "message": "",
+      "name": "D:/SMU/SPM/connectsphere/tests/unit/venue-availability.test.ts"
+    }
+  ]
+}

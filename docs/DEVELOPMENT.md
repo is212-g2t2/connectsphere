@@ -203,6 +203,28 @@ bun run playwright test tests/e2e/landing.test.ts
 
 ---
 
+## Venue availability (PTR-28)
+
+Event Coordinators and Venue Staff can open `/venues/availability` from the dashboard. The page uses the shared Calendar and form controls, displays floating venue-local schedule times without inventing a timezone, and handles loading, empty results, failure and retry.
+
+The live adapter reads PTR-26's `venues` and `venue_unavailability` tables. Authorised requests use generated numeric database IDs internally and serialize them as string IDs at the existing HTTP boundary; malformed IDs return 400 and unknown venues return 404. Recorded blocks are selected with strict overlap (`startsAt < rangeEnd` and `endsAt > rangeStart`), so a block touching a requested boundary is not treated as overlapping. No fixture data is served by the application. PTR-31 and PTR-33 booking persistence remain outside this sprint.
+
+The read contract in `src/features/venues/calendar-data.ts` is implemented by the two protected endpoints:
+
+- `GET /api/venue-availability/venues` returns an array of `{ id, name }`.
+- `GET /api/venue-availability?venueId=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` takes inclusive civil dates and returns a `CalendarSchedule`: venue, selected dates, `timeZone: null` for floating venue-local values, available intervals and occupied intervals with original and clipped timestamps.
+- Both endpoints check session and `venueAvailability:read` independently, return 401/403 on refusal, and use `Cache-Control: private, no-store`. The schedule handler returns a plain 400 message for malformed input and 404 for an unknown venue.
+
+`OperatingHours` is exported from `src/features/venues/schema.ts`. Each `mon`–`sun` entry is either a local `HH:MM` range with `closes` later than `opens`, or `null` for a closed day; the adapter derives available periods within those bounds. PostgreSQL `timestamp without time zone` unavailability values are local wall-clock strings. They remain floating values throughout the read and calendar path: do not parse them with `Date`, append `Z`, or use the server/browser timezone. The response's `timeZone: null` deliberately carries that meaning.
+
+`tests/fixtures/ptr-28.ts` supplies deterministic data only to component tests, intercepted Playwright requests and fixture-backed booking assertions. Real-auth integration tests use isolated PostgreSQL; live browser coverage exercises the real venue and unavailability endpoints for Coordinator and Venue Staff, with unique accounts in the configured local database and cleanup limited to their own rows. Booking-aware AC3 remains deferred; fixture-backed booking tests are supplemental. Set `DATABASE_URL` explicitly before running the browser file. On Windows, put the native Bun executable on `PATH` if the npm shim cannot run Playwright's setup subprocesses.
+
+The branch includes PTR-26's generated venue migration coherently for isolated development. Reconciliation with newer `main`'s migration chain is a separate integration task and is not established by the fresh isolated database run; regenerate the combined migration after resolving that history rather than concatenating journals or hand-writing SQL.
+
+The [test specification](./testing/PTR-28-test-cases.md) and [latest execution log](./testing/PTR-28-ui-execution-2026-09-12.md) identify case IDs, fixture limitations, deferred checks and repeatable commands.
+
+---
+
 ## Code Quality & Git Hooks
 
 ### Linting & Formatting

@@ -35,7 +35,8 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 │   │   └── auth-schema.ts# Better Auth tables
 │   ├── features/
 │   │   ├── auth/         # Session helpers, role/function matrix, login/signup/reset forms
-│   │   └── emails/       # Email templates
+│   │   ├── emails/       # Email templates
+│   │   └── venues/       # Availability projection, calendar UI and HTTP read contract
 │   ├── lib/              # Shared integrations and utilities
 │   │   ├── auth.ts       # Better Auth server config
 │   │   ├── auth-client.ts# Better Auth React client
@@ -53,12 +54,15 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 │   │   ├── reset-password.tsx # Request a reset link, or set a new password with ?token=
 │   │   ├── dashboard.tsx # Protected route — session summary, upload widget
 │   │   ├── settings.tsx  # Protected route — profile, linked providers, delete account
+│   │   ├── venues.availability.tsx # Calendar — Event Coordinator and Venue Staff only
 │   │   ├── robots[.]txt.ts   # Plain text crawler directives
 │   │   ├── sitemap[.]xml.ts  # XML sitemap
 │   │   └── api/
 │   │       ├── auth/$.ts    # Better Auth handler
 │   │       ├── health.ts
-│   │       └── upload-url.ts# Presigned PUT URL — guarded by session and by role
+│   │       ├── upload-url.ts# Presigned PUT URL — guarded by session and by role
+│   │       ├── venue-availability.ts # Guarded venue/unavailability schedule read
+│   │       └── venue-availability.venues.ts # Guarded venue catalog read
 │   └── globals.css       # Global styles (Tailwind CSS v4)
 ├── tests/                # Vitest and Playwright suites
 ├── instrument.server.mjs # Server bootstrap — Sentry init and logging
@@ -72,8 +76,8 @@ This project is opinionated towards [Bun](https://bun.sh/) and follows a modern 
 
 1. **Routing**: Managed by TanStack Router. `src/routes/__root.tsx` composes the shell, theme provider, header, and page outlet.
 2. **SSR**: TanStack Start handles the initial HTML render on the server via Nitro.
-3. **Protected routes**: `dashboard.tsx` and `settings.tsx` call `getCurrentUser()` in `beforeLoad`. Unauthenticated requests redirect to `/login`. Auth routes (`/login`, `/signup`) redirect already-signed-in users to `/dashboard`.
-4. **Server functions**: none today. A `createServerFn` endpoint is a POST reachable without ever loading the route, so the first one re-checks the session inside its own handler rather than relying on the route guard; see [Authorisation](#authorisation).
+3. **Protected routes**: `dashboard.tsx`, `settings.tsx` and `venues.availability.tsx` call `getCurrentUser()` in `beforeLoad`. Unauthenticated requests redirect to `/login`; the calendar also checks `venueAvailability:read`. Auth routes (`/login`, `/signup`) redirect already-signed-in users to `/dashboard`.
+4. **Server functions and API routes**: `getCurrentUser()` reads the session in its server handler. Each feature data endpoint must independently check its session and permission because requests can bypass the page; see [Authorisation](#authorisation). Calendar reads use GET API routes and React Query. The venue endpoints read PTR-26's `venues` and `venue_unavailability` tables. Generated numeric venue IDs are converted to the existing string HTTP contract at the boundary; unknown venues return 404, and recorded unavailability uses strict half-open overlap (`startsAt < rangeEnd` and `endsAt > rangeStart`).
 5. **Auth flow**: Forms in `src/features/auth/components/*` call `src/lib/auth-client.ts`. `/login` handles email + password sign-in. `/signup` handles email + password sign-up with role selection (`attendee` or `event_organiser`), holding the user on a "check your email" prompt; `/reset-password` both requests a reset link and consumes it (`?token=`).
 6. **File uploads**: `src/routes/api/upload-url.ts` generates a presigned PUT URL (S3-compatible). The client uploads directly to storage; the server never proxies file bytes.
 
@@ -85,6 +89,7 @@ PostgreSQL is accessed using [Drizzle ORM](https://orm.drizzle.team/) paired wit
 - **Migrations Directory**: Configured in `drizzle.config.ts` to output migrations to `src/db/drizzle/`.
 - **Generating Migrations**: When schema files are updated, run `bun run db:generate` to produce timestamped SQL migration files and update the snapshot journal in `src/db/drizzle/meta/`. Never handwrite SQL migrations.
 - **Applying Migrations**: Run `bun run db:migrate` to execute pending SQL migrations against the configured database (`DATABASE_URL`). For quick local development without migration tracking, `bun run db:push` can be used.
+- **PTR-26 migration state**: This branch carries PTR-26's generated venue migration coherently for isolated PTR-28 development. Reconciling that migration chain with newer `main` remains a separate integration task and is not proven by the isolated database checks here.
 
 For developer commands, seeding, and local workflows, see the [Development Guide](./DEVELOPMENT.md#database-management--migrations).
 
@@ -108,24 +113,31 @@ Rate limiting is configured at 20 requests per 60-second window using Better Aut
 
 ### Role/function matrix
 
-Source of truth is `src/features/auth/permissions.ts`, restated here and held to both by `tests/unit/auth-permissions.test.ts`. Rows arrive with the stories that build them, so only role-varying functions appear.
+Source of truth is `src/features/auth/permissions.ts`, restated here and tested by `tests/unit/auth-permissions.test.ts` and `tests/unit/venue-availability-permissions.test.ts`. Rows arrive with the stories that build them, so only role-varying functions appear.
 
-| Function        | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
-| --------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
-| `upload:create` |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
+| Function                 | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
+| ------------------------ | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
+| `upload:create`          |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
+| `venueAvailability:read` |    —     |        —        |        ✅         |     ✅      |     — (unconfirmed)     |
 
-Three limits: `upload:create` is the only function that varies by role today, so `attendee` holds an empty role — `ac.newRole({})` authorizes nothing, which is the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one — both roles are self-assignable, so anyone set on uploading can simply register again as an organiser. And there is no internal/external split yet, so a request for a venue or equipment function is refused only because the resource is unknown.
+`attendee` holds an empty role — `ac.newRole({})` authorizes nothing. The upload attendee/organiser line is an entitlement boundary, not a security one — both roles are self-assignable. PTR-28 reserves availability reading for Event Coordinators and Venue Staff; Technical Support Staff receives no grant until its entitlement is confirmed. No PTR-28 access-control widening occurred: the calendar page and both API endpoints enforce this matrix. Real-session integration and browser tests cover those guards and the live reads; fixture-backed booking assertions remain supplemental, while booking-aware AC3 and booking persistence stay deferred to PTR-31/PTR-33.
 
 ### Enforcing it
 
 Built with `createAccessControl` from `better-auth/plugins/access` — despite the import path, **not** a plugin, and never in `betterAuth({ plugins })`. The `admin` plugin was rejected: it adds ban and impersonation columns nothing asks for, redefines the `role` field this project already owns (as `input: false`, silently disabling the sign-up role selector), and reads a comma-separated string as several roles at once.
 
-`permissions.ts` stays pure data because the browser imports it too — a server import there fails `bun run build` alone. The session-aware half is `requirePermission(user, request)` in `src/features/auth/session.ts`: `Unauthorized` without a session, `Forbidden` without the permission. It throws an `AuthorizationError` carrying the status the refusal deserves (401 or 403) rather than a bare `Error`, because criterion 2 asks for an authorisation error and not a generic failure. It stays an `Error` rather than a `Response` so it can be called directly from tests; a server function converting it at its boundary — where a thrown `Response` is returned verbatim — is how a direct POST gets the real status rather than a generic failure. No server function exists to do that today, so `requirePermission` is currently exercised only by `tests/unit/auth-permissions.test.ts`; `upload-url.ts` is a route handler and answers with `Response.json` itself. Hiding a control is presentation, not enforcement, so each entry point checks for itself:
+`permissions.ts` stays pure data because the browser imports it too — a server import there fails `bun run build` alone. The session-aware half is `requirePermission(user, request)` in `src/features/auth/session.ts`: `Unauthorized` without a session, `Forbidden` without the permission. It throws an `AuthorizationError` carrying status 401 or 403. The calendar API handlers convert this error into a JSON response with that status and `Cache-Control: private, no-store`. Each entry point checks for itself:
 
-- **API route handlers** — `src/routes/api/upload-url.ts`, which calls `can()` next to its session check.
-- **The interface** — `src/routes/dashboard.tsx` asks the same `can()` before rendering the upload control.
+- **API route handlers** — `src/routes/api/upload-url.ts` calls `can()` next to its session check. Both `venue-availability` handlers obtain the real session and call `requirePermission()` before validating input or accessing data.
+- **The interface** — `src/routes/dashboard.tsx` asks the same `can()` before rendering the upload control or calendar link. The calendar's `beforeLoad` checks its permission; refused users see an access-denied page without mounting the calendar or requesting its data.
 
-No `beforeLoad` checks a role today; every one checks only that a session exists. A role-restricted page would add its own `can()` there, and would still need the matching check on whatever server function it calls.
+`tests/integration/venue-availability-route.test.ts` uses isolated PostgreSQL accounts and real Better Auth sessions to exercise the handlers, including venue listing, operating-hours bounds, closed days and recorded unavailability for the authorised Coordinator and Venue Staff roles. `tests/e2e/venue-availability.test.ts` additionally verifies actual page navigation and HTTP refusal. Fixture-backed booking tests are supplemental and do not establish booking-aware AC3. See [the PTR-28 execution log](./testing/PTR-28-ui-execution-2026-09-12.md) for the live-data and fixture-backed evidence split.
+
+### Venue availability read representation
+
+`OperatingHours` is exported from `src/features/venues/schema.ts`; `src/db/schema.ts` consumes it as a type for the PTR-26 venue table. Each `mon`–`sun` entry is either one local `HH:MM` opening range or `null` for a closed day. The adapter derives opening periods within those bounds and never treats a closed day as available.
+
+PTR-26's unavailability timestamps are PostgreSQL `timestamp without time zone` values representing venue-local wall-clock strings. The schedule response deliberately returns `timeZone: null` and preserves those floating values; neither the server nor the browser parses them through `Date`, appends `Z`, or applies the machine timezone. The calendar's existing timestamp interface therefore remains explicit about whether a period is an instant or floating local time.
 
 ## Styling
 

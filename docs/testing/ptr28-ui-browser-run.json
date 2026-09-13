@@ -1,0 +1,1294 @@
+{
+  "config": {
+    "argv": [
+      "D:\\node.exe",
+      "D:\\SMU\\SPM\\connectsphere\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--workers=2",
+      "--reporter=line,json"
+    ],
+    "configFile": "D:\\SMU\\SPM\\connectsphere\\playwright.config.ts",
+    "rootDir": "D:/SMU/SPM/connectsphere/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": "D:\\SMU\\SPM\\connectsphere\\tests\\e2e\\global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "D:/SMU/SPM/connectsphere/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "D:/SMU/SPM/connectsphere/tests/e2e",
+        "testIgnore": [],
+        "testMatch": ["**/*.@(spec|test).?(c|m)[jt]s?(x)"],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [["line"], ["json"]],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 2,
+    "webServer": {
+      "command": "bun run dev",
+      "url": "http://localhost:3000",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "auth-flow.test.ts",
+      "file": "auth-flow.test.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Auth Lifecycle Loop",
+          "file": "auth-flow.test.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "completes signup, sign-out, login, and sign-out loop",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3266,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:09.464Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "0f3b2e986fc758129f61-15d044082f0d0b2a0f0b",
+              "file": "auth-flow.test.ts",
+              "line": 4,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "dashboard.test.ts",
+      "file": "dashboard.test.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Protected routes (Signed Out)",
+          "file": "dashboard.test.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "redirects unauthenticated user to login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 532,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:09.451Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "10ff6a523fe6a5403497-88e7120be5b3ac3289f3",
+              "file": "dashboard.test.ts",
+              "line": 5,
+              "column": 3
+            },
+            {
+              "title": "redirects unauthenticated settings to login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 297,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:10.075Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "10ff6a523fe6a5403497-fba81df4b23738429688",
+              "file": "dashboard.test.ts",
+              "line": 11,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Role-gated interface",
+          "file": "dashboard.test.ts",
+          "line": 25,
+          "column": 6,
+          "specs": [
+            {
+              "title": "hides the upload control from an attendee",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 2232,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:10.380Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "10ff6a523fe6a5403497-9dbaf89a4d8dcfc5e936",
+              "file": "dashboard.test.ts",
+              "line": 55,
+              "column": 3
+            },
+            {
+              "title": "shows the upload control to an event organiser",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 2337,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:12.620Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "10ff6a523fe6a5403497-5e7ef79aebf4f188f41b",
+              "file": "dashboard.test.ts",
+              "line": 66,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "landing.test.ts",
+      "file": "landing.test.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Landing Page",
+          "file": "landing.test.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should load landing page and show content",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 273,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:12.843Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5627b48f7804226ac3a3-a02301bf8ae037ff7cb8",
+              "file": "landing.test.ts",
+              "line": 4,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "reset-password.test.ts",
+      "file": "reset-password.test.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Reset password",
+          "file": "reset-password.test.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "plain visit asks for an email address",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 173,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:13.145Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3a8f3a6b40ce6fdd3dc6-406788ccb84df9377752",
+              "file": "reset-password.test.ts",
+              "line": 4,
+              "column": 3
+            },
+            {
+              "title": "emailed link with a token asks for a new password",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 184,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:13.332Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3a8f3a6b40ce6fdd3dc6-96dc8d92cba9e89444f3",
+              "file": "reset-password.test.ts",
+              "line": 11,
+              "column": 3
+            },
+            {
+              "title": "stale link explains itself and offers a new one",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 170,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:13.526Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3a8f3a6b40ce6fdd3dc6-e4c6a15c92a66c9b02b1",
+              "file": "reset-password.test.ts",
+              "line": 18,
+              "column": 3
+            },
+            {
+              "title": "login page links here",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 311,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:13.704Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3a8f3a6b40ce6fdd3dc6-0b6372459733198a3d04",
+              "file": "reset-password.test.ts",
+              "line": 24,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "seo.test.ts",
+      "file": "seo.test.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "SEO and Metadata",
+          "file": "seo.test.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "landing page has comprehensive SEO, OpenGraph, Twitter, and JSON-LD structured data",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 235,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:14.037Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "f391c3adf66da7285d66-24ff307346f1f1b6157f",
+              "file": "seo.test.ts",
+              "line": 4,
+              "column": 3
+            },
+            {
+              "title": "login route contains noindex directive and title",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 232,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:14.283Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "f391c3adf66da7285d66-868a5577a0d1f44b77f3",
+              "file": "seo.test.ts",
+              "line": 75,
+              "column": 3
+            },
+            {
+              "title": "signup route contains noindex directive and title",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 185,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:14.524Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "f391c3adf66da7285d66-d84aafcbcf51062e5fec",
+              "file": "seo.test.ts",
+              "line": 84,
+              "column": 3
+            },
+            {
+              "title": "reset-password route contains noindex directive and title",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 175,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:14.726Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "f391c3adf66da7285d66-efdcc907ea2e66e26d98",
+              "file": "seo.test.ts",
+              "line": 93,
+              "column": 3
+            },
+            {
+              "title": "404 error page includes noindex directive",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 166,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:14.912Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "f391c3adf66da7285d66-a2afb3889ffd796ad455",
+              "file": "seo.test.ts",
+              "line": 102,
+              "column": 3
+            },
+            {
+              "title": "robots.txt endpoint returns valid crawler rules and sitemap reference",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 38,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:14.981Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "f391c3adf66da7285d66-370af7740099fbb02b73",
+              "file": "seo.test.ts",
+              "line": 111,
+              "column": 3
+            },
+            {
+              "title": "sitemap.xml endpoint returns valid XML urlset",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 22,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:15.029Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "f391c3adf66da7285d66-2fa72148b675dd366c8e",
+              "file": "seo.test.ts",
+              "line": 130,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "venue-availability.test.ts",
+      "file": "venue-availability.test.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "[PTR-28-TC01][AC1] coordinator opens the calendar from the dashboard (fixture data)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1679,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-12T14:23:15.650Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7d36e39045ccbe5eea2d-302cb8bcfd3ccc2fb426",
+          "file": "venue-availability.test.ts",
+          "line": 64,
+          "column": 1
+        },
+        {
+          "title": "[PTR-28-TC03][AC1] switches venues without retaining the old schedule (fixture data)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1603,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-12T14:23:17.338Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7d36e39045ccbe5eea2d-e200cdcd91fb70ba0bfc",
+          "file": "venue-availability.test.ts",
+          "line": 88,
+          "column": 1
+        },
+        {
+          "title": "[PTR-28-TC04][AC1] updates the date range (fixture data)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1601,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-12T14:23:17.338Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7d36e39045ccbe5eea2d-6c15399b464d5f7d0327",
+          "file": "venue-availability.test.ts",
+          "line": 102,
+          "column": 1
+        },
+        {
+          "title": "[PTR-28-TC05][AC2][PTR-28-TC06][AC3][PTR-28-TC11][AC4] displays exact periods and text states (fixture data)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1387,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-12T14:23:18.949Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7d36e39045ccbe5eea2d-2bb58d3f77c5c520e6f1",
+          "file": "venue-availability.test.ts",
+          "line": 113,
+          "column": 1
+        },
+        {
+          "title": "[PTR-28-TC16][AC2] displays a successful empty schedule as an available day (fixture data)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1407,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-12T14:23:20.346Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7d36e39045ccbe5eea2d-81ced90206397c2273d0",
+          "file": "venue-availability.test.ts",
+          "line": 145,
+          "column": 1
+        },
+        {
+          "title": "[PTR-28-TC19][AC1][AC2] shows a failed request and retries successfully (fixture data)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1542,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-12T14:23:20.346Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7d36e39045ccbe5eea2d-e2063cc19b3718b4dc9c",
+          "file": "venue-availability.test.ts",
+          "line": 159,
+          "column": 1
+        },
+        {
+          "title": "[PTR-28-TC19][AC1][AC2] live provider shows unavailable and never exposes fixture venues",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1400,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-12T14:23:21.763Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7d36e39045ccbe5eea2d-73d14672c85191de7632",
+          "file": "venue-availability.test.ts",
+          "line": 176,
+          "column": 1
+        },
+        {
+          "title": "[PTR-28-TC18-A][AC1][AC5] redirects a signed-out visitor to login",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 289,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-12T14:23:23.472Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7d36e39045ccbe5eea2d-7f82d4416ddfb99ca1ff",
+          "file": "venue-availability.test.ts",
+          "line": 221,
+          "column": 1
+        },
+        {
+          "title": "[PTR-28-TC18-B][AC1][AC5] returns 401 from both real HTTP endpoints without a session",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 30,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-12T14:23:23.647Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7d36e39045ccbe5eea2d-e705db9bdd9cd2325dd1",
+          "file": "venue-availability.test.ts",
+          "line": 227,
+          "column": 1
+        }
+      ],
+      "suites": [
+        {
+          "title": "Venue Staff",
+          "file": "venue-availability.test.ts",
+          "line": 76,
+          "column": 6,
+          "specs": [
+            {
+              "title": "[PTR-28-TC02][AC1] venue staff opens the calendar (fixture data)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1665,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:15.664Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7d36e39045ccbe5eea2d-8716451dbd8088bd390d",
+              "file": "venue-availability.test.ts",
+              "line": 78,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Browser in a different timezone",
+          "file": "venue-availability.test.ts",
+          "line": 129,
+          "column": 6,
+          "specs": [
+            {
+              "title": "[PTR-28-TC07][AC3][PTR-28-TC08] shows another event's overnight occupancy in the supplied venue timezone (fixture data)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1383,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:18.953Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7d36e39045ccbe5eea2d-8528b7beb37a9e67eccc",
+              "file": "venue-availability.test.ts",
+              "line": 131,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "External role attendee",
+          "file": "venue-availability.test.ts",
+          "line": 191,
+          "column": 8,
+          "specs": [
+            {
+              "title": "[PTR-28-TC13-A][AC5] refuses the page and hides the navigation link",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 729,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:21.901Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7d36e39045ccbe5eea2d-6b9d067d17731d5ec542",
+              "file": "venue-availability.test.ts",
+              "line": 193,
+              "column": 5
+            },
+            {
+              "title": "[PTR-28-TC14-A][AC5] refuses both real HTTP endpoints before opening the page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 358,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:22.640Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7d36e39045ccbe5eea2d-4d9e9826367ca3b9c648",
+              "file": "venue-availability.test.ts",
+              "line": 204,
+              "column": 5
+            }
+          ]
+        },
+        {
+          "title": "External role event_organiser",
+          "file": "venue-availability.test.ts",
+          "line": 191,
+          "column": 8,
+          "specs": [
+            {
+              "title": "[PTR-28-TC13-B][AC5] refuses the page and hides the navigation link",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 628,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:23.008Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7d36e39045ccbe5eea2d-12f1714d1b016916f8fd",
+              "file": "venue-availability.test.ts",
+              "line": 193,
+              "column": 5
+            },
+            {
+              "title": "[PTR-28-TC14-B][AC5] refuses both real HTTP endpoints before opening the page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 290,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-12T14:23:23.174Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7d36e39045ccbe5eea2d-9f88f8558df3e44fdf05",
+              "file": "venue-availability.test.ts",
+              "line": 204,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-09-12T14:23:07.238Z",
+    "duration": 16655.606,
+    "expected": 32,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
