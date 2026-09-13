@@ -1,5 +1,6 @@
 // oxlint-disable node/no-process-env, no-console
 import { hashPassword } from "better-auth/crypto";
+import { inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -66,6 +67,100 @@ export const seedStaffUsers: SeedUser[] = [
   },
 ];
 
+export type SeedVenue = Omit<typeof schema.venues.$inferInsert, "id">;
+
+/**
+ * Demo venues (PTR-59 criterion 3, landing with the schema from PTR-26). Names are the
+ * idempotency key — `venues.name` is unique — so a re-run collides instead of inserting twins.
+ * `operatingHours` is `"HH:MM"` wall-clock per weekday, `null` for closed.
+ */
+export const seedVenues: SeedVenue[] = [
+  {
+    name: "Harbour Hall",
+    location: "Level 1, ConnectSphere Marina Centre",
+    maxCapacity: 300,
+    facilities: ["Stage", "Projector", "PA system", "Wi-Fi", "Catering prep area"],
+    accessibilityFeatures: ["Step-free access", "Accessible toilets", "Hearing loop"],
+    supportedLayouts: ["theatre", "banquet", "exhibition"],
+    operatingHours: {
+      mon: { opens: "08:00", closes: "22:00" },
+      tue: { opens: "08:00", closes: "22:00" },
+      wed: { opens: "08:00", closes: "22:00" },
+      thu: { opens: "08:00", closes: "22:00" },
+      fri: { opens: "08:00", closes: "23:00" },
+      sat: { opens: "09:00", closes: "23:00" },
+      sun: null,
+    },
+  },
+  {
+    name: "Seminar Room 2A",
+    location: "Level 2, ConnectSphere Marina Centre",
+    maxCapacity: 40,
+    facilities: ["Projector", "Whiteboard", "Video conferencing", "Wi-Fi"],
+    accessibilityFeatures: ["Step-free access", "Adjustable-height desks"],
+    supportedLayouts: ["classroom", "boardroom"],
+    operatingHours: {
+      mon: { opens: "09:00", closes: "18:00" },
+      tue: { opens: "09:00", closes: "18:00" },
+      wed: { opens: "09:00", closes: "18:00" },
+      thu: { opens: "09:00", closes: "18:00" },
+      fri: { opens: "09:00", closes: "18:00" },
+      sat: null,
+      sun: null,
+    },
+  },
+  {
+    name: "Rooftop Pavilion",
+    location: "Level 12, ConnectSphere Tower",
+    maxCapacity: 120,
+    facilities: ["PA system", "Bar counter", "Wi-Fi"],
+    accessibilityFeatures: ["Lift access"],
+    supportedLayouts: ["banquet", "other"],
+    operatingHours: {
+      mon: null,
+      tue: null,
+      wed: { opens: "17:00", closes: "23:00" },
+      thu: { opens: "17:00", closes: "23:00" },
+      fri: { opens: "17:00", closes: "23:30" },
+      sat: { opens: "11:00", closes: "23:30" },
+      sun: { opens: "11:00", closes: "21:00" },
+    },
+  },
+];
+
+/**
+ * Two future periods of unavailability (PTR-59 criterion 4) so the availability calendar
+ * (PTR-28) has something to show that is not a booking. Keyed by venue name because venue ids
+ * are assigned by the database. Dates are relative to seed time, not fixed: "future" has to
+ * stay true whichever day the seed runs. `YYYY-MM-DD HH:MM:SS` is the `mode: "string"` shape
+ * the column reads back. Re-run idempotency is the per-venue existence check in `runSeed`
+ * rather than the unique period index, because a moving date never collides.
+ */
+function futureDay(days: number, time = "00:00:00"): string {
+  const day = new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  return `${day} ${time}`;
+}
+
+export const seedVenueUnavailability: {
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+  reason: string;
+}[] = [
+  {
+    venueName: "Harbour Hall",
+    startsAt: futureDay(30),
+    endsAt: futureDay(34, "23:59:59"),
+    reason: "Annual floor resurfacing",
+  },
+  {
+    venueName: "Seminar Room 2A",
+    startsAt: futureDay(45, "09:00:00"),
+    endsAt: futureDay(45, "18:00:00"),
+    reason: "Internal staff training",
+  },
+];
+
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 /**
@@ -90,6 +185,44 @@ export async function runSeed(database: Database): Promise<void> {
       }))
     )
     .onConflictDoNothing();
+
+  await database.insert(schema.venues).values(seedVenues).onConflictDoNothing();
+
+  const venueRows = await database
+    .select({ id: schema.venues.id, name: schema.venues.name })
+    .from(schema.venues)
+    .where(
+      inArray(
+        schema.venues.name,
+        seedVenues.map(venue => venue.name)
+      )
+    );
+  const venueIdByName = new Map(venueRows.map(row => [row.name, row.id]));
+
+  const venuesWithPeriods = new Set(
+    (
+      await database
+        .select({ venueId: schema.venueUnavailability.venueId })
+        .from(schema.venueUnavailability)
+        .where(inArray(schema.venueUnavailability.venueId, [...venueIdByName.values()]))
+    ).map(row => row.venueId)
+  );
+
+  const missingPeriods = seedVenueUnavailability.flatMap(period => {
+    const venueId = venueIdByName.get(period.venueName);
+    if (venueId === undefined) {
+      throw new Error(`Seed venue "${period.venueName}" was not inserted`);
+    }
+    // Dates are relative to seed time, so a second run would insert twin rows rather than
+    // collide with the unique period index.
+    return venuesWithPeriods.has(venueId)
+      ? []
+      : [{ venueId, startsAt: period.startsAt, endsAt: period.endsAt, reason: period.reason }];
+  });
+
+  if (missingPeriods.length > 0) {
+    await database.insert(schema.venueUnavailability).values(missingPeriods).onConflictDoNothing();
+  }
 }
 
 /**

@@ -109,6 +109,8 @@ describe("SEO utilities", () => {
       expect(robots).toContain("Disallow: /dashboard");
       expect(robots).toContain("Disallow: /settings");
       expect(robots).toContain("Disallow: /event-requests");
+      // Prefix match: covers /venues, /venues/new and /venues/$venueId alike.
+      expect(robots).toContain("Disallow: /venues");
       expect(robots).not.toContain("/verify-otp");
       expect(robots).toContain("Disallow: /api/");
       expect(robots).toContain("Sitemap: https://example.com/sitemap.xml");

@@ -64,6 +64,11 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
    These credentials are non-production (shared password, `example.com`
    addresses, no real personal data) and must never be used outside local/demo environments.
 
+   The same seed creates three demo venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion)
+   with capacity, facilities, accessibility features, supported layouts and operating hours,
+   plus two future periods of unavailability, so the venue stories have data to build against.
+   Re-running `bun run db:seed` is safe: existing accounts and venues are left untouched.
+
 5. **Start the dev server**
 
    ```bash

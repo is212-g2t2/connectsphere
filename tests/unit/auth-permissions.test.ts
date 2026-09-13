@@ -7,24 +7,67 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import type { Role } from "#/features/auth/schema/role";
 
 /**
- * The role/function matrix of PTR-7 and PTR-9, restated independently of `permissions.ts`.
+ * The role/function matrix of PTR-7, PTR-9 and PTR-26, restated independently of
+ * `permissions.ts`.
  *
  * The duplication is deliberate: widening a role has to be written twice and can never be a
  * slip. `Record<Role, …>` covers completeness, so a new role fails `type:check` before it
  * reaches here.
  */
-const EXPECTED: Record<Role, { upload: boolean; event_request: boolean }> = {
-  attendee: { upload: false, event_request: false },
-  event_organiser: { upload: true, event_request: true },
-  event_coordinator: { upload: true, event_request: false },
-  venue_staff: { upload: true, event_request: false },
-  technical_support_staff: { upload: true, event_request: false },
+const EXPECTED: Record<
+  Role,
+  {
+    upload: boolean;
+    event_request: boolean;
+    venueRead: boolean;
+    venueCreate: boolean;
+    venueUpdate: boolean;
+  }
+> = {
+  attendee: {
+    upload: false,
+    event_request: false,
+    venueRead: false,
+    venueCreate: false,
+    venueUpdate: false,
+  },
+  event_organiser: {
+    upload: true,
+    event_request: true,
+    venueRead: false,
+    venueCreate: false,
+    venueUpdate: false,
+  },
+  event_coordinator: {
+    upload: true,
+    event_request: false,
+    venueRead: true,
+    venueCreate: false,
+    venueUpdate: false,
+  },
+  venue_staff: {
+    upload: true,
+    event_request: false,
+    venueRead: true,
+    venueCreate: true,
+    venueUpdate: true,
+  },
+  technical_support_staff: {
+    upload: true,
+    event_request: false,
+    venueRead: true,
+    venueCreate: false,
+    venueUpdate: false,
+  },
 };
 
-describe("role/function matrix (PTR-7, PTR-9)", () => {
+describe("role/function matrix (PTR-7, PTR-9, PTR-26)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
     expect(can(role, { upload: ["create"] })).toBe(EXPECTED[role].upload);
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
+    expect(can(role, { venue: ["read"] })).toBe(EXPECTED[role].venueRead);
+    expect(can(role, { venue: ["create"] })).toBe(EXPECTED[role].venueCreate);
+    expect(can(role, { venue: ["update"] })).toBe(EXPECTED[role].venueUpdate);
   });
 
   describe("fails closed", () => {
