@@ -72,11 +72,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     // Seed once, here, rather than per worker: the internal staff accounts (PTR-59) only
     // exist through the seed, and the venue flows (PTR-26) sign in as one of them. Idempotent,
     // so a database that is already seeded is left as it is.
-    try {
-      await seed(connectionUri);
-    } catch (err: unknown) {
-      console.warn("Seed warning in E2E setup:", err);
-    }
+    await seed(connectionUri);
   }
 
   return async () => {
