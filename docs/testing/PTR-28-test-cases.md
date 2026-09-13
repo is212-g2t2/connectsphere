@@ -10,7 +10,7 @@ This document specifies the tests for **PTR-28 — See when a venue is free** be
 **Created:** 12 September 2026
 **Prepared by:** Codex, for Yuhan Huang
 
-At document creation, all 19 cases were **Not Executed**. The original execution records below preserve that starting point. Subsequent results are appended in [the initial helper execution log](./PTR-28-execution-2026-09-12.md) and [the latest calendar UI and access-control execution log](./PTR-28-ui-execution-2026-09-12.md). Passing a unit portion or fixture-backed UI check does not establish that a complete database-backed case passes. Earlier environment and baseline test results do not establish that these story-specific cases pass.
+At document creation, all 19 cases were **Not Executed**. The original execution records below preserve that starting point. Run-specific execution logs and generated reports stay local and are ignored; durable review notes are maintained on [PTR-28 in Linear](https://linear.app/is212-petra/issue/PTR-28/see-when-a-venue-is-free). Passing a unit portion or fixture-backed UI check does not establish that a complete database-backed case passes. Earlier environment and baseline test results do not establish that these story-specific cases pass.
 
 ## How to use the records
 

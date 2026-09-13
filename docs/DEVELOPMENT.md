@@ -123,7 +123,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 
 ### Schema Locations
 
-- `src/db/schema.ts` — Application domain schemas. Re-exports the auth tables; holds `eventRequests` (PTR-9, PTR-10). Venue and equipment tables arrive with the stories that build them.
+- `src/db/schema.ts` — Application domain schemas. Re-exports the auth tables; holds `eventRequests` (PTR-9, PTR-10) and the venue catalogue (`venues`, `venue_unavailability`, PTR-26). The equipment tables arrive with the stories that build them.
 - `src/db/auth-schema.ts` — Better Auth schemas (`user` with `role`, `session`, `account`, `verification`).
 - `src/db/drizzle/` — Generated SQL migration files and metadata.
 
@@ -219,9 +219,9 @@ The read contract in `src/features/venues/calendar-data.ts` is implemented by th
 
 `tests/fixtures/ptr-28.ts` supplies deterministic data only to component tests, intercepted Playwright requests and fixture-backed booking assertions. Real-auth integration tests use isolated PostgreSQL; live browser coverage exercises the real venue and unavailability endpoints for Coordinator and Venue Staff, with unique accounts in the configured local database and cleanup limited to their own rows. Booking-aware AC3 remains deferred; fixture-backed booking tests are supplemental. Set `DATABASE_URL` explicitly before running the browser file. On Windows, put the native Bun executable on `PATH` if the npm shim cannot run Playwright's setup subprocesses.
 
-The branch includes PTR-26's generated venue migration coherently for isolated development. Reconciliation with newer `main`'s migration chain is a separate integration task and is not established by the fresh isolated database run; regenerate the combined migration after resolving that history rather than concatenating journals or hand-writing SQL.
+PTR-28 uses the venue schema and generated migration already supplied by PTR-26 on `main`; it adds no competing persistence schema or migration. Any future schema change must still be generated with `bun run db:generate` rather than by editing SQL or migration metadata.
 
-The [test specification](./testing/PTR-28-test-cases.md) and [latest execution log](./testing/PTR-28-ui-execution-2026-09-12.md) identify case IDs, fixture limitations, deferred checks and repeatable commands.
+The [test specification](./testing/PTR-28-test-cases.md) identifies stable case IDs, fixture limitations, deferred checks and repeatable commands. Generated runner output and run-specific execution logs stay local and are ignored; durable review notes belong on the PTR-28 issue.
 
 ---
 

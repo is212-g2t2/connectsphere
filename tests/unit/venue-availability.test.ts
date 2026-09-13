@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { projectAvailability, parseAvailabilityRequest } from "#/features/venues/availability";
+import { parseAvailabilityRequest, projectAvailability } from "#/routes/api/venue-availability";
 import { createPtr28Fixture, fixtureTime } from "../fixtures/ptr-28";
 
 describe("PTR-28 availability projection (pure unit coverage; no database or endpoint)", () => {

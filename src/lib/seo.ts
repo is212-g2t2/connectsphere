@@ -198,6 +198,7 @@ Allow: /
 Disallow: /dashboard
 Disallow: /settings
 Disallow: /event-requests
+Disallow: /venues
 Disallow: /api/
 
 Sitemap: ${baseUrl}/sitemap.xml

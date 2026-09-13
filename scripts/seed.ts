@@ -131,9 +131,16 @@ export const seedVenues: SeedVenue[] = [
 /**
  * Two future periods of unavailability (PTR-59 criterion 4) so the availability calendar
  * (PTR-28) has something to show that is not a booking. Keyed by venue name because venue ids
- * are assigned by the database. Fixed far-future dates rather than "today + n": the unique
- * period index is what makes re-runs idempotent, and a moving date would defeat it.
+ * are assigned by the database. Dates are relative to seed time, not fixed: "future" has to
+ * stay true whichever day the seed runs. `YYYY-MM-DD HH:MM:SS` is the `mode: "string"` shape
+ * the column reads back. Re-run idempotency is the per-venue existence check in `runSeed`
+ * rather than the unique period index, because a moving date never collides.
  */
+function futureDay(days: number, time = "00:00:00"): string {
+  const day = new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  return `${day} ${time}`;
+}
+
 export const seedVenueUnavailability: {
   venueName: string;
   startsAt: string;
@@ -142,14 +149,14 @@ export const seedVenueUnavailability: {
 }[] = [
   {
     venueName: "Harbour Hall",
-    startsAt: "2027-03-01 00:00:00",
-    endsAt: "2027-03-05 23:59:59",
+    startsAt: futureDay(30),
+    endsAt: futureDay(34, "23:59:59"),
     reason: "Annual floor resurfacing",
   },
   {
     venueName: "Seminar Room 2A",
-    startsAt: "2027-04-12 09:00:00",
-    endsAt: "2027-04-12 18:00:00",
+    startsAt: futureDay(45, "09:00:00"),
+    endsAt: futureDay(45, "18:00:00"),
     reason: "Internal staff training",
   },
 ];
@@ -192,23 +199,30 @@ export async function runSeed(database: Database): Promise<void> {
     );
   const venueIdByName = new Map(venueRows.map(row => [row.name, row.id]));
 
-  await database
-    .insert(schema.venueUnavailability)
-    .values(
-      seedVenueUnavailability.map(period => {
-        const venueId = venueIdByName.get(period.venueName);
-        if (venueId === undefined) {
-          throw new Error(`Seed venue "${period.venueName}" was not inserted`);
-        }
-        return {
-          venueId,
-          startsAt: period.startsAt,
-          endsAt: period.endsAt,
-          reason: period.reason,
-        };
-      })
-    )
-    .onConflictDoNothing();
+  const venuesWithPeriods = new Set(
+    (
+      await database
+        .select({ venueId: schema.venueUnavailability.venueId })
+        .from(schema.venueUnavailability)
+        .where(inArray(schema.venueUnavailability.venueId, [...venueIdByName.values()]))
+    ).map(row => row.venueId)
+  );
+
+  const missingPeriods = seedVenueUnavailability.flatMap(period => {
+    const venueId = venueIdByName.get(period.venueName);
+    if (venueId === undefined) {
+      throw new Error(`Seed venue "${period.venueName}" was not inserted`);
+    }
+    // Dates are relative to seed time, so a second run would insert twin rows rather than
+    // collide with the unique period index.
+    return venuesWithPeriods.has(venueId)
+      ? []
+      : [{ venueId, startsAt: period.startsAt, endsAt: period.endsAt, reason: period.reason }];
+  });
+
+  if (missingPeriods.length > 0) {
+    await database.insert(schema.venueUnavailability).values(missingPeriods).onConflictDoNothing();
+  }
 }
 
 /**

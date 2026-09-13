@@ -12,7 +12,6 @@ import {
 } from "drizzle-orm/pg-core";
 
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
-
 import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 
 import { user } from "./auth-schema";
@@ -81,7 +80,7 @@ export const venues = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
-      .$onUpdate(() => /* @__PURE__ */ new Date()),
+      .$onUpdate(() => sql`CURRENT_TIMESTAMP`),
   },
   table => [check("venues_max_capacity_positive", sql`${table.maxCapacity} > 0`)]
 );
@@ -90,7 +89,7 @@ export const venues = pgTable(
  * Recorded periods a venue cannot be requested for (maintenance, renovation, internal use).
  * v0.1 defers *managing* these (brief §9), so today the rows come from the seed (PTR-59
  * criterion 4) and are read by the availability calendar (PTR-28). The `mode: "string"`
- * timestamps match `event_requests` for the reason documented there.
+ * timestamps keep the `datetime-local` values round-tripping exactly.
  */
 export const venueUnavailability = pgTable(
   "venue_unavailability",

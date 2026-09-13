@@ -17,24 +17,36 @@ import type { Role } from "#/features/auth/schema/role";
 const statement = {
   upload: ["create"],
   event_request: ["create"],
+  venue: ["create", "update", "read"],
   venueAvailability: ["read"],
 } as const;
 
 const ac = createAccessControl(statement);
 
 /**
- * The availability page and both read endpoints enforce PTR-28's named roles. The live data
- * adapter still depends on the shared venue schema; other venue actions arrive with PTR-26.
+ * ponytail: the matrix covers only the functions that exist today. The equipment and
+ * coordination rows arrive with the stories that build them (PTR-8, PTR-38 and the rest).
+ *
+ * `venue` (PTR-26) is the first internal/external split: Venue Staff maintain the catalogue,
+ * the other two internal roles read it, and the external roles hold nothing. PTR-28 keeps its
+ * narrower calendar permission separate: only Event Coordinators and Venue Staff may read it.
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
   // an empty role authorizes nothing, which is the fail-closed default we want.
   attendee: ac.newRole({}),
   event_organiser: ac.newRole({ upload: ["create"], event_request: ["create"] }),
-  event_coordinator: ac.newRole({ upload: ["create"], venueAvailability: ["read"] }),
-  venue_staff: ac.newRole({ upload: ["create"], venueAvailability: ["read"] }),
-  // No new entitlement until Technical Support Staff access is confirmed for PTR-28.
-  technical_support_staff: ac.newRole({ upload: ["create"] }),
+  event_coordinator: ac.newRole({
+    upload: ["create"],
+    venue: ["read"],
+    venueAvailability: ["read"],
+  }),
+  venue_staff: ac.newRole({
+    upload: ["create"],
+    venue: ["create", "update", "read"],
+    venueAvailability: ["read"],
+  }),
+  technical_support_staff: ac.newRole({ upload: ["create"], venue: ["read"] }),
 };
 
 export type PermissionRequest = RoleAuthorizeRequest<typeof statement>;

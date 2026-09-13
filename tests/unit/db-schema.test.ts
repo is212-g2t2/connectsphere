@@ -13,6 +13,8 @@ import {
   userRelations,
   sessionRelations,
   accountRelations,
+  venues,
+  venueUnavailability,
 } from "#/db/schema";
 
 describe("Database Schema Definitions", () => {
@@ -22,6 +24,14 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(session).token.name).toBe("token");
     expect(getTableColumns(account).providerId.name).toBe("provider_id");
     expect(getTableColumns(verification).identifier.name).toBe("identifier");
+  });
+
+  it("defines the venue catalogue tables with their column names (PTR-26)", () => {
+    expect(getTableColumns(venues).maxCapacity.name).toBe("max_capacity");
+    expect(getTableColumns(venues).operatingHours.name).toBe("operating_hours");
+    expect(getTableColumns(venues).supportedLayouts.name).toBe("supported_layouts");
+    expect(getTableColumns(venueUnavailability).venueId.name).toBe("venue_id");
+    expect(getTableColumns(venueUnavailability).startsAt.name).toBe("starts_at");
   });
 
   it("defines relations between user, session, and account", () => {

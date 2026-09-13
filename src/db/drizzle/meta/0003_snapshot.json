@@ -1,6 +1,6 @@
 {
-  "id": "bee5b8fa-b6bb-46a7-a365-ba5f21c87f32",
-  "prevId": "227cc457-aeca-4930-8fc2-8672acba771e",
+  "id": "6e8c6eb6-736b-4e00-aabc-2720927a8526",
+  "prevId": "35b65846-a83a-4e98-a917-6ba742f98385",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -42,67 +42,23 @@
           "notNull": true,
           "default": "''"
         },
-        "proposed_dates": {
-          "name": "proposed_dates",
-          "type": "jsonb",
+        "proposed_start": {
+          "name": "proposed_start",
+          "type": "timestamp",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
+          "notNull": false
+        },
+        "proposed_end": {
+          "name": "proposed_end",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
         },
         "expected_attendance": {
           "name": "expected_attendance",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "event_type": {
-          "name": "event_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "venue_requirements": {
-          "name": "venue_requirements",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "room_layout_preference": {
-          "name": "room_layout_preference",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "accessibility_requirements": {
-          "name": "accessibility_requirements",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "equipment_requirements": {
-          "name": "equipment_requirements",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "special_arrangements": {
-          "name": "special_arrangements",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
         },
         "created_at": {
           "name": "created_at",
@@ -135,189 +91,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.venue_unavailability": {
-      "name": "venue_unavailability",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "venue_id": {
-          "name": "venue_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "starts_at": {
-          "name": "starts_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ends_at": {
-          "name": "ends_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "venue_unavailability_period_idx": {
-          "name": "venue_unavailability_period_idx",
-          "columns": [
-            {
-              "expression": "venue_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "starts_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "ends_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "venue_unavailability_venue_id_venues_id_fk": {
-          "name": "venue_unavailability_venue_id_venues_id_fk",
-          "tableFrom": "venue_unavailability",
-          "tableTo": "venues",
-          "columnsFrom": ["venue_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "venue_unavailability_ends_after_starts": {
-          "name": "venue_unavailability_ends_after_starts",
-          "value": "\"venue_unavailability\".\"ends_at\" > \"venue_unavailability\".\"starts_at\""
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.venues": {
-      "name": "venues",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "location": {
-          "name": "location",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "max_capacity": {
-          "name": "max_capacity",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "facilities": {
-          "name": "facilities",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'"
-        },
-        "accessibility_features": {
-          "name": "accessibility_features",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'"
-        },
-        "supported_layouts": {
-          "name": "supported_layouts",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'"
-        },
-        "operating_hours": {
-          "name": "operating_hours",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "venues_name_unique": {
-          "name": "venues_name_unique",
-          "nullsNotDistinct": false,
-          "columns": ["name"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "venues_max_capacity_positive": {
-          "name": "venues_max_capacity_positive",
-          "value": "\"venues\".\"max_capacity\" > 0"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.account": {

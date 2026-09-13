@@ -1,4 +1,4 @@
-import { projectAvailability } from "#/features/venues/availability";
+import { projectAvailability } from "#/routes/api/venue-availability";
 import type { CalendarSelection } from "#/features/venues/calendar-data";
 
 /** PTR28_BASE v1. UTC+08:00 and all-day opening are test conventions only. */
@@ -73,42 +73,42 @@ export function createPtr28Fixture() {
         id: "B01",
         venueId: "VA",
         eventId: "E01",
-        status: "approved",
+        status: "approved" as const,
         ...period(5, "10:00", "12:00"),
       },
       {
         id: "B02",
         venueId: "VA",
         eventId: "E02",
-        status: "approved",
+        status: "approved" as const,
         ...period(6, "14:00", "16:00"),
       },
       {
         id: "B03",
         venueId: "VA",
         eventId: "E03",
-        status: "approved",
+        status: "approved" as const,
         ...period(6, "23:00", "01:00", 7),
       },
       {
         id: "B04",
         venueId: "VB",
         eventId: "E04",
-        status: "approved",
+        status: "approved" as const,
         ...period(5, "09:00", "10:00"),
       },
       {
         id: "B05",
         venueId: "VA",
         eventId: "E05",
-        status: "approved",
+        status: "approved" as const,
         ...period(12, "10:00", "12:00"),
       },
       {
         id: "P01",
         venueId: "VA",
         eventId: "E06",
-        status: "pending",
+        status: "pending" as const,
         ...period(5, "16:00", "17:00"),
       },
     ],

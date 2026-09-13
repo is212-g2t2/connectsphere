@@ -72,6 +72,12 @@ function DashboardPage() {
           </Link>
         )}
 
+        {can(user.role, { venue: ["read"] }) && (
+          <Link to="/venues" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
+            Venues
+          </Link>
+        )}
+
         {can(user.role, { venueAvailability: ["read"] }) && (
           <section className="mt-8">
             <Link to="/venues/availability" className={cn("w-fit", NAV_LINK_CLASSNAME)}>

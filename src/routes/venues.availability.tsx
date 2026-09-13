@@ -26,7 +26,7 @@ function VenueAvailabilityPage() {
       </Link>
       {canViewAvailability ? (
         <>
-          <h1 className="mt-6 text-3xl font-semibold">Venue availability</h1>
+          <h1 className="mt-6 font-semibold">Venue availability</h1>
           <p className="mt-3 max-w-2xl text-muted-foreground">
             Check when a venue is free and see the periods already reserved or blocked.
           </p>
@@ -34,7 +34,7 @@ function VenueAvailabilityPage() {
         </>
       ) : (
         <>
-          <h1 className="mt-6 text-3xl font-semibold">Access denied</h1>
+          <h1 className="mt-6 font-semibold">Access denied</h1>
           <p className="mt-3 text-muted-foreground">
             Your account does not have access to venue availability.
           </p>
