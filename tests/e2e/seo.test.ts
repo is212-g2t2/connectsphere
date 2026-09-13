@@ -121,6 +121,7 @@ test.describe("SEO and Metadata", () => {
     expect(text).toContain("Allow: /");
     expect(text).toContain("Disallow: /dashboard");
     expect(text).toContain("Disallow: /settings");
+    expect(text).toContain("Disallow: /event-requests");
     expect(text).not.toContain("/verify-otp");
     expect(text).toContain("Disallow: /api/");
     expect(text).toContain("Sitemap:");

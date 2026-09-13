@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ATTENDANCE_MAX,
+  ATTENDANCE_MAX_MESSAGE,
   ATTENDANCE_MESSAGE,
   END_BEFORE_START_MESSAGE,
   EVENT_NAME_MAX_LENGTH,
@@ -86,6 +88,22 @@ describe("EventRequestDraftInput", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.issues[0].message).toBe(ATTENDANCE_MESSAGE);
+  });
+
+  it("refuses an expected attendance above the Postgres integer range", () => {
+    const result = EventRequestDraftInput.safeParse({ expectedAttendance: ATTENDANCE_MAX + 1 });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ["expectedAttendance"],
+      message: ATTENDANCE_MAX_MESSAGE,
+    });
+  });
+
+  it("accepts an expected attendance at the range limit", () => {
+    expect(EventRequestDraftInput.parse({ expectedAttendance: ATTENDANCE_MAX })).toMatchObject({
+      expectedAttendance: ATTENDANCE_MAX,
+    });
   });
 
   it("refuses free text longer than the column is meant to hold", () => {

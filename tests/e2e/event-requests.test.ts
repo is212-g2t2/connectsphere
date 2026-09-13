@@ -37,6 +37,33 @@ test.describe("Event request drafts", () => {
     await expect(page.getByText("Draft saved.")).toBeVisible();
   });
 
+  test("shows the refusal instead of a saved draft when the session ends mid-sitting", async ({
+    page,
+    context,
+  }) => {
+    await signUp(page, "event_organiser");
+
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("link", { name: "Event requests", exact: true }).click();
+
+    await page.getByLabel("Event name", { exact: true }).fill("Community workshop");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+
+    // Sign out from another tab, so this page keeps its held draft id but loses the session;
+    // the next in-app save comes back refused and must not read as a save.
+    const otherTab = await context.newPage();
+    await otherTab.goto("/dashboard");
+    await otherTab.getByRole("button", { name: "Sign out" }).click();
+    await otherTab.waitForURL("/");
+    await otherTab.close();
+
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByRole("alert")).toContainText("Unauthorized");
+    await expect(page.getByText("Draft saved.")).toHaveCount(0);
+  });
+
   test("refuses an attendee the page and the dashboard link", async ({ page }) => {
     await signUp(page);
 

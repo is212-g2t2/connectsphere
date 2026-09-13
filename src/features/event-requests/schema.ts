@@ -11,6 +11,9 @@ const INVALID_DATE_TIME_MESSAGE = "Enter a valid proposed date and time";
 export const END_BEFORE_START_MESSAGE =
   "The proposed end date and time must be later than the start";
 export const ATTENDANCE_MESSAGE = "Expected attendance must be a positive whole number";
+/** The `expected_attendance` column is a Postgres `integer`; above this the insert would fail. */
+export const ATTENDANCE_MAX = 2_147_483_647;
+export const ATTENDANCE_MAX_MESSAGE = `Expected attendance must be ${ATTENDANCE_MAX} or fewer`;
 
 export const EVENT_NAME_MAX_LENGTH = 200;
 export const PURPOSE_MAX_LENGTH = 2000;
@@ -47,6 +50,7 @@ export const EventRequestDraftInput = z
       .number({ error: ATTENDANCE_MESSAGE })
       .int(ATTENDANCE_MESSAGE)
       .positive(ATTENDANCE_MESSAGE)
+      .max(ATTENDANCE_MAX, ATTENDANCE_MAX_MESSAGE)
       .optional(),
   })
   .refine(

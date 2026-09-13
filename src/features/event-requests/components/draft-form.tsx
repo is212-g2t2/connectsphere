@@ -5,7 +5,7 @@ import { Button } from "#/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { Textarea } from "#/components/ui/textarea";
-import { EventRequestDraftInput } from "#/features/event-requests/schema";
+import { ATTENDANCE_MAX, EventRequestDraftInput } from "#/features/event-requests/schema";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 
 interface DraftFormValues {
@@ -183,6 +183,7 @@ export function EventRequestDraftForm({
                 id="expectedAttendance"
                 type="number"
                 min="1"
+                max={ATTENDANCE_MAX}
                 step="1"
                 value={field.state.value}
                 onChange={e => field.handleChange(e.target.value)}

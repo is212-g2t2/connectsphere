@@ -87,6 +87,22 @@ describe("EventRequestDraftForm", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
+  it("refuses an expected attendance above the Postgres integer range", async () => {
+    const user = userEvent.setup();
+    const onSave = vi
+      .fn<(values: EventRequestDraftValues) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    render(<EventRequestDraftForm onSave={onSave} />);
+
+    fill("Expected attendance", "2147483648");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain("2147483647 or fewer");
+    });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it("shows the server refusal instead of a saved draft", async () => {
     const user = userEvent.setup();
     const onSave = vi

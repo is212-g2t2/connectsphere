@@ -197,6 +197,7 @@ export function generateRobotsTxt(explicitBaseUrl?: string): string {
 Allow: /
 Disallow: /dashboard
 Disallow: /settings
+Disallow: /event-requests
 Disallow: /api/
 
 Sitemap: ${baseUrl}/sitemap.xml

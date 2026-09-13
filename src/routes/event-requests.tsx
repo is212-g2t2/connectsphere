@@ -53,8 +53,29 @@ function EventRequestsPage() {
         <EventRequestDraftForm
           onSave={async values => {
             setSaved(false);
-            const request = await saveEventRequestDraft({ data: { ...values, id: draftId } });
-            setDraftId(request.id);
+            // A handler-thrown `Response` resolves rather than rejects on the in-app client (the
+            // server stamps it `x-tss-raw`, and `serverFnFetcher` returns it before its
+            // `!response.ok` check), so the refusal has to be turned back into a rejection here.
+            // It arrives as `unknown` because `Response.status` (a number) conflicts with the
+            // row's own `status`, and TypeScript collapses that union to `never`.
+            const result: unknown = await saveEventRequestDraft({
+              data: { ...values, id: draftId },
+            });
+
+            if (result instanceof Response) {
+              throw new Error((await result.text()) || "Could not save this draft. Try again.");
+            }
+
+            if (
+              typeof result !== "object" ||
+              result === null ||
+              !("id" in result) ||
+              typeof result.id !== "number"
+            ) {
+              throw new Error("Could not save this draft. Try again.");
+            }
+
+            setDraftId(result.id);
             setSaved(true);
           }}
         />
