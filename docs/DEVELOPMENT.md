@@ -238,7 +238,7 @@ bun run prepare # reinstalls hooks if needed
 
 Server functions created with `createServerFn` (TanStack Start) are imported by client routes. TanStack Start strips the `.handler(...)` bodies from client builds, but preserves all other code in the module.
 
-- **Avoid module-level server imports**: Never import server-only dependencies (`#/db`, `"bun"`) at the top level if any exported helper references them (e.g. as a default parameter like `database = db`). This prevents Dead Code Elimination (DCE) and leaks server code into client bundles.
+- **Avoid module-level server imports**: Never statically import server-only dependencies (`#/db`, `#/db/schema`, `"bun"`) at the top level in a module a client route can reach — the import alone is enough, even with no exported helper referencing it. Drizzle builds its tables with `pgTable()` at module scope, so a bundler cannot prove the module side-effect free and retains it whole. `tests/unit/client-bundle-safety.test.ts` catches imports like `#/db/schema` that do not fail `bun run build`.
 - **Use dynamic imports inside handlers**:
   ```ts
   const { db } = await import("#/db");
