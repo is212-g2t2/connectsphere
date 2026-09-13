@@ -16,21 +16,23 @@ import type { Role } from "#/features/auth/schema/role";
  */
 const statement = {
   upload: ["create"],
+  venueAvailability: ["read"],
 } as const;
 
 const ac = createAccessControl(statement);
 
 /**
- * ponytail: the matrix covers only the functions that exist today. The venue, equipment and
- * coordination rows arrive with the stories that build them (PTR-26, PTR-8 and the rest).
+ * The availability page and both read endpoints enforce PTR-28's named roles. The live data
+ * adapter still depends on the shared venue schema; other venue actions arrive with PTR-26.
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
   // an empty role authorizes nothing, which is the fail-closed default we want.
   attendee: ac.newRole({}),
   event_organiser: ac.newRole({ upload: ["create"] }),
-  event_coordinator: ac.newRole({ upload: ["create"] }),
-  venue_staff: ac.newRole({ upload: ["create"] }),
+  event_coordinator: ac.newRole({ upload: ["create"], venueAvailability: ["read"] }),
+  venue_staff: ac.newRole({ upload: ["create"], venueAvailability: ["read"] }),
+  // No new entitlement until Technical Support Staff access is confirmed for PTR-28.
   technical_support_staff: ac.newRole({ upload: ["create"] }),
 };
 

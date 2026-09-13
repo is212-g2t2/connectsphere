@@ -65,6 +65,17 @@ function DashboardPage() {
           </div>
         </dl>
 
+        {can(user.role, { venueAvailability: ["read"] }) && (
+          <section className="mt-8">
+            <Link to="/venues/availability" className="font-medium underline underline-offset-4">
+              Venue availability
+            </Link>
+            <p className="mt-2 text-sm text-muted-foreground">
+              View available, confirmed and blocked periods for a venue.
+            </p>
+          </section>
+        )}
+
         {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
 
         <div className="mt-12 border-t border-border pt-6">
