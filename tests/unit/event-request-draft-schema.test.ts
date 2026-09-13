@@ -1,17 +1,31 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH,
+  ACCESSIBILITY_REQUIREMENTS_MESSAGE,
   ATTENDANCE_MAX,
   ATTENDANCE_MAX_MESSAGE,
   ATTENDANCE_MESSAGE,
+  DESCRIPTION_MAX_LENGTH,
+  DESCRIPTION_MESSAGE,
   END_BEFORE_START_MESSAGE,
   EQUIPMENT_QUANTITY_MESSAGE,
+  EQUIPMENT_TYPE_MAX_LENGTH,
+  EQUIPMENT_TYPE_MESSAGE,
   EVENT_NAME_MAX_LENGTH,
   EVENT_NAME_MESSAGE,
+  EVENT_TYPE_MAX_LENGTH,
+  EVENT_TYPE_MESSAGE,
   EventRequestDraftFormInput,
   EventRequestDraftInput,
   PURPOSE_MAX_LENGTH,
   PURPOSE_MESSAGE,
+  ROOM_LAYOUT_PREFERENCE_MAX_LENGTH,
+  ROOM_LAYOUT_PREFERENCE_MESSAGE,
+  SPECIAL_ARRANGEMENTS_MAX_LENGTH,
+  SPECIAL_ARRANGEMENTS_MESSAGE,
+  VENUE_REQUIREMENTS_MAX_LENGTH,
+  VENUE_REQUIREMENTS_MESSAGE,
   missingRequiredFields,
   parseDraftInput,
 } from "#/features/event-requests/schema";
@@ -133,15 +147,12 @@ describe("EventRequestDraftInput", () => {
     expect(EventRequestDraftInput.parse({ proposedDates }).proposedDates).toEqual(proposedDates);
   });
 
-  it.each([0, -1, 2.5, NaN, Infinity, 2_147_483_648])(
-    "refuses an expected attendance of %s",
-    value => {
-      const result = EventRequestDraftInput.safeParse({ expectedAttendance: value });
+  it.each([0, -1, 2.5, NaN, Infinity])("refuses an expected attendance of %s", value => {
+    const result = EventRequestDraftInput.safeParse({ expectedAttendance: value });
 
-      expect(result.success).toBe(false);
-      expect(result.error?.issues[0].message).toBe(ATTENDANCE_MESSAGE);
-    }
-  );
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].message).toBe(ATTENDANCE_MESSAGE);
+  });
 
   it.each([1, 2_147_483_647])("accepts a positive whole attendance of %s", value => {
     expect(EventRequestDraftInput.parse({ expectedAttendance: value }).expectedAttendance).toBe(
@@ -197,27 +208,80 @@ describe("EventRequestDraftInput", () => {
   });
 
   it("refuses free text longer than the column is meant to hold", () => {
-    const longName = EventRequestDraftInput.safeParse({
-      eventName: "a".repeat(EVENT_NAME_MAX_LENGTH + 1),
-    });
-    expect(longName.success).toBe(false);
-    expect(longName.error?.issues[0].message).toBe(EVENT_NAME_MESSAGE);
+    const cases = [
+      {
+        field: "eventName",
+        value: "a".repeat(EVENT_NAME_MAX_LENGTH + 1),
+        message: EVENT_NAME_MESSAGE,
+      },
+      { field: "purpose", value: "a".repeat(PURPOSE_MAX_LENGTH + 1), message: PURPOSE_MESSAGE },
+      {
+        field: "description",
+        value: "a".repeat(DESCRIPTION_MAX_LENGTH + 1),
+        message: DESCRIPTION_MESSAGE,
+      },
+      {
+        field: "eventType",
+        value: "a".repeat(EVENT_TYPE_MAX_LENGTH + 1),
+        message: EVENT_TYPE_MESSAGE,
+      },
+      {
+        field: "venueRequirements",
+        value: "a".repeat(VENUE_REQUIREMENTS_MAX_LENGTH + 1),
+        message: VENUE_REQUIREMENTS_MESSAGE,
+      },
+      {
+        field: "roomLayoutPreference",
+        value: "a".repeat(ROOM_LAYOUT_PREFERENCE_MAX_LENGTH + 1),
+        message: ROOM_LAYOUT_PREFERENCE_MESSAGE,
+      },
+      {
+        field: "accessibilityRequirements",
+        value: "a".repeat(ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH + 1),
+        message: ACCESSIBILITY_REQUIREMENTS_MESSAGE,
+      },
+      {
+        field: "specialArrangements",
+        value: "a".repeat(SPECIAL_ARRANGEMENTS_MAX_LENGTH + 1),
+        message: SPECIAL_ARRANGEMENTS_MESSAGE,
+      },
+    ];
 
-    const longPurpose = EventRequestDraftInput.safeParse({
-      purpose: "a".repeat(PURPOSE_MAX_LENGTH + 1),
+    for (const { field, value, message } of cases) {
+      const result = EventRequestDraftInput.safeParse({ [field]: value });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0].message).toBe(message);
+    }
+
+    const longEquipment = EventRequestDraftInput.safeParse({
+      equipmentRequirements: [{ type: "a".repeat(EQUIPMENT_TYPE_MAX_LENGTH + 1) }],
     });
-    expect(longPurpose.success).toBe(false);
-    expect(longPurpose.error?.issues[0].message).toBe(PURPOSE_MESSAGE);
+    expect(longEquipment.success).toBe(false);
+    expect(longEquipment.error?.issues[0].message).toBe(EQUIPMENT_TYPE_MESSAGE);
   });
 
   it("accepts free text right up to the limit", () => {
     const parsed = EventRequestDraftInput.parse({
       eventName: "a".repeat(EVENT_NAME_MAX_LENGTH),
       purpose: "b".repeat(PURPOSE_MAX_LENGTH),
+      description: "c".repeat(DESCRIPTION_MAX_LENGTH),
+      eventType: "d".repeat(EVENT_TYPE_MAX_LENGTH),
+      venueRequirements: "e".repeat(VENUE_REQUIREMENTS_MAX_LENGTH),
+      roomLayoutPreference: "f".repeat(ROOM_LAYOUT_PREFERENCE_MAX_LENGTH),
+      accessibilityRequirements: "g".repeat(ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH),
+      specialArrangements: "h".repeat(SPECIAL_ARRANGEMENTS_MAX_LENGTH),
+      equipmentRequirements: [{ type: "i".repeat(EQUIPMENT_TYPE_MAX_LENGTH), quantity: 1 }],
     });
 
     expect(parsed.eventName).toHaveLength(EVENT_NAME_MAX_LENGTH);
     expect(parsed.purpose).toHaveLength(PURPOSE_MAX_LENGTH);
+    expect(parsed.description).toHaveLength(DESCRIPTION_MAX_LENGTH);
+    expect(parsed.eventType).toHaveLength(EVENT_TYPE_MAX_LENGTH);
+    expect(parsed.venueRequirements).toHaveLength(VENUE_REQUIREMENTS_MAX_LENGTH);
+    expect(parsed.roomLayoutPreference).toHaveLength(ROOM_LAYOUT_PREFERENCE_MAX_LENGTH);
+    expect(parsed.accessibilityRequirements).toHaveLength(ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH);
+    expect(parsed.specialArrangements).toHaveLength(SPECIAL_ARRANGEMENTS_MAX_LENGTH);
+    expect(parsed.equipmentRequirements[0].type).toHaveLength(EQUIPMENT_TYPE_MAX_LENGTH);
   });
 
   it("carries the id of a draft already saved this sitting", () => {
@@ -299,6 +363,19 @@ describe("EventRequestDraftFormInput", () => {
     expect(result.error?.issues[0]).toMatchObject({
       path: ["equipmentRequirements", 0, "quantity"],
       message: EQUIPMENT_QUANTITY_MESSAGE,
+    });
+  });
+
+  it("reports over-long free text at its field", () => {
+    const result = EventRequestDraftFormInput.safeParse({
+      ...BLANK_FORM,
+      description: "a".repeat(DESCRIPTION_MAX_LENGTH + 1),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ["description"],
+      message: DESCRIPTION_MESSAGE,
     });
   });
 });

@@ -12,17 +12,31 @@ export const END_BEFORE_START_MESSAGE =
   "The proposed end date and time must be later than the start";
 export const ATTENDANCE_MESSAGE = "Expected attendance must be a positive whole number";
 export const EQUIPMENT_QUANTITY_MESSAGE = "Equipment quantity must be a positive whole number";
-/** The `expected_attendance` column is a Postgres `integer`; above this the insert would fail. */
-export const ATTENDANCE_MAX = 2_147_483_647;
+/** Postgres `integer` is int4: anything larger fails at the driver, so the schema stops it first. */
+const MAX_INTEGER = 2_147_483_647;
+
+export const ATTENDANCE_MAX = MAX_INTEGER;
 export const ATTENDANCE_MAX_MESSAGE = `Expected attendance must be ${ATTENDANCE_MAX} or fewer`;
 
 export const EVENT_NAME_MAX_LENGTH = 200;
 export const PURPOSE_MAX_LENGTH = 2000;
+export const DESCRIPTION_MAX_LENGTH = 2000;
+export const EVENT_TYPE_MAX_LENGTH = 200;
+export const VENUE_REQUIREMENTS_MAX_LENGTH = 2000;
+export const ROOM_LAYOUT_PREFERENCE_MAX_LENGTH = 2000;
+export const ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH = 2000;
+export const SPECIAL_ARRANGEMENTS_MAX_LENGTH = 2000;
+export const EQUIPMENT_TYPE_MAX_LENGTH = 200;
+
 export const EVENT_NAME_MESSAGE = `Event name must be ${EVENT_NAME_MAX_LENGTH} characters or fewer`;
 export const PURPOSE_MESSAGE = `Purpose must be ${PURPOSE_MAX_LENGTH} characters or fewer`;
-
-/** Postgres `integer` is int4: anything larger fails at the driver, so the schema stops it first. */
-const MAX_INTEGER = 2_147_483_647;
+export const DESCRIPTION_MESSAGE = `Description must be ${DESCRIPTION_MAX_LENGTH} characters or fewer`;
+export const EVENT_TYPE_MESSAGE = `Event type must be ${EVENT_TYPE_MAX_LENGTH} characters or fewer`;
+export const VENUE_REQUIREMENTS_MESSAGE = `Venue requirements must be ${VENUE_REQUIREMENTS_MAX_LENGTH} characters or fewer`;
+export const ROOM_LAYOUT_PREFERENCE_MESSAGE = `Room-layout preference must be ${ROOM_LAYOUT_PREFERENCE_MAX_LENGTH} characters or fewer`;
+export const ACCESSIBILITY_REQUIREMENTS_MESSAGE = `Accessibility requirements must be ${ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH} characters or fewer`;
+export const SPECIAL_ARRANGEMENTS_MESSAGE = `Special arrangements must be ${SPECIAL_ARRANGEMENTS_MAX_LENGTH} characters or fewer`;
+export const EQUIPMENT_TYPE_MESSAGE = `Equipment type must be ${EQUIPMENT_TYPE_MAX_LENGTH} characters or fewer`;
 
 const LocalDateTime = z.iso
   .datetime({ local: true, error: INVALID_DATE_TIME_MESSAGE })
@@ -66,7 +80,7 @@ const PositiveWholeNumber = (message: string) =>
  * request whose equipment lines are incomplete.
  */
 const EquipmentRequirement = z.object({
-  type: z.string().default(""),
+  type: z.string().max(EQUIPMENT_TYPE_MAX_LENGTH, EQUIPMENT_TYPE_MESSAGE).default(""),
   quantity: PositiveWholeNumber(EQUIPMENT_QUANTITY_MESSAGE).optional(),
 });
 
@@ -79,14 +93,31 @@ export const EventRequestDraftInput = z.object({
   eventName: z.string().max(EVENT_NAME_MAX_LENGTH, EVENT_NAME_MESSAGE).default(""),
   purpose: z.string().max(PURPOSE_MAX_LENGTH, PURPOSE_MESSAGE).default(""),
   proposedDates: z.array(ProposedDate).default([]),
-  expectedAttendance: PositiveWholeNumber(ATTENDANCE_MESSAGE).optional(),
-  description: z.string().default(""),
-  eventType: z.string().default(""),
-  venueRequirements: z.string().default(""),
-  roomLayoutPreference: z.string().default(""),
-  accessibilityRequirements: z.string().default(""),
+  expectedAttendance: z
+    .number({ error: ATTENDANCE_MESSAGE })
+    .int(ATTENDANCE_MESSAGE)
+    .positive(ATTENDANCE_MESSAGE)
+    .max(ATTENDANCE_MAX, ATTENDANCE_MAX_MESSAGE)
+    .optional(),
+  description: z.string().max(DESCRIPTION_MAX_LENGTH, DESCRIPTION_MESSAGE).default(""),
+  eventType: z.string().max(EVENT_TYPE_MAX_LENGTH, EVENT_TYPE_MESSAGE).default(""),
+  venueRequirements: z
+    .string()
+    .max(VENUE_REQUIREMENTS_MAX_LENGTH, VENUE_REQUIREMENTS_MESSAGE)
+    .default(""),
+  roomLayoutPreference: z
+    .string()
+    .max(ROOM_LAYOUT_PREFERENCE_MAX_LENGTH, ROOM_LAYOUT_PREFERENCE_MESSAGE)
+    .default(""),
+  accessibilityRequirements: z
+    .string()
+    .max(ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH, ACCESSIBILITY_REQUIREMENTS_MESSAGE)
+    .default(""),
   equipmentRequirements: z.array(EquipmentRequirement).default([]),
-  specialArrangements: z.string().default(""),
+  specialArrangements: z
+    .string()
+    .max(SPECIAL_ARRANGEMENTS_MAX_LENGTH, SPECIAL_ARRANGEMENTS_MESSAGE)
+    .default(""),
 });
 
 export type EventRequestDraftValues = z.infer<typeof EventRequestDraftInput>;
