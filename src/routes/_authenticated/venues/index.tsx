@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
+import { unwrapRefusal } from "#/features/auth/session";
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
 import { listVenues } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
@@ -12,13 +13,7 @@ export const Route = createFileRoute("/_authenticated/venues/")({
       throw redirect({ to: "/dashboard" });
     }
   },
-  loader: async () => {
-    const venues = await listVenues();
-    if (venues instanceof Response) {
-      throw new Error((await venues.text()) || "Could not load venues. Try again.");
-    }
-    return venues;
-  },
+  loader: async () => unwrapRefusal(await listVenues(), "Could not load venues. Try again."),
   component: () => (
     <VenueListPage user={Route.useRouteContext().user} venues={Route.useLoaderData()} />
   ),

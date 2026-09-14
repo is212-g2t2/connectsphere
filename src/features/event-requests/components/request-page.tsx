@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { unwrapRefusal } from "#/features/auth/session";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import { saveEventRequestDraft } from "#/features/event-requests/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -31,29 +32,12 @@ export function EventRequestsPage() {
         <EventRequestForm
           onSave={async values => {
             setSaved(false);
-            // A handler-thrown `Response` resolves rather than rejects on the in-app client (the
-            // server stamps it `x-tss-raw`, and `serverFnFetcher` returns it before its
-            // `!response.ok` check), so the refusal has to be turned back into a rejection here.
-            // It arrives as `unknown` because `Response.status` (a number) conflicts with the
-            // row's own `status`, and TypeScript collapses that union to `never`.
-            const result: unknown = await saveEventRequestDraft({
-              data: { ...values, id: draftId },
-            });
+            const draft = await unwrapRefusal(
+              await saveEventRequestDraft({ data: { ...values, id: draftId } }),
+              "Could not save this draft. Try again."
+            );
 
-            if (result instanceof Response) {
-              throw new Error((await result.text()) || "Could not save this draft. Try again.");
-            }
-
-            if (
-              typeof result !== "object" ||
-              result === null ||
-              !("id" in result) ||
-              typeof result.id !== "number"
-            ) {
-              throw new Error("Could not save this draft. Try again.");
-            }
-
-            setDraftId(result.id);
+            setDraftId(draft.id);
             setSaved(true);
           }}
         />

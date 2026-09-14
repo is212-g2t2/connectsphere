@@ -2,6 +2,7 @@ import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { can } from "#/features/auth/permissions";
+import { unwrapRefusal } from "#/features/auth/session";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
 import { VenueIdInput } from "#/features/venues/schema";
 import { getVenue } from "#/features/venues/server-fns";
@@ -26,11 +27,10 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
     if (!parsed.success) {
       throw notFound();
     }
-    const result = await getVenue({ data: parsed.data });
-    if (result instanceof Response) {
-      throw new Error((await result.text()) || "Could not load this venue. Try again.");
-    }
-    const { venue } = result;
+    const { venue } = await unwrapRefusal(
+      await getVenue({ data: parsed.data }),
+      "Could not load this venue. Try again."
+    );
     if (!venue) {
       throw notFound();
     }

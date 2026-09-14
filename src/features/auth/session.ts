@@ -113,6 +113,19 @@ export const listAccounts = createServerFn({ method: "GET" })
   });
 
 /**
+ * The client half of the refusal protocol `withSession` describes: a refused server function
+ * resolves with its `Response`, so its body is rethrown as an `Error` here and the route's error
+ * boundary sees it; `fallbackMessage` covers an empty body.
+ */
+export async function unwrapRefusal<T>(result: T | Response, fallbackMessage: string): Promise<T> {
+  if (result instanceof Response) {
+    throw new Error((await result.text()) || fallbackMessage);
+  }
+
+  return result;
+}
+
+/**
  * The refusal a handler still throws on its own — the row exists but belongs to someone else
  * (event-request drafts are scoped to their organiser). A plain `Error` on purpose, not a
  * `Response`: it is thrown from a pure `handle*` function that integration tests call directly,

@@ -2,6 +2,7 @@ import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { can } from "#/features/auth/permissions";
+import { unwrapRefusal } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";
@@ -77,10 +78,10 @@ export function VenueDetailPage({
               // implicit live region, and re-announcing a repeat save needs the node to go
               // away and come back, not merely to hold the same words.
               setSaved(false);
-              const result = await saveVenue({ data: { ...values, id: venue.id } });
-              if (result instanceof Response) {
-                throw new Error((await result.text()) || "Could not save this venue. Try again.");
-              }
+              await unwrapRefusal(
+                await saveVenue({ data: { ...values, id: venue.id } }),
+                "Could not save this venue. Try again."
+              );
               // The loader is the only source for the row. Invalidating re-runs it, which
               // replaces `venue` with the saved values and bumps `updatedAt` (the column is
               // `$onUpdate`), so the key above changes and the banner arrives together with
