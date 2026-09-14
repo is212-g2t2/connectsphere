@@ -28,7 +28,7 @@ function VenueAvailabilityPage() {
         <>
           <h1 className="mt-6 font-semibold">Venue availability</h1>
           <p className="mt-3 max-w-2xl text-muted-foreground">
-            Check when a venue is free and see the periods already reserved or blocked.
+            Check when a venue is free and see its available and blocked periods.
           </p>
           <AvailabilityCalendar />
         </>

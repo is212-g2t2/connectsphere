@@ -29,13 +29,17 @@ const ac = createAccessControl(statement);
  *
  * `venue` (PTR-26) is the first internal/external split: Venue Staff maintain the catalogue,
  * the other two internal roles read it, and the external roles hold nothing. PTR-28 keeps its
- * narrower calendar permission separate: only Event Coordinators and Venue Staff may read it.
+ * narrower calendar permission separate: internal staff with a read-only operational role may
+ * read it; no role receives a calendar write capability.
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
   // an empty role authorizes nothing, which is the fail-closed default we want.
   attendee: ac.newRole({}),
-  event_organiser: ac.newRole({ upload: ["create"], event_request: ["create"] }),
+  event_organiser: ac.newRole({
+    upload: ["create"],
+    event_request: ["create"],
+  }),
   event_coordinator: ac.newRole({
     upload: ["create"],
     venue: ["read"],
@@ -46,7 +50,11 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
     venue: ["create", "update", "read"],
     venueAvailability: ["read"],
   }),
-  technical_support_staff: ac.newRole({ upload: ["create"], venue: ["read"] }),
+  technical_support_staff: ac.newRole({
+    upload: ["create"],
+    venue: ["read"],
+    venueAvailability: ["read"],
+  }),
 };
 
 export type PermissionRequest = RoleAuthorizeRequest<typeof statement>;

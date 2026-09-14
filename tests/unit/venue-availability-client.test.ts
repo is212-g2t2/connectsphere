@@ -1,23 +1,44 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { calendarSource, CalendarRequestError } from "#/features/venues/calendar-data";
+import {
+  CalendarRequestError,
+  listCalendarVenues,
+  readCalendar,
+} from "#/features/venues/calendar-data";
+import type { CalendarSelection } from "#/features/venues/calendar-data";
+import type * as ServerFnsModule from "#/features/venues/server-fns";
 import { createPtr28CalendarSource } from "../fixtures/ptr-28";
 
-afterEach(() => vi.unstubAllGlobals());
-const selection = { venueId: "VA", startDate: "2026-10-05", endDate: "2026-10-07" };
-type FetchCall = (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
+const serverFns = vi.hoisted(() => ({
+  listVenues: vi.fn<() => Promise<unknown>>(),
+  getVenueAvailability: vi.fn<(input: { data: CalendarSelection }) => Promise<unknown>>(),
+}));
+vi.mock("#/features/venues/server-fns", async importOriginal => ({
+  ...(await importOriginal<typeof ServerFnsModule>()),
+  ...serverFns,
+}));
 
-describe("PTR-28 HTTP data boundary", () => {
-  it("[PTR-28-TC19][AC1][AC2] propagates server failure instead of fabricating empty data", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<FetchCall>(async () => Response.json({ error: "private detail" }, { status: 503 }))
-    );
-    await expect(calendarSource.read(selection, new AbortController().signal)).rejects.toEqual(
-      new CalendarRequestError(503)
-    );
+const selection = { venueId: "VA", startDate: "2026-10-05", endDate: "2026-10-07" };
+
+afterEach(() => vi.clearAllMocks());
+
+describe("PTR-28 server-function data boundary", () => {
+  it("reuses listVenues and keeps only the calendar fields", async () => {
+    serverFns.listVenues.mockResolvedValue([
+      { id: 42, name: "Test Hall A", location: "not part of the calendar contract" },
+    ]);
+
+    await expect(listCalendarVenues()).resolves.toEqual([{ id: "42", name: "Test Hall A" }]);
+    expect(serverFns.listVenues).toHaveBeenCalledOnce();
   });
+
+  it("propagates a status response without fabricating empty data", async () => {
+    serverFns.getVenueAvailability.mockResolvedValue(new Response("Unavailable", { status: 503 }));
+
+    await expect(readCalendar(selection)).rejects.toEqual(new CalendarRequestError(503));
+  });
+
   it.each(["wrong venue", "wrong dates", "invalid timezone", "invalid interval"])(
-    "[PTR-28-TC19][AC1][AC2] rejects a successful HTTP response with %s",
+    "rejects a successful server-function result with %s",
     async variant => {
       const data = await createPtr28CalendarSource().read(selection);
       const changed =
@@ -29,72 +50,27 @@ describe("PTR-28 HTTP data boundary", () => {
               ? { ...data, timeZone: "Unknown/Zone" }
               : {
                   ...data,
-                  available: [{ startsAt: "2026-10-05T12:00:00Z", endsAt: "2026-10-05T10:00:00Z" }],
+                  available: [{ startsAt: "2026-10-05T12:00:00", endsAt: "2026-10-05T10:00:00" }],
                 };
-      vi.stubGlobal(
-        "fetch",
-        vi.fn<FetchCall>(async () => Response.json(changed))
-      );
-      await expect(calendarSource.read(selection, new AbortController().signal)).rejects.toThrow(
-        "Invalid availability response"
-      );
+      serverFns.getVenueAvailability.mockResolvedValue(changed);
+
+      await expect(readCalendar(selection)).rejects.toThrow("Invalid availability response");
     }
   );
-  it("[PTR-28-TC01][AC1] keeps query dates and cancellation signals intact", async () => {
-    const data = await createPtr28CalendarSource().read(selection);
-    const request = vi.fn<FetchCall>(async () => Response.json(data));
-    vi.stubGlobal("fetch", request);
-    const signal = new AbortController().signal;
-    await expect(calendarSource.read(selection, signal)).resolves.toEqual(data);
-    expect(request).toHaveBeenCalledWith(
-      "/api/venue-availability?venueId=VA&startDate=2026-10-05&endDate=2026-10-07",
-      { signal, credentials: "same-origin", cache: "no-store" }
-    );
-  });
 
-  it("accepts floating venue-local timestamps without adding an offset", async () => {
+  it("passes validated inclusive dates to the availability server function", async () => {
     const data = await createPtr28CalendarSource().read(selection);
-    const local = {
-      ...data,
-      timeZone: null,
-      available: data.available.map(period => ({
-        startsAt: period.startsAt.slice(0, 19),
-        endsAt: period.endsAt.slice(0, 19),
-      })),
-      occupied: data.occupied.map(period =>
-        Object.assign({}, period, {
-          startsAt: period.startsAt.slice(0, 19),
-          endsAt: period.endsAt.slice(0, 19),
-          visibleStart: period.visibleStart.slice(0, 19),
-          visibleEnd: period.visibleEnd.slice(0, 19),
-        })
-      ),
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<FetchCall>(async () => Response.json(local))
-    );
-    await expect(calendarSource.read(selection, new AbortController().signal)).resolves.toEqual(
-      local
-    );
+    serverFns.getVenueAvailability.mockResolvedValue(data);
+
+    await expect(readCalendar(selection)).resolves.toEqual(data);
+    expect(serverFns.getVenueAvailability).toHaveBeenCalledWith({ data: selection });
   });
 
   it.each([
-    { timeZone: null, timestamp: "2026-10-05T10:00:00+08:00" },
-    { timeZone: "Asia/Singapore", timestamp: "2026-10-05T10:00:00" },
-  ])("rejects a timestamp mode mismatch ($timeZone)", async ({ timeZone, timestamp }) => {
-    const data = await createPtr28CalendarSource().read(selection);
-    const changed = {
-      ...data,
-      timeZone,
-      available: [{ startsAt: timestamp, endsAt: "2026-10-05T11:00:00+08:00" }],
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<FetchCall>(async () => Response.json(changed))
-    );
-    await expect(calendarSource.read(selection, new AbortController().signal)).rejects.toThrow(
-      "Invalid availability response"
-    );
+    { endDate: "2026-02-30", message: "Enter a valid end date" },
+    { endDate: "2027-10-06", message: "Date range must be 366 days or fewer" },
+  ])("rejects invalid or excessive civil-date ranges", async ({ endDate, message }) => {
+    await expect(readCalendar({ ...selection, endDate })).rejects.toThrow(message);
+    expect(serverFns.getVenueAvailability).not.toHaveBeenCalled();
   });
 });

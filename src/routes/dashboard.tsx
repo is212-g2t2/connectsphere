@@ -84,7 +84,7 @@ function DashboardPage() {
               Venue availability
             </Link>
             <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-              View available, confirmed and blocked periods for a venue.
+              View available and blocked periods for a venue.
             </p>
           </section>
         )}

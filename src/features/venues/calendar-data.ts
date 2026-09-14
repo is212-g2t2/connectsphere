@@ -1,34 +1,62 @@
 import { z } from "zod";
-import type { AvailabilityProjection } from "#/features/venues/availability";
-import { compareFloatingTimestamps, isFloatingTimestamp } from "#/features/venues/calendar-time";
+import {
+  compareTimestamps,
+  isCivilDate,
+  isFloatingTimestamp,
+} from "#/features/venues/calendar-time";
 
 const SelectionSchema = z
   .object({
     venueId: z.string({ error: "Select a venue" }).trim().min(1, "Select a venue"),
-    startDate: z.iso.date({ error: "Enter a valid start date" }),
-    endDate: z.iso.date({ error: "Enter a valid end date" }),
+    startDate: z.iso
+      .date({ error: "Enter a valid start date" })
+      .refine(isCivilDate, "Enter a valid start date"),
+    endDate: z.iso
+      .date({ error: "Enter a valid end date" })
+      .refine(isCivilDate, "Enter a valid end date"),
   })
   .refine(value => value.endDate >= value.startDate, {
     path: ["endDate"],
     message: "End date must be on or after start date",
-  });
+  })
+  .refine(
+    value => {
+      const start = Date.parse(`${value.startDate}T00:00:00Z`);
+      const end = Date.parse(`${value.endDate}T00:00:00Z`);
+      return (
+        Number.isFinite(start) && Number.isFinite(end) && (end - start) / 86_400_000 + 1 <= 366
+      );
+    },
+    {
+      path: ["endDate"],
+      message: "Date range must be 366 days or fewer",
+    }
+  );
 
-/** Inclusive civil dates. Each schedule declares whether periods are floating or explicit instants. */
+/** Inclusive civil dates for the venue-local availability calendar. */
 export type CalendarSelection = z.infer<typeof SelectionSchema>;
 export interface CalendarVenue {
   id: string;
   name: string;
 }
-export interface CalendarSchedule extends AvailabilityProjection {
+export interface CalendarPeriod {
+  startsAt: string;
+  endsAt: string;
+}
+export interface CalendarOccupiedPeriod extends CalendarPeriod {
+  id: string;
+  state: "blocked";
+  visibleStart: string;
+  visibleEnd: string;
+}
+export interface CalendarSchedule {
   venue: CalendarVenue;
   startDate: string;
   endDate: string;
-  /** `null` means all period timestamps are floating venue-local wall-clock values. */
-  timeZone: string | null;
-}
-export interface CalendarSource {
-  listVenues(signal: AbortSignal): Promise<CalendarVenue[]>;
-  read(selection: CalendarSelection, signal: AbortSignal): Promise<CalendarSchedule>;
+  /** Period timestamps are floating venue-local wall-clock values. */
+  timeZone: null;
+  available: CalendarPeriod[];
+  occupied: CalendarOccupiedPeriod[];
 }
 
 export function parseCalendarSelection(input: unknown): CalendarSelection {
@@ -38,41 +66,25 @@ export function parseCalendarSelection(input: unknown): CalendarSelection {
 }
 
 const VenueSchema = z.object({ id: z.string().min(1), name: z.string().min(1) });
-const TimestampSchema = z.union([
-  z.iso.datetime({ offset: true }),
-  z.string().refine(isFloatingTimestamp, "Invalid calendar timestamp"),
-]);
-function compareCalendarTimestamps(left: string, right: string) {
-  if (isFloatingTimestamp(left) || isFloatingTimestamp(right))
-    return compareFloatingTimestamps(left, right);
-  return Date.parse(left) - Date.parse(right);
-}
+const ListedVenueSchema = z
+  .object({ id: z.number().int().positive(), name: z.string().min(1) })
+  .transform(venue => ({ id: String(venue.id), name: venue.name }));
+const TimestampSchema = z.string().refine(isFloatingTimestamp, "Invalid calendar timestamp");
 const PeriodSchema = z
   .object({ startsAt: TimestampSchema, endsAt: TimestampSchema })
-  .refine(value => compareCalendarTimestamps(value.endsAt, value.startsAt) > 0);
+  .refine(value => compareTimestamps(value.endsAt, value.startsAt) > 0);
 const ScheduleSchema = z
   .object({
     venue: VenueSchema,
     startDate: z.iso.date(),
     endDate: z.iso.date(),
-    timeZone: z
-      .string()
-      .refine(value => {
-        try {
-          return (
-            new Intl.DateTimeFormat("en", { timeZone: value }).resolvedOptions().timeZone.length > 0
-          );
-        } catch {
-          return false;
-        }
-      })
-      .nullable(),
+    timeZone: z.null(),
     available: z.array(PeriodSchema),
     occupied: z.array(
       z
         .object({
           id: z.string(),
-          state: z.enum(["confirmed", "blocked"]),
+          state: z.literal("blocked"),
           startsAt: TimestampSchema,
           endsAt: TimestampSchema,
           visibleStart: TimestampSchema,
@@ -80,28 +92,13 @@ const ScheduleSchema = z
         })
         .refine(
           value =>
-            compareCalendarTimestamps(value.startsAt, value.visibleStart) <= 0 &&
-            compareCalendarTimestamps(value.visibleStart, value.visibleEnd) < 0 &&
-            compareCalendarTimestamps(value.visibleEnd, value.endsAt) <= 0
+            compareTimestamps(value.startsAt, value.visibleStart) <= 0 &&
+            compareTimestamps(value.visibleStart, value.visibleEnd) < 0 &&
+            compareTimestamps(value.visibleEnd, value.endsAt) <= 0
         )
     ),
   })
-  .refine(
-    schedule => {
-      const expectedMode = schedule.timeZone === null ? "floating" : "instant";
-      const matchesMode = (value: string) =>
-        expectedMode === "floating" ? isFloatingTimestamp(value) : !isFloatingTimestamp(value);
-      return (
-        schedule.available.every(period => [period.startsAt, period.endsAt].every(matchesMode)) &&
-        schedule.occupied.every(period =>
-          [period.startsAt, period.endsAt, period.visibleStart, period.visibleEnd].every(
-            matchesMode
-          )
-        )
-      );
-    },
-    { message: "Invalid availability timestamp mode" }
-  );
+  .strict();
 
 export class CalendarRequestError extends Error {
   constructor(readonly status: number) {
@@ -109,34 +106,33 @@ export class CalendarRequestError extends Error {
   }
 }
 
-async function fetchCalendarData(url: string, signal: AbortSignal): Promise<unknown> {
-  const response = await fetch(url, { signal, credentials: "same-origin", cache: "no-store" });
-  if (!response.ok) throw new CalendarRequestError(response.status);
-  return response.json();
+function throwForResponse(result: unknown): asserts result is Exclude<unknown, Response> {
+  if (result instanceof Response) throw new CalendarRequestError(result.status);
 }
 
-/** Live HTTP boundary; it never falls back to fixtures or an invented empty schedule. */
-export const calendarSource: CalendarSource = {
-  async listVenues(signal) {
-    const parsed = z
-      .array(VenueSchema)
-      .safeParse(await fetchCalendarData("/api/venue-availability/venues", signal));
-    if (!parsed.success) throw new Error("Invalid venue response");
-    return parsed.data;
-  },
-  async read(selection, signal) {
-    const query = new URLSearchParams(parseCalendarSelection(selection));
-    const parsed = ScheduleSchema.safeParse(
-      await fetchCalendarData(`/api/venue-availability?${query}`, signal)
-    );
-    if (
-      !parsed.success ||
-      parsed.data.venue.id !== selection.venueId ||
-      parsed.data.startDate !== selection.startDate ||
-      parsed.data.endDate !== selection.endDate
-    ) {
-      throw new Error("Invalid availability response");
-    }
-    return parsed.data;
-  },
-};
+/** Live server-function boundary; it never falls back to fixtures or invented empty data. */
+export async function listCalendarVenues(): Promise<CalendarVenue[]> {
+  const { listVenues } = await import("#/features/venues/server-fns");
+  const result: unknown = await listVenues();
+  throwForResponse(result);
+  const parsed = z.array(ListedVenueSchema).safeParse(result);
+  if (!parsed.success) throw new Error("Invalid venue response");
+  return parsed.data;
+}
+
+export async function readCalendar(selection: CalendarSelection): Promise<CalendarSchedule> {
+  const { getVenueAvailability } = await import("#/features/venues/server-fns");
+  const validSelection = parseCalendarSelection(selection);
+  const result: unknown = await getVenueAvailability({ data: validSelection });
+  throwForResponse(result);
+  const parsed = ScheduleSchema.safeParse(result);
+  if (
+    !parsed.success ||
+    parsed.data.venue.id !== validSelection.venueId ||
+    parsed.data.startDate !== validSelection.startDate ||
+    parsed.data.endDate !== validSelection.endDate
+  ) {
+    throw new Error("Invalid availability response");
+  }
+  return parsed.data;
+}

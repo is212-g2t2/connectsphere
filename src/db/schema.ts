@@ -80,7 +80,7 @@ export const venues = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
-      .$onUpdate(() => sql`CURRENT_TIMESTAMP`),
+      .$onUpdate(() => /* @__PURE__ */ new Date()),
   },
   table => [check("venues_max_capacity_positive", sql`${table.maxCapacity} > 0`)]
 );

@@ -56,7 +56,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     }
   }
 
-  if (connectionUri && !alreadyRunning) {
+  if (container && connectionUri) {
     try {
       execFileSync("bun", ["run", "db:migrate"], {
         env: {
