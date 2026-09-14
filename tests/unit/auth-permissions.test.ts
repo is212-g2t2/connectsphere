@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { can } from "#/features/auth/permissions";
-import { AuthorizationError, requirePermission } from "#/features/auth/session";
-import type { SessionUser } from "#/features/auth/session";
 import { RoleSchema } from "#/features/auth/schema/role";
 import type { Role } from "#/features/auth/schema/role";
 
@@ -95,44 +93,5 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-26)", () => {
     it("refuses a comma-separated pair of roles", () => {
       expect(can("attendee,event_coordinator", { upload: ["create"] })).toBe(false);
     });
-  });
-});
-
-/**
- * PTR-7 criterion 2 asks for an *authorisation* error, not a generic failure. The status lives on
- * the thrown error so `server-fns.ts` can answer 401/403 the way `upload-url.ts` already does.
- */
-function refusalFrom(run: () => unknown): AuthorizationError {
-  try {
-    run();
-  } catch (error) {
-    if (error instanceof AuthorizationError) {
-      return error;
-    }
-    throw error;
-  }
-  throw new Error("expected a refusal, but the call returned");
-}
-
-describe("requirePermission carries a refusal status", () => {
-  const attendee: SessionUser = { id: "u1", email: "a@example.com", role: "attendee" };
-  const organiser: SessionUser = { id: "u2", email: "o@example.com", role: "event_organiser" };
-
-  it("refuses a missing session with 401 Unauthorized", () => {
-    const refusal = refusalFrom(() => requirePermission(null, { upload: ["create"] }));
-
-    expect(refusal.status).toBe(401);
-    expect(refusal.message).toBe("Unauthorized");
-  });
-
-  it("refuses an unpermitted action with 403 Forbidden", () => {
-    const refusal = refusalFrom(() => requirePermission(attendee, { upload: ["create"] }));
-
-    expect(refusal.status).toBe(403);
-    expect(refusal.message).toBe("Forbidden");
-  });
-
-  it("returns the user when the role permits the action", () => {
-    expect(requirePermission(organiser, { upload: ["create"] })).toBe(organiser);
   });
 });

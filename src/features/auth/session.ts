@@ -1,4 +1,4 @@
-import { createServerFn } from "@tanstack/react-start";
+import { createMiddleware, createServerFn } from "@tanstack/react-start";
 
 import { can } from "#/features/auth/permissions";
 import type { PermissionRequest } from "#/features/auth/permissions";
@@ -35,41 +35,93 @@ export function getSessionUser(
   };
 }
 
-export const getCurrentUser = createServerFn({ method: "GET" }).handler(async () => {
-  const [{ getRequest }, { auth }] = await Promise.all([
-    import("@tanstack/react-start/server"),
-    import("#/lib/auth"),
-  ]);
-
-  const session = await auth.api.getSession({
-    headers: getRequest().headers,
-  });
-
-  return getSessionUser(session);
-});
-
-export const listAccounts = createServerFn({ method: "GET" }).handler(async () => {
-  const [{ getRequest }, { auth }] = await Promise.all([
-    import("@tanstack/react-start/server"),
-    import("#/lib/auth"),
-  ]);
-
-  return auth.api.listUserAccounts({
-    headers: getRequest().headers,
-  });
-});
+function loadAuthServer() {
+  return Promise.all([import("@tanstack/react-start/server"), import("#/lib/auth")]);
+}
 
 /**
- * Carries the HTTP status the refusal deserves, so a caller can answer 401/403 instead of a
- * generic failure (PTR-7 criterion 2). A plain `Error` on purpose, not a `Response`: these are
- * thrown from pure `handle*` functions that unit tests call directly, and the messages are the
- * existing contract.
+ * Resolves the Better Auth session once per request and puts the sanitised user — or `null` —
+ * on the server function's context. It is also the pipeline's refusal boundary: a handler may
+ * still throw the status-carrying errors below (a draft that belongs to another organiser, a
+ * venue row that is not there), and the `Response` they become is served verbatim by TanStack
+ * Start, so a direct HTTP caller gets the real 401/403/404 and an in-app caller receives that
+ * `Response` as a resolved value — the protocol the routes already unwrap. Anything else is a
+ * genuine fault and keeps travelling as an error.
+ */
+export const withSession = createMiddleware({ type: "function" }).server(async ({ next }) => {
+  try {
+    const [{ getRequest }, { auth }] = await loadAuthServer();
+    const session = await auth.api.getSession({ headers: getRequest().headers });
+    return await next({ context: { user: getSessionUser(session) } });
+  } catch (error) {
+    if (error instanceof AuthorizationError || error instanceof NotFoundError) {
+      throw new Response(error.message, { status: error.status });
+    }
+    throw error;
+  }
+});
+
+/** `withSession` plus the 401 when nobody is signed in. */
+export const requireSession = createMiddleware({ type: "function" })
+  .middleware([withSession])
+  .server(({ next, context }) => {
+    if (!context.user) {
+      throw new Response("Unauthorized", { status: 401 });
+    }
+
+    // Re-emitted non-null: `next()` merges context, so everything downstream sees a
+    // `SessionUser` and never repeats the check.
+    return next({ context: { user: context.user } });
+  });
+
+/**
+ * `requireSession` plus the role/function check (PTR-7), answering 403.
+ *
+ * The required permission may be derived from the payload when it depends on the data —
+ * `saveVenue` is a `create` or an `update` depending on whether an id is present. The payload is
+ * raw here (the server function's own `.validator()` runs after the middleware pipeline), so an
+ * accessor may only pick between permissions the caller would need for the operation the handler
+ * is about to perform; it must never let unvalidated input lower a requirement.
+ */
+export function requirePermission(
+  required: PermissionRequest | ((data: unknown) => PermissionRequest)
+) {
+  return createMiddleware({ type: "function" })
+    .middleware([requireSession])
+    .server(({ next, context, data }) => {
+      const request = typeof required === "function" ? required(data) : required;
+      if (!can(context.user.role, request)) {
+        throw new Response("Forbidden", { status: 403 });
+      }
+
+      return next({ context: { user: context.user } });
+    });
+}
+
+export const getCurrentUser = createServerFn({ method: "GET" })
+  .middleware([withSession])
+  .handler(({ context }) => context.user);
+
+export const listAccounts = createServerFn({ method: "GET" })
+  .middleware([requireSession])
+  .handler(async () => {
+    const [{ getRequest }, { auth }] = await loadAuthServer();
+
+    return auth.api.listUserAccounts({
+      headers: getRequest().headers,
+    });
+  });
+
+/**
+ * The refusal a handler still throws on its own — the row exists but belongs to someone else
+ * (event-request drafts are scoped to their organiser). A plain `Error` on purpose, not a
+ * `Response`: it is thrown from a pure `handle*` function that integration tests call directly,
+ * and the message is the existing contract. `withSession` converts it to a 403 `Response`.
  */
 export class AuthorizationError extends Error {
-  constructor(
-    message: "Unauthorized" | "Forbidden",
-    readonly status: 401 | 403
-  ) {
+  readonly status = 403;
+
+  constructor(message: string) {
     super(message);
     this.name = "AuthorizationError";
   }
@@ -79,9 +131,8 @@ export class AuthorizationError extends Error {
  * The other status a server function has to be able to answer with. Deliberately not a wider
  * `AuthorizationError`: a row that does not exist was never refused, and telling a Venue Staff
  * member their role forbids an id they mistyped blames them for someone else's deletion. It sits
- * here rather than in `records.server.ts` because the module that converts it (`server-fns.ts`)
- * is client-reachable and may not statically import a `*.server.*` module — and next to
- * `AuthorizationError` because both halves of this boundary protocol already live in this file.
+ * next to `AuthorizationError` because both halves of this boundary protocol live in this file —
+ * `withSession` is the one module that converts them.
  */
 export class NotFoundError extends Error {
   readonly status = 404;
@@ -90,18 +141,4 @@ export class NotFoundError extends Error {
     super(message);
     this.name = "NotFoundError";
   }
-}
-
-/**
- * The authorisation gate every server-side entry point calls (PTR-7). It lives here rather than
- * in `permissions.ts` so the matrix stays free of any session dependency and safe for the
- * browser to import.
- */
-export function requirePermission(
-  user: SessionUser | null,
-  request: PermissionRequest
-): SessionUser {
-  if (!user) throw new AuthorizationError("Unauthorized", 401);
-  if (!can(user.role, request)) throw new AuthorizationError("Forbidden", 403);
-  return user;
 }
