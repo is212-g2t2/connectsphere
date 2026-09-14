@@ -1,15 +1,16 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { getCurrentUser } from "#/features/auth/session";
-
 export const Route = createFileRoute("/_authenticated")({
-  beforeLoad: async () => {
-    const user = await getCurrentUser();
-
-    if (!user) {
+  /**
+   * `__root.tsx` resolved the session for this navigation already (PTR-73), so the boundary is
+   * just the refusal now. The re-emit narrows `SessionUser | null` to `SessionUser`: every route
+   * beneath this one reads `context.user` and never repeats the check.
+   */
+  beforeLoad: ({ context }) => {
+    if (!context.user) {
       throw redirect({ to: "/login" });
     }
 
-    return { user };
+    return { user: context.user };
   },
 });

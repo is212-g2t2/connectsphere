@@ -4,12 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 import { SignupForm } from "#/features/auth/components/signup-form";
 
 const mockNavigate = vi.fn<() => void>();
+// PTR-73: signing up puts the header's user on route context, so the form re-resolves it.
+const mockInvalidate = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
   useNavigate: () => mockNavigate,
+  useRouter: () => ({ invalidate: mockInvalidate }),
 }));
 
 vi.mock("#/lib/auth-client", () => ({
@@ -210,6 +213,12 @@ describe("SignupForm component", () => {
       expect(screen.getByText("Check your email")).toBeTruthy();
     });
     expect(mockNavigate).not.toHaveBeenCalled();
+
+    // Staying put is what makes this necessary: nothing else re-resolves the route context the
+    // header reads its user from (PTR-73), so the nav would still say signed out.
+    await waitFor(() => {
+      expect(mockInvalidate).toHaveBeenCalled();
+    });
   });
 
   it("navigates to the dashboard when continuing from the verification screen", async () => {

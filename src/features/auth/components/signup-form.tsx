@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
 import { authClient } from "#/lib/auth-client";
@@ -44,6 +44,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function SignupForm({ className, ...props }: React.ComponentProps<"div">) {
   const navigate = useNavigate();
+  const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [verifyEmail, setVerifyEmail] = useState<string | null>(null);
 
@@ -63,6 +64,10 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
         return;
       }
       setVerifyEmail(value.email);
+      // Signing up creates the session in place — this panel replaces the form, no navigation —
+      // so the route context the header reads (PTR-73) is still the signed-out one this page was
+      // served with. Re-resolving it is what puts "Sign out" in the nav.
+      await router.invalidate();
     },
   });
 

@@ -79,6 +79,9 @@ test.describe("Event request drafts", () => {
     // the next in-app save comes back refused and must not read as a save.
     const otherTab = await context.newPage();
     await otherTab.goto("/dashboard");
+    // The header is signed-in in the server markup now (PTR-73), so the button is clickable
+    // before React has attached its handler; without this the click lands on inert markup.
+    await otherTab.waitForLoadState("networkidle");
     await otherTab.getByRole("button", { name: "Sign out" }).click();
     await otherTab.waitForURL("/");
     await otherTab.close();

@@ -5,10 +5,14 @@ import path from "node:path";
 /**
  * PTR-68: route guards stay per-route presentation checks.
  *
- * `_authenticated.tsx` resolves the session once; a child route fetching it again spends a
- * roundtrip the layout already paid for. And a permission check modelled as a pathless layout
- * route brings back the layout-per-permission explosion the audit rejected, so the only
- * pathless layout under `src/routes` is the authentication boundary itself.
+ * The session is resolved once; a route fetching it again spends a roundtrip that navigation
+ * already paid for. And a permission check modelled as a pathless layout route brings back the
+ * layout-per-permission explosion the audit rejected, so the only pathless layout under
+ * `src/routes` is the authentication boundary itself.
+ *
+ * PTR-73 moved that single resolution up to `__root.tsx`, because the header renders outside
+ * `_authenticated` and needs the same user: the boundary now narrows what the root already put
+ * on context, and the unauthenticated routes read it from there too.
  */
 const routesDir = path.resolve(process.cwd(), "src/routes");
 
@@ -21,18 +25,12 @@ function routeFiles(dir: string): string[] {
 }
 
 describe("Route-level permission guards", () => {
-  const authenticatedRoutes = routeFiles(path.join(routesDir, "_authenticated"));
+  it("resolves the session in __root.tsx alone", () => {
+    const resolvers = routeFiles(routesDir)
+      .filter(filePath => /\bgetCurrentUser\b/.test(fs.readFileSync(filePath, "utf-8")))
+      .map(filePath => path.relative(routesDir, filePath));
 
-  it("finds the routes beneath the authentication boundary", () => {
-    expect(authenticatedRoutes.length).toBeGreaterThan(0);
-  });
-
-  it("never fetches the session again in a route beneath _authenticated", () => {
-    const offenders = authenticatedRoutes.filter(filePath =>
-      /\bgetCurrentUser\b/.test(fs.readFileSync(filePath, "utf-8"))
-    );
-
-    expect(offenders.map(filePath => path.relative(process.cwd(), filePath))).toEqual([]);
+    expect(resolvers).toEqual(["__root.tsx"]);
   });
 
   it("keeps _authenticated the only pathless layout route", () => {

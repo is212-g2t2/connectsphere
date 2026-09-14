@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouteContext } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { authClient } from "#/lib/auth-client";
@@ -6,7 +6,9 @@ import { Button } from "#/components/ui/button";
 import { ThemeToggle } from "../ui/theme-toggle";
 
 export function Header() {
-  const { data: session } = authClient.useSession();
+  // PTR-73: the user comes from route context, which `__root.tsx` fills during SSR — so the
+  // server markup and the first client render agree, unlike the old client-side `useSession()`.
+  const { user } = useRouteContext({ from: "__root__" });
   const [signingOut, setSigningOut] = useState(false);
 
   const handleSignOut = async () => {
@@ -29,7 +31,7 @@ export function Header() {
         </Link>
 
         <nav className="flex items-center gap-1">
-          {session?.user && (
+          {user && (
             <Button
               type="button"
               variant="ghost"

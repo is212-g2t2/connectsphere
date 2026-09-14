@@ -3,10 +3,18 @@ import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { Header } from "#/components/layout/header";
 import { RootDocument } from "#/components/layout/root-document";
 import { RootErrorPage, RootNotFoundPage } from "#/components/pages/error";
+import { getCurrentUser } from "#/features/auth/session";
 // oxlint-disable-next-line import/no-unassigned-import
 import "../globals.css";
 
 export const Route = createRootRoute({
+  /**
+   * PTR-73: the one place the session is resolved, once per navigation, for every route —
+   * `_authenticated` narrows what lands here rather than fetching it again. The header reads it
+   * from context, so the signed-in nav is part of the SSR markup instead of appearing a moment
+   * after hydration, which is what `authClient.useSession()` used to cost.
+   */
+  beforeLoad: async () => ({ user: await getCurrentUser() }),
   head: () => ({
     meta: [
       { charSet: "utf-8" },
