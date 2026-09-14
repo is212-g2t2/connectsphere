@@ -117,12 +117,13 @@ export const listAccounts = createServerFn({ method: "GET" })
  * resolves with its `Response`, so its body is rethrown as an `Error` here and the route's error
  * boundary sees it; `fallbackMessage` covers an empty body.
  */
-export async function unwrapRefusal<T>(result: T | Response, fallbackMessage: string): Promise<T> {
-  if (result instanceof Response) {
-    throw new Error((await result.text()) || fallbackMessage);
-  }
-
-  return result;
+export async function unwrapRefusal<T>(
+  result: T | Response | PromiseLike<T | Response>,
+  fallbackMessage: string
+): Promise<T> {
+  const value = await result;
+  if (value instanceof Response) throw new Error((await value.text()) || fallbackMessage);
+  return value;
 }
 
 /**

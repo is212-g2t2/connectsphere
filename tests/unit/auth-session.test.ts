@@ -71,6 +71,14 @@ describe("unwrapRefusal helper", () => {
     await expect(unwrapRefusal(refusal, "fallback")).rejects.toThrow("Forbidden");
   });
 
+  it("throws when the refusal arrives through the pending call", async () => {
+    // The settings loader passes the server function's promise straight in; awaiting internally
+    // is what keeps that refusal from resolving as loader data (PTR-76).
+    const refusal = Promise.resolve(new Response("Forbidden", { status: 403 }));
+
+    await expect(unwrapRefusal(refusal, "fallback")).rejects.toThrow("Forbidden");
+  });
+
   it("does not attach a status to the thrown error", async () => {
     // Deliberate: nothing branches on the refusal status yet; attach it when a story needs to.
     const refusal = new Response("Forbidden", { status: 403 });
