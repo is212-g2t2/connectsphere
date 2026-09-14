@@ -118,6 +118,7 @@ PostgreSQL is accessed using [Drizzle ORM](https://orm.drizzle.team/) paired wit
 - **Migrations Directory**: Configured in `drizzle.config.ts` to output migrations to `src/db/drizzle/`.
 - **Generating Migrations**: When schema files are updated, run `bun run db:generate` to produce timestamped SQL migration files and update the snapshot journal in `src/db/drizzle/meta/`. Never handwrite SQL migrations.
 - **Applying Migrations**: Run `bun run db:migrate` to execute pending SQL migrations against the configured database (`DATABASE_URL`). For quick local development without migration tracking, `bun run db:push` can be used.
+- **PTR-26 migration state**: This branch carries PTR-26's generated venue migration coherently for isolated PTR-28 development. Reconciling that migration chain with newer `main` remains a separate integration task and is not proven by the isolated database checks here.
 
 For developer commands, seeding, and local workflows, see the [Development Guide](./DEVELOPMENT.md#database-management--migrations).
 
@@ -141,7 +142,7 @@ Rate limiting is configured at 20 requests per 60-second window using Better Aut
 
 ### Role/function matrix
 
-Source of truth is `src/features/auth/permissions.ts`, restated here and held to both by `tests/unit/auth-permissions.test.ts`. Rows arrive with the stories that build them, so only role-varying functions appear.
+Source of truth is `src/features/auth/permissions.ts`, restated here and tested by `tests/unit/auth-permissions.test.ts` and `tests/unit/venue-availability-permissions.test.ts`. Rows arrive with the stories that build them, so only role-varying functions appear.
 
 | Function                   | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
 | -------------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |

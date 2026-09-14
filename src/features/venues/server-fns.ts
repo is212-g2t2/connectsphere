@@ -1,7 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 
 import { requirePermission } from "#/features/auth/session";
 import { parseVenueId, parseVenueInput } from "#/features/venues/schema";
+
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
+const WEEKDAYS_BY_SUNDAY_INDEX = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 
 /**
  * Routes import this module, so it stays free of any static server import — the middleware
@@ -10,6 +14,11 @@ import { parseVenueId, parseVenueInput } from "#/features/venues/schema";
  */
 async function loadServer() {
   return Promise.all([import("#/db"), import("#/features/venues/records.server")]);
+}
+
+async function logUnexpectedError(context: string, error: unknown): Promise<void> {
+  const { logger } = await import("#/lib/logger");
+  logger.error(`Venue ${context} failed`, { error });
 }
 
 /** A venue row as the client sees it — derived here so no route has to import the server module. */

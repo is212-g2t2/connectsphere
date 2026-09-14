@@ -21,6 +21,7 @@ const EXPECTED: Record<
     venueRead: boolean;
     venueCreate: boolean;
     venueUpdate: boolean;
+    venueAvailabilityRead: boolean;
   }
 > = {
   attendee: {
@@ -30,6 +31,7 @@ const EXPECTED: Record<
     venueRead: false,
     venueCreate: false,
     venueUpdate: false,
+    venueAvailabilityRead: false,
   },
   event_organiser: {
     upload: true,
@@ -38,6 +40,7 @@ const EXPECTED: Record<
     venueRead: false,
     venueCreate: false,
     venueUpdate: false,
+    venueAvailabilityRead: false,
   },
   event_coordinator: {
     upload: true,
@@ -46,6 +49,7 @@ const EXPECTED: Record<
     venueRead: true,
     venueCreate: false,
     venueUpdate: false,
+    venueAvailabilityRead: true,
   },
   venue_staff: {
     upload: true,
@@ -54,6 +58,7 @@ const EXPECTED: Record<
     venueRead: true,
     venueCreate: true,
     venueUpdate: true,
+    venueAvailabilityRead: true,
   },
   technical_support_staff: {
     upload: true,
@@ -62,6 +67,7 @@ const EXPECTED: Record<
     venueRead: true,
     venueCreate: false,
     venueUpdate: false,
+    venueAvailabilityRead: true,
   },
 };
 
@@ -73,6 +79,7 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26)", () => {
     expect(can(role, { venue: ["read"] })).toBe(EXPECTED[role].venueRead);
     expect(can(role, { venue: ["create"] })).toBe(EXPECTED[role].venueCreate);
     expect(can(role, { venue: ["update"] })).toBe(EXPECTED[role].venueUpdate);
+    expect(can(role, { venueAvailability: ["read"] })).toBe(EXPECTED[role].venueAvailabilityRead);
   });
 
   describe("fails closed", () => {

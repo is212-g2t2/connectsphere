@@ -305,6 +305,8 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   ApiSmokeRoute: typeof ApiSmokeRoute
   ApiUploadUrlRoute: typeof ApiUploadUrlRoute
+  ApiVenueAvailabilityRoute: typeof ApiVenueAvailabilityRouteWithChildren
+  VenuesAvailabilityRoute: typeof VenuesAvailabilityRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -513,6 +515,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   ApiSmokeRoute: ApiSmokeRoute,
   ApiUploadUrlRoute: ApiUploadUrlRoute,
+  ApiVenueAvailabilityRoute: ApiVenueAvailabilityRouteWithChildren,
+  VenuesAvailabilityRoute: VenuesAvailabilityRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
