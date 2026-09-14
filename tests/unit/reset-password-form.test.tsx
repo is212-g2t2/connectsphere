@@ -79,4 +79,67 @@ describe("ResetPasswordForm component", () => {
     });
     expect(authClient.resetPassword).not.toHaveBeenCalled();
   });
+
+  it("shows a refused reset request and replaces it on the next attempt", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    vi.mocked(authClient.requestPasswordReset)
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: "Too many requests", status: 429 } as never,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: "Mail service unavailable", status: 503 } as never,
+      });
+
+    const user = userEvent.setup();
+    render(<ResetPasswordForm />);
+
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.click(screen.getByRole("button", { name: /send reset link/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe("Too many requests");
+    });
+
+    // Resubmitting revalidates, and that write to `errorMap.onSubmit` is what drops the first
+    // message — the form holds no separate error state for anything to reset.
+    await user.click(screen.getByRole("button", { name: /send reset link/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe("Mail service unavailable");
+    });
+    expect(screen.queryByText("Too many requests")).toBeNull();
+  });
+
+  it("shows a refused password reset and clears it once the retry succeeds", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    vi.mocked(authClient.resetPassword).mockClear();
+    vi.mocked(authClient.resetPassword).mockResolvedValueOnce({
+      data: null,
+      error: {
+        message: "Could not reset your password. Request a new link.",
+        status: 400,
+      } as never,
+    });
+
+    const user = userEvent.setup();
+    render(<ResetPasswordForm token="tok-123" />);
+
+    await user.type(screen.getByLabelText(/new password/i), "long-enough-pass1!");
+    await user.click(screen.getByRole("button", { name: /save password/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Could not reset your password. Request a new link."
+      );
+    });
+
+    await user.click(screen.getByRole("button", { name: /save password/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+    expect(authClient.resetPassword).toHaveBeenCalledTimes(2);
+  });
 });

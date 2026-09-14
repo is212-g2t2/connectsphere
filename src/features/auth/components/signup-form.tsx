@@ -45,14 +45,12 @@ const ROLE_LABELS: Record<string, string> = {
 export function SignupForm({ className, ...props }: React.ComponentProps<"div">) {
   const navigate = useNavigate();
   const router = useRouter();
-  const [serverError, setServerError] = useState<string | null>(null);
   const [verifyEmail, setVerifyEmail] = useState<string | null>(null);
 
   const form = useForm({
     defaultValues: { name: "", email: "", password: "", confirmPassword: "", role: DEFAULT_ROLE },
     validators: { onSubmit: schema },
-    onSubmit: async ({ value }) => {
-      setServerError(null);
+    onSubmit: async ({ value, formApi }) => {
       const { error } = await authClient.signUp.email({
         name: value.name.trim(),
         email: value.email,
@@ -60,7 +58,13 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
         role: value.role,
       });
       if (error) {
-        setServerError(error.message ?? "Could not create your account. Try again.");
+        // `fields` is what makes the library read this as a global error and store `form` verbatim.
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form: error.message ?? "Could not create your account. Try again.",
+          },
+        });
         return;
       }
       setVerifyEmail(value.email);
@@ -209,7 +213,12 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
             )}
           </form.Field>
 
-          {serverError && <FieldError>{serverError}</FieldError>}
+          <form.Subscribe selector={state => state.errorMap.onSubmit}>
+            {/* A failed validation arrives as an issue map; only a refused sign-up is a string. */}
+            {onSubmitError =>
+              typeof onSubmitError === "string" ? <FieldError>{onSubmitError}</FieldError> : null
+            }
+          </form.Subscribe>
 
           <form.Subscribe selector={s => s.isSubmitting}>
             {isSubmitting => (

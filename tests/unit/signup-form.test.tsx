@@ -252,4 +252,36 @@ describe("SignupForm component", () => {
       expect(screen.getByText("Account already exists")).toBeTruthy();
     });
   });
+
+  it("replaces a previous refusal rather than stacking a second one beside it", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    vi.mocked(authClient.signUp.email)
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: "Account already exists", status: 400 } as never,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: "Registration is closed", status: 403 } as never,
+      });
+
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    await fillSignupForm(user, { email: "existing@example.com" });
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe("Account already exists");
+    });
+
+    // Resubmitting revalidates, and that write to `errorMap.onSubmit` is what drops the first
+    // message — the form holds no separate error state for anything to reset.
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe("Registration is closed");
+    });
+    expect(screen.queryByText("Account already exists")).toBeNull();
+  });
 });

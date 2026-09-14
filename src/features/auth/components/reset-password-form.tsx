@@ -17,20 +17,24 @@ export function ResetPasswordForm({ token, error }: { token?: string; error?: st
 }
 
 function RequestReset({ expired }: { expired: boolean }) {
-  const [serverError, setServerError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
   const form = useForm({
     defaultValues: { email: "" },
     validators: { onSubmit: z.object({ email: z.email("Enter a valid email address") }) },
-    onSubmit: async ({ value }) => {
-      setServerError(null);
+    onSubmit: async ({ value, formApi }) => {
       const { error } = await authClient.requestPasswordReset({
         email: value.email,
         redirectTo: "/reset-password",
       });
       if (error) {
-        setServerError(error.message ?? "Failed to send reset link. Try again.");
+        // `fields` is what makes the library read this as a global error and store `form` verbatim.
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form: error.message ?? "Failed to send reset link. Try again.",
+          },
+        });
         return;
       }
       setSent(true);
@@ -90,7 +94,12 @@ function RequestReset({ expired }: { expired: boolean }) {
           )}
         </form.Field>
 
-        {serverError && <FieldError>{serverError}</FieldError>}
+        <form.Subscribe selector={state => state.errorMap.onSubmit}>
+          {/* A failed validation arrives as an issue map; only a refused request is a string. */}
+          {onSubmitError =>
+            typeof onSubmitError === "string" ? <FieldError>{onSubmitError}</FieldError> : null
+          }
+        </form.Subscribe>
 
         <form.Subscribe selector={s => s.isSubmitting}>
           {isSubmitting => (
@@ -112,16 +121,20 @@ function RequestReset({ expired }: { expired: boolean }) {
 
 function SetNewPassword({ token }: { token: string }) {
   const navigate = useNavigate();
-  const [serverError, setServerError] = useState<string | null>(null);
 
   const form = useForm({
     defaultValues: { password: "" },
     validators: { onSubmit: z.object({ password: PasswordSchema }) },
-    onSubmit: async ({ value }) => {
-      setServerError(null);
+    onSubmit: async ({ value, formApi }) => {
       const { error } = await authClient.resetPassword({ newPassword: value.password, token });
       if (error) {
-        setServerError(error.message ?? "Could not reset your password. Request a new link.");
+        // `fields` is what makes the library read this as a global error and store `form` verbatim.
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form: error.message ?? "Could not reset your password. Request a new link.",
+          },
+        });
         return;
       }
       // resetPassword does not create a session, so send them through sign-in.
@@ -163,7 +176,12 @@ function SetNewPassword({ token }: { token: string }) {
           )}
         </form.Field>
 
-        {serverError && <FieldError>{serverError}</FieldError>}
+        <form.Subscribe selector={state => state.errorMap.onSubmit}>
+          {/* A failed validation arrives as an issue map; only a refused reset is a string. */}
+          {onSubmitError =>
+            typeof onSubmitError === "string" ? <FieldError>{onSubmitError}</FieldError> : null
+          }
+        </form.Subscribe>
 
         <form.Subscribe selector={s => s.isSubmitting}>
           {isSubmitting => (

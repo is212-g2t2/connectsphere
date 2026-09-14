@@ -6,7 +6,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
 import { authClient } from "#/lib/auth-client";
-import { useState } from "react";
 
 const schema = z.object({
   email: z.email("Enter a valid email address"),
@@ -15,20 +14,19 @@ const schema = z.object({
 
 export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
   const navigate = useNavigate();
-  const [serverError, setServerError] = useState<string | null>(null);
 
   const form = useForm({
     defaultValues: { email: "", password: "" },
     validators: { onSubmit: schema },
-    onSubmit: async ({ value }) => {
-      setServerError(null);
+    onSubmit: async ({ value, formApi }) => {
       const { error } = await authClient.signIn.email({
         email: value.email,
         password: value.password,
       });
       if (error) {
-        // Never render the server message: it must not reveal whether the email exists (PTR-6 AC2).
-        setServerError("Invalid email or password.");
+        // `fields` is what makes the library read this as a global error and store `form` verbatim.
+        // Never the server's own message: it must not reveal whether the email exists (PTR-6 AC2).
+        formApi.setErrorMap({ onSubmit: { fields: {}, form: "Invalid email or password." } });
         return;
       }
       await navigate({ to: "/dashboard" });
@@ -91,7 +89,12 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
             )}
           </form.Field>
 
-          {serverError && <FieldError>{serverError}</FieldError>}
+          <form.Subscribe selector={state => state.errorMap.onSubmit}>
+            {/* A failed validation arrives as an issue map; only a refused sign-in is a string. */}
+            {onSubmitError =>
+              typeof onSubmitError === "string" ? <FieldError>{onSubmitError}</FieldError> : null
+            }
+          </form.Subscribe>
 
           <form.Subscribe selector={s => s.isSubmitting}>
             {isSubmitting => (

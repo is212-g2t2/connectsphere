@@ -85,4 +85,33 @@ describe("LoginForm component", () => {
     });
     expect(screen.queryByText("User not found")).toBeNull();
   });
+
+  it("clears the refusal on the next attempt with nothing resetting it by hand", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    vi.mocked(authClient.signIn.email).mockClear();
+    vi.mocked(authClient.signIn.email).mockResolvedValueOnce({
+      data: null,
+      error: { message: "User not found", status: 401 } as never,
+    });
+
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "wrong-password");
+    await user.click(screen.getByRole("button", { name: /^sign in$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe("Invalid email or password.");
+    });
+
+    // Submitting revalidates, and that write to `errorMap.onSubmit` is what drops the stale
+    // message — the form holds no separate error state for anything to reset.
+    await user.click(screen.getByRole("button", { name: /^sign in$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+    expect(authClient.signIn.email).toHaveBeenCalledTimes(2);
+  });
 });
