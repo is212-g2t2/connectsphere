@@ -87,6 +87,13 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Password")).toBeTruthy();
   });
 
+  it("renders the empty state, not a loader, when no providers are linked", () => {
+    render(<SettingsPage user={userWithRole("attendee")} accounts={[]} />);
+
+    expect(screen.getByText("No external providers linked.")).toBeTruthy();
+    expect(screen.queryByText("Loading…")).toBeNull();
+  });
+
   it("asks for confirmation before deleting the account", async () => {
     const user = userEvent.setup();
     render(<SettingsPage user={userWithRole("attendee")} accounts={[]} />);

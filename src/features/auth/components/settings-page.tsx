@@ -61,7 +61,7 @@ export function SettingsPage({
         {/* Linked providers */}
         <SettingsSection title="Linked providers">
           {accounts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="text-sm text-muted-foreground">No external providers linked.</p>
           ) : (
             <ul className="space-y-2">
               {accounts.map(acct => (
