@@ -56,9 +56,45 @@ test.describe("Event request drafts", () => {
     await page.getByLabel("Equipment type 1", { exact: true }).fill("Wireless microphone");
     await page.getByLabel("Quantity 1", { exact: true }).fill("2");
 
+    await page.getByRole("checkbox", { name: "Require attendee registration" }).click();
+    await page.getByLabel("Registration capacity (required)", { exact: true }).fill("30");
+    await page
+      .getByLabel("Registration opens (required)", { exact: true })
+      .fill("2030-11-01T09:00");
+    await page
+      .getByLabel("Registration closes (required)", { exact: true })
+      .fill("2030-11-08T17:00");
+
     await page.getByRole("button", { name: "Save draft" }).click();
 
     await expect(page.getByText("Draft saved.")).toBeVisible();
+  });
+
+  test("refuses an enabled registration missing its terms, naming each", async ({ page }) => {
+    await signUp(page, "event_organiser");
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("link", { name: "Event requests", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
+
+    await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
+    await page.getByRole("checkbox", { name: "Require attendee registration" }).click();
+    await page.getByRole("button", { name: "Save draft" }).click();
+
+    await expect(
+      page.getByText("Registration capacity is required when registration is enabled")
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "A registration opening date and time is required when registration is enabled"
+      )
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "A registration closing date and time is required when registration is enabled"
+      )
+    ).toBeVisible();
+    await expect(page.getByText("Draft saved.")).toHaveCount(0);
   });
 
   test("shows the refusal instead of a saved draft when the session ends mid-sitting", async ({

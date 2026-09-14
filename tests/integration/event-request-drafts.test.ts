@@ -11,6 +11,11 @@ import {
   ATTENDANCE_MESSAGE,
   END_BEFORE_START_MESSAGE,
   EQUIPMENT_QUANTITY_MESSAGE,
+  REGISTRATION_CAPACITY_MESSAGE,
+  REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
+  REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE,
+  REGISTRATION_CLOSES_REQUIRED_MESSAGE,
+  REGISTRATION_OPENS_REQUIRED_MESSAGE,
 } from "#/features/event-requests/schema";
 
 const organiser: SessionUser = {
@@ -42,6 +47,14 @@ const fullRequest: EventRequestDraftValues = {
     { type: "Projector", quantity: 1 },
   ],
   specialArrangements: "  Quiet room\nDietary options  ",
+  registrationEnabled: false,
+};
+
+const enabledRegistration = {
+  registrationEnabled: true,
+  registrationCapacity: 25,
+  registrationOpensAt: "2026-09-20T09:00",
+  registrationClosesAt: "2026-09-30T18:00",
 };
 
 describe("Event request drafts", () => {
@@ -225,6 +238,96 @@ describe("Event request drafts", () => {
     ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
 
     expect(await database.select().from(schema.eventRequests)).toHaveLength(0);
+  });
+
+  it("stores the registration terms exactly and reopens them (PTR-11 AC1)", async () => {
+    const saved = await handleSaveEventRequestDraft(
+      enabledRegistration,
+      organiser,
+      database as never
+    );
+    const reopened = await findById(saved.id);
+
+    expect(saved).toMatchObject(enabledRegistration);
+    expect(reopened).toEqual(saved);
+  });
+
+  it.each([
+    [
+      { ...enabledRegistration, registrationCapacity: undefined },
+      REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
+    ],
+    [
+      { ...enabledRegistration, registrationOpensAt: undefined },
+      REGISTRATION_OPENS_REQUIRED_MESSAGE,
+    ],
+    [
+      { ...enabledRegistration, registrationClosesAt: undefined },
+      REGISTRATION_CLOSES_REQUIRED_MESSAGE,
+    ],
+  ])("refuses an enabled registration missing a term, naming it (AC2)", async (data, message) => {
+    await expect(handleSaveEventRequestDraft(data, organiser, database as never)).rejects.toThrow(
+      message
+    );
+
+    expect(await database.select().from(schema.eventRequests)).toHaveLength(0);
+  });
+
+  it("refuses a registration window that does not close after it opens (AC3)", async () => {
+    await expect(
+      handleSaveEventRequestDraft(
+        { ...enabledRegistration, registrationClosesAt: enabledRegistration.registrationOpensAt },
+        organiser,
+        database as never
+      )
+    ).rejects.toThrow(REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE);
+  });
+
+  it("refuses a registration capacity that is not a positive whole number (AC4)", async () => {
+    await expect(
+      handleSaveEventRequestDraft(
+        { ...enabledRegistration, registrationCapacity: 0 },
+        organiser,
+        database as never
+      )
+    ).rejects.toThrow(REGISTRATION_CAPACITY_MESSAGE);
+  });
+
+  it("stores no terms when registration is disabled, even if they are supplied (AC5)", async () => {
+    const saved = await handleSaveEventRequestDraft(
+      { ...enabledRegistration, registrationEnabled: false },
+      organiser,
+      database as never
+    );
+
+    expect(saved).toMatchObject({
+      registrationEnabled: false,
+      registrationCapacity: null,
+      registrationOpensAt: null,
+      registrationClosesAt: null,
+    });
+  });
+
+  it("clears stored terms when a later save turns registration off (AC5)", async () => {
+    const created = await handleSaveEventRequestDraft(
+      enabledRegistration,
+      organiser,
+      database as never
+    );
+
+    const updated = await handleSaveEventRequestDraft(
+      { id: created.id, registrationEnabled: false },
+      organiser,
+      database as never
+    );
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      registrationEnabled: false,
+      registrationCapacity: null,
+      registrationOpensAt: null,
+      registrationClosesAt: null,
+    });
   });
 
   // No read/list endpoint exists yet (that's the rest of AC4, beyond this ticket), so this

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   integer,
   jsonb,
@@ -23,38 +24,67 @@ import { user } from "./auth-schema";
  */
 export const eventRequestStatus = pgEnum("event_request_status", ["draft"]);
 
-export const eventRequests = pgTable("event_requests", {
-  id: serial("id").primaryKey(),
-  organiserId: text("organiser_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  status: eventRequestStatus("status").notNull().default("draft"),
-  eventName: text("event_name").notNull().default(""),
-  purpose: text("purpose").notNull().default(""),
-  /**
-   * JSONB rather than a `timestamp` pair (PTR-10): an organiser may propose several date windows, and the strings round-trip exactly as the `datetime-local` inputs submitted them
-   */
-  proposedDates: jsonb("proposed_dates")
-    .$type<EventRequestDraftValues["proposedDates"]>()
-    .notNull()
-    .default([]),
-  expectedAttendance: integer("expected_attendance"),
-  description: text("description").notNull().default(""),
-  eventType: text("event_type").notNull().default(""),
-  venueRequirements: text("venue_requirements").notNull().default(""),
-  roomLayoutPreference: text("room_layout_preference").notNull().default(""),
-  accessibilityRequirements: text("accessibility_requirements").notNull().default(""),
-  equipmentRequirements: jsonb("equipment_requirements")
-    .$type<EventRequestDraftValues["equipmentRequirements"]>()
-    .notNull()
-    .default([]),
-  specialArrangements: text("special_arrangements").notNull().default(""),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => /* @__PURE__ */ new Date()),
-});
+export const eventRequests = pgTable(
+  "event_requests",
+  {
+    id: serial("id").primaryKey(),
+    organiserId: text("organiser_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    status: eventRequestStatus("status").notNull().default("draft"),
+    eventName: text("event_name").notNull().default(""),
+    purpose: text("purpose").notNull().default(""),
+    /**
+     * JSONB rather than a `timestamp` pair (PTR-10): an organiser may propose several date windows, and the strings round-trip exactly as the `datetime-local` inputs submitted them
+     */
+    proposedDates: jsonb("proposed_dates")
+      .$type<EventRequestDraftValues["proposedDates"]>()
+      .notNull()
+      .default([]),
+    expectedAttendance: integer("expected_attendance"),
+    description: text("description").notNull().default(""),
+    eventType: text("event_type").notNull().default(""),
+    venueRequirements: text("venue_requirements").notNull().default(""),
+    roomLayoutPreference: text("room_layout_preference").notNull().default(""),
+    accessibilityRequirements: text("accessibility_requirements").notNull().default(""),
+    equipmentRequirements: jsonb("equipment_requirements")
+      .$type<EventRequestDraftValues["equipmentRequirements"]>()
+      .notNull()
+      .default([]),
+    specialArrangements: text("special_arrangements").notNull().default(""),
+    /**
+     * PTR-11: whether attendees may register, and the terms when they may. The two window columns
+     * are text for the same reason `proposedDates` is JSONB — the `datetime-local` spelling
+     * survives the round trip untouched, and the fixed-width format the save path guarantees keeps
+     * the CHECK below a chronological comparison. A `timestamp` column would hand back
+     * `… 18:00:00` instead.
+     */
+    registrationEnabled: boolean("registration_enabled").notNull().default(false),
+    registrationCapacity: integer("registration_capacity"),
+    registrationOpensAt: text("registration_opens_at"),
+    registrationClosesAt: text("registration_closes_at"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date()),
+  },
+  table => [
+    // Criterion 2/5, held for whichever path writes the row: terms exist exactly when enabled.
+    check(
+      "event_requests_registration_terms_match_enabled",
+      sql`(${table.registrationEnabled} and ${table.registrationCapacity} is not null and ${table.registrationOpensAt} is not null and ${table.registrationClosesAt} is not null) or (not ${table.registrationEnabled} and ${table.registrationCapacity} is null and ${table.registrationOpensAt} is null and ${table.registrationClosesAt} is null)`
+    ),
+    check(
+      "event_requests_registration_capacity_positive",
+      sql`${table.registrationCapacity} is null or ${table.registrationCapacity} > 0`
+    ),
+    check(
+      "event_requests_registration_closes_after_opens",
+      sql`${table.registrationOpensAt} is null or ${table.registrationClosesAt} is null or ${table.registrationClosesAt} > ${table.registrationOpensAt}`
+    ),
+  ]
+);
 
 export const venues = pgTable(
   "venues",

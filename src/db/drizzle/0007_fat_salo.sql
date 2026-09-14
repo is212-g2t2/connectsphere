@@ -1,0 +1,7 @@
+ALTER TABLE "event_requests" ADD COLUMN "registration_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "registration_capacity" integer;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "registration_opens_at" text;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "registration_closes_at" text;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_registration_terms_match_enabled" CHECK (("event_requests"."registration_enabled" and "event_requests"."registration_capacity" is not null and "event_requests"."registration_opens_at" is not null and "event_requests"."registration_closes_at" is not null) or (not "event_requests"."registration_enabled" and "event_requests"."registration_capacity" is null and "event_requests"."registration_opens_at" is null and "event_requests"."registration_closes_at" is null));--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_registration_capacity_positive" CHECK ("event_requests"."registration_capacity" is null or "event_requests"."registration_capacity" > 0);--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_registration_closes_after_opens" CHECK ("event_requests"."registration_opens_at" is null or "event_requests"."registration_closes_at" is null or "event_requests"."registration_closes_at" > "event_requests"."registration_opens_at");

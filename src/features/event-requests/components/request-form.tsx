@@ -1,6 +1,7 @@
 import { useForm } from "@tanstack/react-form";
 
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { Textarea } from "#/components/ui/textarea";
@@ -22,6 +23,10 @@ const DEFAULT_VALUES: EventRequestDraftFormValues = {
   specialArrangements: "",
   proposedDates: [{ key: crypto.randomUUID(), start: "", end: "" }],
   equipmentRequirements: [],
+  registrationEnabled: false,
+  registrationCapacity: "",
+  registrationOpensAt: "",
+  registrationClosesAt: "",
 };
 
 const OPTIONAL_TEXT_FIELDS = [
@@ -31,6 +36,27 @@ const OPTIONAL_TEXT_FIELDS = [
   ["roomLayoutPreference", "Room-layout preference"],
   ["accessibilityRequirements", "Accessibility requirements"],
   ["specialArrangements", "Special arrangements"],
+] as const;
+
+/** The registration rows vary only by name, label and input type, exactly like the equipment ones. */
+const REGISTRATION_FIELDS = [
+  {
+    name: "registrationCapacity",
+    label: "Registration capacity (required)",
+    type: "number",
+    min: "1",
+    step: "1",
+  },
+  {
+    name: "registrationOpensAt",
+    label: "Registration opens (required)",
+    type: "datetime-local",
+  },
+  {
+    name: "registrationClosesAt",
+    label: "Registration closes (required)",
+    type: "datetime-local",
+  },
 ] as const;
 
 /**
@@ -59,6 +85,11 @@ function toFormValues(initial: EventRequestDraftValues): EventRequestDraftFormVa
       type: line.type,
       quantity: line.quantity === undefined ? "" : String(line.quantity),
     })),
+    registrationEnabled: initial.registrationEnabled,
+    registrationCapacity:
+      initial.registrationCapacity === undefined ? "" : String(initial.registrationCapacity),
+    registrationOpensAt: initial.registrationOpensAt ?? "",
+    registrationClosesAt: initial.registrationClosesAt ?? "",
   };
 }
 
@@ -213,6 +244,57 @@ export function EventRequestForm({
               />
               <FieldError errors={field.state.meta.errors} />
             </Field>
+          )}
+        </form.Field>
+
+        <form.Field name="registrationEnabled">
+          {field => (
+            <section
+              className="space-y-6 border-t border-border pt-6"
+              aria-label="Attendee registration"
+            >
+              <div className="space-y-2">
+                <h3 className="font-medium">Attendee registration</h3>
+                <Field orientation="horizontal">
+                  <Checkbox
+                    id={field.name}
+                    checked={field.state.value}
+                    onCheckedChange={checked => field.handleChange(checked)}
+                  />
+                  <FieldLabel htmlFor={field.name} className="font-normal">
+                    Require attendee registration
+                  </FieldLabel>
+                </Field>
+                <FieldDescription>
+                  Registered attendees sign up between these times, up to this capacity. Turning
+                  registration off saves no terms.
+                </FieldDescription>
+              </div>
+
+              {field.state.value && (
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {REGISTRATION_FIELDS.map(({ name, label, ...input }) => (
+                    <form.Field key={name} name={name}>
+                      {registrationField => (
+                        <Field data-invalid={registrationField.state.meta.errors.length > 0}>
+                          <FieldLabel htmlFor={registrationField.name}>{label}</FieldLabel>
+                          <Input
+                            id={registrationField.name}
+                            required
+                            {...input}
+                            value={registrationField.state.value}
+                            onBlur={registrationField.handleBlur}
+                            onChange={event => registrationField.handleChange(event.target.value)}
+                            aria-invalid={registrationField.state.meta.errors.length > 0}
+                          />
+                          <FieldError errors={registrationField.state.meta.errors} />
+                        </Field>
+                      )}
+                    </form.Field>
+                  ))}
+                </div>
+              )}
+            </section>
           )}
         </form.Field>
 

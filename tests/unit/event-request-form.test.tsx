@@ -3,6 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
+import {
+  REGISTRATION_CAPACITY_MESSAGE,
+  REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
+  REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE,
+  REGISTRATION_CLOSES_REQUIRED_MESSAGE,
+  REGISTRATION_OPENS_REQUIRED_MESSAGE,
+} from "#/features/event-requests/schema";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 
 const BLANK_DRAFT = {
@@ -16,6 +23,7 @@ const BLANK_DRAFT = {
   accessibilityRequirements: "",
   equipmentRequirements: [],
   specialArrangements: "",
+  registrationEnabled: false,
 };
 
 const initialValues: EventRequestDraftValues = {
@@ -36,6 +44,14 @@ const initialValues: EventRequestDraftValues = {
     { type: "  Wireless microphones  ", quantity: 2 },
     { type: "HDMI projector & screen", quantity: 1 },
   ],
+  registrationEnabled: false,
+};
+
+const ENABLED_REGISTRATION = {
+  registrationEnabled: true,
+  registrationCapacity: 50,
+  registrationOpensAt: "2030-11-01T09:00",
+  registrationClosesAt: "2030-11-08T17:00",
 };
 
 function makeOnSave() {
@@ -259,5 +275,150 @@ describe("EventRequestForm", () => {
     expect(onSave).toHaveBeenCalledTimes(2);
     expect(onSave).toHaveBeenLastCalledWith({ ...initialValues, description });
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("hides the registration terms until registration is enabled", () => {
+    render(<EventRequestForm onSave={makeOnSave()} />);
+
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Require attendee registration" })
+        .getAttribute("aria-checked")
+    ).toBe("false");
+    expect(screen.queryByLabelText("Registration capacity (required)", { exact: true })).toBeNull();
+    expect(screen.queryByLabelText("Registration opens (required)", { exact: true })).toBeNull();
+    expect(screen.queryByLabelText("Registration closes (required)", { exact: true })).toBeNull();
+  });
+
+  it("saves the registration terms exactly as entered", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm onSave={onSave} />);
+
+    fill("Event name (required)", "Workshop");
+    await user.click(screen.getByRole("checkbox", { name: "Require attendee registration" }));
+    fill("Registration capacity (required)", "50");
+    fill("Registration opens (required)", ENABLED_REGISTRATION.registrationOpensAt);
+    fill("Registration closes (required)", ENABLED_REGISTRATION.registrationClosesAt);
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledExactlyOnceWith({
+        ...BLANK_DRAFT,
+        eventName: "Workshop",
+        ...ENABLED_REGISTRATION,
+      });
+    });
+  });
+
+  it("refuses to save an enabled registration missing its terms, naming each", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm onSave={onSave} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Require attendee registration" }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(screen.getAllByRole("alert").map(alert => alert.textContent)).toEqual([
+      REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
+      REGISTRATION_OPENS_REQUIRED_MESSAGE,
+      REGISTRATION_CLOSES_REQUIRED_MESSAGE,
+    ]);
+    for (const label of [
+      "Registration capacity (required)",
+      "Registration opens (required)",
+      "Registration closes (required)",
+    ]) {
+      expect(screen.getByLabelText(label, { exact: true }).getAttribute("aria-invalid")).toBe(
+        "true"
+      );
+    }
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("reports an unusable registration capacity at its field", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm onSave={onSave} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Require attendee registration" }));
+    fill("Registration capacity (required)", "2.5");
+    fill("Registration opens (required)", ENABLED_REGISTRATION.registrationOpensAt);
+    fill("Registration closes (required)", ENABLED_REGISTRATION.registrationClosesAt);
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(screen.getByText(REGISTRATION_CAPACITY_MESSAGE)).not.toBeNull();
+    expect(
+      screen
+        .getByLabelText("Registration capacity (required)", { exact: true })
+        .getAttribute("aria-invalid")
+    ).toBe("true");
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("reports a registration window that closes before it opens", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm onSave={onSave} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Require attendee registration" }));
+    fill("Registration capacity (required)", "50");
+    fill("Registration opens (required)", "2030-11-08T17:00");
+    fill("Registration closes (required)", "2030-11-08T16:59");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(screen.getByText(REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE)).not.toBeNull();
+    expect(
+      screen
+        .getByLabelText("Registration closes (required)", { exact: true })
+        .getAttribute("aria-invalid")
+    ).toBe("true");
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("loads saved registration terms exactly and submits them untouched", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(
+      <EventRequestForm
+        initialValues={{ ...initialValues, ...ENABLED_REGISTRATION }}
+        onSave={onSave}
+      />
+    );
+
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Require attendee registration" })
+        .getAttribute("aria-checked")
+    ).toBe("true");
+    expect(inputValue("Registration capacity (required)")).toBe("50");
+    expect(inputValue("Registration opens (required)")).toBe(
+      ENABLED_REGISTRATION.registrationOpensAt
+    );
+    expect(inputValue("Registration closes (required)")).toBe(
+      ENABLED_REGISTRATION.registrationClosesAt
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(onSave).toHaveBeenCalledExactlyOnceWith({ ...initialValues, ...ENABLED_REGISTRATION });
+  });
+
+  it("drops the terms when registration is turned off before saving", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(<EventRequestForm onSave={onSave} />);
+
+    const toggle = screen.getByRole("checkbox", { name: "Require attendee registration" });
+    await user.click(toggle);
+    fill("Registration capacity (required)", "50");
+    fill("Registration opens (required)", ENABLED_REGISTRATION.registrationOpensAt);
+    fill("Registration closes (required)", ENABLED_REGISTRATION.registrationClosesAt);
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(BLANK_DRAFT);
+    });
   });
 });

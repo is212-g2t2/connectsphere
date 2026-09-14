@@ -50,6 +50,13 @@
       "when": 1789283610219,
       "tag": "0006_low_khan",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789400966231,
+      "tag": "0007_fat_salo",
+      "breakpoints": true
     }
   ]
 }
