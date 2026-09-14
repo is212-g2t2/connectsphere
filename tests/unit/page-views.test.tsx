@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsPage } from "#/features/auth/components/settings-page";
 import { DashboardPage } from "#/features/dashboard/components/dashboard-page";
@@ -27,9 +27,22 @@ vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate: vi.fn<() => void>() }),
 }));
 
-vi.mock("#/lib/auth-client", () => ({
-  authClient: { deleteUser: vi.fn<() => Promise<{ error: null }>>() },
+const { deleteUser, toast } = vi.hoisted(() => ({
+  deleteUser: vi.fn<() => Promise<{ error: { message?: string } | null }>>(),
+  toast: { error: vi.fn<(message: string) => void>() },
 }));
+
+vi.mock("#/lib/auth-client", () => ({ authClient: { deleteUser } }));
+
+vi.mock("sonner", () => ({ toast }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function userWithRole(role: string): SessionUser {
   return { id: "usr_1", email: "casey@example.com", name: "Casey", role };
@@ -71,6 +84,35 @@ describe("DashboardPage", () => {
     expect(screen.queryByRole("link", { name: "Venues" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
   });
+
+  /**
+   * PTR-71: the upload's `status`/`uploadedKey`/`errorMsg` trio is now one action, so a refused
+   * presign cannot leave the trigger reading "Uploading…" with a stale key still on screen.
+   */
+  it("reports a refused upload and leaves the trigger usable", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ error: "Upload refused for this file" }), { status: 400 })
+        )
+    );
+    const { container } = render(<DashboardPage user={userWithRole("venue_staff")} />);
+
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    // The type has to satisfy the input's `accept`, or `user.upload` drops the file silently.
+    await user.upload(
+      input as HTMLInputElement,
+      new File(["x"], "notes.txt", { type: "text/plain" })
+    );
+
+    expect(await screen.findByText("Upload refused for this file")).toBeTruthy();
+    const trigger = screen.getByRole("button", { name: "Choose file" });
+    expect(trigger.hasAttribute("disabled")).toBe(false);
+  });
 });
 
 describe("SettingsPage", () => {
@@ -101,6 +143,44 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Delete account" }));
 
     expect(screen.getByRole("button", { name: "Yes, delete my account" })).toBeTruthy();
+  });
+
+  /**
+   * PTR-71: the deletion used to run as a bare `void handleDeleteAccount()` with nothing tracking
+   * it, so both danger-zone buttons stayed live through the most destructive call in the app.
+   */
+  it("locks the danger zone for as long as the deletion is in flight", async () => {
+    const user = userEvent.setup();
+    let refuse!: () => void;
+    deleteUser.mockReturnValue(
+      new Promise(resolve => {
+        refuse = () => resolve({ error: { message: "Deletion is disabled" } });
+      })
+    );
+    render(<SettingsPage user={userWithRole("attendee")} accounts={[]} />);
+
+    await user.click(screen.getByRole("button", { name: "Delete account" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete my account" }));
+
+    const confirm = await screen.findByRole("button", { name: "Deleting…" });
+    expect(confirm.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Cancel" }).hasAttribute("disabled")).toBe(true);
+
+    refuse();
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Deletion is disabled"));
+  });
+
+  it("surfaces a refused deletion and returns the danger zone to an interactive state", async () => {
+    const user = userEvent.setup();
+    deleteUser.mockResolvedValue({ error: { message: "Deletion is disabled" } });
+    render(<SettingsPage user={userWithRole("attendee")} accounts={[]} />);
+
+    await user.click(screen.getByRole("button", { name: "Delete account" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete my account" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Deletion is disabled"));
+    const confirm = screen.getByRole("button", { name: "Yes, delete my account" });
+    expect(confirm.hasAttribute("disabled")).toBe(false);
   });
 });
 

@@ -3,6 +3,7 @@ import { Trash2, Link } from "lucide-react";
 import { toast } from "sonner";
 
 import type { SessionUser } from "#/features/auth/session";
+import { useMutation } from "#/hooks/use-mutation";
 import { authClient } from "#/lib/auth-client";
 import { Button } from "#/components/ui/button";
 
@@ -10,17 +11,10 @@ const PROVIDER_LABELS: Record<string, string> = {
   credential: "Password",
 };
 
+const DELETE_FAILED = "Failed to delete account";
+
 function getProviderLabel(providerId: string) {
   return PROVIDER_LABELS[providerId] ?? providerId.charAt(0).toUpperCase() + providerId.slice(1);
-}
-
-async function handleDeleteAccount() {
-  const { error } = await authClient.deleteUser({});
-  if (error) {
-    toast.error(error.message ?? "Failed to delete account");
-    return;
-  }
-  window.location.href = "/";
 }
 
 /**
@@ -38,6 +32,25 @@ export function SettingsPage({
   accounts: { id: string; providerId: string }[];
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // PTR-71: deleting an account used to run as a bare `void handleDeleteAccount()` — nothing
+  // tracked it, so both buttons stayed live and a second click could fire a second delete. The
+  // action owns the in-flight flag, and the redirect on success stays inside it.
+  const [, deleteAccount, deleting] = useMutation(async () => {
+    const { error } = await authClient.deleteUser({});
+    if (error) {
+      throw new Error(error.message ?? DELETE_FAILED);
+    }
+
+    window.location.href = "/";
+  }, DELETE_FAILED);
+
+  async function handleDeleteAccount() {
+    const { error } = await deleteAccount();
+    if (error) {
+      toast.error(error);
+    }
+  }
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-16">
@@ -82,10 +95,21 @@ export function SettingsPage({
                 This permanently deletes your account and all data. This cannot be undone.
               </p>
               <div className="flex gap-2">
-                <Button variant="destructive" size="sm" onClick={() => void handleDeleteAccount()}>
-                  Yes, delete my account
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={deleting}
+                  onClick={() => void handleDeleteAccount()}
+                >
+                  {deleting ? "Deleting…" : "Yes, delete my account"}
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>
+                {/* Backing out mid-delete would only hide a deletion that is still running. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={deleting}
+                  onClick={() => setConfirmDelete(false)}
+                >
                   Cancel
                 </Button>
               </div>

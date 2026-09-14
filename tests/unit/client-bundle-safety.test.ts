@@ -3,10 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * Every module under the client-reachable shared directories — `src/features`, `src/lib`,
- * `src/components` — whether or not it declares a server function or imports a server module
- * today. Selecting on `createServerFn(` left a hole: a pure module a route imports reaches the
- * client bundle just the same. `src/db` stays out (server-only by construction) and so does
+ * Every module under the client-reachable shared directories — `src/features`, `src/hooks`,
+ * `src/lib`, `src/components` — whether or not it declares a server function or imports a server
+ * module today. Selecting on `createServerFn(` left a hole: a pure module a route imports reaches
+ * the client bundle just the same. `src/db` stays out (server-only by construction) and so does
  * `src/routes` (its server routes import `.server` modules on purpose).
  *
  * `*.server.ts` modules are exempt and held from the other side instead:
@@ -47,7 +47,7 @@ const SERVER_ONLY_IMPORT =
  */
 const STATIC_IMPORT_SOURCE = /^[ \t]*(?:import|export)\s+(?!type\b)[^;]*?["']([^"']+)["']/gm;
 
-const GUARDED_DIRS = ["src/features", "src/lib", "src/components"];
+const GUARDED_DIRS = ["src/features", "src/hooks", "src/lib", "src/components"];
 
 describe("Client-Reachable Module Client Safety", () => {
   const guardedModules = GUARDED_DIRS.flatMap(dir =>

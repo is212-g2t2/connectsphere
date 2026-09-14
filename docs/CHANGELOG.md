@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Valid sign-ins route every role to `/dashboard`, which varies its contents by permission rather than sending roles to separate landing pages (PTR-6).
 - The client-bundle safety guard scans every module under `src/features`, not only those exporting server functions (PTR-7).
 - Server-function authorization moved onto a TanStack Start middleware pipeline (PTR-69): every `createServerFn` runs behind `withSession`/`requireSession`/`requirePermission`, which answer 401/403 before any handler or database work, and the per-feature boundary wrappers are gone.
+- Client-side writes run through a managed action lifecycle rather than hand-rolled `useState` flags (PTR-71): a mutation-triggering button — account deletion and sign-out included — is disabled for exactly as long as its mutation is open, a rejection surfaces a message and returns the interface to an interactive state instead of stranding it, and a saved draft's id is applied by the action, so a second save edits that draft rather than opening another.
 
 ### Fixed
 

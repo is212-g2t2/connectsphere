@@ -1,11 +1,14 @@
 import { Link } from "@tanstack/react-router";
 import { Upload, CheckCircle } from "lucide-react";
-import { useState, useRef } from "react";
+import { useRef } from "react";
 
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
+import { useMutation } from "#/hooks/use-mutation";
 import { Button } from "#/components/ui/button";
 import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
+
+const UPLOAD_FAILED = "Upload failed";
 
 /**
  * The signed-in home view. The session user arrives as a prop rather than through
@@ -76,55 +79,42 @@ export function DashboardPage({ user }: { user: SessionUser }) {
 /** One caller — the dashboard itself — so it stays in this file, per AGENTS.md. */
 function FileUploadCard() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [status, setStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
-  const [uploadedKey, setUploadedKey] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // PTR-71: one action instead of a `status`/`uploadedKey`/`errorMsg` trio that had to be moved
+  // in step. The two stages are one run, so a failed PUT cannot leave a key on screen from the
+  // presign that preceded it, and React queues a second pick behind the first rather than racing
+  // it — the concurrency the three flags could not express.
+  const [upload, uploadFile, uploading] = useMutation(async (file: File) => {
+    const res = await fetch("/api/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: file.name,
+        contentType: file.type,
+        size: file.size,
+      }),
+    });
 
-    setStatus("uploading");
-    setErrorMsg(null);
-
-    try {
-      const res = await fetch("/api/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type,
-          size: file.size,
-        }),
-      });
-
-      if (!res.ok) {
-        const { error } = await res.json();
-        throw new Error(error ?? "Failed to get upload URL");
-      }
-
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      const { url, key } = (await res.json()) as {
-        url: string;
-        key: string;
-      };
-
-      const putRes = await fetch(url, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("Upload to storage failed");
-
-      setUploadedKey(key);
-      setStatus("done");
-    } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : "Upload failed");
-      setStatus("error");
-    } finally {
-      if (inputRef.current) inputRef.current.value = "";
+    if (!res.ok) {
+      const { error } = await res.json();
+      throw new Error(error ?? "Failed to get upload URL");
     }
-  }
+
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const { url, key } = (await res.json()) as {
+      url: string;
+      key: string;
+    };
+
+    const putRes = await fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!putRes.ok) throw new Error("Upload to storage failed");
+
+    return key;
+  }, UPLOAD_FAILED);
 
   return (
     <section className="mt-12" aria-label="File upload">
@@ -133,13 +123,13 @@ function FileUploadCard() {
         Presigned PUT upload via MinIO. Images and PDFs up to 10 MB.
       </p>
 
-      {status === "done" && uploadedKey ? (
+      {uploading ? null : upload.status === "success" ? (
         <p className="mt-4 flex items-center gap-2 text-sm">
           <CheckCircle className="size-4" />
-          Uploaded: <code className="font-mono text-xs break-all">{uploadedKey}</code>
+          Uploaded: <code className="font-mono text-xs break-all">{upload.data}</code>
         </p>
-      ) : status === "error" ? (
-        <p className="mt-4 text-sm text-destructive">{errorMsg}</p>
+      ) : upload.status === "error" ? (
+        <p className="mt-4 text-sm text-destructive">{upload.error}</p>
       ) : null}
 
       <div className="mt-4">
@@ -148,17 +138,23 @@ function FileUploadCard() {
           type="file"
           accept="image/*,application/pdf,text/plain"
           className="hidden"
-          onChange={e => void handleFileChange(e)}
+          onChange={event => {
+            const file = event.target.files?.[0];
+            // Cleared before the run rather than after it, so picking the same file twice still
+            // fires a `change`; the action, not the input, is what the UI reads from now.
+            event.target.value = "";
+            if (file) void uploadFile(file);
+          }}
         />
         <Button
           type="button"
           variant="outline"
           size="sm"
-          disabled={status === "uploading"}
+          disabled={uploading}
           onClick={() => inputRef.current?.click()}
         >
           <Upload className="size-4" />
-          {status === "uploading" ? "Uploading…" : "Choose file"}
+          {uploading ? "Uploading…" : "Choose file"}
         </Button>
       </div>
     </section>
