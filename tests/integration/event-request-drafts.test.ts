@@ -330,6 +330,44 @@ describe("Event request drafts", () => {
     });
   });
 
+  /** The invariant at the persistence layer, including the three CHECKs behind the Zod schema. */
+  it("refuses registration rows the CHECK constraints forbid (PTR-11)", async () => {
+    // Drizzle wraps the driver error, so the constraint name is on the cause, not the message.
+    await expect(
+      database
+        .insert(schema.eventRequests)
+        .values({ organiserId: organiser.id, registrationEnabled: true })
+    ).rejects.toMatchObject({
+      cause: { constraint: "event_requests_registration_terms_match_enabled" },
+    });
+
+    await expect(
+      database
+        .insert(schema.eventRequests)
+        .values({ ...enabledRegistration, organiserId: organiser.id, registrationEnabled: false })
+    ).rejects.toMatchObject({
+      cause: { constraint: "event_requests_registration_terms_match_enabled" },
+    });
+
+    await expect(
+      database
+        .insert(schema.eventRequests)
+        .values({ ...enabledRegistration, organiserId: organiser.id, registrationCapacity: 0 })
+    ).rejects.toMatchObject({
+      cause: { constraint: "event_requests_registration_capacity_positive" },
+    });
+
+    await expect(
+      database.insert(schema.eventRequests).values({
+        ...enabledRegistration,
+        organiserId: organiser.id,
+        registrationClosesAt: enabledRegistration.registrationOpensAt,
+      })
+    ).rejects.toMatchObject({
+      cause: { constraint: "event_requests_registration_closes_after_opens" },
+    });
+  });
+
   // No read/list endpoint exists yet (that's the rest of AC4, beyond this ticket), so this
   // asserts row ownership at the database level rather than any visibility enforcement.
   it("scopes each draft's row to the organiser that created it", async () => {
