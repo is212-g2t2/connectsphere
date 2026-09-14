@@ -1,4 +1,9 @@
+import * as Sentry from "@sentry/tanstackstart-react";
+import * as React from "react";
+import type { ErrorComponentProps } from "@tanstack/react-router";
 import { cn } from "cn";
+
+import { RootDocument } from "#/components/layout/root-document";
 
 interface ErrorPageProps {
   error: unknown;
@@ -55,5 +60,36 @@ export function ErrorPage({
         </div>
       </main>
     </div>
+  );
+}
+
+/**
+ * The root route's error boundary. A boundary replaces everything beneath `<html>`, so it
+ * re-renders the document shell itself, and it is the one place that reports the failure to
+ * Sentry — on the server during SSR, and again on the client once it hydrates.
+ */
+export function RootErrorPage(props: ErrorComponentProps) {
+  // Capture SSR rendering exceptions manually as per documentation
+  if (typeof window === "undefined") {
+    Sentry.captureException(props.error);
+  }
+
+  React.useEffect(() => {
+    Sentry.captureException(props.error);
+  }, [props.error]);
+
+  return (
+    <RootDocument meta={<meta name="robots" content="noindex, nofollow" />}>
+      <ErrorPage error={props.error} reset={props.reset} />
+    </RootDocument>
+  );
+}
+
+/** The root route's 404. Nothing to report — the address simply matched no route. */
+export function RootNotFoundPage() {
+  return (
+    <RootDocument meta={<meta name="robots" content="noindex, nofollow" />}>
+      <ErrorPage error="The page you are looking for does not exist." title="404 - Not Found" />
+    </RootDocument>
   );
 }

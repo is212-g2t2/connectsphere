@@ -1,34 +1,19 @@
-import * as React from "react";
-import * as Sentry from "@sentry/tanstackstart-react";
+import { createRootRoute, Outlet } from "@tanstack/react-router";
+
 import { Header } from "#/components/layout/header";
-import { HeadContent, Scripts, createRootRoute, Outlet } from "@tanstack/react-router";
-import { ErrorPage } from "#/components/pages/error";
-import { Toaster } from "#/components/ui/sonner";
-import { ThemeProvider } from "#/components/providers/theme-provider";
+import { RootDocument } from "#/components/layout/root-document";
+import { RootErrorPage, RootNotFoundPage } from "#/components/pages/error";
 // oxlint-disable-next-line import/no-unassigned-import
 import "../globals.css";
 
 export const Route = createRootRoute({
   head: () => ({
     meta: [
-      {
-        charSet: "utf-8",
-      },
-      {
-        name: "viewport",
-        content: "width=device-width, initial-scale=1",
-      },
-      {
-        name: "theme-color",
-        content: "#f6f6f4",
-      },
-      {
-        name: "color-scheme",
-        content: "light dark",
-      },
-      {
-        title: "ConnectSphere",
-      },
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "theme-color", content: "#f6f6f4" },
+      { name: "color-scheme", content: "light dark" },
+      { title: "ConnectSphere" },
     ],
     links: [
       { rel: "icon", href: "/favicon.ico", sizes: "any" },
@@ -37,55 +22,12 @@ export const Route = createRootRoute({
       { rel: "manifest", href: "/site.webmanifest" },
     ],
   }),
-  component: RootComponent,
-  errorComponent: props => {
-    // Capture SSR rendering exceptions manually as per documentation
-    if (typeof window === "undefined") {
-      Sentry.captureException(props.error);
-    }
-
-    React.useEffect(() => {
-      Sentry.captureException(props.error);
-    }, [props.error]);
-
-    return (
-      <RootDocument meta={<meta name="robots" content="noindex, nofollow" />}>
-        <ErrorPage error={props.error} reset={props.reset} />
-      </RootDocument>
-    );
-  },
-  notFoundComponent: () => {
-    return (
-      <RootDocument meta={<meta name="robots" content="noindex, nofollow" />}>
-        <ErrorPage error="The page you are looking for does not exist." title="404 - Not Found" />
-      </RootDocument>
-    );
-  },
-});
-
-function RootComponent() {
-  return (
+  component: () => (
     <RootDocument>
       <Header />
       <Outlet />
     </RootDocument>
-  );
-}
-
-function RootDocument({ children, meta }: { children: React.ReactNode; meta?: React.ReactNode }) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <HeadContent />
-        {meta}
-      </head>
-      <body>
-        <ThemeProvider defaultTheme="light" storageKey="connectsphere-theme">
-          {children}
-        </ThemeProvider>
-        <Scripts />
-        <Toaster richColors />
-      </body>
-    </html>
-  );
-}
+  ),
+  errorComponent: RootErrorPage,
+  notFoundComponent: RootNotFoundPage,
+});

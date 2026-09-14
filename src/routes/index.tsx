@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LandingPage } from "#/components/pages/landing";
+
+import { LandingPage } from "#/features/landing/components/landing-page";
 import { createSeoHead, getStructuredData } from "#/lib/seo";
 
 export const Route = createFileRoute("/")({

@@ -1,28 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import { ResetPasswordForm } from "#/features/auth/components/reset-password-form";
+
+import { ResetPasswordPage } from "#/features/auth/components/reset-password-page";
 import { createSeoHead } from "#/lib/seo";
 
-const searchSchema = z.object({
-  token: z.string().optional(),
-  error: z.string().optional(),
-});
-
-function ResetPasswordPage() {
-  const { token, error } = Route.useSearch();
-  return (
-    <div className="mx-auto w-full max-w-sm px-6 py-20 md:py-28">
-      <ResetPasswordForm token={token} error={error} />
-    </div>
-  );
-}
-
 export const Route = createFileRoute("/reset-password")({
-  head: () =>
-    createSeoHead({
-      title: "Reset Password — ConnectSphere",
-      noindex: true,
-    }),
-  validateSearch: searchSchema,
-  component: ResetPasswordPage,
+  head: () => createSeoHead({ title: "Reset Password — ConnectSphere", noindex: true }),
+  // Kept as strings: a hand-typed `?token=` or `?error=` is for the form to explain, not for the
+  // route's error boundary to refuse.
+  validateSearch: z.object({ token: z.string().optional(), error: z.string().optional() }),
+  component: () => <ResetPasswordPage {...Route.useSearch()} />,
 });

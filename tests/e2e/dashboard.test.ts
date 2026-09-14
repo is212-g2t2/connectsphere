@@ -18,9 +18,11 @@ test.describe("Protected routes (Signed Out)", () => {
 /**
  * PTR-7 criterion 2, first half: "the function is not displayed".
  *
- * The refusal half is covered server-side, but nothing else in the suite renders the dashboard —
- * delete the `can(...)` wrapper in `src/routes/dashboard.tsx` and type:check, the unit suite and
- * the integration suite all stay green while every attendee sees the upload card again.
+ * The refusal half is covered server-side. Since PTR-75 the view itself is a feature component,
+ * so `tests/unit/page-views.test.tsx` asserts the same hiding far more cheaply by handing it a
+ * role directly — but only this run proves that the role reaching the view is the one the session
+ * actually carries. Delete the `can(...)` wrapper in
+ * `src/features/dashboard/components/dashboard-page.tsx` and both should go red.
  */
 test.describe("Role-gated interface", () => {
   const password = "Password123!";
