@@ -43,10 +43,11 @@ function loadAuthServer() {
  * Resolves the Better Auth session once per request and puts the sanitised user — or `null` —
  * on the server function's context. It is also the pipeline's refusal boundary: a handler may
  * still throw the status-carrying errors below (a draft that belongs to another organiser, a
- * venue row that is not there), and the `Response` they become is served verbatim by TanStack
- * Start, so a direct HTTP caller gets the real 401/403/404 and an in-app caller receives that
- * `Response` as a resolved value — the protocol the routes already unwrap. Anything else is a
- * genuine fault and keeps travelling as an error.
+ * venue row that is not there, a submitted request that is no longer an editable draft), and the
+ * `Response` they become is served verbatim by TanStack Start, so a direct HTTP caller gets the
+ * real 401/403/404/409 and an in-app caller receives that `Response` as a resolved value — the
+ * protocol the routes already unwrap. Anything else is a genuine fault and keeps travelling as
+ * an error.
  */
 export const withSession = createMiddleware({ type: "function" }).server(async ({ next }) => {
   try {
@@ -54,7 +55,11 @@ export const withSession = createMiddleware({ type: "function" }).server(async (
     const session = await auth.api.getSession({ headers: getRequest().headers });
     return await next({ context: { user: getSessionUser(session) } });
   } catch (error) {
-    if (error instanceof AuthorizationError || error instanceof NotFoundError) {
+    if (
+      error instanceof AuthorizationError ||
+      error instanceof NotFoundError ||
+      error instanceof ConflictError
+    ) {
       throw new Response(error.message, { status: error.status });
     }
     throw error;
@@ -145,8 +150,8 @@ export class AuthorizationError extends Error {
  * The other status a server function has to be able to answer with. Deliberately not a wider
  * `AuthorizationError`: a row that does not exist was never refused, and telling a Venue Staff
  * member their role forbids an id they mistyped blames them for someone else's deletion. It sits
- * next to `AuthorizationError` because both halves of this boundary protocol live in this file —
- * `withSession` is the one module that converts them.
+ * next to `AuthorizationError` because the status-carrying errors live beside each other in this
+ * file — `withSession` is the one module that converts them.
  */
 export class NotFoundError extends Error {
   readonly status = 404;
@@ -154,5 +159,20 @@ export class NotFoundError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "NotFoundError";
+  }
+}
+
+/**
+ * The row exists and belongs to the caller, but its state refuses the operation: a submitted
+ * event request is no longer an editable draft (PTR-13 criterion 3). 409 rather than 403 — the
+ * role is not the problem — and the message is what directs the organiser to the clarification
+ * or change-request route they do have.
+ */
+export class ConflictError extends Error {
+  readonly status = 409;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
   }
 }

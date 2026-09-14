@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { listAccounts } from "#/features/auth/session";
-import { saveEventRequestDraft } from "#/features/event-requests/server-fns";
+import { saveEventRequestDraft, submitEventRequest } from "#/features/event-requests/server-fns";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import { listVenues, saveVenue } from "#/features/venues/server-fns";
 import { auth } from "#/lib/auth.server";
@@ -150,6 +150,24 @@ describe("server-function authorization (PTR-69)", () => {
       signIn("event_organiser");
 
       expect((await call(saveEventRequestDraft, {})).error).toBeUndefined();
+    });
+
+    it("answers 401 to an unauthenticated submission", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(submitEventRequest, { id: 1 })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("answers 403 to the attendee role on submission", async () => {
+      signIn("attendee");
+
+      expect(await refusalFrom(submitEventRequest, { id: 1 })).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
     });
   });
 

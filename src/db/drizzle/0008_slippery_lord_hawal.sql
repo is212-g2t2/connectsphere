@@ -1,0 +1,3 @@
+ALTER TYPE "public"."event_request_status" ADD VALUE 'submitted';--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "submitted_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_submission_time_matches_status" CHECK (("event_requests"."status" = 'draft' and "event_requests"."submitted_at" is null) or ("event_requests"."status" <> 'draft' and "event_requests"."submitted_at" is not null));

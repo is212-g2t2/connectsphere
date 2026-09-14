@@ -5,9 +5,13 @@ import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
-import { handleSaveEventRequestDraft } from "#/features/event-requests/drafts.server";
+import {
+  handleSaveEventRequestDraft,
+  handleSubmitEventRequest,
+} from "#/features/event-requests/drafts.server";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import {
+  ALREADY_SUBMITTED_MESSAGE,
   ATTENDANCE_MESSAGE,
   END_BEFORE_START_MESSAGE,
   EQUIPMENT_QUANTITY_MESSAGE,
@@ -16,6 +20,8 @@ import {
   REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE,
   REGISTRATION_CLOSES_REQUIRED_MESSAGE,
   REGISTRATION_OPENS_REQUIRED_MESSAGE,
+  SUBMITTED_EDIT_REFUSAL,
+  missingFieldsMessage,
 } from "#/features/event-requests/schema";
 
 const organiser: SessionUser = {
@@ -384,5 +390,130 @@ describe("Event request drafts", () => {
 
     expect(ownRows).toHaveLength(1);
     expect(otherRows).toHaveLength(0);
+  });
+
+  /**
+   * PTR-13 submits the same stored row `fullRequest` already describes — every mandatory field
+   * present — so each refusal below sends a draft missing exactly one thing.
+   */
+  it("refuses an incomplete draft, naming every missing mandatory field (AC1)", async () => {
+    const draft = await handleSaveEventRequestDraft(
+      { eventName: "Community workshop" },
+      organiser,
+      database as never
+    );
+
+    await expect(
+      handleSubmitEventRequest({ id: draft.id }, organiser, database as never)
+    ).rejects.toThrow(
+      missingFieldsMessage(["Purpose", "Proposed dates and times", "Expected attendance"])
+    );
+
+    expect(await findById(draft.id)).toMatchObject({ status: "draft", submittedAt: null });
+  });
+
+  it("refuses a half-filled equipment line at submission, naming it (AC1)", async () => {
+    const draft = await handleSaveEventRequestDraft(
+      { ...fullRequest, equipmentRequirements: [{ type: "Projector" }] },
+      organiser,
+      database as never
+    );
+
+    await expect(
+      handleSubmitEventRequest({ id: draft.id }, organiser, database as never)
+    ).rejects.toThrow(missingFieldsMessage(["Equipment requirements"]));
+
+    expect(await findById(draft.id)).toMatchObject({ status: "draft", submittedAt: null });
+  });
+
+  it("flips a complete draft to submitted and records the submission time (AC2)", async () => {
+    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    const before = Date.now();
+
+    const submitted = await handleSubmitEventRequest(
+      { id: draft.id },
+      organiser,
+      database as never
+    );
+
+    expect(submitted).toMatchObject({ id: draft.id, status: "submitted" });
+    expect(submitted.submittedAt).toBeInstanceOf(Date);
+    expect(submitted.submittedAt?.getTime()).toBeGreaterThanOrEqual(before);
+    // AC5: submission keeps the row readable in place, which is the data the internal review
+    // list will read; PTR-17 builds that view.
+    expect(await findById(draft.id)).toEqual(submitted);
+  });
+
+  it("refuses to edit a submitted request, directing to a clarification or change request (AC3)", async () => {
+    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    const submitted = await handleSubmitEventRequest(
+      { id: draft.id },
+      organiser,
+      database as never
+    );
+
+    await expect(
+      handleSaveEventRequestDraft(
+        { id: draft.id, eventName: "Changed after submission" },
+        organiser,
+        database as never
+      )
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      status: 409,
+      message: SUBMITTED_EDIT_REFUSAL,
+    });
+
+    expect(await findById(draft.id)).toEqual(submitted);
+  });
+
+  it("refuses a second submission of the same request", async () => {
+    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    await handleSubmitEventRequest({ id: draft.id }, organiser, database as never);
+
+    await expect(
+      handleSubmitEventRequest({ id: draft.id }, organiser, database as never)
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      status: 409,
+      message: ALREADY_SUBMITTED_MESSAGE,
+    });
+  });
+
+  it("refuses to submit a draft that belongs to another organiser", async () => {
+    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+
+    await expect(
+      handleSubmitEventRequest({ id: draft.id }, otherOrganiser, database as never)
+    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
+
+    expect(await findById(draft.id)).toMatchObject({ status: "draft" });
+  });
+
+  it("refuses an id that matches no draft instead of inventing one", async () => {
+    await expect(
+      handleSubmitEventRequest({ id: 987654 }, organiser, database as never)
+    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
+
+    expect(await database.select().from(schema.eventRequests)).toHaveLength(0);
+  });
+
+  /** The invariant at the persistence layer, behind whichever path writes the row. */
+  it("refuses a submission time that disagrees with the status", async () => {
+    await expect(
+      database
+        .insert(schema.eventRequests)
+        .values({ organiserId: organiser.id, status: "submitted" })
+    ).rejects.toMatchObject({
+      cause: { constraint: "event_requests_submission_time_matches_status" },
+    });
+
+    await expect(
+      database
+        .insert(schema.eventRequests)
+        .values({ organiserId: organiser.id, status: "draft", submittedAt: new Date() })
+    ).rejects.toMatchObject({
+      cause: { constraint: "event_requests_submission_time_matches_status" },
+    });
   });
 });

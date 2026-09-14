@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useForm } from "@tanstack/react-form";
 
 import { Button } from "#/components/ui/button";
@@ -104,16 +105,29 @@ function toFormError(error: unknown): string | undefined {
 export function EventRequestForm({
   initialValues,
   onSave,
+  onSubmitRequest,
 }: {
   initialValues?: EventRequestDraftValues;
   onSave: (values: EventRequestDraftValues) => Promise<void>;
+  /** Absent while the caller has nowhere to submit to yet; the control is dropped with it. */
+  onSubmitRequest?: (values: EventRequestDraftValues) => Promise<void>;
 }) {
+  /**
+   * Which control is submitting. A ref rather than state because the click and the submit are two
+   * events the browser fires back to back — the intent has to be readable by the handler this
+   * render already closed over.
+   */
+  const intent = useRef<"save" | "submit">("save");
+
   const form = useForm({
     defaultValues: initialValues ? toFormValues(initialValues) : DEFAULT_VALUES,
     validators: { onSubmit: EventRequestDraftFormInput },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await onSave(EventRequestDraftFormInput.parse(value));
+        const values = EventRequestDraftFormInput.parse(value);
+        await (intent.current === "submit" && onSubmitRequest
+          ? onSubmitRequest(values)
+          : onSave(values));
       } catch (error) {
         // `fields` is what makes the library read this as a global error and store `form` verbatim.
         formApi.setErrorMap({
@@ -392,10 +406,29 @@ export function EventRequestForm({
 
         <form.Subscribe selector={state => state.isSubmitting}>
           {isSubmitting => (
-            <div className="border-t border-border pt-6">
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Saving…" : "Save draft"}
+            <div className="flex flex-wrap gap-3 border-t border-border pt-6">
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                onClick={() => {
+                  intent.current = "save";
+                }}
+              >
+                {isSubmitting && intent.current === "save" ? "Saving…" : "Save draft"}
               </Button>
+              {onSubmitRequest && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    intent.current = "submit";
+                    void form.handleSubmit();
+                  }}
+                >
+                  {isSubmitting && intent.current === "submit" ? "Submitting…" : "Submit request"}
+                </Button>
+              )}
             </div>
           )}
         </form.Subscribe>

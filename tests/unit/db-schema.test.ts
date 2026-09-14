@@ -42,6 +42,10 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(eventRequests).registrationClosesAt.name).toBe("registration_closes_at");
   });
 
+  it("defines the event request submission column (PTR-13)", () => {
+    expect(getTableColumns(eventRequests).submittedAt.name).toBe("submitted_at");
+  });
+
   it("defines relations between user, session, and account", () => {
     expect(userRelations.table).toBe(user);
     expect(sessionRelations.table).toBe(session);

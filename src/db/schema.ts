@@ -19,10 +19,11 @@ import { user } from "./auth-schema";
 
 /**
  * Only the statuses the stories have built, so a typo'd value cannot reach the column
- * (PTR-9 criterion 2). Widening this is a generated `ALTER TYPE` migration, matching how the
- * role/function matrix grows a row at a time.
+ * (PTR-9 criterion 2). `submitted` arrives with PTR-13; the rest of PTR-21's set (under review,
+ * approved, …) arrives with the stories that move a request into them. Widening this is a
+ * generated `ALTER TYPE` migration, matching how the role/function matrix grows a row at a time.
  */
-export const eventRequestStatus = pgEnum("event_request_status", ["draft"]);
+export const eventRequestStatus = pgEnum("event_request_status", ["draft", "submitted"]);
 
 export const eventRequests = pgTable(
   "event_requests",
@@ -32,6 +33,11 @@ export const eventRequests = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     status: eventRequestStatus("status").notNull().default("draft"),
+    /**
+     * PTR-13 criterion 2: when the organiser submitted the request. Null while it is a draft,
+     * and the CHECK below keeps any other status from existing without it.
+     */
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
     eventName: text("event_name").notNull().default(""),
     purpose: text("purpose").notNull().default(""),
     /**
@@ -70,6 +76,12 @@ export const eventRequests = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date()),
   },
   table => [
+    // PTR-13 criterion 2, held for whichever path writes the row: a draft has no submission time,
+    // and anything past draft records the moment it left (the later statuses keep it).
+    check(
+      "event_requests_submission_time_matches_status",
+      sql`(${table.status} = 'draft' and ${table.submittedAt} is null) or (${table.status} <> 'draft' and ${table.submittedAt} is not null)`
+    ),
     // Criterion 2/5, held for whichever path writes the row: terms exist exactly when enabled.
     check(
       "event_requests_registration_terms_match_enabled",

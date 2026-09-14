@@ -14,6 +14,7 @@ import {
   EQUIPMENT_TYPE_MESSAGE,
   EVENT_NAME_MAX_LENGTH,
   EVENT_NAME_MESSAGE,
+  EVENT_REQUEST_ID_MESSAGE,
   EVENT_TYPE_MAX_LENGTH,
   EVENT_TYPE_MESSAGE,
   EventRequestDraftFormInput,
@@ -34,7 +35,9 @@ import {
   VENUE_REQUIREMENTS_MAX_LENGTH,
   VENUE_REQUIREMENTS_MESSAGE,
   missingRequiredFields,
+  missingFieldsMessage,
   parseDraftInput,
+  parseEventRequestId,
 } from "#/features/event-requests/schema";
 
 const BLANK_DRAFT = {
@@ -630,6 +633,7 @@ describe("missingRequiredFields", () => {
     purpose: "Meet volunteers",
     proposedDates: [{ start: "2026-10-10T09:00", end: "2026-10-10T17:00" }],
     expectedAttendance: 25,
+    equipmentRequirements: [],
   };
 
   it("reports nothing when every mandatory field is supplied", () => {
@@ -664,6 +668,23 @@ describe("missingRequiredFields", () => {
     ]);
   });
 
+  it("reports a half-filled equipment line", () => {
+    const half = [{ type: "", quantity: 2 }, { type: "   ", quantity: 2 }, { type: "Projector" }];
+
+    for (const line of half) {
+      expect(missingRequiredFields({ ...completeDraft, equipmentRequirements: [line] })).toEqual([
+        "Equipment requirements",
+      ]);
+    }
+
+    expect(
+      missingRequiredFields({
+        ...completeDraft,
+        equipmentRequirements: [{ type: "Projector", quantity: 2 }],
+      })
+    ).toEqual([]);
+  });
+
   it("reports every missing mandatory field in form order", () => {
     expect(
       missingRequiredFields({
@@ -671,7 +692,35 @@ describe("missingRequiredFields", () => {
         purpose: "",
         proposedDates: [],
         expectedAttendance: null,
+        equipmentRequirements: [{ type: "Projector" }],
       })
-    ).toEqual(["Event name", "Purpose", "Proposed dates and times", "Expected attendance"]);
+    ).toEqual([
+      "Event name",
+      "Purpose",
+      "Proposed dates and times",
+      "Expected attendance",
+      "Equipment requirements",
+    ]);
   });
+});
+
+describe("missingFieldsMessage", () => {
+  it("lists the missing fields in submission order", () => {
+    expect(missingFieldsMessage(["Event name", "Purpose"])).toBe(
+      "This request is missing: Event name, Purpose"
+    );
+  });
+});
+
+describe("parseEventRequestId", () => {
+  it("returns the id as submitted", () => {
+    expect(parseEventRequestId({ id: 7 })).toEqual({ id: 7 });
+  });
+
+  it.each([{}, { id: 0 }, { id: -1 }, { id: 2.5 }, { id: "7" }, { id: 3_000_000_000 }, 7, null])(
+    "refuses %s with the one message",
+    value => {
+      expect(() => parseEventRequestId(value)).toThrow(EVENT_REQUEST_ID_MESSAGE);
+    }
+  );
 });

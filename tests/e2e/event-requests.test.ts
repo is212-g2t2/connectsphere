@@ -16,6 +16,15 @@ async function signUp(page: Page, role?: "event_organiser"): Promise<void> {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
+/** Signs an organiser up and lands on the form, which every organiser journey starts from. */
+async function openNewRequest(page: Page): Promise<void> {
+  await signUp(page, "event_organiser");
+  await page.goto("/dashboard");
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("link", { name: "Event requests", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
+}
+
 test.describe("Event request drafts", () => {
   test("redirects an unauthenticated visitor to login", async ({ page }) => {
     await page.goto("/event-requests");
@@ -23,12 +32,7 @@ test.describe("Event request drafts", () => {
   });
 
   test("lets an event organiser capture the full requirements and save", async ({ page }) => {
-    await signUp(page, "event_organiser");
-
-    await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
-    await page.getByRole("link", { name: "Event requests", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
+    await openNewRequest(page);
 
     await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
     await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year with members");
@@ -71,11 +75,7 @@ test.describe("Event request drafts", () => {
   });
 
   test("refuses an enabled registration missing its terms, naming each", async ({ page }) => {
-    await signUp(page, "event_organiser");
-    await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
-    await page.getByRole("link", { name: "Event requests", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
+    await openNewRequest(page);
 
     await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
     await page.getByRole("checkbox", { name: "Require attendee registration" }).click();
@@ -101,11 +101,7 @@ test.describe("Event request drafts", () => {
     page,
     context,
   }) => {
-    await signUp(page, "event_organiser");
-
-    await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
-    await page.getByRole("link", { name: "Event requests", exact: true }).click();
+    await openNewRequest(page);
 
     await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
     await page.getByRole("button", { name: "Save draft" }).click();
@@ -128,11 +124,7 @@ test.describe("Event request drafts", () => {
   });
 
   test("refuses an end date that is not later than its start", async ({ page }) => {
-    await signUp(page, "event_organiser");
-    await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
-    await page.getByRole("link", { name: "Event requests", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
+    await openNewRequest(page);
 
     await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
     await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-11-18T09:30");
@@ -144,7 +136,6 @@ test.describe("Event request drafts", () => {
 
   test("refuses an attendee the page and the dashboard link", async ({ page }) => {
     await signUp(page);
-
     await page.goto("/event-requests");
     await expect(page).toHaveURL(/\/dashboard$/);
     // The form must never have painted, however briefly: the redirect comes from `beforeLoad`,
@@ -155,5 +146,38 @@ test.describe("Event request drafts", () => {
     await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible();
     await expect(page.getByRole("link", { name: "Event requests", exact: true })).toHaveCount(0);
+  });
+});
+
+test.describe("Event request submission (PTR-13)", () => {
+  test("submits a complete request and confirms it", async ({ page }) => {
+    await openNewRequest(page);
+
+    await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
+    await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year with members");
+    await page.getByLabel("Expected attendance (required)", { exact: true }).fill("25");
+    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-11-18T09:30");
+    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-11-18T12:45");
+
+    await page.getByRole("button", { name: "Submit request" }).click();
+
+    await expect(page.getByText("Request submitted.")).toBeVisible();
+    // The submitted request is no longer editable here; the panel points at the routes that can
+    // change it instead of leaving a form that would refuse on save.
+    await expect(page.getByRole("button", { name: "Submit request" })).toHaveCount(0);
+    await expect(page.getByText(/raise a change request/)).toBeVisible();
+  });
+
+  test("refuses a submission missing mandatory fields, naming each", async ({ page }) => {
+    await openNewRequest(page);
+
+    await page.getByRole("button", { name: "Submit request" }).click();
+
+    await expect(
+      page.getByText(
+        "This request is missing: Event name, Purpose, Proposed dates and times, Expected attendance"
+      )
+    ).toBeVisible();
+    await expect(page.getByText("Request submitted.")).toHaveCount(0);
   });
 });
