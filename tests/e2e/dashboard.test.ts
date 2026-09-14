@@ -69,4 +69,18 @@ test.describe("Role-gated interface", () => {
     await expect(page.getByRole("heading", { name: "File upload" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Choose file" })).toBeVisible();
   });
+
+  /**
+   * PTR-66: linked providers come from the route loader, so they are in the server HTML. A
+   * client-side fetch would leave "Loading…" in the response and only resolve after hydration.
+   */
+  test("renders linked providers in the settings server response", async ({ page }) => {
+    await signUpAs(page, "Attendee");
+
+    const response = await page.request.get("/settings");
+    const html = await response.text();
+
+    expect(html).toContain("Password");
+    expect(html).not.toContain("Loading…");
+  });
 });

@@ -1,10 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Trash2, Link } from "lucide-react";
 import { toast } from "sonner";
 
-import { getCurrentUser } from "#/features/auth/session";
+import { getCurrentUser, listAccounts } from "#/features/auth/session";
 import { authClient } from "#/lib/auth-client";
 import { Button } from "#/components/ui/button";
 import { createSeoHead } from "#/lib/seo";
@@ -32,6 +31,7 @@ export const Route = createFileRoute("/settings")({
 
     return { user };
   },
+  loader: () => listAccounts(),
   component: SettingsPage,
 });
 
@@ -46,13 +46,7 @@ async function handleDeleteAccount() {
 
 function SettingsPage() {
   const { user } = Route.useRouteContext();
-  const { data: accounts = [] } = useQuery({
-    queryKey: ["auth", "accounts"],
-    queryFn: async () => {
-      const res = await authClient.listAccounts();
-      return res.data ?? [];
-    },
-  });
+  const accounts = Route.useLoaderData();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
@@ -80,7 +74,7 @@ function SettingsPage() {
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : (
             <ul className="space-y-2">
-              {accounts.map((acct: { id: string; providerId: string }) => (
+              {accounts.map(acct => (
                 <li key={acct.id} className="flex items-center gap-2">
                   <Link className="size-4 text-muted-foreground" />
                   <span className="text-sm">{getProviderLabel(acct.providerId)}</span>

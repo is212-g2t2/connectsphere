@@ -48,6 +48,17 @@ export const getCurrentUser = createServerFn({ method: "GET" }).handler(async ()
   return getSessionUser(session);
 });
 
+export const listAccounts = createServerFn({ method: "GET" }).handler(async () => {
+  const [{ getRequest }, { auth }] = await Promise.all([
+    import("@tanstack/react-start/server"),
+    import("#/lib/auth"),
+  ]);
+
+  return auth.api.listUserAccounts({
+    headers: getRequest().headers,
+  });
+});
+
 /**
  * Carries the HTTP status the refusal deserves, so a caller can answer 401/403 instead of a
  * generic failure (PTR-7 criterion 2). A plain `Error` on purpose, not a `Response`: these are

@@ -1,19 +1,14 @@
 import * as React from "react";
 import * as Sentry from "@sentry/tanstackstart-react";
 import { Header } from "#/components/layout/header";
-import { HeadContent, Scripts, createRootRouteWithContext, Outlet } from "@tanstack/react-router";
-import type { QueryClient } from "@tanstack/react-query";
+import { HeadContent, Scripts, createRootRoute, Outlet } from "@tanstack/react-router";
 import { ErrorPage } from "#/components/pages/error";
 import { Toaster } from "#/components/ui/sonner";
 import { ThemeProvider } from "#/components/providers/theme-provider";
 // oxlint-disable-next-line import/no-unassigned-import
 import "../globals.css";
 
-interface AppRouterContext {
-  queryClient: QueryClient;
-}
-
-export const Route = createRootRouteWithContext<AppRouterContext>()({
+export const Route = createRootRoute({
   head: () => ({
     meta: [
       {
