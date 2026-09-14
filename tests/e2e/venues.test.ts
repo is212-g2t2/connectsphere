@@ -96,11 +96,27 @@ test.describe("Venue records", () => {
 
     await page.goto("/venues");
     await expect(page).toHaveURL(/\/dashboard$/);
+    // The guard, not the loader, is what turns this request around: the catalogue heading must
+    // never have painted, however briefly.
+    await expect(page.getByRole("heading", { name: "Venues" })).toHaveCount(0);
 
     await page.goto("/dashboard");
     await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible();
     await expect(page.getByRole("link", { name: "Venues", exact: true })).toHaveCount(0);
+  });
+
+  test("sends a Coordinator from New venue back to the catalogue", async ({ page }) => {
+    // `/venues/new` falls back to `/venues`, not `/dashboard`: a Coordinator holds `venue:read`,
+    // so the catalogue is the page the guard may hand them. Fallback and target stay co-located
+    // per route rather than being modelled by a layout shared with the catalogue's own guard.
+    await signInAsSeeded(page, "coordinator.seed@example.com");
+
+    await page.goto("/venues/new");
+    await expect(page).toHaveURL(/\/venues$/);
+    await expect(page.getByRole("heading", { name: "Venues" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "New venue" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Create venue" })).toHaveCount(0);
   });
 
   test("lets Venue Staff edit a venue and keeps the change across a reload", async ({ page }) => {

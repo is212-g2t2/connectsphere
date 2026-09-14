@@ -108,6 +108,9 @@ test.describe("Event request drafts", () => {
 
     await page.goto("/event-requests");
     await expect(page).toHaveURL(/\/dashboard$/);
+    // The form must never have painted, however briefly: the redirect comes from `beforeLoad`,
+    // not from the page reacting after it rendered.
+    await expect(page.getByRole("heading", { name: "New event request" })).toHaveCount(0);
 
     await page.goto("/dashboard");
     await page.waitForLoadState("networkidle");

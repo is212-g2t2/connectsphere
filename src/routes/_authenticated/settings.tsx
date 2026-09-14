@@ -1,9 +1,9 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Trash2, Link } from "lucide-react";
 import { toast } from "sonner";
 
-import { getCurrentUser, listAccounts } from "#/features/auth/session";
+import { listAccounts } from "#/features/auth/session";
 import { authClient } from "#/lib/auth-client";
 import { Button } from "#/components/ui/button";
 import { createSeoHead } from "#/lib/seo";
@@ -16,21 +16,12 @@ function getProviderLabel(providerId: string) {
   return PROVIDER_LABELS[providerId] ?? providerId.charAt(0).toUpperCase() + providerId.slice(1);
 }
 
-export const Route = createFileRoute("/settings")({
+export const Route = createFileRoute("/_authenticated/settings")({
   head: () =>
     createSeoHead({
       title: "Settings — ConnectSphere",
       noindex: true,
     }),
-  beforeLoad: async () => {
-    const user = await getCurrentUser();
-
-    if (!user) {
-      throw redirect({ to: "/login" });
-    }
-
-    return { user };
-  },
   loader: () => listAccounts(),
   component: SettingsPage,
 });

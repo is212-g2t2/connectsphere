@@ -1,26 +1,19 @@
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { getCurrentUser } from "#/features/auth/session";
 import { VenueForm } from "#/features/venues/components/venue-form";
 import { saveVenue } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
-export const Route = createFileRoute("/venues/new")({
+export const Route = createFileRoute("/_authenticated/venues/new")({
   head: () =>
     createSeoHead({
       title: "New venue — ConnectSphere",
       noindex: true,
     }),
-  beforeLoad: async () => {
-    const user = await getCurrentUser();
-
-    if (!user) {
-      throw redirect({ to: "/login" });
-    }
-
-    if (!can(user.role, { venue: ["create"] })) {
+  beforeLoad: ({ context }) => {
+    if (!can(context.user.role, { venue: ["create"] })) {
       throw redirect({ to: "/venues" });
     }
   },

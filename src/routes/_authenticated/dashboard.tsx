@@ -1,28 +1,18 @@
-import { createFileRoute, redirect, Link } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Upload, CheckCircle } from "lucide-react";
 import { useState, useRef } from "react";
 
-import { getCurrentUser } from "#/features/auth/session";
 import { can } from "#/features/auth/permissions";
 import { Button } from "#/components/ui/button";
 import { createSeoHead } from "#/lib/seo";
 import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
 
-export const Route = createFileRoute("/dashboard")({
+export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () =>
     createSeoHead({
       title: "Dashboard — ConnectSphere",
       noindex: true,
     }),
-  beforeLoad: async () => {
-    const user = await getCurrentUser();
-
-    if (!user) {
-      throw redirect({ to: "/login" });
-    }
-
-    return { user };
-  },
   component: DashboardPage,
 });
 

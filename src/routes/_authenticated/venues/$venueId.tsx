@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { z } from "zod";
 
 import { can } from "#/features/auth/permissions";
-import { getCurrentUser } from "#/features/auth/session";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";
 import { VenueIdInput } from "#/features/venues/schema";
@@ -12,7 +11,7 @@ import type { Venue } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
-export const Route = createFileRoute("/venues/$venueId")({
+export const Route = createFileRoute("/_authenticated/venues/$venueId")({
   head: () =>
     createSeoHead({
       title: "Venue — ConnectSphere",
@@ -21,18 +20,10 @@ export const Route = createFileRoute("/venues/$venueId")({
   // Kept as a string like `reset-password.tsx` does: a hand-typed `?saved=abc` should not
   // drop a cosmetic banner into the route's error boundary.
   validateSearch: z.object({ saved: z.string().optional() }),
-  beforeLoad: async () => {
-    const user = await getCurrentUser();
-
-    if (!user) {
-      throw redirect({ to: "/login" });
-    }
-
-    if (!can(user.role, { venue: ["read"] })) {
+  beforeLoad: ({ context }) => {
+    if (!can(context.user.role, { venue: ["read"] })) {
       throw redirect({ to: "/dashboard" });
     }
-
-    return { user };
   },
   loader: async ({ params }): Promise<Venue> => {
     // `VenueIdInput` already encodes "whole number, positive, within int4"; re-deriving that
