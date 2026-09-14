@@ -1,4 +1,4 @@
-import { createMailer, sendEmail } from "#/lib/mailer";
+import { createMailer, sendEmail } from "#/lib/mailer.server";
 import * as React from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 

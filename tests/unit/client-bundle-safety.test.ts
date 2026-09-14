@@ -3,24 +3,23 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * Every module under `src/features`, not only the ones declaring a server function.
+ * Every module under the client-reachable shared directories — `src/features`, `src/lib`,
+ * `src/components` — whether or not it declares a server function or imports a server module
+ * today. Selecting on `createServerFn(` left a hole: a pure module a route imports reaches the
+ * client bundle just the same. `src/db` stays out (server-only by construction) and so does
+ * `src/routes` (its server routes import `.server` modules on purpose).
  *
- * Selecting on `createServerFn(` used to leave a hole: a pure module a route imports — the
- * role/function matrix, say — carries no server function of its own, yet reaches the client
- * bundle just the same. A server import there fails `bun run build` alone, so nothing else in
- * the suite would have caught it.
- *
- * `*.server.ts` modules are exempt and checked from the other side instead: nothing
- * client-reachable may import them, which is the rule that keeps them off the client.
+ * `*.server.ts` modules are exempt and held from the other side instead:
+ * `@tanstack/start-plugin-core` denies them in the client environment at build time.
  */
-function getFeatureModules(dir: string): string[] {
+function getModules(dir: string): string[] {
   const results: string[] = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...getFeatureModules(fullPath));
+      results.push(...getModules(fullPath));
     } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
       results.push(fullPath);
     }
@@ -37,35 +36,37 @@ function getFeatureModules(dir: string): string[] {
  * only thing standing between that and production is this test.
  */
 const SERVER_ONLY_IMPORT =
-  /from\s*["'](#\/db(\/[^"']*)?|bun|bun:[^"']*|drizzle-orm\/bun-sql|[^"']*\.server)["']/;
+  /^(?:#\/db(?:\/[^"']*)?|bun|bun:[^"']*|drizzle-orm\/bun-sql|[^"']*\.server)$/;
 
-describe("Route-Reachable Feature Module Client Safety", () => {
-  const featuresDir = path.resolve(process.cwd(), "src/features");
-  const featureModules = getFeatureModules(featuresDir).filter(
-    filePath => !/\.server\.tsx?$/.test(filePath)
-  );
+/**
+ * A static `import`/`export … from` statement, with its module specifier captured. Matched over
+ * the whole file rather than line by line, so a wrapped import reads the same as a single-line
+ * one — and a side-effect `import "#/db/schema";` is captured too. `import type` is excluded
+ * (it is erased before the bundler sees it), and a dynamic `import(` has no space after the
+ * keyword, so it never matches.
+ */
+const STATIC_IMPORT_SOURCE = /^[ \t]*(?:import|export)\s+(?!type\b)[^;]*?["']([^"']+)["']/gm;
 
-  it("finds feature modules to guard", () => {
-    expect(featureModules.length).toBeGreaterThan(0);
+const GUARDED_DIRS = ["src/features", "src/lib", "src/components"];
+
+describe("Client-Reachable Module Client Safety", () => {
+  const guardedModules = GUARDED_DIRS.flatMap(dir =>
+    getModules(path.resolve(process.cwd(), dir))
+  ).filter(filePath => !/\.server\.tsx?$/.test(filePath));
+
+  it("finds client-reachable modules to guard", () => {
+    expect(guardedModules.length).toBeGreaterThan(0);
   });
 
-  featureModules.forEach(filePath => {
+  guardedModules.forEach(filePath => {
     const relPath = path.relative(process.cwd(), filePath).replace(/\\/g, "/");
 
     it(`${relPath} does not statically import server-only modules at top level`, () => {
       const content = fs.readFileSync(filePath, "utf-8");
-      const lines = content.split("\n");
 
-      const leakedImports = lines
-        .map(line => line.trim())
-        .filter(
-          line =>
-            (line.startsWith("import ") || line.startsWith("export ")) &&
-            !line.startsWith("import type") &&
-            !line.startsWith("export type") &&
-            !line.includes("import(") &&
-            SERVER_ONLY_IMPORT.test(line)
-        );
+      const leakedImports = Array.from(content.matchAll(STATIC_IMPORT_SOURCE))
+        .map(match => match[1])
+        .filter(specifier => SERVER_ONLY_IMPORT.test(specifier));
 
       expect(leakedImports).toEqual([]);
     });

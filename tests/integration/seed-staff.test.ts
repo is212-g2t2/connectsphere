@@ -24,13 +24,13 @@ vi.mock("#/db", async () => {
 });
 
 // Sign-in sends no email, but keep the mailer stubbed so no test path can trigger a real send.
-vi.mock("#/lib/mailer", () => ({
+vi.mock("#/lib/mailer.server", () => ({
   createMailer: vi.fn<() => null>(() => null),
   getMailer: vi.fn<() => null>(() => null),
   sendEmail: vi.fn<() => Promise<unknown>>(async () => ({ id: "test-email" })),
 }));
 
-const { auth } = await import("#/lib/auth");
+const { auth } = await import("#/lib/auth.server");
 
 const db = drizzle(pool, { schema });
 

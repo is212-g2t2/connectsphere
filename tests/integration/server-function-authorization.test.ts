@@ -4,7 +4,7 @@ import { listAccounts } from "#/features/auth/session";
 import { saveEventRequestDraft } from "#/features/event-requests/server-fns";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import { listVenues, saveVenue } from "#/features/venues/server-fns";
-import { auth } from "#/lib/auth";
+import { auth } from "#/lib/auth.server";
 
 /** A payload the venue validator accepts, so the allow path runs the whole chain. */
 const venueRecord = {
@@ -30,7 +30,7 @@ vi.mock("@tanstack/react-start/server", () => ({
   getRequest: () => currentRequest,
 }));
 
-vi.mock("#/lib/auth", () => ({
+vi.mock("#/lib/auth.server", () => ({
   auth: { api: { getSession: vi.fn<() => Promise<unknown>>() } },
 }));
 

@@ -36,7 +36,7 @@ export function getSessionUser(
 }
 
 function loadAuthServer() {
-  return Promise.all([import("@tanstack/react-start/server"), import("#/lib/auth")]);
+  return Promise.all([import("@tanstack/react-start/server"), import("#/lib/auth.server")]);
 }
 
 /**

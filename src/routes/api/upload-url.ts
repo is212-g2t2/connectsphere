@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { env } from "#/env";
-import { auth } from "#/lib/auth";
+import { auth } from "#/lib/auth.server";
 import { can } from "#/features/auth/permissions";
-import { getStorageClient, validateUploadRequest, safeExtension } from "#/lib/storage";
+import { getStorageClient, validateUploadRequest, safeExtension } from "#/lib/storage.server";
 import { logger } from "#/lib/logger";
 import { getRequest } from "@tanstack/react-start/server";
 

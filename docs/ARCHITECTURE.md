@@ -47,13 +47,13 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── landing/      # The public landing view
 │   │   └── venues/       # Venue record: Zod schema, server functions, form, pages + read-only view
 │   ├── lib/              # Shared integrations and utilities
-│   │   ├── auth.ts       # Better Auth server config
+│   │   ├── auth.server.ts # Better Auth server config
 │   │   ├── auth-client.ts# Better Auth React client
 │   │   ├── logger.ts     # LogTape app logger and sink config
-│   │   ├── mailer.ts     # Resend email sender (lazy init, optional)
-│   │   ├── redis.ts      # Bun-native Redis client (optional)
+│   │   ├── mailer.server.ts # Resend email sender (lazy init, optional)
+│   │   ├── redis.server.ts # Bun-native Redis client (optional)
 │   │   ├── seo.ts        # SEO metadata, OpenGraph, structured data, crawler formats
-│   │   ├── storage.ts    # Bun-native S3-compatible upload client (optional)
+│   │   ├── storage.server.ts # Bun-native S3-compatible upload client (optional)
 │   │   └── utils.ts
 │   ├── routes/           # Routing only — search validation, guards, loaders, metadata (PTR-75)
 │   │   ├── __root.tsx    # Document metadata, the session, the shell, and the error/not-found boundaries
@@ -109,7 +109,7 @@ For developer commands, seeding, and local workflows, see the [Development Guide
 
 Handled by **Better Auth**. Supported flows:
 
-- **Email + password** — sign up and sign in with a password. The sign-up form collects a name, email, password (with a confirmation field matched client-side only — the confirmation is never sent, so there is nothing for the server to compare) and user role (`attendee` or `event_organiser`, default `attendee`). Both roles come from `SelfAssignableRoleSchema` (`src/features/auth/schema/role.ts`), which is also wired as the `validator.input` on the Better Auth `role` field — the field is client-supplied, so without that validator any string would persist and a visitor could self-assign an internal role. Internal roles are never selectable here. See [Authorisation](#authorisation) for the full role list and the matrix that governs what each role may do. The sign-up and reset forms share `PasswordSchema` (`src/features/auth/schema/password.ts`): 8–128 characters with at least one number and one symbol. Better Auth of its own accord enforces only a length range, so a `hooks.before` middleware in `src/lib/auth.ts` re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). `/sign-in/email` is deliberately excluded, so accounts whose password predates the policy can still sign in. Always available. Password hashes live in the `account.password` column. Sign-ups store the name supplied on the form (trimmed, 1-100 characters, enforced client-side) and are auto-signed-in (`requireEmailVerification` is off, so an unverified user can still sign in).
+- **Email + password** — sign up and sign in with a password. The sign-up form collects a name, email, password (with a confirmation field matched client-side only — the confirmation is never sent, so there is nothing for the server to compare) and user role (`attendee` or `event_organiser`, default `attendee`). Both roles come from `SelfAssignableRoleSchema` (`src/features/auth/schema/role.ts`), which is also wired as the `validator.input` on the Better Auth `role` field — the field is client-supplied, so without that validator any string would persist and a visitor could self-assign an internal role. Internal roles are never selectable here. See [Authorisation](#authorisation) for the full role list and the matrix that governs what each role may do. The sign-up and reset forms share `PasswordSchema` (`src/features/auth/schema/password.ts`): 8–128 characters with at least one number and one symbol. Better Auth of its own accord enforces only a length range, so a `hooks.before` middleware in `src/lib/auth.server.ts` re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). `/sign-in/email` is deliberately excluded, so accounts whose password predates the policy can still sign in. Always available. Password hashes live in the `account.password` column. Sign-ups store the name supplied on the form (trimmed, 1-100 characters, enforced client-side) and are auto-signed-in (`requireEmailVerification` is off, so an unverified user can still sign in).
 - **Email verification** — `emailVerification.sendOnSignUp` mails a link via the `VerificationEmail` template; Better Auth's own `/api/auth/verify-email` endpoint consumes it, so there is no app route for it.
 - **Password reset** — `/reset-password` sends a link (1 hour expiry) via `ResetPasswordEmail`. Better Auth's callback bounces the emailed link off `/api/auth/reset-password/:token` and back to `/reset-password?token=…`, or `?error=INVALID_TOKEN` when it has expired. It does not create a session; the user signs in afterwards.
 
@@ -121,7 +121,7 @@ Rate limiting is configured at 20 requests per 60-second window using Better Aut
 
 `user.role` holds one of the five values in `RoleSchema` (`src/features/auth/schema/role.ts`); a person needing two roles holds two accounts. The column is plain `text` with no CHECK constraint, so the single-role guarantee is not structural — `can()` parses `RoleSchema` and fails closed, so a hand-written `"attendee,event_coordinator"` grants nothing rather than both.
 
-`SelfAssignableRoleSchema` is the subset a stranger may pick at registration, and it — not `RoleSchema` — is wired to the Better Auth `role` validator, so widening the role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. The three internal roles therefore have no assignment mechanism yet; provisioning staff accounts is PTR-59.
+`SelfAssignableRoleSchema` is the subset a stranger may pick at registration, and it — not `RoleSchema` — is wired to the Better Auth `role` validator, so widening the role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.server.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. The three internal roles therefore have no assignment mechanism yet; provisioning staff accounts is PTR-59.
 
 ### Role/function matrix
 

@@ -5,7 +5,7 @@ import {
   createStorageClient,
   getStorageClient,
   safeExtension,
-} from "#/lib/storage";
+} from "#/lib/storage.server";
 
 describe("validateUploadRequest", () => {
   test("accepts valid image mime type", () => {
