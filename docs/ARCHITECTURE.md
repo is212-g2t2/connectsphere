@@ -43,7 +43,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── emails/       # Email templates
 │   │   ├── event-requests/ # Full requirement capture: Zod schema, form, draft persistence
 │   │   │   └── drafts.server.ts # Server-only draft writes; never client-reachable
-│   │   └── venues/       # Venue record: Zod schema, server functions, form + read-only view
+│   │   └── venues/       # Venue records plus the availability projection and calendar UI
 │   ├── lib/              # Shared integrations and utilities
 │   │   ├── auth.ts       # Better Auth server config
 │   │   ├── auth-client.ts# Better Auth React client
@@ -66,12 +66,13 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   │   ├── index.tsx     # Role-gated (venue:read) — the catalogue
 │   │   │   ├── new.tsx       # Role-gated (venue:create) — record a venue
 │   │   │   └── $venueId.tsx  # Role-gated (venue:read) — edit with venue:update, else read-only
+│   │   ├── venues.availability.tsx # Role-gated availability calendar
 │   │   ├── robots[.]txt.ts   # Plain text crawler directives
 │   │   ├── sitemap[.]xml.ts  # XML sitemap
 │   │   └── api/
 │   │       ├── auth/$.ts    # Better Auth handler
 │   │       ├── health.ts
-│   │       └── upload-url.ts# Presigned PUT URL — guarded by session and by role
+│   │       └── upload-url.ts # Presigned PUT URL — guarded by session and by role
 │   └── globals.css       # Global styles (Tailwind CSS v4)
 ├── tests/                # Vitest and Playwright suites
 ├── instrument.server.mjs # Server bootstrap — Sentry init and logging
@@ -85,8 +86,8 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 
 1. **Routing**: Managed by TanStack Router. `src/routes/__root.tsx` composes the shell, theme provider, header, and page outlet.
 2. **SSR**: TanStack Start handles the initial HTML render on the server via Nitro.
-3. **Protected routes**: `dashboard.tsx`, `settings.tsx`, `event-requests.tsx` and the three `venues/` routes call `getCurrentUser()` in `beforeLoad`. Unauthenticated requests redirect to `/login`. `event-requests.tsx` and the `venues/` routes additionally check a role (`can(user.role, { venue: [...] })`) and redirect to `/dashboard` or `/venues` when it fails. Auth routes (`/login`, `/signup`) redirect already-signed-in users to `/dashboard`.
-4. **Server functions**: `saveEventRequestDraft` (`src/features/event-requests/server-fns.ts`) is a `createServerFn` POST reachable without ever loading the route, so it re-checks the session and the `event_request:create` permission inside its own handler rather than relying on the route guard. The venue server functions (`listVenues`, `getVenue` and `saveVenue` in `src/features/venues/server-fns.ts`) do the same with the `venue` permission; one `withServer()` wrapper holds that `try`/`catch` for all three, and `refuseAsResponse()` does the conversion. Two errors qualify: `AuthorizationError` (401 without a session, 403 without the permission) and `NotFoundError` (404, thrown by `saveVenue` when the row it was asked to update is not there; `getVenue` answers a missing row with `null` instead, which `$venueId.tsx` turns into the router's own `notFound()`). An `AuthorizationError` becomes a 401/403 `Response` at that boundary — a thrown `Response` is returned verbatim — so a direct POST gets the real status. An in-app caller receives that `Response` as a _resolved value_, not a rejection (the server stamps it `x-tss-raw` and `serverFnFetcher` returns it before its `!response.ok` check): `event-requests.tsx` and the venue routes each convert it back into a caught error before using the result — `throw new Error((await result.text()) || fallback)` — so a missing record carries its own server message instead of the role-refusal sentence. Direct HTTP callers still receive the real status. `parseDraftInput` validates every supplied value — each proposed window's end later than its start, attendance and equipment quantities positive whole numbers, event name and purpose within their length limits — while blank inputs may be omitted from a save and default to empty values, because the request remains a draft until PTR-13 submits it. The database work lives in `drafts.server.ts` and `records.server.ts`, each reached by dynamic `import()` inside its handler: a static import of `#/db/schema` would ship every table definition to the browser without failing the build, so `server-fns.ts` stays free of server imports and `tests/unit/client-bundle-safety.test.ts` holds it there. See [Authorisation](#authorisation).
+3. **Protected routes**: `dashboard.tsx`, `settings.tsx`, `event-requests.tsx`, the three `venues/` record routes and `venues.availability.tsx` call `getCurrentUser()` in `beforeLoad`. Unauthenticated requests redirect to `/login`. Feature routes additionally check their `venue`, `venueAvailability` or `event_request` permission. Auth routes (`/login`, `/signup`) redirect already-signed-in users to `/dashboard`.
+4. **Server functions and API routes**: `saveEventRequestDraft`, the venue record functions and the availability functions re-check session and permission inside their handlers rather than relying on presentation guards. Availability reuses `listVenues` for the catalogue and exposes a dedicated schedule server function; its handler dynamically imports the database and PTR-26 tables. Unknown venues return `NotFoundError`, and recorded blocks use strict half-open overlap (`startsAt < rangeEnd` and `endsAt > rangeStart`). Availability timestamps remain floating venue-local wall-clock values. Static imports of `#/db/schema` remain outside client-reachable module scope; `tests/unit/client-bundle-safety.test.ts` protects that boundary. The only feature API route is the infrastructure upload URL handler. See [Authorisation](#authorisation).
 5. **Auth flow**: Forms in `src/features/auth/components/*` call `src/lib/auth-client.ts`. `/login` handles email + password sign-in. `/signup` handles email + password sign-up with role selection (`attendee` or `event_organiser`), holding the user on a "check your email" prompt; `/reset-password` both requests a reset link and consumes it (`?token=`).
 6. **File uploads**: `src/routes/api/upload-url.ts` generates a presigned PUT URL (S3-compatible). The client uploads directly to storage; the server never proxies file bytes.
 
@@ -123,13 +124,14 @@ Rate limiting is configured at 20 requests per 60-second window using Better Aut
 
 Source of truth is `src/features/auth/permissions.ts`, restated here and held to both by `tests/unit/auth-permissions.test.ts`. Rows arrive with the stories that build them, so only role-varying functions appear.
 
-| Function               | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
-| ---------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
-| `upload:create`        |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
-| `event_request:create` |    —     |       ✅        |         —         |      —      |            —            |
-| `venue:read`           |    —     |        —        |        ✅         |     ✅      |           ✅            |
-| `venue:create`         |    —     |        —        |         —         |     ✅      |            —            |
-| `venue:update`         |    —     |        —        |         —         |     ✅      |            —            |
+| Function                 | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
+| ------------------------ | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
+| `upload:create`          |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
+| `event_request:create`   |    —     |       ✅        |         —         |      —      |            —            |
+| `venue:read`             |    —     |        —        |        ✅         |     ✅      |           ✅            |
+| `venue:create`           |    —     |        —        |         —         |     ✅      |            —            |
+| `venue:update`           |    —     |        —        |         —         |     ✅      |            —            |
+| `venueAvailability:read` |    —     |        —        |        ✅         |     ✅      |           ✅            |
 
 Two limits: `attendee` holds an empty role — `ac.newRole({})` authorizes nothing, which is the fail-closed default. And the attendee/organiser line is an entitlement boundary, not a security one — both roles are self-assignable, so anyone set on uploading or starting an event request can simply register again as an organiser. The `venue` rows (PTR-26) are the first internal/external split: both external roles hold nothing on the catalogue, so an organiser is refused a venue record on the server whichever way they reach it, and a request for an equipment function is still refused only because the resource is unknown.
 
@@ -139,10 +141,10 @@ Built with `createAccessControl` from `better-auth/plugins/access` — despite t
 
 `permissions.ts` stays pure data because the browser imports it too — a server import there fails `bun run build` alone. The session-aware half is `requirePermission(user, request)` in `src/features/auth/session.ts`: `Unauthorized` without a session, `Forbidden` without the permission. It throws an `AuthorizationError` carrying the status the refusal deserves (401 or 403) rather than a bare `Error`, because criterion 2 asks for an authorisation error and not a generic failure. It stays an `Error` rather than a `Response` so it can be called directly from tests; `saveEventRequestDraft` is the first server function to convert it at its boundary — where a thrown `Response` is returned verbatim — so a direct POST gets the real status rather than a generic failure, and the venue server functions convert it the same way. `NotFoundError` is its sibling in the same file, described there. `upload-url.ts` is a route handler and answers with `Response.json` itself. Hiding a control is presentation, not enforcement, so each entry point checks for itself:
 
-- **Server functions** — `saveEventRequestDraft` and the venue functions (`listVenues`, `getVenue`, `saveVenue`) each read the session and call `requirePermission` inside the handler; the pure `handle*` functions in `records.server.ts` take the user as an argument so the integration tests exercise the same gate without HTTP. Note the order at the HTTP boundary for the venue functions: `.validator(parseVenueInput)` runs before the handler, so a malformed payload is refused with its first Zod message before the permission check is reached; a well-formed one from the wrong role gets `Forbidden`.
-- **API route handlers** — `src/routes/api/upload-url.ts`, which calls `can()` next to its session check.
-- **Route guards** — the three `venues/` routes call `getCurrentUser()` and `can(user.role, { venue: ["read"] })` (or `["create"]`) inline in `beforeLoad`, redirecting on failure. This is presentation only: the server function behind the page repeats the check.
-- **The interface** — `src/routes/dashboard.tsx` asks the same `can()` before rendering the upload control and the Event requests or Venues links; `src/routes/event-requests.tsx` redirects a role the matrix refuses; `$venueId.tsx` asks `venue:update` to choose between the form and the read-only view.
+- **Server functions** — `saveEventRequestDraft` and the venue functions (`listVenues`, `getVenue`, `saveVenue`, `getVenueAvailability`) each read the session and call `requirePermission` inside the handler. The availability calendar reuses `listVenues` and `getVenueAvailability` separately enforces `venueAvailability:read`. The pure venue-record `handle*` functions in `records.server.ts` take the user as an argument so integration tests exercise the same gate without HTTP. Validator failures surface their first Zod message; well-formed calls from the wrong role get `Forbidden`.
+- **API route handler** — `src/routes/api/upload-url.ts` remains an infrastructure route and checks uploads.
+- **Route guards** — the venue record routes check `venue`; the availability page separately checks `venueAvailability:read`. This is presentation only because every server entry point repeats enforcement.
+- **The interface** — `src/routes/dashboard.tsx` asks the same permissions before rendering upload, event-request, venue-record and availability links; `$venueId.tsx` asks `venue:update` to choose between the form and read-only view.
 
 ## Styling
 

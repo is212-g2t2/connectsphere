@@ -203,6 +203,24 @@ bun run playwright test tests/e2e/landing.test.ts
 
 ---
 
+## Venue availability (PTR-28)
+
+Event Coordinators, Venue Staff and Technical Support Staff can open `/venues/availability` from the dashboard. The page uses the shared Calendar and form controls, displays floating venue-local schedule times without inventing a timezone, and handles loading, empty results, failure and retry. Calendar access is read-only for all three roles.
+
+The availability server functions read PTR-26's `venues` and `venue_unavailability` tables. Authorised calls use generated numeric database IDs internally and return string IDs to the client; malformed input is rejected and unknown venues return `NotFoundError`. Recorded blocks are selected with strict overlap (`startsAt < rangeEnd` and `endsAt > rangeStart`), so a block touching a requested boundary is not treated as overlapping. No fixture data is served by the application. PTR-31 and PTR-33 booking persistence remain outside this sprint.
+
+The read contract in `src/features/venues/calendar-data.ts` is backed by `listVenues` and a dedicated availability server function in `src/features/venues/server-fns.ts`. `listVenues` enforces `venue:read`; the schedule function independently enforces `venueAvailability:read`, takes inclusive civil dates and returns a `CalendarSchedule` with the venue, selected dates, `timeZone: null` for floating venue-local values, available intervals and occupied intervals with original and clipped timestamps.
+
+`OperatingHours` is exported from `src/features/venues/schema.ts`. Each `mon`–`sun` entry is either a local `HH:MM` range with `closes` later than `opens`, or `null` for a closed day; the adapter derives available periods within those bounds. PostgreSQL `timestamp without time zone` unavailability values are local wall-clock strings. They remain floating values throughout the read and calendar path: do not parse them with `Date`, append `Z`, or use the server/browser timezone. The response's `timeZone: null` deliberately carries that meaning.
+
+Live browser coverage exercises the server functions against PostgreSQL for Coordinator, Venue Staff and Technical Support Staff, plus external-role denial. Booking-aware AC3 remains deferred because no booking persistence exists yet; AC2 and AC4 are only partially evidenced by available and recorded-unavailability states. No fixture-backed booking assertion is evidence of live booking behaviour. Playwright global setup reuses a reachable `DATABASE_URL` or attempts to start a PostgreSQL testcontainer. It runs migrations for a container it starts and runs the idempotent shared seed once before the workers, so single-file E2E runs receive the staff accounts, venues and blocked periods they need. When Docker is unavailable, provide a reachable, already-migrated `DATABASE_URL`. On Windows, put the native Bun executable on `PATH` if the npm shim cannot run Playwright's setup subprocesses.
+
+PTR-28 uses the venue schema and generated migration already supplied by PTR-26 on `main`; it adds no competing persistence schema or migration. Any future schema change must still be generated with `bun run db:generate` rather than by editing SQL or migration metadata.
+
+The [test specification](./testing/PTR-28-test-cases.md) identifies stable case IDs, fixture limitations, deferred checks and repeatable commands. Generated runner output and run-specific execution logs stay local and are ignored; durable review notes belong on the PTR-28 issue.
+
+---
+
 ## Code Quality & Git Hooks
 
 ### Linting & Formatting

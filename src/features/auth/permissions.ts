@@ -18,6 +18,7 @@ const statement = {
   upload: ["create"],
   event_request: ["create"],
   venue: ["create", "update", "read"],
+  venueAvailability: ["read"],
 } as const;
 
 const ac = createAccessControl(statement);
@@ -27,17 +28,33 @@ const ac = createAccessControl(statement);
  * coordination rows arrive with the stories that build them (PTR-8, PTR-38 and the rest).
  *
  * `venue` (PTR-26) is the first internal/external split: Venue Staff maintain the catalogue,
- * the other two internal roles read it, and the external roles hold nothing — PTR-28
- * criterion 5 refuses them the calendar, so they are refused the record beneath it too.
+ * the other two internal roles read it, and the external roles hold nothing. PTR-28 keeps its
+ * narrower calendar permission separate: internal staff with a read-only operational role may
+ * read it; no role receives a calendar write capability.
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
   // an empty role authorizes nothing, which is the fail-closed default we want.
   attendee: ac.newRole({}),
-  event_organiser: ac.newRole({ upload: ["create"], event_request: ["create"] }),
-  event_coordinator: ac.newRole({ upload: ["create"], venue: ["read"] }),
-  venue_staff: ac.newRole({ upload: ["create"], venue: ["create", "update", "read"] }),
-  technical_support_staff: ac.newRole({ upload: ["create"], venue: ["read"] }),
+  event_organiser: ac.newRole({
+    upload: ["create"],
+    event_request: ["create"],
+  }),
+  event_coordinator: ac.newRole({
+    upload: ["create"],
+    venue: ["read"],
+    venueAvailability: ["read"],
+  }),
+  venue_staff: ac.newRole({
+    upload: ["create"],
+    venue: ["create", "update", "read"],
+    venueAvailability: ["read"],
+  }),
+  technical_support_staff: ac.newRole({
+    upload: ["create"],
+    venue: ["read"],
+    venueAvailability: ["read"],
+  }),
 };
 
 export type PermissionRequest = RoleAuthorizeRequest<typeof statement>;

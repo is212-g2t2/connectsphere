@@ -22,6 +22,7 @@ const EXPECTED: Record<
     venueRead: boolean;
     venueCreate: boolean;
     venueUpdate: boolean;
+    venueAvailabilityRead: boolean;
   }
 > = {
   attendee: {
@@ -30,6 +31,7 @@ const EXPECTED: Record<
     venueRead: false,
     venueCreate: false,
     venueUpdate: false,
+    venueAvailabilityRead: false,
   },
   event_organiser: {
     upload: true,
@@ -37,6 +39,7 @@ const EXPECTED: Record<
     venueRead: false,
     venueCreate: false,
     venueUpdate: false,
+    venueAvailabilityRead: false,
   },
   event_coordinator: {
     upload: true,
@@ -44,6 +47,7 @@ const EXPECTED: Record<
     venueRead: true,
     venueCreate: false,
     venueUpdate: false,
+    venueAvailabilityRead: true,
   },
   venue_staff: {
     upload: true,
@@ -51,6 +55,7 @@ const EXPECTED: Record<
     venueRead: true,
     venueCreate: true,
     venueUpdate: true,
+    venueAvailabilityRead: true,
   },
   technical_support_staff: {
     upload: true,
@@ -58,6 +63,7 @@ const EXPECTED: Record<
     venueRead: true,
     venueCreate: false,
     venueUpdate: false,
+    venueAvailabilityRead: true,
   },
 };
 
@@ -68,6 +74,7 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-26)", () => {
     expect(can(role, { venue: ["read"] })).toBe(EXPECTED[role].venueRead);
     expect(can(role, { venue: ["create"] })).toBe(EXPECTED[role].venueCreate);
     expect(can(role, { venue: ["update"] })).toBe(EXPECTED[role].venueUpdate);
+    expect(can(role, { venueAvailability: ["read"] })).toBe(EXPECTED[role].venueAvailabilityRead);
   });
 
   describe("fails closed", () => {
@@ -115,8 +122,16 @@ function refusalFrom(run: () => unknown): AuthorizationError {
 }
 
 describe("requirePermission carries a refusal status", () => {
-  const attendee: SessionUser = { id: "u1", email: "a@example.com", role: "attendee" };
-  const organiser: SessionUser = { id: "u2", email: "o@example.com", role: "event_organiser" };
+  const attendee: SessionUser = {
+    id: "u1",
+    email: "a@example.com",
+    role: "attendee",
+  };
+  const organiser: SessionUser = {
+    id: "u2",
+    email: "o@example.com",
+    role: "event_organiser",
+  };
 
   it("refuses a missing session with 401 Unauthorized", () => {
     const refusal = refusalFrom(() => requirePermission(null, { upload: ["create"] }));

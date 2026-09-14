@@ -22,3 +22,8 @@ scratch
 .claude
 # Local scratch space (briefs, prototypes) — not part of the app
 .scratch/
+
+# PTR-28 local execution logs - kept locally, durable record in Linear PTR-28
+docs/testing/PTR-28-execution-*.md
+docs/testing/PTR-28-ui-execution-*.md
+docs/handover/PTR-28-next-session-*.md
