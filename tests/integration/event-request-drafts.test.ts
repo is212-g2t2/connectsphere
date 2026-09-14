@@ -23,7 +23,6 @@ const otherOrganiser: SessionUser = {
   email: "john.doe@example.com",
   role: "event_organiser",
 };
-const attendee: SessionUser = { id: "user-demo-1", email: "demo@example.com", role: "attendee" };
 
 const fullRequest: EventRequestDraftValues = {
   eventName: "  Community workshop  ",
@@ -183,17 +182,6 @@ describe("Event request drafts", () => {
     ).rejects.toThrow(EQUIPMENT_QUANTITY_MESSAGE);
 
     expect(await database.select().from(schema.eventRequests)).toHaveLength(0);
-  });
-
-  it("refuses a session without the organiser role", async () => {
-    await expect(
-      handleSaveEventRequestDraft({}, attendee, database as never)
-    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
-
-    await expect(handleSaveEventRequestDraft({}, null, database as never)).rejects.toMatchObject({
-      name: "AuthorizationError",
-      status: 401,
-    });
   });
 
   it("edits the same draft when its id comes back, rather than opening another", async () => {

@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests } from "#/db/schema";
-import { AuthorizationError, requirePermission } from "#/features/auth/session";
+import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { parseDraftInput } from "#/features/event-requests/schema";
 
@@ -12,6 +12,9 @@ import { parseDraftInput } from "#/features/event-requests/schema";
  * drops nothing — importing this from anywhere the browser can reach would ship the whole
  * database schema, Better Auth tables included. `server-fns.ts` reaches it through a dynamic
  * `import()` inside `.handler()`, which is the seam that keeps it off the client.
+ *
+ * The middleware pipeline has already verified the session and `event_request:create` before
+ * this runs; `user` here is the verified organiser.
  */
 
 type Database = typeof Db;
@@ -25,10 +28,9 @@ export type EventRequest = typeof eventRequests.$inferSelect;
  */
 export async function handleSaveEventRequestDraft(
   data: unknown,
-  user: SessionUser | null,
+  user: SessionUser,
   database: Database
 ): Promise<EventRequest> {
-  const currentUser = requirePermission(user, { event_request: ["create"] });
   const { id, ...values } = parseDraftInput(data);
 
   const fields = { ...values, expectedAttendance: values.expectedAttendance ?? null };
@@ -36,7 +38,7 @@ export async function handleSaveEventRequestDraft(
   if (id === undefined) {
     const [created] = await database
       .insert(eventRequests)
-      .values({ organiserId: currentUser.id, status: "draft", ...fields })
+      .values({ organiserId: user.id, status: "draft", ...fields })
       .returning();
 
     return created;
@@ -51,14 +53,14 @@ export async function handleSaveEventRequestDraft(
     .where(
       and(
         eq(eventRequests.id, id),
-        eq(eventRequests.organiserId, currentUser.id),
+        eq(eventRequests.organiserId, user.id),
         eq(eventRequests.status, "draft")
       )
     )
     .returning();
 
   if (updated.length === 0) {
-    throw new AuthorizationError("Forbidden", 403);
+    throw new AuthorizationError("Forbidden");
   }
 
   return updated[0];

@@ -2,33 +2,26 @@ import { asc, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { venues } from "#/db/schema";
-import { NotFoundError, requirePermission } from "#/features/auth/session";
-import type { SessionUser } from "#/features/auth/session";
+import { NotFoundError } from "#/features/auth/session";
 import { DUPLICATE_NAME_MESSAGE, parseVenueId, parseVenueInput } from "#/features/venues/schema";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
  * ship the whole database schema to the browser from any module a route can reach.
  * `server-fns.ts` reaches this through a dynamic `import()` inside `.handler()`.
+ *
+ * These are pure database operations: the server function's middleware pipeline has already
+ * verified the session and the `venue` permission before any of them runs.
  */
 
 type Database = typeof Db;
 export type Venue = typeof venues.$inferSelect;
 
-export async function handleListVenues(
-  user: SessionUser | null,
-  database: Database
-): Promise<Venue[]> {
-  requirePermission(user, { venue: ["read"] });
+export async function handleListVenues(database: Database): Promise<Venue[]> {
   return database.select().from(venues).orderBy(asc(venues.name));
 }
 
-export async function handleGetVenue(
-  data: unknown,
-  user: SessionUser | null,
-  database: Database
-): Promise<Venue | null> {
-  requirePermission(user, { venue: ["read"] });
+export async function handleGetVenue(data: unknown, database: Database): Promise<Venue | null> {
   const { id } = parseVenueId(data);
   const rows = await database.select().from(venues).where(eq(venues.id, id));
   return rows.at(0) ?? null;
@@ -54,22 +47,11 @@ function rethrowReadable(error: unknown): never {
 
 /**
  * Create when no `id` is supplied, otherwise a full replace of that row (PTR-26 criterion 1).
- * The permission is checked before the payload is parsed here, which matters for direct
- * callers such as the integration tests. At the HTTP boundary the payload arrives already
- * validated — `.validator(parseVenueInput)` on `saveVenue` runs before the handler — so a
- * malformed record from any caller gets the first Zod message, not "Forbidden"; the real
- * 401/403/404 come from the status-carrying errors thrown here, which `server-fns.ts` converts
- * into a `Response` at its boundary (criterion 4).
+ * The middleware has already checked `venue:create` or `venue:update`, deriving which from
+ * `data.id` before the payload reaches `.validator(parseVenueInput)`. A row that is not there
+ * becomes the 404 below rather than a refusal.
  */
-export async function handleSaveVenue(
-  data: unknown,
-  user: SessionUser | null,
-  database: Database
-): Promise<Venue> {
-  const isUpdate =
-    typeof data === "object" && data !== null && "id" in data && data.id !== undefined;
-  requirePermission(user, { venue: [isUpdate ? "update" : "create"] });
-
+export async function handleSaveVenue(data: unknown, database: Database): Promise<Venue> {
   const { id, ...fields } = parseVenueInput(data);
 
   if (id === undefined) {

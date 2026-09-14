@@ -4,12 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 import { SignupForm } from "#/features/auth/components/signup-form";
 
 const mockNavigate = vi.fn<() => void>();
+// PTR-73: signing up puts the header's user on route context, so the form re-resolves it.
+const mockInvalidate = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
   useNavigate: () => mockNavigate,
+  useRouter: () => ({ invalidate: mockInvalidate }),
 }));
 
 vi.mock("#/lib/auth-client", () => ({
@@ -210,6 +213,12 @@ describe("SignupForm component", () => {
       expect(screen.getByText("Check your email")).toBeTruthy();
     });
     expect(mockNavigate).not.toHaveBeenCalled();
+
+    // Staying put is what makes this necessary: nothing else re-resolves the route context the
+    // header reads its user from (PTR-73), so the nav would still say signed out.
+    await waitFor(() => {
+      expect(mockInvalidate).toHaveBeenCalled();
+    });
   });
 
   it("navigates to the dashboard when continuing from the verification screen", async () => {
@@ -242,5 +251,37 @@ describe("SignupForm component", () => {
     await waitFor(() => {
       expect(screen.getByText("Account already exists")).toBeTruthy();
     });
+  });
+
+  it("replaces a previous refusal rather than stacking a second one beside it", async () => {
+    const { authClient } = await import("#/lib/auth-client");
+    vi.mocked(authClient.signUp.email)
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: "Account already exists", status: 400 } as never,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: "Registration is closed", status: 403 } as never,
+      });
+
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    await fillSignupForm(user, { email: "existing@example.com" });
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe("Account already exists");
+    });
+
+    // Resubmitting revalidates, and that write to `errorMap.onSubmit` is what drops the first
+    // message — the form holds no separate error state for anything to reset.
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe("Registration is closed");
+    });
+    expect(screen.queryByText("Account already exists")).toBeNull();
   });
 });

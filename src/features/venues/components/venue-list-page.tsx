@@ -1,44 +1,16 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { getCurrentUser } from "#/features/auth/session";
+import type { SessionUser } from "#/features/auth/session";
 import { LAYOUT_LABELS } from "#/features/venues/schema";
-import { listVenues } from "#/features/venues/server-fns";
-import { createSeoHead } from "#/lib/seo";
+import type { Venue } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
-export const Route = createFileRoute("/venues/")({
-  head: () =>
-    createSeoHead({
-      title: "Venues — ConnectSphere",
-      noindex: true,
-    }),
-  beforeLoad: async () => {
-    const user = await getCurrentUser();
-
-    if (!user) {
-      throw redirect({ to: "/login" });
-    }
-
-    if (!can(user.role, { venue: ["read"] })) {
-      throw redirect({ to: "/dashboard" });
-    }
-
-    return { user };
-  },
-  loader: async () => {
-    const venues = await listVenues();
-    if (venues instanceof Response) {
-      throw new Error((await venues.text()) || "Could not load venues. Try again.");
-    }
-    return venues;
-  },
-  component: VenuesPage,
-});
-
-function VenuesPage() {
-  const { user } = Route.useRouteContext();
-  const venues = Route.useLoaderData();
+/**
+ * The venue catalogue. The rows come from the route's loader and the session user from its
+ * context, both as props, so the table renders in a unit test without a router (PTR-75).
+ */
+export function VenueListPage({ user, venues }: { user: SessionUser; venues: Venue[] }) {
   const canCreate = can(user.role, { venue: ["create"] });
 
   return (

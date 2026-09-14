@@ -2,27 +2,18 @@
 import "zod/compile";
 import * as Sentry from "@sentry/tanstackstart-react";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
-import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
-
-import { QueryClient } from "@tanstack/react-query";
 
 import { configureAppLogging } from "./lib/logger";
 import { routeTree } from "./routeTree.gen";
 import { env } from "./env";
 
 export function getRouter() {
-  const queryClient = new QueryClient();
-  const context = { queryClient };
-
   const router = createTanStackRouter({
     routeTree,
-    context,
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
   });
-
-  setupRouterSsrQueryIntegration({ router, queryClient: context.queryClient });
 
   // Initialize Sentry on the client only (not during SSR)
   if (!router.isServer) {

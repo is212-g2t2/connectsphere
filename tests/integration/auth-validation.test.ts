@@ -7,7 +7,7 @@ import type { ReactElement } from "react";
 // (tests/shims/bun.ts) — so `db` cannot execute a query no matter what DATABASE_URL says.
 // Suites that take `db` as a parameter sidestep this; `betterAuth()` captures the
 // module-level `db` at import time and exposes no such seam, so the module itself has to be
-// replaced. Mocking it rather than rebuilding `betterAuth()` keeps src/lib/auth.ts under test.
+// replaced. Mocking it rather than rebuilding `betterAuth()` keeps src/lib/auth.server.ts under test.
 // Built via vi.hoisted so the mock factory and afterAll share one pool this file can close.
 const { pool } = await vi.hoisted(async () => {
   const { Pool } = await import("pg");
@@ -30,13 +30,13 @@ const { sendEmail } = vi.hoisted(() => ({
     .mockResolvedValue({ id: "test-email" }),
 }));
 
-vi.mock("#/lib/mailer", () => ({
+vi.mock("#/lib/mailer.server", () => ({
   createMailer: vi.fn<() => null>(() => null),
   getMailer: vi.fn<() => null>(() => null),
   sendEmail,
 }));
 
-const { auth } = await import("#/lib/auth");
+const { auth } = await import("#/lib/auth.server");
 
 async function isEmailVerified(email: string): Promise<boolean> {
   const result = await pool.query<{ email_verified: boolean }>(

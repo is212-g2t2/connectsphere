@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { Route } from "#/routes/api/upload-url";
-import { auth } from "#/lib/auth";
-import * as storage from "#/lib/storage";
+import { auth } from "#/lib/auth.server";
+import * as storage from "#/lib/storage.server";
 
 let currentRequest: Request;
 
@@ -9,7 +9,7 @@ vi.mock("@tanstack/react-start/server", () => ({
   getRequest: () => currentRequest,
 }));
 
-vi.mock("#/lib/auth", () => ({
+vi.mock("#/lib/auth.server", () => ({
   auth: {
     api: {
       getSession: vi.fn<() => Promise<unknown>>(),
@@ -17,7 +17,7 @@ vi.mock("#/lib/auth", () => ({
   },
 }));
 
-vi.mock("#/lib/storage", async importOriginal => {
+vi.mock("#/lib/storage.server", async importOriginal => {
   const original = await importOriginal<typeof storage>();
   return {
     ...original,

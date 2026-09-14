@@ -10,19 +10,20 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DashboardRouteImport } from './routes/dashboard'
-import { Route as EventRequestsRouteImport } from './routes/event-requests'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
-import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedEventRequestsRouteImport } from './routes/_authenticated/event-requests'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
-import { Route as VenuesIndexRouteImport } from './routes/venues/index'
-import { Route as VenuesVenueIdRouteImport } from './routes/venues/$venueId'
-import { Route as VenuesNewRouteImport } from './routes/venues/new'
+import { Route as AuthenticatedVenuesIndexRouteImport } from './routes/_authenticated/venues/index'
+import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authenticated/venues/$venueId'
+import { Route as AuthenticatedVenuesNewRouteImport } from './routes/_authenticated/venues/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -30,14 +31,8 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EventRequestsRoute = EventRequestsRouteImport.update({
-  id: '/event-requests',
-  path: '/event-requests',
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -55,11 +50,6 @@ const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
   path: '/robots.txt',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -69,6 +59,22 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
   path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedEventRequestsRoute =
+  AuthenticatedEventRequestsRouteImport.update({
+    id: '/event-requests',
+    path: '/event-requests',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
@@ -80,20 +86,22 @@ const ApiUploadUrlRoute = ApiUploadUrlRouteImport.update({
   path: '/api/upload-url',
   getParentRoute: () => rootRouteImport,
 } as any)
-const VenuesIndexRoute = VenuesIndexRouteImport.update({
-  id: '/venues/',
-  path: '/venues/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const VenuesVenueIdRoute = VenuesVenueIdRouteImport.update({
-  id: '/venues/$venueId',
-  path: '/venues/$venueId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const VenuesNewRoute = VenuesNewRouteImport.update({
+const AuthenticatedVenuesIndexRoute =
+  AuthenticatedVenuesIndexRouteImport.update({
+    id: '/venues/',
+    path: '/venues/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedVenuesVenueIdRoute =
+  AuthenticatedVenuesVenueIdRouteImport.update({
+    id: '/venues/$venueId',
+    path: '/venues/$venueId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedVenuesNewRoute = AuthenticatedVenuesNewRouteImport.update({
   id: '/venues/new',
   path: '/venues/new',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
@@ -103,125 +111,122 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
-  '/event-requests': typeof EventRequestsRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/event-requests': typeof AuthenticatedEventRequestsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
-  '/venues/$venueId': typeof VenuesVenueIdRoute
-  '/venues/new': typeof VenuesNewRoute
-  '/venues/': typeof VenuesIndexRoute
+  '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
+  '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/venues/': typeof AuthenticatedVenuesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
-  '/event-requests': typeof EventRequestsRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/event-requests': typeof AuthenticatedEventRequestsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
-  '/venues/$venueId': typeof VenuesVenueIdRoute
-  '/venues/new': typeof VenuesNewRoute
-  '/venues': typeof VenuesIndexRoute
+  '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
+  '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/venues': typeof AuthenticatedVenuesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
-  '/event-requests': typeof EventRequestsRoute
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/event-requests': typeof AuthenticatedEventRequestsRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
-  '/venues/$venueId': typeof VenuesVenueIdRoute
-  '/venues/new': typeof VenuesNewRoute
-  '/venues/': typeof VenuesIndexRoute
+  '/_authenticated/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
+  '/_authenticated/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_authenticated/venues/': typeof AuthenticatedVenuesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/dashboard'
-    | '/event-requests'
     | '/login'
     | '/reset-password'
     | '/robots.txt'
-    | '/settings'
     | '/signup'
     | '/sitemap.xml'
+    | '/dashboard'
+    | '/event-requests'
+    | '/settings'
     | '/api/health'
     | '/api/upload-url'
     | '/venues/$venueId'
     | '/venues/new'
-    | '/venues/'
     | '/api/auth/$'
+    | '/venues/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/dashboard'
-    | '/event-requests'
     | '/login'
     | '/reset-password'
     | '/robots.txt'
-    | '/settings'
     | '/signup'
     | '/sitemap.xml'
+    | '/dashboard'
+    | '/event-requests'
+    | '/settings'
     | '/api/health'
     | '/api/upload-url'
     | '/venues/$venueId'
     | '/venues/new'
-    | '/venues'
     | '/api/auth/$'
+    | '/venues'
   id:
     | '__root__'
     | '/'
-    | '/dashboard'
-    | '/event-requests'
+    | '/_authenticated'
     | '/login'
     | '/reset-password'
     | '/robots.txt'
-    | '/settings'
     | '/signup'
     | '/sitemap.xml'
+    | '/_authenticated/dashboard'
+    | '/_authenticated/event-requests'
+    | '/_authenticated/settings'
     | '/api/health'
     | '/api/upload-url'
-    | '/venues/$venueId'
-    | '/venues/new'
-    | '/venues/'
+    | '/_authenticated/venues/$venueId'
+    | '/_authenticated/venues/new'
     | '/api/auth/$'
+    | '/_authenticated/venues/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DashboardRoute: typeof DashboardRoute
-  EventRequestsRoute: typeof EventRequestsRoute
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   LoginRoute: typeof LoginRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
-  SettingsRoute: typeof SettingsRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiUploadUrlRoute: typeof ApiUploadUrlRoute
-  VenuesVenueIdRoute: typeof VenuesVenueIdRoute
-  VenuesNewRoute: typeof VenuesNewRoute
-  VenuesIndexRoute: typeof VenuesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -234,18 +239,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/event-requests': {
-      id: '/event-requests'
-      path: '/event-requests'
-      fullPath: '/event-requests'
-      preLoaderRoute: typeof EventRequestsRouteImport
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -269,13 +267,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RobotsDottxtRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -289,6 +280,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/sitemap.xml'
       preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/event-requests': {
+      id: '/_authenticated/event-requests'
+      path: '/event-requests'
+      fullPath: '/event-requests'
+      preLoaderRoute: typeof AuthenticatedEventRequestsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/api/health': {
       id: '/api/health'
@@ -304,26 +316,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiUploadUrlRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/venues/': {
-      id: '/venues/'
+    '/_authenticated/venues/': {
+      id: '/_authenticated/venues/'
       path: '/venues'
       fullPath: '/venues/'
-      preLoaderRoute: typeof VenuesIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedVenuesIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/venues/$venueId': {
-      id: '/venues/$venueId'
+    '/_authenticated/venues/$venueId': {
+      id: '/_authenticated/venues/$venueId'
       path: '/venues/$venueId'
       fullPath: '/venues/$venueId'
-      preLoaderRoute: typeof VenuesVenueIdRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedVenuesVenueIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/venues/new': {
-      id: '/venues/new'
+    '/_authenticated/venues/new': {
+      id: '/_authenticated/venues/new'
       path: '/venues/new'
       fullPath: '/venues/new'
-      preLoaderRoute: typeof VenuesNewRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedVenuesNewRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -335,21 +347,38 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedRouteChildren {
+  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedEventRequestsRoute: typeof AuthenticatedEventRequestsRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedVenuesVenueIdRoute: typeof AuthenticatedVenuesVenueIdRoute
+  AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
+  AuthenticatedVenuesIndexRoute: typeof AuthenticatedVenuesIndexRoute
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedEventRequestsRoute: AuthenticatedEventRequestsRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedVenuesVenueIdRoute: AuthenticatedVenuesVenueIdRoute,
+  AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
+  AuthenticatedVenuesIndexRoute: AuthenticatedVenuesIndexRoute,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DashboardRoute: DashboardRoute,
-  EventRequestsRoute: EventRequestsRoute,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
   LoginRoute: LoginRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
-  SettingsRoute: SettingsRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiUploadUrlRoute: ApiUploadUrlRoute,
-  VenuesVenueIdRoute: VenuesVenueIdRoute,
-  VenuesNewRoute: VenuesNewRoute,
-  VenuesIndexRoute: VenuesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

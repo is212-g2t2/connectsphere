@@ -1,54 +1,36 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { AuthorizationError, getCurrentUser, NotFoundError } from "#/features/auth/session";
+import { requirePermission } from "#/features/auth/session";
 import { parseVenueId, parseVenueInput } from "#/features/venues/schema";
 
 /**
- * Routes import this module, so it stays free of any static server import — `./records.server`
- * and `#/db` are reached inside the handlers, which TanStack Start strips from the client build.
+ * Routes import this module, so it stays free of any static server import — the middleware
+ * pipeline is client-safe, and `./records.server` and `#/db` are reached inside the handlers,
+ * which TanStack Start strips from the client build.
  */
 async function loadServer() {
-  return Promise.all([
-    getCurrentUser(),
-    import("#/db"),
-    import("#/features/venues/records.server"),
-  ]);
+  return Promise.all([import("#/db"), import("#/features/venues/records.server")]);
 }
 
 /** A venue row as the client sees it — derived here so no route has to import the server module. */
 export type Venue = Awaited<ReturnType<typeof listVenues>>[number];
 
-/**
- * Rethrows a status-carrying error as a `Response`, which TanStack Start serves verbatim — that
- * is how a direct HTTP call gets the real 401/403/404 rather than a generic failure. Anything
- * else is a genuine fault and keeps travelling as an error.
- */
-function refuseAsResponse(error: unknown): never {
-  if (error instanceof AuthorizationError || error instanceof NotFoundError) {
-    throw new Response(error.message, { status: error.status });
-  }
-  throw error;
+/** `saveVenue` is a create or an update depending on whether the payload carries an id. */
+function venueAction(data: unknown): "create" | "update" {
+  return typeof data === "object" && data !== null && "id" in data && data.id !== undefined
+    ? "update"
+    : "create";
 }
 
-/**
- * All three handlers want the same session, database and record module, and the same conversion
- * on the way out, so both live here once. The load stays outside the `try`: failing to import
- * the database is a fault, not a refusal, and must not be dressed up as a status.
- */
-async function withServer<T>(
-  run: (...loaded: Awaited<ReturnType<typeof loadServer>>) => Promise<T>
-): Promise<T> {
-  const loaded = await loadServer();
-  try {
-    return await run(...loaded);
-  } catch (error) {
-    return refuseAsResponse(error);
-  }
-}
+export const requireVenueRead = requirePermission({ venue: ["read"] });
+export const requireVenueWrite = requirePermission(data => ({ venue: [venueAction(data)] }));
 
-export const listVenues = createServerFn({ method: "GET" }).handler(async () =>
-  withServer((user, { db }, { handleListVenues }) => handleListVenues(user, db))
-);
+export const listVenues = createServerFn({ method: "GET" })
+  .middleware([requireVenueRead])
+  .handler(async () => {
+    const [{ db }, { handleListVenues }] = await loadServer();
+    return handleListVenues(db);
+  });
 
 /**
  * Wrapped in an object on purpose: a server function whose result is `Venue | null` infers as
@@ -57,14 +39,16 @@ export const listVenues = createServerFn({ method: "GET" }).handler(async () =>
  */
 export const getVenue = createServerFn({ method: "GET" })
   .validator(parseVenueId)
-  .handler(async ({ data }) =>
-    withServer(async (user, { db }, { handleGetVenue }) => ({
-      venue: await handleGetVenue(data, user, db),
-    }))
-  );
+  .middleware([requireVenueRead])
+  .handler(async ({ data }) => {
+    const [{ db }, { handleGetVenue }] = await loadServer();
+    return { venue: await handleGetVenue(data, db) };
+  });
 
 export const saveVenue = createServerFn({ method: "POST" })
   .validator(parseVenueInput)
-  .handler(async ({ data }) =>
-    withServer((user, { db }, { handleSaveVenue }) => handleSaveVenue(data, user, db))
-  );
+  .middleware([requireVenueWrite])
+  .handler(async ({ data }) => {
+    const [{ db }, { handleSaveVenue }] = await loadServer();
+    return handleSaveVenue(data, db);
+  });

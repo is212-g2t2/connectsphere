@@ -30,42 +30,49 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 ├── CLAUDE.md             # Claude Code entry point — includes AGENTS.md
 ├── src/
 │   ├── components/
-│   │   ├── layout/       # Header and shell layout
-│   │   ├── pages/        # Route-level page compositions
+│   │   ├── layout/       # Header and the HTML document shell every render is wrapped in
+│   │   ├── pages/        # The error view and the root route's error/not-found boundaries
 │   │   ├── providers/    # Client providers (theme)
 │   │   └── ui/           # Reusable UI primitives
 │   ├── db/               # Drizzle schema, client, and migrations
 │   │   ├── drizzle/      # Generated SQL migrations (drizzle-kit)
 │   │   ├── schema.ts     # Application tables (re-exports the auth tables)
 │   │   └── auth-schema.ts# Better Auth tables
-│   ├── features/
-│   │   ├── auth/         # Session helpers, role/function matrix, login/signup/reset forms
+│   ├── features/         # Each feature owns its page views under `components/` (PTR-75)
+│   │   ├── auth/         # Session helpers, role/function matrix, login/signup/reset/settings views
+│   │   ├── dashboard/    # The signed-in home view and its upload card
 │   │   ├── emails/       # Email templates
-│   │   ├── event-requests/ # Full requirement capture: Zod schema, form, draft persistence
+│   │   ├── event-requests/ # Full requirement capture: Zod schema, form, page, draft persistence
 │   │   │   └── drafts.server.ts # Server-only draft writes; never client-reachable
-│   │   └── venues/       # Venue record: Zod schema, server functions, form + read-only view
+│   │   ├── landing/      # The public landing view
+│   │   └── venues/       # Venue record: Zod schema, server functions, form, pages + read-only view
+│   ├── hooks/            # Client hooks shared across features
+│   │   ├── use-mutation.ts # One mutation's in-flight flag, result and error (useActionState)
+│   │   └── use-mobile.ts # Viewport-width media query
 │   ├── lib/              # Shared integrations and utilities
-│   │   ├── auth.ts       # Better Auth server config
+│   │   ├── auth.server.ts # Better Auth server config
 │   │   ├── auth-client.ts# Better Auth React client
 │   │   ├── logger.ts     # LogTape app logger and sink config
-│   │   ├── mailer.ts     # Resend email sender (lazy init, optional)
-│   │   ├── redis.ts      # Bun-native Redis client (optional)
+│   │   ├── mailer.server.ts # Resend email sender (lazy init, optional)
+│   │   ├── redis.server.ts # Bun-native Redis client (optional)
 │   │   ├── seo.ts        # SEO metadata, OpenGraph, structured data, crawler formats
-│   │   ├── storage.ts    # Bun-native S3-compatible upload client (optional)
+│   │   ├── storage.server.ts # Bun-native S3-compatible upload client (optional)
 │   │   └── utils.ts
-│   ├── routes/           # TanStack Router routes and API handlers
-│   │   ├── __root.tsx    # App shell
+│   ├── routes/           # Routing only — search validation, guards, loaders, metadata (PTR-75)
+│   │   ├── __root.tsx    # Document metadata, the session, the shell, and the error/not-found boundaries
 │   │   ├── index.tsx     # Landing page
 │   │   ├── login.tsx     # Auth route — redirects signed-in users
-│   │   ├── signup.tsx    # Auth route — redirects signed-in users
+│   │   ├── signup.tsx    # Auth route — redirects signed-in arrivals
 │   │   ├── reset-password.tsx # Request a reset link, or set a new password with ?token=
-│   │   ├── dashboard.tsx # Protected route — session summary, upload widget
-│   │   ├── event-requests.tsx # Protected route — capture event requirements as a draft (organisers)
-│   │   ├── settings.tsx  # Protected route — profile, linked providers, delete account
-│   │   ├── venues/
-│   │   │   ├── index.tsx     # Role-gated (venue:read) — the catalogue
-│   │   │   ├── new.tsx       # Role-gated (venue:create) — record a venue
-│   │   │   └── $venueId.tsx  # Role-gated (venue:read) — edit with venue:update, else read-only
+│   │   ├── _authenticated.tsx # Session boundary — narrows the root's user, else redirects to /login
+│   │   ├── _authenticated/
+│   │   │   ├── dashboard.tsx # Session summary, upload widget
+│   │   │   ├── event-requests.tsx # Capture event requirements as a draft (organisers)
+│   │   │   ├── settings.tsx  # Profile, linked providers, delete account
+│   │   │   └── venues/
+│   │   │       ├── index.tsx     # Role-gated (venue:read) — the catalogue
+│   │   │       ├── new.tsx       # Role-gated (venue:create) — record a venue
+│   │   │       └── $venueId.tsx  # Role-gated (venue:read) — edit with venue:update, else read-only
 │   │   ├── robots[.]txt.ts   # Plain text crawler directives
 │   │   ├── sitemap[.]xml.ts  # XML sitemap
 │   │   └── api/
@@ -83,12 +90,13 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 
 ## Data Flow
 
-1. **Routing**: Managed by TanStack Router. `src/routes/__root.tsx` composes the shell, theme provider, header, and page outlet.
+1. **Routing**: Managed by TanStack Router. A route module is wiring only — search validation, guards, loaders, metadata and the pending/error components — and its page view lives in the matching feature under `src/features/<feature>/components/`, reached as `component: () => <Page {...Route.use*()} />`. The view takes its route data as props, so it renders in a unit test without a router; `tests/unit/route-module-boundaries.test.ts` fails if a page component or a presentation helper is declared in a route file again. `src/routes/__root.tsx` wires the document metadata, the shell (`src/components/layout/root-document.tsx` — theme provider, header, outlet, toaster) and the two boundaries that re-render it (`src/components/pages/error.tsx`).
 2. **SSR**: TanStack Start handles the initial HTML render on the server via Nitro.
-3. **Protected routes**: `dashboard.tsx`, `settings.tsx`, `event-requests.tsx` and the three `venues/` routes call `getCurrentUser()` in `beforeLoad`. Unauthenticated requests redirect to `/login`. `event-requests.tsx` and the `venues/` routes additionally check a role (`can(user.role, { venue: [...] })`) and redirect to `/dashboard` or `/venues` when it fails. Auth routes (`/login`, `/signup`) redirect already-signed-in users to `/dashboard`.
-4. **Server functions**: `saveEventRequestDraft` (`src/features/event-requests/server-fns.ts`) is a `createServerFn` POST reachable without ever loading the route, so it re-checks the session and the `event_request:create` permission inside its own handler rather than relying on the route guard. The venue server functions (`listVenues`, `getVenue` and `saveVenue` in `src/features/venues/server-fns.ts`) do the same with the `venue` permission; one `withServer()` wrapper holds that `try`/`catch` for all three, and `refuseAsResponse()` does the conversion. Two errors qualify: `AuthorizationError` (401 without a session, 403 without the permission) and `NotFoundError` (404, thrown by `saveVenue` when the row it was asked to update is not there; `getVenue` answers a missing row with `null` instead, which `$venueId.tsx` turns into the router's own `notFound()`). An `AuthorizationError` becomes a 401/403 `Response` at that boundary — a thrown `Response` is returned verbatim — so a direct POST gets the real status. An in-app caller receives that `Response` as a _resolved value_, not a rejection (the server stamps it `x-tss-raw` and `serverFnFetcher` returns it before its `!response.ok` check): `event-requests.tsx` and the venue routes each convert it back into a caught error before using the result — `throw new Error((await result.text()) || fallback)` — so a missing record carries its own server message instead of the role-refusal sentence. Direct HTTP callers still receive the real status. `parseDraftInput` validates every supplied value — each proposed window's end later than its start, attendance and equipment quantities positive whole numbers, event name and purpose within their length limits — while blank inputs may be omitted from a save and default to empty values, because the request remains a draft until PTR-13 submits it. The database work lives in `drafts.server.ts` and `records.server.ts`, each reached by dynamic `import()` inside its handler: a static import of `#/db/schema` would ship every table definition to the browser without failing the build, so `server-fns.ts` stays free of server imports and `tests/unit/client-bundle-safety.test.ts` holds it there. See [Authorisation](#authorisation).
-5. **Auth flow**: Forms in `src/features/auth/components/*` call `src/lib/auth-client.ts`. `/login` handles email + password sign-in. `/signup` handles email + password sign-up with role selection (`attendee` or `event_organiser`), holding the user on a "check your email" prompt; `/reset-password` both requests a reset link and consumes it (`?token=`).
-6. **File uploads**: `src/routes/api/upload-url.ts` generates a presigned PUT URL (S3-compatible). The client uploads directly to storage; the server never proxies file bytes.
+3. **Protected routes**: `src/routes/__root.tsx` resolves the session once per navigation in `beforeLoad` — for every route, so the header outside the boundary renders the user in the server markup — and puts it on route context. The `src/routes/_authenticated.tsx` pathless layout route narrows that to a signed-in user and redirects unauthenticated visitors to `/login`; `dashboard`, `settings`, `event-requests` and the three `venues/` routes live under it and read the inherited `context.user` instead of calling `getCurrentUser()` themselves. `event-requests.tsx` and the `venues/` routes still check a role in their own `beforeLoad` — `can(context.user.role, { event_request: ["create"] })` for the former, `{ venue: ["read"] }` or `{ venue: ["create"] }` for the latter — and redirect to `/dashboard` or `/venues` when it fails. Auth routes (`/login`, `/signup`) redirect already-signed-in users to `/dashboard`; `/signup` refuses only an arrival (`cause === "enter"`), because signing up creates the session without leaving the route and the form re-resolves the context so the header picks it up.
+4. **Server functions**: every `createServerFn` is a directly addressable HTTP route, so session and permission enforcement runs in a TanStack Start middleware pipeline rather than in the route guard or the handler. `withSession` (`src/features/auth/session.ts`) resolves the Better Auth session once and puts the sanitised user on the context; `requireSession` adds the 401; `requirePermission(request)` — or `requirePermission(data => request)` where the permission depends on the payload, as `saveVenue`'s create-versus-update split does — adds the 403. The `handle*` functions in `drafts.server.ts` and `records.server.ts` are then pure database work: they take the verified user only where a row needs an owner, and run no session lookup or `can()` check of their own. The pipeline is also the refusal boundary for the two status-carrying errors a handler may still throw: `AuthorizationError` (403 for a draft that belongs to another organiser) and `NotFoundError` (404, thrown by `saveVenue` when the row it was asked to update is not there; `getVenue` answers a missing row with `null` instead, which `$venueId.tsx` turns into the router's own `notFound()`). Either becomes a status `Response` — a thrown `Response` is returned verbatim — so a direct POST gets the real status. An in-app caller receives that `Response` as a _resolved value_, not a rejection (the server stamps it `x-tss-raw` and `serverFnFetcher` returns it before its `!response.ok` check), so every in-app call site that can be refused routes the result through `unwrapRefusal` (exported beside the middleware), which rethrows the refusal body as an `Error` — a missing record carries its own server message instead of the role-refusal sentence. `parseDraftInput` validates every supplied value — each proposed window's end later than its start, attendance and equipment quantities positive whole numbers, event name and purpose within their length limits — while blank inputs may be omitted from a save and default to empty values, because the request remains a draft until PTR-13 submits it. The database work lives in `drafts.server.ts` and `records.server.ts`, each reached by dynamic `import()` inside its handler: a static import of `#/db/schema` would ship every table definition to the browser without failing the build, so `server-fns.ts` stays free of server imports and `tests/unit/client-bundle-safety.test.ts` holds it there. See [Authorisation](#authorisation).
+5. **Client mutations**: every browser write a form does not own — saving a draft, deleting an account, signing out, uploading a file — runs through `useMutation` (`src/hooks/use-mutation.ts`), a thin wrapper over React's `useActionState` (PTR-71). It holds the run's in-flight flag, its result and its error in one place, so a button disables itself for exactly as long as its mutation is open and a rejection becomes the action's error state rather than an unhandled promise. The run also receives whatever the last _successful_ run returned, which is how a server-assigned id reaches the next call: `request-page.tsx` saves a new draft, and the next save carries the id the server handed back without the page storing it. That result survives a later failure, so a retry after a refused save updates the same row instead of inserting beside it. A form keeps its own submitting flag and error map — `mutate` returns the settled state and never rejects, so the form's `onSave` decides for itself what a failure means there.
+6. **Auth flow**: Forms in `src/features/auth/components/*` call `src/lib/auth-client.ts`. `/login` handles email + password sign-in. `/signup` handles email + password sign-up with role selection (`attendee` or `event_organiser`), holding the user on a "check your email" prompt; `/reset-password` both requests a reset link and consumes it (`?token=`).
+7. **File uploads**: `src/routes/api/upload-url.ts` generates a presigned PUT URL (S3-compatible). The client uploads directly to storage; the server never proxies file bytes.
 
 ## Database & Migrations
 
@@ -105,7 +113,7 @@ For developer commands, seeding, and local workflows, see the [Development Guide
 
 Handled by **Better Auth**. Supported flows:
 
-- **Email + password** — sign up and sign in with a password. The sign-up form collects a name, email, password (with a confirmation field matched client-side only — the confirmation is never sent, so there is nothing for the server to compare) and user role (`attendee` or `event_organiser`, default `attendee`). Both roles come from `SelfAssignableRoleSchema` (`src/features/auth/schema/role.ts`), which is also wired as the `validator.input` on the Better Auth `role` field — the field is client-supplied, so without that validator any string would persist and a visitor could self-assign an internal role. Internal roles are never selectable here. See [Authorisation](#authorisation) for the full role list and the matrix that governs what each role may do. The sign-up and reset forms share `PasswordSchema` (`src/features/auth/schema/password.ts`): 8–128 characters with at least one number and one symbol. Better Auth of its own accord enforces only a length range, so a `hooks.before` middleware in `src/lib/auth.ts` re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). `/sign-in/email` is deliberately excluded, so accounts whose password predates the policy can still sign in. Always available. Password hashes live in the `account.password` column. Sign-ups store the name supplied on the form (trimmed, 1-100 characters, enforced client-side) and are auto-signed-in (`requireEmailVerification` is off, so an unverified user can still sign in).
+- **Email + password** — sign up and sign in with a password. The sign-up form collects a name, email, password (with a confirmation field matched client-side only — the confirmation is never sent, so there is nothing for the server to compare) and user role (`attendee` or `event_organiser`, default `attendee`). Both roles come from `SelfAssignableRoleSchema` (`src/features/auth/schema/role.ts`), which is also wired as the `validator.input` on the Better Auth `role` field — the field is client-supplied, so without that validator any string would persist and a visitor could self-assign an internal role. Internal roles are never selectable here. See [Authorisation](#authorisation) for the full role list and the matrix that governs what each role may do. The sign-up and reset forms share `PasswordSchema` (`src/features/auth/schema/password.ts`): 8–128 characters with at least one number and one symbol. Better Auth of its own accord enforces only a length range, so a `hooks.before` middleware in `src/lib/auth.server.ts` re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). `/sign-in/email` is deliberately excluded, so accounts whose password predates the policy can still sign in. Always available. Password hashes live in the `account.password` column. Sign-ups store the name supplied on the form (trimmed, 1-100 characters, enforced client-side) and are auto-signed-in (`requireEmailVerification` is off, so an unverified user can still sign in).
 - **Email verification** — `emailVerification.sendOnSignUp` mails a link via the `VerificationEmail` template; Better Auth's own `/api/auth/verify-email` endpoint consumes it, so there is no app route for it.
 - **Password reset** — `/reset-password` sends a link (1 hour expiry) via `ResetPasswordEmail`. Better Auth's callback bounces the emailed link off `/api/auth/reset-password/:token` and back to `/reset-password?token=…`, or `?error=INVALID_TOKEN` when it has expired. It does not create a session; the user signs in afterwards.
 
@@ -117,7 +125,7 @@ Rate limiting is configured at 20 requests per 60-second window using Better Aut
 
 `user.role` holds one of the five values in `RoleSchema` (`src/features/auth/schema/role.ts`); a person needing two roles holds two accounts. The column is plain `text` with no CHECK constraint, so the single-role guarantee is not structural — `can()` parses `RoleSchema` and fails closed, so a hand-written `"attendee,event_coordinator"` grants nothing rather than both.
 
-`SelfAssignableRoleSchema` is the subset a stranger may pick at registration, and it — not `RoleSchema` — is wired to the Better Auth `role` validator, so widening the role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. The three internal roles therefore have no assignment mechanism yet; provisioning staff accounts is PTR-59.
+`SelfAssignableRoleSchema` is the subset a stranger may pick at registration, and it — not `RoleSchema` — is wired to the Better Auth `role` validator, so widening the role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.server.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. The three internal roles therefore have no assignment mechanism yet; provisioning staff accounts is PTR-59.
 
 ### Role/function matrix
 
@@ -137,12 +145,12 @@ Two limits: `attendee` holds an empty role — `ac.newRole({})` authorizes nothi
 
 Built with `createAccessControl` from `better-auth/plugins/access` — despite the import path, **not** a plugin, and never in `betterAuth({ plugins })`. The `admin` plugin was rejected: it adds ban and impersonation columns nothing asks for, redefines the `role` field this project already owns (as `input: false`, silently disabling the sign-up role selector), and reads a comma-separated string as several roles at once.
 
-`permissions.ts` stays pure data because the browser imports it too — a server import there fails `bun run build` alone. The session-aware half is `requirePermission(user, request)` in `src/features/auth/session.ts`: `Unauthorized` without a session, `Forbidden` without the permission. It throws an `AuthorizationError` carrying the status the refusal deserves (401 or 403) rather than a bare `Error`, because criterion 2 asks for an authorisation error and not a generic failure. It stays an `Error` rather than a `Response` so it can be called directly from tests; `saveEventRequestDraft` is the first server function to convert it at its boundary — where a thrown `Response` is returned verbatim — so a direct POST gets the real status rather than a generic failure, and the venue server functions convert it the same way. `NotFoundError` is its sibling in the same file, described there. `upload-url.ts` is a route handler and answers with `Response.json` itself. Hiding a control is presentation, not enforcement, so each entry point checks for itself:
+`permissions.ts` stays pure data because the browser imports it too — a server import there fails `bun run build` alone. The session-aware half lives in `src/features/auth/session.ts` and is now a middleware pipeline: `withSession` resolves the session and converts the two status-carrying errors a handler may still throw into a status `Response`; `requireSession` refuses a missing session with 401 `Unauthorized`; `requirePermission(request)` refuses a role the matrix does not grant with 403 `Forbidden`. Those are the refusal responses a direct HTTP call receives. `upload-url.ts` is the one remaining route handler and answers with `Response.json` itself. Hiding a control is presentation, not enforcement, so every server function runs behind the pipeline:
 
-- **Server functions** — `saveEventRequestDraft` and the venue functions (`listVenues`, `getVenue`, `saveVenue`) each read the session and call `requirePermission` inside the handler; the pure `handle*` functions in `records.server.ts` take the user as an argument so the integration tests exercise the same gate without HTTP. Note the order at the HTTP boundary for the venue functions: `.validator(parseVenueInput)` runs before the handler, so a malformed payload is refused with its first Zod message before the permission check is reached; a well-formed one from the wrong role gets `Forbidden`.
+- **Server functions** — every `createServerFn` in `src/features/` declares `.middleware([...])`; `tests/unit/server-function-middleware.test.ts` fails the suite if one does not, and `tests/integration/server-function-authorization.test.ts` runs the pipeline for a server function of each feature, covering the 401 and 403 paths and asserting that the handler below a refusal never ran. Because the middleware runs before the function's own `.validator()`, a refused role gets `Forbidden` even for a malformed payload, while a permitted one still gets the first Zod message.
 - **API route handlers** — `src/routes/api/upload-url.ts`, which calls `can()` next to its session check.
-- **Route guards** — the three `venues/` routes call `getCurrentUser()` and `can(user.role, { venue: ["read"] })` (or `["create"]`) inline in `beforeLoad`, redirecting on failure. This is presentation only: the server function behind the page repeats the check.
-- **The interface** — `src/routes/dashboard.tsx` asks the same `can()` before rendering the upload control and the Event requests or Venues links; `src/routes/event-requests.tsx` redirects a role the matrix refuses; `$venueId.tsx` asks `venue:update` to choose between the form and the read-only view.
+- **Route guards** — `src/routes/__root.tsx` resolves the session once per navigation and puts the user on route context; `src/routes/_authenticated.tsx` narrows it and redirects unauthenticated visitors to `/login`; the child `venues/` routes then check `can(context.user.role, { venue: ["read"] })` (or `["create"]`) in their own `beforeLoad`, redirecting on failure. This is presentation only: the middleware behind the page repeats the check.
+- **The interface** — the page views ask the same `can()` of the user their route hands them: `src/features/dashboard/components/dashboard-page.tsx` before rendering the upload control and the Event requests or Venues links, and `src/features/venues/components/venue-detail-page.tsx` before choosing between the form and the read-only view. `src/routes/_authenticated/event-requests.tsx` redirects a role the matrix refuses in its `beforeLoad`, because a redirect is routing.
 
 ## Styling
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSessionUser } from "#/features/auth/session";
+import { getSessionUser, unwrapRefusal } from "#/features/auth/session";
 
 describe("getSessionUser helper", () => {
   it("returns null when session is null or has no user", () => {
@@ -55,5 +55,42 @@ describe("getSessionUser helper", () => {
       image: undefined,
       role: undefined,
     });
+  });
+});
+
+describe("unwrapRefusal helper", () => {
+  it("returns a non-refusal result untouched", async () => {
+    const row = { id: 7 };
+
+    await expect(unwrapRefusal(row, "fallback")).resolves.toBe(row);
+  });
+
+  it("throws an Error carrying the refusal body", async () => {
+    const refusal = new Response("Forbidden", { status: 403 });
+
+    await expect(unwrapRefusal(refusal, "fallback")).rejects.toThrow("Forbidden");
+  });
+
+  it("throws when the refusal arrives through the pending call", async () => {
+    // The settings loader passes the server function's promise straight in; awaiting internally
+    // is what keeps that refusal from resolving as loader data (PTR-76).
+    const refusal = Promise.resolve(new Response("Forbidden", { status: 403 }));
+
+    await expect(unwrapRefusal(refusal, "fallback")).rejects.toThrow("Forbidden");
+  });
+
+  it("does not attach a status to the thrown error", async () => {
+    // Deliberate: nothing branches on the refusal status yet; attach it when a story needs to.
+    const refusal = new Response("Forbidden", { status: 403 });
+
+    await expect(unwrapRefusal(refusal, "fallback")).rejects.not.toHaveProperty("status");
+  });
+
+  it("falls back when the refusal body is empty", async () => {
+    const refusal = new Response("", { status: 401 });
+
+    await expect(unwrapRefusal(refusal, "Could not save this draft. Try again.")).rejects.toThrow(
+      "Could not save this draft. Try again."
+    );
   });
 });

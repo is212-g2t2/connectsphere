@@ -1,24 +1,14 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { LoginForm } from "#/features/auth/components/login-form";
-import { getCurrentUser } from "#/features/auth/session";
+
+import { LoginPage } from "#/features/auth/components/login-page";
 import { createSeoHead } from "#/lib/seo";
 
-function LoginPage() {
-  return (
-    <div className="mx-auto w-full max-w-sm px-6 py-20 md:py-28">
-      <LoginForm />
-    </div>
-  );
-}
-
 export const Route = createFileRoute("/login")({
-  head: () =>
-    createSeoHead({
-      title: "Sign In — ConnectSphere",
-      noindex: true,
-    }),
-  beforeLoad: async () => {
-    if (await getCurrentUser()) {
+  head: () => createSeoHead({ title: "Sign In — ConnectSphere", noindex: true }),
+  // The session `__root.tsx` already resolved (PTR-73) — asking the server again here would
+  // spend a second roundtrip on the same navigation.
+  beforeLoad: ({ context }) => {
+    if (context.user) {
       throw redirect({ to: "/dashboard" });
     }
   },

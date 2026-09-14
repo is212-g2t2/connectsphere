@@ -8,7 +8,7 @@ import { z } from "zod";
 import { db } from "#/db";
 import * as schema from "#/db/schema";
 import { env } from "#/env";
-import { sendEmail } from "#/lib/mailer";
+import { sendEmail } from "#/lib/mailer.server";
 import { PasswordSchema } from "#/features/auth/schema/password";
 import { DEFAULT_ROLE, SelfAssignableRoleSchema } from "#/features/auth/schema/role";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";

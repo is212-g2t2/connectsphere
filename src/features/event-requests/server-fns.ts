@@ -1,28 +1,26 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { AuthorizationError, getCurrentUser } from "#/features/auth/session";
+import { requirePermission } from "#/features/auth/session";
 import { parseDraftInput } from "#/features/event-requests/schema";
 
+export const requireEventRequestCreate = requirePermission({ event_request: ["create"] });
+
+/** A saved draft as the client sees it — derived here so no route has to import the server module. */
+export type EventRequestDraft = Awaited<ReturnType<typeof saveEventRequestDraft>>;
+
 /**
- * Routes import this module, so it must stay free of any static server import — `./drafts.server`
- * and `#/db` are both reached inside the handler, which TanStack Start strips from the client
- * build. Everything else here (`parseDraftInput`, the session helpers) is pure and client-safe.
+ * Routes import this module, so it must stay free of any static server import — the middleware
+ * pipeline is client-safe, and `./drafts.server` and `#/db` are both reached inside the handler,
+ * which TanStack Start strips from the client build.
  */
 export const saveEventRequestDraft = createServerFn({ method: "POST" })
   .validator(parseDraftInput)
-  .handler(async ({ data }) => {
-    const [user, { db }, { handleSaveEventRequestDraft }] = await Promise.all([
-      getCurrentUser(),
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleSaveEventRequestDraft }] = await Promise.all([
       import("#/db"),
       import("#/features/event-requests/drafts.server"),
     ]);
 
-    try {
-      return await handleSaveEventRequestDraft(data, user, db);
-    } catch (error) {
-      if (error instanceof AuthorizationError) {
-        throw new Response(error.message, { status: error.status });
-      }
-      throw error;
-    }
+    return handleSaveEventRequestDraft(data, context.user, db);
   });

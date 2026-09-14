@@ -79,6 +79,9 @@ test.describe("Event request drafts", () => {
     // the next in-app save comes back refused and must not read as a save.
     const otherTab = await context.newPage();
     await otherTab.goto("/dashboard");
+    // The header is signed-in in the server markup now (PTR-73), so the button is clickable
+    // before React has attached its handler; without this the click lands on inert markup.
+    await otherTab.waitForLoadState("networkidle");
     await otherTab.getByRole("button", { name: "Sign out" }).click();
     await otherTab.waitForURL("/");
     await otherTab.close();
@@ -108,6 +111,9 @@ test.describe("Event request drafts", () => {
 
     await page.goto("/event-requests");
     await expect(page).toHaveURL(/\/dashboard$/);
+    // The form must never have painted, however briefly: the redirect comes from `beforeLoad`,
+    // not from the page reacting after it rendered.
+    await expect(page.getByRole("heading", { name: "New event request" })).toHaveCount(0);
 
     await page.goto("/dashboard");
     await page.waitForLoadState("networkidle");

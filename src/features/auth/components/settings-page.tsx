@@ -1,59 +1,56 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Trash2, Link } from "lucide-react";
 import { toast } from "sonner";
 
-import { getCurrentUser } from "#/features/auth/session";
+import type { SessionUser } from "#/features/auth/session";
+import { useMutation } from "#/hooks/use-mutation";
 import { authClient } from "#/lib/auth-client";
 import { Button } from "#/components/ui/button";
-import { createSeoHead } from "#/lib/seo";
 
 const PROVIDER_LABELS: Record<string, string> = {
   credential: "Password",
 };
 
+const DELETE_FAILED = "Failed to delete account";
+
 function getProviderLabel(providerId: string) {
   return PROVIDER_LABELS[providerId] ?? providerId.charAt(0).toUpperCase() + providerId.slice(1);
 }
 
-export const Route = createFileRoute("/settings")({
-  head: () =>
-    createSeoHead({
-      title: "Settings — ConnectSphere",
-      noindex: true,
-    }),
-  beforeLoad: async () => {
-    const user = await getCurrentUser();
+/**
+ * The account settings view. Both the session user and the linked accounts arrive as props —
+ * the route reads them from its context and loader — so this renders without a router (PTR-75).
+ *
+ * `accounts` is narrowed to what the list actually shows rather than Better Auth's full row:
+ * the wider type would tie the view to the loader's serialisation.
+ */
+export function SettingsPage({
+  user,
+  accounts,
+}: {
+  user: SessionUser;
+  accounts: { id: string; providerId: string }[];
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
-    if (!user) {
-      throw redirect({ to: "/login" });
+  // PTR-71: deleting an account used to run as a bare `void handleDeleteAccount()` — nothing
+  // tracked it, so both buttons stayed live and a second click could fire a second delete. The
+  // action owns the in-flight flag, and the redirect on success stays inside it.
+  const [, deleteAccount, deleting] = useMutation(async () => {
+    const { error } = await authClient.deleteUser({});
+    if (error) {
+      throw new Error(error.message ?? DELETE_FAILED);
     }
 
-    return { user };
-  },
-  component: SettingsPage,
-});
+    window.location.href = "/";
+  }, DELETE_FAILED);
 
-async function handleDeleteAccount() {
-  const { error } = await authClient.deleteUser({});
-  if (error) {
-    toast.error(error.message ?? "Failed to delete account");
-    return;
+  async function handleDeleteAccount() {
+    const { error } = await deleteAccount();
+    if (error) {
+      toast.error(error);
+    }
   }
-  window.location.href = "/";
-}
-
-function SettingsPage() {
-  const { user } = Route.useRouteContext();
-  const { data: accounts = [] } = useQuery({
-    queryKey: ["auth", "accounts"],
-    queryFn: async () => {
-      const res = await authClient.listAccounts();
-      return res.data ?? [];
-    },
-  });
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-16">
@@ -77,10 +74,10 @@ function SettingsPage() {
         {/* Linked providers */}
         <SettingsSection title="Linked providers">
           {accounts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="text-sm text-muted-foreground">No external providers linked.</p>
           ) : (
             <ul className="space-y-2">
-              {accounts.map((acct: { id: string; providerId: string }) => (
+              {accounts.map(acct => (
                 <li key={acct.id} className="flex items-center gap-2">
                   <Link className="size-4 text-muted-foreground" />
                   <span className="text-sm">{getProviderLabel(acct.providerId)}</span>
@@ -98,10 +95,21 @@ function SettingsPage() {
                 This permanently deletes your account and all data. This cannot be undone.
               </p>
               <div className="flex gap-2">
-                <Button variant="destructive" size="sm" onClick={() => void handleDeleteAccount()}>
-                  Yes, delete my account
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={deleting}
+                  onClick={() => void handleDeleteAccount()}
+                >
+                  {deleting ? "Deleting…" : "Yes, delete my account"}
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>
+                {/* Backing out mid-delete would only hide a deletion that is still running. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={deleting}
+                  onClick={() => setConfirmDelete(false)}
+                >
                   Cancel
                 </Button>
               </div>

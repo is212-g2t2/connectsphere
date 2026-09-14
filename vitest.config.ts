@@ -47,6 +47,16 @@ export default defineConfig({
           globals: true,
           setupFiles: [path.resolve(import.meta.dirname, "./tests/setup.ts")],
           globalSetup: "./tests/integration/integration-setup.ts",
+          server: {
+            deps: {
+              // Inlined so `vi.mock` reaches inside it: the middleware runner reads TanStack Start's async-local context, which a test supplies by mocking the storage module.
+              inline: [
+                /@tanstack\/react-start/,
+                /@tanstack\/start-client-core/,
+                /@tanstack\/start-storage-context/,
+              ],
+            },
+          },
         },
       },
     ],

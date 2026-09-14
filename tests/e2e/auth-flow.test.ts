@@ -63,4 +63,26 @@ test.describe("Auth Lifecycle Loop", () => {
     await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });
     await expect(page.getByRole("heading", { name: /welcome,/i })).toHaveCount(0);
   });
+
+  /**
+   * PTR-73: the guards on /login and /signup read the user from route context now, and /signup's
+   * only fires on arrival — the post-signup panel re-resolves that context in place and must be
+   * allowed to stay. These are the arrivals, which still have to be turned away.
+   */
+  test("sends a signed-in visitor away from the sign-in and sign-up forms", async ({ page }) => {
+    const response = await page.request.post("/api/auth/sign-up/email", {
+      data: {
+        name: "Returning visitor",
+        email: `e2e-returning-${Date.now()}@example.com`,
+        password: "Password123!",
+      },
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+
+    await page.goto("/login");
+    await expect(page).toHaveURL("/dashboard", { timeout: 10_000 });
+
+    await page.goto("/signup");
+    await expect(page).toHaveURL("/dashboard", { timeout: 10_000 });
+  });
 });
