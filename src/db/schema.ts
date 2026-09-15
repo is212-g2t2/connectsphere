@@ -102,6 +102,8 @@ export const eventRequests = pgTable(
       "event_requests_coordinator_has_assignment_time",
       sql`${table.assignedCoordinatorId} is null or ${table.assignedAt} is not null`
     ),
+    // PTR-9 criterion 4: a draft never carries a Coordinator. Only the id is guarded — no path
+    // writes `assignedAt` on a draft — while a time without an id stays legal for the CHECK above.
     check(
       "event_requests_draft_has_no_coordinator",
       sql`${table.status} <> 'draft' or ${table.assignedCoordinatorId} is null`

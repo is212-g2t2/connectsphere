@@ -619,7 +619,11 @@ describe("Listing and reading an organiser's requests (PTR-14)", () => {
   });
 });
 
-/** Two Coordinators beside the seeded one, created in a known order so the tie-break is testable. */
+/**
+ * Two Coordinators beside the seeded one, created in a known order so the tie-break is testable.
+ * The dates sit far in the past so both sort before the seeded account however long ago the
+ * database was seeded, not only when it was seeded after the fixture dates.
+ */
 const extraCoordinators = [
   {
     id: "test-coordinator-a",
@@ -627,7 +631,7 @@ const extraCoordinators = [
     email: "coordinator.a@example.com",
     emailVerified: true,
     role: "event_coordinator",
-    createdAt: new Date("2026-09-01T00:00:00Z"),
+    createdAt: new Date("2000-01-01T00:00:00Z"),
   },
   {
     id: "test-coordinator-b",
@@ -635,7 +639,7 @@ const extraCoordinators = [
     email: "coordinator.b@example.com",
     emailVerified: true,
     role: "event_coordinator",
-    createdAt: new Date("2026-09-02T00:00:00Z"),
+    createdAt: new Date("2000-01-02T00:00:00Z"),
   },
 ];
 
@@ -715,7 +719,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       email: "coordinator.gone@example.com",
       emailVerified: true,
       role: "event_coordinator",
-      createdAt: new Date("2026-08-01T00:00:00Z"),
+      createdAt: new Date("1999-01-01T00:00:00Z"),
     };
     await database.insert(schema.user).values(gone);
     const submitted = await submitNew(fullRequest, organiser, database);
