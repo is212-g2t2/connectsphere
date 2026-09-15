@@ -134,13 +134,14 @@ Rate limiting is configured at 20 requests per 60-second window using Better Aut
 
 Source of truth is `src/features/auth/permissions.ts`, restated here and held to both by `tests/unit/auth-permissions.test.ts`. Rows arrive with the stories that build them, so only role-varying functions appear.
 
-| Function               | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
-| ---------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
-| `upload:create`        |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
-| `event_request:create` |    —     |       ✅        |         —         |      —      |            —            |
-| `venue:read`           |    —     |        —        |        ✅         |     ✅      |           ✅            |
-| `venue:create`         |    —     |        —        |         —         |     ✅      |            —            |
-| `venue:update`         |    —     |        —        |         —         |     ✅      |            —            |
+| Function                   | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
+| -------------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
+| `upload:create`            |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
+| `event_request:create`     |    —     |       ✅        |         —         |      —      |            —            |
+| `event_request:coordinate` |    —     |        —        |        ✅         |      —      |            —            |
+| `venue:read`               |    —     |        —        |        ✅         |     ✅      |           ✅            |
+| `venue:create`             |    —     |        —        |         —         |     ✅      |            —            |
+| `venue:update`             |    —     |        —        |         —         |     ✅      |            —            |
 
 Two limits: `attendee` holds an empty role — `ac.newRole({})` authorizes nothing, which is the fail-closed default. And the attendee/organiser line is an entitlement boundary, not a security one — both roles are self-assignable, so anyone set on uploading or starting an event request can simply register again as an organiser. The `venue` rows (PTR-26) are the first internal/external split: both external roles hold nothing on the catalogue, so an organiser is refused a venue record on the server whichever way they reach it, and a request for an equipment function is still refused only because the resource is unknown.
 

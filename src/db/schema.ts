@@ -38,6 +38,17 @@ export const eventRequests = pgTable(
      * and the CHECK below keeps any other status from existing without it.
      */
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    /**
+     * PTR-15: the one Event Coordinator responsible for the event, chosen at submission. A single
+     * column is what makes criterion 2 structural — a row cannot hold two. Null while a draft
+     * (PTR-9 criterion 4), and null after submission only when no Coordinator could be assigned
+     * (criterion 5), in which case the request waits in the unassigned list. `set null` rather
+     * than cascade: deleting a staff account must not delete the events they were handling.
+     */
+    assignedCoordinatorId: text("assigned_coordinator_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }),
     eventName: text("event_name").notNull().default(""),
     purpose: text("purpose").notNull().default(""),
     /**
@@ -81,6 +92,15 @@ export const eventRequests = pgTable(
     check(
       "event_requests_submission_time_matches_status",
       sql`(${table.status} = 'draft' and ${table.submittedAt} is null) or (${table.status} <> 'draft' and ${table.submittedAt} is not null)`
+    ),
+    // PTR-15: an assignment is a Coordinator and a time together, and a draft never has one.
+    check(
+      "event_requests_assignment_time_matches_coordinator",
+      sql`(${table.assignedCoordinatorId} is null) = (${table.assignedAt} is null)`
+    ),
+    check(
+      "event_requests_draft_has_no_coordinator",
+      sql`${table.status} <> 'draft' or ${table.assignedCoordinatorId} is null`
     ),
     // Criterion 2/5, held for whichever path writes the row: terms exist exactly when enabled.
     check(

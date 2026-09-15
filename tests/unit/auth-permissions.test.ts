@@ -5,7 +5,7 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import type { Role } from "#/features/auth/schema/role";
 
 /**
- * The role/function matrix of PTR-7, PTR-9 and PTR-26, restated independently of
+ * The role/function matrix of PTR-7, PTR-9, PTR-15 and PTR-26, restated independently of
  * `permissions.ts`.
  *
  * The duplication is deliberate: widening a role has to be written twice and can never be a
@@ -17,6 +17,7 @@ const EXPECTED: Record<
   {
     upload: boolean;
     event_request: boolean;
+    coordinate: boolean;
     venueRead: boolean;
     venueCreate: boolean;
     venueUpdate: boolean;
@@ -25,6 +26,7 @@ const EXPECTED: Record<
   attendee: {
     upload: false,
     event_request: false,
+    coordinate: false,
     venueRead: false,
     venueCreate: false,
     venueUpdate: false,
@@ -32,6 +34,7 @@ const EXPECTED: Record<
   event_organiser: {
     upload: true,
     event_request: true,
+    coordinate: false,
     venueRead: false,
     venueCreate: false,
     venueUpdate: false,
@@ -39,6 +42,7 @@ const EXPECTED: Record<
   event_coordinator: {
     upload: true,
     event_request: false,
+    coordinate: true,
     venueRead: true,
     venueCreate: false,
     venueUpdate: false,
@@ -46,6 +50,7 @@ const EXPECTED: Record<
   venue_staff: {
     upload: true,
     event_request: false,
+    coordinate: false,
     venueRead: true,
     venueCreate: true,
     venueUpdate: true,
@@ -53,16 +58,18 @@ const EXPECTED: Record<
   technical_support_staff: {
     upload: true,
     event_request: false,
+    coordinate: false,
     venueRead: true,
     venueCreate: false,
     venueUpdate: false,
   },
 };
 
-describe("role/function matrix (PTR-7, PTR-9, PTR-26)", () => {
+describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
     expect(can(role, { upload: ["create"] })).toBe(EXPECTED[role].upload);
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
+    expect(can(role, { event_request: ["coordinate"] })).toBe(EXPECTED[role].coordinate);
     expect(can(role, { venue: ["read"] })).toBe(EXPECTED[role].venueRead);
     expect(can(role, { venue: ["create"] })).toBe(EXPECTED[role].venueCreate);
     expect(can(role, { venue: ["update"] })).toBe(EXPECTED[role].venueUpdate);
