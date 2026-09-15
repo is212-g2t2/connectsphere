@@ -58,6 +58,10 @@ function makeOnSave() {
   return vi.fn<(values: EventRequestDraftValues) => Promise<void>>().mockResolvedValue(undefined);
 }
 
+function makeOnSubmitRequest() {
+  return vi.fn<(values: EventRequestDraftValues) => Promise<void>>().mockResolvedValue(undefined);
+}
+
 function inputValue(label: string) {
   return screen.getByLabelText<HTMLInputElement | HTMLTextAreaElement>(label, { exact: true })
     .value;
@@ -420,5 +424,63 @@ describe("EventRequestForm", () => {
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledExactlyOnceWith(BLANK_DRAFT);
     });
+  });
+
+  it("offers no submit control to a caller that only saves", () => {
+    render(<EventRequestForm onSave={makeOnSave()} />);
+
+    expect(screen.queryByRole("button", { name: "Submit request" })).toBeNull();
+  });
+
+  it("routes Submit request to the submission handler and leaves the save handler alone", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    const onSubmitRequest = makeOnSubmitRequest();
+    render(<EventRequestForm onSave={onSave} onSubmitRequest={onSubmitRequest} />);
+
+    fill("Event name (required)", "Community workshop");
+    await user.click(screen.getByRole("button", { name: "Submit request" }));
+
+    await waitFor(() => {
+      expect(onSubmitRequest).toHaveBeenCalledExactlyOnceWith({
+        ...BLANK_DRAFT,
+        eventName: "Community workshop",
+      });
+    });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("routes Save draft to the save handler even when submission is available", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    const onSubmitRequest = makeOnSubmitRequest();
+    render(<EventRequestForm onSave={onSave} onSubmitRequest={onSubmitRequest} />);
+
+    fill("Event name (required)", "Community workshop");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledExactlyOnceWith({
+        ...BLANK_DRAFT,
+        eventName: "Community workshop",
+      });
+    });
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+  });
+
+  it("shows a refused submission on the form and keeps the entered values", async () => {
+    const user = userEvent.setup();
+    const onSubmitRequest = makeOnSubmitRequest().mockRejectedValueOnce(
+      new Error("This request is missing: Event name")
+    );
+    render(<EventRequestForm onSave={makeOnSave()} onSubmitRequest={onSubmitRequest} />);
+
+    fill("Description (optional)", "  Keep this draft note  ");
+    await user.click(screen.getByRole("button", { name: "Submit request" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe("This request is missing: Event name");
+    });
+    expect(inputValue("Description (optional)")).toBe("  Keep this draft note  ");
   });
 });

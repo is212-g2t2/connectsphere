@@ -103,8 +103,9 @@ export const EventRequestDraftInput = z
     /**
      * Absent while a draft is being created; carried once it exists so a second save updates
      * the row the organiser is already editing rather than opening another draft beside it.
+     * `int32` for the reason `parseEventRequestId` gives.
      */
-    id: z.number().int().positive().optional(),
+    id: z.int32().positive().optional(),
     eventName: z.string().max(EVENT_NAME_MAX_LENGTH, EVENT_NAME_MESSAGE).default(""),
     purpose: z.string().max(PURPOSE_MAX_LENGTH, PURPOSE_MESSAGE).default(""),
     proposedDates: z.array(ProposedDate).default([]),
@@ -279,16 +280,38 @@ export function parseDraftInput(data: unknown): EventRequestDraftValues {
 }
 
 /**
- * The PTR-10 mandatory fields, checked against a saved request. Drafting stays lenient — PTR-9
- * lets absent fields save — so only a submission path calls this: PTR-13 refuses the request when
- * the returned list is non-empty. `null` is accepted for attendance because that is how an absent
- * value comes back from the database.
+ * PTR-13 picks a saved draft by id, the same way PTR-26's venue handlers do. `int32` because
+ * `event_requests.id` is an int4 column: an id past that range reaches the `where` clause and
+ * Postgres answers 22003 instead of "no such draft". As with `parseVenueId`, every failure says
+ * the same thing.
+ */
+export const EVENT_REQUEST_ID_MESSAGE = "Choose an event request";
+const EventRequestIdInput = z.object(
+  { id: z.int32({ error: EVENT_REQUEST_ID_MESSAGE }).positive(EVENT_REQUEST_ID_MESSAGE) },
+  { error: EVENT_REQUEST_ID_MESSAGE }
+);
+
+export function parseEventRequestId(data: unknown) {
+  const parsed = EventRequestIdInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+/**
+ * The PTR-10 fields a submission cannot go without, checked against a saved request. Drafting
+ * stays lenient — PTR-9 lets absent fields save — so only a submission path calls this: PTR-13
+ * refuses the request when the returned list is non-empty. Equipment is one entry rather than one
+ * per line because a half-typed line is the same problem wherever it sits, and `null` is accepted
+ * for attendance because that is how an absent value comes back from the database.
  */
 export function missingRequiredFields(values: {
   eventName: string;
   purpose: string;
   proposedDates: { start?: string; end?: string }[];
   expectedAttendance?: number | null;
+  equipmentRequirements: { type: string; quantity?: number }[];
 }): string[] {
   const missing: string[] = [];
 
@@ -303,6 +326,29 @@ export function missingRequiredFields(values: {
   if (values.expectedAttendance === undefined || values.expectedAttendance === null) {
     missing.push("Expected attendance");
   }
+  // PTR-10 criterion 2: a line that was added carries a type and a quantity together. The save
+  // path keeps a half-typed line while the organiser is still writing it; submission does not.
+  if (
+    values.equipmentRequirements.some(
+      line => line.type.trim() === "" || line.quantity === undefined
+    )
+  ) {
+    missing.push("Equipment requirements");
+  }
 
   return missing;
 }
+
+/** Criterion 1's refusal: the sentence names every field the submission is still missing. */
+export function missingFieldsMessage(missing: string[]): string {
+  return `This request is missing: ${missing.join(", ")}`;
+}
+
+/**
+ * Criterion 3's direction, shown both when the server refuses a direct edit and in the
+ * confirmation that replaces the form after submitting. PTR-19 and PTR-51 are the routes this
+ * points at; until they exist the sentence is still the answer an organiser gets.
+ */
+export const SUBMITTED_EDIT_REFUSAL =
+  "This request has been submitted and can no longer be edited. Reply to a clarification request or raise a change request to change it.";
+export const ALREADY_SUBMITTED_MESSAGE = "This request has already been submitted.";

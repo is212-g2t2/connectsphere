@@ -2,9 +2,16 @@ import { and, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests } from "#/db/schema";
-import { AuthorizationError } from "#/features/auth/session";
+import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { parseDraftInput } from "#/features/event-requests/schema";
+import {
+  ALREADY_SUBMITTED_MESSAGE,
+  SUBMITTED_EDIT_REFUSAL,
+  missingFieldsMessage,
+  missingRequiredFields,
+  parseDraftInput,
+  parseEventRequestId,
+} from "#/features/event-requests/schema";
 
 /**
  * Server-only on purpose, and named for it. `#/db/schema` is a value import here: the table
@@ -19,6 +26,20 @@ import { parseDraftInput } from "#/features/event-requests/schema";
 
 type Database = typeof Db;
 export type EventRequest = typeof eventRequests.$inferSelect;
+
+function ownRequest(id: number, organiserId: string) {
+  return and(eq(eventRequests.id, id), eq(eventRequests.organiserId, organiserId));
+}
+
+// The status clause is what keeps a submitted request from being written again, whichever path
+// is asking.
+function ownDraft(id: number, organiserId: string) {
+  return and(
+    eq(eventRequests.id, id),
+    eq(eventRequests.organiserId, organiserId),
+    eq(eventRequests.status, "draft")
+  );
+}
 
 /**
  * Full-replace (PUT-style), not merge: an update writes every field from `data`, defaulting
@@ -58,18 +79,74 @@ export async function handleSaveEventRequestDraft(
   const updated = await database
     .update(eventRequests)
     .set(fields)
-    .where(
-      and(
-        eq(eventRequests.id, id),
-        eq(eventRequests.organiserId, user.id),
-        eq(eventRequests.status, "draft")
-      )
-    )
+    .where(ownDraft(id, user.id))
     .returning();
 
   if (updated.length === 0) {
+    // The row may be the organiser's but no longer a draft. Refusing it as "Forbidden" would
+    // blame the role for a request that was submitted in this or another sitting, so the
+    // submitted case answers with the direction PTR-13 criterion 3 asks for instead.
+    const ownRow = await database
+      .select({ id: eventRequests.id })
+      .from(eventRequests)
+      .where(ownRequest(id, user.id));
+
+    if (ownRow.length > 0) {
+      throw new ConflictError(SUBMITTED_EDIT_REFUSAL);
+    }
+
     throw new AuthorizationError("Forbidden");
   }
 
   return updated[0];
+}
+
+/**
+ * PTR-13: submits the organiser's own draft, refusing it while a mandatory field is missing
+ * (criterion 1) and recording the time it was submitted (criterion 2).
+ *
+ * The stored row is the source of truth rather than whatever the page last held, so a submission
+ * cannot carry values that were never saved. PTR-11's registration terms are not re-checked
+ * here: a stored draft cannot have them missing or half-set — the save path requires all three
+ * together and the database CHECKs refuse the row — so their absence is never reachable.
+ */
+export async function handleSubmitEventRequest(
+  data: unknown,
+  user: SessionUser,
+  database: Database
+): Promise<EventRequest> {
+  const { id } = parseEventRequestId(data);
+
+  // One transaction, with the row locked while it is read: a save in another tab must not blank
+  // a mandatory field between the completeness check and the update below. Only the update needs
+  // the lock — the save path's own predicate already refuses a submitted row, and it will block
+  // here until this transaction commits if it arrives mid-flight.
+  return database.transaction(async tx => {
+    const ownRows = await tx
+      .select()
+      .from(eventRequests)
+      .where(ownRequest(id, user.id))
+      .for("update");
+
+    const draft = ownRows.at(0);
+    if (draft === undefined) {
+      throw new AuthorizationError("Forbidden");
+    }
+    if (draft.status !== "draft") {
+      throw new ConflictError(ALREADY_SUBMITTED_MESSAGE);
+    }
+
+    const missing = missingRequiredFields(draft);
+    if (missing.length > 0) {
+      throw new Error(missingFieldsMessage(missing));
+    }
+
+    const [submitted] = await tx
+      .update(eventRequests)
+      .set({ status: "submitted", submittedAt: new Date() })
+      .where(ownDraft(id, user.id))
+      .returning();
+
+    return submitted;
+  });
 }
