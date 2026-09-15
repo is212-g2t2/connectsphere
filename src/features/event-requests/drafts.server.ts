@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests } from "#/db/schema";
@@ -149,4 +149,34 @@ export async function handleSubmitEventRequest(
 
     return submitted;
   });
+}
+
+/**
+ * PTR-14 criterion 1: the organiser's own requests, drafts included. Most recently changed
+ * first, then newest id, so two rows saved in the same instant still list in a stable order.
+ */
+export async function handleListEventRequests(
+  user: SessionUser,
+  database: Database
+): Promise<EventRequest[]> {
+  return database
+    .select()
+    .from(eventRequests)
+    .where(eq(eventRequests.organiserId, user.id))
+    .orderBy(desc(eventRequests.updatedAt), desc(eventRequests.id));
+}
+
+/**
+ * PTR-14 criterion 4: one request, as recorded. Scoped to the organiser so a row that belongs
+ * to someone else reads as absent — the route answers both with the same not-found view, which
+ * is what keeps another organiser's ids from being probed.
+ */
+export async function handleGetEventRequest(
+  data: unknown,
+  user: SessionUser,
+  database: Database
+): Promise<EventRequest | null> {
+  const { id } = parseEventRequestId(data);
+  const rows = await database.select().from(eventRequests).where(ownRequest(id, user.id));
+  return rows.at(0) ?? null;
 }

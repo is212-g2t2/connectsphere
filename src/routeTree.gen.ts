@@ -17,10 +17,12 @@ import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
-import { Route as AuthenticatedEventRequestsRouteImport } from './routes/_authenticated/event-requests'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
+import { Route as AuthenticatedEventRequestsIndexRouteImport } from './routes/_authenticated/event-requests/index'
+import { Route as AuthenticatedEventRequestsRequestIdRouteImport } from './routes/_authenticated/event-requests/$requestId'
+import { Route as AuthenticatedEventRequestsNewRouteImport } from './routes/_authenticated/event-requests/new'
 import { Route as AuthenticatedVenuesIndexRouteImport } from './routes/_authenticated/venues/index'
 import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authenticated/venues/$venueId'
 import { Route as AuthenticatedVenuesNewRouteImport } from './routes/_authenticated/venues/new'
@@ -65,12 +67,6 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedEventRequestsRoute =
-  AuthenticatedEventRequestsRouteImport.update({
-    id: '/event-requests',
-    path: '/event-requests',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -86,6 +82,24 @@ const ApiUploadUrlRoute = ApiUploadUrlRouteImport.update({
   path: '/api/upload-url',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedEventRequestsIndexRoute =
+  AuthenticatedEventRequestsIndexRouteImport.update({
+    id: '/event-requests/',
+    path: '/event-requests/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedEventRequestsRequestIdRoute =
+  AuthenticatedEventRequestsRequestIdRouteImport.update({
+    id: '/event-requests/$requestId',
+    path: '/event-requests/$requestId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedEventRequestsNewRoute =
+  AuthenticatedEventRequestsNewRouteImport.update({
+    id: '/event-requests/new',
+    path: '/event-requests/new',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedVenuesIndexRoute =
   AuthenticatedVenuesIndexRouteImport.update({
     id: '/venues/',
@@ -117,13 +131,15 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/event-requests': typeof AuthenticatedEventRequestsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
+  '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
+  '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/venues/': typeof AuthenticatedVenuesIndexRoute
 }
 export interface FileRoutesByTo {
@@ -134,13 +150,15 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/event-requests': typeof AuthenticatedEventRequestsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
+  '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
+  '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/event-requests': typeof AuthenticatedEventRequestsIndexRoute
   '/venues': typeof AuthenticatedVenuesIndexRoute
 }
 export interface FileRoutesById {
@@ -153,13 +171,15 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
-  '/_authenticated/event-requests': typeof AuthenticatedEventRequestsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
+  '/_authenticated/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
+  '/_authenticated/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
   '/_authenticated/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/_authenticated/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_authenticated/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/_authenticated/venues/': typeof AuthenticatedVenuesIndexRoute
 }
 export interface FileRouteTypes {
@@ -172,13 +192,15 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/dashboard'
-    | '/event-requests'
     | '/settings'
     | '/api/health'
     | '/api/upload-url'
+    | '/event-requests/$requestId'
+    | '/event-requests/new'
     | '/venues/$venueId'
     | '/venues/new'
     | '/api/auth/$'
+    | '/event-requests/'
     | '/venues/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -189,13 +211,15 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/dashboard'
-    | '/event-requests'
     | '/settings'
     | '/api/health'
     | '/api/upload-url'
+    | '/event-requests/$requestId'
+    | '/event-requests/new'
     | '/venues/$venueId'
     | '/venues/new'
     | '/api/auth/$'
+    | '/event-requests'
     | '/venues'
   id:
     | '__root__'
@@ -207,13 +231,15 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/_authenticated/dashboard'
-    | '/_authenticated/event-requests'
     | '/_authenticated/settings'
     | '/api/health'
     | '/api/upload-url'
+    | '/_authenticated/event-requests/$requestId'
+    | '/_authenticated/event-requests/new'
     | '/_authenticated/venues/$venueId'
     | '/_authenticated/venues/new'
     | '/api/auth/$'
+    | '/_authenticated/event-requests/'
     | '/_authenticated/venues/'
   fileRoutesById: FileRoutesById
 }
@@ -288,13 +314,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/event-requests': {
-      id: '/_authenticated/event-requests'
-      path: '/event-requests'
-      fullPath: '/event-requests'
-      preLoaderRoute: typeof AuthenticatedEventRequestsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -315,6 +334,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/upload-url'
       preLoaderRoute: typeof ApiUploadUrlRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/event-requests/': {
+      id: '/_authenticated/event-requests/'
+      path: '/event-requests'
+      fullPath: '/event-requests/'
+      preLoaderRoute: typeof AuthenticatedEventRequestsIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/event-requests/$requestId': {
+      id: '/_authenticated/event-requests/$requestId'
+      path: '/event-requests/$requestId'
+      fullPath: '/event-requests/$requestId'
+      preLoaderRoute: typeof AuthenticatedEventRequestsRequestIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/event-requests/new': {
+      id: '/_authenticated/event-requests/new'
+      path: '/event-requests/new'
+      fullPath: '/event-requests/new'
+      preLoaderRoute: typeof AuthenticatedEventRequestsNewRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/venues/': {
       id: '/_authenticated/venues/'
@@ -349,19 +389,24 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
-  AuthenticatedEventRequestsRoute: typeof AuthenticatedEventRequestsRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedEventRequestsRequestIdRoute: typeof AuthenticatedEventRequestsRequestIdRoute
+  AuthenticatedEventRequestsNewRoute: typeof AuthenticatedEventRequestsNewRoute
   AuthenticatedVenuesVenueIdRoute: typeof AuthenticatedVenuesVenueIdRoute
   AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
+  AuthenticatedEventRequestsIndexRoute: typeof AuthenticatedEventRequestsIndexRoute
   AuthenticatedVenuesIndexRoute: typeof AuthenticatedVenuesIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
-  AuthenticatedEventRequestsRoute: AuthenticatedEventRequestsRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedEventRequestsRequestIdRoute:
+    AuthenticatedEventRequestsRequestIdRoute,
+  AuthenticatedEventRequestsNewRoute: AuthenticatedEventRequestsNewRoute,
   AuthenticatedVenuesVenueIdRoute: AuthenticatedVenuesVenueIdRoute,
   AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
+  AuthenticatedEventRequestsIndexRoute: AuthenticatedEventRequestsIndexRoute,
   AuthenticatedVenuesIndexRoute: AuthenticatedVenuesIndexRoute,
 }
 

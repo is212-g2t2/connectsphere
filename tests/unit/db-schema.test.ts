@@ -5,6 +5,7 @@ import {
   getTableColumns,
 } from "drizzle-orm";
 import * as schema from "#/db/schema";
+import { EVENT_REQUEST_STATUSES } from "#/features/event-requests/schema";
 import {
   user,
   session,
@@ -25,6 +26,10 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(session).token.name).toBe("token");
     expect(getTableColumns(account).providerId.name).toBe("provider_id");
     expect(getTableColumns(verification).identifier.name).toBe("identifier");
+  });
+
+  it("keeps the client-safe status list identical to the Postgres enum (PTR-14)", () => {
+    expect([...schema.eventRequestStatus.enumValues]).toEqual([...EVENT_REQUEST_STATUSES]);
   });
 
   it("defines the venue catalogue tables with their column names (PTR-26)", () => {

@@ -54,8 +54,8 @@ export function EventRequestsPage() {
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
-        Back to dashboard
+      <Link to="/event-requests" className={NAV_LINK_CLASSNAME}>
+        Back to event requests
       </Link>
 
       <h1 className="font-heading mt-6 text-3xl font-semibold tracking-tight">
