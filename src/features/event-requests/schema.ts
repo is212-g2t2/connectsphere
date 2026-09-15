@@ -12,6 +12,21 @@ export const END_BEFORE_START_MESSAGE =
   "The proposed end date and time must be later than the start";
 export const ATTENDANCE_MESSAGE = "Expected attendance must be a positive whole number";
 export const EQUIPMENT_QUANTITY_MESSAGE = "Equipment quantity must be a positive whole number";
+export const REGISTRATION_CAPACITY_MESSAGE =
+  "Registration capacity must be a positive whole number";
+// As with `venues.max_capacity`: 3_000_000_000 *is* a positive whole number, so the int4 ceiling
+// says so in its own words rather than repeating the criterion-4 sentence.
+export const REGISTRATION_CAPACITY_TOO_LARGE_MESSAGE =
+  "Registration capacity is larger than this record can store";
+export const REGISTRATION_OPENS_MESSAGE = "Enter a valid registration opening date and time";
+export const REGISTRATION_CLOSES_MESSAGE = "Enter a valid registration closing date and time";
+export const REGISTRATION_CAPACITY_REQUIRED_MESSAGE =
+  "Registration capacity is required when registration is enabled";
+export const REGISTRATION_OPENS_REQUIRED_MESSAGE =
+  "A registration opening date and time is required when registration is enabled";
+export const REGISTRATION_CLOSES_REQUIRED_MESSAGE =
+  "A registration closing date and time is required when registration is enabled";
+export const REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE = "Registration must close after it opens";
 /** Postgres `integer` is int4: anything larger fails at the driver, so the schema stops it first. */
 const MAX_INTEGER = 2_147_483_647;
 
@@ -38,9 +53,8 @@ export const ACCESSIBILITY_REQUIREMENTS_MESSAGE = `Accessibility requirements mu
 export const SPECIAL_ARRANGEMENTS_MESSAGE = `Special arrangements must be ${SPECIAL_ARRANGEMENTS_MAX_LENGTH} characters or fewer`;
 export const EQUIPMENT_TYPE_MESSAGE = `Equipment type must be ${EQUIPMENT_TYPE_MAX_LENGTH} characters or fewer`;
 
-const LocalDateTime = z.iso
-  .datetime({ local: true, error: INVALID_DATE_TIME_MESSAGE })
-  .regex(LOCAL_DATE_TIME_SHAPE, INVALID_DATE_TIME_MESSAGE);
+const LocalDateTime = (message: string) =>
+  z.iso.datetime({ local: true, error: message }).regex(LOCAL_DATE_TIME_SHAPE, message);
 
 /**
  * Compared as instants rather than as strings. Lexicographic order happens to agree while the
@@ -60,8 +74,8 @@ function asInstant(value: string): number {
  */
 const ProposedDate = z
   .object({
-    start: LocalDateTime.optional(),
-    end: LocalDateTime.optional(),
+    start: LocalDateTime(INVALID_DATE_TIME_MESSAGE).optional(),
+    end: LocalDateTime(INVALID_DATE_TIME_MESSAGE).optional(),
   })
   .refine(
     value =>
@@ -71,8 +85,8 @@ const ProposedDate = z
     { message: END_BEFORE_START_MESSAGE, path: ["end"] }
   );
 
-const PositiveWholeNumber = (message: string) =>
-  z.number({ error: message }).int(message).positive(message).max(MAX_INTEGER, message);
+const PositiveWholeNumber = (message: string, tooLargeMessage = message) =>
+  z.number({ error: message }).int(message).positive(message).max(MAX_INTEGER, tooLargeMessage);
 
 /**
  * All-or-nothing would reject a line the organiser is still typing, so each side is optional on
@@ -84,41 +98,95 @@ const EquipmentRequirement = z.object({
   quantity: PositiveWholeNumber(EQUIPMENT_QUANTITY_MESSAGE).optional(),
 });
 
-export const EventRequestDraftInput = z.object({
+export const EventRequestDraftInput = z
+  .object({
+    /**
+     * Absent while a draft is being created; carried once it exists so a second save updates
+     * the row the organiser is already editing rather than opening another draft beside it.
+     */
+    id: z.number().int().positive().optional(),
+    eventName: z.string().max(EVENT_NAME_MAX_LENGTH, EVENT_NAME_MESSAGE).default(""),
+    purpose: z.string().max(PURPOSE_MAX_LENGTH, PURPOSE_MESSAGE).default(""),
+    proposedDates: z.array(ProposedDate).default([]),
+    expectedAttendance: z
+      .number({ error: ATTENDANCE_MESSAGE })
+      .int(ATTENDANCE_MESSAGE)
+      .positive(ATTENDANCE_MESSAGE)
+      .max(ATTENDANCE_MAX, ATTENDANCE_MAX_MESSAGE)
+      .optional(),
+    description: z.string().max(DESCRIPTION_MAX_LENGTH, DESCRIPTION_MESSAGE).default(""),
+    eventType: z.string().max(EVENT_TYPE_MAX_LENGTH, EVENT_TYPE_MESSAGE).default(""),
+    venueRequirements: z
+      .string()
+      .max(VENUE_REQUIREMENTS_MAX_LENGTH, VENUE_REQUIREMENTS_MESSAGE)
+      .default(""),
+    roomLayoutPreference: z
+      .string()
+      .max(ROOM_LAYOUT_PREFERENCE_MAX_LENGTH, ROOM_LAYOUT_PREFERENCE_MESSAGE)
+      .default(""),
+    accessibilityRequirements: z
+      .string()
+      .max(ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH, ACCESSIBILITY_REQUIREMENTS_MESSAGE)
+      .default(""),
+    equipmentRequirements: z.array(EquipmentRequirement).default([]),
+    specialArrangements: z
+      .string()
+      .max(SPECIAL_ARRANGEMENTS_MAX_LENGTH, SPECIAL_ARRANGEMENTS_MESSAGE)
+      .default(""),
+    /**
+     * PTR-11: whether attendees may register, and on what terms. Unlike every other draft field
+     * these are all-or-nothing — switching registration on asserts terms — so the three below
+     * are required together the moment the flag is set.
+     */
+    registrationEnabled: z.boolean().default(false),
+    registrationCapacity: PositiveWholeNumber(
+      REGISTRATION_CAPACITY_MESSAGE,
+      REGISTRATION_CAPACITY_TOO_LARGE_MESSAGE
+    ).optional(),
+    registrationOpensAt: LocalDateTime(REGISTRATION_OPENS_MESSAGE).optional(),
+    registrationClosesAt: LocalDateTime(REGISTRATION_CLOSES_MESSAGE).optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (!values.registrationEnabled) return;
+
+    const requiredTerms = [
+      ["registrationCapacity", REGISTRATION_CAPACITY_REQUIRED_MESSAGE],
+      ["registrationOpensAt", REGISTRATION_OPENS_REQUIRED_MESSAGE],
+      ["registrationClosesAt", REGISTRATION_CLOSES_REQUIRED_MESSAGE],
+    ] as const;
+
+    for (const [field, message] of requiredTerms) {
+      if (values[field] === undefined) {
+        ctx.addIssue({ code: "custom", path: [field], message });
+      }
+    }
+    if (
+      values.registrationOpensAt !== undefined &&
+      values.registrationClosesAt !== undefined &&
+      asInstant(values.registrationClosesAt) <= asInstant(values.registrationOpensAt)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["registrationClosesAt"],
+        message: REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE,
+      });
+    }
+  })
   /**
-   * Absent while a draft is being created; carried once it exists so a second save updates
-   * the row the organiser is already editing rather than opening another draft beside it.
+   * Criterion 5: a request saved with registration off keeps no active terms. The form input
+   * already omits its inactive fields, so stale strings are never validated; this transform is
+   * what guarantees the parsed output carries none, whatever the caller.
    */
-  id: z.number().int().positive().optional(),
-  eventName: z.string().max(EVENT_NAME_MAX_LENGTH, EVENT_NAME_MESSAGE).default(""),
-  purpose: z.string().max(PURPOSE_MAX_LENGTH, PURPOSE_MESSAGE).default(""),
-  proposedDates: z.array(ProposedDate).default([]),
-  expectedAttendance: z
-    .number({ error: ATTENDANCE_MESSAGE })
-    .int(ATTENDANCE_MESSAGE)
-    .positive(ATTENDANCE_MESSAGE)
-    .max(ATTENDANCE_MAX, ATTENDANCE_MAX_MESSAGE)
-    .optional(),
-  description: z.string().max(DESCRIPTION_MAX_LENGTH, DESCRIPTION_MESSAGE).default(""),
-  eventType: z.string().max(EVENT_TYPE_MAX_LENGTH, EVENT_TYPE_MESSAGE).default(""),
-  venueRequirements: z
-    .string()
-    .max(VENUE_REQUIREMENTS_MAX_LENGTH, VENUE_REQUIREMENTS_MESSAGE)
-    .default(""),
-  roomLayoutPreference: z
-    .string()
-    .max(ROOM_LAYOUT_PREFERENCE_MAX_LENGTH, ROOM_LAYOUT_PREFERENCE_MESSAGE)
-    .default(""),
-  accessibilityRequirements: z
-    .string()
-    .max(ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH, ACCESSIBILITY_REQUIREMENTS_MESSAGE)
-    .default(""),
-  equipmentRequirements: z.array(EquipmentRequirement).default([]),
-  specialArrangements: z
-    .string()
-    .max(SPECIAL_ARRANGEMENTS_MAX_LENGTH, SPECIAL_ARRANGEMENTS_MESSAGE)
-    .default(""),
-});
+  .transform(values =>
+    values.registrationEnabled
+      ? values
+      : {
+          ...values,
+          registrationCapacity: undefined,
+          registrationOpensAt: undefined,
+          registrationClosesAt: undefined,
+        }
+  );
 
 export type EventRequestDraftValues = z.infer<typeof EventRequestDraftInput>;
 
@@ -148,6 +216,10 @@ const EventRequestDraftFormShape = z.object({
     z.object({ key: z.string(), type: z.string(), quantity: z.string() })
   ),
   specialArrangements: z.string(),
+  registrationEnabled: z.boolean(),
+  registrationCapacity: z.string(),
+  registrationOpensAt: z.string(),
+  registrationClosesAt: z.string(),
 });
 
 export type EventRequestDraftFormValues = z.infer<typeof EventRequestDraftFormShape>;
@@ -180,6 +252,21 @@ export const EventRequestDraftFormInput = EventRequestDraftFormShape.transform(
         return requirement;
       }),
     specialArrangements: values.specialArrangements,
+    registrationEnabled: values.registrationEnabled,
+    // Blank terms are passed as absent, not as malformed strings, so an enabled registration is
+    // told what is missing rather than that an empty field is not a date.
+    ...(values.registrationEnabled
+      ? {
+          registrationCapacity:
+            values.registrationCapacity === ""
+              ? undefined
+              : parseWholeNumber(values.registrationCapacity),
+          registrationOpensAt:
+            values.registrationOpensAt === "" ? undefined : values.registrationOpensAt,
+          registrationClosesAt:
+            values.registrationClosesAt === "" ? undefined : values.registrationClosesAt,
+        }
+      : {}),
   })
 ).pipe(EventRequestDraftInput);
 

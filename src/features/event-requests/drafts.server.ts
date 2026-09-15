@@ -33,7 +33,15 @@ export async function handleSaveEventRequestDraft(
 ): Promise<EventRequest> {
   const { id, ...values } = parseDraftInput(data);
 
-  const fields = { ...values, expectedAttendance: values.expectedAttendance ?? null };
+  // The registration transform has already dropped the terms when registration is off; `?? null`
+  // is what writes that drop, and what keeps a half-written draft's absent terms null.
+  const fields = {
+    ...values,
+    expectedAttendance: values.expectedAttendance ?? null,
+    registrationCapacity: values.registrationCapacity ?? null,
+    registrationOpensAt: values.registrationOpensAt ?? null,
+    registrationClosesAt: values.registrationClosesAt ?? null,
+  };
 
   if (id === undefined) {
     const [created] = await database

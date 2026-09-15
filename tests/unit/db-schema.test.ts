@@ -15,6 +15,7 @@ import {
   accountRelations,
   venues,
   venueUnavailability,
+  eventRequests,
 } from "#/db/schema";
 
 describe("Database Schema Definitions", () => {
@@ -32,6 +33,13 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(venues).supportedLayouts.name).toBe("supported_layouts");
     expect(getTableColumns(venueUnavailability).venueId.name).toBe("venue_id");
     expect(getTableColumns(venueUnavailability).startsAt.name).toBe("starts_at");
+  });
+
+  it("defines the event request registration columns (PTR-11)", () => {
+    expect(getTableColumns(eventRequests).registrationEnabled.name).toBe("registration_enabled");
+    expect(getTableColumns(eventRequests).registrationCapacity.name).toBe("registration_capacity");
+    expect(getTableColumns(eventRequests).registrationOpensAt.name).toBe("registration_opens_at");
+    expect(getTableColumns(eventRequests).registrationClosesAt.name).toBe("registration_closes_at");
   });
 
   it("defines relations between user, session, and account", () => {

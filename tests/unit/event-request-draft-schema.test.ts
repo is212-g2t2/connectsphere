@@ -20,6 +20,13 @@ import {
   EventRequestDraftInput,
   PURPOSE_MAX_LENGTH,
   PURPOSE_MESSAGE,
+  REGISTRATION_CAPACITY_MESSAGE,
+  REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
+  REGISTRATION_CAPACITY_TOO_LARGE_MESSAGE,
+  REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE,
+  REGISTRATION_CLOSES_REQUIRED_MESSAGE,
+  REGISTRATION_OPENS_MESSAGE,
+  REGISTRATION_OPENS_REQUIRED_MESSAGE,
   ROOM_LAYOUT_PREFERENCE_MAX_LENGTH,
   ROOM_LAYOUT_PREFERENCE_MESSAGE,
   SPECIAL_ARRANGEMENTS_MAX_LENGTH,
@@ -41,6 +48,7 @@ const BLANK_DRAFT = {
   accessibilityRequirements: "",
   equipmentRequirements: [],
   specialArrangements: "",
+  registrationEnabled: false,
 };
 
 const BLANK_FORM = {
@@ -55,6 +63,10 @@ const BLANK_FORM = {
   accessibilityRequirements: "",
   equipmentRequirements: [],
   specialArrangements: "",
+  registrationEnabled: false,
+  registrationCapacity: "",
+  registrationOpensAt: "",
+  registrationClosesAt: "",
 };
 
 describe("EventRequestDraftInput", () => {
@@ -81,6 +93,7 @@ describe("EventRequestDraftInput", () => {
         { type: "Projector", quantity: 1 },
       ],
       specialArrangements: "  Quiet room\nDietary options  ",
+      registrationEnabled: false,
     };
 
     expect(EventRequestDraftInput.parse(values)).toEqual(values);
@@ -294,6 +307,151 @@ describe("EventRequestDraftInput", () => {
   });
 });
 
+const ENABLED_REGISTRATION = {
+  registrationEnabled: true,
+  registrationCapacity: 50,
+  registrationOpensAt: "2026-10-01T09:00",
+  registrationClosesAt: "2026-10-08T17:00",
+};
+
+describe("EventRequestDraftInput registration terms", () => {
+  it("defaults a draft to registration disabled and stores no active terms", () => {
+    const parsed = EventRequestDraftInput.parse({});
+
+    expect(parsed.registrationEnabled).toBe(false);
+    expect(parsed.registrationCapacity).toBeUndefined();
+    expect(parsed.registrationOpensAt).toBeUndefined();
+    expect(parsed.registrationClosesAt).toBeUndefined();
+  });
+
+  it("records the enabled choice and every term exactly as entered", () => {
+    expect(EventRequestDraftInput.parse(ENABLED_REGISTRATION)).toMatchObject(ENABLED_REGISTRATION);
+  });
+
+  it.each([
+    [
+      "registrationCapacity",
+      { ...ENABLED_REGISTRATION, registrationCapacity: undefined },
+      REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
+    ],
+    [
+      "registrationOpensAt",
+      { ...ENABLED_REGISTRATION, registrationOpensAt: undefined },
+      REGISTRATION_OPENS_REQUIRED_MESSAGE,
+    ],
+    [
+      "registrationClosesAt",
+      { ...ENABLED_REGISTRATION, registrationClosesAt: undefined },
+      REGISTRATION_CLOSES_REQUIRED_MESSAGE,
+    ],
+  ])("refuses an enabled registration without %s, naming it", (field, value, message) => {
+    const result = EventRequestDraftInput.safeParse(value);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toContainEqual(
+      expect.objectContaining({ path: [field], message })
+    );
+  });
+
+  it("names every missing registration value when none was entered", () => {
+    const result = EventRequestDraftInput.safeParse({ registrationEnabled: true });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map(issue => issue.message)).toEqual([
+      REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
+      REGISTRATION_OPENS_REQUIRED_MESSAGE,
+      REGISTRATION_CLOSES_REQUIRED_MESSAGE,
+    ]);
+  });
+
+  it.each([0, -1, 2.5, NaN])("refuses a registration capacity of %s", value => {
+    const result = EventRequestDraftInput.safeParse({
+      ...ENABLED_REGISTRATION,
+      registrationCapacity: value,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ["registrationCapacity"],
+      message: REGISTRATION_CAPACITY_MESSAGE,
+    });
+  });
+
+  it("refuses a registration capacity above the Postgres integer range in its own words", () => {
+    const result = EventRequestDraftInput.safeParse({
+      ...ENABLED_REGISTRATION,
+      registrationCapacity: 2_147_483_648,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ["registrationCapacity"],
+      message: REGISTRATION_CAPACITY_TOO_LARGE_MESSAGE,
+    });
+  });
+
+  it("accepts a registration capacity at the range limit", () => {
+    const parsed = EventRequestDraftInput.parse({
+      ...ENABLED_REGISTRATION,
+      registrationCapacity: 2_147_483_647,
+    });
+
+    expect(parsed.registrationCapacity).toBe(2_147_483_647);
+  });
+
+  it.each(["2026-10-08T17:00", "2026-10-08T16:59", "2026-10-07T17:00"])(
+    "refuses a registration window closing at %s",
+    registrationClosesAt => {
+      const result = EventRequestDraftInput.safeParse({
+        ...ENABLED_REGISTRATION,
+        registrationOpensAt: "2026-10-08T17:00",
+        registrationClosesAt,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]).toMatchObject({
+        path: ["registrationClosesAt"],
+        message: REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE,
+      });
+    }
+  );
+
+  it("accepts a registration window that closes one minute after it opens", () => {
+    const parsed = EventRequestDraftInput.parse({
+      ...ENABLED_REGISTRATION,
+      registrationOpensAt: "2026-10-08T16:59",
+      registrationClosesAt: "2026-10-08T17:00",
+    });
+
+    expect(parsed.registrationClosesAt).toBe("2026-10-08T17:00");
+  });
+
+  it("refuses a malformed registration date at its own field, not the proposed-date message", () => {
+    const result = EventRequestDraftInput.safeParse({
+      ...ENABLED_REGISTRATION,
+      registrationOpensAt: "2026-10-01",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ["registrationOpensAt"],
+      message: REGISTRATION_OPENS_MESSAGE,
+    });
+  });
+
+  it("stores no terms when registration is disabled, even if values are supplied", () => {
+    const parsed = EventRequestDraftInput.parse({
+      ...ENABLED_REGISTRATION,
+      registrationEnabled: false,
+    });
+
+    expect(parsed.registrationEnabled).toBe(false);
+    expect(parsed.registrationCapacity).toBeUndefined();
+    expect(parsed.registrationOpensAt).toBeUndefined();
+    expect(parsed.registrationClosesAt).toBeUndefined();
+  });
+});
+
 describe("EventRequestDraftFormInput", () => {
   it("is a standard-schema validator, so TanStack Form can attach issues to fields", () => {
     expect("~standard" in EventRequestDraftFormInput).toBe(true);
@@ -377,6 +535,75 @@ describe("EventRequestDraftFormInput", () => {
       path: ["description"],
       message: DESCRIPTION_MESSAGE,
     });
+  });
+
+  it("converts the entered registration terms into the wire shape", () => {
+    const parsed = EventRequestDraftFormInput.parse({
+      ...BLANK_FORM,
+      registrationEnabled: true,
+      registrationCapacity: "50",
+      registrationOpensAt: "2026-10-01T09:00",
+      registrationClosesAt: "2026-10-08T17:00",
+    });
+
+    expect(parsed).toEqual({ ...BLANK_DRAFT, ...ENABLED_REGISTRATION });
+  });
+
+  it("reports every missing registration term at its own field", () => {
+    const result = EventRequestDraftFormInput.safeParse({
+      ...BLANK_FORM,
+      registrationEnabled: true,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map(issue => [issue.path, issue.message])).toEqual([
+      [["registrationCapacity"], REGISTRATION_CAPACITY_REQUIRED_MESSAGE],
+      [["registrationOpensAt"], REGISTRATION_OPENS_REQUIRED_MESSAGE],
+      [["registrationClosesAt"], REGISTRATION_CLOSES_REQUIRED_MESSAGE],
+    ]);
+  });
+
+  it("reports a fractional registration capacity at the capacity field", () => {
+    const result = EventRequestDraftFormInput.safeParse({
+      ...BLANK_FORM,
+      registrationEnabled: true,
+      registrationCapacity: "1.5",
+      registrationOpensAt: "2026-10-01T09:00",
+      registrationClosesAt: "2026-10-08T17:00",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ["registrationCapacity"],
+      message: REGISTRATION_CAPACITY_MESSAGE,
+    });
+  });
+
+  it("reports a registration window closing before it opens at the closing field", () => {
+    const result = EventRequestDraftFormInput.safeParse({
+      ...BLANK_FORM,
+      registrationEnabled: true,
+      registrationCapacity: "50",
+      registrationOpensAt: "2026-10-01T09:00",
+      registrationClosesAt: "2026-10-01T08:59",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ["registrationClosesAt"],
+      message: REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE,
+    });
+  });
+
+  it("drops the terms when registration is disabled", () => {
+    const parsed = EventRequestDraftFormInput.parse({
+      ...BLANK_FORM,
+      registrationCapacity: "50",
+      registrationOpensAt: "2026-10-01T09:00",
+      registrationClosesAt: "2026-10-08T17:00",
+    });
+
+    expect(parsed).toEqual(BLANK_DRAFT);
   });
 });
 
