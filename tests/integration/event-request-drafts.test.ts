@@ -9,6 +9,8 @@ import {
   handleGetEventRequest,
   handleListEventRequests,
   handleListUnassignedEventRequests,
+  handleDeleteEventRequestDraft,
+  handleGetEventRequestDraft,
   handleSaveEventRequestDraft,
   handleSubmitEventRequest,
   pickLeastLoadedCoordinator,
@@ -19,6 +21,7 @@ import {
   ATTENDANCE_MESSAGE,
   END_BEFORE_START_MESSAGE,
   EQUIPMENT_QUANTITY_MESSAGE,
+  EVENT_REQUEST_DELETE_REFUSAL,
   REGISTRATION_CAPACITY_MESSAGE,
   REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
   REGISTRATION_CLOSES_BEFORE_OPENS_MESSAGE,
@@ -215,12 +218,19 @@ describe("Event request drafts", () => {
     );
 
     const updated = await handleSaveEventRequestDraft(
-      { id: created.id, eventName: "Community workshop", purpose: "Meet neighbours" },
+      {
+        id: created.id,
+        eventName: "Community workshop",
+        purpose: "Meet neighbours",
+      },
       organiser,
       database as never
     );
 
-    expect(updated).toMatchObject({ id: created.id, purpose: "Meet neighbours" });
+    expect(updated).toMatchObject({
+      id: created.id,
+      purpose: "Meet neighbours",
+    });
     expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
   });
 
@@ -239,7 +249,9 @@ describe("Event request drafts", () => {
       )
     ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
 
-    expect(await findById(created.id)).toMatchObject({ eventName: "Private draft" });
+    expect(await findById(created.id)).toMatchObject({
+      eventName: "Private draft",
+    });
   });
 
   it("refuses an id that matches no draft instead of creating one", async () => {
@@ -286,7 +298,10 @@ describe("Event request drafts", () => {
   it("refuses a registration window that does not close after it opens (AC3)", async () => {
     await expect(
       handleSaveEventRequestDraft(
-        { ...enabledRegistration, registrationClosesAt: enabledRegistration.registrationOpensAt },
+        {
+          ...enabledRegistration,
+          registrationClosesAt: enabledRegistration.registrationOpensAt,
+        },
         organiser,
         database as never
       )
@@ -352,17 +367,21 @@ describe("Event request drafts", () => {
     });
 
     await expect(
-      database
-        .insert(schema.eventRequests)
-        .values({ ...enabledRegistration, organiserId: organiser.id, registrationEnabled: false })
+      database.insert(schema.eventRequests).values({
+        ...enabledRegistration,
+        organiserId: organiser.id,
+        registrationEnabled: false,
+      })
     ).rejects.toMatchObject({
       cause: { constraint: "event_requests_registration_terms_match_enabled" },
     });
 
     await expect(
-      database
-        .insert(schema.eventRequests)
-        .values({ ...enabledRegistration, organiserId: organiser.id, registrationCapacity: 0 })
+      database.insert(schema.eventRequests).values({
+        ...enabledRegistration,
+        organiserId: organiser.id,
+        registrationCapacity: 0,
+      })
     ).rejects.toMatchObject({
       cause: { constraint: "event_requests_registration_capacity_positive" },
     });
@@ -413,7 +432,10 @@ describe("Event request drafts", () => {
       missingFieldsMessage(["Purpose", "Proposed dates and times", "Expected attendance"])
     );
 
-    expect(await findById(draft.id)).toMatchObject({ status: "draft", submittedAt: null });
+    expect(await findById(draft.id)).toMatchObject({
+      status: "draft",
+      submittedAt: null,
+    });
   });
 
   it("refuses a half-filled equipment line at submission, naming it (AC1)", async () => {
@@ -427,7 +449,10 @@ describe("Event request drafts", () => {
       handleSubmitEventRequest({ id: draft.id }, organiser, database as never)
     ).rejects.toThrow(missingFieldsMessage(["Equipment requirements"]));
 
-    expect(await findById(draft.id)).toMatchObject({ status: "draft", submittedAt: null });
+    expect(await findById(draft.id)).toMatchObject({
+      status: "draft",
+      submittedAt: null,
+    });
   });
 
   it("flips a complete draft to submitted and records the submission time (AC2)", async () => {
@@ -513,9 +538,11 @@ describe("Event request drafts", () => {
     });
 
     await expect(
-      database
-        .insert(schema.eventRequests)
-        .values({ organiserId: organiser.id, status: "draft", submittedAt: new Date() })
+      database.insert(schema.eventRequests).values({
+        organiserId: organiser.id,
+        status: "draft",
+        submittedAt: new Date(),
+      })
     ).rejects.toMatchObject({
       cause: { constraint: "event_requests_submission_time_matches_status" },
     });
@@ -525,6 +552,7 @@ describe("Event request drafts", () => {
 const byId = (a: number, b: number) => a - b;
 
 describe("Listing and reading an organiser's requests (PTR-14)", () => {
+describe("Event request list, reopen, and delete (PTR-12)", () => {
   let pool: Pool;
   let database: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -617,7 +645,7 @@ describe("Listing and reading an organiser's requests (PTR-14)", () => {
       "Choose an event request"
     );
   });
-});
+});});
 
 /**
  * Two Coordinators beside the seeded one, created in a known order so the tie-break is testable.
@@ -806,33 +834,177 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
   });
 
   it("lists only submitted, unassigned requests, oldest wait first", async () => {
-    await handleSaveEventRequestDraft({ eventName: "A draft" }, organiser, database as never);
-    const assigned = await submitNew(fullRequest, organiser, database);
-    expect(assigned.assignedCoordinatorId).not.toBeNull();
+  await handleSaveEventRequestDraft(
+    { eventName: "A draft" },
+    organiser,
+    database as never
+  );
 
-    // Two rows submitted while nobody could take them, in a known order.
-    const [older, newer] = await Promise.all([
-      handleSaveEventRequestDraft(
-        { ...fullRequest, eventName: "Older wait" },
-        organiser,
-        database as never
-      ),
-      handleSaveEventRequestDraft(
-        { ...fullRequest, eventName: "Newer wait" },
-        organiser,
-        database as never
-      ),
-    ]);
-    await database
-      .update(schema.eventRequests)
-      .set({ status: "submitted", submittedAt: new Date("2026-09-10T00:00:00Z") })
-      .where(eq(schema.eventRequests.id, older.id));
-    await database
-      .update(schema.eventRequests)
-      .set({ status: "submitted", submittedAt: new Date("2026-09-11T00:00:00Z") })
-      .where(eq(schema.eventRequests.id, newer.id));
+  const assigned = await submitNew(fullRequest, organiser, database);
 
-    const unassigned = await handleListUnassignedEventRequests(database as never);
-    expect(unassigned.map(row => row.eventName)).toEqual(["Older wait", "Newer wait"]);
+  expect(assigned.assignedCoordinatorId).not.toBeNull();
+
+  // Two requests submitted while nobody could take them, in a known order.
+  const [older, newer] = await Promise.all([
+    handleSaveEventRequestDraft(
+      { ...fullRequest, eventName: "Older wait" },
+      organiser,
+      database as never
+    ),
+    handleSaveEventRequestDraft(
+      { ...fullRequest, eventName: "Newer wait" },
+      organiser,
+      database as never
+    ),
+  ]);
+
+  await database
+    .update(schema.eventRequests)
+    .set({
+      status: "submitted",
+      submittedAt: new Date("2026-09-10T00:00:00Z"),
+    })
+    .where(eq(schema.eventRequests.id, older.id));
+
+  await database
+    .update(schema.eventRequests)
+    .set({
+      status: "submitted",
+      submittedAt: new Date("2026-09-11T00:00:00Z"),
+    })
+    .where(eq(schema.eventRequests.id, newer.id));
+
+  const unassigned = await handleListUnassignedEventRequests(
+    database as never
+  );
+
+  expect(unassigned.map(row => row.eventName)).toEqual([
+    "Older wait",
+    "Newer wait",
+  ]);
+});
+
+  // Criterion 2: reopening returns exactly what was saved, and a submitted request can't be
+  // loaded back into the editable form.
+  it("reopens a draft with its exact stored values, and refuses a submitted request (PTR-12)", async () => {
+    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    const reopened = await handleGetEventRequestDraft(
+      { id: draft.id },
+      organiser,
+      database as never
+    );
+    expect(reopened).toEqual(draft);
+
+    const submitted = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    await handleSubmitEventRequest({ id: submitted.id }, organiser, database as never);
+
+    await expect(
+      handleGetEventRequestDraft({ id: submitted.id }, organiser, database as never)
+    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
   });
+
+  // Criterion 2: "repeatable any number of times" — saved, reopened, edited and saved again,
+  // more than once, always updating the same row.
+  it("keeps updating the same reopened draft across repeated edits (PTR-12)", async () => {
+    const created = await handleSaveEventRequestDraft(
+      { eventName: "First name" },
+      organiser,
+      database as never
+    );
+
+    const secondSave = await handleSaveEventRequestDraft(
+      { id: created.id, eventName: "Second name" },
+      organiser,
+      database as never
+    );
+    const thirdSave = await handleSaveEventRequestDraft(
+      { id: created.id, eventName: "Third name" },
+      organiser,
+      database as never
+    );
+
+    expect(secondSave.id).toBe(created.id);
+    expect(thirdSave.id).toBe(created.id);
+    expect(thirdSave).toMatchObject({
+      eventName: "Third name",
+      status: "draft",
+    });
+    expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
+  });
+
+  // Criterion 3: deleting an owned draft removes it, and it can no longer be reopened.
+  it("deletes an owned draft so it can no longer be listed or reopened (PTR-12)", async () => {
+    const draft = await handleSaveEventRequestDraft(
+      { eventName: "Throwaway draft" },
+      organiser,
+      database as never
+    );
+
+    const deleted = await handleDeleteEventRequestDraft(
+      { id: draft.id },
+      organiser,
+      database as never
+    );
+    expect(deleted.id).toBe(draft.id);
+
+    await expect(
+      handleGetEventRequestDraft({ id: draft.id }, organiser, database as never)
+    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
+
+    const list = await handleListEventRequests(organiser, database as never);
+    expect(list).toHaveLength(0);
+  });
+
+  // Criterion 3's guard: a submitted request is retained even against a direct delete call,
+  // and another organiser's draft can't be deleted either.
+it("refuses to delete a submitted request or another organiser's draft (PTR-12)", async () => {
+  const draft = await handleSaveEventRequestDraft(
+    fullRequest,
+    organiser,
+    database as never
+  );
+
+  const submitted = await handleSubmitEventRequest(
+    { id: draft.id },
+    organiser,
+    database as never
+  );
+
+  await expect(
+    handleDeleteEventRequestDraft(
+      { id: submitted.id },
+      organiser,
+      database as never
+    )
+  ).rejects.toMatchObject({
+    name: "ConflictError",
+    status: 409,
+    message: EVENT_REQUEST_DELETE_REFUSAL,
+  });
+
+  expect(
+    await database.select().from(schema.eventRequests)
+  ).toHaveLength(1);
+
+  const othersDraft = await handleSaveEventRequestDraft(
+    { eventName: "Not yours" },
+    otherOrganiser,
+    database as never
+  );
+
+  await expect(
+    handleDeleteEventRequestDraft(
+      { id: othersDraft.id },
+      organiser,
+      database as never
+    )
+  ).rejects.toMatchObject({
+    name: "AuthorizationError",
+    status: 403,
+  });
+
+  expect(
+    await database.select().from(schema.eventRequests)
+  ).toHaveLength(2);
+});
 });
