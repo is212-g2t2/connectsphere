@@ -93,6 +93,8 @@ export function EventRequestDetailPage({ request }: { request: EventRequestSumma
           ) : (
             <ul className="space-y-1">
               {request.equipmentRequirements.map(line => (
+                // Same as the proposed dates: read-only, so two identical lines sharing a key is a
+                // dev-mode warning and nothing more.
                 <li key={`${line.type}-${line.quantity ?? ""}`}>
                   {line.type || "Unnamed equipment"}
                   {line.quantity === undefined ? "" : ` × ${line.quantity}`}
