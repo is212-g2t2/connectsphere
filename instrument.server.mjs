@@ -11,6 +11,7 @@ if (!sentryDsn) {
 if (sentryDsn) {
   Sentry.init({
     dsn: sentryDsn,
+    environment: process.env.SENTRY_ENVIRONMENT ?? "development",
     // PII capture is off by default. Enable only after reviewing your data-handling
     // obligations — set sendDefaultPii: true when you intentionally want request
     // bodies, IP addresses, and user identifiers forwarded to Sentry.

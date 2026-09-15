@@ -20,6 +20,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedEventRequestsRouteImport } from './routes/_authenticated/event-requests'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiSmokeRouteImport } from './routes/api/smoke'
 import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
 import { Route as AuthenticatedVenuesIndexRouteImport } from './routes/_authenticated/venues/index'
 import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authenticated/venues/$venueId'
@@ -81,6 +82,11 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSmokeRoute = ApiSmokeRouteImport.update({
+  id: '/api/smoke',
+  path: '/api/smoke',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiUploadUrlRoute = ApiUploadUrlRouteImport.update({
   id: '/api/upload-url',
   path: '/api/upload-url',
@@ -120,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/event-requests': typeof AuthenticatedEventRequestsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/smoke': typeof ApiSmokeRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
@@ -137,6 +144,7 @@ export interface FileRoutesByTo {
   '/event-requests': typeof AuthenticatedEventRequestsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/smoke': typeof ApiSmokeRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
@@ -156,6 +164,7 @@ export interface FileRoutesById {
   '/_authenticated/event-requests': typeof AuthenticatedEventRequestsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/smoke': typeof ApiSmokeRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/_authenticated/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/_authenticated/venues/new': typeof AuthenticatedVenuesNewRoute
@@ -175,6 +184,7 @@ export interface FileRouteTypes {
     | '/event-requests'
     | '/settings'
     | '/api/health'
+    | '/api/smoke'
     | '/api/upload-url'
     | '/venues/$venueId'
     | '/venues/new'
@@ -192,6 +202,7 @@ export interface FileRouteTypes {
     | '/event-requests'
     | '/settings'
     | '/api/health'
+    | '/api/smoke'
     | '/api/upload-url'
     | '/venues/$venueId'
     | '/venues/new'
@@ -210,6 +221,7 @@ export interface FileRouteTypes {
     | '/_authenticated/event-requests'
     | '/_authenticated/settings'
     | '/api/health'
+    | '/api/smoke'
     | '/api/upload-url'
     | '/_authenticated/venues/$venueId'
     | '/_authenticated/venues/new'
@@ -226,6 +238,7 @@ export interface RootRouteChildren {
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiSmokeRoute: typeof ApiSmokeRoute
   ApiUploadUrlRoute: typeof ApiUploadUrlRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -309,6 +322,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/smoke': {
+      id: '/api/smoke'
+      path: '/api/smoke'
+      fullPath: '/api/smoke'
+      preLoaderRoute: typeof ApiSmokeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/upload-url': {
       id: '/api/upload-url'
       path: '/api/upload-url'
@@ -378,6 +398,7 @@ const rootRouteChildren: RootRouteChildren = {
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiSmokeRoute: ApiSmokeRoute,
   ApiUploadUrlRoute: ApiUploadUrlRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
