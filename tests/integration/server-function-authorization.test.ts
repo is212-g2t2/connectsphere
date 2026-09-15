@@ -2,6 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { listAccounts } from "#/features/auth/session";
 import {
+  assignEventRequest,
+  getCoordinationRequest,
+  listAssignedEventRequests,
+  listCoordinators,
+  listAssignmentNotifications,
+} from "#/features/coordination/server-fns";
+import {
   getEventRequest,
   listEventRequests,
   listUnassignedEventRequests,
@@ -83,6 +90,50 @@ function signIn(role: string) {
 describe("server-function authorization (PTR-69)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("PTR-16 coordination boundaries", () => {
+    // These calls share the mocked request context; keep its lazy module loading sequential.
+    // oxlint-disable no-await-in-loop
+    const endpoints = [
+      {
+        fn: assignEventRequest,
+        data: { id: 1, coordinatorId: "coord-b", expectedCoordinatorId: null },
+        method: "POST" as const,
+      },
+      { fn: getCoordinationRequest, data: { id: 1 }, method: "GET" as const },
+      { fn: listAssignedEventRequests, data: undefined, method: "GET" as const },
+      { fn: listCoordinators, data: undefined, method: "GET" as const },
+    ];
+    it("requires a session for every coordination endpoint and the notification read", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+      for (const endpoint of endpoints) {
+        expect(await refusalFrom(endpoint.fn, endpoint.data, endpoint.method)).toMatchObject({
+          status: 401,
+        });
+      }
+      expect(await refusalFrom(listAssignmentNotifications, undefined, "GET")).toMatchObject({
+        status: 401,
+      });
+    });
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s even before payload validation",
+      async role => {
+        signIn(role);
+        for (const endpoint of endpoints) {
+          expect(await refusalFrom(endpoint.fn, {}, endpoint.method)).toMatchObject({
+            status: 403,
+          });
+        }
+      }
+    );
+    it("permits a Coordinator through all four boundaries", async () => {
+      signIn("event_coordinator");
+      for (const endpoint of endpoints) {
+        expect((await call(endpoint.fn, endpoint.data, endpoint.method)).error).toBeUndefined();
+      }
+    });
+    // oxlint-enable no-await-in-loop
   });
 
   describe("venues", () => {

@@ -260,7 +260,8 @@ export async function handleGetEventRequest(
 
 /**
  * PTR-15 criterion 5: every submitted request with nobody handling it, oldest wait first, with
- * the Organiser who raised it. Read by any Event Coordinator; picking one up is PTR-16.
+ * the Organiser who raised it. Read by any Event Coordinator; PTR-16's coordination detail
+ * checks the current assignment again before letting a Coordinator pick one up.
  */
 export async function handleListUnassignedEventRequests(
   database: Database

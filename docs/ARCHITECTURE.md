@@ -40,7 +40,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   └── auth-schema.ts# Better Auth tables
 │   ├── features/         # Each feature owns its page views under `components/` (PTR-75)
 │   │   ├── auth/         # Session helpers, role/function matrix, login/signup/reset/settings views
-│   │   ├── coordination/ # The Event Coordinators' workspace: unassigned requests (PTR-15)
+│   │   ├── coordination/ # Assigned/unassigned requests, handovers, assignment notifications (PTR-15/16)
 │   │   ├── dashboard/    # The signed-in home view and its upload card
 │   │   ├── emails/       # Email templates
 │   │   ├── event-requests/ # Requirement capture, submission and the organiser's list: Zod schema, form, pages, draft writes
@@ -67,7 +67,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── reset-password.tsx # Request a reset link, or set a new password with ?token=
 │   │   ├── _authenticated.tsx # Session boundary — narrows the root's user, else redirects to /login
 │   │   ├── _authenticated/
-│   │   │   ├── coordination.tsx # Role-gated (event_request:coordinate) — unassigned requests
+│   │   │   ├── coordination/ # Role-gated list and $requestId detail with ownership checks
 │   │   │   ├── dashboard.tsx # Session summary, upload widget
 │   │   │   ├── event-requests/
 │   │   │   │   ├── index.tsx     # The organiser's own requests with status (PTR-14)
@@ -159,6 +159,14 @@ Built with `createAccessControl` from `better-auth/plugins/access` — despite t
 - **API route handlers** — `src/routes/api/upload-url.ts`, which calls `can()` next to its session check.
 - **Route guards** — `src/routes/__root.tsx` resolves the session once per navigation and puts the user on route context; `src/routes/_authenticated.tsx` narrows it and redirects unauthenticated visitors to `/login`; the child `venues/` routes then check `can(context.user.role, { venue: ["read"] })` (or `["create"]`) in their own `beforeLoad`, redirecting on failure. This is presentation only: the middleware behind the page repeats the check.
 - **The interface** — the page views ask the same `can()` of the user their route hands them: `src/features/dashboard/components/dashboard-page.tsx` before rendering the upload control and the Event requests, Coordination or Venues links, and `src/features/venues/components/venue-detail-page.tsx` before choosing between the form and the read-only view. The `src/routes/_authenticated/event-requests/` routes redirect a role the matrix refuses in their `beforeLoad`, because a redirect is routing.
+
+## Coordinator handovers (PTR-16)
+
+`/coordination` lists the signed-in Coordinator's assignments and all submitted unassigned requests. `/coordination/$requestId` displays an accessible request with its Organiser and Coordinator contacts, a named Coordinator picker, and an **Assign to me** action for unassigned requests. Both the detail read and assignment write re-read current ownership: only the current assignee can hand over an assigned request; any Event Coordinator can pick up an unassigned one. Drafts and inaccessible ids are refused with 403. Every coordination endpoint also requires `event_request:coordinate` in its middleware.
+
+`coordination/assignments.server.ts` locks the event row during a handover, validates that the target account is an Event Coordinator, and writes the single `assignedCoordinatorId`, `assignedAt`, an `event_assignments` history row, and two `event_assignment_notifications` rows in one transaction. The submitted expected assignee detects a stale pickup; ownership is checked after acquiring the lock so concurrent handovers cannot overwrite one another. An unchanged target is refused without creating history or notifications. Actor ids come from the session, and all three records use the same server timestamp. The audit's user ids are snapshots retained after account deletion; the event foreign key cascades when the event itself is deleted.
+
+The dashboard loads the addressed user's 20 most recent assignment notifications, newest first. Notifications are persisted in-app as part of the transaction, so notification storage failure rolls the handover back. This implements PTR-16 AC4 without email configuration; a general inbox, read/unread controls, and automatic-submission notifications remain separate work. Apply the generated `0011_yellow_magik.sql` migration before running this version.
 
 ## Styling
 
