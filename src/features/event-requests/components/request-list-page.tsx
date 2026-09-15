@@ -7,10 +7,10 @@ import { unwrapRefusal } from "#/features/auth/session";
 import { formatFirstProposedDate } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import {
-  deleteEventRequestDraft,
-  type EventRequestDeleted,
-  type EventRequestSummary,
+import { deleteEventRequestDraft } from "#/features/event-requests/server-fns";
+import type {
+  EventRequestDeleted,
+  EventRequestSummary,
 } from "#/features/event-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -33,41 +33,22 @@ export const ASSIGNED_ON_SUBMIT = "Assigned when you submit";
 
 const DELETE_FAILED = "Could not delete this draft. Try again.";
 
-export function EventRequestStatusBadge({
-  status,
-}: {
-  status: EventRequestStatus;
-}) {
-  return (
-    <Badge variant={STATUS_VARIANT[status]}>
-      {EVENT_REQUEST_STATUS_LABELS[status]}
-    </Badge>
-  );
+export function EventRequestStatusBadge({ status }: { status: EventRequestStatus }) {
+  return <Badge variant={STATUS_VARIANT[status]}>{EVENT_REQUEST_STATUS_LABELS[status]}</Badge>;
 }
 
 /**
  * The organiser's own requests (PTR-14). Rows come from the route's loader as a prop, so the
  * table renders in a unit test without a router (PTR-75).
  */
-export function EventRequestListPage({
-  requests,
-}: {
-  requests: EventRequestSummary[];
-}) {
+export function EventRequestListPage({ requests }: { requests: EventRequestSummary[] }) {
   const router = useRouter();
 
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
-  const [deleteState, deleteDraft, deleting] = useMutation<
-    number,
-    EventRequestDeleted
-  >(
-    async (id) =>
-      unwrapRefusal(
-        await deleteEventRequestDraft({ data: { id } }),
-        DELETE_FAILED,
-      ),
-    DELETE_FAILED,
+  const [deleteState, deleteDraft, deleting] = useMutation<number, EventRequestDeleted>(
+    async id => unwrapRefusal(await deleteEventRequestDraft({ data: { id } }), DELETE_FAILED),
+    DELETE_FAILED
   );
 
   async function handleConfirmDelete(id: number) {
@@ -86,9 +67,7 @@ export function EventRequestListPage({
 
       <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-semibold tracking-tight">
-            Event requests
-          </h1>
+          <h1 className="font-heading text-3xl font-semibold tracking-tight">Event requests</h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
             Every request you have started, and where each one stands.
           </p>
@@ -120,7 +99,7 @@ export function EventRequestListPage({
               </tr>
             </thead>
             <tbody>
-              {requests.map((request) => (
+              {requests.map(request => (
                 <tr key={request.id} className="border-b border-border">
                   <td className="py-3 pr-4">
                     <Link
@@ -131,9 +110,7 @@ export function EventRequestListPage({
                       {request.eventName.trim() || UNTITLED_REQUEST}
                     </Link>
                   </td>
-                  <td className="py-3 pr-4">
-                    {formatFirstProposedDate(request.proposedDates)}
-                  </td>
+                  <td className="py-3 pr-4">{formatFirstProposedDate(request.proposedDates)}</td>
                   <td className="py-3 pr-4">
                     <EventRequestStatusBadge status={request.status} />
                   </td>
@@ -141,9 +118,7 @@ export function EventRequestListPage({
                     <td className="py-3">{request.coordinator.name}</td>
                   ) : (
                     <td className="py-3 text-muted-foreground">
-                      {request.status === "draft"
-                        ? ASSIGNED_ON_SUBMIT
-                        : NOT_YET_ASSIGNED}
+                      {request.status === "draft" ? ASSIGNED_ON_SUBMIT : NOT_YET_ASSIGNED}
                     </td>
                   )}
                   <td className="py-3">

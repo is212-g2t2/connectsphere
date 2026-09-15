@@ -266,7 +266,8 @@ export async function handleListUnassignedEventRequests(
     .from(eventRequests)
     .innerJoin(users, eq(users.id, eventRequests.organiserId))
     .where(and(ne(eventRequests.status, "draft"), isNull(eventRequests.assignedCoordinatorId)))
-    .orderBy(asc(eventRequests.submittedAt), asc(eventRequests.id));}
+    .orderBy(asc(eventRequests.submittedAt), asc(eventRequests.id));
+}
 /**
  * Criterion 2: loads one owned draft so the edit route can seed the form with it. Scoped through
  * `ownDraft`, the same helper the save path uses, so a submitted request can never be fetched

@@ -96,7 +96,6 @@ export const listUnassignedEventRequests = createServerFn({ method: "GET" })
     return handleListUnassignedEventRequests(db);
   });
 
-
 /** Criterion 2: fetches one owned draft so the edit route can seed the form with it. */
 export const getEventRequestDraft = createServerFn({ method: "GET" })
   .validator(parseEventRequestId)
