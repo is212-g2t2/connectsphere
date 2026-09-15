@@ -187,8 +187,10 @@ export async function handleSubmitEventRequest(
 /**
  * The assignment rule (PTR-15 criterion 1): the Event Coordinator currently handling the fewest
  * submitted requests, ties broken by the earliest account so the rule is deterministic and
- * testable. One query, so a burst of submissions spreads across the pool rather than landing on
- * whoever was least loaded when the burst began being read.
+ * testable. Each submission re-reads the load at the moment it runs. Two submissions that overlap
+ * can read the same counts and land on the same Coordinator — the `for update` lock in the
+ * submit transaction covers the draft row, not this read — which criterion 1 permits; serialising
+ * the pick is a trade against contention to weigh if burst fairness ever matters.
  *
  * Every non-draft request counts as load for now. When PTR-21's terminal statuses (completed,
  * cancelled, rejected) exist, they are the ones to exclude here.
