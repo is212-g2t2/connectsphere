@@ -552,100 +552,103 @@ describe("Event request drafts", () => {
 const byId = (a: number, b: number) => a - b;
 
 describe("Listing and reading an organiser's requests (PTR-14)", () => {
-describe("Event request list, reopen, and delete (PTR-12)", () => {
-  let pool: Pool;
-  let database: ReturnType<typeof drizzle<typeof schema>>;
+  describe("Event request list, reopen, and delete (PTR-12)", () => {
+    let pool: Pool;
+    let database: ReturnType<typeof drizzle<typeof schema>>;
 
-  beforeAll(() => {
-    pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    database = drizzle(pool, { schema });
+    beforeAll(() => {
+      pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      database = drizzle(pool, { schema });
+    });
+
+    afterAll(async () => {
+      await pool.end();
+    });
+
+    beforeEach(async () => {
+      await database.delete(schema.eventRequests);
+    });
+
+    it("lists the organiser's own requests only, drafts and submitted alike (AC1)", async () => {
+      const draft = await handleSaveEventRequestDraft(
+        { eventName: "My draft" },
+        organiser,
+        database as never
+      );
+      const complete = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+      const submitted = await handleSubmitEventRequest(
+        { id: complete.id },
+        organiser,
+        database as never
+      );
+      await handleSaveEventRequestDraft(
+        { eventName: "Someone else's" },
+        otherOrganiser,
+        database as never
+      );
+
+      const listed = await handleListEventRequests(organiser, database as never);
+
+      expect(listed.map(row => row.id).toSorted(byId)).toEqual(
+        [draft.id, submitted.id].toSorted(byId)
+      );
+      expect(listed.map(row => row.status).toSorted((a, b) => a.localeCompare(b))).toEqual([
+        "draft",
+        "submitted",
+      ]);
+      expect(listed.every(row => row.organiserId === organiser.id)).toBe(true);
+    });
+
+    it("lists the most recently changed request first", async () => {
+      const older = await handleSaveEventRequestDraft(
+        { eventName: "Older" },
+        organiser,
+        database as never
+      );
+      const newer = await handleSaveEventRequestDraft(
+        { eventName: "Newer" },
+        organiser,
+        database as never
+      );
+      await handleSaveEventRequestDraft(
+        { id: older.id, eventName: "Older, revised" },
+        organiser,
+        database as never
+      );
+
+      const listed = await handleListEventRequests(organiser, database as never);
+
+      expect(listed.map(row => row.id)).toEqual([older.id, newer.id]);
+    });
+
+    it("reads one of the organiser's requests as recorded (AC4)", async () => {
+      const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+
+      const read = await handleGetEventRequest({ id: saved.id }, organiser, database as never);
+
+      expect(read).toEqual({ ...saved, coordinator: null });
+    });
+
+    it("answers null for another organiser's request and for an id that does not exist", async () => {
+      const theirs = await handleSaveEventRequestDraft(
+        { eventName: "Theirs" },
+        otherOrganiser,
+        database as never
+      );
+
+      expect(
+        await handleGetEventRequest({ id: theirs.id }, organiser, database as never)
+      ).toBeNull();
+      expect(await handleGetEventRequest({ id: 999_999 }, organiser, database as never)).toBeNull();
+    });
+
+    it("refuses an id that is not a positive whole number", async () => {
+      await expect(
+        handleGetEventRequest({ id: "41" }, organiser, database as never)
+      ).rejects.toThrow("Choose an event request");
+    });
   });
-
-  afterAll(async () => {
-    await pool.end();
-  });
-
-  beforeEach(async () => {
-    await database.delete(schema.eventRequests);
-  });
-
-  it("lists the organiser's own requests only, drafts and submitted alike (AC1)", async () => {
-    const draft = await handleSaveEventRequestDraft(
-      { eventName: "My draft" },
-      organiser,
-      database as never
-    );
-    const complete = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-    const submitted = await handleSubmitEventRequest(
-      { id: complete.id },
-      organiser,
-      database as never
-    );
-    await handleSaveEventRequestDraft(
-      { eventName: "Someone else's" },
-      otherOrganiser,
-      database as never
-    );
-
-    const listed = await handleListEventRequests(organiser, database as never);
-
-    expect(listed.map(row => row.id).toSorted(byId)).toEqual(
-      [draft.id, submitted.id].toSorted(byId)
-    );
-    expect(listed.map(row => row.status).toSorted((a, b) => a.localeCompare(b))).toEqual([
-      "draft",
-      "submitted",
-    ]);
-    expect(listed.every(row => row.organiserId === organiser.id)).toBe(true);
-  });
-
-  it("lists the most recently changed request first", async () => {
-    const older = await handleSaveEventRequestDraft(
-      { eventName: "Older" },
-      organiser,
-      database as never
-    );
-    const newer = await handleSaveEventRequestDraft(
-      { eventName: "Newer" },
-      organiser,
-      database as never
-    );
-    await handleSaveEventRequestDraft(
-      { id: older.id, eventName: "Older, revised" },
-      organiser,
-      database as never
-    );
-
-    const listed = await handleListEventRequests(organiser, database as never);
-
-    expect(listed.map(row => row.id)).toEqual([older.id, newer.id]);
-  });
-
-  it("reads one of the organiser's requests as recorded (AC4)", async () => {
-    const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-
-    const read = await handleGetEventRequest({ id: saved.id }, organiser, database as never);
-
-    expect(read).toEqual({ ...saved, coordinator: null });
-  });
-
-  it("answers null for another organiser's request and for an id that does not exist", async () => {
-    const theirs = await handleSaveEventRequestDraft(
-      { eventName: "Theirs" },
-      otherOrganiser,
-      database as never
-    );
-
-    expect(await handleGetEventRequest({ id: theirs.id }, organiser, database as never)).toBeNull();
-    expect(await handleGetEventRequest({ id: 999_999 }, organiser, database as never)).toBeNull();
-  });
-
-  it("refuses an id that is not a positive whole number", async () => {
-    await expect(handleGetEventRequest({ id: "41" }, organiser, database as never)).rejects.toThrow(
-      "Choose an event request"
-    );
-  });
-});});
+});
 
 /**
  * Two Coordinators beside the seeded one, created in a known order so the tie-break is testable.
@@ -834,55 +837,46 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
   });
 
   it("lists only submitted, unassigned requests, oldest wait first", async () => {
-  await handleSaveEventRequestDraft(
-    { eventName: "A draft" },
-    organiser,
-    database as never
-  );
+    await handleSaveEventRequestDraft({ eventName: "A draft" }, organiser, database as never);
 
-  const assigned = await submitNew(fullRequest, organiser, database);
+    const assigned = await submitNew(fullRequest, organiser, database);
 
-  expect(assigned.assignedCoordinatorId).not.toBeNull();
+    expect(assigned.assignedCoordinatorId).not.toBeNull();
 
-  // Two requests submitted while nobody could take them, in a known order.
-  const [older, newer] = await Promise.all([
-    handleSaveEventRequestDraft(
-      { ...fullRequest, eventName: "Older wait" },
-      organiser,
-      database as never
-    ),
-    handleSaveEventRequestDraft(
-      { ...fullRequest, eventName: "Newer wait" },
-      organiser,
-      database as never
-    ),
-  ]);
+    // Two requests submitted while nobody could take them, in a known order.
+    const [older, newer] = await Promise.all([
+      handleSaveEventRequestDraft(
+        { ...fullRequest, eventName: "Older wait" },
+        organiser,
+        database as never
+      ),
+      handleSaveEventRequestDraft(
+        { ...fullRequest, eventName: "Newer wait" },
+        organiser,
+        database as never
+      ),
+    ]);
 
-  await database
-    .update(schema.eventRequests)
-    .set({
-      status: "submitted",
-      submittedAt: new Date("2026-09-10T00:00:00Z"),
-    })
-    .where(eq(schema.eventRequests.id, older.id));
+    await database
+      .update(schema.eventRequests)
+      .set({
+        status: "submitted",
+        submittedAt: new Date("2026-09-10T00:00:00Z"),
+      })
+      .where(eq(schema.eventRequests.id, older.id));
 
-  await database
-    .update(schema.eventRequests)
-    .set({
-      status: "submitted",
-      submittedAt: new Date("2026-09-11T00:00:00Z"),
-    })
-    .where(eq(schema.eventRequests.id, newer.id));
+    await database
+      .update(schema.eventRequests)
+      .set({
+        status: "submitted",
+        submittedAt: new Date("2026-09-11T00:00:00Z"),
+      })
+      .where(eq(schema.eventRequests.id, newer.id));
 
-  const unassigned = await handleListUnassignedEventRequests(
-    database as never
-  );
+    const unassigned = await handleListUnassignedEventRequests(database as never);
 
-  expect(unassigned.map(row => row.eventName)).toEqual([
-    "Older wait",
-    "Newer wait",
-  ]);
-});
+    expect(unassigned.map(row => row.eventName)).toEqual(["Older wait", "Newer wait"]);
+  });
 
   // Criterion 2: reopening returns exactly what was saved, and a submitted request can't be
   // loaded back into the editable form.
@@ -957,54 +951,38 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
 
   // Criterion 3's guard: a submitted request is retained even against a direct delete call,
   // and another organiser's draft can't be deleted either.
-it("refuses to delete a submitted request or another organiser's draft (PTR-12)", async () => {
-  const draft = await handleSaveEventRequestDraft(
-    fullRequest,
-    organiser,
-    database as never
-  );
+  it("refuses to delete a submitted request or another organiser's draft (PTR-12)", async () => {
+    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
 
-  const submitted = await handleSubmitEventRequest(
-    { id: draft.id },
-    organiser,
-    database as never
-  );
-
-  await expect(
-    handleDeleteEventRequestDraft(
-      { id: submitted.id },
+    const submitted = await handleSubmitEventRequest(
+      { id: draft.id },
       organiser,
       database as never
-    )
-  ).rejects.toMatchObject({
-    name: "ConflictError",
-    status: 409,
-    message: EVENT_REQUEST_DELETE_REFUSAL,
-  });
+    );
 
-  expect(
-    await database.select().from(schema.eventRequests)
-  ).toHaveLength(1);
+    await expect(
+      handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never)
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      status: 409,
+      message: EVENT_REQUEST_DELETE_REFUSAL,
+    });
 
-  const othersDraft = await handleSaveEventRequestDraft(
-    { eventName: "Not yours" },
-    otherOrganiser,
-    database as never
-  );
+    expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
 
-  await expect(
-    handleDeleteEventRequestDraft(
-      { id: othersDraft.id },
-      organiser,
+    const othersDraft = await handleSaveEventRequestDraft(
+      { eventName: "Not yours" },
+      otherOrganiser,
       database as never
-    )
-  ).rejects.toMatchObject({
-    name: "AuthorizationError",
-    status: 403,
-  });
+    );
 
-  expect(
-    await database.select().from(schema.eventRequests)
-  ).toHaveLength(2);
-});
+    await expect(
+      handleDeleteEventRequestDraft({ id: othersDraft.id }, organiser, database as never)
+    ).rejects.toMatchObject({
+      name: "AuthorizationError",
+      status: 403,
+    });
+
+    expect(await database.select().from(schema.eventRequests)).toHaveLength(2);
+  });
 });
