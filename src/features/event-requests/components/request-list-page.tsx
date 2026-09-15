@@ -1,10 +1,18 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { Badge } from "#/components/ui/badge";
+import { Button } from "#/components/ui/button";
+import { unwrapRefusal } from "#/features/auth/session";
 import { formatFirstProposedDate } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import type { EventRequestSummary } from "#/features/event-requests/server-fns";
+import {
+  deleteEventRequestDraft,
+  type EventRequestDeleted,
+  type EventRequestSummary,
+} from "#/features/event-requests/server-fns";
+import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 /**
@@ -23,15 +31,53 @@ export const NOT_YET_ASSIGNED = "Not yet assigned";
 /** And on a draft, which PTR-15 only assigns at submission. */
 export const ASSIGNED_ON_SUBMIT = "Assigned when you submit";
 
-export function EventRequestStatusBadge({ status }: { status: EventRequestStatus }) {
-  return <Badge variant={STATUS_VARIANT[status]}>{EVENT_REQUEST_STATUS_LABELS[status]}</Badge>;
+const DELETE_FAILED = "Could not delete this draft. Try again.";
+
+export function EventRequestStatusBadge({
+  status,
+}: {
+  status: EventRequestStatus;
+}) {
+  return (
+    <Badge variant={STATUS_VARIANT[status]}>
+      {EVENT_REQUEST_STATUS_LABELS[status]}
+    </Badge>
+  );
 }
 
 /**
  * The organiser's own requests (PTR-14). Rows come from the route's loader as a prop, so the
  * table renders in a unit test without a router (PTR-75).
  */
-export function EventRequestListPage({ requests }: { requests: EventRequestSummary[] }) {
+export function EventRequestListPage({
+  requests,
+}: {
+  requests: EventRequestSummary[];
+}) {
+  const router = useRouter();
+
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+
+  const [deleteState, deleteDraft, deleting] = useMutation<
+    number,
+    EventRequestDeleted
+  >(
+    async (id) =>
+      unwrapRefusal(
+        await deleteEventRequestDraft({ data: { id } }),
+        DELETE_FAILED,
+      ),
+    DELETE_FAILED,
+  );
+
+  async function handleConfirmDelete(id: number) {
+    const result = await deleteDraft(id);
+
+    if (result.status === "success") {
+      setPendingDeleteId(null);
+      await router.invalidate();
+    }
+  }
   return (
     <main className="mx-auto max-w-4xl px-6 py-16">
       <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
@@ -40,7 +86,9 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
 
       <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-semibold tracking-tight">Event requests</h1>
+          <h1 className="font-heading text-3xl font-semibold tracking-tight">
+            Event requests
+          </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
             Every request you have started, and where each one stands.
           </p>
@@ -52,7 +100,9 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
           New request
         </Link>
       </div>
-
+      {deleteState.status === "error" && (
+        <p className="mt-4 text-sm text-destructive">{deleteState.error}</p>
+      )}
       {requests.length === 0 ? (
         <p className="mt-10 text-sm text-muted-foreground">
           No requests yet. Start one and save it as a draft whenever you like.
@@ -66,10 +116,11 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                 <th className="py-3 pr-4 font-medium">Proposed date</th>
                 <th className="py-3 pr-4 font-medium">Status</th>
                 <th className="py-3 font-medium">Coordinator</th>
+                <th className="py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {requests.map(request => (
+              {requests.map((request) => (
                 <tr key={request.id} className="border-b border-border">
                   <td className="py-3 pr-4">
                     <Link
@@ -80,7 +131,9 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                       {request.eventName.trim() || UNTITLED_REQUEST}
                     </Link>
                   </td>
-                  <td className="py-3 pr-4">{formatFirstProposedDate(request.proposedDates)}</td>
+                  <td className="py-3 pr-4">
+                    {formatFirstProposedDate(request.proposedDates)}
+                  </td>
                   <td className="py-3 pr-4">
                     <EventRequestStatusBadge status={request.status} />
                   </td>
@@ -88,9 +141,46 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                     <td className="py-3">{request.coordinator.name}</td>
                   ) : (
                     <td className="py-3 text-muted-foreground">
-                      {request.status === "draft" ? ASSIGNED_ON_SUBMIT : NOT_YET_ASSIGNED}
+                      {request.status === "draft"
+                        ? ASSIGNED_ON_SUBMIT
+                        : NOT_YET_ASSIGNED}
                     </td>
                   )}
+                  <td className="py-3">
+                    {request.status === "draft" &&
+                      (pendingDeleteId === request.id ? (
+                        <span className="flex items-center gap-2 text-sm">
+                          Delete this draft?
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            disabled={deleting}
+                            onClick={() => void handleConfirmDelete(request.id)}
+                          >
+                            {deleting ? "Deleting…" : "Confirm"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={deleting}
+                            onClick={() => setPendingDeleteId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPendingDeleteId(request.id)}
+                        >
+                          Delete
+                        </Button>
+                      ))}
+                  </td>
                 </tr>
               ))}
             </tbody>
