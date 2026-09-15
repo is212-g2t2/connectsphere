@@ -61,6 +61,10 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
    | Venue Staff             | venue.staff.seed@example.com  | `Seed-Pass123!` |
    | Technical Support Staff | tech.support.seed@example.com | `Seed-Pass123!` |
 
+   The seeded attendee (`john.doe@example.com`) and organiser (`jane.doe@example.com`) also use
+   `Seed-Pass123!`. The demo event is connected to all four roles so each access projection can be
+   checked locally.
+
    These credentials are non-production (shared password, `example.com`
    addresses, no real personal data) and must never be used outside local/demo environments.
 

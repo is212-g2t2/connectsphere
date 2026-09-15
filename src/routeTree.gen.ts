@@ -19,6 +19,7 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as AuthenticatedCoordinationRouteImport } from './routes/_authenticated/coordination'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as ApiEventsRouteImport } from './routes/api/events'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
 import { Route as AuthenticatedEventRequestsIndexRouteImport } from './routes/_authenticated/event-requests/index'
@@ -78,6 +79,11 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
+} as any)
+const ApiEventsRoute = ApiEventsRouteImport.update({
+  id: '/api/events',
+  path: '/api/events',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
@@ -140,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/coordination': typeof AuthenticatedCoordinationRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/events': typeof ApiEventsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
@@ -160,6 +167,7 @@ export interface FileRoutesByTo {
   '/coordination': typeof AuthenticatedCoordinationRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/events': typeof ApiEventsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
@@ -182,6 +190,7 @@ export interface FileRoutesById {
   '/_authenticated/coordination': typeof AuthenticatedCoordinationRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/api/events': typeof ApiEventsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/_authenticated/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
@@ -204,6 +213,7 @@ export interface FileRouteTypes {
     | '/coordination'
     | '/dashboard'
     | '/settings'
+    | '/api/events'
     | '/api/health'
     | '/api/upload-url'
     | '/event-requests/$requestId'
@@ -224,6 +234,7 @@ export interface FileRouteTypes {
     | '/coordination'
     | '/dashboard'
     | '/settings'
+    | '/api/events'
     | '/api/health'
     | '/api/upload-url'
     | '/event-requests/$requestId'
@@ -245,6 +256,7 @@ export interface FileRouteTypes {
     | '/_authenticated/coordination'
     | '/_authenticated/dashboard'
     | '/_authenticated/settings'
+    | '/api/events'
     | '/api/health'
     | '/api/upload-url'
     | '/_authenticated/event-requests/$requestId'
@@ -264,6 +276,7 @@ export interface RootRouteChildren {
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  ApiEventsRoute: typeof ApiEventsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiUploadUrlRoute: typeof ApiUploadUrlRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -340,6 +353,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings'
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRoute
+    }
+    '/api/events': {
+      id: '/api/events'
+      path: '/api/events'
+      fullPath: '/api/events'
+      preLoaderRoute: typeof ApiEventsRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/health': {
       id: '/api/health'
@@ -444,6 +464,7 @@ const rootRouteChildren: RootRouteChildren = {
   RobotsDottxtRoute: RobotsDottxtRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  ApiEventsRoute: ApiEventsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiUploadUrlRoute: ApiUploadUrlRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

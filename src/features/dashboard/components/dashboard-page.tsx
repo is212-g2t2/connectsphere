@@ -7,6 +7,7 @@ import type { SessionUser } from "#/features/auth/session";
 import { useMutation } from "#/hooks/use-mutation";
 import { Button } from "#/components/ui/button";
 import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
+import { EventWorkspace } from "#/features/events/components/event-workspace";
 
 const UPLOAD_FAILED = "Upload failed";
 
@@ -26,8 +27,8 @@ export function DashboardPage({ user }: { user: SessionUser }) {
             Welcome, {user.name?.trim() || user.email}
           </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
-            Your ConnectSphere home. Event, venue and equipment workspaces arrive with the stories
-            that build them; what your role may do is enforced on the server either way.
+            Your ConnectSphere home. Events and requests are filtered by your role and relationship
+            to each event; server-side checks enforce the same boundary for direct requests.
           </p>
         </div>
 
@@ -71,6 +72,8 @@ export function DashboardPage({ user }: { user: SessionUser }) {
         )}
 
         {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
+
+        <EventWorkspace />
 
         <div className="mt-12 border-t border-border pt-6">
           <Link to="/settings" className={NAV_LINK_CLASSNAME}>

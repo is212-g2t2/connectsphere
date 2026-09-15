@@ -1,13 +1,16 @@
-import { sql } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   serial,
   text,
+  time,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -179,3 +182,107 @@ export const venueUnavailability = pgTable(
 );
 
 export * from "./auth-schema";
+
+export const events = pgTable("events", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  eventDate: date("event_date").notNull(),
+  startTime: time("start_time").notNull(),
+  endTime: time("end_time").notNull(),
+  venue: text("venue"),
+  status: text("status").default("draft").notNull(),
+  registrationEnabled: boolean("registration_enabled").default(false).notNull(),
+  registrationOpensAt: timestamp("registration_opens_at"),
+  registrationClosesAt: timestamp("registration_closes_at"),
+  expectedAttendance: integer("expected_attendance"),
+  layout: text("layout"),
+  accessibilityRequirements: text("accessibility_requirements"),
+  requiredFacilities: text("required_facilities"),
+  createdById: text("created_by_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});
+
+export const eventCoordinators = pgTable(
+  "event_coordinators",
+  {
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    coordinatorId: text("coordinator_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+  },
+  table => [primaryKey({ columns: [table.eventId, table.coordinatorId] })]
+);
+
+export const venueRequests = pgTable("venue_requests", {
+  id: text("id").primaryKey(),
+  eventId: text("event_id")
+    .notNull()
+    .references(() => events.id, { onDelete: "cascade" }),
+  assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
+  status: text("status").default("pending").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const equipmentRequests = pgTable("equipment_requests", {
+  id: text("id").primaryKey(),
+  eventId: text("event_id")
+    .notNull()
+    .references(() => events.id, { onDelete: "cascade" }),
+  assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
+  item: text("item").notNull(),
+  arrangementStatus: text("arrangement_status").default("requested").notNull(),
+  notes: text("notes"),
+});
+
+export const eventRegistrations = pgTable(
+  "event_registrations",
+  {
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    attendeeId: text("attendee_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    status: text("status").default("registered").notNull(),
+    registeredAt: timestamp("registered_at").defaultNow().notNull(),
+  },
+  table => [primaryKey({ columns: [table.eventId, table.attendeeId] })]
+);
+
+export const eventsRelations = relations(events, ({ one, many }) => ({
+  organiser: one(user, { fields: [events.createdById], references: [user.id] }),
+  coordinators: many(eventCoordinators),
+  venueRequests: many(venueRequests),
+  equipmentRequests: many(equipmentRequests),
+  registrations: many(eventRegistrations),
+}));
+
+export const eventCoordinatorsRelations = relations(eventCoordinators, ({ one }) => ({
+  event: one(events, { fields: [eventCoordinators.eventId], references: [events.id] }),
+  coordinator: one(user, { fields: [eventCoordinators.coordinatorId], references: [user.id] }),
+}));
+
+export const venueRequestsRelations = relations(venueRequests, ({ one }) => ({
+  event: one(events, { fields: [venueRequests.eventId], references: [events.id] }),
+  assignedStaff: one(user, { fields: [venueRequests.assignedStaffId], references: [user.id] }),
+}));
+
+export const equipmentRequestsRelations = relations(equipmentRequests, ({ one }) => ({
+  event: one(events, { fields: [equipmentRequests.eventId], references: [events.id] }),
+  assignedStaff: one(user, { fields: [equipmentRequests.assignedStaffId], references: [user.id] }),
+}));
+
+export const eventRegistrationsRelations = relations(eventRegistrations, ({ one }) => ({
+  event: one(events, { fields: [eventRegistrations.eventId], references: [events.id] }),
+  attendee: one(user, { fields: [eventRegistrations.attendeeId], references: [user.id] }),
+}));

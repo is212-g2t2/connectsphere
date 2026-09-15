@@ -160,6 +160,24 @@ export const seedVenueUnavailability: {
     reason: "Internal staff training",
   },
 ];
+export const seedDemoEvent = {
+  id: "demo-event-1",
+  name: "ConnectSphere Demo Summit",
+  description: "A seeded event for exercising role-aware event access locally.",
+  eventDate: "2026-10-15",
+  startTime: "09:00:00",
+  endTime: "17:00:00",
+  venue: "Main Hall",
+  status: "confirmed",
+  registrationEnabled: true,
+  registrationOpensAt: new Date("2026-09-01T09:00:00Z"),
+  registrationClosesAt: new Date("2026-10-14T17:00:00Z"),
+  expectedAttendance: 120,
+  layout: "Theatre seating",
+  accessibilityRequirements: "Step-free access and hearing loop",
+  requiredFacilities: "Projector, stage lighting and registration desk",
+  createdById: "test-user-2",
+} satisfies typeof schema.events.$inferInsert;
 
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -170,18 +188,18 @@ export async function runSeed(database: Database): Promise<void> {
   await database.insert(schema.user).values(seedUsers).onConflictDoNothing();
   await database.insert(schema.user).values(seedStaffUsers).onConflictDoNothing();
 
-  // One hash for every staff account: they share a password, and a scrypt hash verifies
+  // One hash for every seed account: they share a password, and a scrypt hash verifies
   // regardless of which account row holds it. onConflictDoNothing keeps re-runs duplicate-free.
-  const staffPasswordHash = await hashPassword(SEED_STAFF_PASSWORD);
+  const seedPasswordHash = await hashPassword(SEED_STAFF_PASSWORD);
   await database
     .insert(schema.account)
     .values(
-      seedStaffUsers.map(user => ({
+      [...seedStaffUsers, ...seedUsers].map(user => ({
         id: `seed-account-${user.id}`,
         accountId: user.id,
         providerId: "credential",
         userId: user.id,
-        password: staffPasswordHash,
+        password: seedPasswordHash,
       }))
     )
     .onConflictDoNothing();
@@ -223,6 +241,34 @@ export async function runSeed(database: Database): Promise<void> {
   if (missingPeriods.length > 0) {
     await database.insert(schema.venueUnavailability).values(missingPeriods).onConflictDoNothing();
   }
+  await database.insert(schema.events).values(seedDemoEvent).onConflictDoNothing();
+  await database
+    .insert(schema.eventCoordinators)
+    .values({ eventId: seedDemoEvent.id, coordinatorId: "seed-coordinator-1" })
+    .onConflictDoNothing();
+  await database
+    .insert(schema.venueRequests)
+    .values({
+      id: "demo-venue-request-1",
+      eventId: seedDemoEvent.id,
+      assignedStaffId: "seed-venue-staff-1",
+    })
+    .onConflictDoNothing();
+  await database
+    .insert(schema.equipmentRequests)
+    .values({
+      id: "demo-equipment-request-1",
+      eventId: seedDemoEvent.id,
+      assignedStaffId: "seed-tech-support-1",
+      item: "Projector",
+      arrangementStatus: "reserved",
+      notes: "HDMI adapter included",
+    })
+    .onConflictDoNothing();
+  await database
+    .insert(schema.eventRegistrations)
+    .values({ eventId: seedDemoEvent.id, attendeeId: "test-user-1" })
+    .onConflictDoNothing();
 }
 
 /**
