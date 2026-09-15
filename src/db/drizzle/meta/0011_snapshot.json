@@ -52,12 +52,8 @@
           "name": "equipment_requests_event_id_events_id_fk",
           "tableFrom": "equipment_requests",
           "tableTo": "events",
-          "columnsFrom": [
-            "event_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -65,12 +61,8 @@
           "name": "equipment_requests_assigned_staff_id_user_id_fk",
           "tableFrom": "equipment_requests",
           "tableTo": "user",
-          "columnsFrom": [
-            "assigned_staff_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assigned_staff_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -111,12 +103,8 @@
           "name": "event_coordinators_event_id_events_id_fk",
           "tableFrom": "event_coordinators",
           "tableTo": "events",
-          "columnsFrom": [
-            "event_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -124,12 +112,8 @@
           "name": "event_coordinators_coordinator_id_user_id_fk",
           "tableFrom": "event_coordinators",
           "tableTo": "user",
-          "columnsFrom": [
-            "coordinator_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["coordinator_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -137,10 +121,7 @@
       "compositePrimaryKeys": {
         "event_coordinators_event_id_coordinator_id_pk": {
           "name": "event_coordinators_event_id_coordinator_id_pk",
-          "columns": [
-            "event_id",
-            "coordinator_id"
-          ]
+          "columns": ["event_id", "coordinator_id"]
         }
       },
       "uniqueConstraints": {},
@@ -185,12 +166,8 @@
           "name": "event_registrations_event_id_events_id_fk",
           "tableFrom": "event_registrations",
           "tableTo": "events",
-          "columnsFrom": [
-            "event_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -198,12 +175,8 @@
           "name": "event_registrations_attendee_id_user_id_fk",
           "tableFrom": "event_registrations",
           "tableTo": "user",
-          "columnsFrom": [
-            "attendee_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["attendee_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -211,10 +184,7 @@
       "compositePrimaryKeys": {
         "event_registrations_event_id_attendee_id_pk": {
           "name": "event_registrations_event_id_attendee_id_pk",
-          "columns": [
-            "event_id",
-            "attendee_id"
-          ]
+          "columns": ["event_id", "attendee_id"]
         }
       },
       "uniqueConstraints": {},
@@ -386,12 +356,8 @@
           "name": "event_requests_organiser_id_user_id_fk",
           "tableFrom": "event_requests",
           "tableTo": "user",
-          "columnsFrom": [
-            "organiser_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organiser_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -399,12 +365,8 @@
           "name": "event_requests_assigned_coordinator_id_user_id_fk",
           "tableFrom": "event_requests",
           "tableTo": "user",
-          "columnsFrom": [
-            "assigned_coordinator_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assigned_coordinator_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -563,12 +525,8 @@
           "name": "events_created_by_id_user_id_fk",
           "tableFrom": "events",
           "tableTo": "user",
-          "columnsFrom": [
-            "created_by_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -622,12 +580,8 @@
           "name": "venue_requests_event_id_events_id_fk",
           "tableFrom": "venue_requests",
           "tableTo": "events",
-          "columnsFrom": [
-            "event_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -635,12 +589,8 @@
           "name": "venue_requests_assigned_staff_id_user_id_fk",
           "tableFrom": "venue_requests",
           "tableTo": "user",
-          "columnsFrom": [
-            "assigned_staff_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assigned_staff_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -728,12 +678,8 @@
           "name": "venue_unavailability_venue_id_venues_id_fk",
           "tableFrom": "venue_unavailability",
           "tableTo": "venues",
-          "columnsFrom": [
-            "venue_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["venue_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -826,9 +772,7 @@
         "venues_name_unique": {
           "name": "venues_name_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "name"
-          ]
+          "columns": ["name"]
         }
       },
       "policies": {},
@@ -946,12 +890,8 @@
           "name": "account_user_id_user_id_fk",
           "tableFrom": "account",
           "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1038,12 +978,8 @@
           "name": "session_user_id_user_id_fk",
           "tableFrom": "session",
           "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1053,9 +989,7 @@
         "session_token_unique": {
           "name": "session_token_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "token"
-          ]
+          "columns": ["token"]
         }
       },
       "policies": {},
@@ -1126,9 +1060,7 @@
         "user_email_unique": {
           "name": "user_email_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "email"
-          ]
+          "columns": ["email"]
         }
       },
       "policies": {},
@@ -1207,10 +1139,7 @@
     "public.event_request_status": {
       "name": "event_request_status",
       "schema": "public",
-      "values": [
-        "draft",
-        "submitted"
-      ]
+      "values": ["draft", "submitted"]
     }
   },
   "schemas": {},
