@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Coordinator handover and pickup** (PTR-16): Coordinators open their assigned or unassigned requests at `/coordination`, then assign an unassigned request to themselves or a named Coordinator, or hand their own request over. The server checks current ownership on every detail read and write, so outgoing Coordinators lose access after handover. A row lock serialises competing assignments, with the actor, old/new assignee, time, and notifications recorded atomically. The Organiser and incoming Coordinator see persisted notifications on their dashboards. Includes a generated migration for assignment history and notification records.
+
 - **External account registration** (PTR-5): visitors self-register as Event Organiser or Attendee, supplying name, password confirmation and role. `POST /sign-up/email` validates the role against a self-assignable enum, so an internal role cannot be claimed at sign-up.
 - **Password policy** (PTR-5): enforced server-side on sign-up, reset and change; a failing password is refused with the specific rule it broke, not a generic error.
 - **Role/function matrix** (PTR-7): five roles — `attendee`, `event_organiser`, `event_coordinator`, `venue_staff`, `technical_support_staff`. Declared once in `src/features/auth/permissions.ts` and mirrored in [ARCHITECTURE.md](./ARCHITECTURE.md#authorisation); enforced on server functions, `POST /api/upload-url`, and the interface.

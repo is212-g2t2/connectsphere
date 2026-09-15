@@ -1,0 +1,158 @@
+import { and, asc, desc, eq, getTableColumns, ne, or, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+
+import type { db as Db } from "#/db";
+import { eventAssignments, eventAssignmentNotifications, eventRequests, user } from "#/db/schema";
+import { AuthorizationError, ConflictError } from "#/features/auth/session";
+import type { SessionUser } from "#/features/auth/session";
+import { parseAssignmentInput } from "#/features/coordination/schema";
+import { parseEventRequestId } from "#/features/event-requests/schema";
+
+type Database = typeof Db;
+const organisers = alias(user, "organiser");
+const coordinators = alias(user, "coordinator");
+
+export async function handleListAssignedEventRequests(actor: SessionUser, database: Database) {
+  return database
+    .select({
+      ...getTableColumns(eventRequests),
+      organiser: { name: user.name, email: user.email },
+    })
+    .from(eventRequests)
+    .innerJoin(user, eq(user.id, eventRequests.organiserId))
+    .where(
+      and(ne(eventRequests.status, "draft"), eq(eventRequests.assignedCoordinatorId, actor.id))
+    )
+    .orderBy(desc(eventRequests.assignedAt), desc(eventRequests.id));
+}
+
+export async function handleListCoordinators(database: Database) {
+  return database
+    .select({ id: user.id, name: user.name, email: user.email })
+    .from(user)
+    .where(eq(user.role, "event_coordinator"))
+    .orderBy(asc(user.name), asc(user.id));
+}
+
+/** Re-reads ownership on every request; a previous assignment never confers access. */
+export async function handleGetCoordinationRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const { id } = parseEventRequestId(data);
+  const rows = await database
+    .select({
+      ...getTableColumns(eventRequests),
+      organiser: { name: organisers.name, email: organisers.email },
+      coordinator: { name: coordinators.name, email: coordinators.email },
+    })
+    .from(eventRequests)
+    .innerJoin(organisers, eq(organisers.id, eventRequests.organiserId))
+    .leftJoin(coordinators, eq(coordinators.id, eventRequests.assignedCoordinatorId))
+    .where(
+      and(
+        eq(eventRequests.id, id),
+        ne(eventRequests.status, "draft"),
+        or(
+          isNull(eventRequests.assignedCoordinatorId),
+          eq(eventRequests.assignedCoordinatorId, actor.id)
+        )
+      )
+    );
+  const request = rows.at(0);
+  if (!request)
+    throw new AuthorizationError(
+      "You no longer have coordination access to this request, or it is unavailable."
+    );
+  return request;
+}
+
+/** The row lock serialises pickups and handovers; all effects either commit together or roll back. */
+export async function handleAssignEventRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseAssignmentInput(data);
+  return database.transaction(async tx => {
+    const rows = await tx
+      .select()
+      .from(eventRequests)
+      .where(eq(eventRequests.id, input.id))
+      .for("update");
+    const request = rows.at(0);
+    if (
+      !request ||
+      request.status === "draft" ||
+      (request.assignedCoordinatorId !== null && request.assignedCoordinatorId !== actor.id)
+    ) {
+      throw new AuthorizationError(
+        "Only the assigned Coordinator can reassign this request. Unassigned requests can be picked up by any Event Coordinator."
+      );
+    }
+    if (request.assignedCoordinatorId !== input.expectedCoordinatorId) {
+      throw new ConflictError("This assignment has changed. Refresh the request and try again.");
+    }
+    if (request.assignedCoordinatorId === input.coordinatorId) {
+      throw new ConflictError("This Coordinator is already assigned to the request.");
+    }
+
+    // Hold the selected account while its role is validated and the assignment is committed.
+    const candidates = await tx
+      .select({ id: user.id, name: user.name })
+      .from(user)
+      .where(and(eq(user.id, input.coordinatorId), eq(user.role, "event_coordinator")))
+      .for("share");
+    const incoming = candidates.at(0);
+    if (!incoming) throw new ConflictError("Choose an existing Event Coordinator.");
+
+    const now = new Date();
+    const [updated] = await tx
+      .update(eventRequests)
+      .set({ assignedCoordinatorId: incoming.id, assignedAt: now })
+      .where(eq(eventRequests.id, request.id))
+      .returning();
+    const [assignment] = await tx
+      .insert(eventAssignments)
+      .values({
+        eventRequestId: request.id,
+        fromCoordinatorId: request.assignedCoordinatorId,
+        toCoordinatorId: incoming.id,
+        actorId: actor.id,
+        createdAt: now,
+      })
+      .returning();
+    const title = request.eventName.trim() || "Untitled request";
+    await tx.insert(eventAssignmentNotifications).values([
+      {
+        assignmentId: assignment.id,
+        recipientId: request.organiserId,
+        message: `${incoming.name} is now the Coordinator for ${title}.`,
+        createdAt: now,
+      },
+      {
+        assignmentId: assignment.id,
+        recipientId: incoming.id,
+        message: `You have been assigned as Coordinator for ${title}.`,
+        createdAt: now,
+      },
+    ]);
+    return updated;
+  });
+}
+
+export async function handleListAssignmentNotifications(actor: SessionUser, database: Database) {
+  return database
+    .select({
+      id: eventAssignmentNotifications.id,
+      eventRequestId: eventAssignments.eventRequestId,
+      message: eventAssignmentNotifications.message,
+      createdAt: eventAssignmentNotifications.createdAt,
+    })
+    .from(eventAssignmentNotifications)
+    .innerJoin(eventAssignments, eq(eventAssignments.id, eventAssignmentNotifications.assignmentId))
+    .where(eq(eventAssignmentNotifications.recipientId, actor.id))
+    .orderBy(desc(eventAssignmentNotifications.createdAt), desc(eventAssignmentNotifications.id))
+    .limit(20);
+}
