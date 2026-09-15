@@ -26,6 +26,10 @@ export function getRouter() {
     if (!globalState.__appSentryInitialized__ && sentryDsn) {
       Sentry.init({
         dsn: sentryDsn,
+        // Derived from the origin so one image stays valid for both environments.
+        environment: location.hostname.startsWith("connectsphere-staging")
+          ? "staging"
+          : "production",
         integrations: [
           Sentry.tanstackRouterBrowserTracingIntegration(router),
           Sentry.replayIntegration(),
