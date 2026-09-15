@@ -198,6 +198,7 @@ Allow: /
 Disallow: /dashboard
 Disallow: /settings
 Disallow: /event-requests
+Disallow: /coordination
 Disallow: /venues
 Disallow: /api/
 

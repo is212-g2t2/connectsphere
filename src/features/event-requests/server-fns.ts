@@ -4,12 +4,20 @@ import { requirePermission } from "#/features/auth/session";
 import { parseDraftInput, parseEventRequestId } from "#/features/event-requests/schema";
 
 export const requireEventRequestCreate = requirePermission({ event_request: ["create"] });
+export const requireEventRequestCoordinate = requirePermission({
+  event_request: ["coordinate"],
+});
 
 /** A saved draft as the client sees it — derived here so no route has to import the server module. */
 export type EventRequestDraft = Awaited<ReturnType<typeof saveEventRequestDraft>>;
 
-/** One of the organiser's requests as the list and detail pages see it (PTR-14). */
+/** One of the organiser's requests as the list and detail pages see it (PTR-14), Coordinator resolved (PTR-15). */
 export type EventRequestSummary = Awaited<ReturnType<typeof listEventRequests>>[number];
+
+/** A submitted request awaiting a Coordinator, as the coordination page sees it (PTR-15). */
+export type UnassignedEventRequest = Awaited<
+  ReturnType<typeof listUnassignedEventRequests>
+>[number];
 
 async function loadServer() {
   return Promise.all([import("#/db"), import("#/features/event-requests/drafts.server")]);
@@ -74,4 +82,16 @@ export const getEventRequest = createServerFn({ method: "GET" })
   .handler(async ({ data, context }) => {
     const [{ db }, { handleGetEventRequest }] = await loadServer();
     return { request: await handleGetEventRequest(data, context.user, db) };
+  });
+
+/**
+ * PTR-15 criterion 5: the requests no Coordinator is handling, for any Event Coordinator to
+ * open. The first server function behind `event_request:coordinate`; PTR-16 and PTR-17 add the
+ * writes beside it.
+ */
+export const listUnassignedEventRequests = createServerFn({ method: "GET" })
+  .middleware([requireEventRequestCoordinate])
+  .handler(async () => {
+    const [{ db }, { handleListUnassignedEventRequests }] = await loadServer();
+    return handleListUnassignedEventRequests(db);
   });

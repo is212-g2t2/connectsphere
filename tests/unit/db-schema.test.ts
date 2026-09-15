@@ -47,6 +47,13 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(eventRequests).registrationClosesAt.name).toBe("registration_closes_at");
   });
 
+  it("defines the event request assignment columns (PTR-15)", () => {
+    expect(getTableColumns(eventRequests).assignedCoordinatorId.name).toBe(
+      "assigned_coordinator_id"
+    );
+    expect(getTableColumns(eventRequests).assignedAt.name).toBe("assigned_at");
+  });
+
   it("defines the event request submission column (PTR-13)", () => {
     expect(getTableColumns(eventRequests).submittedAt.name).toBe("submitted_at");
   });

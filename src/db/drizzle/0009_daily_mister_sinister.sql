@@ -1,0 +1,5 @@
+ALTER TABLE "event_requests" ADD COLUMN "assigned_coordinator_id" text;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "assigned_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_assigned_coordinator_id_user_id_fk" FOREIGN KEY ("assigned_coordinator_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_assignment_time_matches_coordinator" CHECK (("event_requests"."assigned_coordinator_id" is null) = ("event_requests"."assigned_at" is null));--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_draft_has_no_coordinator" CHECK ("event_requests"."status" <> 'draft' or "event_requests"."assigned_coordinator_id" is null);

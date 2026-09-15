@@ -1,11 +1,16 @@
 import { Link } from "@tanstack/react-router";
 
 import {
+  ASSIGNED_ON_SUBMIT,
   EventRequestStatusBadge,
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
 } from "#/features/event-requests/components/request-list-page";
-import { formatLocalDateTime, formatProposedWindow } from "#/features/event-requests/format";
+import {
+  formatInstant,
+  formatLocalDateTime,
+  formatProposedWindow,
+} from "#/features/event-requests/format";
 import type { EventRequestSummary } from "#/features/event-requests/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -47,8 +52,21 @@ export function EventRequestDetailPage({ request }: { request: EventRequestSumma
       </p>
 
       <dl className="mt-10 grid gap-6 sm:grid-cols-2">
+        {/* PTR-15 criterion 3: the named point of contact and the route to reach them. */}
         <Detail term="Coordinator">
-          <span className="text-muted-foreground">{NOT_YET_ASSIGNED}</span>
+          {request.coordinator ? (
+            <>
+              {request.coordinator.name}
+              <br />
+              <a href={`mailto:${request.coordinator.email}`} className={NAV_LINK_CLASSNAME}>
+                {request.coordinator.email}
+              </a>
+            </>
+          ) : (
+            <span className="text-muted-foreground">
+              {request.status === "draft" ? ASSIGNED_ON_SUBMIT : NOT_YET_ASSIGNED}
+            </span>
+          )}
         </Detail>
         <Detail term="Expected attendance">{request.expectedAttendance ?? NONE}</Detail>
 
@@ -120,22 +138,6 @@ export function EventRequestDetailPage({ request }: { request: EventRequestSumma
       </dl>
     </main>
   );
-}
-
-/**
- * An instant the server recorded, unlike the wall-clock strings above. Rendered in one fixed
- * zone rather than the runtime's: the page is server-rendered and then hydrated, and a zone that
- * differed between the two would change the text under React's feet. ConnectSphere's venues are
- * in Singapore (brief §1), so that is the zone; the `<time>` element carries the exact instant.
- */
-function formatInstant(value: Date | null): string {
-  return value === null
-    ? "an unknown date"
-    : new Intl.DateTimeFormat("en-GB", {
-        dateStyle: "medium",
-        timeStyle: "short",
-        timeZone: "Asia/Singapore",
-      }).format(value);
 }
 
 function Detail({

@@ -4,6 +4,7 @@ import { listAccounts } from "#/features/auth/session";
 import {
   getEventRequest,
   listEventRequests,
+  listUnassignedEventRequests,
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
@@ -206,6 +207,23 @@ describe("server-function authorization (PTR-69)", () => {
 
       expect((await call(listEventRequests, undefined, "GET")).error).toBeUndefined();
       expect((await call(getEventRequest, { id: 1 }, "GET")).error).toBeUndefined();
+    });
+
+    it("answers 401 and 403 on the unassigned list, and lets a Coordinator through (PTR-15)", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+      expect(await refusalFrom(listUnassignedEventRequests, undefined, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+
+      signIn("event_organiser");
+      expect(await refusalFrom(listUnassignedEventRequests, undefined, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+
+      signIn("event_coordinator");
+      expect((await call(listUnassignedEventRequests, undefined, "GET")).error).toBeUndefined();
     });
   });
 

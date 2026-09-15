@@ -16,15 +16,20 @@ import type { Role } from "#/features/auth/schema/role";
  */
 const statement = {
   upload: ["create"],
-  event_request: ["create"],
+  event_request: ["create", "coordinate"],
   venue: ["create", "update", "read"],
 } as const;
 
 const ac = createAccessControl(statement);
 
 /**
- * ponytail: the matrix covers only the functions that exist today. The equipment and
- * coordination rows arrive with the stories that build them (PTR-8, PTR-38 and the rest).
+ * ponytail: the matrix covers only the functions that exist today. The equipment rows arrive
+ * with the stories that build them (PTR-8, PTR-38 and the rest).
+ *
+ * `event_request:coordinate` (PTR-15) is what an Event Coordinator holds over submitted
+ * requests: reading the unassigned list today, and — with PTR-16 and PTR-17 — picking one up,
+ * reassigning it and reviewing it. It is deliberately not `create`: a Coordinator never authors
+ * a request, and an Organiser never coordinates one.
  *
  * `venue` (PTR-26) is the first internal/external split: Venue Staff maintain the catalogue,
  * the other two internal roles read it, and the external roles hold nothing — PTR-28
@@ -35,7 +40,11 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // an empty role authorizes nothing, which is the fail-closed default we want.
   attendee: ac.newRole({}),
   event_organiser: ac.newRole({ upload: ["create"], event_request: ["create"] }),
-  event_coordinator: ac.newRole({ upload: ["create"], venue: ["read"] }),
+  event_coordinator: ac.newRole({
+    upload: ["create"],
+    event_request: ["coordinate"],
+    venue: ["read"],
+  }),
   venue_staff: ac.newRole({ upload: ["create"], venue: ["create", "update", "read"] }),
   technical_support_staff: ac.newRole({ upload: ["create"], venue: ["read"] }),
 };

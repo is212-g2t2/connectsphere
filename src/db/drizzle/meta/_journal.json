@@ -64,6 +64,20 @@
       "when": 1789406278808,
       "tag": "0008_slippery_lord_hawal",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789466795659,
+      "tag": "0009_daily_mister_sinister",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789467142162,
+      "tag": "0010_bent_argent",
+      "breakpoints": true
     }
   ]
 }
