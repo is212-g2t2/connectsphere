@@ -1,7 +1,7 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { EventRequestsPage } from "#/features/event-requests/components/request-page";
+import { EditEventRequestPage } from "#/features/event-requests/components/edit-event-request-page";
 import { getEventRequestDraft } from "#/features/event-requests/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
@@ -18,13 +18,12 @@ export const Route = createFileRoute("/_authenticated/event-request/reopenDraft/
   },
   loader: async ({ params }) => {
     const id = Number(params.id);
-    if (!Number.isInteger(id) || id <= 0) throw notFound();
+
+    if (!Number.isInteger(id) || id <= 0) {
+      throw notFound();
+    }
+
     return getEventRequestDraft({ data: { id } });
   },
-  component: EditEventRequestRoute,
+  component: EditEventRequestPage,
 });
-
-function EditEventRequestRoute() {
-  const draft = Route.useLoaderData();
-  return <EventRequestsPage existingDraft={draft} />;
-}
