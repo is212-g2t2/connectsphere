@@ -286,7 +286,7 @@ export function parseDraftInput(data: unknown): EventRequestDraftValues {
  * the same thing.
  */
 export const EVENT_REQUEST_ID_MESSAGE = "Choose an event request";
-const EventRequestIdInput = z.object(
+export const EventRequestIdInput = z.object(
   { id: z.int32({ error: EVENT_REQUEST_ID_MESSAGE }).positive(EVENT_REQUEST_ID_MESSAGE) },
   { error: EVENT_REQUEST_ID_MESSAGE }
 );
@@ -352,3 +352,17 @@ export function missingFieldsMessage(missing: string[]): string {
 export const SUBMITTED_EDIT_REFUSAL =
   "This request has been submitted and can no longer be edited. Reply to a clarification request or raise a change request to change it.";
 export const ALREADY_SUBMITTED_MESSAGE = "This request has already been submitted.";
+
+/**
+ * PTR-14 criterion 3: every status a request can hold, in the order the flow moves through
+ * them, with what each is called on screen. Client-safe on purpose — the list page renders these
+ * — so it is restated here rather than read off the Postgres enum in `#/db/schema`;
+ * `tests/unit/db-schema.test.ts` holds the two lists to the same values.
+ */
+export const EVENT_REQUEST_STATUSES = ["draft", "submitted"] as const;
+export type EventRequestStatus = (typeof EVENT_REQUEST_STATUSES)[number];
+
+export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
+  draft: "Draft",
+  submitted: "Submitted",
+};

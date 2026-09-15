@@ -8,6 +8,13 @@ export const requireEventRequestCreate = requirePermission({ event_request: ["cr
 /** A saved draft as the client sees it — derived here so no route has to import the server module. */
 export type EventRequestDraft = Awaited<ReturnType<typeof saveEventRequestDraft>>;
 
+/** One of the organiser's requests as the list and detail pages see it (PTR-14). */
+export type EventRequestSummary = Awaited<ReturnType<typeof listEventRequests>>[number];
+
+async function loadServer() {
+  return Promise.all([import("#/db"), import("#/features/event-requests/drafts.server")]);
+}
+
 /**
  * Routes import this module, so it must stay free of any static server import — the middleware
  * pipeline is client-safe, and `./drafts.server` and `#/db` are both reached inside the handler,
@@ -40,4 +47,31 @@ export const submitEventRequest = createServerFn({ method: "POST" })
     ]);
 
     return handleSubmitEventRequest(data, context.user, db);
+  });
+
+/**
+ * PTR-14: every request the signed-in organiser created, drafts included, newest change first.
+ * The organiser's own-request permission is `event_request:create` for the same reason it is on
+ * `submitEventRequest`; the storage-level scoping to `organiserId` is what keeps the list to
+ * their own rows until PTR-8 introduces relationship-based access.
+ */
+export const listEventRequests = createServerFn({ method: "GET" })
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ context }) => {
+    const [{ db }, { handleListEventRequests }] = await loadServer();
+    return handleListEventRequests(context.user, db);
+  });
+
+/**
+ * PTR-14 criterion 4: one of the organiser's requests as currently recorded. Wrapped in an
+ * object for the reason `getVenue` gives — a nullable top-level result infers as `never` — and
+ * `null` for a row that is not theirs as much as for one that does not exist, so the id space
+ * reveals nothing.
+ */
+export const getEventRequest = createServerFn({ method: "GET" })
+  .validator(parseEventRequestId)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleGetEventRequest }] = await loadServer();
+    return { request: await handleGetEventRequest(data, context.user, db) };
   });

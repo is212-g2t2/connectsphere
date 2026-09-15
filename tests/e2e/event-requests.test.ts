@@ -16,13 +16,16 @@ async function signUp(page: Page, role?: "event_organiser"): Promise<void> {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
-/** Signs an organiser up and lands on the form, which every organiser journey starts from. */
+/** Signs an organiser up and lands on the form, via the list every organiser journey starts from. */
 async function openNewRequest(page: Page): Promise<void> {
   await signUp(page, "event_organiser");
   await page.goto("/dashboard");
   await page.waitForLoadState("networkidle");
   await page.getByRole("link", { name: "Event requests", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Event requests" })).toBeVisible();
+  await page.getByRole("link", { name: "New request" }).click();
   await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
+  await page.waitForLoadState("networkidle");
 }
 
 test.describe("Event request drafts", () => {
@@ -138,8 +141,11 @@ test.describe("Event request drafts", () => {
     await signUp(page);
     await page.goto("/event-requests");
     await expect(page).toHaveURL(/\/dashboard$/);
-    // The form must never have painted, however briefly: the redirect comes from `beforeLoad`,
-    // not from the page reacting after it rendered.
+    // Neither page must ever have painted, however briefly: the redirect comes from
+    // `beforeLoad`, not from the page reacting after it rendered.
+    await expect(page.getByRole("heading", { name: "Event requests" })).toHaveCount(0);
+    await page.goto("/event-requests/new");
+    await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole("heading", { name: "New event request" })).toHaveCount(0);
 
     await page.goto("/dashboard");
@@ -179,5 +185,63 @@ test.describe("Event request submission (PTR-13)", () => {
       )
     ).toBeVisible();
     await expect(page.getByText("Request submitted.")).toHaveCount(0);
+  });
+});
+
+test.describe("Event request list (PTR-14)", () => {
+  test("lists drafts and submitted requests distinguishably and opens one", async ({ page }) => {
+    await openNewRequest(page);
+
+    // One draft, saved incomplete.
+    await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+
+    // One complete request, submitted.
+    await page.getByRole("link", { name: "Back to event requests" }).click();
+    await page.getByRole("link", { name: "New request" }).click();
+    await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    await page.getByLabel("Event name (required)", { exact: true }).fill("Annual dinner");
+    await page.getByLabel("Purpose (required)", { exact: true }).fill("Thank the volunteers");
+    await page.getByLabel("Expected attendance (required)", { exact: true }).fill("120");
+    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-12-01T18:00");
+    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-12-01T22:00");
+    await page.getByRole("button", { name: "Submit request" }).click();
+    await expect(page.getByText("Request submitted.")).toBeVisible();
+
+    await page.getByRole("link", { name: "Back to event requests" }).click();
+    await expect(page.getByRole("heading", { name: "Event requests" })).toBeVisible();
+
+    const dinner = page.getByRole("row", { name: /Annual dinner/ });
+    const workshop = page.getByRole("row", { name: /Community workshop/ });
+    await expect(dinner).toContainText("Submitted");
+    await expect(dinner).toContainText("1 Dec 2030, 18:00");
+    await expect(dinner).toContainText("Not yet assigned");
+    await expect(workshop).toContainText("Draft");
+
+    await dinner.getByRole("link", { name: "Annual dinner" }).click();
+    await expect(page.getByRole("heading", { name: "Annual dinner" })).toBeVisible();
+    await expect(page.getByText("Thank the volunteers")).toBeVisible();
+    await expect(page.getByText("1 Dec 2030, 18:00 – 22:00")).toBeVisible();
+    await expect(page.getByText(/Submitted on/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save draft" })).toHaveCount(0);
+  });
+
+  test("answers not found for another organiser's request", async ({ page }) => {
+    await openNewRequest(page);
+    await page.getByLabel("Event name (required)", { exact: true }).fill("Mine");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    await page.getByRole("link", { name: "Back to event requests" }).click();
+    const href = (await page.getByRole("link", { name: "Mine" }).getAttribute("href")) ?? "";
+    expect(href).toMatch(/\/event-requests\/\d+$/);
+
+    // A second organiser, same browser context but a fresh session.
+    await page.context().clearCookies();
+    await signUp(page, "event_organiser");
+    await page.goto(href);
+    await expect(page.getByRole("heading", { name: "Mine" })).toHaveCount(0);
+    await expect(page.getByText(/not found/i)).toBeVisible();
   });
 });

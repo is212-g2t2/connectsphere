@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { listAccounts } from "#/features/auth/session";
-import { saveEventRequestDraft, submitEventRequest } from "#/features/event-requests/server-fns";
+import {
+  getEventRequest,
+  listEventRequests,
+  saveEventRequestDraft,
+  submitEventRequest,
+} from "#/features/event-requests/server-fns";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import { listVenues, saveVenue } from "#/features/venues/server-fns";
 import { auth } from "#/lib/auth.server";
@@ -168,6 +173,39 @@ describe("server-function authorization (PTR-69)", () => {
         status: 403,
         body: "Forbidden",
       });
+    });
+
+    it("answers 401 to an unauthenticated list or read (PTR-14)", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(listEventRequests, undefined, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(getEventRequest, { id: 1 }, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("answers 403 to an internal role reading the organiser's list (PTR-14)", async () => {
+      signIn("event_coordinator");
+
+      expect(await refusalFrom(listEventRequests, undefined, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+      expect(await refusalFrom(getEventRequest, { id: 1 }, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+    });
+
+    it("lets an event organiser list and read (PTR-14)", async () => {
+      signIn("event_organiser");
+
+      expect((await call(listEventRequests, undefined, "GET")).error).toBeUndefined();
+      expect((await call(getEventRequest, { id: 1 }, "GET")).error).toBeUndefined();
     });
   });
 

@@ -6,6 +6,8 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
+  handleGetEventRequest,
+  handleListEventRequests,
   handleSaveEventRequestDraft,
   handleSubmitEventRequest,
 } from "#/features/event-requests/drafts.server";
@@ -515,5 +517,102 @@ describe("Event request drafts", () => {
     ).rejects.toMatchObject({
       cause: { constraint: "event_requests_submission_time_matches_status" },
     });
+  });
+});
+
+const byId = (a: number, b: number) => a - b;
+
+describe("Listing and reading an organiser's requests (PTR-14)", () => {
+  let pool: Pool;
+  let database: ReturnType<typeof drizzle<typeof schema>>;
+
+  beforeAll(() => {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    database = drizzle(pool, { schema });
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  beforeEach(async () => {
+    await database.delete(schema.eventRequests);
+  });
+
+  it("lists the organiser's own requests only, drafts and submitted alike (AC1)", async () => {
+    const draft = await handleSaveEventRequestDraft(
+      { eventName: "My draft" },
+      organiser,
+      database as never
+    );
+    const complete = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    const submitted = await handleSubmitEventRequest(
+      { id: complete.id },
+      organiser,
+      database as never
+    );
+    await handleSaveEventRequestDraft(
+      { eventName: "Someone else's" },
+      otherOrganiser,
+      database as never
+    );
+
+    const listed = await handleListEventRequests(organiser, database as never);
+
+    expect(listed.map(row => row.id).toSorted(byId)).toEqual(
+      [draft.id, submitted.id].toSorted(byId)
+    );
+    expect(listed.map(row => row.status).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "draft",
+      "submitted",
+    ]);
+    expect(listed.every(row => row.organiserId === organiser.id)).toBe(true);
+  });
+
+  it("lists the most recently changed request first", async () => {
+    const older = await handleSaveEventRequestDraft(
+      { eventName: "Older" },
+      organiser,
+      database as never
+    );
+    const newer = await handleSaveEventRequestDraft(
+      { eventName: "Newer" },
+      organiser,
+      database as never
+    );
+    await handleSaveEventRequestDraft(
+      { id: older.id, eventName: "Older, revised" },
+      organiser,
+      database as never
+    );
+
+    const listed = await handleListEventRequests(organiser, database as never);
+
+    expect(listed.map(row => row.id)).toEqual([older.id, newer.id]);
+  });
+
+  it("reads one of the organiser's requests as recorded (AC4)", async () => {
+    const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+
+    const read = await handleGetEventRequest({ id: saved.id }, organiser, database as never);
+
+    expect(read).toEqual(saved);
+  });
+
+  it("answers null for another organiser's request and for an id that does not exist", async () => {
+    const theirs = await handleSaveEventRequestDraft(
+      { eventName: "Theirs" },
+      otherOrganiser,
+      database as never
+    );
+
+    expect(await handleGetEventRequest({ id: theirs.id }, organiser, database as never)).toBeNull();
+    expect(await handleGetEventRequest({ id: 999_999 }, organiser, database as never)).toBeNull();
+  });
+
+  it("refuses an id that is not a positive whole number", async () => {
+    await expect(handleGetEventRequest({ id: "41" }, organiser, database as never)).rejects.toThrow(
+      "Choose an event request"
+    );
   });
 });
