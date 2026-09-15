@@ -58,6 +58,12 @@ export function DashboardPage({ user }: { user: SessionUser }) {
           </Link>
         )}
 
+        {can(user.role, { event_request: ["coordinate"] }) && (
+          <Link to="/coordination" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
+            Coordination
+          </Link>
+        )}
+
         {can(user.role, { venue: ["read"] }) && (
           <Link to="/venues" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
             Venues

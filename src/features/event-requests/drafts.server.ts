@@ -1,7 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests } from "#/db/schema";
+import { eventRequests, user as users } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
@@ -26,6 +26,28 @@ import {
 
 type Database = typeof Db;
 export type EventRequest = typeof eventRequests.$inferSelect;
+
+/** Who a request can be traced to: the Coordinator handling it, or the Organiser who raised it. */
+export interface Contact {
+  name: string;
+  email: string;
+}
+
+/** A request with its Coordinator resolved, for the organiser's list and detail (PTR-15 AC3). */
+export type EventRequestWithCoordinator = EventRequest & { coordinator: Contact | null };
+
+/** A submitted request nobody is handling yet, with its Organiser, for the unassigned list (AC5). */
+export type EventRequestWithOrganiser = EventRequest & { organiser: Contact };
+
+/**
+ * The selection every read of a request goes through: the row plus the assigned Coordinator's
+ * name and email, via a left join. Drizzle folds a nested selection whose columns are all null —
+ * the unassigned case — into `coordinator: null`, which is the contract the pages render against.
+ */
+const withCoordinator = {
+  ...getTableColumns(eventRequests),
+  coordinator: { name: users.name, email: users.email },
+};
 
 function ownRequest(id: number, organiserId: string) {
   return and(eq(eventRequests.id, id), eq(eventRequests.organiserId, organiserId));
@@ -141,9 +163,20 @@ export async function handleSubmitEventRequest(
       throw new Error(missingFieldsMessage(missing));
     }
 
+    // PTR-15 criterion 1: the Coordinator is chosen in the same transaction that submits, so a
+    // submitted row never exists without one while one could be had. `null` when the system has
+    // no Coordinator at all (criterion 5); the row then waits in the unassigned list.
+    const coordinator = await pickLeastLoadedCoordinator(tx);
+    const now = new Date();
+
     const [submitted] = await tx
       .update(eventRequests)
-      .set({ status: "submitted", submittedAt: new Date() })
+      .set({
+        status: "submitted",
+        submittedAt: now,
+        assignedCoordinatorId: coordinator?.id ?? null,
+        assignedAt: coordinator === null ? null : now,
+      })
       .where(ownDraft(id, user.id))
       .returning();
 
@@ -152,17 +185,47 @@ export async function handleSubmitEventRequest(
 }
 
 /**
+ * The assignment rule (PTR-15 criterion 1): the Event Coordinator currently handling the fewest
+ * submitted requests, ties broken by the earliest account so the rule is deterministic and
+ * testable. One query, so a burst of submissions spreads across the pool rather than landing on
+ * whoever was least loaded when the burst began being read.
+ *
+ * Every non-draft request counts as load for now. When PTR-21's terminal statuses (completed,
+ * cancelled, rejected) exist, they are the ones to exclude here.
+ *
+ * Exported for the integration test; its one application caller is `handleSubmitEventRequest`.
+ */
+export async function pickLeastLoadedCoordinator(
+  database: Pick<Database, "select">
+): Promise<{ id: string } | null> {
+  const rows = await database
+    .select({ id: users.id })
+    .from(users)
+    .leftJoin(
+      eventRequests,
+      and(eq(eventRequests.assignedCoordinatorId, users.id), ne(eventRequests.status, "draft"))
+    )
+    .where(eq(users.role, "event_coordinator"))
+    .groupBy(users.id, users.createdAt)
+    .orderBy(asc(count(eventRequests.id)), asc(users.createdAt), asc(users.id))
+    .limit(1);
+
+  return rows.at(0) ?? null;
+}
+
+/**
  * PTR-14 criterion 1: the organiser's own requests, drafts included. Most recently changed
  * first, then newest id, so two rows saved in the same instant still list in a stable order.
  */
 export async function handleListEventRequests(
-  user: SessionUser,
+  organiser: SessionUser,
   database: Database
-): Promise<EventRequest[]> {
+): Promise<EventRequestWithCoordinator[]> {
   return database
-    .select()
+    .select(withCoordinator)
     .from(eventRequests)
-    .where(eq(eventRequests.organiserId, user.id))
+    .leftJoin(users, eq(users.id, eventRequests.assignedCoordinatorId))
+    .where(eq(eventRequests.organiserId, organiser.id))
     .orderBy(desc(eventRequests.updatedAt), desc(eventRequests.id));
 }
 
@@ -173,10 +236,32 @@ export async function handleListEventRequests(
  */
 export async function handleGetEventRequest(
   data: unknown,
-  user: SessionUser,
+  organiser: SessionUser,
   database: Database
-): Promise<EventRequest | null> {
+): Promise<EventRequestWithCoordinator | null> {
   const { id } = parseEventRequestId(data);
-  const rows = await database.select().from(eventRequests).where(ownRequest(id, user.id));
+  const rows = await database
+    .select(withCoordinator)
+    .from(eventRequests)
+    .leftJoin(users, eq(users.id, eventRequests.assignedCoordinatorId))
+    .where(ownRequest(id, organiser.id));
   return rows.at(0) ?? null;
+}
+
+/**
+ * PTR-15 criterion 5: every submitted request with nobody handling it, oldest wait first, with
+ * the Organiser who raised it. Read by any Event Coordinator; picking one up is PTR-16.
+ */
+export async function handleListUnassignedEventRequests(
+  database: Database
+): Promise<EventRequestWithOrganiser[]> {
+  return database
+    .select({
+      ...getTableColumns(eventRequests),
+      organiser: { name: users.name, email: users.email },
+    })
+    .from(eventRequests)
+    .innerJoin(users, eq(users.id, eventRequests.organiserId))
+    .where(and(ne(eventRequests.status, "draft"), isNull(eventRequests.assignedCoordinatorId)))
+    .orderBy(asc(eventRequests.submittedAt), asc(eventRequests.id));
 }

@@ -217,7 +217,8 @@ test.describe("Event request list (PTR-14)", () => {
     const workshop = page.getByRole("row", { name: /Community workshop/ });
     await expect(dinner).toContainText("Submitted");
     await expect(dinner).toContainText("1 Dec 2030, 18:00");
-    await expect(dinner).toContainText("Not yet assigned");
+    // PTR-15: the seed's one Coordinator is assigned at submission.
+    await expect(dinner).toContainText("Seeded Event Coordinator");
     await expect(workshop).toContainText("Draft");
 
     await dinner.getByRole("link", { name: "Annual dinner" }).click();
@@ -243,5 +244,53 @@ test.describe("Event request list (PTR-14)", () => {
     await page.goto(href);
     await expect(page.getByRole("heading", { name: "Mine" })).toHaveCount(0);
     await expect(page.getByText(/not found/i)).toBeVisible();
+  });
+});
+
+test.describe("Coordinator assignment (PTR-15)", () => {
+  test("names the assigned Coordinator on the list and detail after submission", async ({
+    page,
+  }) => {
+    await openNewRequest(page);
+    await page.getByLabel("Event name (required)", { exact: true }).fill("Board retreat");
+    await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year");
+    await page.getByLabel("Expected attendance (required)", { exact: true }).fill("12");
+    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-12-01T09:00");
+    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-12-01T17:00");
+    await page.getByRole("button", { name: "Submit request" }).click();
+    await expect(page.getByText("Request submitted.")).toBeVisible();
+
+    await page.getByRole("link", { name: "Back to event requests" }).click();
+    const row = page.getByRole("row", { name: /Board retreat/ });
+    // The seed provides one Coordinator, so every submission lands on them.
+    await expect(row).toContainText("Seeded Event Coordinator");
+
+    await row.getByRole("link", { name: "Board retreat" }).click();
+    await expect(page.getByText("Seeded Event Coordinator")).toBeVisible();
+    await expect(page.getByRole("link", { name: "coordinator.seed@example.com" })).toHaveAttribute(
+      "href",
+      "mailto:coordinator.seed@example.com"
+    );
+  });
+
+  test("gives a Coordinator the coordination page and refuses it to an organiser", async ({
+    page,
+  }) => {
+    const signIn = await page.request.post("/api/auth/sign-in/email", {
+      data: { email: "coordinator.seed@example.com", password: "Seed-Pass123!" },
+    });
+    expect(signIn.ok(), await signIn.text()).toBe(true);
+
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("link", { name: "Coordination", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Coordination" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Unassigned requests" })).toBeVisible();
+
+    await page.context().clearCookies();
+    await signUp(page, "event_organiser");
+    await page.goto("/coordination");
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole("link", { name: "Coordination", exact: true })).toHaveCount(0);
   });
 });

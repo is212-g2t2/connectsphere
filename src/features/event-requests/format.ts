@@ -15,6 +15,12 @@ export function formatLocalDateTime(value: string): string {
   return `${Number(day)} ${MONTHS[monthIndex]} ${year}, ${time}`;
 }
 
+/** The first proposed window's start, which is what "proposed date" means on a one-line row. */
+export function formatFirstProposedDate(windows: { start?: string }[]): string {
+  const start = windows.find(window => window.start !== undefined)?.start;
+  return start === undefined ? "—" : formatLocalDateTime(start);
+}
+
 /** One proposed window as a single line: `18 Nov 2030, 09:30 – 12:45`, or what is known of it. */
 export function formatProposedWindow(window: { start?: string; end?: string }): string {
   if (window.start === undefined && window.end === undefined) return "Not yet chosen";
@@ -25,4 +31,20 @@ export function formatProposedWindow(window: { start?: string; end?: string }): 
       ? window.end.slice(11)
       : formatLocalDateTime(window.end);
   return `${start} – ${end}`;
+}
+
+/**
+ * An instant the server recorded — a submission or an assignment — unlike the wall-clock strings
+ * above. Rendered in one fixed zone rather than the runtime's: the page is server-rendered and
+ * then hydrated, and a zone that differed between the two would change the text under React's
+ * feet. ConnectSphere's venues are in Singapore (brief §1), so that is the zone.
+ */
+export function formatInstant(value: Date | null): string {
+  return value === null
+    ? "an unknown date"
+    : new Intl.DateTimeFormat("en-GB", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Asia/Singapore",
+      }).format(value);
 }

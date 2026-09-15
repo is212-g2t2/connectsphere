@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import {
+  ASSIGNED_ON_SUBMIT,
   EventRequestListPage,
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
@@ -26,6 +27,9 @@ const base: EventRequestSummary = {
   organiserId: "usr_1",
   status: "draft",
   submittedAt: null,
+  assignedCoordinatorId: null,
+  assignedAt: null,
+  coordinator: null,
   eventName: "",
   purpose: "",
   proposedDates: [],
@@ -57,6 +61,9 @@ const submitted: EventRequestSummary = {
   id: 42,
   status: "submitted",
   submittedAt: new Date("2026-09-14T10:00:00Z"),
+  assignedCoordinatorId: "seed-coordinator-1",
+  assignedAt: new Date("2026-09-14T10:00:00Z"),
+  coordinator: { name: "Seeded Event Coordinator", email: "coordinator.seed@example.com" },
   eventName: "Annual dinner",
   purpose: "Thank the volunteers",
   proposedDates: [{ start: "2030-12-01T18:00", end: "2030-12-01T22:00" }],
@@ -99,10 +106,19 @@ describe("EventRequestListPage (PTR-14)", () => {
     expect(submittedPill.className).not.toBe(draftPill.className);
   });
 
-  it("shows the Coordinator column as unassigned until PTR-15 assigns one (AC2)", () => {
-    render(<EventRequestListPage requests={[submitted]} />);
+  it("names the assigned Coordinator, and says so when there is none yet (AC2, PTR-15 AC3)", () => {
+    const waiting = {
+      ...submitted,
+      id: 43,
+      assignedCoordinatorId: null,
+      assignedAt: null,
+      coordinator: null,
+    };
+    render(<EventRequestListPage requests={[submitted, waiting]} />);
 
-    expect(screen.getByText(NOT_YET_ASSIGNED)).toBeTruthy();
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("Seeded Event Coordinator")).toBeTruthy();
+    expect(within(rows[1]).getByText(NOT_YET_ASSIGNED)).toBeTruthy();
   });
 
   it("gives an unnamed draft a title and a dash for a date it does not have yet", () => {
@@ -142,10 +158,14 @@ describe("EventRequestDetailPage (PTR-14 AC4)", () => {
       "Vegetarian option",
       "Wireless microphone × 2",
       "Capacity 100",
-      NOT_YET_ASSIGNED,
+      "Seeded Event Coordinator",
     ]) {
       expect(screen.getByText(text)).toBeTruthy();
     }
+    // PTR-15 criterion 3: the contact route, not only the name.
+    expect(
+      screen.getByRole("link", { name: "coordinator.seed@example.com" }).getAttribute("href")
+    ).toBe("mailto:coordinator.seed@example.com");
     expect(screen.getByText(/Opens 1 Nov 2030, 09:00, closes 20 Nov 2030, 17:00/)).toBeTruthy();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button")).toBeNull();
@@ -158,5 +178,6 @@ describe("EventRequestDetailPage (PTR-14 AC4)", () => {
     expect(screen.getByText(/Saved as a draft/)).toBeTruthy();
     expect(screen.getAllByText("None recorded").length).toBeGreaterThanOrEqual(8);
     expect(screen.getByText("Not required")).toBeTruthy();
+    expect(screen.getByText(ASSIGNED_ON_SUBMIT)).toBeTruthy();
   });
 });

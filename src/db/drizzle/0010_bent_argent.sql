@@ -1,0 +1,2 @@
+ALTER TABLE "event_requests" DROP CONSTRAINT "event_requests_assignment_time_matches_coordinator";--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_coordinator_has_assignment_time" CHECK ("event_requests"."assigned_coordinator_id" is null or "event_requests"."assigned_at" is not null);

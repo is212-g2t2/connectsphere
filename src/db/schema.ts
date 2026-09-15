@@ -43,7 +43,9 @@ export const eventRequests = pgTable(
      * column is what makes criterion 2 structural — a row cannot hold two. Null while a draft
      * (PTR-9 criterion 4), and null after submission only when no Coordinator could be assigned
      * (criterion 5), in which case the request waits in the unassigned list. `set null` rather
-     * than cascade: deleting a staff account must not delete the events they were handling.
+     * than cascade: deleting a staff account must not delete the events they were handling —
+     * they become unassigned and wait to be picked up (PTR-16), and `assignedAt` is left as the
+     * record of the assignment that was, which is why the CHECK below runs one way only.
      */
     assignedCoordinatorId: text("assigned_coordinator_id").references(() => user.id, {
       onDelete: "set null",
@@ -93,10 +95,12 @@ export const eventRequests = pgTable(
       "event_requests_submission_time_matches_status",
       sql`(${table.status} = 'draft' and ${table.submittedAt} is null) or (${table.status} <> 'draft' and ${table.submittedAt} is not null)`
     ),
-    // PTR-15: an assignment is a Coordinator and a time together, and a draft never has one.
+    // PTR-15: a Coordinator is never recorded without the time they were assigned. The reverse
+    // is allowed — `ON DELETE SET NULL` vacates the Coordinator and keeps the time — so a staff
+    // account with events can still be removed.
     check(
-      "event_requests_assignment_time_matches_coordinator",
-      sql`(${table.assignedCoordinatorId} is null) = (${table.assignedAt} is null)`
+      "event_requests_coordinator_has_assignment_time",
+      sql`${table.assignedCoordinatorId} is null or ${table.assignedAt} is not null`
     ),
     check(
       "event_requests_draft_has_no_coordinator",

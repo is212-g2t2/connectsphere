@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { eq, inArray } from "drizzle-orm";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
@@ -8,8 +8,10 @@ import type { SessionUser } from "#/features/auth/session";
 import {
   handleGetEventRequest,
   handleListEventRequests,
+  handleListUnassignedEventRequests,
   handleSaveEventRequestDraft,
   handleSubmitEventRequest,
+  pickLeastLoadedCoordinator,
 } from "#/features/event-requests/drafts.server";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import {
@@ -596,7 +598,7 @@ describe("Listing and reading an organiser's requests (PTR-14)", () => {
 
     const read = await handleGetEventRequest({ id: saved.id }, organiser, database as never);
 
-    expect(read).toEqual(saved);
+    expect(read).toEqual({ ...saved, coordinator: null });
   });
 
   it("answers null for another organiser's request and for an id that does not exist", async () => {
@@ -614,5 +616,219 @@ describe("Listing and reading an organiser's requests (PTR-14)", () => {
     await expect(handleGetEventRequest({ id: "41" }, organiser, database as never)).rejects.toThrow(
       "Choose an event request"
     );
+  });
+});
+
+/** Two Coordinators beside the seeded one, created in a known order so the tie-break is testable. */
+const extraCoordinators = [
+  {
+    id: "test-coordinator-a",
+    name: "Coordinator A",
+    email: "coordinator.a@example.com",
+    emailVerified: true,
+    role: "event_coordinator",
+    createdAt: new Date("2026-09-01T00:00:00Z"),
+  },
+  {
+    id: "test-coordinator-b",
+    name: "Coordinator B",
+    email: "coordinator.b@example.com",
+    emailVerified: true,
+    role: "event_coordinator",
+    createdAt: new Date("2026-09-02T00:00:00Z"),
+  },
+];
+
+async function submitNew(
+  values: EventRequestDraftValues,
+  who: SessionUser,
+  database: ReturnType<typeof drizzle<typeof schema>>
+) {
+  const saved = await handleSaveEventRequestDraft(values, who, database as never);
+  return handleSubmitEventRequest({ id: saved.id }, who, database as never);
+}
+
+describe("Assigning a Coordinator at submission (PTR-15)", () => {
+  let pool: Pool;
+  let database: ReturnType<typeof drizzle<typeof schema>>;
+
+  beforeAll(async () => {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    database = drizzle(pool, { schema });
+    // The seeded Coordinator was created at seed time, later than these two, so it sorts last on
+    // the tie-break and the two known accounts decide the rule.
+    await database.insert(schema.user).values(extraCoordinators).onConflictDoNothing();
+  });
+
+  afterAll(async () => {
+    await database.delete(schema.user).where(
+      inArray(
+        schema.user.id,
+        extraCoordinators.map(c => c.id)
+      )
+    );
+    await pool.end();
+  });
+
+  beforeEach(async () => {
+    await database.delete(schema.eventRequests);
+  });
+
+  it("assigns exactly one Coordinator, with the time, when a request is submitted (AC1, AC2)", async () => {
+    const submitted = await submitNew(fullRequest, organiser, database);
+
+    expect(submitted.assignedCoordinatorId).not.toBeNull();
+    expect(submitted.assignedAt).toBeInstanceOf(Date);
+    expect(submitted.assignedAt?.getTime()).toBe(submitted.submittedAt?.getTime());
+  });
+
+  it("chooses the least-loaded Coordinator, then the earliest account", async () => {
+    // Nobody loaded: the earliest-created Coordinator wins the tie.
+    const first = await submitNew(fullRequest, organiser, database);
+    expect(first.assignedCoordinatorId).toBe("test-coordinator-a");
+
+    // A now carries one; B is next.
+    const second = await submitNew({ ...fullRequest, eventName: "Second" }, organiser, database);
+    expect(second.assignedCoordinatorId).toBe("test-coordinator-b");
+
+    // A and B carry one each; the seeded Coordinator, created last, gets the third.
+    const third = await submitNew({ ...fullRequest, eventName: "Third" }, organiser, database);
+    expect(third.assignedCoordinatorId).toBe("seed-coordinator-1");
+
+    // Everyone carries one; back to the earliest account.
+    const fourth = await submitNew({ ...fullRequest, eventName: "Fourth" }, organiser, database);
+    expect(fourth.assignedCoordinatorId).toBe("test-coordinator-a");
+  });
+
+  it("does not count drafts as load", async () => {
+    await handleSaveEventRequestDraft({ eventName: "Only a draft" }, organiser, database as never);
+
+    expect(await pickLeastLoadedCoordinator(database as never)).toEqual({
+      id: "test-coordinator-a",
+    });
+  });
+
+  it("keeps the events when a Coordinator's account is deleted, vacating the assignment", async () => {
+    const gone = {
+      id: "test-coordinator-gone",
+      name: "Leaving Coordinator",
+      email: "coordinator.gone@example.com",
+      emailVerified: true,
+      role: "event_coordinator",
+      createdAt: new Date("2026-08-01T00:00:00Z"),
+    };
+    await database.insert(schema.user).values(gone);
+    const submitted = await submitNew(fullRequest, organiser, database);
+    expect(submitted.assignedCoordinatorId).toBe(gone.id);
+
+    await database.delete(schema.user).where(eq(schema.user.id, gone.id));
+
+    const read = await handleGetEventRequest({ id: submitted.id }, organiser, database as never);
+    expect(read?.status).toBe("submitted");
+    expect(read?.coordinator).toBeNull();
+    expect(read?.assignedAt).toBeInstanceOf(Date);
+    expect((await handleListUnassignedEventRequests(database as never)).map(r => r.id)).toEqual([
+      submitted.id,
+    ]);
+  });
+
+  it("never gives a draft a Coordinator (PTR-9 AC4)", async () => {
+    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+
+    expect(draft.assignedCoordinatorId).toBeNull();
+    expect(draft.assignedAt).toBeNull();
+    await expect(
+      database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: "test-coordinator-a", assignedAt: new Date() })
+        .where(eq(schema.eventRequests.id, draft.id))
+    ).rejects.toMatchObject({ cause: { constraint: "event_requests_draft_has_no_coordinator" } });
+  });
+
+  it("returns the Coordinator's name and email with the organiser's reads (AC3)", async () => {
+    const submitted = await submitNew(fullRequest, organiser, database);
+
+    const listed = await handleListEventRequests(organiser, database as never);
+    expect(listed[0].coordinator).toEqual({
+      name: "Coordinator A",
+      email: "coordinator.a@example.com",
+    });
+
+    const read = await handleGetEventRequest({ id: submitted.id }, organiser, database as never);
+    expect(read?.coordinator).toEqual({
+      name: "Coordinator A",
+      email: "coordinator.a@example.com",
+    });
+
+    const draft = await handleSaveEventRequestDraft(
+      { eventName: "Draft" },
+      organiser,
+      database as never
+    );
+    const readDraft = await handleGetEventRequest({ id: draft.id }, organiser, database as never);
+    expect(readDraft?.coordinator).toBeNull();
+  });
+
+  describe("when no Coordinator can be assigned (AC5)", () => {
+    const coordinatorIds = [...extraCoordinators.map(c => c.id), "seed-coordinator-1"];
+
+    beforeEach(async () => {
+      // Demote every Coordinator for the test rather than deleting them: the seeded account has
+      // a credential row and sessions hanging off it.
+      await database
+        .update(schema.user)
+        .set({ role: "technical_support_staff" })
+        .where(inArray(schema.user.id, coordinatorIds));
+    });
+
+    afterEach(async () => {
+      await database
+        .update(schema.user)
+        .set({ role: "event_coordinator" })
+        .where(inArray(schema.user.id, coordinatorIds));
+    });
+
+    it("still records the submission, unassigned, and lists it for pick-up", async () => {
+      const submitted = await submitNew(fullRequest, organiser, database);
+
+      expect(submitted.status).toBe("submitted");
+      expect(submitted.assignedCoordinatorId).toBeNull();
+      expect(submitted.assignedAt).toBeNull();
+
+      const unassigned = await handleListUnassignedEventRequests(database as never);
+      expect(unassigned.map(row => row.id)).toEqual([submitted.id]);
+      expect(unassigned[0].organiser).toEqual({ name: "Jane Doe", email: "jane.doe@example.com" });
+    });
+  });
+
+  it("lists only submitted, unassigned requests, oldest wait first", async () => {
+    await handleSaveEventRequestDraft({ eventName: "A draft" }, organiser, database as never);
+    const assigned = await submitNew(fullRequest, organiser, database);
+    expect(assigned.assignedCoordinatorId).not.toBeNull();
+
+    // Two rows submitted while nobody could take them, in a known order.
+    const [older, newer] = await Promise.all([
+      handleSaveEventRequestDraft(
+        { ...fullRequest, eventName: "Older wait" },
+        organiser,
+        database as never
+      ),
+      handleSaveEventRequestDraft(
+        { ...fullRequest, eventName: "Newer wait" },
+        organiser,
+        database as never
+      ),
+    ]);
+    await database
+      .update(schema.eventRequests)
+      .set({ status: "submitted", submittedAt: new Date("2026-09-10T00:00:00Z") })
+      .where(eq(schema.eventRequests.id, older.id));
+    await database
+      .update(schema.eventRequests)
+      .set({ status: "submitted", submittedAt: new Date("2026-09-11T00:00:00Z") })
+      .where(eq(schema.eventRequests.id, newer.id));
+
+    const unassigned = await handleListUnassignedEventRequests(database as never);
+    expect(unassigned.map(row => row.eventName)).toEqual(["Older wait", "Newer wait"]);
   });
 });

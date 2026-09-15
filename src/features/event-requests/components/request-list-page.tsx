@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import { Badge } from "#/components/ui/badge";
-import { formatLocalDateTime } from "#/features/event-requests/format";
+import { formatFirstProposedDate } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EventRequestSummary } from "#/features/event-requests/server-fns";
@@ -18,20 +18,13 @@ const STATUS_VARIANT: Record<EventRequestStatus, "outline" | "progress"> = {
 };
 
 export const UNTITLED_REQUEST = "Untitled request";
-/**
- * Criterion 2 shows the assigned Coordinator "once one exists". Assignment arrives with PTR-15;
- * until its column lands every row reads the same way, and the copy is what changes then.
- */
+/** What criterion 2's Coordinator column reads on a submitted request nobody could be assigned to. */
 export const NOT_YET_ASSIGNED = "Not yet assigned";
+/** And on a draft, which PTR-15 only assigns at submission. */
+export const ASSIGNED_ON_SUBMIT = "Assigned when you submit";
 
 export function EventRequestStatusBadge({ status }: { status: EventRequestStatus }) {
   return <Badge variant={STATUS_VARIANT[status]}>{EVENT_REQUEST_STATUS_LABELS[status]}</Badge>;
-}
-
-/** The first proposed window's start, which is what "proposed date" means on a one-line row. */
-function proposedDate(request: EventRequestSummary): string {
-  const start = request.proposedDates.find(window => window.start !== undefined)?.start;
-  return start === undefined ? "—" : formatLocalDateTime(start);
 }
 
 /**
@@ -87,11 +80,17 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                       {request.eventName.trim() || UNTITLED_REQUEST}
                     </Link>
                   </td>
-                  <td className="py-3 pr-4">{proposedDate(request)}</td>
+                  <td className="py-3 pr-4">{formatFirstProposedDate(request.proposedDates)}</td>
                   <td className="py-3 pr-4">
                     <EventRequestStatusBadge status={request.status} />
                   </td>
-                  <td className="py-3 text-muted-foreground">{NOT_YET_ASSIGNED}</td>
+                  {request.coordinator ? (
+                    <td className="py-3">{request.coordinator.name}</td>
+                  ) : (
+                    <td className="py-3 text-muted-foreground">
+                      {request.status === "draft" ? ASSIGNED_ON_SUBMIT : NOT_YET_ASSIGNED}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
