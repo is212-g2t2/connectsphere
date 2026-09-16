@@ -3,6 +3,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { can } from "#/features/auth/permissions";
 import { unwrapRefusal } from "#/features/auth/session";
 import { CoordinationRequestPage } from "#/features/coordination/components/coordination-request-page";
+import { CoordinationRequestPageSkeleton } from "#/features/coordination/components/coordination-request-page-skeleton";
 import { getCoordinationRequest, listCoordinators } from "#/features/coordination/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
@@ -30,4 +31,5 @@ export const Route = createFileRoute("/_authenticated/coordination/$requestId")(
       user={Route.useRouteContext().user}
     />
   ),
+  pendingComponent: CoordinationRequestPageSkeleton,
 });
