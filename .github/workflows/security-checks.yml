@@ -3,6 +3,8 @@ name: Security Checks
 on:
   workflow_call:
   pull_request:
+    # Not a default activity type; without it, marking a draft ready starts no run.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -21,6 +23,7 @@ concurrency:
 jobs:
   gitleaks:
     name: Gitleaks
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -38,6 +41,7 @@ jobs:
 
   dependency-audit:
     name: Dependency audit
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -50,6 +54,7 @@ jobs:
 
   codeql:
     name: CodeQL
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

@@ -3,6 +3,8 @@ name: Unit Tests
 on:
   workflow_call:
   pull_request:
+    # Not a default activity type; without it, marking a draft ready starts no run.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -20,6 +22,7 @@ concurrency:
 jobs:
   unit-tests:
     name: Unit tests
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
