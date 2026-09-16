@@ -95,3 +95,31 @@ export const listUnassignedEventRequests = createServerFn({ method: "GET" })
     const [{ db }, { handleListUnassignedEventRequests }] = await loadServer();
     return handleListUnassignedEventRequests(db);
   });
+
+/** Criterion 2: fetches one owned draft so the edit route can seed the form with it. */
+export const getEventRequestDraft = createServerFn({ method: "GET" })
+  .validator(parseEventRequestId)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleGetEventRequestDraft }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/drafts.server"),
+    ]);
+
+    return handleGetEventRequestDraft(data, context.user, db);
+  });
+
+/** Criterion 3: deletes an owned draft; refuses a submitted one via the scoping in the handler. */
+export const deleteEventRequestDraft = createServerFn({ method: "POST" })
+  .validator(parseEventRequestId)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleDeleteEventRequestDraft }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/drafts.server"),
+    ]);
+
+    return handleDeleteEventRequestDraft(data, context.user, db);
+  });
+
+export type EventRequestDeleted = Awaited<ReturnType<typeof deleteEventRequestDraft>>;

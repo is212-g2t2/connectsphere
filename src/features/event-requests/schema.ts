@@ -173,6 +173,7 @@ export const EventRequestDraftInput = z
       });
     }
   })
+
   /**
    * Criterion 5: a request saved with registration off keeps no active terms. The form input
    * already omits its inactive fields, so stale strings are never validated; this transform is
@@ -188,6 +189,9 @@ export const EventRequestDraftInput = z
           registrationClosesAt: undefined,
         }
   );
+
+export const EVENT_REQUEST_DELETE_REFUSAL =
+  "This request has been submitted and can no longer be deleted.";
 
 export type EventRequestDraftValues = z.infer<typeof EventRequestDraftInput>;
 
@@ -248,7 +252,9 @@ export const EventRequestDraftFormInput = EventRequestDraftFormShape.transform(
     equipmentRequirements: values.equipmentRequirements
       .filter(line => line.type !== "" || line.quantity !== "")
       .map(line => {
-        const requirement: { type: string; quantity?: number } = { type: line.type };
+        const requirement: { type: string; quantity?: number } = {
+          type: line.type,
+        };
         if (line.quantity !== "") requirement.quantity = parseWholeNumber(line.quantity);
         return requirement;
       }),

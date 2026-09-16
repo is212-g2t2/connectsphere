@@ -20,6 +20,10 @@ vi.mock("@tanstack/react-router", () => ({
     to: string;
     params?: Record<string, string>;
   }) => <a href={params ? to.replace("$requestId", params.requestId) : to}>{children}</a>,
+
+  useRouter: () => ({
+    navigate: vi.fn<() => void>(),
+  }),
 }));
 
 const base: EventRequestSummary = {
@@ -63,7 +67,10 @@ const submitted: EventRequestSummary = {
   submittedAt: new Date("2026-09-14T10:00:00Z"),
   assignedCoordinatorId: "seed-coordinator-1",
   assignedAt: new Date("2026-09-14T10:00:00Z"),
-  coordinator: { name: "Seeded Event Coordinator", email: "coordinator.seed@example.com" },
+  coordinator: {
+    name: "Seeded Event Coordinator",
+    email: "coordinator.seed@example.com",
+  },
   eventName: "Annual dinner",
   purpose: "Thank the volunteers",
   proposedDates: [{ start: "2030-12-01T18:00", end: "2030-12-01T22:00" }],
