@@ -63,14 +63,14 @@ const venue: Venue = {
 
 describe("DashboardPage", () => {
   it("greets the session user and links on to their settings", () => {
-    render(<DashboardPage user={userWithRole("attendee")} />);
+    render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
 
     expect(screen.getByRole("heading", { name: "Welcome, Casey" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Account settings" })).toBeTruthy();
   });
 
   it("shows the upload card and the workspace links the role may reach", () => {
-    render(<DashboardPage user={userWithRole("venue_staff")} />);
+    render(<DashboardPage user={userWithRole("venue_staff")} events={[]} />);
 
     expect(screen.getByRole("heading", { name: "File upload" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
@@ -78,11 +78,40 @@ describe("DashboardPage", () => {
   });
 
   it("hides every role-gated control from an attendee", () => {
-    render(<DashboardPage user={userWithRole("attendee")} />);
+    render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
 
     expect(screen.queryByRole("heading", { name: "File upload" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Venues" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
+  });
+
+  it("renders the loaded events, redacted to the access they carry", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("venue_staff")}
+        events={[
+          {
+            access: "venue_staff",
+            event: {
+              id: 7,
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+              expectedAttendance: 120,
+              layout: "Theatre",
+              requiredFacilities: "Projector",
+              venueRequest: { status: "pending" },
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("venue staff access")).toBeTruthy();
+    // The venue staff projection carries no name, so the fallback title is what it shows.
+    expect(screen.getByRole("heading", { name: "Venue request" })).toBeTruthy();
+    expect(screen.getByText("120")).toBeTruthy();
+    expect(screen.getByText("pending")).toBeTruthy();
   });
 
   /**
@@ -99,7 +128,7 @@ describe("DashboardPage", () => {
           new Response(JSON.stringify({ error: "Upload refused for this file" }), { status: 400 })
         )
     );
-    const { container } = render(<DashboardPage user={userWithRole("venue_staff")} />);
+    const { container } = render(<DashboardPage user={userWithRole("venue_staff")} events={[]} />);
 
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     expect(input).not.toBeNull();

@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env, no-console
 import { hashPassword } from "better-auth/crypto";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -33,7 +33,8 @@ export const seedUsers: SeedUser[] = [
 ];
 
 /**
- * Shared password for the seeded internal staff accounts (PTR-59).
+ * Shared password for every seeded account (PTR-59): the internal staff accounts, the demo
+ * organiser and the demo attendee.
  * Obviously non-production and documented in the README — never put real personal data here.
  * It satisfies PasswordSchema (8–128 characters, a digit, a symbol).
  */
@@ -136,9 +137,12 @@ export const seedVenues: SeedVenue[] = [
  * the column reads back. Re-run idempotency is the per-venue existence check in `runSeed`
  * rather than the unique period index, because a moving date never collides.
  */
+function futureDate(days: number): string {
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
 function futureDay(days: number, time = "00:00:00"): string {
-  const day = new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
-  return `${day} ${time}`;
+  return `${futureDate(days)} ${time}`;
 }
 
 export const seedVenueUnavailability: {
@@ -160,24 +164,15 @@ export const seedVenueUnavailability: {
     reason: "Internal staff training",
   },
 ];
-export const seedDemoEvent = {
-  id: "demo-event-1",
-  name: "ConnectSphere Demo Summit",
-  description: "A seeded event for exercising role-aware event access locally.",
-  eventDate: "2026-10-15",
-  startTime: "09:00:00",
-  endTime: "17:00:00",
-  venue: "Main Hall",
-  status: "confirmed",
-  registrationEnabled: true,
-  registrationOpensAt: new Date("2026-09-01T09:00:00Z"),
-  registrationClosesAt: new Date("2026-10-14T17:00:00Z"),
-  expectedAttendance: 120,
-  layout: "Theatre seating",
-  accessibilityRequirements: "Step-free access and hearing loop",
-  requiredFacilities: "Projector, stage lighting and registration desk",
-  createdById: "test-user-2",
-} satisfies typeof schema.events.$inferInsert;
+/**
+ * PTR-8: the demo event is a submitted event request, because the event record does not exist
+ * until PTR-21/24 and `event_requests` is what access is checked against. The name doubles as
+ * the idempotency key — looked up with the organiser before insert, since `id` is serial and
+ * pinning it would make the next application insert collide with the sequence.
+ */
+export const DEMO_EVENT_NAME = "ConnectSphere Demo Summit";
+const DEMO_EVENT_ORGANISER_ID = "test-user-2";
+const DEMO_EVENT_COORDINATOR_ID = "seed-coordinator-1";
 
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -241,34 +236,89 @@ export async function runSeed(database: Database): Promise<void> {
   if (missingPeriods.length > 0) {
     await database.insert(schema.venueUnavailability).values(missingPeriods).onConflictDoNothing();
   }
-  await database.insert(schema.events).values(seedDemoEvent).onConflictDoNothing();
-  await database
-    .insert(schema.eventCoordinators)
-    .values({ eventId: seedDemoEvent.id, coordinatorId: "seed-coordinator-1" })
-    .onConflictDoNothing();
-  await database
-    .insert(schema.venueRequests)
-    .values({
-      id: "demo-venue-request-1",
-      eventId: seedDemoEvent.id,
-      assignedStaffId: "seed-venue-staff-1",
-    })
-    .onConflictDoNothing();
-  await database
-    .insert(schema.equipmentRequests)
-    .values({
-      id: "demo-equipment-request-1",
-      eventId: seedDemoEvent.id,
-      assignedStaffId: "seed-tech-support-1",
-      item: "Projector",
-      arrangementStatus: "reserved",
-      notes: "HDMI adapter included",
-    })
-    .onConflictDoNothing();
-  await database
-    .insert(schema.eventRegistrations)
-    .values({ eventId: seedDemoEvent.id, attendeeId: "test-user-1" })
-    .onConflictDoNothing();
+  // One transaction with the request row locked. Integration suites share this database and
+  // delete event requests, so a lookup followed by separate inserts could have its parent row
+  // deleted between the two statements; the lock makes such a delete wait until the children
+  // are written, and an inserted row is invisible to a concurrent delete until commit.
+  await database.transaction(async tx => {
+    const existingDemoRequests = await tx
+      .select({ id: schema.eventRequests.id })
+      .from(schema.eventRequests)
+      .where(
+        and(
+          eq(schema.eventRequests.organiserId, DEMO_EVENT_ORGANISER_ID),
+          eq(schema.eventRequests.eventName, DEMO_EVENT_NAME)
+        )
+      )
+      .limit(1)
+      .for("update");
+
+    // Relative to seed time, and rewritten on every run: a database seeded more than a month ago
+    // would otherwise keep a registration window that has since closed.
+    const demoTiming = {
+      proposedDates: [{ start: `${futureDate(30)}T09:00`, end: `${futureDate(30)}T17:00` }],
+      registrationOpensAt: `${futureDate(-1)}T09:00`,
+      registrationClosesAt: `${futureDate(29)}T17:00`,
+    };
+
+    let demoRequestId = existingDemoRequests.at(0)?.id;
+    if (demoRequestId === undefined) {
+      const [inserted] = await tx
+        .insert(schema.eventRequests)
+        .values({
+          organiserId: DEMO_EVENT_ORGANISER_ID,
+          status: "submitted",
+          submittedAt: new Date(),
+          assignedCoordinatorId: DEMO_EVENT_COORDINATOR_ID,
+          assignedAt: new Date(),
+          eventName: DEMO_EVENT_NAME,
+          purpose: "Exercise each role's event access locally.",
+          ...demoTiming,
+          expectedAttendance: 120,
+          description: "A seeded event for exercising role-aware event access locally.",
+          eventType: "Conference",
+          venueRequirements: "Projector, stage lighting and registration desk",
+          roomLayoutPreference: "Theatre seating",
+          accessibilityRequirements: "Step-free access and hearing loop",
+          equipmentRequirements: [{ type: "Projector", quantity: 1 }],
+          specialArrangements: "",
+          registrationEnabled: true,
+          registrationCapacity: 150,
+        })
+        .returning({ id: schema.eventRequests.id });
+
+      demoRequestId = inserted.id;
+    } else {
+      await tx
+        .update(schema.eventRequests)
+        .set(demoTiming)
+        .where(eq(schema.eventRequests.id, demoRequestId));
+    }
+
+    await tx
+      .insert(schema.venueRequests)
+      .values({
+        id: "demo-venue-request-1",
+        eventId: demoRequestId,
+        assignedStaffId: "seed-venue-staff-1",
+      })
+      .onConflictDoNothing();
+    await tx
+      .insert(schema.equipmentRequests)
+      .values({
+        id: "demo-equipment-request-1",
+        eventId: demoRequestId,
+        assignedStaffId: "seed-tech-support-1",
+        item: "Projector",
+        arrangementStatus: "reserved",
+        notes: "HDMI adapter included",
+      })
+      .onConflictDoNothing();
+    await tx
+      .insert(schema.eventRegistrations)
+      .values({ eventId: demoRequestId, attendeeId: "test-user-1" })
+      .onConflictDoNothing();
+  });
 }
 
 /**

@@ -18,7 +18,6 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
-import { Route as ApiEventsRouteImport } from './routes/api/events'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiSmokeRouteImport } from './routes/api/smoke'
 import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
@@ -76,11 +75,6 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
-} as any)
-const ApiEventsRoute = ApiEventsRouteImport.update({
-  id: '/api/events',
-  path: '/api/events',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
@@ -165,7 +159,6 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/settings': typeof AuthenticatedSettingsRoute
-  '/api/events': typeof ApiEventsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
@@ -189,7 +182,6 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/settings': typeof AuthenticatedSettingsRoute
-  '/api/events': typeof ApiEventsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
@@ -215,7 +207,6 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
-  '/api/events': typeof ApiEventsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
@@ -241,7 +232,6 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/dashboard'
     | '/settings'
-    | '/api/events'
     | '/api/health'
     | '/api/smoke'
     | '/api/upload-url'
@@ -265,7 +255,6 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/dashboard'
     | '/settings'
-    | '/api/events'
     | '/api/health'
     | '/api/smoke'
     | '/api/upload-url'
@@ -290,7 +279,6 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/_authenticated/dashboard'
     | '/_authenticated/settings'
-    | '/api/events'
     | '/api/health'
     | '/api/smoke'
     | '/api/upload-url'
@@ -314,7 +302,6 @@ export interface RootRouteChildren {
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
-  ApiEventsRoute: typeof ApiEventsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiSmokeRoute: typeof ApiSmokeRoute
   ApiUploadUrlRoute: typeof ApiUploadUrlRoute
@@ -385,13 +372,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings'
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRoute
-    }
-    '/api/events': {
-      id: '/api/events'
-      path: '/api/events'
-      fullPath: '/api/events'
-      preLoaderRoute: typeof ApiEventsRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/api/health': {
       id: '/api/health'
@@ -530,7 +510,6 @@ const rootRouteChildren: RootRouteChildren = {
   RobotsDottxtRoute: RobotsDottxtRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
-  ApiEventsRoute: ApiEventsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiSmokeRoute: ApiSmokeRoute,
   ApiUploadUrlRoute: ApiUploadUrlRoute,

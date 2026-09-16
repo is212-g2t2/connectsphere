@@ -1,8 +1,8 @@
-import { relations, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
-  date,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -10,7 +10,6 @@ import {
   primaryKey,
   serial,
   text,
-  time,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -124,6 +123,10 @@ export const eventRequests = pgTable(
       "event_requests_registration_closes_after_opens",
       sql`${table.registrationOpensAt} is null or ${table.registrationClosesAt} is null or ${table.registrationClosesAt} > ${table.registrationOpensAt}`
     ),
+    // PTR-8 resolves a caller's event by ownership or assignment; both columns are looked up
+    // per request, and Postgres indexes neither a foreign key nor a column on its own.
+    index("event_requests_organiser_id_idx").on(table.organiserId),
+    index("event_requests_assigned_coordinator_id_idx").on(table.assignedCoordinatorId),
   ]
 );
 
@@ -195,106 +198,80 @@ export const venueUnavailability = pgTable(
 
 export * from "./auth-schema";
 
-export const events = pgTable("events", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  description: text("description").notNull(),
-  eventDate: date("event_date").notNull(),
-  startTime: time("start_time").notNull(),
-  endTime: time("end_time").notNull(),
-  venue: text("venue"),
-  status: text("status").default("draft").notNull(),
-  registrationEnabled: boolean("registration_enabled").default(false).notNull(),
-  registrationOpensAt: timestamp("registration_opens_at"),
-  registrationClosesAt: timestamp("registration_closes_at"),
-  expectedAttendance: integer("expected_attendance"),
-  layout: text("layout"),
-  accessibilityRequirements: text("accessibility_requirements"),
-  requiredFacilities: text("required_facilities"),
-  createdById: text("created_by_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .$onUpdate(() => /* @__PURE__ */ new Date())
-    .notNull(),
-});
+/**
+ * PTR-8: the statuses an event's child records can hold. Same rule as `eventRequestStatus`
+ * above — only what a story writes today — so widening one is a generated `ALTER TYPE`
+ * migration when PTR-31/39/44 start moving it.
+ */
+export const venueRequestStatus = pgEnum("venue_request_status", ["pending"]);
 
-export const eventCoordinators = pgTable(
-  "event_coordinators",
+export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status", [
+  "requested",
+  "reserved",
+]);
+
+export const eventRegistrationStatus = pgEnum("event_registration_status", ["registered"]);
+
+/**
+ * PTR-8: until the event record arrives (PTR-21/24), the submitted event request *is* the event,
+ * so every child below references `event_requests.id` rather than a parallel events table.
+ * `venue_requests` and `equipment_requests` are the requests directed at Venue Staff and
+ * Technical Support (PTR-8 criterion 3); their owning stories (PTR-31/39) widen the columns.
+ */
+export const venueRequests = pgTable(
+  "venue_requests",
   {
-    eventId: text("event_id")
+    id: text("id").primaryKey(),
+    eventId: integer("event_id")
       .notNull()
-      .references(() => events.id, { onDelete: "cascade" }),
-    coordinatorId: text("coordinator_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
+    status: venueRequestStatus("status").default("pending").notNull(),
   },
-  table => [primaryKey({ columns: [table.eventId, table.coordinatorId] })]
+  table => [
+    // Both directions are looked up per request: the caller's assignments, and the requests of
+    // the events a caller can already see.
+    index("venue_requests_event_id_idx").on(table.eventId),
+    index("venue_requests_assigned_staff_id_idx").on(table.assignedStaffId),
+  ]
 );
 
-export const venueRequests = pgTable("venue_requests", {
-  id: text("id").primaryKey(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id, { onDelete: "cascade" }),
-  assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
-  status: text("status").default("pending").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const equipmentRequests = pgTable("equipment_requests", {
-  id: text("id").primaryKey(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id, { onDelete: "cascade" }),
-  assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
-  item: text("item").notNull(),
-  arrangementStatus: text("arrangement_status").default("requested").notNull(),
-  notes: text("notes"),
-});
+export const equipmentRequests = pgTable(
+  "equipment_requests",
+  {
+    id: text("id").primaryKey(),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
+    item: text("item").notNull(),
+    arrangementStatus: equipmentArrangementStatus("arrangement_status")
+      .default("requested")
+      .notNull(),
+    notes: text("notes"),
+  },
+  table => [
+    index("equipment_requests_event_id_idx").on(table.eventId),
+    index("equipment_requests_assigned_staff_id_idx").on(table.assignedStaffId),
+  ]
+);
 
 export const eventRegistrations = pgTable(
   "event_registrations",
   {
-    eventId: text("event_id")
+    eventId: integer("event_id")
       .notNull()
-      .references(() => events.id, { onDelete: "cascade" }),
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
     attendeeId: text("attendee_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    status: text("status").default("registered").notNull(),
-    registeredAt: timestamp("registered_at").defaultNow().notNull(),
+    status: eventRegistrationStatus("status").default("registered").notNull(),
+    registeredAt: timestamp("registered_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  table => [primaryKey({ columns: [table.eventId, table.attendeeId] })]
+  table => [
+    primaryKey({ columns: [table.eventId, table.attendeeId] }),
+    // The primary key leads with `event_id`, so an attendee's own registrations need their own
+    // path to be indexed.
+    index("event_registrations_attendee_id_idx").on(table.attendeeId),
+  ]
 );
-
-export const eventsRelations = relations(events, ({ one, many }) => ({
-  organiser: one(user, { fields: [events.createdById], references: [user.id] }),
-  coordinators: many(eventCoordinators),
-  venueRequests: many(venueRequests),
-  equipmentRequests: many(equipmentRequests),
-  registrations: many(eventRegistrations),
-}));
-
-export const eventCoordinatorsRelations = relations(eventCoordinators, ({ one }) => ({
-  event: one(events, { fields: [eventCoordinators.eventId], references: [events.id] }),
-  coordinator: one(user, { fields: [eventCoordinators.coordinatorId], references: [user.id] }),
-}));
-
-export const venueRequestsRelations = relations(venueRequests, ({ one }) => ({
-  event: one(events, { fields: [venueRequests.eventId], references: [events.id] }),
-  assignedStaff: one(user, { fields: [venueRequests.assignedStaffId], references: [user.id] }),
-}));
-
-export const equipmentRequestsRelations = relations(equipmentRequests, ({ one }) => ({
-  event: one(events, { fields: [equipmentRequests.eventId], references: [events.id] }),
-  assignedStaff: one(user, { fields: [equipmentRequests.assignedStaffId], references: [user.id] }),
-}));
-
-export const eventRegistrationsRelations = relations(eventRegistrations, ({ one }) => ({
-  event: one(events, { fields: [eventRegistrations.eventId], references: [events.id] }),
-  attendee: one(user, { fields: [eventRegistrations.attendeeId], references: [user.id] }),
-}));
