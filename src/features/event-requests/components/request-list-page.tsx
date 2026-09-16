@@ -3,6 +3,14 @@ import { useState } from "react";
 
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "#/components/ui/table";
 import { unwrapRefusal } from "#/features/auth/session";
 import { formatFirstProposedDate } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
@@ -87,21 +95,21 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
           No requests yet. Start one and save it as a draft whenever you like.
         </p>
       ) : (
-        <div className="mt-10 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border font-mono text-xs tracking-widest text-muted-foreground uppercase">
-              <tr>
-                <th className="py-3 pr-4 font-medium">Event</th>
-                <th className="py-3 pr-4 font-medium">Proposed date</th>
-                <th className="py-3 pr-4 font-medium">Status</th>
-                <th className="py-3 font-medium">Coordinator</th>
-                <th className="py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="mt-10">
+          <Table>
+            <TableHeader className="border-b border-border font-mono text-xs tracking-widest text-muted-foreground uppercase">
+              <TableRow>
+                <TableHead className="py-3 pr-4 font-medium">Event</TableHead>
+                <TableHead className="py-3 pr-4 font-medium">Proposed date</TableHead>
+                <TableHead className="py-3 pr-4 font-medium">Status</TableHead>
+                <TableHead className="py-3 font-medium">Coordinator</TableHead>
+                <TableHead className="py-3 font-medium">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {requests.map(request => (
-                <tr key={request.id} className="border-b border-border">
-                  <td className="py-3 pr-4">
+                <TableRow key={request.id} className="border-b border-border">
+                  <TableCell className="py-3 pr-4">
                     <Link
                       to="/event-requests/$requestId"
                       params={{ requestId: String(request.id) }}
@@ -109,19 +117,21 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                     >
                       {request.eventName.trim() || UNTITLED_REQUEST}
                     </Link>
-                  </td>
-                  <td className="py-3 pr-4">{formatFirstProposedDate(request.proposedDates)}</td>
-                  <td className="py-3 pr-4">
+                  </TableCell>
+                  <TableCell className="py-3 pr-4">
+                    {formatFirstProposedDate(request.proposedDates)}
+                  </TableCell>
+                  <TableCell className="py-3 pr-4">
                     <EventRequestStatusBadge status={request.status} />
-                  </td>
+                  </TableCell>
                   {request.coordinator ? (
-                    <td className="py-3">{request.coordinator.name}</td>
+                    <TableCell className="py-3">{request.coordinator.name}</TableCell>
                   ) : (
-                    <td className="py-3 text-muted-foreground">
+                    <TableCell className="py-3 text-muted-foreground">
                       {request.status === "draft" ? ASSIGNED_ON_SUBMIT : NOT_YET_ASSIGNED}
-                    </td>
+                    </TableCell>
                   )}
-                  <td className="py-3">
+                  <TableCell className="py-3">
                     {request.status === "draft" &&
                       (pendingDeleteId === request.id ? (
                         <span className="flex items-center gap-2 text-sm">
@@ -164,11 +174,11 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                           </Button>
                         </span>
                       ))}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </main>
