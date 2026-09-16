@@ -87,8 +87,38 @@ test("hands over an event, transfers access, and notifies both recipients", asyn
     await page.getByRole("link", { name: eventName }).click();
     await page.waitForLoadState("networkidle");
     await page.getByLabel("Event Coordinator", { exact: true }).selectOption(incoming.id);
+    // Replay the authenticated mutation as a cross-site request before allowing the real one.
+    let crossSiteStatus: number | undefined;
+    await page.route("**/_serverFn/**", async route => {
+      const mutation = route.request();
+      if (mutation.method() === "POST") {
+        const forged = await page.request.fetch(mutation.url(), {
+          method: "POST",
+          headers: {
+            ...mutation.headers(),
+            origin: "https://untrusted.example",
+            "sec-fetch-site": "cross-site",
+          },
+          data: mutation.postDataBuffer() ?? undefined,
+        });
+        crossSiteStatus = forged.status();
+        const [unchanged] = await database
+          .select()
+          .from(schema.eventRequests)
+          .where(eq(schema.eventRequests.id, request.id));
+        expect(unchanged.assignedCoordinatorId).toBe(outgoing.id);
+        const audits = await database
+          .select()
+          .from(schema.eventAssignments)
+          .where(eq(schema.eventAssignments.eventRequestId, request.id));
+        expect(audits).toHaveLength(0);
+      }
+      await route.continue();
+    });
     await page.getByRole("button", { name: "Reassign Coordinator" }).click();
     await expect(page).toHaveURL(/\/coordination\/?$/);
+    expect(crossSiteStatus).toBe(403);
+    await page.unroute("**/_serverFn/**");
     await expect(page.getByRole("link", { name: eventName })).toHaveCount(0);
 
     await page.goto(`/coordination/${request.id}`);
@@ -106,15 +136,23 @@ test("hands over an event, transfers access, and notifies both recipients", asyn
     await expect(
       incomingPage.getByText(`You have been assigned as Coordinator for ${eventName}.`)
     ).toBeVisible();
-    await incomingPage.getByRole("link", { name: "View request", exact: true }).click();
-    await expect(incomingPage).toHaveURL(new RegExp(`/coordination/${request.id}$`));
+    const incomingRequestLink = incomingPage.getByRole("link", {
+      name: "View request",
+      exact: true,
+    });
+    await expect(incomingRequestLink).toHaveAttribute("href", `/coordination/${request.id}`);
+    await incomingPage.goto(`/coordination/${request.id}`);
     await expect(incomingPage.getByRole("heading", { name: eventName })).toBeVisible();
     await organiserPage.goto("/dashboard");
     await expect(
       organiserPage.getByText(`Incoming Coordinator is now the Coordinator for ${eventName}.`)
     ).toBeVisible();
-    await organiserPage.getByRole("link", { name: "View request", exact: true }).click();
-    await expect(organiserPage).toHaveURL(new RegExp(`/event-requests/${request.id}$`));
+    const organiserRequestLink = organiserPage.getByRole("link", {
+      name: "View request",
+      exact: true,
+    });
+    await expect(organiserRequestLink).toHaveAttribute("href", `/event-requests/${request.id}`);
+    await organiserPage.goto(`/event-requests/${request.id}`);
     await expect(organiserPage.getByRole("link", { name: incoming.email })).toBeVisible();
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
