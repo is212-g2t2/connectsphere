@@ -21,13 +21,10 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
-<<<<<<< HEAD
+import { Route as AuthenticatedEventRequestRequestListRouteImport } from './routes/_authenticated/event-request/requestList'
 import { Route as AuthenticatedEventRequestsIndexRouteImport } from './routes/_authenticated/event-requests/index'
 import { Route as AuthenticatedEventRequestsRequestIdRouteImport } from './routes/_authenticated/event-requests/$requestId'
 import { Route as AuthenticatedEventRequestsNewRouteImport } from './routes/_authenticated/event-requests/new'
-=======
-import { Route as AuthenticatedEventRequestRequestListRouteImport } from './routes/_authenticated/event-request/requestList'
->>>>>>> f10656b (feat: resume and manage event request drafts)
 import { Route as AuthenticatedVenuesIndexRouteImport } from './routes/_authenticated/venues/index'
 import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authenticated/venues/$venueId'
 import { Route as AuthenticatedVenuesNewRouteImport } from './routes/_authenticated/venues/new'
@@ -94,7 +91,12 @@ const ApiUploadUrlRoute = ApiUploadUrlRouteImport.update({
   path: '/api/upload-url',
   getParentRoute: () => rootRouteImport,
 } as any)
-<<<<<<< HEAD
+const AuthenticatedEventRequestRequestListRoute =
+  AuthenticatedEventRequestRequestListRouteImport.update({
+    id: '/event-request/requestList',
+    path: '/event-request/requestList',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedEventRequestsIndexRoute =
   AuthenticatedEventRequestsIndexRouteImport.update({
     id: '/event-requests/',
@@ -111,12 +113,6 @@ const AuthenticatedEventRequestsNewRoute =
   AuthenticatedEventRequestsNewRouteImport.update({
     id: '/event-requests/new',
     path: '/event-requests/new',
-=======
-const AuthenticatedEventRequestRequestListRoute =
-  AuthenticatedEventRequestRequestListRouteImport.update({
-    id: '/event-request/requestList',
-    path: '/event-request/requestList',
->>>>>>> f10656b (feat: resume and manage event request drafts)
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedVenuesIndexRoute =
@@ -160,12 +156,9 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
-<<<<<<< HEAD
+  '/event-request/requestList': typeof AuthenticatedEventRequestRequestListRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
-=======
-  '/event-request/requestList': typeof AuthenticatedEventRequestRequestListRoute
->>>>>>> f10656b (feat: resume and manage event request drafts)
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -185,12 +178,9 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
-<<<<<<< HEAD
+  '/event-request/requestList': typeof AuthenticatedEventRequestRequestListRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
-=======
-  '/event-request/requestList': typeof AuthenticatedEventRequestRequestListRoute
->>>>>>> f10656b (feat: resume and manage event request drafts)
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -212,12 +202,9 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
-<<<<<<< HEAD
+  '/_authenticated/event-request/requestList': typeof AuthenticatedEventRequestRequestListRoute
   '/_authenticated/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/_authenticated/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
-=======
-  '/_authenticated/event-request/requestList': typeof AuthenticatedEventRequestRequestListRoute
->>>>>>> f10656b (feat: resume and manage event request drafts)
   '/_authenticated/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/_authenticated/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -239,12 +226,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/api/health'
     | '/api/upload-url'
-<<<<<<< HEAD
+    | '/event-request/requestList'
     | '/event-requests/$requestId'
     | '/event-requests/new'
-=======
-    | '/event-request/requestList'
->>>>>>> f10656b (feat: resume and manage event request drafts)
     | '/venues/$venueId'
     | '/venues/new'
     | '/api/auth/$'
@@ -264,12 +248,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/api/health'
     | '/api/upload-url'
-<<<<<<< HEAD
+    | '/event-request/requestList'
     | '/event-requests/$requestId'
     | '/event-requests/new'
-=======
-    | '/event-request/requestList'
->>>>>>> f10656b (feat: resume and manage event request drafts)
     | '/venues/$venueId'
     | '/venues/new'
     | '/api/auth/$'
@@ -290,12 +271,9 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/api/health'
     | '/api/upload-url'
-<<<<<<< HEAD
+    | '/_authenticated/event-request/requestList'
     | '/_authenticated/event-requests/$requestId'
     | '/_authenticated/event-requests/new'
-=======
-    | '/_authenticated/event-request/requestList'
->>>>>>> f10656b (feat: resume and manage event request drafts)
     | '/_authenticated/venues/$venueId'
     | '/_authenticated/venues/new'
     | '/api/auth/$'
@@ -403,7 +381,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiUploadUrlRouteImport
       parentRoute: typeof rootRouteImport
     }
-<<<<<<< HEAD
+    '/_authenticated/event-request/requestList': {
+      id: '/_authenticated/event-request/requestList'
+      path: '/event-request/requestList'
+      fullPath: '/event-request/requestList'
+      preLoaderRoute: typeof AuthenticatedEventRequestRequestListRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/event-requests/': {
       id: '/_authenticated/event-requests/'
       path: '/event-requests'
@@ -423,13 +407,6 @@ declare module '@tanstack/react-router' {
       path: '/event-requests/new'
       fullPath: '/event-requests/new'
       preLoaderRoute: typeof AuthenticatedEventRequestsNewRouteImport
-=======
-    '/_authenticated/event-request/requestList': {
-      id: '/_authenticated/event-request/requestList'
-      path: '/event-request/requestList'
-      fullPath: '/event-request/requestList'
-      preLoaderRoute: typeof AuthenticatedEventRequestRequestListRouteImport
->>>>>>> f10656b (feat: resume and manage event request drafts)
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/venues/': {
@@ -474,12 +451,9 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCoordinationRoute: typeof AuthenticatedCoordinationRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
-<<<<<<< HEAD
+  AuthenticatedEventRequestRequestListRoute: typeof AuthenticatedEventRequestRequestListRoute
   AuthenticatedEventRequestsRequestIdRoute: typeof AuthenticatedEventRequestsRequestIdRoute
   AuthenticatedEventRequestsNewRoute: typeof AuthenticatedEventRequestsNewRoute
-=======
-  AuthenticatedEventRequestRequestListRoute: typeof AuthenticatedEventRequestRequestListRoute
->>>>>>> f10656b (feat: resume and manage event request drafts)
   AuthenticatedVenuesVenueIdRoute: typeof AuthenticatedVenuesVenueIdRoute
   AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
   AuthenticatedEventRequestsIndexRoute: typeof AuthenticatedEventRequestsIndexRoute
@@ -491,14 +465,11 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCoordinationRoute: AuthenticatedCoordinationRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
-<<<<<<< HEAD
+  AuthenticatedEventRequestRequestListRoute:
+    AuthenticatedEventRequestRequestListRoute,
   AuthenticatedEventRequestsRequestIdRoute:
     AuthenticatedEventRequestsRequestIdRoute,
   AuthenticatedEventRequestsNewRoute: AuthenticatedEventRequestsNewRoute,
-=======
-  AuthenticatedEventRequestRequestListRoute:
-    AuthenticatedEventRequestRequestListRoute,
->>>>>>> f10656b (feat: resume and manage event request drafts)
   AuthenticatedVenuesVenueIdRoute: AuthenticatedVenuesVenueIdRoute,
   AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
   AuthenticatedEventRequestsIndexRoute: AuthenticatedEventRequestsIndexRoute,
@@ -526,13 +497,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
