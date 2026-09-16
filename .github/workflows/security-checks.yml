@@ -2,7 +2,12 @@ name: Security Checks
 
 on:
   workflow_call:
+  # `ready_for_review` is not a default activity type, so without it marking a
+  # draft ready would start no run. Drafts are gated off at the job level with
+  # the negated condition: `draft` is absent on workflow_call and schedule
+  # events, where `== false` would wrongly skip the jobs.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -21,6 +26,7 @@ concurrency:
 jobs:
   gitleaks:
     name: Gitleaks
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -38,6 +44,7 @@ jobs:
 
   dependency-audit:
     name: Dependency audit
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -50,6 +57,7 @@ jobs:
 
   codeql:
     name: CodeQL
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
