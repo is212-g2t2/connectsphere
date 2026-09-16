@@ -83,6 +83,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   └── api/
 │   │       ├── auth/$.ts    # Better Auth handler
 │   │       ├── health.ts
+│   │       ├── smoke.ts     # Release gate — Bearer token, database ping, serving revision
 │   │       └── upload-url.ts# Presigned PUT URL — guarded by session and by role
 │   └── globals.css       # Global styles (Tailwind CSS v4)
 ├── tests/                # Vitest and Playwright suites
@@ -151,7 +152,7 @@ Two limits: `attendee` holds an empty role — `ac.newRole({})` authorizes nothi
 
 Built with `createAccessControl` from `better-auth/plugins/access` — despite the import path, **not** a plugin, and never in `betterAuth({ plugins })`. The `admin` plugin was rejected: it adds ban and impersonation columns nothing asks for, redefines the `role` field this project already owns (as `input: false`, silently disabling the sign-up role selector), and reads a comma-separated string as several roles at once.
 
-`permissions.ts` stays pure data because the browser imports it too — a server import there fails `bun run build` alone. The session-aware half lives in `src/features/auth/session.ts` and is now a middleware pipeline: `withSession` resolves the session and converts the status-carrying errors a handler may still throw (`AuthorizationError`, `NotFoundError`, `ConflictError`) into a status `Response`; `requireSession` refuses a missing session with 401 `Unauthorized`; `requirePermission(request)` refuses a role the matrix does not grant with 403 `Forbidden`. Those are the refusal responses a direct HTTP call receives. `upload-url.ts` is the one remaining route handler and answers with `Response.json` itself. Hiding a control is presentation, not enforcement, so every server function runs behind the pipeline:
+`permissions.ts` stays pure data because the browser imports it too — a server import there fails `bun run build` alone. The session-aware half lives in `src/features/auth/session.ts` and is now a middleware pipeline: `withSession` resolves the session and converts the status-carrying errors a handler may still throw (`AuthorizationError`, `NotFoundError`, `ConflictError`) into a status `Response`; `requireSession` refuses a missing session with 401 `Unauthorized`; `requirePermission(request)` refuses a role the matrix does not grant with 403 `Forbidden`. Those are the refusal responses a direct HTTP call receives. `upload-url.ts` is the one remaining route handler that enforces authorization itself, and it answers with `Response.json`. Hiding a control is presentation, not enforcement, so every server function runs behind the pipeline:
 
 - **Server functions** — every `createServerFn` in `src/features/` declares `.middleware([...])`; `tests/unit/server-function-middleware.test.ts` fails the suite if one does not, and `tests/integration/server-function-authorization.test.ts` runs the pipeline for a server function of each feature, covering the 401 and 403 paths and asserting that the handler below a refusal never ran. Because the middleware runs before the function's own `.validator()`, a refused role gets `Forbidden` even for a malformed payload, while a permitted one still gets the first Zod message.
 - **API route handlers** — `src/routes/api/upload-url.ts`, which calls `can()` next to its session check.
