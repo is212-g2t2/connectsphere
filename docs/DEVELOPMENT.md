@@ -75,7 +75,7 @@ This guide covers the local development environment, scripts catalog, database m
 | `MINIO_BUCKET`        | Optional | Bucket name (default: `app`)                                                                                                                             |
 | `MINIO_ACCESS_KEY`    | Optional | Storage access key (default: `admin`)                                                                                                                    |
 | `MINIO_SECRET_KEY`    | Optional | Storage secret key (default: `password`)                                                                                                                 |
-| `REDIS_URL`           | Optional | Redis connection string (`redis://localhost:6379`) — enables Bun native Redis session cache for multi-instance deployments                               |
+| `REDIS_URL`           | Optional | Redis connection string for `src/lib/redis.server.ts` (Bun-native client); nothing imports that module yet, so setting it currently has no effect        |
 | `SENTRY_AUTH_TOKEN`   | Optional | Auth token for Sentry source map uploads at build time                                                                                                   |
 | `VITE_APP_TITLE`      | Optional | Application title displayed in UI branding                                                                                                               |
 | `VITE_SENTRY_DSN`     | Optional | Enables Sentry error tracking                                                                                                                            |

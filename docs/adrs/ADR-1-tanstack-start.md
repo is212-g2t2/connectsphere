@@ -15,7 +15,7 @@ The team is small and optimises for iteration speed and type safety over a large
 - Server-rendered HTML for public and crawler-facing pages.
 - End-to-end TypeScript types from route to database.
 - Auth checks that can run both in route guards and inside server functions.
-- A deployment target that runs the Bun-native drivers as-is (see `docs/DEPLOYMENT.md`).
+- A deployment target that runs the Bun-native drivers as-is (see ADR-3).
 
 A further driver: the TanStack Start template arrives batteries-included. Docker and Compose setup, CI workflows, Drizzle configuration, Sentry instrumentation, seed scripts, and a shadcn/ui primitive layer are already wired together, where building that scaffolding from scratch would consume significant time before any product feature shipped.
 
@@ -44,5 +44,5 @@ Build on **TanStack Start** with **Nitro** as the server layer, keeping routes, 
 - One codebase, one deployable, one set of Zod schemas and TypeScript types shared across the client/server boundary.
 - The whole app redeploys for any server-side change; there is no partial rollout of a backend only.
 - Every client-reachable module must respect the server-only import rules in `AGENTS.md` (dynamic imports for `#/db`, no static `#/db/schema`, `.server.ts` only for modules nothing client-reachable imports); `tests/unit/client-bundle-safety.test.ts` enforces this.
-- Hosting must run the Bun runtime or the three native drivers need replacing, as documented in `docs/DEPLOYMENT.md`.
+- Hosting must run the Bun runtime or the three native drivers need replacing (ADR-3).
 - The team commits to the TanStack ecosystem (Router, Query, Form, Table) for routing, data loading, and forms.

@@ -23,7 +23,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   ├── ARCHITECTURE.md   # This file
 │   ├── CHANGELOG.md      # Release history
 │   ├── CONTRIBUTING.md   # Branch, commit, and test conventions
-│   ├── DEPLOYMENT.md     # Local Docker workflow and hosting trade-offs
+│   ├── DEPLOYMENT.md     # Deployed environments, release pipeline, and local Docker workflow
 │   ├── DESIGN.md         # Visual system notes
 │   └── DEVELOPMENT.md    # Local setup, scripts, database, and testing guide
 ├── AGENTS.md             # Developer guide for agents (also CLAUDE.md)
