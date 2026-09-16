@@ -68,6 +68,7 @@ This guide covers the local development environment, scripts catalog, database m
 | `DATABASE_URL`        | ✅       | PostgreSQL connection string                                                                                                                             |
 | `BETTER_AUTH_SECRET`  | ✅       | 32+ character secret for session signing                                                                                                                 |
 | `BETTER_AUTH_URL`     | ✅       | App origin (default: `http://localhost:3000`)                                                                                                            |
+| `SMOKE_TOKEN`         | Optional | Bearer token for `/api/smoke`; required in deployed environments, where `release.yml` reads it from Secret Manager. Unset answers 401                    |
 | `SERVER_URL`          | Optional | Canonical public application URL                                                                                                                         |
 | `RESEND_API_KEY`      | Optional | Required to send email. App boots without it; email calls throw a clear error                                                                            |
 | `EMAIL_FROM`          | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                        |
@@ -75,8 +76,9 @@ This guide covers the local development environment, scripts catalog, database m
 | `MINIO_BUCKET`        | Optional | Bucket name (default: `app`)                                                                                                                             |
 | `MINIO_ACCESS_KEY`    | Optional | Storage access key (default: `admin`)                                                                                                                    |
 | `MINIO_SECRET_KEY`    | Optional | Storage secret key (default: `password`)                                                                                                                 |
-| `REDIS_URL`           | Optional | Redis connection string (`redis://localhost:6379`) — enables Bun native Redis session cache for multi-instance deployments                               |
+| `REDIS_URL`           | Optional | Redis connection string for `src/lib/redis.server.ts` (Bun-native client); nothing imports that module yet, so setting it currently has no effect        |
 | `SENTRY_AUTH_TOKEN`   | Optional | Auth token for Sentry source map uploads at build time                                                                                                   |
+| `SENTRY_ENVIRONMENT`  | Optional | Sentry environment tag for the server SDK, read by `instrument.server.mjs` (default: `development`; Terraform sets `production`/`staging` when deployed) |
 | `VITE_APP_TITLE`      | Optional | Application title displayed in UI branding                                                                                                               |
 | `VITE_SENTRY_DSN`     | Optional | Enables Sentry error tracking                                                                                                                            |
 | `VITE_SENTRY_ORG`     | Optional | Sentry organization slug                                                                                                                                 |

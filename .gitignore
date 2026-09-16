@@ -22,3 +22,12 @@ scratch
 .claude
 # Local scratch space (briefs, prototypes) — not part of the app
 .scratch/
+
+# Terraform
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+infra/*.tfvars*
+infra/*.tfplan
+infra/crash.log
+infra/crash.*.log

@@ -1,0 +1,78 @@
+name: Rollback Cloud Run traffic
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Cloud Run service to roll back
+        required: true
+        type: choice
+        options:
+          - connectsphere
+          - connectsphere-staging
+      revision:
+        description: Retained revision to serve 100% (e.g. connectsphere-00003-abcd)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+# Deliberately the same group the release uses for that branch, so a rollback
+# cannot land in the middle of the release it is rolling back. A release paused
+# on an environment approval holds the lock; cancel that run, do not wait.
+concurrency:
+  group: release-${{ inputs.service == 'connectsphere' && 'refs/heads/main' || 'refs/heads/staging' }}
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: connectsphere-is212
+  REGION: asia-southeast1
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.service == 'connectsphere' && 'production' || 'staging' }}
+    steps:
+      # Dispatch inputs are free-form strings; route them through env so a
+      # crafted revision name cannot reach the shell as code.
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Verify the retained revision exists
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: |
+          gcloud run revisions describe "$REVISION" \
+            --region="$REGION" --project="$PROJECT_ID" --quiet
+
+      - name: Move 100% of traffic to the retained revision
+        env:
+          SERVICE: ${{ inputs.service }}
+          REVISION: ${{ inputs.revision }}
+        run: |
+          gcloud run services update-traffic "$SERVICE" \
+            --region="$REGION" --project="$PROJECT_ID" \
+            --to-revisions="$REVISION=100" --quiet
+
+      - name: Record the rollback
+        env:
+          SERVICE: ${{ inputs.service }}
+          REVISION: ${{ inputs.revision }}
+        run: |
+          {
+            echo "## Rollback"
+            echo ""
+            echo "- \`$SERVICE\` now serves \`$REVISION\` at 100%."
+            echo "- No image rebuild: the revision was already retained."
+          } >> "$GITHUB_STEP_SUMMARY"

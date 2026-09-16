@@ -85,6 +85,6 @@ For complete workflow instructions, script catalogs, testing guidelines, and env
 - [Architecture](./docs/ARCHITECTURE.md) — project structure, data flow, auth, and observability.
 - [Design System](./docs/DESIGN.md) — the ConnectSphere design system and its tokens.
 - [Agents Guide](./AGENTS.md) — rules for coding agents working in this repo.
-- [Deployment](./docs/DEPLOYMENT.md) — local Docker workflow, migrations, and hosting trade-offs.
+- [Deployment](./docs/DEPLOYMENT.md) — deployed environments, the release pipeline, rollback, and the local Docker workflow.
 - [Changelog](./docs/CHANGELOG.md) — version history.
 - [Contributing](./docs/CONTRIBUTING.md) — branch, commit, and test conventions.

@@ -6,7 +6,8 @@ Before opening a pull request, ensure your local environment is configured and w
 
 ## Branches
 
-- Base all work off `main`.
+- Base feature work off `staging` and open pull requests against `staging`. Merging a code change to `staging` deploys staging.
+- `staging` → `main` is **fast-forward only**. Merging to `main` deploys production. A squash or rebase rewrites the commit SHA, so the release pipeline rebuilds instead of shipping the image staging already tested; see the [Deployment Guide](./DEPLOYMENT.md#releases).
 - Use short, lowercase, hyphen-separated names: `feat/venue-booking`, `fix/auth-redirect`, `chore/ci-cache`.
 
 ## Commits

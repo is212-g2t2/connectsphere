@@ -1,0 +1,309 @@
+name: Release
+
+on:
+  push:
+    branches: [main, staging]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".vscode/**"
+      - ".idea/**"
+
+permissions:
+  contents: read
+
+# A staging push never queues behind a production release, and a release that
+# has reached deploy-stage is never cancelled mid-flight.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: connectsphere-is212
+  REGION: asia-southeast1
+  IMAGE: ghcr.io/is212-g2t2/connectsphere
+  SERVICE: ${{ github.ref == 'refs/heads/main' && 'connectsphere' || 'connectsphere-staging' }}
+  SECRET_PREFIX: ${{ github.ref == 'refs/heads/main' && 'prod' || 'staging' }}
+
+jobs:
+  code-quality:
+    uses: ./.github/workflows/code-quality.yml
+    permissions:
+      contents: read
+    secrets: inherit
+
+  unit-tests:
+    uses: ./.github/workflows/unit-tests.yml
+    permissions:
+      contents: read
+    secrets: inherit
+
+  integration-tests:
+    uses: ./.github/workflows/integration-tests.yml
+    permissions:
+      contents: read
+    secrets: inherit
+
+  e2e-tests:
+    uses: ./.github/workflows/e2e-tests.yml
+    permissions:
+      contents: read
+    secrets: inherit
+
+  # CodeQL declares `actions: read` + `security-events: write`, and a called
+  # workflow can only downgrade the caller's token. Without these the analysis
+  # resolves them to `none` and the whole release stops at the check stage.
+  security-checks:
+    uses: ./.github/workflows/security-checks.yml
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    secrets: inherit
+
+  publish:
+    name: Publish image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [code-quality, unit-tests, integration-tests, e2e-tests, security-checks]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.reuse.outputs.digest || steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute the commit tag
+        id: meta
+        run: echo "tag=${IMAGE}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # A fast-forwarded staging -> main merge points at the same commit, so the
+      # image staging tested is already published. Reusing it beats rebuilding
+      # and deploys the byte-identical artifact, resolved to an immutable digest.
+      - name: Resolve the existing image for this commit, if any
+        id: reuse
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          digest="$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' \
+            2>/dev/null | jq -r '.digest // empty')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          if [ -n "$digest" ]; then
+            echo "Reusing $tag@$digest"
+          else
+            echo "No published image for this commit; building it."
+          fi
+
+      # SENTRY_AUTH_TOKEN is a BuildKit secret, never a build arg: `cache-to:
+      # type=gha,mode=max` exports every layer, and PR runs on this public repo
+      # can read that cache. See Dockerfile.
+      - name: Build and push
+        id: build
+        if: steps.reuse.outputs.digest == ''
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tag }}
+          build-args: |
+            VITE_SENTRY_DSN=${{ secrets.VITE_SENTRY_DSN }}
+            VITE_SENTRY_ORG=${{ vars.VITE_SENTRY_ORG }}
+            VITE_SENTRY_PROJECT=${{ vars.VITE_SENTRY_PROJECT }}
+            VITE_APP_TITLE=${{ vars.VITE_APP_TITLE }}
+          secrets: |
+            sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-stage:
+    name: Stage revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: publish
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      revision: ${{ steps.stage.outputs.revision }}
+      url: ${{ steps.stage.outputs.url }}
+      previous: ${{ steps.pin.outputs.revision }}
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Pin the currently serving revision
+        id: pin
+        run: |
+          previous="$(gcloud run services describe "$SERVICE" \
+            --region="$REGION" --project="$PROJECT_ID" --format=json \
+            | jq -r '([.status.traffic[]? | select((.percent // 0) > 0) | .revisionName] | first) // .status.latestReadyRevisionName // empty')"
+          echo "revision=$previous" >> "$GITHUB_OUTPUT"
+          echo "Currently serving: $previous"
+
+      - name: Deploy at 0% traffic with the staged tag
+        id: stage
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image="$IMAGE@${{ needs.publish.outputs.digest }}" \
+            --no-traffic --tag=staged \
+            --region="$REGION" --project="$PROJECT_ID" --quiet
+
+          json="$(gcloud run services describe "$SERVICE" \
+            --region="$REGION" --project="$PROJECT_ID" --format=json)"
+          revision="$(echo "$json" | jq -r '.status.traffic[] | select(.tag == "staged") | .revisionName')"
+          url="$(echo "$json" | jq -r '.status.traffic[] | select(.tag == "staged") | .url')"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Staged revision: $revision"
+          echo "Smoke URL: $url"
+
+  # The schema moves after the new revision is staged at 0% but before
+  # promotion, so the old revision serves live traffic against a migrated
+  # database. Migrations must stay additive-only for that window to be safe.
+  migrate:
+    name: Migrate database
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: deploy-stage
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Apply committed migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_SESSION }}
+        run: bunx drizzle-kit migrate
+
+  smoke:
+    name: Smoke test the staged revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [deploy-stage, migrate]
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Read the smoke token
+        id: secret
+        run: |
+          token="$(gcloud secrets versions access latest --secret="${SECRET_PREFIX}-SMOKE_TOKEN" --project="$PROJECT_ID")"
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
+      # K_REVISION in the response is what proves the request reached the
+      # revision just staged, not whatever is currently serving.
+      - name: Hit the staged revision
+        env:
+          SMOKE_TOKEN: ${{ steps.secret.outputs.token }}
+          TARGET_URL: ${{ needs.deploy-stage.outputs.url }}
+          EXPECTED_REVISION: ${{ needs.deploy-stage.outputs.revision }}
+        run: |
+          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$TARGET_URL/api/health"
+          response="$(curl -fsS -H "Authorization: Bearer $SMOKE_TOKEN" "$TARGET_URL/api/smoke")"
+          echo "$response"
+          served="$(echo "$response" | jq -r '.revision')"
+          if [ "$EXPECTED_REVISION" != "$served" ]; then
+            echo "::error::Smoke hit revision '$served', expected staged revision '$EXPECTED_REVISION'"
+            exit 1
+          fi
+
+  # Cleanup cannot live inside `smoke`: a `migrate` failure skips that job
+  # entirely. `promote` is listed so a failure there is covered too; removing a
+  # tag never moves traffic, so this is safe even after a partial promote.
+  cleanup:
+    name: Remove the staged tag after a failed release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [deploy-stage, migrate, smoke, promote]
+    if: failure() && needs.deploy-stage.result == 'success'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Drop the staged tag from the failed revision
+        run: |
+          gcloud run services update-traffic "$SERVICE" \
+            --region="$REGION" --project="$PROJECT_ID" --remove-tags=staged --quiet
+
+  promote:
+    name: Promote
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [publish, deploy-stage, smoke]
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Move 100% of traffic to the staged revision
+        run: |
+          gcloud run services update-traffic "$SERVICE" \
+            --region="$REGION" --project="$PROJECT_ID" \
+            --to-revisions="${{ needs.deploy-stage.outputs.revision }}=100" --quiet
+
+      - name: Record the release
+        run: |
+          {
+            echo "## Release"
+            echo ""
+            echo "- Image: \`$IMAGE@${{ needs.publish.outputs.digest }}\`"
+            echo "- Active revision: \`${{ needs.deploy-stage.outputs.revision }}\`"
+            echo "- Previous revision: \`${{ needs.deploy-stage.outputs.previous }}\` (retained for rollback)"
+            echo "- Traffic: 100% moved via gcloud"
+          } >> "$GITHUB_STEP_SUMMARY"
