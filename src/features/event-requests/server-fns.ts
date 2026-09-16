@@ -86,8 +86,8 @@ export const getEventRequest = createServerFn({ method: "GET" })
 
 /**
  * PTR-15 criterion 5: the requests no Coordinator is handling, for any Event Coordinator to
- * open. The first server function behind `event_request:coordinate`; PTR-16 and PTR-17 add the
- * writes beside it.
+ * open. PTR-16's assignment functions live in `coordination/server-fns.ts` and use the same
+ * `event_request:coordinate` middleware, with current ownership checked in each handler.
  */
 export const listUnassignedEventRequests = createServerFn({ method: "GET" })
   .middleware([requireEventRequestCoordinate])

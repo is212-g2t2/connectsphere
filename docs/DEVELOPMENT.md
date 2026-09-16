@@ -125,7 +125,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 
 ### Schema Locations
 
-- `src/db/schema.ts` — Application domain schemas. Re-exports the auth tables; holds `eventRequests` (PTR-9, PTR-10, PTR-11, PTR-13) and the venue catalogue (`venues`, `venue_unavailability`, PTR-26). The equipment tables arrive with the stories that build them.
+- `src/db/schema.ts` — Application domain schemas. Re-exports the auth tables; holds `eventRequests` (PTR-9, PTR-10, PTR-11, PTR-13), Coordinator handover history (`eventAssignments`, PTR-16), and the venue catalogue (`venues`, `venue_unavailability`, PTR-26). The equipment tables arrive with the stories that build them.
 - `src/db/auth-schema.ts` — Better Auth schemas (`user` with `role`, `session`, `account`, `verification`).
 - `src/db/drizzle/` — Generated SQL migration files and metadata.
 

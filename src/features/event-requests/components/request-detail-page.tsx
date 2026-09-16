@@ -24,13 +24,21 @@ const NONE = "None recorded";
  * A draft is shown the same way for now. Reopening a draft into the form on this page is
  * PTR-12, which swaps the draft branch here for `EventRequestForm`.
  */
-export function EventRequestDetailPage({ request }: { request: EventRequestSummary }) {
+export function EventRequestDetailPage({
+  request,
+  back,
+  children,
+}: {
+  request: EventRequestSummary;
+  back?: { to: "/event-requests" | "/coordination"; label: string };
+  children?: React.ReactNode;
+}) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to="/event-requests" className={NAV_LINK_CLASSNAME}>
-        Back to event requests
+      <Link to={back?.to ?? "/event-requests"} className={NAV_LINK_CLASSNAME}>
+        {back?.label ?? "Back to event requests"}
       </Link>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -50,6 +58,8 @@ export function EventRequestDetailPage({ request }: { request: EventRequestSumma
           </>
         )}
       </p>
+
+      {children}
 
       <dl className="mt-10 grid gap-6 sm:grid-cols-2">
         {/* PTR-15 criterion 3: the named point of contact and the route to reach them. */}

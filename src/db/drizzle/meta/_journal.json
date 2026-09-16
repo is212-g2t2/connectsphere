@@ -78,6 +78,13 @@
       "when": 1789467142162,
       "tag": "0010_bent_argent",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789551868323,
+      "tag": "0011_cloudy_vulcan",
+      "breakpoints": true
     }
   ]
 }

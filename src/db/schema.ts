@@ -124,6 +124,18 @@ export const eventRequests = pgTable(
   ]
 );
 
+/** PTR-16: append-only handover history. User ids are snapshots so account deletion keeps attribution. */
+export const eventAssignments = pgTable("event_assignments", {
+  id: serial("id").primaryKey(),
+  eventRequestId: integer("event_request_id")
+    .notNull()
+    .references(() => eventRequests.id, { onDelete: "cascade" }),
+  fromCoordinatorId: text("from_coordinator_id"),
+  toCoordinatorId: text("to_coordinator_id").notNull(),
+  actorId: text("actor_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const venues = pgTable(
   "venues",
   {

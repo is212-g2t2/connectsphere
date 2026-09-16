@@ -86,6 +86,20 @@ describe("unwrapRefusal helper", () => {
     await expect(unwrapRefusal(refusal, "fallback")).rejects.not.toHaveProperty("status");
   });
 
+  it("turns an SSR rejection Response into a serializable Error (PTR-16)", async () => {
+    await expect(
+      unwrapRefusal(
+        Promise.reject(new Response("Coordination access refused", { status: 403 })),
+        "fallback"
+      )
+    ).rejects.toThrow("Coordination access refused");
+  });
+
+  it("preserves failures that are not refusal Responses", async () => {
+    const error = new Error("Database unavailable");
+    await expect(unwrapRefusal(Promise.reject(error), "fallback")).rejects.toBe(error);
+  });
+
   it("falls back when the refusal body is empty", async () => {
     const refusal = new Response("", { status: 401 });
 

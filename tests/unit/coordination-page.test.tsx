@@ -2,12 +2,19 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { CoordinationPage } from "#/features/coordination/components/coordination-page";
+import type { AssignedEventRequest } from "#/features/coordination/server-fns";
 import type { UnassignedEventRequest } from "#/features/event-requests/server-fns";
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
-  ),
+  Link: ({
+    children,
+    to,
+    params,
+  }: {
+    children: React.ReactNode;
+    to: string;
+    params?: { requestId: string };
+  }) => <a href={params ? to.replace("$requestId", params.requestId) : to}>{children}</a>,
 }));
 
 const waiting: UnassignedEventRequest = {
@@ -39,7 +46,7 @@ const waiting: UnassignedEventRequest = {
 
 describe("CoordinationPage (PTR-15 criterion 5)", () => {
   it("lists each unassigned request with its organiser, proposed date and submission time", () => {
-    render(<CoordinationPage unassigned={[waiting]} />);
+    render(<CoordinationPage unassigned={[waiting]} assigned={[]} />);
 
     const row = screen.getAllByRole("row")[1];
     expect(within(row).getByText("Annual dinner")).toBeTruthy();
@@ -53,9 +60,26 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
   });
 
   it("says so when every submitted request already has a Coordinator", () => {
-    render(<CoordinationPage unassigned={[]} />);
+    render(<CoordinationPage unassigned={[]} assigned={[]} />);
 
     expect(screen.getByText("Every submitted request has a Coordinator.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("lists the requests assigned to the signed-in Coordinator, and says so when there are none", () => {
+    const assignedRow: AssignedEventRequest = {
+      ...waiting,
+      assignedCoordinatorId: "usr_coord",
+      assignedAt: new Date("2026-09-15T03:00:00Z"),
+    };
+    const { rerender } = render(<CoordinationPage unassigned={[]} assigned={[assignedRow]} />);
+
+    expect(screen.getByRole("link", { name: "Annual dinner" }).getAttribute("href")).toBe(
+      "/coordination/7"
+    );
+    expect(screen.getByText("Jane Doe")).toBeTruthy();
+
+    rerender(<CoordinationPage unassigned={[]} assigned={[]} />);
+    expect(screen.getByText("No requests are assigned to you.")).toBeTruthy();
   });
 });

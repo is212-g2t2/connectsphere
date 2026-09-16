@@ -119,14 +119,17 @@ export const listAccounts = createServerFn({ method: "GET" })
 
 /**
  * The client half of the refusal protocol `withSession` describes: a refused server function
- * resolves with its `Response`, so its body is rethrown as an `Error` here and the route's error
- * boundary sees it; `fallbackMessage` covers an empty body.
+ * resolves with its `Response` in the browser, but rejects with it during SSR. Both become an
+ * `Error` whose message the route can serialize and display; `fallbackMessage` covers an empty body.
  */
 export async function unwrapRefusal<T>(
   result: T | Response | PromiseLike<T | Response>,
   fallbackMessage: string
 ): Promise<T> {
-  const value = await result;
+  const value = await Promise.resolve(result).catch((error: unknown) => {
+    if (error instanceof Response) return error;
+    throw error;
+  });
   if (value instanceof Response) throw new Error((await value.text()) || fallbackMessage);
   return value;
 }
