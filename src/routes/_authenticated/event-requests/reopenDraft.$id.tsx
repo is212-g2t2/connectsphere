@@ -3,7 +3,9 @@ import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { can } from "#/features/auth/permissions";
 import { unwrapRefusal } from "#/features/auth/session";
 import { EventRequestsPage } from "#/features/event-requests/components/request-page";
+import { EventRequestIdInput } from "#/features/event-requests/schema";
 import { getEventRequestDraft } from "#/features/event-requests/server-fns";
+import type { EventRequestDraft } from "#/features/event-requests/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/event-requests/reopenDraft/$id")({
@@ -17,21 +19,21 @@ export const Route = createFileRoute("/_authenticated/event-requests/reopenDraft
       throw redirect({ to: "/dashboard" });
     }
   },
-  loader: async ({ params }) => {
-    const id = Number(params.id);
-
-    if (!Number.isInteger(id) || id <= 0) {
+  loader: async ({ params }): Promise<EventRequestDraft> => {
+    // The same rule the server function applies, so a junk path segment is a 404 without a round trip, as `$requestId.tsx` does.
+    const parsed = EventRequestIdInput.safeParse({ id: Number(params.id) });
+    if (!parsed.success) {
       throw notFound();
     }
-
-    try {
-      return await unwrapRefusal(
-        await getEventRequestDraft({ data: { id } }),
-        "Could not load this draft. Try again."
-      );
-    } catch {
+    const { draft } = await unwrapRefusal(
+      await getEventRequestDraft({ data: parsed.data }),
+      "Could not load this draft. Try again."
+    );
+    // Another organiser's row, a submitted request, and a missing id all come back `null`, so none of them is reopenable here and all three are this 404.
+    if (!draft) {
       throw notFound();
     }
+    return draft;
   },
   component: () => <EventRequestsPage existingDraft={Route.useLoaderData()} />,
 });

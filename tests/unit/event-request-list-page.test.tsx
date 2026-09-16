@@ -1,5 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import {
@@ -10,6 +11,15 @@ import {
 } from "#/features/event-requests/components/request-list-page";
 import type { EventRequestSummary } from "#/features/event-requests/server-fns";
 
+const { deleteEventRequestDraft, invalidate } = vi.hoisted(() => ({
+  deleteEventRequestDraft: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
+  invalidate: vi.fn<() => Promise<void>>(),
+}));
+
+vi.mock("#/features/event-requests/server-fns", () => ({
+  deleteEventRequestDraft,
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     children,
@@ -19,10 +29,15 @@ vi.mock("@tanstack/react-router", () => ({
     children: React.ReactNode;
     to: string;
     params?: Record<string, string>;
-  }) => <a href={params ? to.replace("$requestId", params.requestId) : to}>{children}</a>,
+  }) => (
+    <a href={params ? to.replace("$requestId", params.requestId).replace("$id", params.id) : to}>
+      {children}
+    </a>
+  ),
 
   useRouter: () => ({
     navigate: vi.fn<() => void>(),
+    invalidate,
   }),
 }));
 
@@ -143,6 +158,51 @@ describe("EventRequestListPage (PTR-14)", () => {
     );
     expect(screen.getByText(/No requests yet/)).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+});
+
+describe("EventRequestListPage draft actions (PTR-12)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    invalidate.mockResolvedValue(undefined);
+  });
+
+  it("offers Resume only on a draft, linking to the reopen route (AC1)", () => {
+    render(<EventRequestListPage requests={[submitted, draft]} />);
+
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[1]).getByRole("link", { name: "Resume" }).getAttribute("href")).toBe(
+      "/event-requests/reopenDraft/41"
+    );
+    expect(within(rows[0]).queryByRole("link", { name: "Resume" })).toBeNull();
+    expect(within(rows[0]).queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  it("keeps the draft and calls nothing when the delete is cancelled (AC3)", async () => {
+    render(<EventRequestListPage requests={[draft]} />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByText("Delete this draft?")).toBeTruthy();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByText("Delete this draft?")).toBeNull();
+    expect(deleteEventRequestDraft).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Resume" })).toBeTruthy();
+  });
+
+  it("deletes the draft after Confirm and refreshes the list (AC3)", async () => {
+    deleteEventRequestDraft.mockResolvedValue({ id: 41 });
+    render(<EventRequestListPage requests={[draft]} />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Delete" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() =>
+      expect(deleteEventRequestDraft).toHaveBeenCalledExactlyOnceWith({ data: { id: 41 } })
+    );
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(screen.queryByText("Delete this draft?")).toBeNull();
   });
 });
 

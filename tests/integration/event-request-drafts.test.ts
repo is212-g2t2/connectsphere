@@ -552,101 +552,235 @@ describe("Event request drafts", () => {
 const byId = (a: number, b: number) => a - b;
 
 describe("Listing and reading an organiser's requests (PTR-14)", () => {
-  describe("Event request list, reopen, and delete (PTR-12)", () => {
-    let pool: Pool;
-    let database: ReturnType<typeof drizzle<typeof schema>>;
+  let pool: Pool;
+  let database: ReturnType<typeof drizzle<typeof schema>>;
 
-    beforeAll(() => {
-      pool = new Pool({ connectionString: process.env.DATABASE_URL });
-      database = drizzle(pool, { schema });
+  beforeAll(() => {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    database = drizzle(pool, { schema });
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  beforeEach(async () => {
+    await database.delete(schema.eventRequests);
+  });
+
+  it("lists the organiser's own requests only, drafts and submitted alike (AC1)", async () => {
+    const draft = await handleSaveEventRequestDraft(
+      { eventName: "My draft" },
+      organiser,
+      database as never
+    );
+    const complete = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    const submitted = await handleSubmitEventRequest(
+      { id: complete.id },
+      organiser,
+      database as never
+    );
+    await handleSaveEventRequestDraft(
+      { eventName: "Someone else's" },
+      otherOrganiser,
+      database as never
+    );
+
+    const listed = await handleListEventRequests(organiser, database as never);
+
+    expect(listed.map(row => row.id).toSorted(byId)).toEqual(
+      [draft.id, submitted.id].toSorted(byId)
+    );
+    expect(listed.map(row => row.status).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "draft",
+      "submitted",
+    ]);
+    expect(listed.every(row => row.organiserId === organiser.id)).toBe(true);
+  });
+
+  it("lists the most recently changed request first", async () => {
+    const older = await handleSaveEventRequestDraft(
+      { eventName: "Older" },
+      organiser,
+      database as never
+    );
+    const newer = await handleSaveEventRequestDraft(
+      { eventName: "Newer" },
+      organiser,
+      database as never
+    );
+    await handleSaveEventRequestDraft(
+      { id: older.id, eventName: "Older, revised" },
+      organiser,
+      database as never
+    );
+
+    const listed = await handleListEventRequests(organiser, database as never);
+
+    expect(listed.map(row => row.id)).toEqual([older.id, newer.id]);
+  });
+
+  it("reads one of the organiser's requests as recorded (AC4)", async () => {
+    const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+
+    const read = await handleGetEventRequest({ id: saved.id }, organiser, database as never);
+
+    expect(read).toEqual({ ...saved, coordinator: null });
+  });
+
+  it("answers null for another organiser's request and for an id that does not exist", async () => {
+    const theirs = await handleSaveEventRequestDraft(
+      { eventName: "Theirs" },
+      otherOrganiser,
+      database as never
+    );
+
+    expect(await handleGetEventRequest({ id: theirs.id }, organiser, database as never)).toBeNull();
+    expect(await handleGetEventRequest({ id: 999_999 }, organiser, database as never)).toBeNull();
+  });
+
+  it("refuses an id that is not a positive whole number", async () => {
+    await expect(handleGetEventRequest({ id: "41" }, organiser, database as never)).rejects.toThrow(
+      "Choose an event request"
+    );
+  });
+});
+
+describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
+  let pool: Pool;
+  let database: ReturnType<typeof drizzle<typeof schema>>;
+
+  beforeAll(() => {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    database = drizzle(pool, { schema });
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  beforeEach(async () => {
+    await database.delete(schema.eventRequests);
+  });
+
+  // Criterion 2: reopening returns exactly what was saved, and a request that is not the
+  // organiser's own draft is not reopenable.
+  it("reopens a draft with its exact stored values, and answers null for one that is not reopenable (PTR-12)", async () => {
+    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    const reopened = await handleGetEventRequestDraft(
+      { id: draft.id },
+      organiser,
+      database as never
+    );
+    expect(reopened).toEqual(draft);
+
+    const submitted = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    await handleSubmitEventRequest({ id: submitted.id }, organiser, database as never);
+
+    expect(
+      await handleGetEventRequestDraft({ id: submitted.id }, organiser, database as never)
+    ).toBeNull();
+
+    const theirs = await handleSaveEventRequestDraft(
+      { eventName: "Not yours" },
+      otherOrganiser,
+      database as never
+    );
+    expect(
+      await handleGetEventRequestDraft({ id: theirs.id }, organiser, database as never)
+    ).toBeNull();
+    expect(
+      await handleGetEventRequestDraft({ id: 999_999 }, organiser, database as never)
+    ).toBeNull();
+  });
+
+  // Criterion 2: "repeatable any number of times" — saved, reopened, edited and saved again,
+  // more than once, always updating the same row.
+  it("keeps updating the same reopened draft across repeated edits (PTR-12)", async () => {
+    const created = await handleSaveEventRequestDraft(
+      { eventName: "First name" },
+      organiser,
+      database as never
+    );
+
+    const secondSave = await handleSaveEventRequestDraft(
+      { id: created.id, eventName: "Second name" },
+      organiser,
+      database as never
+    );
+    const thirdSave = await handleSaveEventRequestDraft(
+      { id: created.id, eventName: "Third name" },
+      organiser,
+      database as never
+    );
+
+    expect(secondSave.id).toBe(created.id);
+    expect(thirdSave.id).toBe(created.id);
+    expect(thirdSave).toMatchObject({
+      eventName: "Third name",
+      status: "draft",
+    });
+    expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
+  });
+
+  // Criterion 3: deleting an owned draft removes it, and it can no longer be reopened.
+  it("deletes an owned draft so it can no longer be listed or reopened (PTR-12)", async () => {
+    const draft = await handleSaveEventRequestDraft(
+      { eventName: "Throwaway draft" },
+      organiser,
+      database as never
+    );
+
+    const deleted = await handleDeleteEventRequestDraft(
+      { id: draft.id },
+      organiser,
+      database as never
+    );
+    expect(deleted.id).toBe(draft.id);
+
+    expect(
+      await handleGetEventRequestDraft({ id: draft.id }, organiser, database as never)
+    ).toBeNull();
+
+    const list = await handleListEventRequests(organiser, database as never);
+    expect(list).toHaveLength(0);
+  });
+
+  // Criterion 3's guard: a submitted request is retained even against a direct delete call,
+  // and another organiser's draft can't be deleted either.
+  it("refuses to delete a submitted request or another organiser's draft (PTR-12)", async () => {
+    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+
+    const submitted = await handleSubmitEventRequest(
+      { id: draft.id },
+      organiser,
+      database as never
+    );
+
+    await expect(
+      handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never)
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      status: 409,
+      message: EVENT_REQUEST_DELETE_REFUSAL,
     });
 
-    afterAll(async () => {
-      await pool.end();
+    expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
+
+    const othersDraft = await handleSaveEventRequestDraft(
+      { eventName: "Not yours" },
+      otherOrganiser,
+      database as never
+    );
+
+    await expect(
+      handleDeleteEventRequestDraft({ id: othersDraft.id }, organiser, database as never)
+    ).rejects.toMatchObject({
+      name: "AuthorizationError",
+      status: 403,
     });
 
-    beforeEach(async () => {
-      await database.delete(schema.eventRequests);
-    });
-
-    it("lists the organiser's own requests only, drafts and submitted alike (AC1)", async () => {
-      const draft = await handleSaveEventRequestDraft(
-        { eventName: "My draft" },
-        organiser,
-        database as never
-      );
-      const complete = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-      const submitted = await handleSubmitEventRequest(
-        { id: complete.id },
-        organiser,
-        database as never
-      );
-      await handleSaveEventRequestDraft(
-        { eventName: "Someone else's" },
-        otherOrganiser,
-        database as never
-      );
-
-      const listed = await handleListEventRequests(organiser, database as never);
-
-      expect(listed.map(row => row.id).toSorted(byId)).toEqual(
-        [draft.id, submitted.id].toSorted(byId)
-      );
-      expect(listed.map(row => row.status).toSorted((a, b) => a.localeCompare(b))).toEqual([
-        "draft",
-        "submitted",
-      ]);
-      expect(listed.every(row => row.organiserId === organiser.id)).toBe(true);
-    });
-
-    it("lists the most recently changed request first", async () => {
-      const older = await handleSaveEventRequestDraft(
-        { eventName: "Older" },
-        organiser,
-        database as never
-      );
-      const newer = await handleSaveEventRequestDraft(
-        { eventName: "Newer" },
-        organiser,
-        database as never
-      );
-      await handleSaveEventRequestDraft(
-        { id: older.id, eventName: "Older, revised" },
-        organiser,
-        database as never
-      );
-
-      const listed = await handleListEventRequests(organiser, database as never);
-
-      expect(listed.map(row => row.id)).toEqual([older.id, newer.id]);
-    });
-
-    it("reads one of the organiser's requests as recorded (AC4)", async () => {
-      const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-
-      const read = await handleGetEventRequest({ id: saved.id }, organiser, database as never);
-
-      expect(read).toEqual({ ...saved, coordinator: null });
-    });
-
-    it("answers null for another organiser's request and for an id that does not exist", async () => {
-      const theirs = await handleSaveEventRequestDraft(
-        { eventName: "Theirs" },
-        otherOrganiser,
-        database as never
-      );
-
-      expect(
-        await handleGetEventRequest({ id: theirs.id }, organiser, database as never)
-      ).toBeNull();
-      expect(await handleGetEventRequest({ id: 999_999 }, organiser, database as never)).toBeNull();
-    });
-
-    it("refuses an id that is not a positive whole number", async () => {
-      await expect(
-        handleGetEventRequest({ id: "41" }, organiser, database as never)
-      ).rejects.toThrow("Choose an event request");
-    });
+    expect(await database.select().from(schema.eventRequests)).toHaveLength(2);
   });
 });
 
@@ -876,113 +1010,5 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     const unassigned = await handleListUnassignedEventRequests(database as never);
 
     expect(unassigned.map(row => row.eventName)).toEqual(["Older wait", "Newer wait"]);
-  });
-
-  // Criterion 2: reopening returns exactly what was saved, and a submitted request can't be
-  // loaded back into the editable form.
-  it("reopens a draft with its exact stored values, and refuses a submitted request (PTR-12)", async () => {
-    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-    const reopened = await handleGetEventRequestDraft(
-      { id: draft.id },
-      organiser,
-      database as never
-    );
-    expect(reopened).toEqual(draft);
-
-    const submitted = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-    await handleSubmitEventRequest({ id: submitted.id }, organiser, database as never);
-
-    await expect(
-      handleGetEventRequestDraft({ id: submitted.id }, organiser, database as never)
-    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
-  });
-
-  // Criterion 2: "repeatable any number of times" — saved, reopened, edited and saved again,
-  // more than once, always updating the same row.
-  it("keeps updating the same reopened draft across repeated edits (PTR-12)", async () => {
-    const created = await handleSaveEventRequestDraft(
-      { eventName: "First name" },
-      organiser,
-      database as never
-    );
-
-    const secondSave = await handleSaveEventRequestDraft(
-      { id: created.id, eventName: "Second name" },
-      organiser,
-      database as never
-    );
-    const thirdSave = await handleSaveEventRequestDraft(
-      { id: created.id, eventName: "Third name" },
-      organiser,
-      database as never
-    );
-
-    expect(secondSave.id).toBe(created.id);
-    expect(thirdSave.id).toBe(created.id);
-    expect(thirdSave).toMatchObject({
-      eventName: "Third name",
-      status: "draft",
-    });
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
-  });
-
-  // Criterion 3: deleting an owned draft removes it, and it can no longer be reopened.
-  it("deletes an owned draft so it can no longer be listed or reopened (PTR-12)", async () => {
-    const draft = await handleSaveEventRequestDraft(
-      { eventName: "Throwaway draft" },
-      organiser,
-      database as never
-    );
-
-    const deleted = await handleDeleteEventRequestDraft(
-      { id: draft.id },
-      organiser,
-      database as never
-    );
-    expect(deleted.id).toBe(draft.id);
-
-    await expect(
-      handleGetEventRequestDraft({ id: draft.id }, organiser, database as never)
-    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
-
-    const list = await handleListEventRequests(organiser, database as never);
-    expect(list).toHaveLength(0);
-  });
-
-  // Criterion 3's guard: a submitted request is retained even against a direct delete call,
-  // and another organiser's draft can't be deleted either.
-  it("refuses to delete a submitted request or another organiser's draft (PTR-12)", async () => {
-    const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-
-    const submitted = await handleSubmitEventRequest(
-      { id: draft.id },
-      organiser,
-      database as never
-    );
-
-    await expect(
-      handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never)
-    ).rejects.toMatchObject({
-      name: "ConflictError",
-      status: 409,
-      message: EVENT_REQUEST_DELETE_REFUSAL,
-    });
-
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
-
-    const othersDraft = await handleSaveEventRequestDraft(
-      { eventName: "Not yours" },
-      otherOrganiser,
-      database as never
-    );
-
-    await expect(
-      handleDeleteEventRequestDraft({ id: othersDraft.id }, organiser, database as never)
-    ).rejects.toMatchObject({
-      name: "AuthorizationError",
-      status: 403,
-    });
-
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(2);
   });
 });

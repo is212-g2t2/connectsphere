@@ -32,6 +32,8 @@ test.describe("Event request drafts", () => {
   test("redirects an unauthenticated visitor to login", async ({ page }) => {
     await page.goto("/event-requests");
     await expect(page).toHaveURL(/\/login/);
+    await page.goto("/event-requests/reopenDraft/1");
+    await expect(page).toHaveURL(/\/login/);
   });
 
   test("lets an event organiser capture the full requirements and save", async ({ page }) => {
@@ -147,6 +149,9 @@ test.describe("Event request drafts", () => {
     await page.goto("/event-requests/new");
     await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole("heading", { name: "New event request" })).toHaveCount(0);
+    await page.goto("/event-requests/reopenDraft/1");
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole("heading", { name: "Edit event request" })).toHaveCount(0);
 
     await page.goto("/dashboard");
     await page.waitForLoadState("networkidle");
@@ -244,6 +249,69 @@ test.describe("Event request list (PTR-14)", () => {
     await page.goto(href);
     await expect(page.getByRole("heading", { name: "Mine" })).toHaveCount(0);
     await expect(page.getByText(/not found/i)).toBeVisible();
+  });
+});
+
+test.describe("Event request resume and delete (PTR-12)", () => {
+  /** Creates a fresh organiser's draft from the list and returns to it. */
+  async function draftFromList(page: Page, name: string): Promise<void> {
+    await openNewRequest(page);
+    await page.getByLabel("Event name (required)", { exact: true }).fill(name);
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    await page.getByRole("link", { name: "Back to event requests" }).click();
+    await expect(page.getByRole("heading", { name: "Event requests" })).toBeVisible();
+  }
+
+  test("answers not found for a draft that does not exist (AC1)", async ({ page }) => {
+    await signUp(page, "event_organiser");
+    await page.goto("/event-requests/reopenDraft/999999");
+    await expect(page.getByText(/not found/i)).toBeVisible();
+  });
+
+  test("resumes a draft, edits it, and keeps a single row (AC1, AC2)", async ({ page }) => {
+    await draftFromList(page, "Community workshop");
+
+    const row = page.getByRole("row", { name: /Community workshop/ });
+    await expect(row).toContainText("Draft");
+    await row.getByRole("link", { name: "Resume" }).click();
+
+    await expect(page.getByRole("heading", { name: "Edit event request" })).toBeVisible();
+    await expect(page.getByLabel("Event name (required)", { exact: true })).toHaveValue(
+      "Community workshop"
+    );
+
+    await page
+      .getByLabel("Event name (required)", { exact: true })
+      .fill("Community workshop, resumed");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+
+    await page.getByRole("link", { name: "Back to event requests" }).click();
+    await expect(page.getByRole("row", { name: /Community workshop, resumed/ })).toContainText(
+      "Draft"
+    );
+    // The first save after a reopen updates the loaded row; a duplicated insert would be two.
+    await expect(page.getByRole("row", { name: /Community workshop/ })).toHaveCount(1);
+  });
+
+  test("keeps the draft when the delete is cancelled and removes it on confirm (AC3)", async ({
+    page,
+  }) => {
+    await draftFromList(page, "Throwaway draft");
+
+    const row = page.getByRole("row", { name: /Throwaway draft/ });
+    await row.getByRole("button", { name: "Delete" }).click();
+    await expect(page.getByText("Delete this draft?")).toBeVisible();
+
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByText("Delete this draft?")).toHaveCount(0);
+    await expect(row).toContainText("Draft");
+
+    await row.getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "Confirm" }).click();
+    await expect(page.getByRole("row", { name: /Throwaway draft/ })).toHaveCount(0);
+    await expect(page.getByText(/No requests yet/)).toBeVisible();
   });
 });
 

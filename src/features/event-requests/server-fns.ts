@@ -96,17 +96,18 @@ export const listUnassignedEventRequests = createServerFn({ method: "GET" })
     return handleListUnassignedEventRequests(db);
   });
 
-/** Criterion 2: fetches one owned draft so the edit route can seed the form with it. */
+/**
+ * Criterion 2: fetches one owned draft so the edit route can seed the form with it. Wrapped in
+ * an object for the reason `getEventRequest` gives — a nullable top-level result infers as
+ * `never` — and `null` for a row that is not theirs, submitted, or absent.
+ */
 export const getEventRequestDraft = createServerFn({ method: "GET" })
   .validator(parseEventRequestId)
   .middleware([requireEventRequestCreate])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleGetEventRequestDraft }] = await Promise.all([
-      import("#/db"),
-      import("#/features/event-requests/drafts.server"),
-    ]);
+    const [{ db }, { handleGetEventRequestDraft }] = await loadServer();
 
-    return handleGetEventRequestDraft(data, context.user, db);
+    return { draft: await handleGetEventRequestDraft(data, context.user, db) };
   });
 
 /** Criterion 3: deletes an owned draft; refuses a submitted one via the scoping in the handler. */
