@@ -6,7 +6,6 @@ import {
   getCoordinationRequest,
   listAssignedEventRequests,
   listCoordinators,
-  listAssignmentNotifications,
 } from "#/features/coordination/server-fns";
 import {
   getEventRequest,
@@ -105,16 +104,13 @@ describe("server-function authorization (PTR-69)", () => {
       { fn: listAssignedEventRequests, data: undefined, method: "GET" as const },
       { fn: listCoordinators, data: undefined, method: "GET" as const },
     ];
-    it("requires a session for every coordination endpoint and the notification read", async () => {
+    it("requires a session for every coordination endpoint", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
       for (const endpoint of endpoints) {
         expect(await refusalFrom(endpoint.fn, endpoint.data, endpoint.method)).toMatchObject({
           status: 401,
         });
       }
-      expect(await refusalFrom(listAssignmentNotifications, undefined, "GET")).toMatchObject({
-        status: 401,
-      });
     });
     it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
       "refuses %s even before payload validation",

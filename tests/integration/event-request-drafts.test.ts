@@ -9,7 +9,6 @@ import {
   handleAssignEventRequest,
   handleGetCoordinationRequest,
   handleListAssignedEventRequests,
-  handleListAssignmentNotifications,
   handleListCoordinators,
 } from "#/features/coordination/assignments.server";
 import {
@@ -927,34 +926,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       }
     );
 
-    it("notifies only the Organiser and incoming Coordinator with the same recorded time (AC4)", async () => {
-      const request = await submitNew(fullRequest, organiser, database);
-      const changed = await handleAssignEventRequest(
-        { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: outgoing.id },
-        outgoing,
-        database as never
-      );
-      const notifications = await database.select().from(schema.eventAssignmentNotifications);
-      expect(notifications).toHaveLength(2);
-      expect(notifications.map(row => row.recipientId).toSorted()).toEqual(
-        [organiser.id, incoming.id].toSorted()
-      );
-      expect(
-        notifications.every(row => row.createdAt.getTime() === changed.assignedAt?.getTime())
-      ).toBe(true);
-      expect(await handleListAssignmentNotifications(outgoing, database as never)).toEqual([]);
-      expect(await handleListAssignmentNotifications(otherOrganiser, database as never)).toEqual(
-        []
-      );
-      expect(await handleListAssignmentNotifications(organiser, database as never)).toEqual([
-        expect.objectContaining({
-          message: `${incoming.name} is now the Coordinator for Community workshop.`,
-          eventRequestId: request.id,
-        }),
-      ]);
-      expect(await handleListAssignmentNotifications(incoming, database as never)).toHaveLength(1);
-    });
-
     it("refuses another Coordinator's handover, drafts, and missing requests", async () => {
       const assigned = await submitNew(fullRequest, organiser, database);
       const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
@@ -996,13 +967,12 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         )
       ).rejects.toMatchObject({ status: 409 });
       expect(await database.select().from(schema.eventAssignments)).toEqual([]);
-      expect(await database.select().from(schema.eventAssignmentNotifications)).toEqual([]);
       expect(
         (await handleListCoordinators(database as never)).every(row => row.id !== organiser.id)
       ).toBe(true);
     });
 
-    it("allows only one competing pickup, with one audit entry and one pair of notifications", async () => {
+    it("allows only one competing pickup, with one audit entry", async () => {
       const request = await waitingRequest();
       const results = await Promise.allSettled(
         extraCoordinators.map(coordinator =>
@@ -1016,7 +986,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
       expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
       expect(await database.select().from(schema.eventAssignments)).toHaveLength(1);
-      expect(await database.select().from(schema.eventAssignmentNotifications)).toHaveLength(2);
     });
 
     it("allows only one of two simultaneous handovers from the outgoing Coordinator", async () => {
@@ -1032,46 +1001,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       );
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
       expect(await database.select().from(schema.eventAssignments)).toHaveLength(1);
-      expect(await database.select().from(schema.eventAssignmentNotifications)).toHaveLength(2);
-    });
-
-    it("rolls back the assignment and audit if notification storage fails", async () => {
-      const request = await submitNew(fullRequest, organiser, database);
-      // Real database transaction, with a fault injected only at notification insertion.
-      const failingDatabase = new Proxy(database, {
-        get(target, property, receiver) {
-          if (property === "transaction")
-            return (run: (tx: unknown) => Promise<unknown>) =>
-              target.transaction(tx =>
-                run(
-                  new Proxy(tx, {
-                    get(transaction, key, transactionReceiver) {
-                      if (key === "insert")
-                        return (table: Parameters<typeof tx.insert>[0]) => {
-                          if (table === schema.eventAssignmentNotifications)
-                            throw new Error("Notification storage unavailable");
-                          return tx.insert(table);
-                        };
-                      return Reflect.get(transaction, key, transactionReceiver);
-                    },
-                  })
-                )
-              );
-          return Reflect.get(target, property, receiver);
-        },
-      });
-      await expect(
-        handleAssignEventRequest(
-          { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: outgoing.id },
-          outgoing,
-          failingDatabase as never
-        )
-      ).rejects.toThrow("Notification storage unavailable");
-      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
-      expect(await database.select().from(schema.eventAssignmentNotifications)).toEqual([]);
-      expect(
-        await handleGetEventRequest({ id: request.id }, organiser, database as never)
-      ).toMatchObject({ assignedCoordinatorId: outgoing.id, assignedAt: request.assignedAt });
     });
   });
 

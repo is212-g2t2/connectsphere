@@ -4,31 +4,17 @@ import { useRef } from "react";
 
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
-import type { AssignmentNotification } from "#/features/coordination/server-fns";
-import { formatInstant } from "#/features/event-requests/format";
 import { useMutation } from "#/hooks/use-mutation";
 import { Button } from "#/components/ui/button";
 import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 const UPLOAD_FAILED = "Upload failed";
-const NO_NOTIFICATIONS: AssignmentNotification[] = [];
 
 /**
  * The signed-in home view. The session user arrives as a prop rather than through
  * `Route.useRouteContext()` so the page renders in a unit test without a router (PTR-75).
  */
-export function DashboardPage({
-  user,
-  notifications = NO_NOTIFICATIONS,
-}: {
-  user: SessionUser;
-  notifications?: AssignmentNotification[];
-}) {
-  const requestRoute = can(user.role, { event_request: ["create"] })
-    ? "/event-requests/$requestId"
-    : can(user.role, { event_request: ["coordinate"] })
-      ? "/coordination/$requestId"
-      : null;
+export function DashboardPage({ user }: { user: SessionUser }) {
   return (
     <main className="mx-auto max-w-4xl px-6 py-16">
       <section className="flex flex-col">
@@ -82,36 +68,6 @@ export function DashboardPage({
           <Link to="/venues" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
             Venues
           </Link>
-        )}
-
-        {notifications.length > 0 && (
-          <section className="mt-10" aria-labelledby="assignment-notifications-heading">
-            <h2 id="assignment-notifications-heading" className="text-lg font-semibold">
-              Recent assignment notifications
-            </h2>
-            <ul className="mt-4 divide-y divide-border">
-              {notifications.map(notification => (
-                <li key={notification.id} className="py-3 text-sm">
-                  <p>{notification.message}</p>
-                  <time
-                    className="mt-1 block text-xs text-muted-foreground"
-                    dateTime={notification.createdAt.toISOString()}
-                  >
-                    {formatInstant(notification.createdAt)}
-                  </time>
-                  {requestRoute && (
-                    <Link
-                      to={requestRoute}
-                      params={{ requestId: String(notification.eventRequestId) }}
-                      className={NAV_LINK_CLASSNAME}
-                    >
-                      View request
-                    </Link>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
         )}
 
         {can(user.role, { upload: ["create"] }) && <FileUploadCard />}

@@ -6,7 +6,6 @@ import { CoordinationRequestPage } from "#/features/coordination/components/coor
 import { parseAssignmentInput } from "#/features/coordination/schema";
 import type { AssignmentValues } from "#/features/coordination/schema";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
-import { DashboardPage } from "#/features/dashboard/components/dashboard-page";
 
 const { assignEventRequest, navigate, invalidate, success } = vi.hoisted(() => ({
   assignEventRequest: vi.fn<(input: { data: AssignmentValues }) => Promise<unknown>>(),
@@ -150,28 +149,4 @@ describe("Coordinator handover and pickup", () => {
     resolve({});
     await waitFor(() => expect(navigate).toHaveBeenCalled());
   });
-});
-
-it.each([
-  { role: "event_coordinator", path: "/coordination/7" },
-  { role: "event_organiser", path: "/event-requests/7" },
-])("links the $role's assignment notification to their request view", ({ role, path }) => {
-  render(
-    <DashboardPage
-      user={{ ...actor, role }}
-      notifications={[
-        {
-          id: 1,
-          eventRequestId: 7,
-          message: "You have been assigned as Coordinator for Community workshop.",
-          createdAt: new Date("2026-09-15T02:00:00Z"),
-        },
-      ]}
-    />
-  );
-  expect(screen.getByRole("heading", { name: "Recent assignment notifications" })).toBeTruthy();
-  expect(
-    screen.getByText("You have been assigned as Coordinator for Community workshop.")
-  ).toBeTruthy();
-  expect(screen.getByRole("link", { name: "View request" }).getAttribute("href")).toBe(path);
 });

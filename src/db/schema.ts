@@ -136,28 +136,6 @@ export const eventAssignments = pgTable("event_assignments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Written with the handover, visible only to the addressed user on their dashboard. */
-export const eventAssignmentNotifications = pgTable(
-  "event_assignment_notifications",
-  {
-    id: serial("id").primaryKey(),
-    assignmentId: integer("assignment_id")
-      .notNull()
-      .references(() => eventAssignments.id, { onDelete: "cascade" }),
-    recipientId: text("recipient_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    message: text("message").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [
-    uniqueIndex("event_assignment_notifications_recipient_idx").on(
-      table.assignmentId,
-      table.recipientId
-    ),
-  ]
-);
-
 export const venues = pgTable(
   "venues",
   {

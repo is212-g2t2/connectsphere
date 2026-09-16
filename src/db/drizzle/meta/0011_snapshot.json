@@ -1,94 +1,9 @@
 {
-  "id": "6304a5eb-da99-4694-8f54-51c1203ba221",
+  "id": "67ca09b9-f829-4971-9a89-d9ae0fa17da6",
   "prevId": "f7a6b307-4e51-41f9-acb5-b6c068e3057b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.event_assignment_notifications": {
-      "name": "event_assignment_notifications",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "assignment_id": {
-          "name": "assignment_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "recipient_id": {
-          "name": "recipient_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "message": {
-          "name": "message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "event_assignment_notifications_recipient_idx": {
-          "name": "event_assignment_notifications_recipient_idx",
-          "columns": [
-            {
-              "expression": "assignment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "recipient_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "event_assignment_notifications_assignment_id_event_assignments_id_fk": {
-          "name": "event_assignment_notifications_assignment_id_event_assignments_id_fk",
-          "tableFrom": "event_assignment_notifications",
-          "tableTo": "event_assignments",
-          "columnsFrom": ["assignment_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "event_assignment_notifications_recipient_id_user_id_fk": {
-          "name": "event_assignment_notifications_recipient_id_user_id_fk",
-          "tableFrom": "event_assignment_notifications",
-          "tableTo": "user",
-          "columnsFrom": ["recipient_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.event_assignments": {
       "name": "event_assignments",
       "schema": "",

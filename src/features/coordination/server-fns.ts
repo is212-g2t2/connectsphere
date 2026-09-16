@@ -1,15 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { requireSession } from "#/features/auth/session";
 import { parseAssignmentInput } from "#/features/coordination/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
 
 export type Coordinator = Awaited<ReturnType<typeof listCoordinators>>[number];
 export type CoordinationRequest = Awaited<ReturnType<typeof getCoordinationRequest>>;
-export type AssignmentNotification = Awaited<
-  ReturnType<typeof listAssignmentNotifications>
->[number];
 
 export const listAssignedEventRequests = createServerFn({ method: "GET" })
   .middleware([requireEventRequestCoordinate])
@@ -51,14 +47,4 @@ export const assignEventRequest = createServerFn({ method: "POST" })
       import("#/features/coordination/assignments.server"),
     ]);
     return handleAssignEventRequest(data, context.user, db);
-  });
-
-export const listAssignmentNotifications = createServerFn({ method: "GET" })
-  .middleware([requireSession])
-  .handler(async ({ context }) => {
-    const [{ db }, { handleListAssignmentNotifications }] = await Promise.all([
-      import("#/db"),
-      import("#/features/coordination/assignments.server"),
-    ]);
-    return handleListAssignmentNotifications(context.user, db);
   });

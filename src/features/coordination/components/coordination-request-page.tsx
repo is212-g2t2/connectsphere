@@ -35,9 +35,7 @@ export function CoordinationRequestPage({
       }),
       "Could not assign this request. Try again."
     );
-    toast.success(
-      "Assignment recorded. The Organiser and incoming Coordinator have been notified."
-    );
+    toast.success("Assignment recorded.");
     // Leave the old detail immediately: the actor may have just relinquished access to it.
     await router.navigate({ to: "/coordination" });
     await router.invalidate();
@@ -64,10 +62,6 @@ export function CoordinationRequestPage({
             coordination access.
           </p>
         )}
-        <p className="mt-2 text-sm text-muted-foreground">
-          The Organiser and incoming Coordinator receive an assignment notification on their
-          dashboards.
-        </p>
         <form
           className="mt-5 space-y-3"
           onSubmit={event => {

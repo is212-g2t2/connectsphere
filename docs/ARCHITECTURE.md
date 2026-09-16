@@ -40,7 +40,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   └── auth-schema.ts# Better Auth tables
 │   ├── features/         # Each feature owns its page views under `components/` (PTR-75)
 │   │   ├── auth/         # Session helpers, role/function matrix, login/signup/reset/settings views
-│   │   ├── coordination/ # Assigned/unassigned requests, handovers, assignment notifications (PTR-15/16)
+│   │   ├── coordination/ # Assigned/unassigned requests and handovers (PTR-15/16)
 │   │   ├── dashboard/    # The signed-in home view and its upload card
 │   │   ├── emails/       # Email templates
 │   │   ├── event-requests/ # Requirement capture, submission and the organiser's list: Zod schema, form, pages, draft writes
@@ -164,9 +164,9 @@ Built with `createAccessControl` from `better-auth/plugins/access` — despite t
 
 `/coordination` lists the signed-in Coordinator's assignments and all submitted unassigned requests. `/coordination/$requestId` displays an accessible request with its Organiser and Coordinator contacts, a named Coordinator picker, and an **Assign to me** action for unassigned requests. Both the detail read and assignment write re-read current ownership: only the current assignee can hand over an assigned request; any Event Coordinator can pick up an unassigned one. Drafts and inaccessible ids are refused with 403. Every coordination endpoint also requires `event_request:coordinate` in its middleware.
 
-`coordination/assignments.server.ts` locks the event row during a handover, validates that the target account is an Event Coordinator, and writes the single `assignedCoordinatorId`, `assignedAt`, an `event_assignments` history row, and two `event_assignment_notifications` rows in one transaction. The submitted expected assignee detects a stale pickup; ownership is checked after acquiring the lock so concurrent handovers cannot overwrite one another. An unchanged target is refused without creating history or notifications. Actor ids come from the session, and all three records use the same server timestamp. The audit's user ids are snapshots retained after account deletion; the event foreign key cascades when the event itself is deleted.
+`coordination/assignments.server.ts` locks the event row during a handover, validates that the target account is an Event Coordinator, and writes the single `assignedCoordinatorId`, `assignedAt`, and an `event_assignments` history row in one transaction. The submitted expected assignee detects a stale pickup; ownership is checked after acquiring the lock so concurrent handovers cannot overwrite one another. An unchanged target is refused without creating history. Actor ids come from the session, and the request and audit records use the same server timestamp. The audit's user ids are snapshots retained after account deletion; the event foreign key cascades when the event itself is deleted.
 
-The dashboard loads the addressed user's 20 most recent assignment notifications, newest first. Notifications are persisted in-app as part of the transaction, so notification storage failure rolls the handover back. This implements PTR-16 AC4 without email configuration; a general inbox, read/unread controls, and automatic-submission notifications remain separate work. Apply the generated `0011_yellow_magik.sql` migration before running this version.
+Assignment notifications remain deferred to PTR-55's notification mechanism. Apply the generated `0011_cloudy_vulcan.sql` migration before running this version.
 
 ## Styling
 

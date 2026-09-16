@@ -2,7 +2,7 @@ import { and, asc, desc, eq, getTableColumns, ne, or, isNull } from "drizzle-orm
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
-import { eventAssignments, eventAssignmentNotifications, eventRequests, user } from "#/db/schema";
+import { eventAssignments, eventRequests, user } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { parseAssignmentInput } from "#/features/coordination/schema";
@@ -100,7 +100,7 @@ export async function handleAssignEventRequest(
 
     // Hold the selected account while its role is validated and the assignment is committed.
     const candidates = await tx
-      .select({ id: user.id, name: user.name })
+      .select({ id: user.id })
       .from(user)
       .where(and(eq(user.id, input.coordinatorId), eq(user.role, "event_coordinator")))
       .for("share");
@@ -113,46 +113,13 @@ export async function handleAssignEventRequest(
       .set({ assignedCoordinatorId: incoming.id, assignedAt: now })
       .where(eq(eventRequests.id, request.id))
       .returning();
-    const [assignment] = await tx
-      .insert(eventAssignments)
-      .values({
-        eventRequestId: request.id,
-        fromCoordinatorId: request.assignedCoordinatorId,
-        toCoordinatorId: incoming.id,
-        actorId: actor.id,
-        createdAt: now,
-      })
-      .returning();
-    const title = request.eventName.trim() || "Untitled request";
-    await tx.insert(eventAssignmentNotifications).values([
-      {
-        assignmentId: assignment.id,
-        recipientId: request.organiserId,
-        message: `${incoming.name} is now the Coordinator for ${title}.`,
-        createdAt: now,
-      },
-      {
-        assignmentId: assignment.id,
-        recipientId: incoming.id,
-        message: `You have been assigned as Coordinator for ${title}.`,
-        createdAt: now,
-      },
-    ]);
+    await tx.insert(eventAssignments).values({
+      eventRequestId: request.id,
+      fromCoordinatorId: request.assignedCoordinatorId,
+      toCoordinatorId: incoming.id,
+      actorId: actor.id,
+      createdAt: now,
+    });
     return updated;
   });
-}
-
-export async function handleListAssignmentNotifications(actor: SessionUser, database: Database) {
-  return database
-    .select({
-      id: eventAssignmentNotifications.id,
-      eventRequestId: eventAssignments.eventRequestId,
-      message: eventAssignmentNotifications.message,
-      createdAt: eventAssignmentNotifications.createdAt,
-    })
-    .from(eventAssignmentNotifications)
-    .innerJoin(eventAssignments, eq(eventAssignments.id, eventAssignmentNotifications.assignmentId))
-    .where(eq(eventAssignmentNotifications.recipientId, actor.id))
-    .orderBy(desc(eventAssignmentNotifications.createdAt), desc(eventAssignmentNotifications.id))
-    .limit(20);
 }

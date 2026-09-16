@@ -49,11 +49,7 @@ test("redirects unauthenticated visitors from the coordination detail", async ({
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("hands over an event, transfers access, and notifies both recipients", async ({
-  page,
-  browser,
-  baseURL,
-}) => {
+test("hands over an event and transfers access", async ({ page, browser, baseURL }) => {
   const incomingContext = await browser.newContext({ baseURL });
   const organiserContext = await browser.newContext({ baseURL });
   const incomingPage = await incomingContext.newPage();
@@ -132,26 +128,6 @@ test("hands over an event, transfers access, and notifies both recipients", asyn
     await expect(incomingPage.getByRole("heading", { name: eventName })).toBeVisible();
     await expect(incomingPage.getByRole("button", { name: "Reassign Coordinator" })).toBeVisible();
 
-    await incomingPage.goto("/dashboard");
-    await expect(
-      incomingPage.getByText(`You have been assigned as Coordinator for ${eventName}.`)
-    ).toBeVisible();
-    const incomingRequestLink = incomingPage.getByRole("link", {
-      name: "View request",
-      exact: true,
-    });
-    await expect(incomingRequestLink).toHaveAttribute("href", `/coordination/${request.id}`);
-    await incomingPage.goto(`/coordination/${request.id}`);
-    await expect(incomingPage.getByRole("heading", { name: eventName })).toBeVisible();
-    await organiserPage.goto("/dashboard");
-    await expect(
-      organiserPage.getByText(`Incoming Coordinator is now the Coordinator for ${eventName}.`)
-    ).toBeVisible();
-    const organiserRequestLink = organiserPage.getByRole("link", {
-      name: "View request",
-      exact: true,
-    });
-    await expect(organiserRequestLink).toHaveAttribute("href", `/event-requests/${request.id}`);
     await organiserPage.goto(`/event-requests/${request.id}`);
     await expect(organiserPage.getByRole("link", { name: incoming.email })).toBeVisible();
   } finally {
