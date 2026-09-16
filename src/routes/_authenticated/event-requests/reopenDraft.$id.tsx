@@ -1,11 +1,12 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { EditEventRequestPage } from "#/features/event-requests/components/edit-event-request-page";
+import { unwrapRefusal } from "#/features/auth/session";
+import { EventRequestsPage } from "#/features/event-requests/components/request-page";
 import { getEventRequestDraft } from "#/features/event-requests/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
-export const Route = createFileRoute("/_authenticated/event-request/reopenDraft/$id")({
+export const Route = createFileRoute("/_authenticated/event-requests/reopenDraft/$id")({
   head: () =>
     createSeoHead({
       title: "Edit event request — ConnectSphere",
@@ -23,7 +24,14 @@ export const Route = createFileRoute("/_authenticated/event-request/reopenDraft/
       throw notFound();
     }
 
-    return getEventRequestDraft({ data: { id } });
+    try {
+      return await unwrapRefusal(
+        await getEventRequestDraft({ data: { id } }),
+        "Could not load this draft. Try again."
+      );
+    } catch {
+      throw notFound();
+    }
   },
-  component: EditEventRequestPage,
+  component: () => <EventRequestsPage existingDraft={Route.useLoaderData()} />,
 });

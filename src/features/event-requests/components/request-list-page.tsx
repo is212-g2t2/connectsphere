@@ -146,14 +146,23 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                           </Button>
                         </span>
                       ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setPendingDeleteId(request.id)}
-                        >
-                          Delete
-                        </Button>
+                        <span className="flex items-center gap-2">
+                          <Link
+                            to="/event-requests/reopenDraft/$id"
+                            params={{ id: String(request.id) }}
+                            className={NAV_LINK_CLASSNAME}
+                          >
+                            Resume
+                          </Link>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPendingDeleteId(request.id)}
+                          >
+                            Delete
+                          </Button>
+                        </span>
                       ))}
                   </td>
                 </tr>
