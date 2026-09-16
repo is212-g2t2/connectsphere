@@ -1,13 +1,7 @@
 name: Unit Tests
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".vscode/**"
-      - ".idea/**"
+  workflow_call:
   pull_request:
     paths-ignore:
       - "**.md"
@@ -18,8 +12,9 @@ on:
 permissions:
   contents: read
 
+# Literal, not `github.workflow`: a called workflow sees the caller's name.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: unit-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

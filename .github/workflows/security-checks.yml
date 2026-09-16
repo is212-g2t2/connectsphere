@@ -1,13 +1,7 @@
 name: Security Checks
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".vscode/**"
-      - ".idea/**"
+  workflow_call:
   pull_request:
     paths-ignore:
       - "**.md"
@@ -17,8 +11,11 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+# Literal, not `github.workflow`: a called workflow sees the caller's name, and
+# all five checks would share one group. The event name keeps the weekly
+# schedule (same ref as a main release) from cancelling that release's run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: security-checks-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
