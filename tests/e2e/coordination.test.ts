@@ -49,6 +49,16 @@ test("redirects unauthenticated visitors from the coordination detail", async ({
   await expect(page).toHaveURL(/\/login/);
 });
 
+test("answers not found for a junk request id instead of the error boundary", async ({ page }) => {
+  const coordinator = await register(page, "event_coordinator", "Junk Id Coordinator");
+  try {
+    await page.goto("/coordination/abc");
+    await expect(page.getByText(/not found/i)).toBeVisible();
+  } finally {
+    await database.delete(schema.user).where(eq(schema.user.id, coordinator.id));
+  }
+});
+
 test("hands over an event and transfers access", async ({ page, browser, baseURL }) => {
   const incomingContext = await browser.newContext({ baseURL });
   const organiserContext = await browser.newContext({ baseURL });

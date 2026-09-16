@@ -1,10 +1,11 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
 import { unwrapRefusal } from "#/features/auth/session";
 import { CoordinationRequestPage } from "#/features/coordination/components/coordination-request-page";
 import { CoordinationRequestPageSkeleton } from "#/features/coordination/components/coordination-request-page-skeleton";
 import { getCoordinationRequest, listCoordinators } from "#/features/coordination/server-fns";
+import { EventRequestIdInput } from "#/features/event-requests/schema";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/coordination/$requestId")({
@@ -15,11 +16,14 @@ export const Route = createFileRoute("/_authenticated/coordination/$requestId")(
     }
   },
   loader: async ({ params }) => {
+    // The same rule the server function applies, so a junk path segment is a 404 without a
+    // round trip, as the sibling event-requests detail route does.
+    const parsed = EventRequestIdInput.safeParse({ id: Number(params.requestId) });
+    if (!parsed.success) {
+      throw notFound();
+    }
     const [request, coordinators] = await Promise.all([
-      unwrapRefusal(
-        getCoordinationRequest({ data: { id: Number(params.requestId) } }),
-        "Could not open this request."
-      ),
+      unwrapRefusal(getCoordinationRequest({ data: parsed.data }), "Could not open this request."),
       unwrapRefusal(listCoordinators(), "Could not load the Coordinators."),
     ]);
     return { request, coordinators };
