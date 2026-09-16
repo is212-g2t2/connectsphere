@@ -1,11 +1,18 @@
 import { Link } from "@tanstack/react-router";
 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "#/components/ui/table";
+import type { AssignedEventRequest } from "#/features/coordination/server-fns";
 import { UNTITLED_REQUEST } from "#/features/event-requests/components/request-list-page";
 import { formatFirstProposedDate, formatInstant } from "#/features/event-requests/format";
 import type { UnassignedEventRequest } from "#/features/event-requests/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
-
-const NO_REQUESTS: UnassignedEventRequest[] = [];
 
 /**
  * Submitted requests the Coordinator can act on: their own assignments and the unassigned
@@ -13,10 +20,10 @@ const NO_REQUESTS: UnassignedEventRequest[] = [];
  */
 export function CoordinationPage({
   unassigned,
-  assigned = NO_REQUESTS,
+  assigned,
 }: {
   unassigned: UnassignedEventRequest[];
-  assigned?: UnassignedEventRequest[];
+  assigned: AssignedEventRequest[];
 }) {
   return (
     <main className="mx-auto max-w-4xl px-6 py-16">
@@ -67,20 +74,20 @@ export function CoordinationPage({
             Every submitted request has a Coordinator.
           </p>
         ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border font-mono text-xs tracking-widest text-muted-foreground uppercase">
-                <tr>
-                  <th className="py-3 pr-4 font-medium">Event</th>
-                  <th className="py-3 pr-4 font-medium">Organiser</th>
-                  <th className="py-3 pr-4 font-medium">Proposed date</th>
-                  <th className="py-3 font-medium">Submitted</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="mt-4">
+            <Table>
+              <TableHeader className="border-b border-border font-mono text-xs tracking-widest text-muted-foreground uppercase">
+                <TableRow>
+                  <TableHead className="py-3 pr-4 font-medium">Event</TableHead>
+                  <TableHead className="py-3 pr-4 font-medium">Organiser</TableHead>
+                  <TableHead className="py-3 pr-4 font-medium">Proposed date</TableHead>
+                  <TableHead className="py-3 font-medium">Submitted</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {unassigned.map(request => (
-                  <tr key={request.id} className="border-b border-border">
-                    <td className="py-3 pr-4 font-medium">
+                  <TableRow key={request.id} className="border-b border-border">
+                    <TableCell className="py-3 pr-4 font-medium">
                       <Link
                         to="/coordination/$requestId"
                         params={{ requestId: String(request.id) }}
@@ -88,24 +95,26 @@ export function CoordinationPage({
                       >
                         {request.eventName.trim() || UNTITLED_REQUEST}
                       </Link>
-                    </td>
-                    <td className="py-3 pr-4">
+                    </TableCell>
+                    <TableCell className="py-3 pr-4">
                       {request.organiser.name}
                       <br />
                       <a href={`mailto:${request.organiser.email}`} className={NAV_LINK_CLASSNAME}>
                         {request.organiser.email}
                       </a>
-                    </td>
-                    <td className="py-3 pr-4">{formatFirstProposedDate(request.proposedDates)}</td>
-                    <td className="py-3">
+                    </TableCell>
+                    <TableCell className="py-3 pr-4">
+                      {formatFirstProposedDate(request.proposedDates)}
+                    </TableCell>
+                    <TableCell className="py-3">
                       <time dateTime={request.submittedAt?.toISOString()}>
                         {formatInstant(request.submittedAt)}
                       </time>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>

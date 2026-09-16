@@ -8,6 +8,17 @@ import type { SessionUser } from "#/features/auth/session";
 import { parseAssignmentInput } from "#/features/coordination/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 
+/**
+ * Server-only on purpose, and named for it. `#/db/schema` is a value import here: the table
+ * builders run at module scope, so a bundler cannot treat the module as side-effect free and
+ * drops nothing — importing this from anywhere the browser can reach would ship the whole
+ * database schema, Better Auth tables included. `server-fns.ts` reaches it through a dynamic
+ * `import()` inside `.handler()`, which is the seam that keeps it off the client.
+ *
+ * The middleware pipeline has already verified the session and `event_request:coordinate`
+ * before these handlers run.
+ */
+
 type Database = typeof Db;
 const organisers = alias(user, "organiser");
 const coordinators = alias(user, "coordinator");
@@ -99,12 +110,13 @@ export async function handleAssignEventRequest(
     }
 
     // Hold the selected account while its role is validated and the assignment is committed.
-    const candidates = await tx
-      .select({ id: user.id })
-      .from(user)
-      .where(and(eq(user.id, input.coordinatorId), eq(user.role, "event_coordinator")))
-      .for("share");
-    const incoming = candidates.at(0);
+    const incoming = (
+      await tx
+        .select({ id: user.id })
+        .from(user)
+        .where(and(eq(user.id, input.coordinatorId), eq(user.role, "event_coordinator")))
+        .for("share")
+    ).at(0);
     if (!incoming) throw new ConflictError("Choose an existing Event Coordinator.");
 
     const now = new Date();

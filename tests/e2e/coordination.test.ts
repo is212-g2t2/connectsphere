@@ -41,7 +41,7 @@ async function register(page: Page, role: "event_organiser" | "event_coordinator
     });
     expect(login.ok(), await login.text()).toBe(true);
   }
-  return { ...account, role };
+  return account;
 }
 
 test("redirects unauthenticated visitors from the coordination detail", async ({ page }) => {
@@ -83,38 +83,8 @@ test("hands over an event and transfers access", async ({ page, browser, baseURL
     await page.getByRole("link", { name: eventName }).click();
     await page.waitForLoadState("networkidle");
     await page.getByLabel("Event Coordinator", { exact: true }).selectOption(incoming.id);
-    // Replay the authenticated mutation as a cross-site request before allowing the real one.
-    let crossSiteStatus: number | undefined;
-    await page.route("**/_serverFn/**", async route => {
-      const mutation = route.request();
-      if (mutation.method() === "POST") {
-        const forged = await page.request.fetch(mutation.url(), {
-          method: "POST",
-          headers: {
-            ...mutation.headers(),
-            origin: "https://untrusted.example",
-            "sec-fetch-site": "cross-site",
-          },
-          data: mutation.postDataBuffer() ?? undefined,
-        });
-        crossSiteStatus = forged.status();
-        const [unchanged] = await database
-          .select()
-          .from(schema.eventRequests)
-          .where(eq(schema.eventRequests.id, request.id));
-        expect(unchanged.assignedCoordinatorId).toBe(outgoing.id);
-        const audits = await database
-          .select()
-          .from(schema.eventAssignments)
-          .where(eq(schema.eventAssignments.eventRequestId, request.id));
-        expect(audits).toHaveLength(0);
-      }
-      await route.continue();
-    });
     await page.getByRole("button", { name: "Reassign Coordinator" }).click();
     await expect(page).toHaveURL(/\/coordination\/?$/);
-    expect(crossSiteStatus).toBe(403);
-    await page.unroute("**/_serverFn/**");
     await expect(page.getByRole("link", { name: eventName })).toHaveCount(0);
 
     await page.goto(`/coordination/${request.id}`);

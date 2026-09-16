@@ -26,19 +26,19 @@ const NONE = "None recorded";
  */
 export function EventRequestDetailPage({
   request,
-  backTo = "/event-requests",
+  back,
   children,
 }: {
   request: EventRequestSummary;
-  backTo?: "/event-requests" | "/coordination";
+  back?: { to: "/event-requests" | "/coordination"; label: string };
   children?: React.ReactNode;
 }) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to={backTo} className={NAV_LINK_CLASSNAME}>
-        {backTo === "/coordination" ? "Back to coordination" : "Back to event requests"}
+      <Link to={back?.to ?? "/event-requests"} className={NAV_LINK_CLASSNAME}>
+        {back?.label ?? "Back to event requests"}
       </Link>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">

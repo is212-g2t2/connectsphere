@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,10 +7,9 @@ import { parseAssignmentInput } from "#/features/coordination/schema";
 import type { AssignmentValues } from "#/features/coordination/schema";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 
-const { assignEventRequest, navigate, invalidate, success } = vi.hoisted(() => ({
+const { assignEventRequest, navigate, success } = vi.hoisted(() => ({
   assignEventRequest: vi.fn<(input: { data: AssignmentValues }) => Promise<unknown>>(),
   navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
-  invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
 }));
 vi.mock("#/features/coordination/server-fns", () => ({ assignEventRequest }));
@@ -24,7 +23,7 @@ vi.mock("@tanstack/react-router", () => ({
     to: string;
     params?: { requestId: string };
   }) => <a href={params ? to.replace("$requestId", params.requestId) : to}>{children}</a>,
-  useRouter: () => ({ navigate, invalidate }),
+  useNavigate: () => navigate,
 }));
 vi.mock("sonner", () => ({ toast: { success } }));
 
@@ -76,6 +75,13 @@ describe("assignment validation", () => {
     expect(() =>
       parseAssignmentInput({ id: -1, coordinatorId: "coord-b", expectedCoordinatorId: null })
     ).toThrow("Choose an event request");
+    expect(() =>
+      parseAssignmentInput({
+        id: 3_000_000_000,
+        coordinatorId: "coord-b",
+        expectedCoordinatorId: null,
+      })
+    ).toThrow("Choose an event request");
     expect(
       parseAssignmentInput({
         id: 7,
@@ -97,6 +103,17 @@ describe("Coordinator handover and pickup", () => {
       })
     );
     expect(navigate).toHaveBeenCalledWith({ to: "/coordination" });
+  });
+
+  it("refuses an implicit submit with no Coordinator selected and never calls the server", async () => {
+    render(<CoordinationRequestPage request={request} coordinators={coordinators} user={actor} />);
+    // The disabled button does not stop Enter in the focused select from submitting the form.
+    const form = screen.getByRole("button", { name: "Assign to me" }).closest("form");
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Choose an Event Coordinator");
+    expect(assignEventRequest).not.toHaveBeenCalled();
   });
 
   it("hands an owned event to the selected Coordinator and leaves its detail", async () => {
@@ -121,7 +138,7 @@ describe("Coordinator handover and pickup", () => {
         data: { id: 7, coordinatorId: "coord-b", expectedCoordinatorId: actor.id },
       })
     );
-    expect(navigate).toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith({ to: "/coordination" });
     expect(success).toHaveBeenCalled();
   });
 

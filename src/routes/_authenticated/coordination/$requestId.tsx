@@ -13,9 +13,6 @@ export const Route = createFileRoute("/_authenticated/coordination/$requestId")(
       throw redirect({ to: "/dashboard" });
     }
   },
-  // Ownership is always checked on navigation, including a return to a previously opened event.
-  staleTime: 0,
-  gcTime: 0,
   loader: async ({ params }) => {
     const [request, coordinators] = await Promise.all([
       unwrapRefusal(
