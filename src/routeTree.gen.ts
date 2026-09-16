@@ -29,6 +29,7 @@ import { Route as AuthenticatedVenuesIndexRouteImport } from './routes/_authenti
 import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authenticated/venues/$venueId'
 import { Route as AuthenticatedVenuesNewRouteImport } from './routes/_authenticated/venues/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AuthenticatedEventRequestsReopenDraftIdRouteImport } from './routes/_authenticated/event-requests/reopenDraft.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -135,6 +136,12 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedEventRequestsReopenDraftIdRoute =
+  AuthenticatedEventRequestsReopenDraftIdRouteImport.update({
+    id: '/event-requests/reopenDraft/$id',
+    path: '/event-requests/reopenDraft/$id',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -156,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/venues/': typeof AuthenticatedVenuesIndexRoute
+  '/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -177,6 +185,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/event-requests': typeof AuthenticatedEventRequestsIndexRoute
   '/venues': typeof AuthenticatedVenuesIndexRoute
+  '/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -200,6 +209,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_authenticated/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/_authenticated/venues/': typeof AuthenticatedVenuesIndexRoute
+  '/_authenticated/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -223,6 +233,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/event-requests/'
     | '/venues/'
+    | '/event-requests/reopenDraft/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -244,6 +255,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/event-requests'
     | '/venues'
+    | '/event-requests/reopenDraft/$id'
   id:
     | '__root__'
     | '/'
@@ -266,6 +278,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/_authenticated/event-requests/'
     | '/_authenticated/venues/'
+    | '/_authenticated/event-requests/reopenDraft/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -424,6 +437,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/event-requests/reopenDraft/$id': {
+      id: '/_authenticated/event-requests/reopenDraft/$id'
+      path: '/event-requests/reopenDraft/$id'
+      fullPath: '/event-requests/reopenDraft/$id'
+      preLoaderRoute: typeof AuthenticatedEventRequestsReopenDraftIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
@@ -437,6 +457,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
   AuthenticatedEventRequestsIndexRoute: typeof AuthenticatedEventRequestsIndexRoute
   AuthenticatedVenuesIndexRoute: typeof AuthenticatedVenuesIndexRoute
+  AuthenticatedEventRequestsReopenDraftIdRoute: typeof AuthenticatedEventRequestsReopenDraftIdRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -450,6 +471,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
   AuthenticatedEventRequestsIndexRoute: AuthenticatedEventRequestsIndexRoute,
   AuthenticatedVenuesIndexRoute: AuthenticatedVenuesIndexRoute,
+  AuthenticatedEventRequestsReopenDraftIdRoute:
+    AuthenticatedEventRequestsReopenDraftIdRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EventRequestsPage } from "#/features/event-requests/components/request-page";
 import { SUBMITTED_EDIT_REFUSAL } from "#/features/event-requests/schema";
+import type { EventRequestDraft } from "#/features/event-requests/server-fns";
 
 const { saveEventRequestDraft, submitEventRequest } = vi.hoisted(() => ({
   saveEventRequestDraft:
@@ -31,6 +32,11 @@ function saveDraftNamed(name: string) {
     target: { value: name },
   });
   return userEvent.setup().click(screen.getByRole("button", { name: "Save draft" }));
+}
+
+function inputValue(label: string) {
+  return screen.getByLabelText<HTMLInputElement | HTMLTextAreaElement>(label, { exact: true })
+    .value;
 }
 
 /** The id each call was sent with — `undefined` on a create, the row's id on an update. */
@@ -87,6 +93,68 @@ describe("EventRequestsPage", () => {
 
     // The id survived the refusal, so the retry updated the row rather than inserting beside it.
     expect(sentIds()).toEqual([undefined, 41, 41]);
+  });
+});
+
+/**
+ * Criterion 2: a draft loaded by the reopen route must be updated by the first save, not
+ * duplicated — `useMutation`'s `previous` starts undefined here, so only `existingDraft`'s id can
+ * carry the row across.
+ */
+const reopenedDraft = {
+  id: 41,
+  organiserId: "usr_1",
+  status: "draft",
+  submittedAt: null,
+  assignedCoordinatorId: null,
+  assignedAt: null,
+  eventName: "Community workshop",
+  purpose: "Plan the year with members",
+  proposedDates: [{ start: "2030-11-18T09:30", end: "2030-11-18T12:45" }],
+  expectedAttendance: 25,
+  description: "",
+  eventType: "",
+  venueRequirements: "",
+  roomLayoutPreference: "",
+  accessibilityRequirements: "",
+  equipmentRequirements: [],
+  specialArrangements: "",
+  registrationEnabled: true,
+  registrationCapacity: 25,
+  registrationOpensAt: "2030-11-01T09:00",
+  registrationClosesAt: "2030-11-08T17:00",
+  createdAt: new Date("2026-09-01T00:00:00Z"),
+  updatedAt: new Date("2026-09-01T00:00:00Z"),
+} as EventRequestDraft;
+
+describe("EventRequestsPage reopen (PTR-12)", () => {
+  it("seeds the form with the loaded draft, converting stored values (AC2)", () => {
+    render(<EventRequestsPage existingDraft={reopenedDraft} />);
+
+    expect(inputValue("Proposed start 1 (required)")).toBe("2030-11-18T09:30");
+    expect(inputValue("Proposed end 1 (required)")).toBe("2030-11-18T12:45");
+    expect(inputValue("Expected attendance (required)")).toBe("25");
+    expect(inputValue("Registration capacity (required)")).toBe("25");
+    expect(inputValue("Registration opens (required)")).toBe("2030-11-01T09:00");
+    expect(inputValue("Registration closes (required)")).toBe("2030-11-08T17:00");
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Require attendee registration" })
+        .getAttribute("aria-checked")
+    ).toBe("true");
+  });
+
+  it("updates the loaded draft on and after the first save (AC2)", async () => {
+    saveEventRequestDraft.mockResolvedValue({ id: 41 });
+    render(<EventRequestsPage existingDraft={reopenedDraft} />);
+
+    await saveDraftNamed("Community workshop, resumed");
+    expect(await screen.findByText("Draft saved.")).toBeTruthy();
+
+    await saveDraftNamed("Community workshop, resumed again");
+    await waitFor(() => expect(saveEventRequestDraft).toHaveBeenCalledTimes(2));
+
+    expect(sentIds()).toEqual([41, 41]);
   });
 });
 

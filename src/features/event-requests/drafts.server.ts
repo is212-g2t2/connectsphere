@@ -6,6 +6,7 @@ import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   ALREADY_SUBMITTED_MESSAGE,
+  EVENT_REQUEST_DELETE_REFUSAL,
   SUBMITTED_EDIT_REFUSAL,
   missingFieldsMessage,
   missingRequiredFields,
@@ -64,6 +65,21 @@ function ownDraft(id: number, organiserId: string) {
 }
 
 /**
+ * A write that matched no draft is either not the organiser's at all or theirs but no longer a
+ * draft. Only the message differs: "Forbidden" would blame the role for a request that was
+ * submitted in this or another sitting, so the submitted case answers with the direction the
+ * calling path asks for instead.
+ */
+async function ownRowExists(id: number, organiserId: string, database: Database): Promise<boolean> {
+  const rows = await database
+    .select({ id: eventRequests.id })
+    .from(eventRequests)
+    .where(ownRequest(id, organiserId));
+
+  return rows.length > 0;
+}
+
+/**
  * Full-replace (PUT-style), not merge: an update writes every field from `data`, defaulting
  * anything absent to blank/null exactly as a create would. The form always resends the complete
  * draft, so this matches actual usage; a partial payload against an existing `id` blanks the
@@ -105,15 +121,7 @@ export async function handleSaveEventRequestDraft(
     .returning();
 
   if (updated.length === 0) {
-    // The row may be the organiser's but no longer a draft. Refusing it as "Forbidden" would
-    // blame the role for a request that was submitted in this or another sitting, so the
-    // submitted case answers with the direction PTR-13 criterion 3 asks for instead.
-    const ownRow = await database
-      .select({ id: eventRequests.id })
-      .from(eventRequests)
-      .where(ownRequest(id, user.id));
-
-    if (ownRow.length > 0) {
+    if (await ownRowExists(id, user.id, database)) {
       throw new ConflictError(SUBMITTED_EDIT_REFUSAL);
     }
 
@@ -266,4 +274,46 @@ export async function handleListUnassignedEventRequests(
     .innerJoin(users, eq(users.id, eventRequests.organiserId))
     .where(and(ne(eventRequests.status, "draft"), isNull(eventRequests.assignedCoordinatorId)))
     .orderBy(asc(eventRequests.submittedAt), asc(eventRequests.id));
+}
+/**
+ * Criterion 2: loads one owned draft so the edit route can seed the form with it. Scoped through
+ * `ownDraft`, the same helper the save path uses, so a submitted request can never be fetched
+ * back into the editable form. `null` for a row that is not theirs, no longer a draft, or does
+ * not exist, as `handleGetEventRequest` does; the route answers all three with the same 404.
+ */
+export async function handleGetEventRequestDraft(
+  data: unknown,
+  user: SessionUser,
+  database: Database
+): Promise<EventRequest | null> {
+  const { id } = parseEventRequestId(data);
+
+  const rows = await database.select().from(eventRequests).where(ownDraft(id, user.id));
+
+  return rows.at(0) ?? null;
+}
+
+/**
+ * Criterion 3: deletes the organiser's own draft. Scoped through `ownDraft`, so a submitted
+ * request can never be deleted here — mirrors `handleSaveEventRequestDraft`'s distinction between
+ * "not yours" and "yours, but no longer a draft".
+ */
+export async function handleDeleteEventRequestDraft(
+  data: unknown,
+  user: SessionUser,
+  database: Database
+): Promise<EventRequest> {
+  const { id } = parseEventRequestId(data);
+
+  const deleted = await database.delete(eventRequests).where(ownDraft(id, user.id)).returning();
+
+  if (deleted.length === 0) {
+    if (await ownRowExists(id, user.id, database)) {
+      throw new ConflictError(EVENT_REQUEST_DELETE_REFUSAL);
+    }
+
+    throw new AuthorizationError("Forbidden");
+  }
+
+  return deleted[0];
 }
