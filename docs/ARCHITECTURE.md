@@ -59,7 +59,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
 ├── instrument.server.mjs # Server bootstrap: Sentry init and logging
-├── AGENTS.md             # Guide for AI agents (CLAUDE.md includes it)
+├── AGENTS.md             # Guide for AI agents (CLAUDE.md symlinks to it)
 ├── components.json       # shadcn/ui configuration
 ├── Dockerfile
 ├── drizzle.config.ts
