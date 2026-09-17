@@ -3,7 +3,7 @@ import { CalendarDays, Clock3 } from "lucide-react";
 import type { EventProjection } from "#/features/events/access";
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(
     new Date(`${value}T00:00:00`)
   );
 }
