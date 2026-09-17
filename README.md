@@ -74,11 +74,6 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
    plus two future periods of unavailability, so the venue stories have data to build against.
    Re-running `bun run db:seed` is safe: existing accounts and venues are left untouched.
 
-   The venue calendar at `/venues/availability` is read-only and answers through the venue
-   server functions. Event Coordinators, Venue Staff and Technical Support Staff can open it;
-   booking persistence is deferred to PTR-31/PTR-33, so the live calendar reports the venue's
-   free periods and recorded unavailability only.
-
 5. **Start the dev server**
 
    ```bash

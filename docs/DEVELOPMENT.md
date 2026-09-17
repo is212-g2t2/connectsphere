@@ -205,20 +205,6 @@ bun run playwright test tests/e2e/landing.test.ts
 
 ---
 
-## Venue availability (PTR-28)
-
-Event Coordinators, Venue Staff and Technical Support Staff open `/venues/availability` from the dashboard and see a venue's free, confirmed and blocked periods for an inclusive date range. Access is read-only and gated by the existing `venue:read` function; an external role is redirected to `/dashboard` and refused by the server function (criterion 5).
-
-The page is a feature view (`src/features/venues/components/venue-calendar-page.tsx`) wired by the route's search parameters and loader: submitting the form navigates with `venueId`, `startDate` and `endDate`, the loader calls `getVenueAvailability`, and `src/features/venues/records.server.ts` reads `venues` and `venue_unavailability`. `src/features/venues/availability.ts` holds the pure half — floating timestamps, opening periods and the projection that subtracts recorded occupancy from the venue's opening hours.
-
-Timestamps stay floating venue-local wall-clock strings end to end: Postgres `timestamp without time zone` values are compared as fixed-width strings and never parsed with `Date`, appended with `Z`, or resolved against the server or browser timezone. Operating hours are `HH:MM` ranges per weekday, `null` on a closed day.
-
-AC3 is mocked: booking persistence arrives with PTR-31/PTR-33, so the live read passes `bookings: []` and reports recorded unavailability only. The projection already renders an approved booking as a confirmed period, and `tests/unit/venue-availability.test.ts` pins that; the live E2E run covers AC1, AC2, AC4 and AC5.
-
-Playwright global setup reuses a reachable `DATABASE_URL` or starts a PostgreSQL testcontainer, runs migrations for a container it starts, and runs the idempotent shared seed once before the workers. When Docker is unavailable, provide a reachable, already-migrated `DATABASE_URL`.
-
----
-
 ## Code Quality & Git Hooks
 
 ### Linting & Formatting
