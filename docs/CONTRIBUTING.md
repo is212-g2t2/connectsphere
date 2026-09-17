@@ -37,13 +37,7 @@ New features need at least one unit test covering the core behaviour. New routes
 
 ## Database changes
 
-When modifying database schemas (`src/db/schema.ts`, `src/db/auth-schema.ts`):
-
-1. **Always generate migrations**: Run `bun run db:generate` to produce versioned migration SQL in `src/db/drizzle/`. Never handwrite SQL migrations.
-2. **Commit both**: Commit schema changes together with the generated migration files.
-3. **Verify migrations**: Run `bun run db:migrate` to verify they apply cleanly against your local database.
-
-See [Database Management in DEVELOPMENT.md](./DEVELOPMENT.md#database-management--migrations) for full workflow details.
+Schema changes (`src/db/schema.ts`, `src/db/auth-schema.ts`) ship in the same commit as their generated migration in `src/db/drizzle/`, and the migration must apply cleanly against your local database. Never handwrite migrations. Full workflow: [Database Management in DEVELOPMENT.md](./DEVELOPMENT.md#database-management--migrations).
 
 ## Adding dependencies
 
@@ -51,8 +45,4 @@ Every runtime dependency added to `package.json` must be used by shipped code. D
 
 ## Environment variables
 
-All new env vars must be:
-
-1. Added to `src/env.ts` (optional unless truly required for the app to boot).
-2. Documented in `.env.example` with a descriptive comment.
-3. Mentioned in `README.md` if they change the setup steps.
+New variables follow [DEVELOPMENT.md §Adding Environment Variables](./DEVELOPMENT.md#adding-environment-variables): declared in `src/env.ts`, commented in `.env.example`, and mentioned in `README.md` when they change setup.

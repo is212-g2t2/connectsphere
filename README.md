@@ -33,46 +33,18 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
    docker compose up -d postgres redis minio minio_init
    ```
 
-   This starts the infrastructure only. The `connectsphere` app service binds port 3000 and would clash with the local dev server — see the [Deployment Guide](./docs/DEPLOYMENT.md).
+   This starts the infrastructure only. The `connectsphere` app service binds port 3000 and would clash with the local dev server; see the [Deployment Guide](./docs/DEPLOYMENT.md).
 
 4. **Prepare the database**
 
-   Apply migrations:
-
    ```bash
-   bun run db:migrate
+   bun run db:migrate   # apply migrations
+   bun run db:seed      # optional: demo accounts and venues
    ```
 
-   _(Or push schema directly during local prototyping: `bun run db:push`)_
+   _(Or push schema directly during local prototyping: `bun run db:push`.)_
 
-   Optionally seed with initial data:
-
-   ```bash
-   bun run db:seed
-   ```
-
-   This also creates three internal staff accounts that self-registration cannot
-   produce (sign-up only allows external roles). They exist for building, testing
-   and demonstrating the role-restricted stories:
-
-   | Role                    | Email                         | Password        |
-   | ----------------------- | ----------------------------- | --------------- |
-   | Event Coordinator       | coordinator.seed@example.com  | `Seed-Pass123!` |
-   | Venue Staff             | venue.staff.seed@example.com  | `Seed-Pass123!` |
-   | Technical Support Staff | tech.support.seed@example.com | `Seed-Pass123!` |
-
-   The seeded attendee (`john.doe@example.com`) and organiser (`jane.doe@example.com`) also use
-   `Seed-Pass123!`. The demo event request is connected to all five roles — jane owns it, the
-   seeded Coordinator and Venue Staff are assigned to it, Technical Support holds an equipment
-   request for it, and john is registered — so each access projection can be checked locally.
-
-   These credentials are non-production (shared password, `example.com`
-   addresses, no real personal data) and must never be used outside local/demo environments.
-
-   The same seed creates three demo venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion)
-   with capacity, facilities, accessibility features, supported layouts and operating hours,
-   plus two future periods of unavailability, so the venue stories have data to build against.
-   Re-running `bun run db:seed` is safe: existing accounts and venues are left untouched.
+   Seeded credentials and demo data are listed in the [Development Guide](./docs/DEVELOPMENT.md#seeded-data).
 
 5. **Start the dev server**
 
@@ -86,10 +58,10 @@ For complete workflow instructions, script catalogs, testing guidelines, and env
 
 ## Documentation
 
-- [Development](./docs/DEVELOPMENT.md) — local setup, scripts catalog, database management, testing, and tooling.
-- [Architecture](./docs/ARCHITECTURE.md) — project structure, data flow, auth, and observability.
-- [Design System](./docs/DESIGN.md) — the ConnectSphere design system and its tokens.
-- [Agents Guide](./AGENTS.md) — rules for coding agents working in this repo.
-- [Deployment](./docs/DEPLOYMENT.md) — deployed environments, the release pipeline, rollback, and the local Docker workflow.
-- [Changelog](./docs/CHANGELOG.md) — version history.
-- [Contributing](./docs/CONTRIBUTING.md) — branch, commit, and test conventions.
+- [Development](./docs/DEVELOPMENT.md): local setup, scripts catalog, database management, testing, and tooling.
+- [Architecture](./docs/ARCHITECTURE.md): project structure, data flow, auth, and observability.
+- [Design System](./docs/DESIGN.md): the ConnectSphere design system and its tokens.
+- [Agents Guide](./AGENTS.md): rules for coding agents working in this repo.
+- [Deployment](./docs/DEPLOYMENT.md): deployed environments, the release pipeline, rollback, and the local Docker workflow.
+- [Changelog](./docs/CHANGELOG.md): version history.
+- [Contributing](./docs/CONTRIBUTING.md): branch, commit, and test conventions.

@@ -1,6 +1,6 @@
 # Infrastructure
 
-Terraform for the two Cloud Run environments of ConnectSphere. One GCP project (`connectsphere-is212`, region `asia-southeast1`), one state file covering both environments, applied by hand from a workstation — the release pipeline deploys images and moves traffic, but never runs `terraform apply`.
+Terraform for the two Cloud Run environments of ConnectSphere. One GCP project (`connectsphere-is212`, region `asia-southeast1`), one state file covering both environments, applied by hand from a workstation. The release pipeline deploys images and moves traffic, but never runs `terraform apply`.
 
 State lives in `gs://connectsphere-is212-tfstate` (`prefix = terraform/state`). The `CLOUDFLARE_API_TOKEN` environment variable must be set before any plan or apply; the token is never a variable, a tfvars entry, or a state value.
 
@@ -16,7 +16,7 @@ State lives in `gs://connectsphere-is212-tfstate` (`prefix = terraform/state`). 
 | `r2.tf`           | One private R2 bucket per environment                                                               |
 | `budget.tf`       | A monthly SGD 10 budget with alerts at 50%, 90% and 100%                                            |
 
-The per-environment settings — service name, hostname, instance bounds, bucket, Sentry environment, proxy flag, sender address — are one map in `main.tf`.
+The per-environment settings (service name, hostname, instance bounds, bucket, Sentry environment, proxy flag, sender address) are one map in `main.tf`.
 
 ## Bootstrap order
 
@@ -89,7 +89,7 @@ The provider has no R2 CORS resource, so both are dashboard/API steps, **per buc
    bunx wrangler r2 bucket cors list connectsphere-uploads   # verify
    ```
 
-   Repeat with `cors-staging.json`, `connectsphere-staging-uploads` and `https://connectsphere-staging.ciav.dev`. Do not put both origins on one bucket — separate buckets are what keep staging uploads out of production.
+   Repeat with `cors-staging.json`, `connectsphere-staging-uploads` and `https://connectsphere-staging.ciav.dev`. Do not put both origins on one bucket; separate buckets are what keep staging uploads out of production.
 
 ### Resend
 

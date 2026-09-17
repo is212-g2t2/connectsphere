@@ -1,5 +1,5 @@
 ---
-date: 09-14-2026
+date: 2026-09-14
 adr-number: ADR-2
 status: accepted
 ---
@@ -23,13 +23,13 @@ Build ConnectSphere as a **modular monolith**: a single deployable application a
 ### Microservices
 
 - Pros: independent deploy and scale per service, failure isolation, polyglot freedom, ownership boundaries that survive team growth.
-- Cons: a distributed system's overhead — service discovery, inter-service auth, network latency and partial failure, distributed tracing, multiple CI/CD pipelines and migration streams — imposed on a small team and one product; cross-service transactions would replace the current single-database ACID guarantees; independent scaling solves no problem this app currently has.
+- Cons: a distributed system's overhead (service discovery, inter-service auth, network latency and partial failure, distributed tracing, multiple CI/CD pipelines and migration streams) imposed on a small team and one product; cross-service transactions would replace the current single-database ACID guarantees; independent scaling solves no problem this app currently has.
 - Rejected: the operational cost is real and immediate, while the benefits are speculative. The feature modules already provide the modularity that makes a later extraction possible.
 
 ## Consequences
 
 - One deploy, one migration stream, and one connection pool to operate.
 - Debugging, transactions, and session handling stay simple: no distributed tracing or network failure modes between components.
-- Deploy blast radius is the whole application — a bad change rolls back everything, not one service.
+- Deploy blast radius is the whole application. A bad change rolls back everything, not one service.
 - Scaling is vertical or whole-app horizontal; if one workload (for example uploads or search) ever dominates, it must be extracted or scaled separately then.
 - Feature boundaries are enforced by convention and tests, not by the network. A service extraction is only cheap while modules keep their internals private.
