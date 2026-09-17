@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
-import { parseVenueId, parseVenueInput } from "#/features/venues/schema";
+import { parseAvailabilityRequest, parseVenueId, parseVenueInput } from "#/features/venues/schema";
 
 /**
  * Routes import this module, so it stays free of any static server import — the middleware
@@ -52,3 +52,23 @@ export const saveVenue = createServerFn({ method: "POST" })
     const [{ db }, { handleSaveVenue }] = await loadServer();
     return handleSaveVenue(data, db);
   });
+
+/**
+ * The availability calendar's read (PTR-28). Anyone holding `venue:read` may call it — the same
+ * Coordinators, Venue Staff and Technical Support Staff who may read a venue record, and nobody
+ * external, which is criterion 5 enforced at the addressable endpoint rather than by the guard.
+ *
+ * Wrapped in `{ availability }` for the reason `getVenue` documents above: a nullable top-level result infers as `never`. A venue that is not there answers `null`, and the route turns that into the router's `notFound()`.
+ */
+export const getVenueAvailability = createServerFn({ method: "GET" })
+  .validator(parseAvailabilityRequest)
+  .middleware([requireVenueRead])
+  .handler(async ({ data }) => {
+    const [{ db }, { handleGetVenueAvailability }] = await loadServer();
+    return { availability: await handleGetVenueAvailability(data, db) };
+  });
+
+/** The calendar schedule as the client sees it — derived here, like `Venue` above. */
+export type VenueAvailability = NonNullable<
+  Awaited<ReturnType<typeof getVenueAvailability>>["availability"]
+>;
