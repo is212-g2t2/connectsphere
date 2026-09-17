@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsPage } from "#/features/auth/components/settings-page";
 import { DashboardPage } from "#/features/dashboard/components/dashboard-page";
+import { DashboardPageSkeleton } from "#/features/dashboard/components/dashboard-page-skeleton";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
@@ -141,6 +142,14 @@ describe("DashboardPage", () => {
     expect(await screen.findByText("Upload refused for this file")).toBeTruthy();
     const trigger = screen.getByRole("button", { name: "Choose file" });
     expect(trigger.hasAttribute("disabled")).toBe(false);
+  });
+
+  /** The route's `pendingComponent`: the dashboard's shape while `listEvents` is in flight. */
+  it("shows the dashboard's loading shape while the loader is pending", () => {
+    const { container } = render(<DashboardPageSkeleton />);
+
+    expect(screen.getByRole("status").textContent).toBe("Loading your dashboard…");
+    expect(container.querySelector("main")?.getAttribute("aria-busy")).toBe("true");
   });
 });
 
