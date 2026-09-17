@@ -1,5 +1,5 @@
 ---
-date: 09-14-2026
+date: 2026-09-14
 adr-number: ADR-1
 status: accepted
 ---
@@ -8,7 +8,7 @@ status: accepted
 
 ## Context
 
-ConnectSphere is an SSR event-planning and venue-booking application: five roles, session-based auth, server functions, file uploads, and SEO-relevant public pages (`robots.txt`, sitemap, structured data). It is built and run on Bun, and the runtime uses Bun-native APIs — `bun:sql` via `drizzle-orm/bun-sql`, `Bun.s3`, and `Bun.RedisClient`.
+ConnectSphere is an SSR event-planning and venue-booking application: five roles, session-based auth, server functions, file uploads, and SEO-relevant public pages (`robots.txt`, sitemap, structured data). It is built and run on Bun, and the runtime uses Bun-native APIs: `bun:sql` via `drizzle-orm/bun-sql`, `Bun.s3`, and `Bun.RedisClient`.
 
 The team is small and optimises for iteration speed and type safety over a large framework ecosystem. Requirements:
 
@@ -23,7 +23,7 @@ Three options were on the table: TanStack Start, Next.js, and a split single-pag
 
 ## Decision
 
-Build on **TanStack Start** with **Nitro** as the server layer, keeping routes, server functions, and data loading in one TypeScript project. Start is built on top of Vite, so the existing Vite plugin ecosystem and build pipeline apply. The starter template's conventions — TanStack Router, Query, Form, and Table — are adopted wholesale rather than mixing in another meta-framework's model.
+Build on **TanStack Start** with **Nitro** as the server layer, keeping routes, server functions, and data loading in one TypeScript project. Start is built on top of Vite, so the existing Vite plugin ecosystem and build pipeline apply. The starter template's conventions (TanStack Router, Query, Form, and Table) are adopted wholesale rather than mixing in another meta-framework's model.
 
 ## Alternatives Considered
 

@@ -51,6 +51,8 @@ This guide covers the local development environment, scripts catalog, database m
    bun run db:seed
    ```
 
+   Seeded credentials and demo data are listed under [Seeded data](#seeded-data).
+
 5. **Start the local development server**:
 
    ```bash
@@ -59,7 +61,21 @@ This guide covers the local development environment, scripts catalog, database m
 
    The application starts on [http://localhost:3000](http://localhost:3000).
 
----
+## Seeded data
+
+`bun run db:seed` creates three internal staff accounts that self-registration cannot produce (sign-up only allows external roles), for building, testing and demonstrating the role-restricted stories:
+
+| Role                    | Email                         | Password        |
+| ----------------------- | ----------------------------- | --------------- |
+| Event Coordinator       | coordinator.seed@example.com  | `Seed-Pass123!` |
+| Venue Staff             | venue.staff.seed@example.com  | `Seed-Pass123!` |
+| Technical Support Staff | tech.support.seed@example.com | `Seed-Pass123!` |
+
+The seeded attendee (`john.doe@example.com`) and organiser (`jane.doe@example.com`) also use `Seed-Pass123!`. The demo event request is connected to all five roles, so each access projection can be checked locally: jane owns it, the seeded Coordinator and Venue Staff are assigned to it, Technical Support holds an equipment request for it, and john is registered.
+
+These credentials are non-production (shared password, `example.com` addresses, no real personal data) and must never be used outside local/demo environments.
+
+The seed also creates three demo venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion) with capacity, facilities, accessibility features, supported layouts and operating hours, plus two future periods of unavailability. Re-running `bun run db:seed` is safe: existing accounts and venues are left untouched.
 
 ## Environment Variables
 
@@ -72,7 +88,7 @@ This guide covers the local development environment, scripts catalog, database m
 | `SERVER_URL`          | Optional | Canonical public application URL                                                                                                                         |
 | `RESEND_API_KEY`      | Optional | Required to send email. App boots without it; email calls throw a clear error                                                                            |
 | `EMAIL_FROM`          | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                        |
-| `MINIO_ENDPOINT`      | Optional | S3-compatible endpoint — enables file uploads. Accepts MinIO, AWS S3, Cloudflare R2, or Supabase Storage (`https://<project>.supabase.co/storage/v1/s3`) |
+| `MINIO_ENDPOINT`      | Optional | S3-compatible endpoint for file uploads. Accepts MinIO, AWS S3, Cloudflare R2, or Supabase Storage (`https://<project>.supabase.co/storage/v1/s3`)       |
 | `MINIO_BUCKET`        | Optional | Bucket name (default: `app`)                                                                                                                             |
 | `MINIO_ACCESS_KEY`    | Optional | Storage access key (default: `admin`)                                                                                                                    |
 | `MINIO_SECRET_KEY`    | Optional | Storage secret key (default: `password`)                                                                                                                 |
@@ -83,8 +99,6 @@ This guide covers the local development environment, scripts catalog, database m
 | `VITE_SENTRY_DSN`     | Optional | Enables Sentry error tracking                                                                                                                            |
 | `VITE_SENTRY_ORG`     | Optional | Sentry organization slug                                                                                                                                 |
 | `VITE_SENTRY_PROJECT` | Optional | Sentry project slug                                                                                                                                      |
-
----
 
 ## Scripts Catalog
 
@@ -117,17 +131,15 @@ All available scripts defined in `package.json`:
 | `bun run codegen`          | Launch Playwright code generator for browser test recording            |
 | `bun run prepare`          | Install Lefthook git pre-commit hooks                                  |
 
----
-
 ## Database Management & Migrations
 
 The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL driver (`bun:sql` / `drizzle-orm/bun-sql`).
 
 ### Schema Locations
 
-- `src/db/schema.ts` — Application domain schemas. Re-exports the auth tables; holds `eventRequests` (PTR-9, PTR-10, PTR-11, PTR-13), Coordinator handover history (`eventAssignments`, PTR-16), and the venue catalogue (`venues`, `venue_unavailability`, PTR-26). The equipment tables arrive with the stories that build them.
-- `src/db/auth-schema.ts` — Better Auth schemas (`user` with `role`, `session`, `account`, `verification`).
-- `src/db/drizzle/` — Generated SQL migration files and metadata.
+- `src/db/schema.ts`: Application domain schemas. Re-exports the auth tables; holds `eventRequests`, Coordinator handover history (`eventAssignments`), and the venue catalogue (`venues`, `venue_unavailability`). The equipment tables arrive with the stories that build them.
+- `src/db/auth-schema.ts`: Better Auth schemas (`user` with `role`, `session`, `account`, `verification`).
+- `src/db/drizzle/`: Generated SQL migration files and metadata.
 
 ### Migration Rules
 
@@ -140,8 +152,6 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 - **Apply migrations**: Run `bun run db:migrate` to apply pending migrations.
 - **Prototyping**: During early exploration, `bun run db:push` synchronises the schema directly without recording a migration file. Never use `db:push` in production.
 - **Inspect data**: Run `bun run db:studio` to view and edit database rows via Drizzle Studio.
-
----
 
 ## Testing Guide
 
@@ -203,8 +213,6 @@ bun run vitest run tests/unit/auth-session.test.ts -t "returns null"
 bun run playwright test tests/e2e/landing.test.ts
 ```
 
----
-
 ## Code Quality & Git Hooks
 
 ### Linting & Formatting
@@ -232,24 +240,9 @@ bun run playwright test tests/e2e/landing.test.ts
 bun run prepare # reinstalls hooks if needed
 ```
 
----
+## Project Conventions
 
-## Architecture & Code Conventions
-
-### Server Functions & Bundle Isolation
-
-Server functions created with `createServerFn` (TanStack Start) are imported by client routes. TanStack Start strips the `.handler(...)` bodies from client builds, but preserves all other code in the module. The same applies to `createMiddleware().server(...)` bodies — an auth middleware is client-safe to import because its `.server()` callback is stripped, while anything a server function module statically imports is not.
-
-- **Avoid module-level server imports**: Never statically import server-only dependencies (`#/db`, `#/db/schema`, `"bun"`) at the top level in a module a client route can reach — the import alone is enough, even with no exported helper referencing it. Drizzle builds its tables with `pgTable()` at module scope, so a bundler cannot prove the module side-effect free and retains it whole. `tests/unit/client-bundle-safety.test.ts` catches imports like `#/db/schema` that do not fail `bun run build`.
-- **Use dynamic imports inside handlers**:
-  ```ts
-  const { db } = await import("#/db");
-  ```
-- **Import server types with `import type`**:
-  ```ts
-  import type { Database } from "#/db";
-  ```
-- **Do not use `.server.ts` naming for route-imported files**: `@tanstack/start-plugin-core` blocks files matching `**/*.server.*` from the client environment. The `.server.ts` suffix is reserved only for modules never imported by client routes.
+Client/server bundle rules (module-level server imports, `.server.ts` suffixes, dynamic imports) live in `AGENTS.md` §Client/server boundary.
 
 ### Imports & Path Aliases
 
