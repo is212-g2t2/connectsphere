@@ -7,6 +7,8 @@ import { getStorageClient, validateUploadRequest, safeExtension } from "#/lib/st
 import { logger } from "#/lib/logger";
 import { getRequest } from "@tanstack/react-start/server";
 
+const log = logger.getChild("uploads");
+
 export const Route = createFileRoute("/api/upload-url")({
   server: {
     handlers: {
@@ -64,7 +66,7 @@ export const Route = createFileRoute("/api/upload-url")({
           type: contentType,
         });
 
-        logger.info("Generated presigned upload URL", {
+        log.info("Generated presigned upload URL", {
           userId: session.user.id,
           key,
           contentType,

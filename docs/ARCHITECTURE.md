@@ -136,7 +136,7 @@ A handler may throw `AuthorizationError` (403), `NotFoundError` (404) or `Confli
 
 ## Observability
 
-LogTape provides the app logger in `src/lib/logger.ts`. The server bootstrap (`instrument.server.mjs`) initialises Sentry with:
+LogTape provides the app logger in `src/lib/logger.ts`. The console sink prints each event's structured properties after its message, and `maskEmail` (`src/lib/utils.ts`) masks email addresses before they are logged. The server bootstrap (`instrument.server.mjs`) initialises Sentry with:
 
 - `sendDefaultPii: false`, so PII is not forwarded by default.
 - `tracesSampleRate: 0.1`, so 10% of server traces are sampled to control cost.

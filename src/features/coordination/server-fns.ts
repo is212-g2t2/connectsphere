@@ -3,6 +3,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { parseAssignmentInput } from "#/features/coordination/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
+import { logger } from "#/lib/logger";
+
+const log = logger.getChild("coordination");
 
 /**
  * Routes import this module, so it stays free of any static server import — the middleware
@@ -45,5 +48,14 @@ export const assignEventRequest = createServerFn({ method: "POST" })
   .validator(parseAssignmentInput)
   .handler(async ({ data, context }) => {
     const [{ db }, { handleAssignEventRequest }] = await loadServer();
-    return handleAssignEventRequest(data, context.user, db);
+    const request = await handleAssignEventRequest(data, context.user, db);
+
+    log.info("Event request assigned", {
+      requestId: request.id,
+      actorId: context.user.id,
+      fromCoordinatorId: data.expectedCoordinatorId,
+      toCoordinatorId: request.assignedCoordinatorId,
+    });
+
+    return request;
   });

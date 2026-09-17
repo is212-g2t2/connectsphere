@@ -2,6 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
 import { parseAvailabilityRequest, parseVenueId, parseVenueInput } from "#/features/venues/schema";
+import { logger } from "#/lib/logger";
+
+const log = logger.getChild("venues");
 
 /**
  * Routes import this module, so it stays free of any static server import — the middleware
@@ -48,9 +51,17 @@ export const getVenue = createServerFn({ method: "GET" })
 export const saveVenue = createServerFn({ method: "POST" })
   .validator(parseVenueInput)
   .middleware([requireVenueWrite])
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const [{ db }, { handleSaveVenue }] = await loadServer();
-    return handleSaveVenue(data, db);
+    const venue = await handleSaveVenue(data, db);
+
+    log.info(venueAction(data) === "create" ? "Venue created" : "Venue updated", {
+      venueId: venue.id,
+      name: venue.name,
+      actorId: context.user.id,
+    });
+
+    return venue;
   });
 
 /**
