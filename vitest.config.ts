@@ -45,6 +45,10 @@ export default defineConfig({
           include: ["tests/integration/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
           environment: "node",
           globals: true,
+          // One Postgres container shared by every file. Files that call `runSeed` and files
+          // that delete or count the seed's rows (event requests, venues) cannot run at the
+          // same time without racing, so the suite trades wall time for determinism.
+          fileParallelism: false,
           setupFiles: [path.resolve(import.meta.dirname, "./tests/setup.ts")],
           globalSetup: "./tests/integration/integration-setup.ts",
           server: {

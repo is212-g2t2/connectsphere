@@ -14,6 +14,7 @@ import {
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
+import { listEvents } from "#/features/events/server-fns";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import { listVenues, saveVenue } from "#/features/venues/server-fns";
 import { auth } from "#/lib/auth.server";
@@ -177,6 +178,31 @@ describe("server-function authorization (PTR-69)", () => {
 
       expect((await call(saveVenue, venueRecord)).error).toBeUndefined();
       expect((await call(saveVenue, { ...venueRecord, id: 7 })).error).toBeUndefined();
+    });
+  });
+
+  describe("events", () => {
+    it("answers 401 to an unauthenticated list", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(listEvents, {}, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it.each([
+      "attendee",
+      "event_organiser",
+      "event_coordinator",
+      "venue_staff",
+      "technical_support_staff",
+    ])("lets a signed-in %s through the session guard", async role => {
+      signIn(role);
+
+      // The relationship scoping is data rather than a role permission, so no 403 is owed here;
+      // `tests/integration/event-access.test.ts` runs the handler that decides per row.
+      expect((await call(listEvents, {}, "GET")).error).toBeUndefined();
     });
   });
 

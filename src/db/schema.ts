@@ -2,10 +2,12 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   serial,
   text,
   timestamp,
@@ -121,6 +123,10 @@ export const eventRequests = pgTable(
       "event_requests_registration_closes_after_opens",
       sql`${table.registrationOpensAt} is null or ${table.registrationClosesAt} is null or ${table.registrationClosesAt} > ${table.registrationOpensAt}`
     ),
+    // PTR-8 resolves a caller's event by ownership or assignment; both columns are looked up
+    // per request, and Postgres indexes neither a foreign key nor a column on its own.
+    index("event_requests_organiser_id_idx").on(table.organiserId),
+    index("event_requests_assigned_coordinator_id_idx").on(table.assignedCoordinatorId),
   ]
 );
 
@@ -191,3 +197,81 @@ export const venueUnavailability = pgTable(
 );
 
 export * from "./auth-schema";
+
+/**
+ * PTR-8: the statuses an event's child records can hold. Same rule as `eventRequestStatus`
+ * above — only what a story writes today — so widening one is a generated `ALTER TYPE`
+ * migration when PTR-31/39/44 start moving it.
+ */
+export const venueRequestStatus = pgEnum("venue_request_status", ["pending"]);
+
+export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status", [
+  "requested",
+  "reserved",
+]);
+
+export const eventRegistrationStatus = pgEnum("event_registration_status", ["registered"]);
+
+/**
+ * PTR-8: until the event record arrives (PTR-21/24), the submitted event request *is* the event,
+ * so every child below references `event_requests.id` rather than a parallel events table.
+ * `venue_requests` and `equipment_requests` are the requests directed at Venue Staff and
+ * Technical Support (PTR-8 criterion 3); their owning stories (PTR-31/39) widen the columns.
+ */
+export const venueRequests = pgTable(
+  "venue_requests",
+  {
+    id: text("id").primaryKey(),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
+    status: venueRequestStatus("status").default("pending").notNull(),
+  },
+  table => [
+    // Both directions are looked up per request: the caller's assignments, and the requests of
+    // the events a caller can already see.
+    index("venue_requests_event_id_idx").on(table.eventId),
+    index("venue_requests_assigned_staff_id_idx").on(table.assignedStaffId),
+  ]
+);
+
+export const equipmentRequests = pgTable(
+  "equipment_requests",
+  {
+    id: text("id").primaryKey(),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
+    item: text("item").notNull(),
+    arrangementStatus: equipmentArrangementStatus("arrangement_status")
+      .default("requested")
+      .notNull(),
+    notes: text("notes"),
+  },
+  table => [
+    index("equipment_requests_event_id_idx").on(table.eventId),
+    index("equipment_requests_assigned_staff_id_idx").on(table.assignedStaffId),
+  ]
+);
+
+export const eventRegistrations = pgTable(
+  "event_registrations",
+  {
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    attendeeId: text("attendee_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    status: eventRegistrationStatus("status").default("registered").notNull(),
+    registeredAt: timestamp("registered_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.eventId, table.attendeeId] }),
+    // The primary key leads with `event_id`, so an attendee's own registrations need their own
+    // path to be indexed.
+    index("event_registrations_attendee_id_idx").on(table.attendeeId),
+  ]
+);

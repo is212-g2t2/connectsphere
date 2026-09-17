@@ -7,14 +7,17 @@ import type { SessionUser } from "#/features/auth/session";
 import { useMutation } from "#/hooks/use-mutation";
 import { Button } from "#/components/ui/button";
 import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
+import type { EventProjection } from "#/features/events/access";
+import { EventWorkspace } from "#/features/events/components/event-workspace";
 
 const UPLOAD_FAILED = "Upload failed";
 
 /**
- * The signed-in home view. The session user arrives as a prop rather than through
- * `Route.useRouteContext()` so the page renders in a unit test without a router (PTR-75).
+ * The signed-in home view. The session user and the connected events arrive as props rather than
+ * through `Route.useRouteContext()` so the page renders in a unit test without a router (PTR-75),
+ * and the events come from the dashboard loader, which calls the `listEvents` server function.
  */
-export function DashboardPage({ user }: { user: SessionUser }) {
+export function DashboardPage({ user, events }: { user: SessionUser; events: EventProjection[] }) {
   return (
     <main className="mx-auto max-w-4xl px-6 py-16">
       <section className="flex flex-col">
@@ -26,8 +29,8 @@ export function DashboardPage({ user }: { user: SessionUser }) {
             Welcome, {user.name?.trim() || user.email}
           </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
-            Your ConnectSphere home. Event, venue and equipment workspaces arrive with the stories
-            that build them; what your role may do is enforced on the server either way.
+            Your ConnectSphere home. Events and requests are filtered by your role and relationship
+            to each event; server-side checks enforce the same boundary for direct requests.
           </p>
         </div>
 
@@ -71,6 +74,8 @@ export function DashboardPage({ user }: { user: SessionUser }) {
         )}
 
         {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
+
+        <EventWorkspace events={events} />
 
         <div className="mt-12 border-t border-border pt-6">
           <Link to="/settings" className={NAV_LINK_CLASSNAME}>

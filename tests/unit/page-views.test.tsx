@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsPage } from "#/features/auth/components/settings-page";
 import { DashboardPage } from "#/features/dashboard/components/dashboard-page";
+import { DashboardPageSkeleton } from "#/features/dashboard/components/dashboard-page-skeleton";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
@@ -63,14 +64,14 @@ const venue: Venue = {
 
 describe("DashboardPage", () => {
   it("greets the session user and links on to their settings", () => {
-    render(<DashboardPage user={userWithRole("attendee")} />);
+    render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
 
     expect(screen.getByRole("heading", { name: "Welcome, Casey" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Account settings" })).toBeTruthy();
   });
 
   it("shows the upload card and the workspace links the role may reach", () => {
-    render(<DashboardPage user={userWithRole("venue_staff")} />);
+    render(<DashboardPage user={userWithRole("venue_staff")} events={[]} />);
 
     expect(screen.getByRole("heading", { name: "File upload" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
@@ -78,11 +79,40 @@ describe("DashboardPage", () => {
   });
 
   it("hides every role-gated control from an attendee", () => {
-    render(<DashboardPage user={userWithRole("attendee")} />);
+    render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
 
     expect(screen.queryByRole("heading", { name: "File upload" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Venues" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
+  });
+
+  it("renders the loaded events, redacted to the access they carry", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("venue_staff")}
+        events={[
+          {
+            access: "venue_staff",
+            event: {
+              id: 7,
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+              expectedAttendance: 120,
+              layout: "Theatre",
+              requiredFacilities: "Projector",
+              venueRequest: { status: "pending" },
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("venue staff access")).toBeTruthy();
+    // The venue staff projection carries no name, so the fallback title is what it shows.
+    expect(screen.getByRole("heading", { name: "Venue request" })).toBeTruthy();
+    expect(screen.getByText("120")).toBeTruthy();
+    expect(screen.getByText("pending")).toBeTruthy();
   });
 
   /**
@@ -99,7 +129,7 @@ describe("DashboardPage", () => {
           new Response(JSON.stringify({ error: "Upload refused for this file" }), { status: 400 })
         )
     );
-    const { container } = render(<DashboardPage user={userWithRole("venue_staff")} />);
+    const { container } = render(<DashboardPage user={userWithRole("venue_staff")} events={[]} />);
 
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     expect(input).not.toBeNull();
@@ -112,6 +142,14 @@ describe("DashboardPage", () => {
     expect(await screen.findByText("Upload refused for this file")).toBeTruthy();
     const trigger = screen.getByRole("button", { name: "Choose file" });
     expect(trigger.hasAttribute("disabled")).toBe(false);
+  });
+
+  /** The route's `pendingComponent`: the dashboard's shape while `listEvents` is in flight. */
+  it("shows the dashboard's loading shape while the loader is pending", () => {
+    const { container } = render(<DashboardPageSkeleton />);
+
+    expect(screen.getByRole("status").textContent).toBe("Loading your dashboard…");
+    expect(container.querySelector("main")?.getAttribute("aria-busy")).toBe("true");
   });
 });
 

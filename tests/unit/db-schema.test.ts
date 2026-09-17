@@ -75,5 +75,8 @@ describe("Database Schema Definitions", () => {
     expect(tables.user.relations.accounts).toBeDefined();
     expect(tables.session.relations.user).toBeDefined();
     expect(tables.account.relations.user).toBeDefined();
+    expect(tables.venueRequests).toBeDefined();
+    expect(tables.equipmentRequests).toBeDefined();
+    expect(tables.eventRegistrations).toBeDefined();
   });
 });

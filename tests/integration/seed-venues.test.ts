@@ -48,7 +48,7 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
 
   it("does not duplicate venues or periods when run again (AC5)", async () => {
     // Scoped to the seed's own rows, because this file shares its container with
-    // `venue-records.test.ts`, which creates and deletes its own venue in parallel.
+    // `venue-records.test.ts`, which creates and deletes its own venue.
     const seedNames = seedVenues.map(venue => venue.name);
     const seedIds = (
       await database
