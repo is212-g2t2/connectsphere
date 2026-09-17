@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
 import { unwrapRefusal } from "#/features/auth/session";
@@ -20,13 +20,14 @@ export const Route = createFileRoute("/_authenticated/venues/availability")({
   loader: async ({ deps }) => {
     const venues = await unwrapRefusal(listVenues(), "Could not load venues. Try again.");
     const selection = parseAvailabilitySelection(deps);
-    const schedule = selection
-      ? await unwrapRefusal(
-          getVenueAvailability({ data: selection }),
-          "Availability could not be loaded. Try again."
-        )
-      : null;
-    return { venues, schedule };
+    if (!selection) return { venues, schedule: null };
+    const { availability } = await unwrapRefusal(
+      getVenueAvailability({ data: selection }),
+      "Availability could not be loaded. Try again."
+    );
+    // A venue id that no row holds answers `null`, the same read convention `$venueId.tsx` uses: the router's own not-found boundary, not the error boundary a 404 response would raise.
+    if (!availability) throw notFound();
+    return { venues, schedule: availability };
   },
   component: () => {
     const { venues, schedule } = Route.useLoaderData();

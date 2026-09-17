@@ -56,7 +56,9 @@ export async function handleGetVenueAvailability(data: unknown, database: Databa
     .where(eq(venues.id, selection.venueId))
     .limit(1);
   const venue = venueRows.at(0);
-  if (!venue) throw new NotFoundError("Not Found");
+  // A read answers a missing row with `null`, exactly as `handleGetVenue` does: the route turns it into the router's `notFound()`, which is the right answer for the one id a visitor can mistype.
+  // The 404 stays on the write path (`handleSaveVenue`), where "not there" is the operation failing.
+  if (!venue) return null;
 
   const startsAt = `${selection.startDate}T00:00:00`;
   const endsAt = `${nextCivilDate(selection.endDate)}T00:00:00`;

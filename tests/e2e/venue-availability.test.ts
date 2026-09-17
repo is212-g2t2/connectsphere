@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -59,6 +59,7 @@ async function seededBlockDate(venueName: string): Promise<string> {
       .from(schema.venueUnavailability)
       .innerJoin(schema.venues, eq(schema.venueUnavailability.venueId, schema.venues.id))
       .where(eq(schema.venues.name, venueName))
+      .orderBy(asc(schema.venueUnavailability.startsAt))
       .limit(1);
     if (!period) throw new Error(`No seeded block found for ${venueName}`);
     return period.startsAt.slice(0, 10);
@@ -73,7 +74,9 @@ test("[PTR-28-TC01-LIVE][AC1] coordinator loads seeded venues and renders a sche
   await signInAsStaff(page, "event_coordinator");
   await page.goto("/venues/availability");
   await expect(page.getByRole("heading", { name: "Venue calendar", exact: true })).toBeVisible();
-  await selectLiveRange(page, "Harbour Hall", "2027-04-16");
+  // Derived from the seed like its sibling: the seeded dates are relative to seed time, so a
+  // literal date would silently drift out from under the venue it was chosen for.
+  await selectLiveRange(page, "Harbour Hall", await seededBlockDate("Harbour Hall"));
 
   const results = page.getByRole("region", { name: "Availability results" });
   await expect(results.getByRole("heading", { name: "Harbour Hall", exact: true })).toBeVisible();
@@ -101,6 +104,14 @@ test("[PTR-28-TC02-LIVE][AC1] technical support staff has read-only calendar acc
   await page.goto("/venues/availability");
   await expect(page.getByRole("heading", { name: "Venue calendar", exact: true })).toBeVisible();
   await expect(page.getByLabel("Venue", { exact: true })).toBeVisible();
+});
+
+test("[AC1] a venue id no row holds answers the router's not-found page", async ({ page }) => {
+  await signInAsStaff(page, "venue_staff");
+  await page.goto("/venues/availability?venueId=999999&startDate=2027-03-15&endDate=2027-03-16");
+
+  await expect(page.getByRole("heading", { name: "404 - Not Found", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Availability results" })).toHaveCount(0);
 });
 
 test.describe("External roles", () => {
