@@ -1,11 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
 
 import { requirePermission } from "#/features/auth/session";
-import { parseVenueId, parseVenueInput } from "#/features/venues/schema";
-
-const POSTGRES_INTEGER_MAX = 2_147_483_647;
-const WEEKDAYS_BY_SUNDAY_INDEX = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+import { parseAvailabilityRequest, parseVenueId, parseVenueInput } from "#/features/venues/schema";
 
 /**
  * Routes import this module, so it stays free of any static server import — the middleware
@@ -14,11 +10,6 @@ const WEEKDAYS_BY_SUNDAY_INDEX = ["sun", "mon", "tue", "wed", "thu", "fri", "sat
  */
 async function loadServer() {
   return Promise.all([import("#/db"), import("#/features/venues/records.server")]);
-}
-
-async function logUnexpectedError(context: string, error: unknown): Promise<void> {
-  const { logger } = await import("#/lib/logger");
-  logger.error(`Venue ${context} failed`, { error });
 }
 
 /** A venue row as the client sees it — derived here so no route has to import the server module. */
@@ -61,3 +52,19 @@ export const saveVenue = createServerFn({ method: "POST" })
     const [{ db }, { handleSaveVenue }] = await loadServer();
     return handleSaveVenue(data, db);
   });
+
+/**
+ * The availability calendar's read (PTR-28). Anyone holding `venue:read` may call it — the same
+ * Coordinators, Venue Staff and Technical Support Staff who may read a venue record, and nobody
+ * external, which is criterion 5 enforced at the addressable endpoint rather than by the guard.
+ */
+export const getVenueAvailability = createServerFn({ method: "GET" })
+  .validator(parseAvailabilityRequest)
+  .middleware([requireVenueRead])
+  .handler(async ({ data }) => {
+    const [{ db }, { handleGetVenueAvailability }] = await loadServer();
+    return handleGetVenueAvailability(data, db);
+  });
+
+/** The calendar schedule as the client sees it — derived here, like `Venue` above. */
+export type VenueAvailability = Awaited<ReturnType<typeof getVenueAvailability>>;

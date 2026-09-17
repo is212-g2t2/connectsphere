@@ -75,6 +75,7 @@ describe("DashboardPage", () => {
 
     expect(screen.getByRole("heading", { name: "File upload" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Venue calendar" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
   });
 
@@ -83,6 +84,7 @@ describe("DashboardPage", () => {
 
     expect(screen.queryByRole("heading", { name: "File upload" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Venues" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Venue calendar" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
   });
 

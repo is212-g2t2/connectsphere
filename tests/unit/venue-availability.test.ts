@@ -1,92 +1,149 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { projectAvailability, parseAvailabilityRequest } from "#/features/venues/availability";
-import { createPtr28Fixture, fixtureTime } from "../fixtures/ptr-28";
+import { openingPeriods, projectAvailability } from "#/features/venues/availability";
+import {
+  AVAILABILITY_ORDER_MESSAGE,
+  AVAILABILITY_RANGE_MESSAGE,
+  DEFAULT_OPERATING_HOURS,
+  VENUE_ID_MESSAGE,
+  parseAvailabilityRequest,
+  parseAvailabilitySelection,
+} from "#/features/venues/schema";
 
-describe("PTR-28 availability projection (pure block coverage)", () => {
-  let fixture = createPtr28Fixture();
-  beforeEach(() => {
-    fixture = createPtr28Fixture();
-  });
+/** 2026-10-05 is a Monday; the fixture hours below are open Mon-Fri, closed at the weekend. */
+function day(dayOfMonth: number, time: string) {
+  return `2026-10-${String(dayOfMonth).padStart(2, "0")}T${time}`;
+}
 
-  function project(range = fixture.ranges.R1, venueId = "VA") {
-    return projectAvailability(
-      { venueId, ...range },
-      {
-        blocks: fixture.blocks,
-        // Explicit all-day openings isolate the projection from product operating-hours policy.
-        openPeriods: [range],
-      }
+const range = { startsAt: day(5, "00:00:00"), endsAt: day(8, "00:00:00") };
+
+function record(id: string, startsAt: string, endsAt: string, label: string) {
+  return { id, startsAt, endsAt, label };
+}
+
+function source(overrides: Partial<Parameters<typeof projectAvailability>[1]> = {}) {
+  return {
+    bookings: [],
+    blocks: [],
+    openPeriods: openingPeriods("2026-10-05", "2026-10-07", DEFAULT_OPERATING_HOURS),
+    ...overrides,
+  };
+}
+
+describe("PTR-28 availability projection", () => {
+  it("[AC2][AC4] reports a recorded block and the free periods around it", () => {
+    const projection = projectAvailability(
+      range,
+      source({ blocks: [record("1", day(5, "13:00:00"), day(5, "15:00:00"), "Maintenance")] })
     );
-  }
 
-  it("[PTR-28-TC11][AC4] returns blocks in the availability projection", () => {
-    expect(project(fixture.ranges.R3).occupied).toEqual([
-      expect.objectContaining({
-        id: "U01",
+    expect(projection.occupied).toEqual([
+      {
+        id: "1",
         state: "blocked",
-        startsAt: fixtureTime(5, "13:00"),
-        endsAt: fixtureTime(5, "15:00"),
-      }),
+        label: "Maintenance",
+        startsAt: day(5, "13:00:00"),
+        endsAt: day(5, "15:00:00"),
+        visibleStart: day(5, "13:00:00"),
+        visibleEnd: day(5, "15:00:00"),
+      },
+    ]);
+    expect(projection.available.map(period => [period.startsAt, period.endsAt])).toEqual([
+      [day(5, "08:00:00"), day(5, "13:00:00")],
+      [day(5, "15:00:00"), day(5, "22:00:00")],
+      [day(6, "08:00:00"), day(6, "22:00:00")],
+      [day(7, "08:00:00"), day(7, "22:00:00")],
     ]);
   });
 
-  it("[PTR-28-TC12][AC4] excludes blocks for another venue", () => {
-    const ids = project().occupied.map(record => record.id);
-    expect(ids).toContain("U01");
-    expect(ids).not.toContain("U03");
-  });
+  /**
+   * AC3 is mocked until PTR-31/PTR-33 own booking persistence: no live caller passes a booking
+   * (`records.server.ts` passes `bookings: []`), but the projection must already render one, or
+   * the story's confirmed state would arrive untested.
+   */
+  it("[AC3 mocked] renders an approved booking as a confirmed period", () => {
+    const projection = projectAvailability(
+      range,
+      source({
+        bookings: [record("9", day(5, "10:00:00"), day(5, "12:00:00"), "Confirmed booking")],
+      })
+    );
 
-  it("[PTR-28-TC16][AC2] derives an available period only from explicitly supplied openings", () => {
-    fixture.blocks = [];
-    expect(project(fixture.ranges.R3)).toEqual({
-      occupied: [],
-      available: [fixture.ranges.R3],
+    expect(projection.occupied).toHaveLength(1);
+    expect(projection.occupied[0]).toMatchObject({
+      state: "confirmed",
+      label: "Confirmed booking",
     });
   });
 
-  it("[PTR-28-TC16][AC2] does not assume a venue is open when openings are absent", () => {
-    expect(
-      projectAvailability({ venueId: "VA", ...fixture.ranges.R3 }, { blocks: [], openPeriods: [] })
-    ).toEqual({ occupied: [], available: [] });
-  });
+  it("clips records to the range and drops the ones that only touch it", () => {
+    const projection = projectAvailability(
+      range,
+      source({
+        blocks: [
+          record("2", "2026-10-04T23:00:00", day(5, "02:00:00"), "Overnight closure"),
+          record("3", day(7, "20:00:00"), day(8, "01:00:00"), "Late works"),
+          record("4", "2026-10-01T09:00:00", range.startsAt, "Before the range"),
+        ],
+      })
+    );
 
-  it("preserves separate periods when a block splits an opening", () => {
-    fixture.blocks[0].startsAt = fixtureTime(5, "11:00");
-    expect(project(fixture.ranges.R3).available).toEqual([
-      { startsAt: fixtureTime(5, "00:00"), endsAt: fixtureTime(5, "11:00") },
-      { startsAt: fixtureTime(5, "15:00"), endsAt: fixtureTime(6, "00:00") },
+    expect(projection.occupied.map(period => [period.visibleStart, period.visibleEnd])).toEqual([
+      [range.startsAt, day(5, "02:00:00")],
+      [day(7, "20:00:00"), range.endsAt],
     ]);
   });
 
-  it("rejects a range whose end is not after its start", () => {
+  it("throws rather than reporting a venue available when a record is malformed", () => {
     expect(() =>
       projectAvailability(
-        {
-          venueId: "VA",
-          startsAt: fixtureTime(5, "12:00"),
-          endsAt: fixtureTime(5, "12:00"),
-        },
-        { blocks: [], openPeriods: [] }
+        range,
+        source({ blocks: [record("bad", day(5, "15:00:00"), day(5, "13:00:00"), "Backwards")] })
       )
-    ).toThrow("invalid range");
+    ).toThrow("Availability contains an invalid period");
+  });
+
+  it("does not assume a venue is open when it has no opening periods", () => {
+    const projection = projectAvailability(range, source({ openPeriods: [] }));
+
+    expect(projection.available).toEqual([]);
   });
 });
 
-describe("PTR-28 availability server-function validation", () => {
-  const dates = { startDate: "2026-10-05", endDate: "2026-10-07" };
+describe("PTR-28 opening periods", () => {
+  it("returns one period per open weekday and none for a closed day", () => {
+    const periods = openingPeriods("2026-10-09", "2026-10-12", DEFAULT_OPERATING_HOURS);
 
-  it("parses a PostgreSQL-safe numeric venue ID", () => {
-    expect(parseAvailabilityInput({ venueId: "42", ...dates })).toEqual({
-      venueId: 42,
-      ...dates,
-    });
+    expect(periods).toEqual([
+      { startsAt: day(9, "08:00:00"), endsAt: day(9, "22:00:00") },
+      { startsAt: day(12, "08:00:00"), endsAt: day(12, "22:00:00") },
+    ]);
+  });
+});
+
+describe("PTR-28 availability selection", () => {
+  it("accepts search-parameter strings and returns a typed selection", () => {
+    expect(
+      parseAvailabilityRequest({ venueId: "7", startDate: "2026-10-05", endDate: "2026-10-07" })
+    ).toEqual({ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-07" });
   });
 
   it.each([
-    { venueId: "VA", message: "Venue ID must be a positive integer" },
-    { venueId: "2147483648", message: "Venue ID is outside the PostgreSQL integer range" },
-  ])("rejects $venueId through the Zod-backed validator", ({ venueId, message }) => {
-    expect(() => parseAvailabilityInput({ venueId, ...dates })).toThrow(message);
+    [{ venueId: "", startDate: "2026-10-05", endDate: "2026-10-05" }, VENUE_ID_MESSAGE],
+    [{ venueId: "VA", startDate: "2026-10-05", endDate: "2026-10-05" }, VENUE_ID_MESSAGE],
+    [{ venueId: "2147483648", startDate: "2026-10-05", endDate: "2026-10-05" }, VENUE_ID_MESSAGE],
+    [{ venueId: "7", startDate: "2026-10-05", endDate: "2026-02-30" }, "Choose an end date"],
+    [{ venueId: "7", startDate: "2026-10-06", endDate: "2026-10-05" }, AVAILABILITY_ORDER_MESSAGE],
+    [{ venueId: "7", startDate: "2026-10-05", endDate: "2027-10-06" }, AVAILABILITY_RANGE_MESSAGE],
+  ])("refuses %j with its own message", (selection, message) => {
+    expect(() => parseAvailabilityRequest(selection)).toThrow(message);
+  });
+
+  it("treats a partial search as no selection rather than an error", () => {
+    expect(parseAvailabilitySelection({ venueId: 7 })).toBeNull();
+    expect(parseAvailabilitySelection({})).toBeNull();
+    expect(
+      parseAvailabilitySelection({ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-07" })
+    ).toEqual({ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-07" });
   });
 });

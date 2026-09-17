@@ -185,6 +185,68 @@ export function parseVenueId(data: unknown): VenueId {
   return parsed.data;
 }
 
+export const AVAILABILITY_MAX_DAYS = 366;
+export const AVAILABILITY_ORDER_MESSAGE = "End date must be on or after start date";
+export const AVAILABILITY_RANGE_MESSAGE = `Choose a range of ${AVAILABILITY_MAX_DAYS} days or fewer`;
+
+const MILLISECONDS_PER_DAY = 86_400_000;
+
+/**
+ * The calendar selection: a venue and an inclusive civil-date range (PTR-28 criterion 1).
+ * `z.iso.date()` already rejects a date that does not exist (`2026-02-30`), and the fixed-width
+ * values compare as strings, as `OperatingHours` does. Separate from `VenueInput` because this is
+ * a read, not a record: nothing here is ever written back.
+ */
+const AvailabilityFields = z.object({
+  venueId: z.coerce
+    .number({ error: VENUE_ID_MESSAGE })
+    .pipe(z.int32({ error: VENUE_ID_MESSAGE }).positive(VENUE_ID_MESSAGE)),
+  startDate: z.iso.date({ error: "Choose a start date" }),
+  endDate: z.iso.date({ error: "Choose an end date" }),
+});
+
+export const AvailabilitySelectionSchema = AvailabilityFields.refine(
+  value => value.endDate >= value.startDate,
+  { path: ["endDate"], message: AVAILABILITY_ORDER_MESSAGE }
+).refine(
+  value =>
+    (Date.parse(`${value.endDate}T00:00:00Z`) - Date.parse(`${value.startDate}T00:00:00Z`)) /
+      MILLISECONDS_PER_DAY +
+      1 <=
+    AVAILABILITY_MAX_DAYS,
+  { path: ["endDate"], message: AVAILABILITY_RANGE_MESSAGE }
+);
+
+export type AvailabilitySelection = z.infer<typeof AvailabilitySelectionSchema>;
+
+/**
+ * The same fields as search parameters, each optional: the page opens before a venue is chosen,
+ * and a visitor may hand-edit the URL. `validateSearch` uses this so a partial selection is a
+ * blank form rather than a route error.
+ */
+export const AvailabilitySearchSchema = AvailabilityFields.partial();
+export type AvailabilitySearch = z.infer<typeof AvailabilitySearchSchema>;
+
+export function parseAvailabilitySearch(input: unknown): AvailabilitySearch {
+  const parsed = AvailabilitySearchSchema.safeParse(input);
+  return parsed.success ? parsed.data : {};
+}
+
+/** For the server function's validator: a genuine selection or the first reason it is not one. */
+export function parseAvailabilityRequest(input: unknown): AvailabilitySelection {
+  const parsed = AvailabilitySelectionSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+/** For the loader: `null` when the search does not yet spell a complete range. */
+export function parseAvailabilitySelection(input: unknown): AvailabilitySelection | null {
+  const parsed = AvailabilitySelectionSchema.safeParse(input);
+  return parsed.success ? parsed.data : null;
+}
+
 /** A venue open Monday to Friday, closed at the weekend — the form's starting point. */
 export const DEFAULT_OPERATING_HOURS: OperatingHours = {
   mon: { opens: "08:00", closes: "22:00" },

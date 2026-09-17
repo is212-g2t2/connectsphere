@@ -39,10 +39,7 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
   // an empty role authorizes nothing, which is the fail-closed default we want.
   attendee: ac.newRole({}),
-  event_organiser: ac.newRole({
-    upload: ["create"],
-    event_request: ["create"],
-  }),
+  event_organiser: ac.newRole({ upload: ["create"], event_request: ["create"] }),
   event_coordinator: ac.newRole({
     upload: ["create"],
     event_request: ["coordinate"],

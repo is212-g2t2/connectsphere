@@ -73,6 +73,12 @@ export function DashboardPage({ user, events }: { user: SessionUser; events: Eve
           </Link>
         )}
 
+        {can(user.role, { venue: ["read"] }) && (
+          <Link to="/venues/availability" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
+            Venue calendar
+          </Link>
+        )}
+
         {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
 
         <EventWorkspace events={events} />
