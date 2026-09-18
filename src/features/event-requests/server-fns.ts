@@ -2,6 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
 import { parseDraftInput, parseEventRequestId } from "#/features/event-requests/schema";
+import { logger } from "#/lib/logger";
+
+const log = logger.getChild("event-requests");
 
 export const requireEventRequestCreate = requirePermission({ event_request: ["create"] });
 export const requireEventRequestCoordinate = requirePermission({
@@ -54,7 +57,15 @@ export const submitEventRequest = createServerFn({ method: "POST" })
       import("#/features/event-requests/drafts.server"),
     ]);
 
-    return handleSubmitEventRequest(data, context.user, db);
+    const request = await handleSubmitEventRequest(data, context.user, db);
+
+    log.info("Event request submitted", {
+      requestId: request.id,
+      organiserId: context.user.id,
+      coordinatorId: request.assignedCoordinatorId,
+    });
+
+    return request;
   });
 
 /**
@@ -120,7 +131,14 @@ export const deleteEventRequestDraft = createServerFn({ method: "POST" })
       import("#/features/event-requests/drafts.server"),
     ]);
 
-    return handleDeleteEventRequestDraft(data, context.user, db);
+    const deleted = await handleDeleteEventRequestDraft(data, context.user, db);
+
+    log.info("Draft deleted", {
+      requestId: deleted.id,
+      organiserId: context.user.id,
+    });
+
+    return deleted;
   });
 
 export type EventRequestDeleted = Awaited<ReturnType<typeof deleteEventRequestDraft>>;

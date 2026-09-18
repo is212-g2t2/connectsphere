@@ -1,7 +1,10 @@
 import { Resend } from "resend";
 import * as React from "react";
 import { logger } from "#/lib/logger";
+import { maskEmail } from "#/lib/utils";
 import { env } from "#/env";
+
+const log = logger.getChild("mail");
 
 export function createMailer(apiKey: string | undefined): Resend | null {
   if (!apiKey) return null;
@@ -29,7 +32,9 @@ export async function sendEmail(to: string, subject: string, react: React.ReactE
     );
   }
 
-  logger.info("Sending email", { to, subject });
+  const maskedTo = maskEmail(to);
+
+  log.info("Sending email", { to: maskedTo, subject });
 
   const from = env.EMAIL_FROM ?? "ConnectSphere <onboarding@resend.dev>";
 
@@ -41,10 +46,17 @@ export async function sendEmail(to: string, subject: string, react: React.ReactE
   });
 
   if (error) {
-    logger.error("Failed to send email", { to, error });
+    // Resend's message can echo the recipient address, so only the error's
+    // stable identifiers are logged; the thrown error keeps the full payload
+    // for Sentry.
+    log.error("Failed to send email", {
+      to: maskedTo,
+      name: error.name,
+      statusCode: error.statusCode,
+    });
     throw new Error(`Failed to send email: ${JSON.stringify(error)}`);
   }
 
-  logger.info("Successfully sent email", { to, id: data.id });
+  log.info("Successfully sent email", { to: maskedTo, id: data.id });
   return data;
 }

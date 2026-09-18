@@ -1,4 +1,5 @@
-import { configureAppLogging } from "#/lib/logger";
+import { consoleFormatter, configureAppLogging } from "#/lib/logger";
+import type * as logtape from "@logtape/logtape";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const { mockConfigureSync, mockResetSync, mockGetConsoleSink, mockGetLogger, mockGetSentrySink } =
@@ -15,6 +16,7 @@ vi.mock("@logtape/logtape", () => ({
   resetSync: mockResetSync,
   getConsoleSink: mockGetConsoleSink,
   getLogger: mockGetLogger,
+  defaultConsoleFormatter: (record: logtape.LogRecord) => record.message,
 }));
 
 vi.mock("@logtape/sentry", () => ({
@@ -33,6 +35,7 @@ describe("configureAppLogging", () => {
 
     expect(mockResetSync).toHaveBeenCalledOnce();
     expect(mockGetSentrySink).not.toHaveBeenCalled();
+    expect(mockGetConsoleSink).toHaveBeenCalledWith({ formatter: consoleFormatter });
     expect(mockConfigureSync).toHaveBeenCalledWith({
       sinks: { console: "consoleSink" },
       loggers: [
@@ -79,5 +82,33 @@ describe("configureAppLogging", () => {
         { category: ["app"], lowestLevel: "info", sinks: ["console", "sentry"] },
       ],
     });
+  });
+});
+
+describe("consoleFormatter", () => {
+  const baseRecord = {
+    category: ["app"],
+    level: "info",
+    message: ["Incoming request"],
+    rawMessage: "Incoming request",
+    timestamp: 0,
+  } satisfies Omit<logtape.LogRecord, "properties">;
+
+  test("appends the structured properties after the default output", () => {
+    const record: logtape.LogRecord = {
+      ...baseRecord,
+      properties: { method: "GET", url: "/venues" },
+    };
+
+    expect(consoleFormatter(record)).toEqual([
+      "Incoming request",
+      { method: "GET", url: "/venues" },
+    ]);
+  });
+
+  test("leaves a property-less record to the default formatter", () => {
+    const record: logtape.LogRecord = { ...baseRecord, properties: {} };
+
+    expect(consoleFormatter(record)).toEqual(["Incoming request"]);
   });
 });

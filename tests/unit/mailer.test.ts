@@ -20,8 +20,10 @@ vi.mock("#/env", () => ({ env: mockEnv }));
 
 vi.mock("#/lib/logger", () => ({
   logger: {
-    info: vi.fn<() => void>(),
-    error: vi.fn<() => void>(),
+    getChild: () => ({
+      info: vi.fn<() => void>(),
+      error: vi.fn<() => void>(),
+    }),
   },
 }));
 

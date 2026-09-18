@@ -14,6 +14,9 @@ import { DEFAULT_ROLE, SelfAssignableRoleSchema } from "#/features/auth/schema/r
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
 import { logger } from "#/lib/logger";
+import { maskEmail } from "#/lib/utils";
+
+const log = logger.getChild("auth");
 
 /**
  * Auth endpoints that *set* a password, and so must enforce `PasswordSchema`.
@@ -60,7 +63,7 @@ export const auth = betterAuth({
   emailVerification: {
     sendOnSignUp: true,
     async sendVerificationEmail({ user, url }) {
-      logger.info("Sending verification email", { email: user.email });
+      log.info("Sending verification email", { email: maskEmail(user.email) });
       await sendEmail(user.email, "Verify your email", createElement(VerificationEmail, { url }));
     },
   },
@@ -68,7 +71,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     async sendResetPassword({ user, url }) {
-      logger.info("Sending password reset email", { email: user.email });
+      log.info("Sending password reset email", { email: maskEmail(user.email) });
       await sendEmail(
         user.email,
         "Reset your password",
