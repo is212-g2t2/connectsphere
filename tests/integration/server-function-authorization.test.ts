@@ -1,22 +1,49 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// oxlint-disable node/no-process-env
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMiddleware, createServerFn } from "@tanstack/react-start";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 
-import { listAccounts } from "#/features/auth/session";
+import * as schema from "#/db/schema";
+import { getCurrentUser, listAccounts, requireSession } from "#/features/auth/session";
+import type { SessionUser } from "#/features/auth/session";
 import {
   assignEventRequest,
   getCoordinationRequest,
   listAssignedEventRequests,
   listCoordinators,
 } from "#/features/coordination/server-fns";
+import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
 import {
+  ATTENDANCE_MESSAGE,
+  EVENT_REQUEST_DELETE_REFUSAL,
+  EVENT_REQUEST_ID_MESSAGE,
+} from "#/features/event-requests/schema";
+import {
+  deleteEventRequestDraft,
   getEventRequest,
+  getEventRequestDraft,
   listEventRequests,
   listUnassignedEventRequests,
+  requireEventRequestCreate,
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
 import { listEvents } from "#/features/events/server-fns";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
-import { listVenues, saveVenue } from "#/features/venues/server-fns";
+import { handleSaveVenue } from "#/features/venues/records.server";
+import {
+  AVAILABILITY_ORDER_MESSAGE,
+  DEFAULT_OPERATING_HOURS,
+  NAME_REQUIRED_MESSAGE,
+  VENUE_ID_MESSAGE,
+} from "#/features/venues/schema";
+import {
+  getVenue,
+  getVenueAvailability,
+  listVenues,
+  saveVenue,
+} from "#/features/venues/server-fns";
 import { auth } from "#/lib/auth.server";
 
 /** A payload the venue validator accepts, so the allow path runs the whole chain. */
@@ -25,6 +52,13 @@ const venueRecord = {
   location: "Level 3",
   maxCapacity: 10,
   operatingHours: DEFAULT_OPERATING_HOURS,
+};
+
+/** A selection the availability validator accepts, for the same reason as `venueRecord`. */
+const availabilitySelection = {
+  venueId: 1,
+  startDate: "2026-01-05",
+  endDate: "2026-01-09",
 };
 
 /**
@@ -85,6 +119,24 @@ function signIn(role: string) {
   vi.mocked(auth.api.getSession).mockResolvedValue({
     user: { id: "usr_authz", email: "authz@example.com", role },
   } as never);
+}
+
+/**
+ * PTR-98: runs `run` on the server side of the pipeline behind the real session guard, so its
+ * throw reaches `withSession`'s error-class conversion as a handler's would. `.handler` is
+ * required to attach `__executeServer`; the terminal body never runs in the uncompiled test
+ * module (see the file comment), so the real handler is invoked from the middleware stage.
+ */
+function seam(run: () => Promise<unknown>) {
+  return createServerFn({ method: "POST" })
+    .middleware([requireSession])
+    .middleware([
+      createMiddleware({ type: "function" }).server(async ({ next }) => {
+        await run();
+        return next();
+      }),
+    ])
+    .handler(() => undefined);
 }
 
 describe("server-function authorization (PTR-69)", () => {
@@ -152,10 +204,22 @@ describe("server-function authorization (PTR-69)", () => {
       });
     });
 
-    it("lets an internal reader through to the rest of the chain", async () => {
-      signIn("event_coordinator");
+    it.each(["event_coordinator", "venue_staff", "technical_support_staff"])(
+      "lets an internal reader (%s) through to the rest of the chain",
+      async role => {
+        signIn(role);
 
-      expect((await call(listVenues, undefined, "GET")).error).toBeUndefined();
+        expect((await call(listVenues, undefined, "GET")).error).toBeUndefined();
+      }
+    );
+
+    it("answers 401 to an unauthenticated save (PTR-98)", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(saveVenue, venueRecord)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
     });
 
     it("answers 403 to an external role both ways of saving", async () => {
@@ -179,6 +243,44 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(saveVenue, venueRecord)).error).toBeUndefined();
       expect((await call(saveVenue, { ...venueRecord, id: 7 })).error).toBeUndefined();
     });
+
+    it("answers 401 to an unauthenticated single-venue read (PTR-98)", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(getVenue, { id: 1 }, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(getVenueAvailability, availabilitySelection, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("refuses an external role the single-venue reads (PTR-98)", async () => {
+      signIn("event_organiser");
+
+      expect(await refusalFrom(getVenue, { id: 1 }, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+      expect(await refusalFrom(getVenueAvailability, availabilitySelection, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+    });
+
+    it.each(["event_coordinator", "venue_staff", "technical_support_staff"])(
+      "lets an internal reader (%s) reach the rest of the single-venue chain (PTR-98)",
+      async role => {
+        signIn(role);
+
+        expect((await call(getVenue, { id: 1 }, "GET")).error).toBeUndefined();
+        expect(
+          (await call(getVenueAvailability, availabilitySelection, "GET")).error
+        ).toBeUndefined();
+      }
+    );
   });
 
   describe("events", () => {
@@ -298,6 +400,39 @@ describe("server-function authorization (PTR-69)", () => {
       signIn("event_coordinator");
       expect((await call(listUnassignedEventRequests, undefined, "GET")).error).toBeUndefined();
     });
+
+    it("answers 401 to an unauthenticated draft read or delete (PTR-98)", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(getEventRequestDraft, { id: 1 }, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(deleteEventRequestDraft, { id: 1 })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("refuses an attendee the draft read and delete (PTR-98)", async () => {
+      signIn("attendee");
+
+      expect(await refusalFrom(getEventRequestDraft, { id: 1 }, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+      expect(await refusalFrom(deleteEventRequestDraft, { id: 1 })).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+    });
+
+    it("lets an event organiser through the draft read and delete chain (PTR-98)", async () => {
+      signIn("event_organiser");
+
+      expect((await call(getEventRequestDraft, { id: 1 }, "GET")).error).toBeUndefined();
+      expect((await call(deleteEventRequestDraft, { id: 1 })).error).toBeUndefined();
+    });
   });
 
   describe("accounts", () => {
@@ -314,6 +449,221 @@ describe("server-function authorization (PTR-69)", () => {
       signIn("attendee");
 
       expect((await call(listAccounts, undefined, "GET")).error).toBeUndefined();
+    });
+
+    // `getCurrentUser` is intentionally session-optional (the root route reads it to tell a
+    // signed-out visitor they are signed out), so "no session" is the allow path, not a 401.
+    it("answers the current user with no session, so a rewire to requireSession would fail (PTR-98)", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect((await call(getCurrentUser, undefined, "GET")).error).toBeUndefined();
+    });
+
+    it.each([
+      "attendee",
+      "event_organiser",
+      "event_coordinator",
+      "venue_staff",
+      "technical_support_staff",
+    ])("lets a signed-in %s read the current user (PTR-98)", async role => {
+      signIn(role);
+
+      expect((await call(getCurrentUser, undefined, "GET")).error).toBeUndefined();
+    });
+  });
+
+  /**
+   * PTR-98: the matrix above proves each endpoint refuses at the middleware boundary, and the
+   * handler tests prove each handler throws the right error class. Neither executes the join —
+   * `withSession`'s catch that turns that class into the `Response` a direct caller receives.
+   *
+   * The uncompiled test module carries no handler body (the compiler supplies it in a real
+   * build; see the file comment), so each case calls a real handler from a middleware placed
+   * after the real session guard. The handler's throw then travels the same `next()` path a
+   * terminal handler's would, into `withSession`'s conversion.
+   */
+  describe("refusal seam (PTR-98)", () => {
+    let pool: Pool;
+    let database: ReturnType<typeof drizzle<typeof schema>>;
+
+    beforeAll(() => {
+      pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      database = drizzle(pool, { schema });
+    });
+
+    afterAll(async () => {
+      await pool.end();
+    });
+
+    const organiser: SessionUser = {
+      id: "test-user-2",
+      email: "jane.doe@example.com",
+      role: "event_organiser",
+    };
+
+    function signInOrganiser() {
+      vi.mocked(auth.api.getSession).mockResolvedValue({ user: organiser } as never);
+    }
+
+    it("turns a handler's AuthorizationError into the 403 a direct caller receives", async () => {
+      signInOrganiser();
+
+      const refused = await refusalFrom(
+        seam(() =>
+          handleDeleteEventRequestDraft({ id: 2_147_483_647 }, organiser, database as never)
+        ),
+        {}
+      );
+
+      expect(refused).toEqual({ status: 403, body: "Forbidden" });
+    });
+
+    it("turns a handler's NotFoundError into the 404 a direct caller receives", async () => {
+      signInOrganiser();
+
+      const refused = await refusalFrom(
+        seam(() => handleSaveVenue({ ...venueRecord, id: 2_147_483_647 }, database as never)),
+        {}
+      );
+
+      expect(refused).toEqual({ status: 404, body: "Not Found" });
+    });
+
+    it("turns a handler's ConflictError into the 409 a direct caller receives", async () => {
+      signInOrganiser();
+
+      const [submitted] = await database
+        .insert(schema.eventRequests)
+        .values({
+          organiserId: organiser.id,
+          status: "submitted",
+          submittedAt: new Date(),
+          eventName: "PTR-98 refusal seam fixture",
+        })
+        .returning();
+
+      try {
+        const refused = await refusalFrom(
+          seam(() =>
+            handleDeleteEventRequestDraft({ id: submitted.id }, organiser, database as never)
+          ),
+          {}
+        );
+
+        expect(refused).toEqual({ status: 409, body: EVENT_REQUEST_DELETE_REFUSAL });
+      } finally {
+        await database
+          .delete(schema.eventRequests)
+          .where(eq(schema.eventRequests.id, submitted.id));
+      }
+    });
+
+    it("refuses a non-owning organiser on delete through the handler, and writes nothing (PTR-98)", async () => {
+      signInOrganiser();
+
+      // Owned by someone else: the guard admits the organiser, so the handler's scoping is what refuses.
+      const [draft] = await database
+        .insert(schema.eventRequests)
+        .values({ organiserId: "test-user-1", eventName: "PTR-98 non-owner fixture" })
+        .returning();
+
+      try {
+        const refused = await refusalFrom(
+          seam(() => handleDeleteEventRequestDraft({ id: draft.id }, organiser, database as never)),
+          {}
+        );
+
+        expect(refused).toEqual({ status: 403, body: "Forbidden" });
+        expect(
+          await database
+            .select({ id: schema.eventRequests.id })
+            .from(schema.eventRequests)
+            .where(eq(schema.eventRequests.id, draft.id))
+        ).toHaveLength(1);
+      } finally {
+        await database.delete(schema.eventRequests).where(eq(schema.eventRequests.id, draft.id));
+      }
+    });
+
+    it("refuses an attendee before the guarded work runs, and lets an organiser run it (PTR-98)", async () => {
+      const guardedWork = vi.fn<() => void>();
+      const probe = createServerFn({ method: "POST" })
+        .middleware([requireEventRequestCreate])
+        .middleware([
+          createMiddleware({ type: "function" }).server(async ({ next }) => {
+            guardedWork();
+            return next();
+          }),
+        ])
+        .handler(() => undefined);
+
+      signIn("attendee");
+      expect(await refusalFrom(probe, {})).toEqual({ status: 403, body: "Forbidden" });
+      expect(guardedWork).not.toHaveBeenCalled();
+
+      signIn("event_organiser");
+      expect((await call(probe, {})).error).toBeUndefined();
+      expect(guardedWork).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * PTR-98: with the session guard satisfied, the validator the server function declares runs on
+   * the server side of the same pipeline — `execValidator` is reached from the base middleware the
+   * compiler would otherwise fill in. The handler body stays out of a Vitest build (see the file
+   * comment), but the schema is part of the boundary and its refusal is observable here. Each case
+   * signs in a role the guard admits so the failure comes from validation, not permission.
+   */
+  describe("validation at the server-function boundary (PTR-98)", () => {
+    async function messageFrom(
+      serverFn: ServerFunction,
+      data: unknown,
+      method: "GET" | "POST" = "POST"
+    ) {
+      const { error } = await call(serverFn, data, method);
+      if (!(error instanceof Error)) {
+        throw new Error(
+          "expected the validator to refuse with an Error, but the pipeline returned none"
+        );
+      }
+      return error.message;
+    }
+
+    it("surfaces each function's own schema message instead of reaching the handler", async () => {
+      signIn("venue_staff");
+      expect(await messageFrom(saveVenue, { name: "" })).toBe(NAME_REQUIRED_MESSAGE);
+
+      signIn("event_coordinator");
+      expect(await messageFrom(getVenue, { id: "seven" }, "GET")).toBe(VENUE_ID_MESSAGE);
+      expect(
+        await messageFrom(
+          getVenueAvailability,
+          { venueId: 1, startDate: "2026-05-10", endDate: "2026-05-01" },
+          "GET"
+        )
+      ).toBe(AVAILABILITY_ORDER_MESSAGE);
+      expect(
+        await messageFrom(assignEventRequest, {
+          id: 1,
+          coordinatorId: "   ",
+          expectedCoordinatorId: null,
+        })
+      ).toBe("Choose an Event Coordinator");
+      expect(await messageFrom(getCoordinationRequest, { id: 0 }, "GET")).toBe(
+        EVENT_REQUEST_ID_MESSAGE
+      );
+
+      signIn("event_organiser");
+      expect(await messageFrom(saveEventRequestDraft, { expectedAttendance: -1 })).toBe(
+        ATTENDANCE_MESSAGE
+      );
+      expect(await messageFrom(getEventRequest, { id: "1" }, "GET")).toBe(EVENT_REQUEST_ID_MESSAGE);
+    });
+
+    it("validates the session-guarded list before it can answer", async () => {
+      signIn("attendee");
+
+      expect(await messageFrom(listEvents, { eventId: "41" }, "GET")).toBe("Choose an event");
     });
   });
 });
