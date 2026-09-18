@@ -1,5 +1,11 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "jsPlugins": ["@shadcn/lint"],
+  "settings": {
+    "shadcn": {
+      "note": "See docs/DESIGN.md for the design system and approved exceptions."
+    }
+  },
   "plugins": [
     "typescript",
     "unicorn",
@@ -66,7 +72,20 @@
         "name": "zod/v3",
         "message": "Zod 3 is legacy. Use `import { z } from 'zod'` for Zod 4.5."
       }
-    ]
+    ],
+
+    "shadcn/no-restyle": [
+      "error",
+      {
+        "allow": ["layout"],
+        "contracts": [{ "pattern": "^Skeleton$", "allow": ["layout", "rounded-full"] }]
+      }
+    ],
+    "shadcn/no-raw-colors": "error",
+    "shadcn/no-arbitrary-values": ["error", { "allow": ["layout"] }],
+    "shadcn/no-inline-styles": "error",
+    "shadcn/no-unknown-classes": "error",
+    "shadcn/require-static-classes": "error"
   },
   "overrides": [
     {
@@ -109,7 +128,9 @@
         "no-base-to-string": "off"
       }
     },
-    // Upstream components generated/copied from shadcn/ui and not maintained locally
+    // shadcn/ui primitives, restyled in place for the design system. The rules that are off here
+    // need a component's internals, not its call sites: appearance, structural values and the
+    // variant functions that own them. Token and inline-style checks still run.
     {
       "files": ["src/components/ui/**"],
       "rules": {
@@ -125,6 +146,9 @@
         "react/no-array-index-key": "off",
         "react/no-object-type-as-default-prop": "off",
         "react/no-unstable-nested-components": "off",
+        "shadcn/no-arbitrary-values": "off",
+        "shadcn/no-restyle": "off",
+        "shadcn/require-static-classes": "off",
         "typescript/consistent-return": "off",
         "typescript/no-explicit-any": "off",
         "typescript/no-unnecessary-condition": "off",
@@ -132,6 +156,34 @@
         "typescript/no-unnecessary-type-conversion": "off",
         "typescript/no-unsafe-type-assertion": "off",
         "typescript/restrict-template-expressions": "off"
+      }
+    },
+    // React Email renders inline styles; email clients need them.
+    {
+      "files": ["src/features/emails/**"],
+      "rules": {
+        "shadcn/no-inline-styles": "off"
+      }
+    },
+    // Upstream shadcn/ui internals the design system cannot verify: navigation-menu uses Base UI
+    // data variants and an undefined `xs:` breakpoint, and chart injects per-series CSS variables
+    // at runtime.
+    {
+      "files": ["src/components/ui/sonner.tsx", "src/components/ui/input-otp.tsx"],
+      "rules": {
+        "shadcn/no-unknown-classes": ["error", { "allow": ["toaster", "cn-input-otp"] }]
+      }
+    },
+    {
+      "files": ["src/components/ui/navigation-menu.tsx"],
+      "rules": {
+        "shadcn/no-unknown-classes": "off"
+      }
+    },
+    {
+      "files": ["src/components/ui/chart.tsx"],
+      "rules": {
+        "shadcn/no-inline-styles": "off"
       }
     }
   ],

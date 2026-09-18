@@ -78,9 +78,9 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
   if (verifyEmail) {
     return (
       <div className={cn("flex flex-col gap-5", className)} {...props}>
-        <FieldGroup className="gap-5">
+        <FieldGroup>
           <div className="flex flex-col items-center gap-1.5 text-center">
-            <h1 className="font-heading text-2xl font-bold tracking-tight">Check your email</h1>
+            <h1 className="display-h1">Check your email</h1>
             <FieldDescription>
               We sent a verification link to <strong>{verifyEmail}</strong>. Please verify your
               email address to complete your registration.
@@ -104,9 +104,9 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
           void form.handleSubmit();
         }}
       >
-        <FieldGroup className="gap-5">
+        <FieldGroup>
           <div className="flex flex-col items-center gap-1.5 text-center">
-            <h1 className="font-heading text-2xl font-bold tracking-tight">Create an account</h1>
+            <h1 className="display-h1">Create an account</h1>
             <FieldDescription>
               Already have an account? <Link to="/login">Sign in</Link>
             </FieldDescription>

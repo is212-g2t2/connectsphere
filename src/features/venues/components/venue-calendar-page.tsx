@@ -2,12 +2,20 @@ import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CalendarDays } from "lucide-react";
 
+import { Page, PageHeader } from "#/components/layout/page";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Calendar, CalendarDayButton } from "#/components/ui/calendar";
+import { Card, CardContent } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
-import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
 import {
   compareTimestamps,
   timestampDay,
@@ -96,48 +104,97 @@ export function VenueCalendarPage({
     : [];
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-16">
+    <Page
+      width="wide"
+      sidebar={
+        <aside aria-label="Calendar view">
+          <Card>
+            <CardContent>
+              <Calendar
+                mode="range"
+                timeZone="UTC"
+                selected={selected}
+                month={month}
+                onMonthChange={setMonth}
+                modifiers={{
+                  blocked: [...occupiedDays]
+                    .filter(([, state]) => state === "blocked")
+                    .map(([day]) => civilDate(day)),
+                  confirmed: [...occupiedDays]
+                    .filter(([, state]) => state === "confirmed")
+                    .map(([day]) => civilDate(day)),
+                }}
+                onSelect={range =>
+                  setDraft(current => ({
+                    ...current,
+                    startDate: range?.from ? civilDay(range.from) : "",
+                    endDate: range?.to ? civilDay(range.to) : "",
+                  }))
+                }
+                components={{ DayButton: OccupiedDayButton }}
+              />
+              <ul
+                aria-label="Availability legend"
+                className="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-border pt-4 body-sm text-muted-foreground"
+              >
+                <li className="flex items-center gap-2">
+                  <span aria-hidden="true" className="size-2 rounded-full border border-border" />
+                  Available
+                </li>
+                <li className="flex items-center gap-2">
+                  <span aria-hidden="true" className="size-2 rounded-full bg-harbor" />
+                  Confirmed booking
+                </li>
+                <li className="flex items-center gap-2">
+                  <span aria-hidden="true" className="size-2 rounded-full bg-coral" />
+                  Unavailable / blocked
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+        </aside>
+      }
+    >
       <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
         Back to dashboard
       </Link>
 
-      <div className="mt-6">
-        <p className="font-mono text-xs tracking-[0.2em] text-muted-foreground uppercase">Venues</p>
-        <h1 className="font-heading mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-          Venue calendar
-        </h1>
-        <p className="mt-3 max-w-xl text-muted-foreground">
-          Pick a venue and a date range to see when it can be requested — its free periods,
-          confirmed bookings and recorded unavailability.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Venues"
+        title="Venue calendar"
+        description="Pick a venue and a date range to see when it can be requested — its free periods, confirmed bookings and recorded unavailability."
+      />
 
-      <div className="mt-10 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="min-w-0">
-          <section
-            aria-label="Availability filters"
-            className="rounded-xl border border-border bg-card p-6"
-          >
+      <section aria-label="Availability filters">
+        <Card>
+          <CardContent>
             {venues.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No venues recorded yet.</p>
+              <p className="body-sm text-muted-foreground">No venues recorded yet.</p>
             ) : (
               <form className="space-y-5" noValidate onSubmit={submit}>
                 <div className="space-y-2">
                   <Label htmlFor="availability-venue">Venue</Label>
-                  <NativeSelect
-                    id="availability-venue"
-                    className="w-full"
-                    value={draft.venueId}
-                    onChange={event => setDraft({ ...draft, venueId: event.target.value })}
+                  <Select
+                    value={draft.venueId === "" ? null : draft.venueId}
+                    onValueChange={value => setDraft({ ...draft, venueId: value ?? "" })}
                     required
                   >
-                    <NativeSelectOption value="">Select a venue</NativeSelectOption>
-                    {venues.map(venue => (
-                      <NativeSelectOption key={venue.id} value={String(venue.id)}>
-                        {venue.name}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
+                    <SelectTrigger id="availability-venue" className="w-full">
+                      <SelectValue>
+                        {(value: string | null) =>
+                          venues.find(option => String(option.id) === value)?.name ??
+                          "Select a venue"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {venues.map(venue => (
+                        <SelectItem key={venue.id} value={String(venue.id)}>
+                          {venue.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="min-w-0 space-y-2">
@@ -162,7 +219,7 @@ export function VenueCalendarPage({
                   </div>
                 </div>
                 {error && (
-                  <p role="alert" className="text-sm text-destructive">
+                  <p role="alert" className="body-sm text-destructive">
                     {error}
                   </p>
                 )}
@@ -171,25 +228,26 @@ export function VenueCalendarPage({
                 </Button>
               </form>
             )}
-          </section>
+          </CardContent>
+        </Card>
+      </section>
 
-          {schedule ? (
-            <section
-              aria-label="Availability results"
-              className="mt-8 rounded-xl border border-border bg-card p-6"
-            >
+      {schedule ? (
+        <section aria-label="Availability results" className="mt-8">
+          <Card>
+            <CardContent>
               <div className="border-b border-border pb-5">
-                <h2 className="text-2xl font-semibold">{schedule.venue.name}</h2>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <h2 className="display-h2">{schedule.venue.name}</h2>
+                <p className="mt-2 body-sm text-muted-foreground">
                   {dateLabel(schedule.startDate)}
                   {schedule.endDate !== schedule.startDate && ` – ${dateLabel(schedule.endDate)}`}
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 body-sm text-muted-foreground">
                   Times shown in venue local time
                 </p>
               </div>
               {periods.length === 0 ? (
-                <p className="py-6 text-sm text-muted-foreground">
+                <p className="py-6 body-sm text-muted-foreground">
                   The venue has no opening hours in this range.
                 </p>
               ) : (
@@ -199,7 +257,7 @@ export function VenueCalendarPage({
                       <DateChip day={timestampDay(period.startsAt)} />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">{period.label}</p>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="body-sm text-muted-foreground">
                           {timeRange(period)} · {schedule.venue.name}
                         </p>
                       </div>
@@ -214,59 +272,16 @@ export function VenueCalendarPage({
                   ))}
                 </ul>
               )}
-            </section>
-          ) : (
-            <p className="mt-8 flex items-center gap-2 text-sm text-muted-foreground">
-              <CalendarDays className="size-4" aria-hidden="true" />
-              Choose a venue and both dates to see its availability.
-            </p>
-          )}
-        </div>
-
-        <aside aria-label="Calendar view" className="rounded-xl border border-border bg-card p-4">
-          <Calendar
-            mode="range"
-            timeZone="UTC"
-            selected={selected}
-            month={month}
-            onMonthChange={setMonth}
-            modifiers={{
-              blocked: [...occupiedDays]
-                .filter(([, state]) => state === "blocked")
-                .map(([day]) => civilDate(day)),
-              confirmed: [...occupiedDays]
-                .filter(([, state]) => state === "confirmed")
-                .map(([day]) => civilDate(day)),
-            }}
-            onSelect={range =>
-              setDraft(current => ({
-                ...current,
-                startDate: range?.from ? civilDay(range.from) : "",
-                endDate: range?.to ? civilDay(range.to) : "",
-              }))
-            }
-            components={{ DayButton: OccupiedDayButton }}
-          />
-          <ul
-            aria-label="Availability legend"
-            className="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-border pt-4 text-sm text-muted-foreground"
-          >
-            <li className="flex items-center gap-2">
-              <span aria-hidden="true" className="size-2 rounded-full border border-border" />
-              Available
-            </li>
-            <li className="flex items-center gap-2">
-              <span aria-hidden="true" className="size-2 rounded-full bg-harbor" />
-              Confirmed booking
-            </li>
-            <li className="flex items-center gap-2">
-              <span aria-hidden="true" className="size-2 rounded-full bg-coral" />
-              Unavailable / blocked
-            </li>
-          </ul>
-        </aside>
-      </div>
-    </main>
+            </CardContent>
+          </Card>
+        </section>
+      ) : (
+        <p className="mt-8 flex items-center gap-2 body-sm text-muted-foreground">
+          <CalendarDays className="size-4" aria-hidden="true" />
+          Choose a venue and both dates to see its availability.
+        </p>
+      )}
+    </Page>
   );
 }
 
@@ -333,12 +348,12 @@ function timeRange(period: { startsAt: string; endsAt: string }) {
 function DateChip({ day }: { day: string }) {
   return (
     <span className="flex size-10 shrink-0 flex-col items-center justify-center rounded-md bg-muted leading-none">
-      <span className="font-mono text-[0.625rem] tracking-widest text-muted-foreground uppercase">
+      <span className="eyebrow text-muted-foreground">
         {new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short" }).format(
           civilDate(day)
         )}
       </span>
-      <span className="mt-0.5 text-sm font-semibold">{Number(day.slice(8, 10))}</span>
+      <span className="mt-0.5 body-sm font-semibold">{Number(day.slice(8, 10))}</span>
     </span>
   );
 }

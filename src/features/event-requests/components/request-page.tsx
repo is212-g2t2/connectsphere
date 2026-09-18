@@ -1,5 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
+import { Page, PageHeader } from "#/components/layout/page";
+import { Card, CardContent } from "#/components/ui/card";
 import { unwrapRefusal } from "#/features/auth/session";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import { SUBMITTED_EDIT_REFUSAL } from "#/features/event-requests/schema";
@@ -60,33 +62,35 @@ export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequ
   const submitted = submission.status === "success";
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
+    <Page width="page">
       <Link to="/event-requests" className={NAV_LINK_CLASSNAME}>
         Back to event requests
       </Link>
 
-      <h1 className="font-heading mt-6 text-3xl font-semibold tracking-tight">
-        {submitted
-          ? "Event request submitted"
-          : existingDraft
-            ? "Edit event request"
-            : "New event request"}
-      </h1>
-      {!submitted && (
-        <p className="mt-3 max-w-xl text-muted-foreground">
-          Save what you know now and finish the details later.
-        </p>
-      )}
+      <PageHeader
+        title={
+          submitted
+            ? "Event request submitted"
+            : existingDraft
+              ? "Edit event request"
+              : "New event request"
+        }
+        description={submitted ? undefined : "Save what you know now and finish the details later."}
+      />
 
       {submitted ? (
-        <section className="mt-6 rounded-xl border border-border p-6">
-          <output className="block text-sm font-medium text-foreground">Request submitted.</output>
-          <p className="mt-3 text-sm text-muted-foreground">{SUBMITTED_EDIT_REFUSAL}</p>
-        </section>
+        <Card className="mt-6">
+          <CardContent>
+            <output className="block body-sm font-medium text-foreground">
+              Request submitted.
+            </output>
+            <p className="mt-3 body-sm text-muted-foreground">{SUBMITTED_EDIT_REFUSAL}</p>
+          </CardContent>
+        </Card>
       ) : (
         <>
           {!saving && !submitting && draft.status === "success" && (
-            <output className="mt-6 block text-sm font-medium text-foreground">Draft saved.</output>
+            <output className="mt-6 block body-sm font-medium text-foreground">Draft saved.</output>
           )}
 
           <div className="mt-10">
@@ -103,6 +107,6 @@ export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequ
           </div>
         </>
       )}
-    </main>
+    </Page>
   );
 }

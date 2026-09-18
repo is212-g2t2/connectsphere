@@ -1,3 +1,4 @@
+import { Page } from "#/components/layout/page";
 import { Skeleton } from "#/components/ui/skeleton";
 
 const ASSIGNED_ROWS = [0, 1, 2];
@@ -9,16 +10,16 @@ const UNASSIGNED_ROWS = [0, 1, 2, 3];
  */
 export function CoordinationPageSkeleton() {
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16" aria-busy="true">
+    <Page width="wide" aria-busy="true">
       <output className="sr-only">Loading coordination requests…</output>
 
       <Skeleton className="h-4 w-36" />
-      <Skeleton className="mt-6 h-9 w-56" />
+      <Skeleton className="mt-6 h-8 w-56" />
       <Skeleton className="mt-3 h-4 w-full max-w-xl" />
       <Skeleton className="mt-2 h-4 w-3/4 max-w-md" />
 
       <section className="mt-10">
-        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-8 w-40" />
         <Skeleton className="mt-2 h-4 w-72" />
         <ul className="mt-4 divide-y divide-border">
           {ASSIGNED_ROWS.map(row => (
@@ -31,7 +32,7 @@ export function CoordinationPageSkeleton() {
       </section>
 
       <section className="mt-10">
-        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-8 w-48" />
         <div className="mt-4 divide-y divide-border">
           <div className="flex items-center gap-4 py-3">
             <Skeleton className="h-3 w-16" />
@@ -49,6 +50,6 @@ export function CoordinationPageSkeleton() {
           ))}
         </div>
       </section>
-    </main>
+    </Page>
   );
 }

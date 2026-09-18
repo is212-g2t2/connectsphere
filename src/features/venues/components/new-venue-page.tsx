@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 
+import { Page, PageHeader } from "#/components/layout/page";
 import { unwrapRefusal } from "#/features/auth/session";
 import { VenueForm } from "#/features/venues/components/venue-form";
 import { saveVenue } from "#/features/venues/server-fns";
@@ -10,34 +11,32 @@ export function NewVenuePage() {
   const navigate = useNavigate();
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
+    <Page width="page">
       <Link to="/venues" className={NAV_LINK_CLASSNAME}>
         Back to venues
       </Link>
 
-      <h1 className="font-heading mt-6 text-3xl font-semibold tracking-tight">New venue</h1>
-      <p className="mt-3 max-w-xl text-muted-foreground">
-        Record the space as Coordinators will plan against it.
-      </p>
+      <PageHeader
+        title="New venue"
+        description="Record the space as Coordinators will plan against it."
+      />
 
-      <div className="mt-10">
-        <VenueForm
-          submitLabel="Create venue"
-          onSave={async values => {
-            const venue = await unwrapRefusal(
-              await saveVenue({ data: values }),
-              "Could not save this venue. Try again."
-            );
-            // `?saved=true` is only the hand-off; the detail route strips it on arrival so a
-            // reload cannot resurrect the confirmation.
-            await navigate({
-              to: "/venues/$venueId",
-              params: { venueId: String(venue.id) },
-              search: { saved: "true" },
-            });
-          }}
-        />
-      </div>
-    </main>
+      <VenueForm
+        submitLabel="Create venue"
+        onSave={async values => {
+          const venue = await unwrapRefusal(
+            await saveVenue({ data: values }),
+            "Could not save this venue. Try again."
+          );
+          // `?saved=true` is only the hand-off; the detail route strips it on arrival so a
+          // reload cannot resurrect the confirmation.
+          await navigate({
+            to: "/venues/$venueId",
+            params: { venueId: String(venue.id) },
+            search: { saved: "true" },
+          });
+        }}
+      />
+    </Page>
   );
 }

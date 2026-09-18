@@ -71,6 +71,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@shadcn/lint": "^0.1.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tanstack/devtools-vite": "^0.8.5",
     "@tanstack/react-devtools": "^0.10.12",

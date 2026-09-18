@@ -41,9 +41,9 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
           void form.handleSubmit();
         }}
       >
-        <FieldGroup className="gap-5">
+        <FieldGroup>
           <div className="flex flex-col items-center gap-1.5 text-center">
-            <h1 className="font-heading text-2xl font-bold tracking-tight">Welcome back</h1>
+            <h1 className="display-h1">Welcome back</h1>
             <FieldDescription>
               Don&apos;t have an account? <Link to="/signup">Sign up</Link>
             </FieldDescription>
