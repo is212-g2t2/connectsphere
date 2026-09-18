@@ -1,10 +1,10 @@
 // oxlint-disable node/no-process-env
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 
 import * as schema from "#/db/schema";
-import { runSeed, seedStaffUsers, SEED_STAFF_PASSWORD } from "../../scripts/seed";
+import { DEMO_EVENT_NAME, runSeed, seedStaffUsers, SEED_STAFF_PASSWORD } from "../../scripts/seed";
 
 // integration-setup.ts provides the database (container, DATABASE_URL, schema, seed), but `#/db`
 // builds its client from `bun:sql`, which vitest.config.ts aliases to a no-op stub
@@ -96,5 +96,31 @@ describe("seeded staff accounts (PTR-59)", () => {
 
     expect(users).toHaveLength(3);
     expect(accounts).toHaveLength(3);
+  });
+
+  it("records one demo request when two seeds run at once", async () => {
+    // Remove the seeded demo request so both calls race the insert path, not the update path.
+    await db
+      .delete(schema.eventRequests)
+      .where(
+        and(
+          eq(schema.eventRequests.organiserId, "test-user-2"),
+          eq(schema.eventRequests.eventName, DEMO_EVENT_NAME)
+        )
+      );
+
+    await Promise.all([runSeed(db), runSeed(db)]);
+
+    const demoRequests = await db
+      .select({ id: schema.eventRequests.id })
+      .from(schema.eventRequests)
+      .where(
+        and(
+          eq(schema.eventRequests.organiserId, "test-user-2"),
+          eq(schema.eventRequests.eventName, DEMO_EVENT_NAME)
+        )
+      );
+
+    expect(demoRequests).toHaveLength(1);
   });
 });
