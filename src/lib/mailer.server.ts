@@ -24,6 +24,29 @@ export function getMailer(): Resend | null {
 }
 
 export async function sendEmail(to: string, subject: string, react: React.ReactElement) {
+  const maskedTo = maskEmail(to);
+
+  log.info("Sending email", { to: maskedTo, subject });
+
+  const from = env.EMAIL_FROM ?? "ConnectSphere <onboarding@resend.dev>";
+
+  // SMTP_URL is set only for local/E2E runs, where a capture server (Mailpit) stands in for
+  // Resend's HTTP API. Production leaves it unset and takes the Resend branch below.
+  if (env.SMTP_URL) {
+    const [{ createTransport }, { render }] = await Promise.all([
+      import("nodemailer"),
+      import("@react-email/render"),
+    ]);
+    const transport = createTransport(env.SMTP_URL);
+    try {
+      const info = await transport.sendMail({ from, to, subject, html: await render(react) });
+      log.info("Successfully sent email via SMTP", { to: maskedTo, id: info.messageId });
+      return { id: info.messageId };
+    } finally {
+      transport.close();
+    }
+  }
+
   const client = getMailer();
 
   if (!client) {
@@ -31,12 +54,6 @@ export async function sendEmail(to: string, subject: string, react: React.ReactE
       "RESEND_API_KEY is not configured. Set it in your environment to enable email sending."
     );
   }
-
-  const maskedTo = maskEmail(to);
-
-  log.info("Sending email", { to: maskedTo, subject });
-
-  const from = env.EMAIL_FROM ?? "ConnectSphere <onboarding@resend.dev>";
 
   const { data, error } = await client.emails.send({
     from,
