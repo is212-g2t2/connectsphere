@@ -1,4 +1,5 @@
 import { HeadContent, Scripts } from "@tanstack/react-router";
+import { useEffect } from "react";
 
 import { ThemeProvider } from "#/components/providers/theme-provider";
 import { Toaster } from "#/components/ui/sonner";
@@ -16,6 +17,13 @@ export function RootDocument({
   children: React.ReactNode;
   meta?: React.ReactNode;
 }) {
+  // Runs only after React attaches, never during SSR, so E2E specs can wait on a real hydration
+  // signal (`body[data-hydrated]`) instead of network silence, which can settle before handlers
+  // are live under the dev server's on-demand transforms.
+  useEffect(() => {
+    document.body.dataset.hydrated = "true";
+  }, []);
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { waitForHydration } from "./hydration";
+
 const password = "EventRequests123!";
 
 async function signUp(page: Page, role?: "event_organiser"): Promise<void> {
@@ -20,12 +22,12 @@ async function signUp(page: Page, role?: "event_organiser"): Promise<void> {
 async function openNewRequest(page: Page): Promise<void> {
   await signUp(page, "event_organiser");
   await page.goto("/dashboard");
-  await page.waitForLoadState("networkidle");
+  await waitForHydration(page);
   await page.getByRole("link", { name: "Event requests", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Event requests" })).toBeVisible();
   await page.getByRole("link", { name: "New request" }).click();
   await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await waitForHydration(page);
 }
 
 test.describe("Event request drafts", () => {
@@ -118,7 +120,7 @@ test.describe("Event request drafts", () => {
     await otherTab.goto("/dashboard");
     // The header is signed-in in the server markup now (PTR-73), so the button is clickable
     // before React has attached its handler; without this the click lands on inert markup.
-    await otherTab.waitForLoadState("networkidle");
+    await waitForHydration(otherTab);
     await otherTab.getByRole("button", { name: "Sign out" }).click();
     await otherTab.waitForURL("/");
     await otherTab.close();
@@ -154,7 +156,6 @@ test.describe("Event request drafts", () => {
     await expect(page.getByRole("heading", { name: "Edit event request" })).toHaveCount(0);
 
     await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible();
     await expect(page.getByRole("link", { name: "Event requests", exact: true })).toHaveCount(0);
   });
@@ -206,7 +207,7 @@ test.describe("Event request list (PTR-14)", () => {
     await page.getByRole("link", { name: "Back to event requests" }).click();
     await page.getByRole("link", { name: "New request" }).click();
     await expect(page.getByRole("heading", { name: "New event request" })).toBeVisible();
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
     await page.getByLabel("Event name (required)", { exact: true }).fill("Annual dinner");
     await page.getByLabel("Purpose (required)", { exact: true }).fill("Thank the volunteers");
     await page.getByLabel("Expected attendance (required)", { exact: true }).fill("120");
@@ -350,7 +351,7 @@ test.describe("Coordinator assignment (PTR-15)", () => {
     expect(signIn.ok(), await signIn.text()).toBe(true);
 
     await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
     await page.getByRole("link", { name: "Coordination", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Coordination" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Unassigned requests" })).toBeVisible();

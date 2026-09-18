@@ -3,6 +3,7 @@ import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 import { SEED_STAFF_PASSWORD } from "../../scripts/seed";
+import { waitForHydration } from "./hydration";
 
 // Sign-up can only mint external roles, so the internal accounts these tests sign in as come
 // from the seed that `global-setup.ts` runs once before the suite.
@@ -43,7 +44,7 @@ const CREATED_LOCATION = "Level 4, Playwright Wing";
 async function createVenue(page: Page, name: string): Promise<string> {
   await page.goto("/venues/new");
   // Controlled inputs: typing before hydration completes is thrown away when React attaches.
-  await page.waitForLoadState("networkidle");
+  await waitForHydration(page);
 
   await page.getByLabel("Venue name", { exact: true }).fill(name);
   await page.getByLabel("Location", { exact: true }).fill(CREATED_LOCATION);
@@ -68,13 +69,13 @@ test.describe("Venue records", () => {
     const name = `Playwright Room ${randomUUID().slice(0, 8)}`;
 
     await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
     await page.getByRole("link", { name: "Venues", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Venues" })).toBeVisible();
     await page.getByRole("link", { name: "New venue" }).click();
     await expect(page.getByRole("heading", { name: "New venue" })).toBeVisible();
     // Controlled inputs: typing before hydration completes is thrown away when React attaches.
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
 
     await page.getByLabel("Venue name", { exact: true }).fill(name);
     await page.getByLabel("Location", { exact: true }).fill("Level 4");
@@ -101,7 +102,6 @@ test.describe("Venue records", () => {
     await expect(page.getByRole("heading", { name: "Venues" })).toHaveCount(0);
 
     await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible();
     await expect(page.getByRole("link", { name: "Venues", exact: true })).toHaveCount(0);
   });
@@ -131,7 +131,7 @@ test.describe("Venue records", () => {
     // and the same assertion after the edit has to be about the edit. The fresh load starts the
     // banner hidden, and shows the created row coming back from the database on its own.
     await page.reload();
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
     await expect(page.getByRole("heading", { name: original })).toBeVisible();
 
     await page.getByLabel("Venue name", { exact: true }).fill(renamed);

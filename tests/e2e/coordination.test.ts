@@ -8,6 +8,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, inArray } from "drizzle-orm";
 
 import * as schema from "../../src/db/schema";
+import { waitForHydration } from "./hydration";
 
 const password = "Coordinate123!";
 let pool: Pool;
@@ -91,7 +92,7 @@ test("hands over an event and transfers access", async ({ page, browser, baseURL
     await expect(organiserPage).toHaveURL(/\/dashboard$/);
     await page.goto("/coordination");
     await page.getByRole("link", { name: eventName }).click();
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
     await page.locator("#coordinatorId").click();
     await page.getByRole("option", { name: incoming.name }).click();
     await page.getByRole("button", { name: "Reassign Coordinator" }).click();
@@ -148,7 +149,7 @@ test("picks up unassigned events for yourself or a named Coordinator", async ({
         .returning();
       await page.goto("/coordination");
       await page.getByRole("link", { name: eventName }).click();
-      await page.waitForLoadState("networkidle");
+      await waitForHydration(page);
       if (target.id === actor.id) {
         await page.getByRole("button", { name: "Assign to me" }).click();
       } else {

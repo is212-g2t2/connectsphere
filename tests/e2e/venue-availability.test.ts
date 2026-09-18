@@ -8,9 +8,7 @@ import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import { SEED_STAFF_PASSWORD } from "../../scripts/seed";
-
-const DATABASE_URL =
-  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/app";
+import { waitForHydration } from "./hydration";
 
 const STAFF_ACCOUNTS = {
   event_coordinator: "coordinator.seed@example.com",
@@ -42,7 +40,7 @@ async function signUpAsExternal(page: Page, role: "attendee" | "event_organiser"
 async function selectLiveRange(page: Page, venueName: string, start: string, end = start) {
   // The page is server-rendered and then hydrated; values typed before React is listening are
   // wiped, or the form submits natively. Wait for hydration the way `dashboard.test.ts` does.
-  await page.waitForLoadState("networkidle");
+  await waitForHydration(page);
   await page.locator("#availability-venue").click();
   await expect(page.getByRole("option", { name: venueName, exact: true })).toHaveCount(1);
   await page.getByRole("option", { name: venueName, exact: true }).click();
@@ -52,7 +50,7 @@ async function selectLiveRange(page: Page, venueName: string, start: string, end
 }
 
 async function seededBlockDate(venueName: string): Promise<string> {
-  const pool = new Pool({ connectionString: DATABASE_URL });
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
     const [period] = await drizzle(pool, { schema })
       .select({ startsAt: schema.venueUnavailability.startsAt })

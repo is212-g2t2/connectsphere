@@ -3,6 +3,7 @@ import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 import { DEMO_EVENT_NAME, SEED_STAFF_PASSWORD } from "../../scripts/seed";
+import { waitForHydration } from "./hydration";
 
 async function signInAsSeeded(page: Page, email: string): Promise<void> {
   const response = await page.request.post("/api/auth/sign-in/email", {
@@ -36,7 +37,7 @@ test.describe("Event access", () => {
     const password = "Password123!";
 
     await page.goto("/signup");
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
     await page.locator("#name").fill("E2E Events Attendee");
     await page.locator("#email").fill(email);
     await page.locator("#password").fill(password);
@@ -47,7 +48,6 @@ test.describe("Event access", () => {
     });
 
     await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
 
     // The seed's demo request is submitted with registration enabled and an open window, so a
     // brand-new attendee sees it as "attendee access".
@@ -79,7 +79,10 @@ test.describe("Event access", () => {
     // PTR-31 AC2: timing, attendance, layout, accessibility and facilities — never the name.
     await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
     await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toHaveCount(0);
-    await expect(page.getByText("pending", { exact: true })).toBeVisible();
+    // Scoped to the venue-request detail row: "pending" also appears in the registration badge.
+    await expect(
+      page.locator("dl", { hasText: "Venue request" }).getByText("pending", { exact: true })
+    ).toBeVisible();
   });
 
   test("gives technical support the equipment for their event", async ({ page }) => {
