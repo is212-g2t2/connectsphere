@@ -1,8 +1,21 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { renderToString } from "react-dom/server";
+import * as Sentry from "@sentry/tanstackstart-react";
+import { describe, expect, it, vi } from "vitest";
 
 import { Page, PageHeader } from "#/components/layout/page";
-import { ErrorPage } from "#/components/pages/error";
+import { ErrorPage, RootErrorPage, RootNotFoundPage } from "#/components/pages/error";
+
+vi.mock("@sentry/tanstackstart-react", () => ({
+  captureException: vi.fn<(error: unknown) => void>(),
+}));
+
+// The boundaries render the real document shell; this stands it in so the assertions stay on the
+// Sentry reporting and the error copy rather than on `<html>` nesting.
+vi.mock("#/components/layout/root-document", () => ({
+  RootDocument: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+}));
 
 /**
  * The shared shell implements docs/DESIGN.md §Layout: one centered column at 880px or 1120px,
@@ -43,6 +56,49 @@ describe("ErrorPage", () => {
 
     expect(container.querySelectorAll("main")).toHaveLength(1);
     expect(screen.getByRole("heading", { level: 1, name: "Something went wrong" })).toBeTruthy();
+  });
+});
+
+describe("RootErrorPage", () => {
+  it("reports the failure to Sentry and lets the reset callback retry", async () => {
+    const user = userEvent.setup();
+    const reset = vi.fn<() => void>();
+    const error = new Error("kaboom");
+
+    render(<RootErrorPage error={error} reset={reset} />);
+
+    await waitFor(() => expect(Sentry.captureException).toHaveBeenCalledWith(error));
+    expect(screen.getByRole("heading", { name: "Something went wrong" })).toBeTruthy();
+    expect(screen.getByText("kaboom")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports the failure during SSR too, where no effect can run", () => {
+    const error = new Error("ssr-kaboom");
+
+    // `renderToString` reaches the branch a browser render cannot: without a window the capture
+    // cannot wait for the effect, so the page reports synchronously.
+    vi.stubGlobal("window", undefined);
+    try {
+      renderToString(<RootErrorPage error={error} reset={vi.fn<() => void>()} />);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(Sentry.captureException).toHaveBeenCalledWith(error);
+  });
+});
+
+describe("RootNotFoundPage", () => {
+  it("shows the 404 copy without reporting a missing route", () => {
+    render(<RootNotFoundPage />);
+
+    expect(screen.getByRole("heading", { name: "404 - Not Found" })).toBeTruthy();
+    expect(screen.getByText("The page you are looking for does not exist.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(Sentry.captureException).not.toHaveBeenCalled();
   });
 });
 
