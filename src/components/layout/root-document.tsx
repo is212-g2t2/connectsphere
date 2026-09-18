@@ -27,7 +27,7 @@ export function RootDocument({
           {children}
         </ThemeProvider>
         <Scripts />
-        <Toaster />
+        <Toaster richColors />
       </body>
     </html>
   );
