@@ -100,7 +100,6 @@ describe("SignupForm component", () => {
 
   it("rejects a password shorter than 8 characters", async () => {
     const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.signUp.email).mockClear();
     const user = userEvent.setup();
     render(<SignupForm />);
 
@@ -115,7 +114,6 @@ describe("SignupForm component", () => {
 
   it("rejects a long password with no number or symbol", async () => {
     const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.signUp.email).mockClear();
     const user = userEvent.setup();
     render(<SignupForm />);
 
@@ -131,7 +129,6 @@ describe("SignupForm component", () => {
 
   it("rejects a name that is blank or only whitespace", async () => {
     const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.signUp.email).mockClear();
     const user = userEvent.setup();
     render(<SignupForm />);
 
@@ -146,7 +143,6 @@ describe("SignupForm component", () => {
 
   it("rejects a confirmation that does not match the password", async () => {
     const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.signUp.email).mockClear();
     const user = userEvent.setup();
     render(<SignupForm />);
 
@@ -162,7 +158,6 @@ describe("SignupForm component", () => {
 
   it("creates an account with a trimmed name and the default attendee role", async () => {
     const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.signUp.email).mockClear();
     const user = userEvent.setup();
     render(<SignupForm />);
 
@@ -181,7 +176,6 @@ describe("SignupForm component", () => {
 
   it("creates an account with event_organiser role when selected", async () => {
     const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.signUp.email).mockClear();
     const user = userEvent.setup();
     render(<SignupForm />);
 
@@ -222,7 +216,6 @@ describe("SignupForm component", () => {
   });
 
   it("navigates to the dashboard when continuing from the verification screen", async () => {
-    mockNavigate.mockClear();
     const user = userEvent.setup();
     render(<SignupForm />);
 
