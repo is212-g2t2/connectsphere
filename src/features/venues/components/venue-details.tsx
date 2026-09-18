@@ -16,15 +16,13 @@ export function VenueDetails({ venue }: { venue: Omit<VenueValues, "id"> }) {
         {listOrNone(venue.supportedLayouts.map(layout => LAYOUT_LABELS[layout]))}
       </Detail>
       <div className="sm:col-span-2">
-        <dt className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
-          Operating hours
-        </dt>
+        <dt className="eyebrow text-muted-foreground">Operating hours</dt>
         <dd className="mt-2">
           <ul className="grid gap-1 sm:grid-cols-2">
             {WEEKDAYS.map(day => {
               const range = venue.operatingHours[day];
               return (
-                <li key={day} className="flex justify-between gap-4 text-sm">
+                <li key={day} className="flex justify-between gap-4 body-sm">
                   <span>{WEEKDAY_LABELS[day]}</span>
                   <span className="font-medium">
                     {range ? `${range.opens} – ${range.closes}` : "Closed"}
@@ -42,8 +40,8 @@ export function VenueDetails({ venue }: { venue: Omit<VenueValues, "id"> }) {
 function Detail({ term, children }: { term: string; children: React.ReactNode }) {
   return (
     <div>
-      <dt className="font-mono text-xs tracking-widest text-muted-foreground uppercase">{term}</dt>
-      <dd className="mt-2 text-sm font-medium">{children}</dd>
+      <dt className="eyebrow text-muted-foreground">{term}</dt>
+      <dd className="mt-2 body-md font-medium">{children}</dd>
     </div>
   );
 }

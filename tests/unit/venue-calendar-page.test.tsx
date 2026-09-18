@@ -103,7 +103,8 @@ describe("VenueCalendarPage", () => {
     const user = userEvent.setup();
     render(<VenueCalendarPage venues={[venue]} schedule={null} search={{}} />);
 
-    await user.selectOptions(screen.getByLabelText("Venue"), "7");
+    await user.click(screen.getByLabelText("Venue"));
+    await user.click(await screen.findByRole("option", { name: "Great Hall" }));
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-10-05" } });
     fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-10-06" } });
     await user.click(screen.getByRole("button", { name: "Show availability" }));

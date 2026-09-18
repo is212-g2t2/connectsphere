@@ -43,9 +43,9 @@ async function selectLiveRange(page: Page, venueName: string, start: string, end
   // The page is server-rendered and then hydrated; values typed before React is listening are
   // wiped, or the form submits natively. Wait for hydration the way `dashboard.test.ts` does.
   await page.waitForLoadState("networkidle");
-  const venue = page.getByLabel("Venue", { exact: true });
-  await expect(venue.locator("option", { hasText: venueName })).toHaveCount(1);
-  await venue.selectOption({ label: venueName });
+  await page.locator("#availability-venue").click();
+  await expect(page.getByRole("option", { name: venueName, exact: true })).toHaveCount(1);
+  await page.getByRole("option", { name: venueName, exact: true }).click();
   await page.getByLabel("Start date", { exact: true }).fill(start);
   await page.getByLabel("End date", { exact: true }).fill(end);
   await page.getByRole("button", { name: "Show availability" }).click();

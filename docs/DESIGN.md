@@ -184,6 +184,7 @@ Neutrals carry almost the entire interface; color is spent deliberately, only wh
 - **Amber / Coral:** reserved exclusively for status semantics: amber for in-progress or pending, coral for stopped, destructive and error. Each ships with a pale `-tint` background for pill and icon fills.
 - **Mist / Mist-dark:** ink-tinted transparent grays for hairline borders and dividers only, never for text or fills. Mist is the default hairline: it is what `--border` resolves to, and the radius the card carries. Mist-dark is for the denser table and section rules.
 - **Stroke:** the border that identifies a _form control_, distinct from a divider. Mist is a 1.3:1 hairline, right for a decorative rule and not enough for the border that tells a user where an input is. Stroke clears 3:1 on both paper and surface.
+- **Overlay:** modal scrims use `--color-overlay`, a 10% black. It is the one place a raw black fills a surface; the card shadow carries the only other literal black.
 - **Accent gradient** (pink `#d93384` → amber `#f59e0b`, 90°): the one expressive color moment, reserved for headline accents and event cover art. It is not a token: no screen uses it yet; the first one that does adds `--accent-gradient` and a line here.
 
 ### Dark mode
@@ -199,7 +200,7 @@ Every text-and-background pair the primitives use clears WCAG AA in both themes:
 Everything runs on a single family, **Inter Variable** (`@fontsource-variable/inter`), with system fallbacks. There is no display/body split; voice comes from weight, size and negative letter-spacing rather than a second typeface. `--font-sans`, `--font-heading` and `--font-mono` all resolve to it: "mono" signals _data_ (timestamps, reference codes) at 0.8125rem/500, not a genuine monospace rhythm.
 
 - **Headings (h1–h3)** are 600-weight with tight `-0.03em` tracking and a 1.08–1.2 line-height, giving an editorial, slightly condensed feel even though they are small by marketing standards. H1 and h2 top out at 1.75rem. The tracking and weight are applied globally in `globals.css`, so a heading never has to ask.
-- **Event title / hero headline** are the only oversized type in the system: 3rem fixed, or a fluid `clamp(2.5rem, 6vw, 4rem)` on the homepage hero. One moment per page that should feel like a poster.
+- **Event title / hero headline** are the only oversized type roles: the hero headline ships as a fluid `clamp(2.5rem, 6vw, 4rem)` on the homepage, and the fixed 3rem event title has no utility or screen yet. One moment per page that should feel like a poster.
 - **Body** is 0.9375rem at 1.5 line-height, set on `body` as the base size. Secondary body text is ink-60, never full ink, which keeps paragraphs visually behind headings and UI chrome.
 - **Label / caption** (0.8125rem, 0.75rem) carry the UI: form labels, pill text, table meta. Table headers go uppercase at 0.6875rem with `0.05em` tracking for a technical, spec-sheet tone.
 
@@ -248,11 +249,11 @@ Inputs are boxy at 8px rather than pill. It is the one place the system breaks f
 
 ### Focus
 
-One affordance for the whole system: a 2px harbor outline at 2px offset, declared once on `:focus-visible` in `globals.css`, so links and bare buttons get it for free and keyboard behaviour is never special-cased per component. A primitive that suppresses the outline with `outline-none` carries the same indicator as a ring instead: `focus-visible:ring-2 focus-visible:ring-ring`, 2px and solid harbor, never a softened `/50` variant.
+One affordance for the whole system: a 2px harbor outline at 2px offset, declared once on `:focus-visible` in `globals.css`, so links and bare buttons get it for free and keyboard behaviour is never special-cased per component. A primitive that suppresses the outline with `outline-none` carries the same indicator as a ring instead: `focus-visible:ring-2 focus-visible:ring-ring`, 2px and solid harbor, never a softened `/50` variant. Inside menus, popovers and listboxes the highlighted row carries the accent fill instead; those surfaces do not draw the ring.
 
 ## Scope
 
-This document and `globals.css` deliver the system and its shared primitives, not a redesign of every screen. Every primitive in `src/components/ui/` is on the system's focus ring and takes its radii from the tokens. Feature pages consume the primitives and tokens; new work must not reintroduce a hardcoded value a token already owns.
+This document and `globals.css` deliver the system and its shared primitives, not a redesign of every screen. Focusable primitives carry the system focus ring and take their radii from the tokens; the documented sub-8px glyphs, nested corners, and menu rows that highlight with the accent fill are the exceptions. Feature pages consume the primitives and tokens; new work must not reintroduce a hardcoded value a token already owns. Email templates are the one surface that reads the palette's literal values, because email clients do not support CSS custom properties.
 
 ## Do's and Don'ts
 

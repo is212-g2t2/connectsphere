@@ -2,11 +2,13 @@ import { Link } from "@tanstack/react-router";
 import { Upload, CheckCircle } from "lucide-react";
 import { useRef } from "react";
 
+import { Page, PageHeader } from "#/components/layout/page";
+import { Button } from "#/components/ui/button";
+import { Card, CardContent } from "#/components/ui/card";
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
 import { useMutation } from "#/hooks/use-mutation";
-import { Button } from "#/components/ui/button";
-import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
+import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import type { EventProjection } from "#/features/events/access";
 import { EventWorkspace } from "#/features/events/components/event-workspace";
 
@@ -19,77 +21,68 @@ const UPLOAD_FAILED = "Upload failed";
  */
 export function DashboardPage({ user, events }: { user: SessionUser; events: EventProjection[] }) {
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16">
-      <section className="flex flex-col">
-        <div>
-          <p className="font-mono text-xs tracking-[0.2em] text-muted-foreground uppercase">
-            Dashboard
-          </p>
-          <h1 className="font-heading mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-            Welcome, {user.name?.trim() || user.email}
-          </h1>
-          <p className="mt-3 max-w-xl text-muted-foreground">
-            Your ConnectSphere home. Events and requests are filtered by your role and relationship
-            to each event; server-side checks enforce the same boundary for direct requests.
-          </p>
-        </div>
+    <Page width="wide">
+      <PageHeader
+        eyebrow="Dashboard"
+        title={`Welcome, ${user.name?.trim() || user.email}`}
+        description="Your ConnectSphere home. Events and requests are filtered by your role and relationship to each event; server-side checks enforce the same boundary for direct requests."
+      />
 
-        <dl className="mt-10 grid gap-6 border-y border-border py-6 sm:grid-cols-3">
-          <div>
-            <dt className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
-              Session
-            </dt>
-            <dd className="mt-2 text-lg font-medium">Active</dd>
-          </div>
-          <div>
-            <dt className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
-              Email
-            </dt>
-            <dd className="mt-2 truncate text-lg font-medium">{user.email}</dd>
-          </div>
-          <div>
-            <dt className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
-              Role
-            </dt>
-            <dd className="mt-2 truncate text-lg font-medium">{user.role ?? "attendee"}</dd>
-          </div>
-        </dl>
+      <Card>
+        <CardContent>
+          <dl className="grid gap-6 sm:grid-cols-3">
+            <div>
+              <dt className="eyebrow text-muted-foreground">Session</dt>
+              <dd className="mt-2 body-md font-medium">Active</dd>
+            </div>
+            <div>
+              <dt className="eyebrow text-muted-foreground">Email</dt>
+              <dd className="mt-2 truncate body-md font-medium">{user.email}</dd>
+            </div>
+            <div>
+              <dt className="eyebrow text-muted-foreground">Role</dt>
+              <dd className="mt-2 truncate body-md font-medium">{user.role ?? "attendee"}</dd>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
 
+      <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3">
         {can(user.role, { event_request: ["create"] }) && (
-          <Link to="/event-requests" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
+          <Link to="/event-requests" className={NAV_LINK_CLASSNAME}>
             Event requests
           </Link>
         )}
 
         {can(user.role, { event_request: ["coordinate"] }) && (
-          <Link to="/coordination" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
+          <Link to="/coordination" className={NAV_LINK_CLASSNAME}>
             Coordination
           </Link>
         )}
 
         {can(user.role, { venue: ["read"] }) && (
-          <Link to="/venues" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
+          <Link to="/venues" className={NAV_LINK_CLASSNAME}>
             Venues
           </Link>
         )}
 
         {can(user.role, { venue: ["read"] }) && (
-          <Link to="/venues/availability" className={cn("mt-8 w-fit", NAV_LINK_CLASSNAME)}>
+          <Link to="/venues/availability" className={NAV_LINK_CLASSNAME}>
             Venue calendar
           </Link>
         )}
+      </div>
 
-        {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
+      {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
 
-        <EventWorkspace events={events} />
+      <EventWorkspace events={events} />
 
-        <div className="mt-12 border-t border-border pt-6">
-          <Link to="/settings" className={NAV_LINK_CLASSNAME}>
-            Account settings
-          </Link>
-        </div>
-      </section>
-    </main>
+      <div className="mt-12 border-t border-border pt-6">
+        <Link to="/settings" className={NAV_LINK_CLASSNAME}>
+          Account settings
+        </Link>
+      </div>
+    </Page>
   );
 }
 
@@ -134,46 +127,48 @@ function FileUploadCard() {
   }, UPLOAD_FAILED);
 
   return (
-    <section className="mt-12" aria-label="File upload">
-      <h2 className="text-lg font-semibold">File upload</h2>
-      <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-        Presigned PUT upload via MinIO. Images and PDFs up to 10 MB.
-      </p>
-
-      {uploading ? null : upload.status === "success" ? (
-        <p className="mt-4 flex items-center gap-2 text-sm">
-          <CheckCircle className="size-4" />
-          Uploaded: <code className="font-mono text-xs break-all">{upload.data}</code>
+    <Card className="mt-12">
+      <CardContent>
+        <h2 className="display-h3">File upload</h2>
+        <p className="mt-2 max-w-xl body-sm text-muted-foreground">
+          Presigned PUT upload via MinIO. Images and PDFs up to 10 MB.
         </p>
-      ) : upload.status === "error" ? (
-        <p className="mt-4 text-sm text-destructive">{upload.error}</p>
-      ) : null}
 
-      <div className="mt-4">
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*,application/pdf,text/plain"
-          className="hidden"
-          onChange={event => {
-            const file = event.target.files?.[0];
-            // Cleared before the run rather than after it, so picking the same file twice still
-            // fires a `change`; the action, not the input, is what the UI reads from now.
-            event.target.value = "";
-            if (file) void uploadFile(file);
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={uploading}
-          onClick={() => inputRef.current?.click()}
-        >
-          <Upload className="size-4" />
-          {uploading ? "Uploading…" : "Choose file"}
-        </Button>
-      </div>
-    </section>
+        {uploading ? null : upload.status === "success" ? (
+          <p className="mt-4 flex items-center gap-2 body-sm">
+            <CheckCircle className="size-4" />
+            Uploaded: <code className="font-mono mono break-all">{upload.data}</code>
+          </p>
+        ) : upload.status === "error" ? (
+          <p className="mt-4 body-sm text-destructive">{upload.error}</p>
+        ) : null}
+
+        <div className="mt-4">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,application/pdf,text/plain"
+            className="hidden"
+            onChange={event => {
+              const file = event.target.files?.[0];
+              // Cleared before the run rather than after it, so picking the same file twice still
+              // fires a `change`; the action, not the input, is what the UI reads from now.
+              event.target.value = "";
+              if (file) void uploadFile(file);
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={uploading}
+            onClick={() => inputRef.current?.click()}
+          >
+            <Upload className="size-4" />
+            {uploading ? "Uploading…" : "Choose file"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

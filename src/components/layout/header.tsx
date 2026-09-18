@@ -33,8 +33,8 @@ export function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background">
-      <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-6">
+    <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-md">
+      <div className="flex h-13 items-center justify-between px-4">
         <Link to="/" className="transition-opacity hover:opacity-60">
           <img src="/favicon.svg" alt="ConnectSphere" className="size-7" />
         </Link>

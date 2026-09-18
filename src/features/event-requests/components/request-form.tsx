@@ -3,7 +3,15 @@ import { useForm } from "@tanstack/react-form";
 
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { Textarea } from "#/components/ui/textarea";
 import { EventRequestDraftFormInput } from "#/features/event-requests/schema";
@@ -148,12 +156,12 @@ export function EventRequestForm({
         void form.handleSubmit();
       }}
     >
-      <p className="mb-6 text-sm text-muted-foreground">
+      <p className="mb-6 body-sm text-muted-foreground">
         Fields marked required must be completed. Anything left blank is saved with the draft, so
         you can finish it later.
       </p>
 
-      <FieldGroup className="gap-8">
+      <FieldGroup>
         <form.Field name="eventName">
           {field => (
             <Field data-invalid={field.state.meta.errors.length > 0}>
@@ -190,54 +198,56 @@ export function EventRequestForm({
 
         <form.Field name="proposedDates" mode="array">
           {field => (
-            <fieldset className="space-y-5 border-t border-border pt-6">
-              <legend className="font-medium">Proposed dates and times (required)</legend>
-              <FieldDescription>
-                Enter each proposed window in local time. An end must be later than its start.
-              </FieldDescription>
-              {field.state.value.map((date, index) => (
-                <div key={date.key} className="grid gap-4 sm:grid-cols-2">
-                  {(["start", "end"] as const).map(boundary => (
-                    <form.Field key={boundary} name={`proposedDates[${index}].${boundary}`}>
-                      {boundaryField => (
-                        <Field data-invalid={boundaryField.state.meta.errors.length > 0}>
-                          <FieldLabel htmlFor={boundaryField.name}>
-                            Proposed {boundary} {index + 1} (required)
-                          </FieldLabel>
-                          <Input
-                            id={boundaryField.name}
-                            type="datetime-local"
-                            required
-                            value={boundaryField.state.value}
-                            onBlur={boundaryField.handleBlur}
-                            onChange={event => boundaryField.handleChange(event.target.value)}
-                            aria-invalid={boundaryField.state.meta.errors.length > 0}
-                          />
-                          <FieldError errors={boundaryField.state.meta.errors} />
-                        </Field>
-                      )}
-                    </form.Field>
-                  ))}
-                  {field.state.value.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="justify-self-start"
-                      onClick={() => field.removeValue(index)}
-                    >
-                      Remove proposed date {index + 1}
-                    </Button>
-                  )}
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => field.pushValue({ key: crypto.randomUUID(), start: "", end: "" })}
-              >
-                Add proposed date
-              </Button>
-            </fieldset>
+            <div className="border-t border-border pt-6">
+              <FieldSet>
+                <FieldLegend>Proposed dates and times (required)</FieldLegend>
+                <FieldDescription>
+                  Enter each proposed window in local time. An end must be later than its start.
+                </FieldDescription>
+                {field.state.value.map((date, index) => (
+                  <div key={date.key} className="grid gap-4 sm:grid-cols-2">
+                    {(["start", "end"] as const).map(boundary => (
+                      <form.Field key={boundary} name={`proposedDates[${index}].${boundary}`}>
+                        {boundaryField => (
+                          <Field data-invalid={boundaryField.state.meta.errors.length > 0}>
+                            <FieldLabel htmlFor={boundaryField.name}>
+                              Proposed {boundary} {index + 1} (required)
+                            </FieldLabel>
+                            <Input
+                              id={boundaryField.name}
+                              type="datetime-local"
+                              required
+                              value={boundaryField.state.value}
+                              onBlur={boundaryField.handleBlur}
+                              onChange={event => boundaryField.handleChange(event.target.value)}
+                              aria-invalid={boundaryField.state.meta.errors.length > 0}
+                            />
+                            <FieldError errors={boundaryField.state.meta.errors} />
+                          </Field>
+                        )}
+                      </form.Field>
+                    ))}
+                    {field.state.value.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="justify-self-start"
+                        onClick={() => field.removeValue(index)}
+                      >
+                        Remove proposed date {index + 1}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => field.pushValue({ key: crypto.randomUUID(), start: "", end: "" })}
+                >
+                  Add proposed date
+                </Button>
+              </FieldSet>
+            </div>
           )}
         </form.Field>
 
@@ -268,16 +278,14 @@ export function EventRequestForm({
               aria-label="Attendee registration"
             >
               <div className="space-y-2">
-                <h3 className="font-medium">Attendee registration</h3>
+                <h3 className="display-h3">Attendee registration</h3>
                 <Field orientation="horizontal">
                   <Checkbox
                     id={field.name}
                     checked={field.state.value}
                     onCheckedChange={checked => field.handleChange(checked)}
                   />
-                  <FieldLabel htmlFor={field.name} className="font-normal">
-                    Require attendee registration
-                  </FieldLabel>
+                  <FieldLabel htmlFor={field.name}>Require attendee registration</FieldLabel>
                 </Field>
                 <FieldDescription>
                   Registered attendees sign up between these times, up to this capacity. Turning
@@ -316,7 +324,7 @@ export function EventRequestForm({
           className="space-y-6 border-t border-border pt-6"
           aria-label="Optional requirements"
         >
-          <h3 className="font-medium">Additional requirements</h3>
+          <h3 className="display-h3">Additional requirements</h3>
           {OPTIONAL_TEXT_FIELDS.map(([name, label]) => (
             <form.Field key={name} name={name}>
               {field => (
@@ -348,52 +356,54 @@ export function EventRequestForm({
 
         <form.Field name="equipmentRequirements" mode="array">
           {field => (
-            <fieldset className="space-y-5 border-t border-border pt-6">
-              <legend className="font-medium">Equipment requirements (optional)</legend>
-              {field.state.value.map((equipment, index) => (
-                <div key={equipment.key} className="grid gap-4 sm:grid-cols-2">
-                  {(["type", "quantity"] as const).map(part => (
-                    <form.Field key={part} name={`equipmentRequirements[${index}].${part}`}>
-                      {partField => (
-                        <Field data-invalid={partField.state.meta.errors.length > 0}>
-                          <FieldLabel htmlFor={partField.name}>
-                            {part === "type" ? "Equipment type" : "Quantity"} {index + 1}
-                          </FieldLabel>
-                          <Input
-                            id={partField.name}
-                            {...(part === "quantity"
-                              ? { type: "number", min: "1", step: "1" }
-                              : {})}
-                            value={partField.state.value}
-                            onBlur={partField.handleBlur}
-                            onChange={event => partField.handleChange(event.target.value)}
-                            aria-invalid={partField.state.meta.errors.length > 0}
-                          />
-                          <FieldError errors={partField.state.meta.errors} />
-                        </Field>
-                      )}
-                    </form.Field>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="justify-self-start"
-                    onClick={() => field.removeValue(index)}
-                  >
-                    Remove equipment {index + 1}
-                  </Button>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  field.pushValue({ key: crypto.randomUUID(), type: "", quantity: "" })
-                }
-              >
-                Add equipment
-              </Button>
-            </fieldset>
+            <div className="border-t border-border pt-6">
+              <FieldSet>
+                <FieldLegend>Equipment requirements (optional)</FieldLegend>
+                {field.state.value.map((equipment, index) => (
+                  <div key={equipment.key} className="grid gap-4 sm:grid-cols-2">
+                    {(["type", "quantity"] as const).map(part => (
+                      <form.Field key={part} name={`equipmentRequirements[${index}].${part}`}>
+                        {partField => (
+                          <Field data-invalid={partField.state.meta.errors.length > 0}>
+                            <FieldLabel htmlFor={partField.name}>
+                              {part === "type" ? "Equipment type" : "Quantity"} {index + 1}
+                            </FieldLabel>
+                            <Input
+                              id={partField.name}
+                              {...(part === "quantity"
+                                ? { type: "number", min: "1", step: "1" }
+                                : {})}
+                              value={partField.state.value}
+                              onBlur={partField.handleBlur}
+                              onChange={event => partField.handleChange(event.target.value)}
+                              aria-invalid={partField.state.meta.errors.length > 0}
+                            />
+                            <FieldError errors={partField.state.meta.errors} />
+                          </Field>
+                        )}
+                      </form.Field>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="justify-self-start"
+                      onClick={() => field.removeValue(index)}
+                    >
+                      Remove equipment {index + 1}
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    field.pushValue({ key: crypto.randomUUID(), type: "", quantity: "" })
+                  }
+                >
+                  Add equipment
+                </Button>
+              </FieldSet>
+            </div>
           )}
         </form.Field>
 

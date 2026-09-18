@@ -1,11 +1,23 @@
-import { useState } from "react";
 import { Trash2, Link } from "lucide-react";
 import { toast } from "sonner";
 
+import { Page, PageHeader } from "#/components/layout/page";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "#/components/ui/alert-dialog";
+import { Button } from "#/components/ui/button";
+import { Card, CardContent } from "#/components/ui/card";
 import type { SessionUser } from "#/features/auth/session";
 import { useMutation } from "#/hooks/use-mutation";
 import { authClient } from "#/lib/auth-client";
-import { Button } from "#/components/ui/button";
 
 const PROVIDER_LABELS: Record<string, string> = {
   credential: "Password",
@@ -31,8 +43,6 @@ export function SettingsPage({
   user: SessionUser;
   accounts: { id: string; providerId: string }[];
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
   // PTR-71: deleting an account used to run as a bare `void handleDeleteAccount()` — nothing
   // tracked it, so both buttons stayed live and a second click could fire a second delete. The
   // action owns the in-flight flag, and the redirect on success stays inside it.
@@ -53,17 +63,10 @@ export function SettingsPage({
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-16">
-      <div>
-        <p className="font-mono text-xs tracking-[0.2em] text-muted-foreground uppercase">
-          Settings
-        </p>
-        <h1 className="font-heading mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-          Account
-        </h1>
-      </div>
+    <Page width="page">
+      <PageHeader eyebrow="Settings" title="Account" />
 
-      <div className="mt-12 space-y-10">
+      <div className="mt-8 space-y-6">
         {/* Identity */}
         <SettingsSection title="Profile">
           <Row label="Email" value={user.email} />
@@ -74,13 +77,13 @@ export function SettingsPage({
         {/* Linked providers */}
         <SettingsSection title="Linked providers">
           {accounts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No external providers linked.</p>
+            <p className="body-sm text-muted-foreground">No external providers linked.</p>
           ) : (
             <ul className="space-y-2">
               {accounts.map(acct => (
                 <li key={acct.id} className="flex items-center gap-2">
                   <Link className="size-4 text-muted-foreground" />
-                  <span className="text-sm">{getProviderLabel(acct.providerId)}</span>
+                  <span className="body-sm">{getProviderLabel(acct.providerId)}</span>
                 </li>
               ))}
             </ul>
@@ -89,62 +92,56 @@ export function SettingsPage({
 
         {/* Danger zone */}
         <SettingsSection title="Danger zone">
-          {confirmDelete ? (
-            <div className="space-y-3">
-              <p className="text-sm text-destructive">
-                This permanently deletes your account and all data. This cannot be undone.
-              </p>
-              <div className="flex gap-2">
-                <Button
+          <AlertDialog>
+            <AlertDialogTrigger render={<Button variant="destructive" size="sm" />}>
+              <Trash2 className="size-4" />
+              Delete account
+            </AlertDialogTrigger>
+            <AlertDialogContent size="sm">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete account</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This permanently deletes your account and all data. This cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                {/* Backing out mid-delete would only hide a deletion that is still running. */}
+                <AlertDialogCancel size="sm" disabled={deleting}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
                   variant="destructive"
                   size="sm"
                   disabled={deleting}
                   onClick={() => void handleDeleteAccount()}
                 >
                   {deleting ? "Deleting…" : "Yes, delete my account"}
-                </Button>
-                {/* Backing out mid-delete would only hide a deletion that is still running. */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={deleting}
-                  onClick={() => setConfirmDelete(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={() => setConfirmDelete(true)}
-            >
-              <Trash2 className="size-4" />
-              Delete account
-            </Button>
-          )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </SettingsSection>
       </div>
-    </main>
+    </Page>
   );
 }
 
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-t border-border pt-6">
-      <h2 className="font-mono text-xs tracking-widest text-muted-foreground uppercase">{title}</h2>
-      <div className="mt-4 space-y-4">{children}</div>
-    </section>
+    <Card>
+      <CardContent>
+        <h2 className="display-h3">{title}</h2>
+        <div className="mt-4 space-y-4">{children}</div>
+      </CardContent>
+    </Card>
   );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4 py-1">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="truncate text-sm font-medium">{value}</span>
+      <span className="body-sm text-muted-foreground">{label}</span>
+      <span className="truncate body-sm font-medium">{value}</span>
     </div>
   );
 }

@@ -26,9 +26,7 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
   className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
   if (!column.getCanSort()) {
-    return (
-      <div className={cn("text-xs font-medium text-muted-foreground", className)}>{title}</div>
-    );
+    return <div className={cn("eyebrow text-muted-foreground", className)}>{title}</div>;
   }
 
   const isSorted = column.getIsSorted();
@@ -38,14 +36,10 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="-ml-3 h-8 data-[state=open]:bg-accent text-xs font-medium"
-            />
+            <Button variant="ghost" size="sm" className="-ml-3 h-8 data-[state=open]:bg-accent" />
           }
         >
-          <span>{title}</span>
+          <span className="eyebrow">{title}</span>
           {isSorted === "desc" ? (
             <ArrowDown className="ml-2 size-3.5" />
           ) : isSorted === "asc" ? (

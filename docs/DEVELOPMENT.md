@@ -217,7 +217,7 @@ bun run playwright test tests/e2e/landing.test.ts
 
 ### Linting & Formatting
 
-- **[Oxlint](https://oxc.rs/docs/guide/usage/linter.html)**: Extremely fast linter. Checks are enforced with `--deny-warnings`.
+- **[Oxlint](https://oxc.rs/docs/guide/usage/linter.html)**: Extremely fast linter. Checks are enforced with `--deny-warnings`, and the `@shadcn/lint` plugin rejects raw colors, arbitrary values, inline styles, unknown classes and restyling of shared primitives; its errors point to [`DESIGN.md`](./DESIGN.md).
   ```bash
   bun run lint:check
   bun run lint:fix

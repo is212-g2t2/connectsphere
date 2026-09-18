@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
+import { Page, PageHeader } from "#/components/layout/page";
 import {
   Table,
   TableBody,
@@ -26,26 +27,25 @@ export function CoordinationPage({
   assigned: AssignedEventRequest[];
 }) {
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16">
+    <Page width="wide">
       <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
         Back to dashboard
       </Link>
 
-      <h1 className="font-heading mt-6 text-3xl font-semibold tracking-tight">Coordination</h1>
-      <p className="mt-3 max-w-xl text-muted-foreground">
-        Submitted requests are assigned to the least-loaded Coordinator as they arrive. Any that
-        could not be assigned wait here for someone to pick up.
-      </p>
+      <PageHeader
+        title="Coordination"
+        description="Submitted requests are assigned to the least-loaded Coordinator as they arrive. Any that could not be assigned wait here for someone to pick up."
+      />
 
-      <section className="mt-10" aria-labelledby="assigned-heading">
-        <h2 id="assigned-heading" className="text-lg font-semibold">
+      <section aria-labelledby="assigned-heading">
+        <h2 id="assigned-heading" className="display-h2">
           Assigned to you
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 body-sm text-muted-foreground">
           Open a request to view it or hand it over to another Coordinator.
         </p>
         {assigned.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">No requests are assigned to you.</p>
+          <p className="mt-4 body-sm text-muted-foreground">No requests are assigned to you.</p>
         ) : (
           <ul className="mt-4 divide-y divide-border">
             {assigned.map(request => (
@@ -57,7 +57,7 @@ export function CoordinationPage({
                 >
                   {request.eventName.trim() || UNTITLED_REQUEST}
                 </Link>
-                <p className="mt-1 text-sm text-muted-foreground">{request.organiser.name}</p>
+                <p className="mt-1 body-sm text-muted-foreground">{request.organiser.name}</p>
               </li>
             ))}
           </ul>
@@ -65,29 +65,29 @@ export function CoordinationPage({
       </section>
 
       <section className="mt-10" aria-labelledby="unassigned-heading">
-        <h2 id="unassigned-heading" className="text-lg font-semibold">
+        <h2 id="unassigned-heading" className="display-h2">
           Unassigned requests
         </h2>
 
         {unassigned.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">
+          <p className="mt-4 body-sm text-muted-foreground">
             Every submitted request has a Coordinator.
           </p>
         ) : (
           <div className="mt-4">
             <Table>
-              <TableHeader className="border-b border-border font-mono text-xs tracking-widest text-muted-foreground uppercase">
+              <TableHeader>
                 <TableRow>
-                  <TableHead className="py-3 pr-4 font-medium">Event</TableHead>
-                  <TableHead className="py-3 pr-4 font-medium">Organiser</TableHead>
-                  <TableHead className="py-3 pr-4 font-medium">Proposed date</TableHead>
-                  <TableHead className="py-3 font-medium">Submitted</TableHead>
+                  <TableHead>Event</TableHead>
+                  <TableHead>Organiser</TableHead>
+                  <TableHead>Proposed date</TableHead>
+                  <TableHead>Submitted</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {unassigned.map(request => (
-                  <TableRow key={request.id} className="border-b border-border">
-                    <TableCell className="py-3 pr-4 font-medium">
+                  <TableRow key={request.id}>
+                    <TableCell>
                       <Link
                         to="/coordination/$requestId"
                         params={{ requestId: String(request.id) }}
@@ -96,17 +96,15 @@ export function CoordinationPage({
                         {request.eventName.trim() || UNTITLED_REQUEST}
                       </Link>
                     </TableCell>
-                    <TableCell className="py-3 pr-4">
+                    <TableCell>
                       {request.organiser.name}
                       <br />
                       <a href={`mailto:${request.organiser.email}`} className={NAV_LINK_CLASSNAME}>
                         {request.organiser.email}
                       </a>
                     </TableCell>
-                    <TableCell className="py-3 pr-4">
-                      {formatFirstProposedDate(request.proposedDates)}
-                    </TableCell>
-                    <TableCell className="py-3">
+                    <TableCell>{formatFirstProposedDate(request.proposedDates)}</TableCell>
+                    <TableCell>
                       <time dateTime={request.submittedAt?.toISOString()}>
                         {formatInstant(request.submittedAt)}
                       </time>
@@ -118,6 +116,6 @@ export function CoordinationPage({
           </div>
         )}
       </section>
-    </main>
+    </Page>
   );
 }

@@ -203,7 +203,7 @@ export function VenueForm({
         void form.handleSubmit();
       }}
     >
-      <FieldGroup className="gap-5">
+      <FieldGroup>
         <form.Field name="name">{textField("Venue name")}</form.Field>
         <form.Field name="location">{textField("Location")}</form.Field>
         <form.Field name="maxCapacity">
@@ -238,9 +238,7 @@ export function VenueForm({
                         )
                       }
                     />
-                    <FieldLabel htmlFor={`layout-${layout}`} className="font-normal">
-                      {LAYOUT_LABELS[layout]}
-                    </FieldLabel>
+                    <FieldLabel htmlFor={`layout-${layout}`}>{LAYOUT_LABELS[layout]}</FieldLabel>
                   </Field>
                 ))}
               </div>
@@ -262,7 +260,7 @@ export function VenueForm({
             */}
             <div
               aria-hidden="true"
-              className="hidden gap-3 text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[9rem_1fr_1fr]"
+              className="hidden gap-3 eyebrow text-muted-foreground sm:grid sm:grid-cols-[9rem_1fr_1fr]"
             >
               <span>Day</span>
               <span>Opens</span>
@@ -278,9 +276,7 @@ export function VenueForm({
                         checked={openField.state.value}
                         onCheckedChange={checked => openField.handleChange(checked)}
                       />
-                      <FieldLabel htmlFor={`open-${day}`} className="font-normal">
-                        {WEEKDAY_LABELS[day]}
-                      </FieldLabel>
+                      <FieldLabel htmlFor={`open-${day}`}>{WEEKDAY_LABELS[day]}</FieldLabel>
                     </Field>
                     <form.Field name={`operatingHours.${day}.opens`}>
                       {field => (

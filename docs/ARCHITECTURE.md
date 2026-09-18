@@ -33,7 +33,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   └── DEVELOPMENT.md    # Setup, scripts, database, and testing
 ├── src/
 │   ├── components/
-│   │   ├── layout/       # Header and the HTML document shell
+│   │   ├── layout/       # Header, the shared page shell and the HTML document shell
 │   │   ├── pages/        # Error view and route boundaries
 │   │   ├── providers/    # Client providers (theme)
 │   │   └── ui/           # Reusable UI primitives (shadcn/ui)

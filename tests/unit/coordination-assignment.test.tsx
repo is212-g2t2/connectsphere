@@ -131,7 +131,8 @@ describe("Coordinator handover and pickup", () => {
     );
     expect(screen.queryByRole("button", { name: "Assign to me" })).toBeNull();
     expect(screen.queryByRole("option", { name: /Alex/ })).toBeNull();
-    await userEvent.selectOptions(screen.getByLabelText("Event Coordinator"), "coord-b");
+    await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    await userEvent.click(await screen.findByRole("option", { name: /Bailey/ }));
     await userEvent.click(screen.getByRole("button", { name: "Reassign Coordinator" }));
     await waitFor(() =>
       expect(assignEventRequest).toHaveBeenCalledWith({

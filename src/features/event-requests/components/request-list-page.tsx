@@ -1,8 +1,9 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { Page, PageHeader } from "#/components/layout/page";
 import { Badge } from "#/components/ui/badge";
-import { Button } from "#/components/ui/button";
+import { Button, buttonVariants } from "#/components/ui/button";
 import {
   Table,
   TableBody,
@@ -68,48 +69,43 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
     }
   }
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16">
+    <Page width="wide">
       <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
         Back to dashboard
       </Link>
 
-      <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-heading text-3xl font-semibold tracking-tight">Event requests</h1>
-          <p className="mt-3 max-w-xl text-muted-foreground">
-            Every request you have started, and where each one stands.
-          </p>
-        </div>
-        <Link
-          to="/event-requests/new"
-          className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          New request
-        </Link>
-      </div>
+      <PageHeader
+        title="Event requests"
+        description="Every request you have started, and where each one stands."
+        actions={
+          <Link to="/event-requests/new" className={buttonVariants()}>
+            New request
+          </Link>
+        }
+      />
       {deleteState.status === "error" && (
-        <p className="mt-4 text-sm text-destructive">{deleteState.error}</p>
+        <p className="mt-4 body-sm text-destructive">{deleteState.error}</p>
       )}
       {requests.length === 0 ? (
-        <p className="mt-10 text-sm text-muted-foreground">
+        <p className="mt-10 body-sm text-muted-foreground">
           No requests yet. Start one and save it as a draft whenever you like.
         </p>
       ) : (
         <div className="mt-10">
           <Table>
-            <TableHeader className="border-b border-border font-mono text-xs tracking-widest text-muted-foreground uppercase">
+            <TableHeader>
               <TableRow>
-                <TableHead className="py-3 pr-4 font-medium">Event</TableHead>
-                <TableHead className="py-3 pr-4 font-medium">Proposed date</TableHead>
-                <TableHead className="py-3 pr-4 font-medium">Status</TableHead>
-                <TableHead className="py-3 font-medium">Coordinator</TableHead>
-                <TableHead className="py-3 font-medium">Actions</TableHead>
+                <TableHead>Event</TableHead>
+                <TableHead>Proposed date</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Coordinator</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {requests.map(request => (
-                <TableRow key={request.id} className="border-b border-border">
-                  <TableCell className="py-3 pr-4">
+                <TableRow key={request.id}>
+                  <TableCell>
                     <Link
                       to="/event-requests/$requestId"
                       params={{ requestId: String(request.id) }}
@@ -118,23 +114,23 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                       {request.eventName.trim() || UNTITLED_REQUEST}
                     </Link>
                   </TableCell>
-                  <TableCell className="py-3 pr-4">
-                    {formatFirstProposedDate(request.proposedDates)}
-                  </TableCell>
-                  <TableCell className="py-3 pr-4">
+                  <TableCell>{formatFirstProposedDate(request.proposedDates)}</TableCell>
+                  <TableCell>
                     <EventRequestStatusBadge status={request.status} />
                   </TableCell>
                   {request.coordinator ? (
-                    <TableCell className="py-3">{request.coordinator.name}</TableCell>
+                    <TableCell>{request.coordinator.name}</TableCell>
                   ) : (
-                    <TableCell className="py-3 text-muted-foreground">
-                      {request.status === "draft" ? ASSIGNED_ON_SUBMIT : NOT_YET_ASSIGNED}
+                    <TableCell>
+                      <span className="text-muted-foreground">
+                        {request.status === "draft" ? ASSIGNED_ON_SUBMIT : NOT_YET_ASSIGNED}
+                      </span>
                     </TableCell>
                   )}
-                  <TableCell className="py-3">
+                  <TableCell>
                     {request.status === "draft" &&
                       (pendingDeleteId === request.id ? (
-                        <span className="flex items-center gap-2 text-sm">
+                        <span className="flex items-center gap-2 body-sm">
                           Delete this draft?
                           <Button
                             type="button"
@@ -181,6 +177,6 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
           </Table>
         </div>
       )}
-    </main>
+    </Page>
   );
 }

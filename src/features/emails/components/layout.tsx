@@ -1,6 +1,8 @@
 import * as React from "react";
 import { Body, Container, Head, Hr, Html, Preview, Section, Text } from "@react-email/components";
 
+import { emailCaption } from "./email-styles";
+
 interface LayoutProps {
   previewText?: string;
   children: React.ReactNode;
@@ -28,44 +30,47 @@ export const Layout = ({ previewText, children }: LayoutProps) => {
 };
 
 const main = {
-  backgroundColor: "#ffffff",
+  backgroundColor: "#f6f6f4",
   fontFamily:
     '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,"Helvetica Neue",sans-serif',
+  padding: "32px 16px",
 };
 
 const container = {
   margin: "0 auto",
-  padding: "20px 0 48px",
+  padding: "24px",
   maxWidth: "580px",
+  backgroundColor: "#ffffff",
+  border: "1px solid rgba(21, 21, 21, 0.08)",
+  borderRadius: "16px",
 };
 
 const header = {
-  padding: "32px 0",
+  padding: "0 0 24px",
 };
 
 const logo = {
   fontSize: "24px",
-  fontWeight: "700",
-  letterSpacing: "-0.02em",
-  color: "#000000",
+  fontWeight: "600",
+  letterSpacing: "-0.03em",
+  color: "#151515",
   margin: "0",
 };
 
 const content = {
-  padding: "0 0 32px",
+  padding: "0 0 24px",
 };
 
 const hr = {
-  borderColor: "#e5e7eb",
-  margin: "20px 0",
+  borderColor: "rgba(21, 21, 21, 0.08)",
+  margin: "0 0 24px",
 };
 
 const footer = {
-  padding: "0 0 32px",
+  padding: "0",
 };
 
 const footerText = {
-  color: "#6b7280",
-  fontSize: "12px",
-  lineHeight: "16px",
+  ...emailCaption,
+  margin: "0",
 };

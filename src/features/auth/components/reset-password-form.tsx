@@ -43,9 +43,9 @@ function RequestReset({ expired }: { expired: boolean }) {
 
   if (sent) {
     return (
-      <FieldGroup className="gap-5">
+      <FieldGroup>
         <div className="flex flex-col items-center gap-1.5 text-center">
-          <h1 className="font-heading text-2xl font-bold tracking-tight">Check your email</h1>
+          <h1 className="display-h1">Check your email</h1>
           <FieldDescription>
             If an account exists for that address, we sent a link to set a new password. It expires
             in 1 hour.
@@ -65,9 +65,9 @@ function RequestReset({ expired }: { expired: boolean }) {
         void form.handleSubmit();
       }}
     >
-      <FieldGroup className="gap-5">
+      <FieldGroup>
         <div className="flex flex-col items-center gap-1.5 text-center">
-          <h1 className="font-heading text-2xl font-bold tracking-tight">Reset your password</h1>
+          <h1 className="display-h1">Reset your password</h1>
           <FieldDescription>
             {expired
               ? "That reset link is invalid or has expired. Request a new one."
@@ -149,9 +149,9 @@ function SetNewPassword({ token }: { token: string }) {
         void form.handleSubmit();
       }}
     >
-      <FieldGroup className="gap-5">
+      <FieldGroup>
         <div className="flex flex-col items-center gap-1.5 text-center">
-          <h1 className="font-heading text-2xl font-bold tracking-tight">Set a new password</h1>
+          <h1 className="display-h1">Set a new password</h1>
           <FieldDescription>Choose a password you do not use anywhere else.</FieldDescription>
         </div>
 

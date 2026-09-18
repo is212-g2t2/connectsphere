@@ -141,6 +141,83 @@
   --radius-2xl: var(--rounded-lg);
 }
 
+/* The type roles in docs/DESIGN.md. They are `@utility` classes rather than `--text-*` theme tokens because `cn` merges an unknown `text-*` class as a text color, and would drop one of `eyebrow text-muted-foreground`. */
+@utility display-h1 {
+  font-size: 1.75rem;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+@utility display-h2 {
+  font-size: 1.75rem;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+@utility display-h3 {
+  font-size: 1.0625rem;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+@utility hero {
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+@utility body-md {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+@utility body-sm {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+@utility label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+@utility caption {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+@utility eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+@utility mono {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/* The elevation, layout and overlay scales in docs/DESIGN.md. */
+@theme {
+  /* The single card shadow: a barely-there lift over hairline borders. */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.03);
+
+  /* The one page column, 880px and 1120px. */
+  --container-page: 55rem;
+  --container-wide: 70rem;
+
+  /* The documented two-column breakpoint. */
+  --breakpoint-split: 860px;
+
+  /* Modal scrims: the one place a raw black fills a surface. */
+  --color-overlay: rgb(0 0 0 / 0.1);
+}
+
 html,
 body,
 #app {
@@ -153,7 +230,7 @@ body,
   }
 
   body {
-    @apply bg-background text-foreground selection:bg-foreground selection:text-background text-[0.9375rem] leading-[1.5] antialiased;
+    @apply bg-background text-foreground selection:bg-foreground selection:text-background body-md antialiased;
   }
 
   html {

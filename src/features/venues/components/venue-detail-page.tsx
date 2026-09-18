@@ -1,6 +1,7 @@
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import { Page, PageHeader } from "#/components/layout/page";
 import { can } from "#/features/auth/permissions";
 import { unwrapRefusal } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
@@ -47,54 +48,54 @@ export function VenueDetailPage({
   }, [justCreated, navigate, venue.id]);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
+    <Page width="page">
       <Link to="/venues" className={NAV_LINK_CLASSNAME}>
         Back to venues
       </Link>
 
-      <h1 className="font-heading mt-6 text-3xl font-semibold tracking-tight">{venue.name}</h1>
-      <p className="mt-3 max-w-xl text-muted-foreground">
-        {canUpdate
-          ? "Edit the record; Coordinators plan against whatever is saved here."
-          : "Recorded by Venue Staff. Ask them if something here is out of date."}
-      </p>
+      <PageHeader
+        title={venue.name}
+        description={
+          canUpdate
+            ? "Edit the record; Coordinators plan against whatever is saved here."
+            : "Recorded by Venue Staff. Ask them if something here is out of date."
+        }
+      />
 
       {saved && (
-        <output className="mt-6 block text-sm font-medium text-foreground">Venue saved.</output>
+        <output className="mb-6 block body-sm font-medium text-foreground">Venue saved.</output>
       )}
 
-      <div className="mt-10">
-        {canUpdate ? (
-          <VenueForm
-            // Remounting is what resets the inputs to the stored values (trimmed,
-            // de-duplicated) rather than what was typed, so the key is the row's identity:
-            // `updatedAt` is the part that changes on a save, and `venue.id` only guards a
-            // venue-to-venue navigation, which the route sets no `remountDeps` for and which
-            // nothing links to today. `initial` is loader-derived either way.
-            key={`${venue.id}-${venue.updatedAt.toString()}`}
-            initial={venue}
-            onSave={async values => {
-              // Dropped and re-raised around the save rather than just set: `<output>` is an
-              // implicit live region, and re-announcing a repeat save needs the node to go
-              // away and come back, not merely to hold the same words.
-              setSaved(false);
-              await unwrapRefusal(
-                await saveVenue({ data: { ...values, id: venue.id } }),
-                "Could not save this venue. Try again."
-              );
-              // The loader is the only source for the row. Invalidating re-runs it, which
-              // replaces `venue` with the saved values and bumps `updatedAt` (the column is
-              // `$onUpdate`), so the key above changes and the banner arrives together with
-              // the reloaded values. Keeping a local copy of the response instead would let
-              // component state and loader data drift apart.
-              await router.invalidate();
-              setSaved(true);
-            }}
-          />
-        ) : (
-          <VenueDetails venue={venue} />
-        )}
-      </div>
-    </main>
+      {canUpdate ? (
+        <VenueForm
+          // Remounting is what resets the inputs to the stored values (trimmed,
+          // de-duplicated) rather than what was typed, so the key is the row's identity:
+          // `updatedAt` is the part that changes on a save, and `venue.id` only guards a
+          // venue-to-venue navigation, which the route sets no `remountDeps` for and which
+          // nothing links to today. `initial` is loader-derived either way.
+          key={`${venue.id}-${venue.updatedAt.toString()}`}
+          initial={venue}
+          onSave={async values => {
+            // Dropped and re-raised around the save rather than just set: `<output>` is an
+            // implicit live region, and re-announcing a repeat save needs the node to go
+            // away and come back, not merely to hold the same words.
+            setSaved(false);
+            await unwrapRefusal(
+              await saveVenue({ data: { ...values, id: venue.id } }),
+              "Could not save this venue. Try again."
+            );
+            // The loader is the only source for the row. Invalidating re-runs it, which
+            // replaces `venue` with the saved values and bumps `updatedAt` (the column is
+            // `$onUpdate`), so the key above changes and the banner arrives together with
+            // the reloaded values. Keeping a local copy of the response instead would let
+            // component state and loader data drift apart.
+            await router.invalidate();
+            setSaved(true);
+          }}
+        />
+      ) : (
+        <VenueDetails venue={venue} />
+      )}
+    </Page>
   );
 }

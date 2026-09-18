@@ -92,7 +92,8 @@ test("hands over an event and transfers access", async ({ page, browser, baseURL
     await page.goto("/coordination");
     await page.getByRole("link", { name: eventName }).click();
     await page.waitForLoadState("networkidle");
-    await page.getByLabel("Event Coordinator", { exact: true }).selectOption(incoming.id);
+    await page.locator("#coordinatorId").click();
+    await page.getByRole("option", { name: incoming.name }).click();
     await page.getByRole("button", { name: "Reassign Coordinator" }).click();
     await expect(page).toHaveURL(/\/coordination\/?$/);
     await expect(page.getByRole("link", { name: eventName })).toHaveCount(0);
@@ -151,7 +152,8 @@ test("picks up unassigned events for yourself or a named Coordinator", async ({
       if (target.id === actor.id) {
         await page.getByRole("button", { name: "Assign to me" }).click();
       } else {
-        await page.getByLabel("Event Coordinator", { exact: true }).selectOption(target.id);
+        await page.locator("#coordinatorId").click();
+        await page.getByRole("option", { name: target.name }).click();
         await page.getByRole("button", { name: "Assign Coordinator", exact: true }).click();
       }
       await expect(page).toHaveURL(/\/coordination\/?$/);
