@@ -5,18 +5,13 @@ export default defineConfig({
   globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: "html",
+  reporter: [["html"], ["github"], ["json", { outputFile: "test-results/results.json" }]],
   use: {
     baseURL: "http://localhost:3000",
-    trace: "on-first-retry",
-  },
-  webServer: {
-    command: "bun run dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
   projects: [
     {
