@@ -32,3 +32,6 @@ infra/*.tfvars*
 infra/*.tfplan
 infra/crash.log
 infra/crash.*.log
+
+# Git worktrees for parallel sub-issue work
+.worktrees/
