@@ -85,7 +85,7 @@ The seed also creates three demo venues (Harbour Hall, Seminar Room 2A, Rooftop 
 | `DATABASE_URL`        | ✅       | PostgreSQL connection string                                                                                                                             |
 | `BETTER_AUTH_SECRET`  | ✅       | 32+ character secret for session signing                                                                                                                 |
 | `BETTER_AUTH_URL`     | ✅       | App origin (default: `http://localhost:3000`)                                                                                                            |
-| `SMOKE_TOKEN`         | Optional | Bearer token for `/api/smoke`; required in deployed environments, where `release.yml` reads it from Secret Manager. Unset answers 401                    |
+| `SMOKE_TOKEN`         | Optional | Bearer token for `/api/smoke`; required in deployed environments, where the deploy workflow reads it from Secret Manager. Unset answers 401              |
 | `SERVER_URL`          | Optional | Canonical public application URL                                                                                                                         |
 | `RESEND_API_KEY`      | Optional | Required to send email. App boots without it; email calls throw a clear error                                                                            |
 | `EMAIL_FROM`          | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                        |

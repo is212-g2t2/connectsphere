@@ -19,11 +19,11 @@ permissions:
   contents: read
   id-token: write
 
-# Deliberately the same group the release uses for that branch, so a rollback
-# cannot land in the middle of the release it is rolling back. A release paused
+# Deliberately the same group the deploy uses for that service, so a rollback
+# cannot land in the middle of the deploy it is rolling back. A deploy paused
 # on an environment approval holds the lock; cancel that run, do not wait.
 concurrency:
-  group: release-${{ inputs.service == 'connectsphere' && 'refs/heads/main' || 'refs/heads/staging' }}
+  group: ${{ inputs.service == 'connectsphere' && 'deploy-production' || 'deploy-staging' }}
   cancel-in-progress: false
 
 env:
