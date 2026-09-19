@@ -1,6 +1,6 @@
 # Deployment
 
-ConnectSphere runs on **Google Cloud Run** in two environments: production at `connectsphere.ciav.dev` from `main`, staging at `connectsphere-staging.ciav.dev` from `staging`, backed by Supabase Postgres, Cloudflare R2 storage and Cloudflare DNS/WAF. The reasoning behind the target is in [ADR-3](./adrs/ADR-3-cloud-run.md); the Terraform that builds it is in [`infra/`](../infra/), with the bootstrap order and the manual steps in [`infra/README.md`](../infra/README.md).
+ConnectSphere runs on **Google Cloud Run** in two environments: staging at `connectsphere-staging.ciav.dev` from `main`, production at `connectsphere.ciav.dev` from a published release, backed by Supabase Postgres, Cloudflare R2 storage and Cloudflare DNS/WAF. The reasoning behind the target is in [ADR-3](./adrs/ADR-3-cloud-run.md); the Terraform that builds it is in [`infra/`](../infra/), with the bootstrap order and the manual steps in [`infra/README.md`](../infra/README.md).
 
 This document covers the deployed topology, the release pipeline, configuration and rollback. The [local Docker workflow](#what-runs-where) follows at the end and remains the only way to run the whole stack on a laptop.
 
@@ -32,25 +32,29 @@ Both services scale to zero, so the first request after idle pays the cold start
 
 ## Releases
 
-A merge to `staging` or `main` runs the same workflow, [`release.yml`](../.github/workflows/release.yml), and `staging` → `main` must be fast-forward. Feature branches open pull requests against `staging`; see [CONTRIBUTING.md](./CONTRIBUTING.md) for the branch contract.
+`main` is the only long-lived branch. A push to `main` runs [`deploy-staging.yml`](../.github/workflows/deploy-staging.yml), which builds the image and deploys `connectsphere-staging`. Production deploys from a GitHub Release: [`deploy-production.yml`](../.github/workflows/deploy-production.yml) reacts to a published release and runs the same pipeline against `connectsphere`.
 
-| Merge to  | Deploys    | GitHub Environment | Service                 |
-| --------- | ---------- | ------------------ | ----------------------- |
-| `staging` | staging    | `staging`          | `connectsphere-staging` |
-| `main`    | production | `production`       | `connectsphere`         |
+| Event             | Deploys    | GitHub Environment | Service                 |
+| ----------------- | ---------- | ------------------ | ----------------------- |
+| push to `main`    | staging    | `staging`          | `connectsphere-staging` |
+| release published | production | `production`       | `connectsphere`         |
 
-A docs-only change (`**.md`, `docs/**`) does not trigger a release. If the `production` environment has required reviewers, a `main` release pauses after `deploy-stage` and before `migrate`: approving it releases the migration against the production database.
+[`release-please.yml`](../.github/workflows/release-please.yml) runs on every push to `main` and maintains a release PR against `main` from the Conventional Commits. Merging that PR is the release act: it bumps `package.json` and `.release-please-manifest.json`, tags the merge commit and publishes the GitHub Release. Release notes come from the commits; [`docs/CHANGELOG.md`](./CHANGELOG.md) stays hand-curated (`skip-changelog` in [`release-please-config.json`](../release-please-config.json)).
 
-The pipeline starts only after the five check workflows pass (code quality, unit, integration, E2E, security). Then:
+The production pipeline deploys the digest the staging deploy of that commit builds, waiting up to 30 minutes for it; it neither rebuilds nor repeats the checks. If staging never publishes the image, the production run fails after the wait — re-run the staging deploy for that commit, then this one; a staging failure after publish does not stop production, whose own stage, migrate and smoke steps gate the revision. [ADR-4](./adrs/ADR-4-trunk-based-main.md) records why.
 
-| Stage          | What it does                                                                                                                                                                                        |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `publish`      | Pushes `ghcr.io/is212-g2t2/connectsphere:sha-<short>`. If that tag already exists (the fast-forward case), it is reused instead of rebuilt, and either way the resolved **digest** is what deploys. |
-| `deploy-stage` | Authenticates with Workload Identity Federation, records the currently serving revision, deploys the image at **0% traffic** with the `staged` tag.                                                 |
-| `migrate`      | `bunx drizzle-kit migrate` against the environment's session-pooler URL, from the exact commit (`actions/checkout` pinned to `github.sha`).                                                         |
-| `smoke`        | Reads `<env>-SMOKE_TOKEN`, calls `/api/health` and then `/api/smoke` on the staged tag URL, and fails unless the revision in the response is the revision just staged.                              |
-| `promote`      | Moves 100% of traffic to the staged revision and records the image digest, active revision and previous revision in the run summary.                                                                |
-| `cleanup`      | On any failure after staging, removes the `staged` tag. Removing a tag never moves traffic, so this is safe even after a partial promote.                                                           |
+A docs-only change (`**.md`, `docs/**`) does not trigger a staging deploy. If the `production` environment has required reviewers, a release pauses after `deploy-stage` and before `migrate`: approving it releases the migration against the production database.
+
+The staging workflow starts the deploy pipeline only after the five check workflows pass (code quality, unit, integration, E2E, security); a release does not repeat them. Both call [`deploy.yml`](../.github/workflows/deploy.yml), which then:
+
+| Stage          | What it does                                                                                                                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `publish`      | Resolves `ghcr.io/is212-g2t2/connectsphere:sha-<commit>`. A staging deploy builds and pushes it when missing; a release waits for the staging build of the tagged commit and deploys that **digest**. |
+| `deploy-stage` | Authenticates with Workload Identity Federation, records the currently serving revision, deploys the image at **0% traffic** with the `staged` tag.                                                   |
+| `migrate`      | `bunx drizzle-kit migrate` against the environment's session-pooler URL, from the exact commit (`actions/checkout` pinned to `github.sha`).                                                           |
+| `smoke`        | Reads `<env>-SMOKE_TOKEN`, calls `/api/health` and then `/api/smoke` on the staged tag URL, and fails unless the revision in the response is the revision just staged.                                |
+| `promote`      | Moves 100% of traffic to the staged revision and records the image digest, active revision and previous revision in the run summary.                                                                  |
+| `cleanup`      | On any failure after staging, removes the `staged` tag. Removing a tag never moves traffic, so this is safe even after a partial promote.                                                             |
 
 A failure after `migrate` leaves the migration applied; `cleanup` only drops the tag, and traffic may already have moved if `promote` failed late. Recovery is fix-forward or a code rollback, never unpicking SQL.
 
@@ -80,14 +84,17 @@ Cloud Run resolves `latest` when an instance starts, so a rotated value reaches 
 
 The GitHub side:
 
-| Name                                                       | Kind                                         | Holds                                                                      |
-| ---------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------- |
-| `GCP_WIF_PROVIDER`                                         | repo secret                                  | Workload Identity provider resource name (`terraform output wif_provider`) |
-| `GCP_SA`                                                   | repo secret                                  | Deploy service account email (`terraform output deploy_sa`)                |
-| `SENTRY_AUTH_TOKEN`                                        | repo secret                                  | Source-map upload; passed to the build as a BuildKit secret                |
-| `VITE_SENTRY_DSN`                                          | repo secret                                  | Build arg                                                                  |
-| `VITE_SENTRY_ORG`, `VITE_SENTRY_PROJECT`, `VITE_APP_TITLE` | repo variables                               | Build args                                                                 |
-| `DATABASE_URL_SESSION`                                     | environment secret (`staging`, `production`) | Session pooler (`:5432`) URL, used only by `migrate`                       |
+| Name                                                       | Kind                                         | Holds                                                                                                                                                                                               |
+| ---------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GCP_WIF_PROVIDER`                                         | repo secret                                  | Workload Identity provider resource name (`terraform output wif_provider`)                                                                                                                          |
+| `GCP_SA`                                                   | repo secret                                  | Deploy service account email (`terraform output deploy_sa`)                                                                                                                                         |
+| `RELEASE_PLEASE_TOKEN`                                     | repo secret                                  | Fine-grained PAT that opens the release PR (Contents, Pull requests and Issues: read and write). The default token cannot open PRs here, and a PR it opened would not run CI. Rotate before expiry. |
+| `SENTRY_AUTH_TOKEN`                                        | repo secret                                  | Source-map upload; passed to the build as a BuildKit secret                                                                                                                                         |
+| `VITE_SENTRY_DSN`                                          | repo secret                                  | Build arg                                                                                                                                                                                           |
+| `VITE_SENTRY_ORG`, `VITE_SENTRY_PROJECT`, `VITE_APP_TITLE` | repo variables                               | Build args                                                                                                                                                                                          |
+| `DATABASE_URL_SESSION`                                     | environment secret (`staging`, `production`) | Session pooler (`:5432`) URL, used only by `migrate`                                                                                                                                                |
+
+The WIF binding in [`infra/iam.tf`](../infra/iam.tf) admits only the `main` branch and tag refs, so a pull-request workflow cannot assume the deploy identity. Terraform owns it; apply `infra/` after changing it.
 
 ### Plaintext environment
 
@@ -103,7 +110,7 @@ The GitHub side:
 
 ### Deployed migrations
 
-`migrate` runs after the new revision is staged at 0% traffic and before promotion, so the previously serving revision handles live traffic against the migrated database during that window. **Migrations must be additive-only.** Never drop or rename a column, and never add a constraint the old revision's writes can violate, in the same release that stops using it. Expand in one release, contract in the next. Nothing enforces this mechanically; it is a review rule, and it is what makes the promote and rollback paths safe.
+`migrate` runs after the new revision is staged at 0% traffic and before promotion, so the previously serving revision handles live traffic against the migrated database during that window. **Migrations must be additive-only.** Never drop or rename a column, and never add a constraint the old revision's writes can violate, in the same release that stops using it. Expand in one release, contract in the next. Staging migrates on every push to `main` while production migrates per release, so staging can be several migrations ahead; the rule spans that gap. Nothing enforces this mechanically; it is a review rule, and it is what makes the promote and rollback paths safe.
 
 ## Rollback and incidents
 
@@ -116,7 +123,7 @@ Rollback never rebuilds an artifact and never touches the database: it moves tra
      --region=asia-southeast1 --project=connectsphere-is212
    ```
 
-2. Run **Rollback Cloud Run traffic** ([`rollback.yml`](../.github/workflows/rollback.yml)) from the Actions tab, choosing the service and the retained revision. For the production service the run executes in the `production` GitHub Environment, so a required-reviewer rule there applies before traffic moves. Rollback shares the release's concurrency group: if a release for that branch is running or waiting on an approval, cancel it first; it holds the lock and the rollback would wait behind it.
+2. Run **Rollback Cloud Run traffic** ([`rollback.yml`](../.github/workflows/rollback.yml)) from the Actions tab, choosing the service and the retained revision. For the production service the run executes in the `production` GitHub Environment, so a required-reviewer rule there applies before traffic moves. Rollback shares the deploy's concurrency group (`deploy-staging` or `deploy-production`): if that deploy is running or waiting on an approval, cancel it first; it holds the lock and the rollback would wait behind it.
 
 3. Verify before standing down:
 
