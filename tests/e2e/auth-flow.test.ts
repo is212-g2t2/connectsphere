@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { waitForHydration } from "./hydration";
+
 test.describe("Auth Lifecycle Loop", () => {
   test("completes signup, sign-out, login, and sign-out loop", async ({ page }) => {
     const uniqueId = Date.now();
@@ -13,7 +15,7 @@ test.describe("Auth Lifecycle Loop", () => {
 
     // 1. Sign up
     await page.goto("/signup");
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "Create an account" })).toBeVisible({
       timeout: 10_000,
     });
@@ -36,7 +38,7 @@ test.describe("Auth Lifecycle Loop", () => {
 
     // 3. Sign in via /login
     await page.goto("/login");
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible({
       timeout: 10_000,
     });
@@ -48,7 +50,6 @@ test.describe("Auth Lifecycle Loop", () => {
     await page.waitForURL("/dashboard", { timeout: 10_000 });
 
     // 4. Verify landing on /dashboard
-    await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible({
       timeout: 10_000,
     });
@@ -62,6 +63,30 @@ test.describe("Auth Lifecycle Loop", () => {
     await page.goBack();
     await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });
     await expect(page.getByRole("heading", { name: /welcome,/i })).toHaveCount(0);
+  });
+
+  test("rejects a wrong password with an inline error and stays on the form", async ({ page }) => {
+    const email = `e2e-wrong-password-${Date.now()}@example.com`;
+    const response = await page.request.post("/api/auth/sign-up/email", {
+      headers: { Origin: "http://localhost:3000" },
+      data: { name: "Wrong Password", email, password: "Password123!" },
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+
+    // Sign-up leaves a session, and /login turns a signed-in visitor away; clear it first.
+    const signOut = await page.request.post("/api/auth/sign-out", {
+      headers: { Origin: "http://localhost:3000" },
+    });
+    expect(signOut.ok(), await signOut.text()).toBe(true);
+
+    await page.goto("/login");
+    await waitForHydration(page);
+    await page.locator("#email").fill(email);
+    await page.locator("#password").fill("DefinitelyWrong456!");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+
+    await expect(page.getByText("Invalid email or password.")).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(/\/login/);
   });
 
   /**

@@ -3,12 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LoginForm } from "#/features/auth/components/login-form";
 
+const mockNavigate = vi.fn<() => void>();
+
 // Mock TanStack Router hooks and components
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
-  useNavigate: () => vi.fn<() => void>(),
+  useNavigate: () => mockNavigate,
 }));
 
 // Mock better-auth client
@@ -63,6 +65,7 @@ describe("LoginForm component", () => {
         email: "test@example.com",
         password: "correct-horse",
       });
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/dashboard" });
     });
   });
 
@@ -84,11 +87,11 @@ describe("LoginForm component", () => {
       expect(screen.getByText("Invalid email or password.")).toBeTruthy();
     });
     expect(screen.queryByText("User not found")).toBeNull();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it("clears the refusal on the next attempt with nothing resetting it by hand", async () => {
     const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.signIn.email).mockClear();
     vi.mocked(authClient.signIn.email).mockResolvedValueOnce({
       data: null,
       error: { message: "User not found", status: 401 } as never,

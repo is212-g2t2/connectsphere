@@ -1,4 +1,5 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { S3Client } from "bun";
 
 import {
   validateUploadRequest,
@@ -75,18 +76,32 @@ describe("safeExtension", () => {
 });
 
 describe("client.presign", () => {
-  test("generates presigned PUT url for key and contentType", () => {
+  test("builds the URL from the endpoint and bucket passed to createStorageClient", () => {
     const client = createStorageClient("http://localhost:9000", "admin", "password", "test-bucket");
     expect(client).not.toBeNull();
     if (!client) throw new Error("Client was null");
     const url = client.presign("test.png", { method: "PUT", type: "image/png" });
-    expect(url).toContain("test.png");
+    // The key is echoed straight through, so asserting on it proves nothing about this module.
+    // The endpoint and bucket are what `createStorageClient` wires into the client, so pin those.
+    expect(url).toContain("http://localhost:9000/test-bucket/test.png");
   });
 });
 
 describe("getStorageClient", () => {
-  test("returns client singleton or null based on env", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test("caches one client per configuration and constructs it from the endpoint and bucket", () => {
+    vi.stubEnv("MINIO_ENDPOINT", "http://storage.test:9000");
+    vi.stubEnv("MINIO_ACCESS_KEY", "access");
+    vi.stubEnv("MINIO_SECRET_KEY", "secret");
+    vi.stubEnv("MINIO_BUCKET", "uploads");
+
     const client = getStorageClient();
-    expect(client === null || typeof client === "object").toBe(true);
+
+    expect(client).toBeInstanceOf(S3Client);
+    expect(client).toMatchObject({ endpoint: "http://storage.test:9000", bucket: "uploads" });
+    expect(getStorageClient()).toBe(client);
   });
 });

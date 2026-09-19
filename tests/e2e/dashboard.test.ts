@@ -1,5 +1,32 @@
+// oxlint-disable node/no-process-env
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { AwsClient } from "aws4fetch";
+
+import { waitForHydration } from "./hydration";
+
+const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT ?? "http://localhost:9000";
+const MINIO_BUCKET = process.env.MINIO_BUCKET ?? "app";
+
+/**
+ * Signs a request against MinIO directly. The app signs with Bun's S3 client, but CI runs these
+ * tests on Node, where that client does not exist, so the assertion carries its own signer.
+ */
+const minio = new AwsClient({
+  accessKeyId: process.env.MINIO_ACCESS_KEY ?? "admin",
+  secretAccessKey: process.env.MINIO_SECRET_KEY ?? "password",
+  service: "s3",
+  region: "us-east-1",
+});
+
+async function signedObjectUrl(key: string, method: "GET" | "DELETE"): Promise<string> {
+  return (
+    await minio.sign(new URL(`/${MINIO_BUCKET}/${key}`, MINIO_ENDPOINT).toString(), {
+      method,
+      aws: { signQuery: true },
+    })
+  ).url;
+}
 
 test.describe("Protected routes (Signed Out)", () => {
   test("redirects unauthenticated user to login", async ({ page }) => {
@@ -31,7 +58,7 @@ test.describe("Role-gated interface", () => {
     const email = `e2e-${role.replace(/\s/g, "-").toLowerCase()}-${Date.now()}@example.com`;
 
     await page.goto("/signup");
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
     await page.locator("#name").fill(`E2E ${role}`);
     await page.locator("#email").fill(email);
     await page.locator("#password").fill(password);
@@ -50,7 +77,6 @@ test.describe("Role-gated interface", () => {
 
     // Sign-up signs the user straight in, so the dashboard is reachable without a sign-in step.
     await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible({ timeout: 10_000 });
   }
 
@@ -70,6 +96,49 @@ test.describe("Role-gated interface", () => {
 
     await expect(page.getByRole("heading", { name: "File upload" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Choose file" })).toBeVisible();
+  });
+
+  /**
+   * PTR-71's two-stage flow, exercised against the real bucket: ask the route for a presigned
+   * URL, PUT the bytes to it, then read the object back through a presigned GET. The visibility
+   * tests above only prove the control renders; this is what proves storage works.
+   */
+  test("uploads through the presigned PUT and reads the stored object back", async ({ page }) => {
+    const email = `e2e-upload-${Date.now()}@example.com`;
+    const signUp = await page.request.post("/api/auth/sign-up/email", {
+      headers: { Origin: "http://localhost:3000" },
+      data: { name: "Upload Organiser", email, password, role: "event_organiser" },
+    });
+    expect(signUp.ok(), await signUp.text()).toBe(true);
+
+    let key: string | undefined;
+
+    try {
+      await page.goto("/dashboard");
+      await expect(page.getByRole("heading", { name: "File upload" })).toBeVisible();
+
+      const content = "connectsphere e2e upload";
+      const presign = await page.request.post("/api/upload-url", {
+        data: { filename: "e2e-upload.txt", contentType: "text/plain", size: content.length },
+      });
+      expect(presign.ok(), await presign.text()).toBe(true);
+      const { url, key: uploadedKey } = (await presign.json()) as { url: string; key: string };
+      key = uploadedKey;
+
+      const put = await page.request.put(url, {
+        headers: { "Content-Type": "text/plain" },
+        data: content,
+      });
+      expect(put.ok(), await put.text()).toBe(true);
+
+      const stored = await page.request.get(await signedObjectUrl(key, "GET"));
+      expect(stored.ok(), await stored.text()).toBe(true);
+      expect(await stored.text()).toBe(content);
+    } finally {
+      if (key) {
+        await page.request.fetch(await signedObjectUrl(key, "DELETE"), { method: "DELETE" });
+      }
+    }
   });
 
   /**

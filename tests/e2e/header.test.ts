@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { waitForHydration } from "./hydration";
+
 const password = "HeaderSession123!";
 
 async function signUp(page: Page): Promise<void> {
@@ -57,7 +59,7 @@ test.describe("Header session", () => {
     });
 
     await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
+    await waitForHydration(page);
 
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
     expect(mismatches).toEqual([]);

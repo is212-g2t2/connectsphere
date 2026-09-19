@@ -8,7 +8,7 @@ import { seed } from "../../scripts/seed";
 let container: StartedPostgreSqlContainer | undefined;
 
 /**
- * Spins up a postgres:18-alpine testcontainer, pushes the database schema, and seeds test data.
+ * Spins up a postgres:18-alpine testcontainer, applies the committed migrations, and seeds test data.
  */
 export async function setup(): Promise<void> {
   if (container) {
@@ -21,7 +21,7 @@ export async function setup(): Promise<void> {
   process.env.DATABASE_URL = connectionUri;
 
   const drizzleBin = path.resolve(process.cwd(), "node_modules/drizzle-kit/bin.cjs");
-  execFileSync(process.execPath, [drizzleBin, "push", "--force"], {
+  execFileSync(process.execPath, [drizzleBin, "migrate"], {
     env: {
       ...process.env,
       DATABASE_URL: connectionUri,

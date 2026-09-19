@@ -29,4 +29,17 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-bun
       - name: Run integration tests
+        # tests/integration/integration-setup.ts supplies DATABASE_URL; the Testcontainers
+        # global setup applies the committed migrations via drizzle.config.ts, which imports
+        # src/env.ts and needs a 32+ char BETTER_AUTH_SECRET. Set explicitly rather than
+        # letting a copied .env.example placeholder mask a real omission.
+        env:
+          BETTER_AUTH_SECRET: "12345678901234567890123456789012"
         run: bun run test:integration
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: integration-test-results
+          path: coverage/
+          retention-days: 3

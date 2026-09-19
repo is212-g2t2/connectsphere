@@ -30,3 +30,10 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - name: Run unit tests
         run: bun run test:unit
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: unit-test-results
+          path: coverage/
+          retention-days: 3

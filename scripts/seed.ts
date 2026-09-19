@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env, no-console
 import { hashPassword } from "better-auth/crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -174,6 +174,13 @@ export const DEMO_EVENT_NAME = "ConnectSphere Demo Summit";
 const DEMO_EVENT_ORGANISER_ID = "test-user-2";
 const DEMO_EVENT_COORDINATOR_ID = "seed-coordinator-1";
 
+/**
+ * A fixed key every seed takes before it looks up the demo request. The lookup-then-insert guard
+ * alone is unsafe: a zero-row `select ... for update` takes no lock, so two concurrent seeds both
+ * see nothing and both insert. The advisory lock serialises them instead.
+ */
+const DEMO_EVENT_SEED_LOCK_KEY = 970_097;
+
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 /**
@@ -236,11 +243,12 @@ export async function runSeed(database: Database): Promise<void> {
   if (missingPeriods.length > 0) {
     await database.insert(schema.venueUnavailability).values(missingPeriods).onConflictDoNothing();
   }
-  // One transaction with the request row locked. Integration suites share this database and
-  // delete event requests, so a lookup followed by separate inserts could have its parent row
-  // deleted between the two statements; the lock makes such a delete wait until the children
-  // are written, and an inserted row is invisible to a concurrent delete until commit.
+  // One transaction with an advisory lock held for its duration: two concurrent seeds serialise
+  // here instead of racing the lookup. The request row is also locked when it exists, so a
+  // concurrent delete waits until the children are written.
   await database.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${DEMO_EVENT_SEED_LOCK_KEY})`);
+
     const existingDemoRequests = await tx
       .select({ id: schema.eventRequests.id })
       .from(schema.eventRequests)

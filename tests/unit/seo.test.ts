@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   getBaseUrl,
   createSeoHead,
@@ -19,9 +19,30 @@ describe("SEO utilities", () => {
       expect(url).toBe("https://example.com");
     });
 
-    it("falls back to localhost:3000 if not provided", () => {
-      const url = getBaseUrl(undefined);
-      expect(url).toBe("http://localhost:3000");
+    it("uses the window origin when no explicit URL is given", () => {
+      // A distinctive non-default origin, so the assertion cannot pass via the localhost fallback
+      // if the window branch is deleted.
+      vi.stubGlobal("window", { location: { origin: "https://window-origin.example.com/" } });
+      try {
+        expect(getBaseUrl(undefined)).toBe("https://window-origin.example.com");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("falls back to env.SERVER_URL when the window has no origin", async () => {
+      // Stub `#/env` and re-import so the env branch runs with a value that differs from the
+      // window origin. Without both, the assertion would hold for the wrong reason.
+      vi.resetModules();
+      vi.doMock("#/env", () => ({ env: { SERVER_URL: "https://env-fallback.example.com" } }));
+      vi.stubGlobal("window", { location: { origin: "" } });
+      try {
+        const { getBaseUrl: getBaseUrlWithStubbedEnv } = await import("#/lib/seo");
+        expect(getBaseUrlWithStubbedEnv(undefined)).toBe("https://env-fallback.example.com");
+      } finally {
+        vi.doUnmock("#/env");
+        vi.unstubAllGlobals();
+      }
     });
   });
 

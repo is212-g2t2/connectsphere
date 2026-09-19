@@ -37,7 +37,7 @@ New features need at least one unit test covering the core behaviour. New routes
 
 ## Database changes
 
-Schema changes (`src/db/schema.ts`, `src/db/auth-schema.ts`) ship in the same commit as their generated migration in `src/db/drizzle/`, and the migration must apply cleanly against your local database. Never handwrite migrations. Full workflow: [Database Management in DEVELOPMENT.md](./DEVELOPMENT.md#database-management--migrations).
+Schema changes (`src/db/schema.ts`, `src/db/auth-schema.ts`) ship in the same commit as their generated migration in `src/db/drizzle/`, and the migration must apply cleanly against your local database. Never handwrite migrations. A code-quality job regenerates migrations and fails if `src/db/drizzle/` differs, and runs `drizzle-kit check` for conflicting or broken migration files, so regenerate after the last schema edit. Full workflow: [Database Management in DEVELOPMENT.md](./DEVELOPMENT.md#database-management--migrations).
 
 ## Adding dependencies
 

@@ -30,25 +30,21 @@ jobs:
     uses: ./.github/workflows/code-quality.yml
     permissions:
       contents: read
-    secrets: inherit
 
   unit-tests:
     uses: ./.github/workflows/unit-tests.yml
     permissions:
       contents: read
-    secrets: inherit
 
   integration-tests:
     uses: ./.github/workflows/integration-tests.yml
     permissions:
       contents: read
-    secrets: inherit
 
   e2e-tests:
     uses: ./.github/workflows/e2e-tests.yml
     permissions:
       contents: read
-    secrets: inherit
 
   # CodeQL declares `actions: read` + `security-events: write`, and a called
   # workflow can only downgrade the caller's token. Without these the analysis
@@ -59,6 +55,8 @@ jobs:
       contents: read
       actions: read
       security-events: write
+    # The security workflow reads GITLEAKS_LICENSE without declaring it under
+    # `on.workflow_call.secrets`, so it needs the caller's secrets to reach it.
     secrets: inherit
 
   publish:
@@ -196,6 +194,10 @@ jobs:
       - name: Apply committed migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_SESSION }}
+          # drizzle.config.ts imports src/env.ts, which requires a 32+ char
+          # secret at import time. Migrations never read it, so this job sets a
+          # literal rather than relying on a copied .env.example placeholder.
+          BETTER_AUTH_SECRET: "connectsphere-migration-only-secret-0000"
         run: bunx drizzle-kit migrate
 
   smoke:

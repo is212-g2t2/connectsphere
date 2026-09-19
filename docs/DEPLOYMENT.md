@@ -160,7 +160,7 @@ bun run dev
 `.env.example` is written for exactly this shape: `DATABASE_URL` and `MINIO_ENDPOINT` point at `localhost`, which is correct when the app runs on the host.
 
 > [!IMPORTANT]
-> Start the `connectsphere` service only when you actually want the containerised app. It binds port 3000, and `playwright.config.ts` sets `reuseExistingServer`, so Playwright will silently attach to the container instead of starting a dev server, and because of the caveat below, every test that signs up then fails with "Could not create your account." Run `docker compose stop connectsphere` before `bun run test:e2e`.
+> Start the `connectsphere` service only when you actually want the containerised app. It binds port 3000, and the E2E setup does not reuse a running server: it fails on the busy port before any test runs. Run `docker compose stop connectsphere` before `bun run test:e2e`.
 
 ## Running the whole stack in Docker
 

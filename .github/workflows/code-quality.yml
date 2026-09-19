@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   code-quality:
-    name: Lint and type check
+    name: Lint, type check, and build
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -34,3 +34,17 @@ jobs:
         run: bun run lint:check
       - name: Check types
         run: bun run type:check
+      - name: Check migrations are generated
+        run: bun run db:generate && git diff --exit-code -- src/db/drizzle
+        env:
+          # generate only reads the schema; both vars satisfy drizzle.config.ts's import
+          # of src/env.ts.
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/app
+          BETTER_AUTH_SECRET: connectsphere-migration-only-secret-0000
+      - name: Check migration files
+        run: bunx drizzle-kit check
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/app
+          BETTER_AUTH_SECRET: connectsphere-migration-only-secret-0000
+      - name: Build for production
+        run: bun run build

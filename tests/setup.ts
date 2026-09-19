@@ -2,7 +2,6 @@
 // oxlint-disable-next-line import/no-unassigned-import
 import "zod/compile";
 
-process.env.DATABASE_URL ??= "postgresql://postgres:postgres@localhost:5432/test";
 process.env.BETTER_AUTH_SECRET ??= "01234567890123456789012345678901";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
 

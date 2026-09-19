@@ -1,5 +1,5 @@
 // oxlint-disable node/no-process-env
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -38,15 +38,62 @@ import {
 } from "#/features/event-requests/schema";
 
 const organiser: SessionUser = {
-  id: "test-user-2",
-  email: "jane.doe@example.com",
+  id: "test-organiser-drafts",
+  email: "drafts.organiser@example.com",
   role: "event_organiser",
 };
 const otherOrganiser: SessionUser = {
-  id: "test-user-1",
-  email: "john.doe@example.com",
+  id: "test-organiser-other",
+  email: "other.organiser@example.com",
   role: "event_organiser",
 };
+
+/**
+ * This file owns its organisers so its destructive hooks can scope to them by id. The seeded demo
+ * event belongs to `test-user-2`, so it is never in the delete's path and never needs restoring.
+ * Deleting the fixture users at the end cascades this file's event requests away with them.
+ */
+const organiserFixtures = [
+  {
+    id: organiser.id,
+    name: "Drafts Organiser",
+    email: organiser.email,
+    emailVerified: true,
+    role: "event_organiser",
+  },
+  {
+    id: otherOrganiser.id,
+    name: "Other Organiser",
+    email: otherOrganiser.email,
+    emailVerified: true,
+    role: "event_organiser",
+  },
+];
+
+const organiserIds = organiserFixtures.map(user => user.id);
+
+async function ownedRequestCount(database: ReturnType<typeof drizzle<typeof schema>>) {
+  const rows = await database
+    .select()
+    .from(schema.eventRequests)
+    .where(inArray(schema.eventRequests.organiserId, organiserIds));
+  return rows.length;
+}
+
+let fixturePool: Pool;
+beforeAll(async () => {
+  fixturePool = new Pool({ connectionString: process.env.DATABASE_URL });
+  await drizzle(fixturePool, { schema })
+    .insert(schema.user)
+    .values(organiserFixtures)
+    .onConflictDoNothing();
+});
+afterAll(async () => {
+  await drizzle(fixturePool, { schema })
+    .delete(schema.user)
+    .where(inArray(schema.user.id, organiserIds));
+  await fixturePool.end();
+});
 
 const fullRequest: EventRequestDraftValues = {
   eventName: "  Community workshop  ",
@@ -90,7 +137,9 @@ describe("Event request drafts", () => {
   });
 
   beforeEach(async () => {
-    await database.delete(schema.eventRequests);
+    await database
+      .delete(schema.eventRequests)
+      .where(inArray(schema.eventRequests.organiserId, organiserIds));
   });
 
   async function findById(id: number) {
@@ -213,7 +262,7 @@ describe("Event request drafts", () => {
       )
     ).rejects.toThrow(EQUIPMENT_QUANTITY_MESSAGE);
 
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(0);
+    expect(await ownedRequestCount(database)).toBe(0);
   });
 
   it("edits the same draft when its id comes back, rather than opening another", async () => {
@@ -237,7 +286,7 @@ describe("Event request drafts", () => {
       id: created.id,
       purpose: "Meet neighbours",
     });
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
+    expect(await ownedRequestCount(database)).toBe(1);
   });
 
   it("refuses to edit a draft belonging to another organiser", async () => {
@@ -265,7 +314,7 @@ describe("Event request drafts", () => {
       handleSaveEventRequestDraft({ id: 987654, eventName: "Ghost" }, organiser, database as never)
     ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
 
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(0);
+    expect(await ownedRequestCount(database)).toBe(0);
   });
 
   it("stores the registration terms exactly and reopens them (PTR-11 AC1)", async () => {
@@ -298,7 +347,7 @@ describe("Event request drafts", () => {
       message
     );
 
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(0);
+    expect(await ownedRequestCount(database)).toBe(0);
   });
 
   it("refuses a registration window that does not close after it opens (AC3)", async () => {
@@ -530,7 +579,7 @@ describe("Event request drafts", () => {
       handleSubmitEventRequest({ id: 987654 }, organiser, database as never)
     ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
 
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(0);
+    expect(await ownedRequestCount(database)).toBe(0);
   });
 
   /** The invariant at the persistence layer, behind whichever path writes the row. */
@@ -571,7 +620,9 @@ describe("Listing and reading an organiser's requests (PTR-14)", () => {
   });
 
   beforeEach(async () => {
-    await database.delete(schema.eventRequests);
+    await database
+      .delete(schema.eventRequests)
+      .where(inArray(schema.eventRequests.organiserId, organiserIds));
   });
 
   it("lists the organiser's own requests only, drafts and submitted alike (AC1)", async () => {
@@ -672,7 +723,9 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
   });
 
   beforeEach(async () => {
-    await database.delete(schema.eventRequests);
+    await database
+      .delete(schema.eventRequests)
+      .where(inArray(schema.eventRequests.organiserId, organiserIds));
   });
 
   // Criterion 2: reopening returns exactly what was saved, and a request that is not the
@@ -732,7 +785,7 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
       eventName: "Third name",
       status: "draft",
     });
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
+    expect(await ownedRequestCount(database)).toBe(1);
   });
 
   // Criterion 3: deleting an owned draft removes it, and it can no longer be reopened.
@@ -777,7 +830,7 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
       message: EVENT_REQUEST_DELETE_REFUSAL,
     });
 
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(1);
+    expect(await ownedRequestCount(database)).toBe(1);
 
     const othersDraft = await handleSaveEventRequestDraft(
       { eventName: "Not yours" },
@@ -792,7 +845,7 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
       status: 403,
     });
 
-    expect(await database.select().from(schema.eventRequests)).toHaveLength(2);
+    expect(await ownedRequestCount(database)).toBe(2);
   });
 });
 
@@ -820,6 +873,23 @@ const extraCoordinators = [
   },
 ];
 
+/**
+ * A third file-owned Coordinator, created after the other two. The seeded Coordinator carries the
+ * demo event as load, so the tie-break test uses this account for its third step instead of
+ * asserting against seed state the file does not own. It stays out of `extraCoordinators` so the
+ * two-way race cases keep exactly two racers.
+ */
+const tieBreakCoordinator = {
+  id: "test-coordinator-c",
+  name: "Coordinator C",
+  email: "coordinator.c@example.com",
+  emailVerified: true,
+  role: "event_coordinator",
+  createdAt: new Date("2000-01-03T00:00:00Z"),
+};
+
+const fixtureCoordinators = [...extraCoordinators, tieBreakCoordinator];
+
 async function submitNew(
   values: EventRequestDraftValues,
   who: SessionUser,
@@ -836,23 +906,25 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     database = drizzle(pool, { schema });
-    // The seeded Coordinator was created at seed time, later than these two, so it sorts last on
-    // the tie-break and the two known accounts decide the rule.
-    await database.insert(schema.user).values(extraCoordinators).onConflictDoNothing();
+    // Created far in the past so the earliest-account tie-break is testable however long ago the
+    // database was seeded, and later than the two known accounts so they win in order.
+    await database.insert(schema.user).values(fixtureCoordinators).onConflictDoNothing();
   });
 
   afterAll(async () => {
     await database.delete(schema.user).where(
       inArray(
         schema.user.id,
-        extraCoordinators.map(c => c.id)
+        fixtureCoordinators.map(c => c.id)
       )
     );
     await pool.end();
   });
 
   beforeEach(async () => {
-    await database.delete(schema.eventRequests);
+    await database
+      .delete(schema.eventRequests)
+      .where(inArray(schema.eventRequests.organiserId, organiserIds));
   });
 
   describe("manual handover and pickup (PTR-16)", () => {
@@ -1021,9 +1093,9 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     const second = await submitNew({ ...fullRequest, eventName: "Second" }, organiser, database);
     expect(second.assignedCoordinatorId).toBe("test-coordinator-b");
 
-    // A and B carry one each; the seeded Coordinator, created last, gets the third.
+    // A and B carry one each; the third fixture, created after them, gets the third.
     const third = await submitNew({ ...fullRequest, eventName: "Third" }, organiser, database);
-    expect(third.assignedCoordinatorId).toBe("seed-coordinator-1");
+    expect(third.assignedCoordinatorId).toBe("test-coordinator-c");
 
     // Everyone carries one; back to the earliest account.
     const fourth = await submitNew({ ...fullRequest, eventName: "Fourth" }, organiser, database);
@@ -1100,35 +1172,44 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
   });
 
   describe("when no Coordinator can be assigned (AC5)", () => {
-    const coordinatorIds = [...extraCoordinators.map(c => c.id), "seed-coordinator-1"];
+    const coordinatorIds = [...fixtureCoordinators.map(c => c.id), "seed-coordinator-1"];
 
-    beforeEach(async () => {
+    it("still records the submission, unassigned, and lists it for pick-up", async () => {
       // Demote every Coordinator for the test rather than deleting them: the seeded account has
-      // a credential row and sessions hanging off it.
-      await database
+      // a credential row and sessions hanging off it. Restored in `finally`, so a failed assertion
+      // cannot leave the seeded accounts defunct for the rest of the run.
+      await demoteCoordinators();
+      try {
+        const submitted = await submitNew(fullRequest, organiser, database);
+
+        expect(submitted.status).toBe("submitted");
+        expect(submitted.assignedCoordinatorId).toBeNull();
+        expect(submitted.assignedAt).toBeNull();
+
+        const unassigned = await handleListUnassignedEventRequests(database as never);
+        expect(unassigned.map(row => row.id)).toEqual([submitted.id]);
+        expect(unassigned[0].organiser).toEqual({
+          name: "Drafts Organiser",
+          email: "drafts.organiser@example.com",
+        });
+      } finally {
+        await restoreCoordinators();
+      }
+    });
+
+    function demoteCoordinators() {
+      return database
         .update(schema.user)
         .set({ role: "technical_support_staff" })
         .where(inArray(schema.user.id, coordinatorIds));
-    });
+    }
 
-    afterEach(async () => {
-      await database
+    function restoreCoordinators() {
+      return database
         .update(schema.user)
         .set({ role: "event_coordinator" })
         .where(inArray(schema.user.id, coordinatorIds));
-    });
-
-    it("still records the submission, unassigned, and lists it for pick-up", async () => {
-      const submitted = await submitNew(fullRequest, organiser, database);
-
-      expect(submitted.status).toBe("submitted");
-      expect(submitted.assignedCoordinatorId).toBeNull();
-      expect(submitted.assignedAt).toBeNull();
-
-      const unassigned = await handleListUnassignedEventRequests(database as never);
-      expect(unassigned.map(row => row.id)).toEqual([submitted.id]);
-      expect(unassigned[0].organiser).toEqual({ name: "Jane Doe", email: "jane.doe@example.com" });
-    });
+    }
   });
 
   it("lists only submitted, unassigned requests, oldest wait first", async () => {

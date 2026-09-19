@@ -67,7 +67,6 @@ describe("ResetPasswordForm component", () => {
 
   it("rejects a new password shorter than 8 characters", async () => {
     const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.resetPassword).mockClear();
     const user = userEvent.setup();
     render(<ResetPasswordForm token="tok-123" />);
 
@@ -114,7 +113,6 @@ describe("ResetPasswordForm component", () => {
 
   it("shows a refused password reset and clears it once the retry succeeds", async () => {
     const { authClient } = await import("#/lib/auth-client");
-    vi.mocked(authClient.resetPassword).mockClear();
     vi.mocked(authClient.resetPassword).mockResolvedValueOnce({
       data: null,
       error: {

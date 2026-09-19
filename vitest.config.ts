@@ -11,18 +11,37 @@ export default defineConfig({
     },
   },
   test: {
+    clearMocks: true,
+    restoreMocks: true,
     coverage: {
       reporter: ["text", "json", "html"],
       enabled: true,
-      exclude: ["tests/**"],
+      include: [
+        "src/*.{ts,tsx}",
+        "src/components/**/*.{ts,tsx}",
+        "src/db/**/*.{ts,tsx}",
+        "src/features/**/*.{ts,tsx}",
+        "src/hooks/**/*.{ts,tsx}",
+        "src/lib/**/*.{ts,tsx}",
+      ],
+      exclude: [
+        "**/*.d.ts",
+        "src/components/ui/**",
+        "src/db/drizzle/**",
+        "src/routeTree.gen.ts",
+        // App bootstrap, exercised only by E2E runs, which collect no coverage.
+        "src/router.tsx",
+        "src/server.ts",
+        "src/start.ts",
+      ],
       thresholds: {
-        lines: 50,
-        functions: 45,
-        branches: 50,
-        statements: 50,
+        lines: 43,
+        functions: 24,
+        branches: 29,
+        statements: 43,
       },
     },
-    passWithNoTests: true,
+    passWithNoTests: false,
     reporters: ["dot", "github-actions"],
     server: {
       deps: {

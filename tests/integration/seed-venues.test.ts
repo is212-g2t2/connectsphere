@@ -22,9 +22,16 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
   });
 
   it("holds at least three venues, each with every catalogue attribute (AC3)", async () => {
-    const rows = await database.select().from(schema.venues).orderBy(asc(schema.venues.id));
+    // Scoped to the seed's own names: this file shares its container with `venue-records.test.ts`
+    // and `venue-availability.test.ts`, which create venues with empty attribute arrays.
+    const seedNames = seedVenues.map(venue => venue.name);
+    const rows = await database
+      .select()
+      .from(schema.venues)
+      .where(inArray(schema.venues.name, seedNames))
+      .orderBy(asc(schema.venues.id));
 
-    expect(rows.length).toBeGreaterThanOrEqual(3);
+    expect(rows.length).toBeGreaterThanOrEqual(seedVenues.length);
     for (const venue of rows) {
       expect(venue.location).not.toBe("");
       expect(venue.maxCapacity).toBeGreaterThan(0);
@@ -35,9 +42,23 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
   });
 
   it("records at least two future periods of unavailability (AC4)", async () => {
-    const rows = await database.select().from(schema.venueUnavailability);
+    const seedIds = (
+      await database
+        .select({ id: schema.venues.id })
+        .from(schema.venues)
+        .where(
+          inArray(
+            schema.venues.name,
+            seedVenues.map(venue => venue.name)
+          )
+        )
+    ).map(row => row.id);
+    const rows = await database
+      .select()
+      .from(schema.venueUnavailability)
+      .where(inArray(schema.venueUnavailability.venueId, seedIds));
 
-    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows.length).toBeGreaterThanOrEqual(seedVenueUnavailability.length);
     const now = new Date().toISOString();
     for (const period of rows) {
       // `mode: "string"` timestamps come back as `YYYY-MM-DD HH:MM:SS`, which sorts as a date.

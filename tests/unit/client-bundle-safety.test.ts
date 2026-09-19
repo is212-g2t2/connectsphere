@@ -34,9 +34,14 @@ function getModules(dir: string): string[] {
  * cannot prove that side-effect free, so the module is retained whole and the entire schema,
  * Better Auth tables included, is served to the browser. It never fails `bun run build`, so the
  * only thing standing between that and production is this test.
+ *
+ * `drizzle-orm`, its adapters, the raw `postgres`/`pg` drivers, the `better-auth` server runtime,
+ * the `resend` client and every `node:*` built-in are the same kind of runtime server dependency.
+ * `better-auth`'s browser entrypoints (`better-auth/react`, `better-auth/client/*`) and the
+ * shared `better-auth/plugins/access` definitions are client-safe and stay allowed.
  */
 const SERVER_ONLY_IMPORT =
-  /^(?:#\/db(?:\/[^"']*)?|bun|bun:[^"']*|drizzle-orm\/bun-sql|[^"']*\.server)$/;
+  /^(?:#\/db(?:\/[^"']*)?|bun(?::[^"']*)?|drizzle-orm(?:\/[^"']*)?|postgres|pg|better-auth(?:\/(?!client|react|plugins\/access)[^"']*)?|resend|nodemailer(?:\/[^"']*)?|node:[^"']*|[^"']*\.server)$/;
 
 /**
  * A static `import`/`export … from` statement, with its module specifier captured. Matched over
@@ -46,6 +51,26 @@ const SERVER_ONLY_IMPORT =
  * keyword, so it never matches.
  */
 const STATIC_IMPORT_SOURCE = /^[ \t]*(?:import|export)\s+(?!type\b)[^;]*?["']([^"']+)["']/gm;
+
+/**
+ * A default parameter anchored on the shared `db` handle. Matches both function declarations and
+ * arrow/function-expression exports (`export const list = (database = db) => …`), since the rule
+ * in AGENTS.md covers any exported function, not just `function` declarations.
+ */
+const ANCHORED_DATABASE_DEFAULT =
+  /export\s+(?:(?:async\s+)?function\s+\w+\s*\([^)]*=\s*db\b|const\s+\w+(?::[^=]+)?\s*=\s*(?:async\s+)?(?:function\s*)?\([^)]*=\s*db\b)/;
+
+/** The server-only specifiers a module statically imports at top level. */
+function serverOnlyImports(content: string): string[] {
+  return Array.from(content.matchAll(STATIC_IMPORT_SOURCE))
+    .map(match => match[1])
+    .filter(specifier => SERVER_ONLY_IMPORT.test(specifier));
+}
+
+/** Whether an exported function anchors `database = db` instead of taking it injected. */
+function anchorsDatabaseDefault(content: string): boolean {
+  return ANCHORED_DATABASE_DEFAULT.test(content);
+}
 
 const GUARDED_DIRS = ["src/features", "src/hooks", "src/lib", "src/components"];
 
@@ -63,19 +88,59 @@ describe("Client-Reachable Module Client Safety", () => {
 
     it(`${relPath} does not statically import server-only modules at top level`, () => {
       const content = fs.readFileSync(filePath, "utf-8");
-
-      const leakedImports = Array.from(content.matchAll(STATIC_IMPORT_SOURCE))
-        .map(match => match[1])
-        .filter(specifier => SERVER_ONLY_IMPORT.test(specifier));
-
-      expect(leakedImports).toEqual([]);
+      expect(serverOnlyImports(content)).toEqual([]);
     });
 
     it(`${relPath} does not anchor database default parameter on exported functions`, () => {
       const content = fs.readFileSync(filePath, "utf-8");
-      // Prevent pattern: `export (async )?function ... (..., database = db)`
-      const leakedDefaultParamRegex = /export\s+(?:async\s+)?function\s+\w+\s*\([^)]*=\s*db\b/;
-      expect(content).not.toMatch(leakedDefaultParamRegex);
+      expect(anchorsDatabaseDefault(content)).toBe(false);
     });
+  });
+});
+
+describe("Client-safety scan (self-test)", () => {
+  it.each([
+    `import { db } from "#/db";`,
+    `import "#/db/schema";`,
+    `import { SQL } from "bun";`,
+    `import { sql } from "drizzle-orm";`,
+    `import { pgTable } from "drizzle-orm/pg-core";`,
+    `import postgres from "postgres";`,
+    `import { Pool } from "pg";`,
+    `import { betterAuth } from "better-auth";`,
+    `import { drizzleAdapter } from "better-auth/adapters/drizzle";`,
+    `import { Resend } from "resend";`,
+    `import { createTransport } from "nodemailer";`,
+    `import fs from "node:fs";`,
+    `import { records } from "./records.server";`,
+  ])("flags server-only import: %s", source => {
+    expect(serverOnlyImports(source)).toHaveLength(1);
+  });
+
+  it("does not flag client-safe, type-only, or dynamic imports", () => {
+    expect(serverOnlyImports(`import { z } from "zod";`)).toEqual([]);
+    expect(serverOnlyImports(`import type { Database } from "#/db";`)).toEqual([]);
+    expect(serverOnlyImports(`const { db } = await import("#/db");`)).toEqual([]);
+    expect(serverOnlyImports(`import { createAuthClient } from "better-auth/react";`)).toEqual([]);
+    expect(serverOnlyImports(`import { access } from "better-auth/plugins/access";`)).toEqual([]);
+    expect(serverOnlyImports(`import { adminClient } from "better-auth/client/plugins";`)).toEqual(
+      []
+    );
+  });
+
+  it.each([
+    `export function listRows(database = db) {}`,
+    `export async function listRows(database = db) {}`,
+    `export const listRows = (database = db) => {};`,
+    `export const listRows = async (id: string, database = db) => {};`,
+    `export const listRows = function (database = db) {};`,
+  ])("flags anchored database default: %s", source => {
+    expect(anchorsDatabaseDefault(source)).toBe(true);
+  });
+
+  it("does not flag injected or non-exported parameters", () => {
+    expect(anchorsDatabaseDefault(`export function listRows(database: Database) {}`)).toBe(false);
+    expect(anchorsDatabaseDefault(`function listRows(database = db) {}`)).toBe(false);
+    expect(anchorsDatabaseDefault(`export const listRows = (database = db2) => {};`)).toBe(false);
   });
 });

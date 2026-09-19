@@ -31,7 +31,7 @@ Apply the [no-ai-slop](https://raw.githubusercontent.com/petergyang/no-ai-slop/r
 ```bash
 bun run vitest run tests/unit/auth-session.test.ts            # one file
 bun run vitest run tests/unit/auth-session.test.ts -t "returns null"   # one case
-bun run playwright test tests/e2e/landing.test.ts     # one E2E file
+bun run test:e2e tests/e2e/landing.test.ts            # one E2E file (forwards the filter)
 ```
 
 ## Verifying changes

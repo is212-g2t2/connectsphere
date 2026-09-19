@@ -1,5 +1,5 @@
 name: Setup Bun
-description: Setup Bun, cache and install dependencies, and create .env file
+description: Setup Bun, cache and install dependencies
 
 runs:
   using: "composite"
@@ -34,12 +34,9 @@ runs:
           ${{ runner.os }}-bun-
     - name: Configure Git safe directory
       shell: bash
-      run: git config --global --add safe.directory '*'
+      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - name: Install dependencies
       shell: bash
       env:
         LEFTHOOK: "0"
       run: bun install --frozen-lockfile
-    - name: Create .env file
-      shell: bash
-      run: cp .env.example .env

@@ -5,7 +5,7 @@ This guide covers the local development environment, scripts catalog, database m
 ## Prerequisites
 
 - **[Bun](https://bun.sh/)** v1.4.2 or later
-- **[Docker](https://www.docker.com/)** and Docker Compose (for local PostgreSQL, MinIO, and Redis)
+- **[Docker](https://www.docker.com/)** and Docker Compose (for local PostgreSQL, MinIO, and Redis, and Testcontainers)
 
 ## Local Setup
 
@@ -26,7 +26,7 @@ This guide covers the local development environment, scripts catalog, database m
 3. **Start local infrastructure services**:
 
    ```bash
-   docker compose up -d postgres redis minio minio_init
+   docker compose up -d postgres redis minio minio_init mailpit
    ```
 
    This provisions:
@@ -34,8 +34,9 @@ This guide covers the local development environment, scripts catalog, database m
    - **MinIO S3** on `localhost:9000` (API) and `localhost:9001` (web console: `admin` / `password`)
    - **MinIO Init** bucket provisioner (`app` bucket created automatically)
    - **Redis 7** on `localhost:6379`
+   - **Mailpit** on `localhost:1025` (SMTP) and `localhost:8025` (web UI) for the E2E reset journey
 
-   The `connectsphere` app container is deliberately excluded: it binds port 3000, and Playwright's `reuseExistingServer` would attach to it instead of your dev server. See [Deployment](./DEPLOYMENT.md#the-normal-loop-services-in-docker-app-on-the-host) for the full stack.
+   The `connectsphere` app container is deliberately excluded: it binds port 3000, and the E2E setup always starts its own production server on that port. See [Deployment](./DEPLOYMENT.md#the-normal-loop-services-in-docker-app-on-the-host) for the full stack.
 
 4. **Prepare the database**:
 
@@ -88,6 +89,7 @@ The seed also creates three demo venues (Harbour Hall, Seminar Room 2A, Rooftop 
 | `SERVER_URL`          | Optional | Canonical public application URL                                                                                                                         |
 | `RESEND_API_KEY`      | Optional | Required to send email. App boots without it; email calls throw a clear error                                                                            |
 | `EMAIL_FROM`          | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                        |
+| `SMTP_URL`            | Optional | SMTP relay for outgoing mail (`smtp://host:port`). Set, it sends over SMTP instead of Resend, which is how the E2E run captures reset emails via Mailpit |
 | `MINIO_ENDPOINT`      | Optional | S3-compatible endpoint for file uploads. Accepts MinIO, AWS S3, Cloudflare R2, or Supabase Storage (`https://<project>.supabase.co/storage/v1/s3`)       |
 | `MINIO_BUCKET`        | Optional | Bucket name (default: `app`)                                                                                                                             |
 | `MINIO_ACCESS_KEY`    | Optional | Storage access key (default: `admin`)                                                                                                                    |
@@ -127,7 +129,7 @@ All available scripts defined in `package.json`:
 | `bun run test`             | Run all Vitest test suites across projects                             |
 | `bun run test:unit`        | Run unit tests (`tests/unit/`, `jsdom` environment)                    |
 | `bun run test:integration` | Run integration tests (`tests/integration/`, `node` environment)       |
-| `bun run test:e2e`         | Run Playwright end-to-end tests                                        |
+| `bun run test:e2e`         | Run Playwright end-to-end tests (setup provisions database and app)    |
 | `bun run codegen`          | Launch Playwright code generator for browser test recording            |
 | `bun run prepare`          | Install Lefthook git pre-commit hooks                                  |
 
@@ -155,7 +157,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 
 ## Testing Guide
 
-The test suite is structured into three tiers:
+The test suite is structured into three tiers. Vitest coverage is enabled in `vitest.config.ts` (43% lines and statements, 29% branches, 24% functions over `src/env.ts`, `components`, `db`, `features`, `hooks` and `lib`, excluding `components/ui`, app bootstrap files, generated files and the migration folder), so unit and integration runs rewrite `coverage/`.
 
 ### 1. Unit Tests (`tests/unit/`)
 
@@ -183,8 +185,9 @@ bun run test:integration
 
 ### 3. End-to-End Tests (`tests/e2e/`)
 
-- Driven by Playwright (`playwright.config.ts`).
-- Tests full browser rendering, authentication flows, route guards, and UI interactions.
+- Driven by Playwright (`playwright.config.ts`). `tests/e2e/global-setup.ts` owns the environment: it starts a `postgres:18-alpine` testcontainer on a random host port, applies the committed migrations, seeds it, then builds the app and starts the production server (`bun run build`, `bun run start`) on :3000 against that same `DATABASE_URL`. Teardown stops the server and the container, discarding the database.
+- Docker must be running, and :3000 must be free: the setup fails instead of reusing another server, so the app and the specs always share one database.
+- The reset-password journey sends mail through the capture server: run `docker compose up -d mailpit` and set `SMTP_URL="smtp://localhost:1025"` in `.env`. The upload journey reads MinIO from the same compose stack.
 
 Run E2E tests:
 
@@ -192,10 +195,10 @@ Run E2E tests:
 bun run test:e2e
 ```
 
-Run Playwright in interactive UI mode:
+Run the same suite in Playwright's interactive UI (flags are forwarded):
 
 ```bash
-bunx playwright test --ui
+bun run test:e2e --ui
 ```
 
 ### Running Targeted Tests
@@ -209,8 +212,8 @@ bun run vitest run tests/unit/auth-session.test.ts
 # Run a specific test case matching a pattern
 bun run vitest run tests/unit/auth-session.test.ts -t "returns null"
 
-# Run a specific E2E test file
-bun run playwright test tests/e2e/landing.test.ts
+# Run a specific E2E test file (Playwright receives the filter)
+bun run test:e2e tests/e2e/landing.test.ts
 ```
 
 ## Code Quality & Git Hooks
