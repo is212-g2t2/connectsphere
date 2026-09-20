@@ -59,7 +59,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       ├── api/          # Better Auth handler, health, smoke, upload-url
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
-├── instrument.server.mjs # Server bootstrap: Sentry init and logging
+├── instrument.server.mjs # Server process preload: Sentry init (logging is configured in src/server.ts)
 ├── AGENTS.md             # Guide for AI agents (CLAUDE.md symlinks to it)
 ├── components.json       # shadcn/ui configuration
 ├── Dockerfile
@@ -137,7 +137,7 @@ A handler may throw `AuthorizationError` (403), `NotFoundError` (404) or `Confli
 
 ## Observability
 
-LogTape provides the app logger in `src/lib/logger.ts`. The console sink prints each event's structured properties after its message, and `maskEmail` (`src/lib/utils.ts`) masks email addresses before they are logged. The server bootstrap (`instrument.server.mjs`) initialises Sentry with:
+LogTape provides the app logger in `src/lib/logger.ts`, configured from `src/server.ts` so the built server needs no source tree beside it. The console sink prints each event's structured properties after its message, and `maskEmail` (`src/lib/utils.ts`) masks email addresses before they are logged. The server process preloads `instrument.server.mjs`, which initialises Sentry with:
 
 - `sendDefaultPii: false`, so PII is not forwarded by default.
 - `tracesSampleRate: 0.1`, so 10% of server traces are sampled to control cost.

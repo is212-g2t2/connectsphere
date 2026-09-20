@@ -9,10 +9,10 @@
   "scripts": {
     "clean": "bunx rimraf .output .vite node_modules .tanstack src/routeTree.gen.ts coverage test-results playwright-report",
     "dev": "bun --bun --import ./instrument.server.mjs vite dev --port 3000",
-    "build": "bun --bun vite build",
+    "build": "bun --bun vite build && cp instrument.server.mjs .output/server/",
     "build:docker": "docker build -t connectsphere .",
     "preview": "vite preview",
-    "start": "bun --import ./instrument.server.mjs .output/server/index.mjs",
+    "start": "bun --bun --import ./.output/server/instrument.server.mjs .output/server/index.mjs",
     "type:check": "tsc --noEmit",
     "lint:check": "oxlint --deny-warnings .",
     "lint:fix": "oxlint --fix .",

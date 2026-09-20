@@ -30,7 +30,8 @@ const config = defineConfig(({ mode }) => {
       ...(isDev ? [devtools()] : []),
       nitro({
         preset: "bun",
-        rollupConfig: { external: [/^@sentry\//, "bun", /^bun:/] },
+        rollupConfig: { external: ["bun", /^bun:/] },
+        traceDeps: [/^@sentry\//, /^@logtape\//],
         routeRules: {
           "/assets/**": {
             headers: {
