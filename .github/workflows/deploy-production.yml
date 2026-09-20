@@ -1,0 +1,31 @@
+name: Deploy Production
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+# A deploy is never cancelled mid-flight; rollback.yml shares this group.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy production
+    if: ${{ !github.event.release.prerelease }}
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      service: connectsphere
+      environment: production
+      secret_prefix: prod
+      require_existing_image: true
+    # inherit, not named passing: the migrate job's DATABASE_URL_SESSION is an
+    # environment secret, and those resolve only through inheritance.
+    secrets: inherit

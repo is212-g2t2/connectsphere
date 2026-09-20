@@ -6,15 +6,15 @@ State lives in `gs://connectsphere-is212-tfstate` (`prefix = terraform/state`). 
 
 ## What Terraform owns
 
-| File              | Resources                                                                                           |
-| ----------------- | --------------------------------------------------------------------------------------------------- |
-| `state-bucket.tf` | The state bucket (imported, see below) and the project API enablement                               |
-| `cloud-run.tf`    | Both Cloud Run services, their public invoker, the startup probe, and the domain mappings           |
-| `secrets.tf`      | Fourteen Secret Manager containers and the per-environment runtime `secretAccessor` grants          |
-| `iam.tf`          | The WIF pool and provider, the deploy service account, its ref-scoped binding, the runtime accounts |
-| `cloudflare.tf`   | One CNAME per environment, pointing at `ghs.googlehosted.com`                                       |
-| `r2.tf`           | One private R2 bucket per environment                                                               |
-| `budget.tf`       | A monthly SGD 10 budget with alerts at 50%, 90% and 100%                                            |
+| File              | Resources                                                                                                         |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `state-bucket.tf` | The state bucket (imported, see below) and the project API enablement                                             |
+| `cloud-run.tf`    | Both Cloud Run services, their public invoker, the startup probe, and the domain mappings                         |
+| `secrets.tf`      | Fourteen Secret Manager containers and the per-environment runtime `secretAccessor` grants                        |
+| `iam.tf`          | The WIF pool and provider, the deploy service account, its ref- and ref_type-scoped binding, the runtime accounts |
+| `cloudflare.tf`   | One CNAME per environment, pointing at `ghs.googlehosted.com`                                                     |
+| `r2.tf`           | One private R2 bucket per environment                                                                             |
+| `budget.tf`       | A monthly SGD 10 budget with alerts at 50%, 90% and 100%                                                          |
 
 The per-environment settings (service name, hostname, instance bounds, bucket, Sentry environment, proxy flag, sender address) are one map in `main.tf`.
 
@@ -59,7 +59,7 @@ Before the first run, authenticate: `gcloud auth login` for the bootstrap script
 
 9. **Set the GitHub side up.** Create the `staging` and `production` Environments, each with a `DATABASE_URL_SESSION` secret; add the repo secrets and variables listed in [DEPLOYMENT.md](../docs/DEPLOYMENT.md#configuration). If you add required reviewers to `production`, note the rule also pauses every production release on its `migrate` job. Make the GHCR package public (see below).
 
-10. **Push to `staging` first.** Let the release run, fix anything the first run flushes out, then merge `staging` into `main` **fast-forward only** for the first production release (bring `staging` up to date with `main` first if the two have diverged).
+10. **Push to `main` first.** Let the staging deploy run, fix anything it flushes out, then merge the release-please PR to publish the first release and deploy production.
 
 ## Manual steps Terraform cannot do
 

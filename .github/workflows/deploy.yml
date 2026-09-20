@@ -1,69 +1,49 @@
-name: Release
+name: Deploy
 
 on:
-  push:
-    branches: [main, staging]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".vscode/**"
-      - ".idea/**"
+  workflow_call:
+    inputs:
+      service:
+        description: Cloud Run service to deploy
+        required: true
+        type: string
+      environment:
+        description: GitHub Environment holding that environment's secrets
+        required: true
+        type: string
+      secret_prefix:
+        description: Secret Manager prefix for that environment's secrets
+        required: true
+        type: string
+      require_existing_image:
+        description: Wait for the image a push already built instead of building a second artifact
+        required: false
+        type: boolean
+        default: false
+    # No secrets block on purpose. An environment secret (the migrate job's
+    # DATABASE_URL_SESSION) reaches a called workflow only through
+    # `secrets: inherit`, which cannot be combined with named passing. Both
+    # callers inherit; the steps here reference GCP_WIF_PROVIDER, GCP_SA,
+    # SENTRY_AUTH_TOKEN, VITE_SENTRY_DSN and that environment secret.
 
 permissions:
   contents: read
-
-# A staging push never queues behind a production release, and a release that
-# has reached deploy-stage is never cancelled mid-flight.
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
 
 env:
   PROJECT_ID: connectsphere-is212
   REGION: asia-southeast1
   IMAGE: ghcr.io/is212-g2t2/connectsphere
-  SERVICE: ${{ github.ref == 'refs/heads/main' && 'connectsphere' || 'connectsphere-staging' }}
-  SECRET_PREFIX: ${{ github.ref == 'refs/heads/main' && 'prod' || 'staging' }}
+  SERVICE: ${{ inputs.service }}
+  SECRET_PREFIX: ${{ inputs.secret_prefix }}
+  REQUIRE_EXISTING_IMAGE: ${{ inputs.require_existing_image }}
 
 jobs:
-  code-quality:
-    uses: ./.github/workflows/code-quality.yml
-    permissions:
-      contents: read
-
-  unit-tests:
-    uses: ./.github/workflows/unit-tests.yml
-    permissions:
-      contents: read
-
-  integration-tests:
-    uses: ./.github/workflows/integration-tests.yml
-    permissions:
-      contents: read
-
-  e2e-tests:
-    uses: ./.github/workflows/e2e-tests.yml
-    permissions:
-      contents: read
-
-  # CodeQL declares `actions: read` + `security-events: write`, and a called
-  # workflow can only downgrade the caller's token. Without these the analysis
-  # resolves them to `none` and the whole release stops at the check stage.
-  security-checks:
-    uses: ./.github/workflows/security-checks.yml
-    permissions:
-      contents: read
-      actions: read
-      security-events: write
-    # The security workflow reads GITLEAKS_LICENSE without declaring it under
-    # `on.workflow_call.secrets`, so it needs the caller's secrets to reach it.
-    secrets: inherit
-
   publish:
     name: Publish image
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: [code-quality, unit-tests, integration-tests, e2e-tests, security-checks]
+    # The wait for another workflow's build runs to 30 minutes; the job must
+    # outlast it so the bound fails with its own message, not a cancellation.
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: write
@@ -86,15 +66,31 @@ jobs:
         id: meta
         run: echo "tag=${IMAGE}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      # A fast-forwarded staging -> main merge points at the same commit, so the
-      # image staging tested is already published. Reusing it beats rebuilding
-      # and deploys the byte-identical artifact, resolved to an immutable digest.
+      # Staging builds when the image is missing; a release waits for the
+      # staging build (ADR-4).
       - name: Resolve the existing image for this commit, if any
         id: reuse
         run: |
           tag="${{ steps.meta.outputs.tag }}"
-          digest="$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' \
-            2>/dev/null | jq -r '.digest // empty')"
+          digest=""
+          for i in $(seq 1 60); do
+            digest="$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' \
+              2>/dev/null | jq -r '.digest // empty')"
+            if [ -n "$digest" ]; then
+              break
+            fi
+            if [ "$REQUIRE_EXISTING_IMAGE" != "true" ]; then
+              break
+            fi
+            echo "Waiting for $tag to be published ($i/60)"
+            sleep 30
+          done
+
+          if [ -z "$digest" ] && [ "$REQUIRE_EXISTING_IMAGE" = "true" ]; then
+            echo "::error::No image for $tag after 30 minutes; re-run this workflow once the staging deploy has published it."
+            exit 1
+          fi
+
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           if [ -n "$digest" ]; then
             echo "Reusing $tag@$digest"
@@ -181,7 +177,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: deploy-stage
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
     steps:

@@ -1,0 +1,69 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".vscode/**"
+      - ".idea/**"
+
+permissions:
+  contents: read
+
+# A deploy is never cancelled mid-flight.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  code-quality:
+    uses: ./.github/workflows/code-quality.yml
+    permissions:
+      contents: read
+
+  unit-tests:
+    uses: ./.github/workflows/unit-tests.yml
+    permissions:
+      contents: read
+
+  integration-tests:
+    uses: ./.github/workflows/integration-tests.yml
+    permissions:
+      contents: read
+
+  e2e-tests:
+    uses: ./.github/workflows/e2e-tests.yml
+    permissions:
+      contents: read
+
+  # CodeQL declares `actions: read` + `security-events: write`, and a called
+  # workflow can only downgrade the caller's token. Without these the analysis
+  # resolves them to `none` and the whole release stops at the check stage.
+  security-checks:
+    uses: ./.github/workflows/security-checks.yml
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    # The security workflow reads GITLEAKS_LICENSE without declaring it under
+    # `on.workflow_call.secrets`, so it needs the caller's secrets to reach it.
+    secrets: inherit
+
+  deploy:
+    name: Deploy staging
+    needs: [code-quality, unit-tests, integration-tests, e2e-tests, security-checks]
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      service: connectsphere-staging
+      environment: staging
+      secret_prefix: staging
+      require_existing_image: false
+    # inherit, not named passing: the migrate job's DATABASE_URL_SESSION is an
+    # environment secret, and those resolve only through inheritance.
+    secrets: inherit

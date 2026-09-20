@@ -18,6 +18,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 - [ADR-1: TanStack Start over Next.js or a split frontend–backend app](./adrs/ADR-1-tanstack-start.md)
 - [ADR-2: Modular monolith over microservices](./adrs/ADR-2-monolith.md)
 - [ADR-3: Google Cloud Run in a single GCP project](./adrs/ADR-3-cloud-run.md)
+- [ADR-4: Trunk-based main with release-gated production](./adrs/ADR-4-trunk-based-main.md)
 
 ## Directory Structure
 
