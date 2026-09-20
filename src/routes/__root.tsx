@@ -1,8 +1,7 @@
-import { TanStackDevtools } from "@tanstack/react-devtools";
-import { formDevtoolsPlugin } from "@tanstack/react-form-devtools";
+import { Suspense } from "react";
 import { createRootRoute, Outlet } from "@tanstack/react-router";
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
+import { Devtools } from "#/components/devtools";
 import { Header } from "#/components/layout/header";
 import { RootDocument } from "#/components/layout/root-document";
 import { RootErrorPage, RootNotFoundPage } from "#/components/pages/error";
@@ -38,12 +37,9 @@ export const Route = createRootRoute({
       <Header />
       <Outlet />
       {import.meta.env.DEV && (
-        <TanStackDevtools
-          plugins={[
-            { name: "TanStack Router", render: <TanStackRouterDevtoolsPanel /> },
-            formDevtoolsPlugin(),
-          ]}
-        />
+        <Suspense fallback={null}>
+          <Devtools />
+        </Suspense>
       )}
     </RootDocument>
   ),

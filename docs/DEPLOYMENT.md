@@ -192,7 +192,7 @@ bun run build:docker          # docker build -t connectsphere .
 docker run -p 3000:3000 --env-file .env connectsphere
 ```
 
-`Dockerfile` is a two-stage Bun build: it installs with `--frozen-lockfile`, runs `bun run build`, prunes dev dependencies, and the runner stage serves `.output/server/index.mjs` on `0.0.0.0:3000` with Sentry instrumentation preloaded. Cloud Run injects `PORT`, which the runner honours; the default there is 8080.
+`Dockerfile` is a two-stage Bun build: it installs with `--frozen-lockfile`, runs `bun run build`, and the runner stage carries only `.output` — Nitro traces the server's runtime dependencies into `.output/server/node_modules`, so no copy of `node_modules` or `src` is shipped. It serves `.output/server/index.mjs` on `0.0.0.0:3000` with Sentry instrumentation preloaded. Cloud Run injects `PORT`, which the runner honours; the default there is 8080.
 
 ## Migrations
 
