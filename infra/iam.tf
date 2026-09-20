@@ -22,7 +22,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.ref"        = "assertion.ref"
     "attribute.ref_type"   = "assertion.ref_type"
   }
-  attribute_condition = "assertion.repository == \"is212-g2t2/connectsphere\""
+  # Branch refs always pass; a tag ref must be a release-please v* tag, so a
+  # pushed tag cannot assume the deploy identity.
+  attribute_condition = "assertion.repository == \"is212-g2t2/connectsphere\" && (assertion.ref_type != \"tag\" || assertion.ref.startsWith(\"refs/tags/v\"))"
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
@@ -45,7 +47,8 @@ resource "google_service_account_iam_binding" "github_deploy" {
     "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}/attribute.ref/refs/heads/main",
     # A release publishes a tag, so the production deploy authenticates from a
     # tag ref. Principal sets match attribute values exactly; there is no
-    # wildcard, which is why the tag case is identified by ref_type.
+    # wildcard, which is why the tag case is identified by ref_type and the
+    # provider condition narrows it to v* tags.
     "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}/attribute.ref_type/tag",
   ]
 }

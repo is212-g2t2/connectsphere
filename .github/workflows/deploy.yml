@@ -20,19 +20,11 @@ on:
         required: false
         type: boolean
         default: false
-    secrets:
-      GCP_WIF_PROVIDER:
-        description: Workload Identity provider resource name
-        required: true
-      GCP_SA:
-        description: Deploy service account email
-        required: true
-      SENTRY_AUTH_TOKEN:
-        description: Source-map upload token, passed to the build as a BuildKit secret
-        required: true
-      VITE_SENTRY_DSN:
-        description: Sentry DSN baked into the browser bundle
-        required: true
+    # No secrets block on purpose. An environment secret (the migrate job's
+    # DATABASE_URL_SESSION) reaches a called workflow only through
+    # `secrets: inherit`, which cannot be combined with named passing. Both
+    # callers inherit; the steps here reference GCP_WIF_PROVIDER, GCP_SA,
+    # SENTRY_AUTH_TOKEN, VITE_SENTRY_DSN and that environment secret.
 
 permissions:
   contents: read

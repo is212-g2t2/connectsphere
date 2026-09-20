@@ -64,8 +64,6 @@ jobs:
       environment: staging
       secret_prefix: staging
       require_existing_image: false
-    secrets:
-      GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
-      GCP_SA: ${{ secrets.GCP_SA }}
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+    # inherit, not named passing: the migrate job's DATABASE_URL_SESSION is an
+    # environment secret, and those resolve only through inheritance.
+    secrets: inherit

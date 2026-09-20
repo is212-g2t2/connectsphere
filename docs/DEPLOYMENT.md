@@ -94,7 +94,7 @@ The GitHub side:
 | `VITE_SENTRY_ORG`, `VITE_SENTRY_PROJECT`, `VITE_APP_TITLE` | repo variables                               | Build args                                                                                                                                                                                          |
 | `DATABASE_URL_SESSION`                                     | environment secret (`staging`, `production`) | Session pooler (`:5432`) URL, used only by `migrate`                                                                                                                                                |
 
-The WIF binding in [`infra/iam.tf`](../infra/iam.tf) admits only the `main` branch and tag refs, so a pull-request workflow cannot assume the deploy identity. Terraform owns it; apply `infra/` after changing it.
+The WIF binding in [`infra/iam.tf`](../infra/iam.tf) admits only the `main` branch and `v*` release tags, so a pull-request workflow cannot assume the deploy identity. Terraform owns it; apply `infra/` after changing it.
 
 ### Plaintext environment
 
