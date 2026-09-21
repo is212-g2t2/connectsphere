@@ -27,7 +27,6 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 ├── docs/
 │   ├── adrs/             # Architecture decision records
 │   ├── ARCHITECTURE.md   # This file
-│   ├── CHANGELOG.md      # Release history
 │   ├── CONTRIBUTING.md   # Branch, commit, and test conventions
 │   ├── DEPLOYMENT.md     # Environments, release pipeline, local Docker workflow
 │   ├── DESIGN.md         # Visual system and tokens
@@ -59,6 +58,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       ├── api/          # Better Auth handler, health, smoke, upload-url
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
+├── CHANGELOG.md          # Release history
 ├── instrument.server.mjs # Server process preload: Sentry init (logging is configured in src/server.ts)
 ├── AGENTS.md             # Guide for AI agents (CLAUDE.md symlinks to it)
 ├── components.json       # shadcn/ui configuration

@@ -39,7 +39,7 @@ Both services scale to zero, so the first request after idle pays the cold start
 | push to `main`    | staging    | `staging`          | `connectsphere-staging` |
 | release published | production | `production`       | `connectsphere`         |
 
-[`release-please.yml`](../.github/workflows/release-please.yml) runs on every push to `main` and maintains a release PR against `main` from the Conventional Commits. Merging that PR is the release act: it bumps `package.json` and `.release-please-manifest.json`, tags the merge commit and publishes the GitHub Release. Release notes come from the commits; [`docs/CHANGELOG.md`](./CHANGELOG.md) stays hand-curated (`skip-changelog` in [`release-please-config.json`](../release-please-config.json)).
+[`release-please.yml`](../.github/workflows/release-please.yml) runs on every push to `main` and maintains a release PR against `main` from the Conventional Commits. Merging that PR is the release act: it bumps `package.json` and `.release-please-manifest.json`, tags the merge commit and publishes the GitHub Release. Release notes come from the commits; the root [`CHANGELOG.md`](../CHANGELOG.md) stays hand-curated (`skip-changelog` in [`release-please-config.json`](../release-please-config.json)).
 
 The production pipeline deploys the digest the staging deploy of that commit builds, waiting up to 30 minutes for it; it neither rebuilds nor repeats the checks. If staging never publishes the image, the production run fails after the wait — re-run the staging deploy for that commit, then this one; a staging failure after publish does not stop production, whose own stage, migrate and smoke steps gate the revision. [ADR-4](./adrs/ADR-4-trunk-based-main.md) records why.
 

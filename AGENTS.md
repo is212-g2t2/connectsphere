@@ -15,7 +15,7 @@ Read these instead of re-deriving; do not duplicate their content here.
 
 Each kind of content has exactly one home; decide it before writing:
 
-- **What shipped**: `docs/CHANGELOG.md`, curated by the maintainer. Never add, edit, or remove a changelog entry, even for work that ships; acceptance detail stays in the PR.
+- **What shipped**: `CHANGELOG.md` at the repo root, curated by the maintainer. Never add, edit, or remove a changelog entry, even for work that ships; acceptance detail stays in the PR.
 - **Why a decision was made**: `docs/adrs/`.
 - **How to do a procedure**: `docs/DEVELOPMENT.md`, `DEPLOYMENT.md`, `CONTRIBUTING.md`.
 - **What is true about the system now**: `docs/ARCHITECTURE.md`.
