@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+
+import { DEMO_EVENT_NAME } from "../../scripts/seed";
 import { waitForHydration } from "./hydration";
 import { signInAsStaff } from "./staff-auth";
 import { seededBlockDate } from "./venue-fixtures";
@@ -68,13 +70,11 @@ test("[PTR-29][AC5] search launched from an event opens with its requirements pr
   await page.goto("/dashboard");
   await waitForHydration(page);
   const demoEvent = page
-    .getByRole("heading", { name: "ConnectSphere Demo Summit", exact: true })
+    .getByRole("heading", { name: DEMO_EVENT_NAME, exact: true })
     .locator("xpath=ancestor::*[@data-slot='card'][1]");
   await demoEvent.getByRole("link", { name: "Find venues for this event", exact: true }).click();
 
-  await expect(
-    page.getByText("Prefilled from ConnectSphere Demo Summit", { exact: true })
-  ).toBeVisible();
+  await expect(page.getByText(`Prefilled from ${DEMO_EVENT_NAME}`, { exact: true })).toBeVisible();
   await expect(page.getByLabel("Date", { exact: true })).not.toHaveValue("");
   await expect(page.getByLabel("End date", { exact: true })).not.toHaveValue("");
   await expect(page.getByLabel("Expected attendance", { exact: true })).toHaveValue("120");
@@ -83,6 +83,9 @@ test("[PTR-29][AC5] search launched from an event opens with its requirements pr
   );
   await expect(page.getByLabel("Supported layout", { exact: true })).toHaveValue("Theatre seating");
   await expect(page.getByLabel("Required facilities", { exact: true })).toHaveValue(
-    "Projector, stage lighting and registration desk"
+    "Projector, PA system"
   );
+  // The prefill is a real match, not just populated fields: the demo request describes Harbour Hall.
+  const results = page.getByRole("region", { name: "Venue results" });
+  await expect(results.getByRole("link", { name: "Harbour Hall", exact: true })).toBeVisible();
 });

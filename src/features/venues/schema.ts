@@ -34,6 +34,16 @@ export const LAYOUT_LABELS: Record<VenueLayout, string> = {
   other: "Other",
 };
 
+/**
+ * Every layout named in free text, in `VENUE_LAYOUTS` order. Matching is by whole word, so
+ * "another layout" names nothing and "Theatre seating" names theatre. A requested layout matches
+ * a venue when the venue supports at least one of the layouts named.
+ */
+export function parseLayouts(value: string): VenueLayout[] {
+  const words = new Set(value.toLocaleLowerCase("en").split(/[^\p{L}\p{N}]+/u));
+  return VENUE_LAYOUTS.filter(layout => words.has(layout));
+}
+
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
@@ -246,7 +256,6 @@ export const VenueSearchSchema = z
     layout: OptionalSearchText,
     facilities: OptionalSearchText,
   })
-  .default({})
   .superRefine((value, ctx) => {
     const hasStart = value.startTime !== undefined;
     const hasEnd = value.endTime !== undefined;
@@ -288,9 +297,27 @@ export const VenueSearchSchema = z
         message: VENUE_SEARCH_TIME_ORDER_MESSAGE,
       });
     }
+    // A typo'd layout would otherwise silently match no venue, which reads as "none available".
+    if (value.layout !== undefined && parseLayouts(value.layout).length === 0) {
+      ctx.addIssue({ code: "custom", path: ["layout"], message: LAYOUT_MESSAGE });
+    }
   });
 
 export type VenueSearch = z.infer<typeof VenueSearchSchema>;
+
+/**
+ * Whether a start/end pair names a window running past midnight. `VenueSearchSchema` still accepts
+ * `22:00`→`02:00` when a later `endDate` makes the range order valid; suitability refuses it,
+ * because "10:00 to 12:00 on each day" is the only shape a daily hosting window can take. The UI
+ * imports this to explain the refusal rather than showing a silent zero.
+ */
+export function crossesMidnight(filters: Pick<VenueSearch, "startTime" | "endTime">) {
+  return (
+    filters.startTime !== undefined &&
+    filters.endTime !== undefined &&
+    filters.startTime >= filters.endTime
+  );
+}
 
 /** Invalid hand-edited search parameters open a blank form instead of a route error. */
 export function parseVenueSearch(input: unknown): VenueSearch {

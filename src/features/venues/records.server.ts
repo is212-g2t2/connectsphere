@@ -4,6 +4,7 @@ import type { db as Db } from "#/db";
 import { eventRequests, venueUnavailability, venues } from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
+import { eventTiming } from "#/features/events/access";
 import {
   nextCivilDate,
   normalizeDatabaseTimestamp,
@@ -13,9 +14,9 @@ import {
 import type { AvailabilityRecord } from "#/features/venues/availability";
 import {
   DUPLICATE_NAME_MESSAGE,
-  LAYOUT_LABELS,
-  VENUE_LAYOUTS,
+  crossesMidnight,
   parseAvailabilityRequest,
+  parseLayouts,
   parseVenueId,
   parseVenueInput,
   parseVenueSearchRequest,
@@ -47,35 +48,26 @@ function normalise(value: string) {
   return value.trim().toLocaleLowerCase("en");
 }
 
-function escapeRegularExpression(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Dropped from both sides so "Sound and lighting" and "lighting sound" compare equal. */
+const TAG_STOPWORDS = new Set(["and", "or", "the", "with", "plus", "for", "of"]);
+
+function tagWords(value: string) {
+  return normalise(value)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(word => word !== "" && !TAG_STOPWORDS.has(word));
 }
 
-function removeNamedTag(source: string, tag: string) {
-  return source.replace(
-    new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegularExpression(tag)}(?![\\p{L}\\p{N}])`, "gu"),
-    " "
-  );
-}
-
-/** Match all named requirements while preserving valid tags that themselves contain “and”. */
+/**
+ * Every requested word must be one of the venue's stored tag words, in any order, so a stored tag
+ * with extra words still satisfies a shorter request and punctuation is just a separator.
+ *
+ * ponytail: exact word-set matching, no synonyms — "PA system" does not match a stored "Sound and
+ * lighting system". Add a synonym table (or embeddings) if cross-vocabulary recall matters.
+ */
 function hasEveryTag(actual: readonly string[], requested: string | undefined) {
   if (!requested) return true;
-  let remaining = normalise(requested);
-  const tags = actual.map(normalise).toSorted((left, right) => right.length - left.length);
-  for (const tag of tags) remaining = removeNamedTag(remaining, tag);
-  return remaining.replace(/(?:,|;|\r?\n|\band\b|\s)/giu, "") === "";
-}
-
-function canonicalLayout(value: string | undefined): VenueLayout | null {
-  if (!value) return null;
-  const requested = normalise(value);
-  const words = requested.split(/[^\p{L}\p{N}]+/u);
-  return (
-    VENUE_LAYOUTS.find(
-      layout => requested === normalise(LAYOUT_LABELS[layout]) || words.includes(normalise(layout))
-    ) ?? null
-  );
+  const available = new Set(actual.flatMap(tagWords));
+  return tagWords(requested).every(word => available.has(word));
 }
 
 function isAvailable(
@@ -98,11 +90,22 @@ function isAvailable(
 
   if (!filters.startTime || !filters.endTime) return projection.available.length > 0;
 
-  const requestedStart = `${filters.date}T${filters.startTime}:00`;
-  const requestedEnd = `${endDate}T${filters.endTime}:00`;
-  return projection.available.some(
-    period => period.startsAt <= requestedStart && period.endsAt >= requestedEnd
-  );
+  // The times are a daily hosting window, not one continuous period: a two-day search needs each
+  // day covered on its own, and a window running past midnight fits no civil day at all.
+  if (crossesMidnight(filters)) return false;
+
+  for (let day = filters.date; day <= endDate; day = nextCivilDate(day)) {
+    const requestedStart = `${day}T${filters.startTime}:00`;
+    const requestedEnd = `${day}T${filters.endTime}:00`;
+    if (
+      !projection.available.some(
+        period => period.startsAt <= requestedStart && period.endsAt >= requestedEnd
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** PTR-29's AND-composed search rules, kept beside their sole application caller. */
@@ -111,14 +114,15 @@ export function evaluateVenueSuitability(
   filters: VenueSearch,
   blocks: readonly AvailabilityRecord[]
 ) {
+  // Both filters are lower bounds and a venue must clear both, so the stricter one decides.
   const requiredCapacity = Math.max(filters.expectedAttendance ?? 0, filters.capacity ?? 0);
   if (requiredCapacity > venue.maxCapacity) return false;
   if (filters.location && !normalise(venue.location).includes(normalise(filters.location))) {
     return false;
   }
   if (filters.layout) {
-    const layout = canonicalLayout(filters.layout);
-    if (layout === null || !venue.supportedLayouts.includes(layout)) return false;
+    const requested = parseLayouts(filters.layout);
+    if (!requested.some(layout => venue.supportedLayouts.includes(layout))) return false;
   }
   if (!hasEveryTag(venue.accessibilityFeatures, filters.accessibility)) return false;
   if (!hasEveryTag(venue.facilities, filters.facilities)) return false;
@@ -200,17 +204,13 @@ export async function handleSearchVenues(data: unknown, user: SessionUser, datab
     if (!record) throw new AuthorizationError("Forbidden");
     event = { id: record.id, name: record.name };
 
-    const proposed = record.proposedDates.find(
-      value => value.start !== undefined && value.end !== undefined
-    );
-    const start = proposed?.start;
-    const end = proposed?.end;
+    const timing = eventTiming(record.proposedDates);
     defaults = {
       eventId,
-      date: start?.slice(0, 10),
-      endDate: end?.slice(0, 10),
-      startTime: start?.slice(11),
-      endTime: end?.slice(11),
+      date: timing.eventDate ?? undefined,
+      endDate: timing.endDate ?? undefined,
+      startTime: timing.startTime ?? undefined,
+      endTime: timing.endTime ?? undefined,
       expectedAttendance: record.expectedAttendance ?? undefined,
       layout: record.layout || undefined,
       accessibility: record.accessibility || undefined,
@@ -218,7 +218,13 @@ export async function handleSearchVenues(data: unknown, user: SessionUser, datab
     };
   }
 
-  const filters = { ...defaults, ...requested };
+  // A hand-edited or SSR URL can carry a key whose value is `undefined`; spreading it would
+  // clobber the event default, so only supplied values survive the merge.
+  const suppliedValues: Record<string, unknown> = requested;
+  const supplied = Object.fromEntries(
+    Object.entries(suppliedValues).filter(([, value]) => value !== undefined)
+  ) as Partial<VenueSearch>;
+  const filters: VenueSearch = { ...defaults, ...supplied };
   const venueRows = await handleListVenues(database);
   let blocksByVenue = new Map<number, VenueBlock[]>();
 

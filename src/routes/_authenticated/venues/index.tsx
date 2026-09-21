@@ -30,14 +30,7 @@ export const Route = createFileRoute("/_authenticated/venues/")({
       venues: await unwrapRefusal(listVenues(), "Venues could not be loaded. Try again."),
     };
   },
-  component: () => {
-    const result = Route.useLoaderData();
-    return (
-      <VenueListPage
-        key={JSON.stringify(result.filters)}
-        user={Route.useRouteContext().user}
-        result={result}
-      />
-    );
-  },
+  component: () => (
+    <VenueListPage user={Route.useRouteContext().user} result={Route.useLoaderData()} />
+  ),
 });

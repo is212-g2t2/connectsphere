@@ -124,13 +124,24 @@ describe("eventTiming", () => {
         { start: "2026-10-01T09:00" },
         { start: "2026-11-02T10:00", end: "2026-11-02T12:30" },
       ])
-    ).toEqual({ eventDate: "2026-11-02", startTime: "10:00", endTime: "12:30" });
+    ).toEqual({
+      eventDate: "2026-11-02",
+      endDate: "2026-11-02",
+      startTime: "10:00",
+      endTime: "12:30",
+    });
   });
 
   it("returns nothing when no window is complete", () => {
-    expect(eventTiming([])).toEqual({ eventDate: null, startTime: null, endTime: null });
+    expect(eventTiming([])).toEqual({
+      eventDate: null,
+      endDate: null,
+      startTime: null,
+      endTime: null,
+    });
     expect(eventTiming([{ start: "2026-10-01T09:00" }, { end: "2026-10-01T10:00" }])).toEqual({
       eventDate: null,
+      endDate: null,
       startTime: null,
       endTime: null,
     });

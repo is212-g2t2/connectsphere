@@ -65,10 +65,11 @@ export function isRegistrationWindowOpen(
 export function eventTiming(dates: Array<{ start?: string; end?: string }>) {
   const window = dates.find(date => date.start !== undefined && date.end !== undefined);
   if (window?.start === undefined || window.end === undefined) {
-    return { eventDate: null, startTime: null, endTime: null };
+    return { eventDate: null, endDate: null, startTime: null, endTime: null };
   }
   return {
     eventDate: window.start.slice(0, 10),
+    endDate: window.end.slice(0, 10),
     startTime: window.start.slice(11),
     endTime: window.end.slice(11),
   };
@@ -100,6 +101,7 @@ export interface EventProjection {
     name?: string;
     description?: string;
     eventDate: string | null;
+    endDate?: string | null;
     startTime: string | null;
     endTime: string | null;
     status?: string;

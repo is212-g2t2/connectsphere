@@ -44,6 +44,7 @@ describe("venue search handler (PTR-29)", () => {
   let pool: Pool;
   let database: ReturnType<typeof drizzle<typeof schema>>;
   let eventId: number;
+  let crossMidnightEventId: number;
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -96,7 +97,7 @@ describe("venue search handler (PTR-29)", () => {
         assignedCoordinatorId: users.coordinator.id,
         assignedAt: new Date(),
         eventName: "PTR-29 Event",
-        proposedDates: [{ start: "2027-03-15T22:00", end: "2027-03-16T02:00" }],
+        proposedDates: [{ start: "2027-03-15T10:00", end: "2027-03-15T12:00" }],
         expectedAttendance: 120,
         roomLayoutPreference: "Theatre seating",
         accessibilityRequirements: "Step-free access",
@@ -104,6 +105,23 @@ describe("venue search handler (PTR-29)", () => {
       })
       .returning({ id: schema.eventRequests.id });
     eventId = event.id;
+
+    const [crossMidnightEvent] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: users.organiser.id,
+        status: "submitted",
+        submittedAt: new Date(),
+        assignedCoordinatorId: users.coordinator.id,
+        assignedAt: new Date(),
+        eventName: "PTR-29 Cross-midnight Event",
+        proposedDates: [{ start: "2027-03-16T22:00", end: "2027-03-17T02:00" }],
+        expectedAttendance: 120,
+        roomLayoutPreference: "Theatre seating",
+        venueRequirements: "Projector, PA system",
+      })
+      .returning({ id: schema.eventRequests.id });
+    crossMidnightEventId = crossMidnightEvent.id;
   });
 
   it("ANDs every supplied filter and returns only matching venue records", async () => {
@@ -163,15 +181,60 @@ describe("venue search handler (PTR-29)", () => {
     expect(result.filters).toMatchObject({
       eventId,
       date: "2027-03-15",
-      endDate: "2027-03-16",
-      startTime: "22:00",
-      endTime: "02:00",
+      endDate: "2027-03-15",
+      startTime: "10:00",
+      endTime: "12:00",
       expectedAttendance: 120,
       accessibility: "Step-free access",
       layout: "Theatre seating",
       facilities: "Projector, PA system",
     });
+    // The same-day hotel window is matchable, so the prefill returns the venue it describes.
+    expect(result.venues.map(venue => venue.name)).toContain(venueNames[0]);
+  });
+
+  it("prefills a cross-midnight event but matches no venue", async () => {
+    const result = await handleSearchVenues(
+      { eventId: crossMidnightEventId },
+      session(users.coordinator),
+      database as never
+    );
+
+    expect(result.filters).toMatchObject({
+      eventId: crossMidnightEventId,
+      date: "2027-03-16",
+      endDate: "2027-03-17",
+      startTime: "22:00",
+      endTime: "02:00",
+    });
+    // Suitability refuses a window that runs past midnight, whatever the venue's hours.
     expect(result.venues).toEqual([]);
+  });
+
+  it("matches a venue open across every day of a multi-day window", async () => {
+    const result = await handleSearchVenues(
+      {
+        date: "2027-03-15",
+        endDate: "2027-03-16",
+        startTime: "10:00",
+        endTime: "12:00",
+        location: "East Wing",
+      },
+      session(users.coordinator),
+      database as never
+    );
+
+    expect(result.venues.map(venue => venue.name)).toEqual([venueNames[0]]);
+  });
+
+  it("keeps an event default when a hand-edited parameter is explicitly undefined", async () => {
+    const result = await handleSearchVenues(
+      { eventId, date: undefined },
+      session(users.coordinator),
+      database as never
+    );
+
+    expect(result.filters.date).toBe("2027-03-15");
   });
 
   it("refuses to expose another Coordinator's event requirements", async () => {

@@ -271,6 +271,33 @@ describe("VenueListPage", () => {
     expect(screen.getByText("No venues recorded yet.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "New venue" })).toBeTruthy();
   });
+
+  it.each(["venue_staff", "technical_support_staff"])(
+    "shows %s the catalogue without the search form or its description",
+    role => {
+      render(
+        <VenueListPage
+          user={userWithRole(role)}
+          result={{ event: null, filters: {}, venues: [venue] }}
+        />
+      );
+
+      expect(screen.getByRole("region", { name: "Venue results" })).toBeTruthy();
+      expect(screen.getByRole("link", { name: "Great Hall" })).toBeTruthy();
+      expect(
+        screen.getByText("ConnectSphere's rooms and spaces, and what each one offers.")
+      ).toBeTruthy();
+      expect(screen.queryByText("Search venues")).toBeNull();
+      expect(
+        screen.queryByText("Every result must satisfy every requirement you apply.")
+      ).toBeNull();
+      expect(
+        screen.queryByText(
+          "Search ConnectSphere's rooms and spaces against an event's hard requirements."
+        )
+      ).toBeNull();
+    }
+  );
 });
 
 describe("VenueDetailPage", () => {

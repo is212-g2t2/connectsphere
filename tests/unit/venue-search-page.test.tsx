@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -45,6 +45,30 @@ function result(overrides: Partial<VenueSearchResult> = {}): VenueSearchResult {
   };
 }
 
+const FILTERS = [
+  "Date",
+  "End date",
+  "Start time",
+  "End time",
+  "Expected attendance",
+  "Location",
+  "Minimum capacity",
+  "Accessibility features",
+  "Supported layout",
+  "Required facilities",
+];
+
+/** Types into the controlled input the way a person does, then reads back what it holds. */
+async function fill(actor: ReturnType<typeof userEvent.setup>, label: string, value: string) {
+  const input = screen.getByLabelText<HTMLInputElement>(label, { exact: true });
+  await actor.clear(input);
+  await actor.type(input, value);
+}
+
+function fieldValue(label: string) {
+  return screen.getByLabelText<HTMLInputElement>(label, { exact: true }).value;
+}
+
 beforeEach(() => {
   navigate.mockClear();
 });
@@ -53,19 +77,14 @@ describe("VenueListPage search", () => {
   it("offers every PTR-29 filter and shows the result's key facilities", () => {
     render(<VenueListPage user={user} result={result()} />);
 
-    expect(screen.getByLabelText("Date")).toBeTruthy();
-    expect(screen.getByLabelText("End date")).toBeTruthy();
-    expect(screen.getByLabelText("Start time")).toBeTruthy();
-    expect(screen.getByLabelText("End time")).toBeTruthy();
-    expect(screen.getByLabelText("Expected attendance")).toBeTruthy();
-    expect(screen.getByLabelText("Location")).toBeTruthy();
-    expect(screen.getByLabelText("Minimum capacity")).toBeTruthy();
-    expect(screen.getByLabelText("Accessibility features")).toBeTruthy();
-    expect(screen.getByLabelText("Supported layout")).toBeTruthy();
-    expect(screen.getByLabelText("Required facilities")).toBeTruthy();
+    for (const label of FILTERS) {
+      expect(screen.getByLabelText(label, { exact: true })).toBeTruthy();
+    }
 
     const results = screen.getByRole("region", { name: "Venue results" });
     expect(within(results).getByRole("link", { name: "Great Hall" })).toBeTruthy();
+    expect(within(results).getByText("East Wing")).toBeTruthy();
+    expect(within(results).getByText("200")).toBeTruthy();
     expect(within(results).getByText("Projector, PA system")).toBeTruthy();
   });
 
@@ -91,13 +110,26 @@ describe("VenueListPage search", () => {
     );
 
     expect(screen.getByText("Prefilled from Annual summit")).toBeTruthy();
-    expect(screen.getByLabelText("Date").getAttribute("value")).toBe("2026-10-05");
-    expect(screen.getByLabelText("End date").getAttribute("value")).toBe("2026-10-06");
-    expect(screen.getByLabelText("Expected attendance").getAttribute("value")).toBe("120");
-    expect(screen.getByLabelText("Supported layout").getAttribute("value")).toBe("Theatre seating");
-    expect(screen.getByLabelText("Required facilities").getAttribute("value")).toBe(
-      "Projector, PA system"
+    expect(fieldValue("Date")).toBe("2026-10-05");
+    expect(fieldValue("End date")).toBe("2026-10-06");
+    expect(fieldValue("Expected attendance")).toBe("120");
+    expect(fieldValue("Supported layout")).toBe("Theatre seating");
+    expect(fieldValue("Required facilities")).toBe("Projector, PA system");
+  });
+
+  it("follows a new filters prop into the form values", () => {
+    const { rerender } = render(<VenueListPage user={user} result={result()} />);
+    expect(fieldValue("Location")).toBe("");
+
+    rerender(
+      <VenueListPage
+        user={user}
+        result={result({ filters: { location: "East Wing", capacity: 150 } })}
+      />
     );
+
+    expect(fieldValue("Location")).toBe("East Wing");
+    expect(fieldValue("Minimum capacity")).toBe("150");
   });
 
   it("shows an explicit empty result without an error", () => {
@@ -112,26 +144,52 @@ describe("VenueListPage search", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("explains an empty window that crosses midnight instead of the generic copy", () => {
+    render(
+      <VenueListPage
+        user={user}
+        result={result({
+          filters: { date: "2026-10-05", startTime: "22:00", endTime: "02:00" },
+          venues: [],
+        })}
+      />
+    );
+
+    expect(screen.getByText("A search window cannot cross midnight.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Venue opening hours end on the same day. Choose an end time later than the start time."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByText("No venues match these requirements.")).toBeNull();
+  });
+
   it("applies the form through route search parameters", async () => {
     const actor = userEvent.setup();
-    render(<VenueListPage user={user} result={result()} />);
+    render(
+      <VenueListPage
+        user={user}
+        result={result({ event: { id: 41, name: "Annual summit" }, filters: { eventId: 41 } })}
+      />
+    );
 
-    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-10-05" } });
-    fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "10:00" } });
-    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "12:00" } });
-    fireEvent.change(screen.getByLabelText("Expected attendance"), {
-      target: { value: "120" },
-    });
+    await fill(actor, "Date", "2026-10-05");
+    await fill(actor, "Start time", "10:00");
+    await fill(actor, "End time", "12:00");
+    await fill(actor, "Expected attendance", "120");
     await actor.click(screen.getByRole("button", { name: "Search venues" }));
 
-    expect(navigate).toHaveBeenCalledWith({
-      to: "/venues",
-      search: {
-        date: "2026-10-05",
-        startTime: "10:00",
-        endTime: "12:00",
-        expectedAttendance: 120,
-      },
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/venues",
+        search: {
+          eventId: 41,
+          date: "2026-10-05",
+          startTime: "10:00",
+          endTime: "12:00",
+          expectedAttendance: 120,
+        },
+      });
     });
   });
 
@@ -139,14 +197,15 @@ describe("VenueListPage search", () => {
     const actor = userEvent.setup();
     render(<VenueListPage user={user} result={result()} />);
 
-    const startTime = screen.getByLabelText("Start time");
-    await actor.type(startTime, "10:00");
+    await fill(actor, "Start time", "10:00");
     await actor.click(screen.getByRole("button", { name: "Search venues" }));
-    expect(screen.getByRole("alert")).toBeTruthy();
+
+    expect(screen.getByRole("alert").textContent).toBe("Choose both a start and end time");
+    expect(navigate).not.toHaveBeenCalled();
 
     await actor.click(screen.getByRole("button", { name: "Clear filters" }));
 
-    expect(new FormData(startTime.closest("form") ?? undefined).get("startTime")).toBe("");
+    expect(fieldValue("Start time")).toBe("");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(navigate).toHaveBeenCalledWith({ to: "/venues", search: {} });
   });
