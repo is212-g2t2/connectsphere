@@ -117,6 +117,28 @@ describe("DashboardPage", () => {
     expect(screen.getByText("pending")).toBeTruthy();
   });
 
+  it("lets a Coordinator start venue search from an assigned event", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("event_coordinator")}
+        events={[
+          {
+            access: "coordinator",
+            event: {
+              id: 41,
+              name: "Annual summit",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "Find venues for this event" })).toBeTruthy();
+  });
+
   /**
    * PTR-71: the upload's `status`/`uploadedKey`/`errorMsg` trio is now one action, so a refused
    * presign cannot leave the trigger reading "Uploading…" with a stale key still on screen.
@@ -218,15 +240,23 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Delete account" }));
     await user.click(screen.getByRole("button", { name: "Yes, delete my account" }));
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Deletion is disabled"));
-    const confirm = screen.getByRole("button", { name: "Yes, delete my account" });
-    expect(confirm.hasAttribute("disabled")).toBe(false);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Yes, delete my account" }).hasAttribute("disabled")
+      ).toBe(false)
+    );
+    expect(toast.error).toHaveBeenCalledWith("Deletion is disabled");
   });
 });
 
 describe("VenueListPage", () => {
   it("lists the loaded venues with their layouts spelled out", () => {
-    render(<VenueListPage user={userWithRole("event_coordinator")} venues={[venue]} />);
+    render(
+      <VenueListPage
+        user={userWithRole("event_coordinator")}
+        result={{ event: null, filters: {}, venues: [venue] }}
+      />
+    );
 
     expect(screen.getByRole("link", { name: "Great Hall" })).toBeTruthy();
     expect(screen.getByText("Theatre, Banquet")).toBeTruthy();
@@ -234,7 +264,12 @@ describe("VenueListPage", () => {
   });
 
   it("offers the create link only to a role holding venue:create", () => {
-    render(<VenueListPage user={userWithRole("venue_staff")} venues={[]} />);
+    render(
+      <VenueListPage
+        user={userWithRole("venue_staff")}
+        result={{ event: null, filters: {}, venues: [] }}
+      />
+    );
 
     expect(screen.getByText("No venues recorded yet.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "New venue" })).toBeTruthy();

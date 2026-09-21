@@ -2,28 +2,9 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { asc, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
-
-import * as schema from "#/db/schema";
-import { SEED_STAFF_PASSWORD } from "../../scripts/seed";
 import { waitForHydration } from "./hydration";
-
-const STAFF_ACCOUNTS = {
-  event_coordinator: "coordinator.seed@example.com",
-  venue_staff: "venue.staff.seed@example.com",
-  technical_support_staff: "tech.support.seed@example.com",
-} as const;
-
-type StaffRole = keyof typeof STAFF_ACCOUNTS;
-
-async function signInAsStaff(page: Page, role: StaffRole) {
-  const response = await page.request.post("/api/auth/sign-in/email", {
-    data: { email: STAFF_ACCOUNTS[role], password: SEED_STAFF_PASSWORD },
-  });
-  expect(response.ok(), await response.text()).toBe(true);
-}
+import { signInAsStaff } from "./staff-auth";
+import { seededBlockDate } from "./venue-fixtures";
 
 async function signUpAsExternal(page: Page, role: "attendee" | "event_organiser") {
   const response = await page.request.post("/api/auth/sign-up/email", {
@@ -47,23 +28,6 @@ async function selectLiveRange(page: Page, venueName: string, start: string, end
   await page.getByLabel("Start date", { exact: true }).fill(start);
   await page.getByLabel("End date", { exact: true }).fill(end);
   await page.getByRole("button", { name: "Show availability" }).click();
-}
-
-async function seededBlockDate(venueName: string): Promise<string> {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  try {
-    const [period] = await drizzle(pool, { schema })
-      .select({ startsAt: schema.venueUnavailability.startsAt })
-      .from(schema.venueUnavailability)
-      .innerJoin(schema.venues, eq(schema.venueUnavailability.venueId, schema.venues.id))
-      .where(eq(schema.venues.name, venueName))
-      .orderBy(asc(schema.venueUnavailability.startsAt))
-      .limit(1);
-    if (!period) throw new Error(`No seeded block found for ${venueName}`);
-    return period.startsAt.slice(0, 10);
-  } finally {
-    await pool.end();
-  }
 }
 
 test("[PTR-28-TC01-LIVE][AC1] coordinator loads seeded venues and renders a schedule", async ({

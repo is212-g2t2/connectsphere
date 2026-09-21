@@ -2,15 +2,9 @@ import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { DEMO_EVENT_NAME, SEED_STAFF_PASSWORD } from "../../scripts/seed";
+import { DEMO_EVENT_NAME } from "../../scripts/seed";
 import { waitForHydration } from "./hydration";
-
-async function signInAsSeeded(page: Page, email: string): Promise<void> {
-  const response = await page.request.post("/api/auth/sign-in/email", {
-    data: { email, password: SEED_STAFF_PASSWORD },
-  });
-  expect(response.ok(), await response.text()).toBe(true);
-}
+import { signInWithSeedPassword as signInAsSeeded } from "./staff-auth";
 
 async function signUpAsOrganiser(page: Page): Promise<void> {
   const response = await page.request.post("/api/auth/sign-up/email", {

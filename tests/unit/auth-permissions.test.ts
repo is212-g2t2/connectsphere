@@ -19,6 +19,7 @@ const EXPECTED: Record<
     event_request: boolean;
     coordinate: boolean;
     venueRead: boolean;
+    venueSearch: boolean;
     venueCreate: boolean;
     venueUpdate: boolean;
   }
@@ -28,6 +29,7 @@ const EXPECTED: Record<
     event_request: false,
     coordinate: false,
     venueRead: false,
+    venueSearch: false,
     venueCreate: false,
     venueUpdate: false,
   },
@@ -36,6 +38,7 @@ const EXPECTED: Record<
     event_request: true,
     coordinate: false,
     venueRead: false,
+    venueSearch: false,
     venueCreate: false,
     venueUpdate: false,
   },
@@ -44,6 +47,7 @@ const EXPECTED: Record<
     event_request: false,
     coordinate: true,
     venueRead: true,
+    venueSearch: true,
     venueCreate: false,
     venueUpdate: false,
   },
@@ -52,6 +56,7 @@ const EXPECTED: Record<
     event_request: false,
     coordinate: false,
     venueRead: true,
+    venueSearch: false,
     venueCreate: true,
     venueUpdate: true,
   },
@@ -60,6 +65,7 @@ const EXPECTED: Record<
     event_request: false,
     coordinate: false,
     venueRead: true,
+    venueSearch: false,
     venueCreate: false,
     venueUpdate: false,
   },
@@ -71,6 +77,7 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26)", () => {
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
     expect(can(role, { event_request: ["coordinate"] })).toBe(EXPECTED[role].coordinate);
     expect(can(role, { venue: ["read"] })).toBe(EXPECTED[role].venueRead);
+    expect(can(role, { venue: ["search"] })).toBe(EXPECTED[role].venueSearch);
     expect(can(role, { venue: ["create"] })).toBe(EXPECTED[role].venueCreate);
     expect(can(role, { venue: ["update"] })).toBe(EXPECTED[role].venueUpdate);
   });

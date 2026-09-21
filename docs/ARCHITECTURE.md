@@ -49,7 +49,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── event-requests/ # Requirement capture, drafts, submission
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view
-│   │   └── venues/       # Venue catalogue and availability
+│   │   └── venues/       # Venue catalogue, requirements search, and availability
 │   ├── hooks/            # Client hooks shared across features
 │   ├── lib/              # Shared integrations (auth, mail, storage, logger, SEO)
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata
@@ -111,10 +111,11 @@ Source of truth is `src/features/auth/permissions.ts`, held to this table by `te
 | `event_request:create`     |    —     |       ✅        |         —         |      —      |            —            |
 | `event_request:coordinate` |    —     |        —        |        ✅         |      —      |            —            |
 | `venue:read`               |    —     |        —        |        ✅         |     ✅      |           ✅            |
+| `venue:search`             |    —     |        —        |        ✅         |      —      |            —            |
 | `venue:create`             |    —     |        —        |         —         |     ✅      |            —            |
 | `venue:update`             |    —     |        —        |         —         |     ✅      |            —            |
 
-`attendee` holds an empty role: `ac.newRole({})` authorizes nothing, the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one: both roles are self-assignable, so anyone set on uploading can register again as an organiser. `event_request:coordinate` is deliberately disjoint from `create`; the `venue` functions are the internal/external split, with both external roles refused the catalogue. Equipment functions are absent because the resource does not exist yet.
+`attendee` holds an empty role: `ac.newRole({})` authorizes nothing, the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one: both roles are self-assignable, so anyone set on uploading can register again as an organiser. `event_request:coordinate` is deliberately disjoint from `create`. All three internal roles may read the venue catalogue and availability; only Event Coordinators may search it against event requirements, and only Venue Staff may create or update records. Equipment functions are absent because the resource does not exist yet.
 
 ### Enforcing it
 
