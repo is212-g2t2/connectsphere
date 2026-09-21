@@ -20,8 +20,6 @@ export type Coordinator = Awaited<ReturnType<typeof listCoordinators>>[number];
 export type CoordinationRequest = Awaited<ReturnType<typeof getCoordinationRequest>>;
 /** A request already assigned to the signed-in Coordinator, as the coordination page sees it. */
 export type AssignedEventRequest = Awaited<ReturnType<typeof listAssignedEventRequests>>[number];
-/** A request after the Coordinator has taken it up for review (PTR-17 criterion 3). */
-export type ReviewedEventRequest = Awaited<ReturnType<typeof takeUpEventRequestForReview>>;
 
 export const listAssignedEventRequests = createServerFn({ method: "GET" })
   .middleware([requireEventRequestCoordinate])

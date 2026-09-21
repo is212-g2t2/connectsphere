@@ -1,4 +1,4 @@
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
@@ -32,21 +32,22 @@ export async function handleListEvents(
   const now = new Date();
 
   // The event is the event request (PTR-21/24's event record replaces this). Each role reaches
-  // only the rows its relationship names, filtered in SQL, and a draft is not yet an event for
-  // anyone. Attendees are narrowed to registration-enabled requests here; the window is compared
-  // in `isRegistrationWindowOpen`, which needs the stored local strings.
-  const submitted = eq(eventRequests.status, "submitted");
+  // only the rows its relationship names, filtered in SQL: internal roles see every non-draft
+  // status, while attendees keep `submitted` as the stand-in for PTR-44's `confirmed` (PTR-8).
+  // The window check lives in `isRegistrationWindowOpen`, which needs the stored local strings.
+  const visible = ne(eventRequests.status, "draft");
+  const attendeeVisible = eq(eventRequests.status, "submitted");
   let relationship: SQL | undefined;
   switch (role) {
     case "event_organiser":
-      relationship = and(submitted, eq(eventRequests.organiserId, user.id));
+      relationship = and(visible, eq(eventRequests.organiserId, user.id));
       break;
     case "event_coordinator":
-      relationship = and(submitted, eq(eventRequests.assignedCoordinatorId, user.id));
+      relationship = and(visible, eq(eventRequests.assignedCoordinatorId, user.id));
       break;
     case "venue_staff":
       relationship = and(
-        submitted,
+        visible,
         inArray(
           eventRequests.id,
           database
@@ -58,7 +59,7 @@ export async function handleListEvents(
       break;
     case "technical_support_staff":
       relationship = and(
-        submitted,
+        visible,
         inArray(
           eventRequests.id,
           database
@@ -70,7 +71,7 @@ export async function handleListEvents(
       break;
     case "attendee":
       relationship = and(
-        submitted,
+        attendeeVisible,
         or(
           eq(eventRequests.registrationEnabled, true),
           inArray(

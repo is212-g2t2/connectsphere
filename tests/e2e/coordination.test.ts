@@ -45,6 +45,38 @@ async function register(page: Page, role: "event_organiser" | "event_coordinator
   return account;
 }
 
+/**
+ * Seeds a submitted request already assigned to `coordinatorId`. The organiser id is pushed onto
+ * `ids` before the request insert, so a failed insert cannot leak it.
+ */
+async function seedAssignedRequest(
+  ids: string[],
+  coordinatorId: string,
+  overrides: Partial<typeof schema.eventRequests.$inferInsert> = {}
+) {
+  const organiserId = randomUUID();
+  await database.insert(schema.user).values({
+    id: organiserId,
+    name: "Seeded Organiser",
+    email: `${organiserId}@example.invalid`,
+    role: "event_organiser",
+  });
+  ids.push(organiserId);
+  const [request] = await database
+    .insert(schema.eventRequests)
+    .values({
+      organiserId,
+      eventName: `Assigned ${randomUUID()}`,
+      status: "submitted",
+      submittedAt: new Date(),
+      assignedCoordinatorId: coordinatorId,
+      assignedAt: new Date(),
+      ...overrides,
+    })
+    .returning();
+  return request;
+}
+
 test("redirects unauthenticated visitors from the coordination detail", async ({ page }) => {
   await page.goto("/coordination/1");
   await expect(page).toHaveURL(/\/login/);
@@ -180,27 +212,13 @@ test("lists a submitted request assigned to the Coordinator", async ({ page }) =
   try {
     const coordinator = await register(page, "event_coordinator", "List Coordinator");
     ids.push(coordinator.id);
-    const organiserId = randomUUID();
-    ids.push(organiserId);
-    await database.insert(schema.user).values({
-      id: organiserId,
-      name: "List Organiser",
-      email: `${organiserId}@example.invalid`,
-      role: "event_organiser",
-    });
-    const eventName = `Assigned List ${randomUUID()}`;
-    await database.insert(schema.eventRequests).values({
-      organiserId,
-      eventName,
-      status: "submitted",
-      submittedAt: new Date(),
-      assignedCoordinatorId: coordinator.id,
-      assignedAt: new Date(),
+    const request = await seedAssignedRequest(ids, coordinator.id, {
+      eventName: `Assigned List ${randomUUID()}`,
     });
 
     await page.goto("/coordination");
     await expect(page.getByRole("heading", { name: "Assigned to you" })).toBeVisible();
-    await expect(page.getByRole("link", { name: eventName })).toBeVisible();
+    await expect(page.getByRole("link", { name: request.eventName })).toBeVisible();
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
   }
@@ -215,42 +233,26 @@ test("shows every organiser-supplied field on an assigned request", async ({ pag
   try {
     const coordinator = await register(page, "event_coordinator", "Detail Coordinator");
     ids.push(coordinator.id);
-    const organiserId = randomUUID();
-    ids.push(organiserId);
-    await database.insert(schema.user).values({
-      id: organiserId,
-      name: "Detail Organiser",
-      email: `${organiserId}@example.invalid`,
-      role: "event_organiser",
+    const request = await seedAssignedRequest(ids, coordinator.id, {
+      eventName: `Full Detail ${randomUUID()}`,
+      purpose: "Quarterly town hall",
+      description: "All-staff briefing with Q&A",
+      eventType: "Town hall",
+      expectedAttendance: 150,
+      venueRequirements: "Auditorium with stage",
+      roomLayoutPreference: "Theatre",
+      accessibilityRequirements: "Wheelchair-accessible seating",
+      specialArrangements: "Live captioning",
+      proposedDates: [{ start: "2026-10-05T09:00", end: "2026-10-05T11:00" }],
+      equipmentRequirements: [{ type: "Projector", quantity: 2 }],
+      registrationEnabled: true,
+      registrationCapacity: 150,
+      registrationOpensAt: "2024-05-01T09:00",
+      registrationClosesAt: "2024-05-10T17:00",
     });
-    const eventName = `Full Detail ${randomUUID()}`;
-    const [request] = await database
-      .insert(schema.eventRequests)
-      .values({
-        organiserId,
-        eventName,
-        status: "submitted",
-        submittedAt: new Date(),
-        assignedCoordinatorId: coordinator.id,
-        assignedAt: new Date(),
-        purpose: "Quarterly town hall",
-        description: "All-staff briefing with Q&A",
-        eventType: "Town hall",
-        expectedAttendance: 150,
-        venueRequirements: "Auditorium with stage",
-        roomLayoutPreference: "Theatre",
-        accessibilityRequirements: "Wheelchair-accessible seating",
-        specialArrangements: "Live captioning",
-        equipmentRequirements: [{ type: "Projector", quantity: 2 }],
-        registrationEnabled: true,
-        registrationCapacity: 150,
-        registrationOpensAt: "2024-05-01T09:00",
-        registrationClosesAt: "2024-05-10T17:00",
-      })
-      .returning();
 
     await page.goto(`/coordination/${request.id}`);
-    await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
+    await expect(page.getByRole("heading", { name: request.eventName })).toBeVisible();
     await expect(fieldValue(page, "Purpose")).toHaveText("Quarterly town hall");
     await expect(fieldValue(page, "Description")).toHaveText("All-staff briefing with Q&A");
     await expect(fieldValue(page, "Type of event")).toHaveText("Town hall");
@@ -261,8 +263,14 @@ test("shows every organiser-supplied field on an assigned request", async ({ pag
       "Wheelchair-accessible seating"
     );
     await expect(fieldValue(page, "Special arrangements")).toHaveText("Live captioning");
-    await expect(fieldValue(page, "Equipment requirements")).toContainText("Projector");
+    await expect(fieldValue(page, "Proposed dates and times")).toHaveText(
+      "5 Oct 2026, 09:00 – 11:00"
+    );
+    await expect(fieldValue(page, "Equipment requirements")).toHaveText("Projector × 2");
     await expect(fieldValue(page, "Attendee registration")).toContainText("Capacity 150");
+    await expect(fieldValue(page, "Attendee registration")).toContainText(
+      "Opens 1 May 2024, 09:00, closes 10 May 2024, 17:00"
+    );
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
   }
@@ -273,31 +281,13 @@ test("takes an assigned request up for review", async ({ page }) => {
   try {
     const coordinator = await register(page, "event_coordinator", "Review Coordinator");
     ids.push(coordinator.id);
-    const organiserId = randomUUID();
-    ids.push(organiserId);
-    await database.insert(schema.user).values({
-      id: organiserId,
-      name: "Review Organiser",
-      email: `${organiserId}@example.invalid`,
-      role: "event_organiser",
-    });
-    const eventName = `Take Up ${randomUUID()}`;
-    const [request] = await database
-      .insert(schema.eventRequests)
-      .values({
-        organiserId,
-        eventName,
-        status: "submitted",
-        submittedAt: new Date(),
-        assignedCoordinatorId: coordinator.id,
-        assignedAt: new Date(),
-      })
-      .returning();
+    const request = await seedAssignedRequest(ids, coordinator.id);
 
     await page.goto(`/coordination/${request.id}`);
     await waitForHydration(page);
     await page.getByRole("button", { name: "Take up for review" }).click();
     await expect(page).toHaveURL(/\/coordination\/?$/);
+    await expect(page.getByRole("link", { name: request.eventName })).toBeVisible();
 
     const [stored] = await database
       .select()
@@ -314,29 +304,13 @@ test("hides the take-up-for-review action once already under review", async ({ p
   try {
     const coordinator = await register(page, "event_coordinator", "Already Reviewing Coordinator");
     ids.push(coordinator.id);
-    const organiserId = randomUUID();
-    ids.push(organiserId);
-    await database.insert(schema.user).values({
-      id: organiserId,
-      name: "Already Reviewing Organiser",
-      email: `${organiserId}@example.invalid`,
-      role: "event_organiser",
+    const request = await seedAssignedRequest(ids, coordinator.id, {
+      eventName: `Already Reviewing ${randomUUID()}`,
+      status: "under_review",
     });
-    const eventName = `Already Reviewing ${randomUUID()}`;
-    const [request] = await database
-      .insert(schema.eventRequests)
-      .values({
-        organiserId,
-        eventName,
-        status: "under_review",
-        submittedAt: new Date(),
-        assignedCoordinatorId: coordinator.id,
-        assignedAt: new Date(),
-      })
-      .returning();
 
     await page.goto(`/coordination/${request.id}`);
-    await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
+    await expect(page.getByRole("heading", { name: request.eventName })).toBeVisible();
     await expect(page.getByRole("button", { name: "Take up for review" })).toHaveCount(0);
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
@@ -356,29 +330,12 @@ test("does not list or expose another Coordinator's assigned request", async ({
     ids.push(viewer.id);
     const owner = await register(otherPage, "event_coordinator", "Excluded Owner");
     ids.push(owner.id);
-    const organiserId = randomUUID();
-    ids.push(organiserId);
-    await database.insert(schema.user).values({
-      id: organiserId,
-      name: "Excluded Organiser",
-      email: `${organiserId}@example.invalid`,
-      role: "event_organiser",
+    const request = await seedAssignedRequest(ids, owner.id, {
+      eventName: `Owned By Other ${randomUUID()}`,
     });
-    const eventName = `Owned By Other ${randomUUID()}`;
-    const [request] = await database
-      .insert(schema.eventRequests)
-      .values({
-        organiserId,
-        eventName,
-        status: "submitted",
-        submittedAt: new Date(),
-        assignedCoordinatorId: owner.id,
-        assignedAt: new Date(),
-      })
-      .returning();
 
     await page.goto("/coordination");
-    await expect(page.getByRole("link", { name: eventName })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: request.eventName })).toHaveCount(0);
 
     await page.goto(`/coordination/${request.id}`);
     await expect(

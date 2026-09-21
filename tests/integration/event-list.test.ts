@@ -97,6 +97,7 @@ interface Fixtures {
   closed: typeof schema.eventRequests.$inferSelect;
   foreign: typeof schema.eventRequests.$inferSelect;
   draft: typeof schema.eventRequests.$inferSelect;
+  review: typeof schema.eventRequests.$inferSelect;
 }
 
 describe("event list handler (PTR-8)", () => {
@@ -185,11 +186,33 @@ describe("event list handler (PTR-8)", () => {
       })
       .returning();
 
-    await database.insert(schema.venueRequests).values({
-      id: "el-venue-main",
-      eventId: main.id,
-      assignedStaffId: fixtureUsers.venueStaff.id,
-    });
+    const [review] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: fixtureUsers.organiser.id,
+        status: "under_review",
+        submittedAt: new Date(),
+        assignedCoordinatorId: fixtureUsers.coordinator.id,
+        assignedAt: new Date(),
+        eventName: "Under review event",
+        registrationEnabled: true,
+        registrationCapacity: 10,
+        ...OPEN_WINDOW,
+      })
+      .returning();
+
+    await database.insert(schema.venueRequests).values([
+      {
+        id: "el-venue-main",
+        eventId: main.id,
+        assignedStaffId: fixtureUsers.venueStaff.id,
+      },
+      {
+        id: "el-venue-review",
+        eventId: review.id,
+        assignedStaffId: fixtureUsers.venueStaff.id,
+      },
+    ]);
 
     await database.insert(schema.equipmentRequests).values([
       {
@@ -206,6 +229,12 @@ describe("event list handler (PTR-8)", () => {
         eventId: main.id,
         item: "Microphone",
       },
+      {
+        id: "el-equipment-review",
+        eventId: review.id,
+        assignedStaffId: fixtureUsers.tech.id,
+        item: "Projector",
+      },
     ]);
 
     await database.insert(schema.eventRegistrations).values({
@@ -214,15 +243,15 @@ describe("event list handler (PTR-8)", () => {
       registeredAt: new Date("2026-01-02T03:04:05Z"),
     });
 
-    fixtures = { main, closed, foreign, draft };
+    fixtures = { main, closed, foreign, draft, review };
   });
 
   describe("role scoping over the bare list", () => {
-    it("shows an organiser their own submitted events and never their draft", async () => {
+    it("shows an organiser every non-draft event of theirs and never their draft", async () => {
       const listed = await handleListEvents({}, session("organiser"), database as never);
 
       expect(listed.map(row => row.event.id).toSorted((a, b) => a - b)).toEqual(
-        [fixtures.main.id, fixtures.closed.id].toSorted((a, b) => a - b)
+        [fixtures.main.id, fixtures.closed.id, fixtures.review.id].toSorted((a, b) => a - b)
       );
       expect(listed.every(row => row.access === "organiser")).toBe(true);
     });
@@ -231,7 +260,7 @@ describe("event list handler (PTR-8)", () => {
       const listed = await handleListEvents({}, session("coordinator"), database as never);
 
       expect(listed.map(row => row.event.id).toSorted((a, b) => a - b)).toEqual(
-        [fixtures.main.id, fixtures.closed.id].toSorted((a, b) => a - b)
+        [fixtures.main.id, fixtures.closed.id, fixtures.review.id].toSorted((a, b) => a - b)
       );
       expect(listed.every(row => row.access === "coordinator")).toBe(true);
     });
@@ -239,14 +268,18 @@ describe("event list handler (PTR-8)", () => {
     it("shows Venue Staff the events with a venue request assigned to them, and nobody else's", async () => {
       const listed = await handleListEvents({}, session("venueStaff"), database as never);
 
-      expect(listed.map(row => row.event.id)).toEqual([fixtures.main.id]);
+      expect(listed.map(row => row.event.id).toSorted((a, b) => a - b)).toEqual(
+        [fixtures.main.id, fixtures.review.id].toSorted((a, b) => a - b)
+      );
       expect(listed[0].access).toBe("venue_staff");
     });
 
     it("shows Technical Support the events with an equipment request assigned to them", async () => {
       const listed = await handleListEvents({}, session("tech"), database as never);
 
-      expect(listed.map(row => row.event.id)).toEqual([fixtures.main.id]);
+      expect(listed.map(row => row.event.id).toSorted((a, b) => a - b)).toEqual(
+        [fixtures.main.id, fixtures.review.id].toSorted((a, b) => a - b)
+      );
       expect(listed[0].access).toBe("technical_support");
     });
 
@@ -417,6 +450,16 @@ describe("event list handler (PTR-8)", () => {
       expect(listed.map(row => row.event.id)).not.toContain(fixtures.foreign.id);
       expect(listed.map(row => row.event.id)).not.toContain(fixtures.draft.id);
     });
+
+    it("keeps an under-review event out of an attendee's list and refuses it by id", async () => {
+      const listed = await handleListEvents({}, session("attendee"), database as never);
+
+      expect(listed.map(row => row.event.id)).toContain(fixtures.main.id);
+      expect(listed.map(row => row.event.id)).not.toContain(fixtures.review.id);
+      await expect(
+        handleListEvents({ eventId: fixtures.review.id }, session("attendee"), database as never)
+      ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+    });
   });
 
   describe("naming one event", () => {
@@ -459,7 +502,7 @@ describe("event list handler (PTR-8)", () => {
 
     expect(
       listed.map(row => row.event.name).toSorted((a, b) => (a ?? "").localeCompare(b ?? ""))
-    ).toEqual(["Closed registration event", "Open registration event"]);
+    ).toEqual(["Closed registration event", "Open registration event", "Under review event"]);
     expect(detailed.map(rows => rows.map(row => row.event.name))).toEqual(
       listed.map(row => [row.event.name])
     );

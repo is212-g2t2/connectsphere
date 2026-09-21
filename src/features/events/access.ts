@@ -41,7 +41,7 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
  * turned off fail closed.
  *
  * PTR-8 criterion 4 says "open to registration" for a *published* event; until PTR-21/24 add
- * `confirmed`, the caller has already filtered to `submitted` and this only answers the window.
+ * `confirmed`, the caller has already filtered out drafts and this only answers the window.
  */
 export function isRegistrationWindowOpen(
   request: {
