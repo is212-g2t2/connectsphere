@@ -139,6 +139,16 @@ describe("PTR-29 suitability rules", () => {
     ).toBe(true);
   });
 
+  it("matches stored requirements containing regular-expression punctuation", () => {
+    expect(
+      evaluateVenueSuitability(
+        { ...venue, facilities: ["Audio (A/V) + Wi-Fi"] },
+        { facilities: "Audio (A/V) + Wi-Fi" },
+        []
+      )
+    ).toBe(true);
+  });
+
   it("does not treat other inside another word as the Other layout", () => {
     expect(
       evaluateVenueSuitability(

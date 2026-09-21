@@ -240,12 +240,9 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Delete account" }));
     await user.click(screen.getByRole("button", { name: "Yes, delete my account" }));
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Yes, delete my account" }).hasAttribute("disabled")
-      ).toBe(false)
-    );
-    expect(toast.error).toHaveBeenCalledWith("Deletion is disabled");
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Deletion is disabled"));
+    const confirm = screen.getByRole("button", { name: "Yes, delete my account" });
+    expect(confirm.hasAttribute("disabled")).toBe(false);
   });
 });
 

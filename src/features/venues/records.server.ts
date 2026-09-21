@@ -47,9 +47,13 @@ function normalise(value: string) {
   return value.trim().toLocaleLowerCase("en");
 }
 
+function escapeRegularExpression(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function removeNamedTag(source: string, tag: string) {
   return source.replace(
-    new RegExp(`(?<![\\p{L}\\p{N}])${RegExp.escape(tag)}(?![\\p{L}\\p{N}])`, "gu"),
+    new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegularExpression(tag)}(?![\\p{L}\\p{N}])`, "gu"),
     " "
   );
 }
