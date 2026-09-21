@@ -3,6 +3,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { can } from "#/features/auth/permissions";
 import { unwrapRefusal } from "#/features/auth/session";
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
+import { VenueListPageSkeleton } from "#/features/venues/components/venue-list-page-skeleton";
 import { parseVenueSearch } from "#/features/venues/schema";
 import { listVenues, searchVenues } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
@@ -33,4 +34,5 @@ export const Route = createFileRoute("/_authenticated/venues/")({
   component: () => (
     <VenueListPage user={Route.useRouteContext().user} result={Route.useLoaderData()} />
   ),
+  pendingComponent: VenueListPageSkeleton,
 });
