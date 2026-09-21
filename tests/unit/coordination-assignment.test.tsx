@@ -7,12 +7,16 @@ import { parseAssignmentInput } from "#/features/coordination/schema";
 import type { AssignmentValues } from "#/features/coordination/schema";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 
-const { assignEventRequest, navigate, success } = vi.hoisted(() => ({
+const { assignEventRequest, takeUpEventRequestForReview, navigate, success } = vi.hoisted(() => ({
   assignEventRequest: vi.fn<(input: { data: AssignmentValues }) => Promise<unknown>>(),
+  takeUpEventRequestForReview: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
   navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
 }));
-vi.mock("#/features/coordination/server-fns", () => ({ assignEventRequest }));
+vi.mock("#/features/coordination/server-fns", () => ({
+  assignEventRequest,
+  takeUpEventRequestForReview,
+}));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     children,
@@ -166,5 +170,61 @@ describe("Coordinator handover and pickup", () => {
     expect(screen.getByRole("button", { name: "Assigning…" })).toHaveProperty("disabled", true);
     resolve({});
     await waitFor(() => expect(navigate).toHaveBeenCalled());
+  });
+});
+
+describe("Review pickup", () => {
+  const owned = { ...request, assignedCoordinatorId: actor.id, assignedAt: new Date() };
+
+  it("offers review pickup to the assigned Coordinator on a submitted request", () => {
+    render(<CoordinationRequestPage request={owned} coordinators={coordinators} user={actor} />);
+    expect(screen.getByRole("button", { name: "Take up for review" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Take up for review" })).toBeTruthy();
+  });
+
+  it("hides review pickup once the request is under review", () => {
+    render(
+      <CoordinationRequestPage
+        request={{ ...owned, status: "under_review" }}
+        coordinators={coordinators}
+        user={actor}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Take up for review" })).toBeNull();
+  });
+
+  it("hides review pickup when another Coordinator is assigned", () => {
+    render(
+      <CoordinationRequestPage
+        request={{ ...owned, assignedCoordinatorId: "coord-b" }}
+        coordinators={coordinators}
+        user={actor}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Take up for review" })).toBeNull();
+  });
+
+  it("takes up the request for review and leaves the detail", async () => {
+    render(<CoordinationRequestPage request={owned} coordinators={coordinators} user={actor} />);
+    await userEvent.click(screen.getByRole("button", { name: "Take up for review" }));
+    await waitFor(() =>
+      expect(takeUpEventRequestForReview).toHaveBeenCalledWith({ data: { id: request.id } })
+    );
+    expect(navigate).toHaveBeenCalledWith({ to: "/coordination" });
+    expect(success).toHaveBeenCalled();
+  });
+
+  it("shows a review refusal without claiming success or navigating away", async () => {
+    takeUpEventRequestForReview.mockResolvedValue(
+      new Response("This request has changed.", { status: 409 })
+    );
+    render(<CoordinationRequestPage request={owned} coordinators={coordinators} user={actor} />);
+    await userEvent.click(screen.getByRole("button", { name: "Take up for review" }));
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "This request has changed."
+    );
+    expect(navigate).not.toHaveBeenCalled();
+    expect(success).not.toHaveBeenCalled();
   });
 });

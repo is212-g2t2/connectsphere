@@ -10,6 +10,7 @@ import {
   handleGetCoordinationRequest,
   handleListAssignedEventRequests,
   handleListCoordinators,
+  handleTakeUpForReview,
 } from "#/features/coordination/assignments.server";
 import {
   handleGetEventRequest,
@@ -1073,6 +1074,98 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       );
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
       expect(await database.select().from(schema.eventAssignments)).toHaveLength(1);
+    });
+  });
+
+  describe("taking up a request for review (PTR-17)", () => {
+    const actor = extraCoordinators[0];
+    const other = extraCoordinators[1];
+
+    /** A submitted row, assigned to `coordinatorId` or left unassigned when it is null. */
+    async function submittedRequest(coordinatorId: string | null) {
+      const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+      const [row] = await database
+        .update(schema.eventRequests)
+        .set({
+          status: "submitted",
+          submittedAt: new Date(),
+          assignedCoordinatorId: coordinatorId,
+          assignedAt: coordinatorId ? new Date() : null,
+        })
+        .where(eq(schema.eventRequests.id, saved.id))
+        .returning();
+      return row;
+    }
+
+    async function statusOf(id: number) {
+      const rows = await database
+        .select({ status: schema.eventRequests.status })
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, id));
+      return rows.at(0)?.status;
+    }
+
+    it("refuses a different Coordinator and leaves the row submitted", async () => {
+      const request = await submittedRequest(actor.id);
+      await expect(
+        handleTakeUpForReview({ id: request.id }, other, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+      expect(await statusOf(request.id)).toBe("submitted");
+    });
+
+    it("refuses an unassigned submitted request", async () => {
+      const request = await submittedRequest(null);
+      await expect(
+        handleTakeUpForReview({ id: request.id }, actor, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+      expect(await statusOf(request.id)).toBe("submitted");
+    });
+
+    it("refuses a draft", async () => {
+      const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+      await expect(
+        handleTakeUpForReview({ id: draft.id }, actor, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+      expect(await statusOf(draft.id)).toBe("draft");
+    });
+
+    it("refuses a missing request", async () => {
+      await expect(
+        handleTakeUpForReview({ id: 2_147_483_647 }, actor, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("refuses a repeat take-up of a request already under review", async () => {
+      const request = await submittedRequest(actor.id);
+      await handleTakeUpForReview({ id: request.id }, actor, database as never);
+      await expect(
+        handleTakeUpForReview({ id: request.id }, actor, database as never)
+      ).rejects.toMatchObject({ status: 409 });
+      expect(await statusOf(request.id)).toBe("under_review");
+    });
+
+    it("marks a submitted request under review for its assigned Coordinator", async () => {
+      const request = await submittedRequest(actor.id);
+      const taken = await handleTakeUpForReview({ id: request.id }, actor, database as never);
+      expect(taken).toMatchObject({
+        id: request.id,
+        status: "under_review",
+        assignedCoordinatorId: actor.id,
+      });
+      expect(await statusOf(request.id)).toBe("under_review");
+    });
+
+    it("allows only one of two simultaneous take-ups, the loser seeing a conflict", async () => {
+      const request = await submittedRequest(actor.id);
+      const results = await Promise.allSettled([
+        handleTakeUpForReview({ id: request.id }, actor, database as never),
+        handleTakeUpForReview({ id: request.id }, actor, database as never),
+      ]);
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const rejected = results.filter(result => result.status === "rejected");
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0]).toMatchObject({ reason: { status: 409 } });
+      expect(await statusOf(request.id)).toBe("under_review");
     });
   });
 

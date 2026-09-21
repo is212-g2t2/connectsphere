@@ -15,7 +15,10 @@ import {
 import { unwrapRefusal } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { CoordinatorSelection } from "#/features/coordination/schema";
-import { assignEventRequest } from "#/features/coordination/server-fns";
+import {
+  assignEventRequest,
+  takeUpEventRequestForReview,
+} from "#/features/coordination/server-fns";
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import { formatInstant } from "#/features/event-requests/format";
@@ -33,6 +36,7 @@ export function CoordinationRequestPage({
 }) {
   const navigate = useNavigate();
   const unassigned = request.assignedCoordinatorId === null;
+
   const [assignment, assign, assigning] = useMutation(async (incomingId: string) => {
     await unwrapRefusal(
       assignEventRequest({
@@ -49,6 +53,18 @@ export function CoordinationRequestPage({
     await navigate({ to: "/coordination" });
   }, "Could not assign this request. Try again.");
 
+  // AC3: the assigned Coordinator moves a submitted request into review. Re-enter through the
+  // list, same as `assign` above, so the page never has to reconcile a stale `request` prop
+  // against the new status itself.
+  const [review, takeUpReview, takingUp] = useMutation(async () => {
+    await unwrapRefusal(
+      takeUpEventRequestForReview({ data: { id: request.id } }),
+      "Could not take up this request for review. Try again."
+    );
+    toast.success("Request taken up for review.");
+    await navigate({ to: "/coordination" });
+  }, "Could not take up this request for review. Try again.");
+
   const form = useForm({
     defaultValues: { coordinatorId: "" },
     validators: { onSubmit: CoordinatorSelection },
@@ -61,11 +77,42 @@ export function CoordinationRequestPage({
     coordinator => coordinator.id !== request.assignedCoordinatorId
   );
 
+  const canTakeUpForReview =
+    request.status === "submitted" && request.assignedCoordinatorId === user.id;
+
   return (
     <EventRequestDetailPage
       request={request}
       back={{ to: "/coordination", label: "Back to coordination" }}
     >
+      {canTakeUpForReview && (
+        <section className="mt-8" aria-labelledby="review-heading">
+          <Card>
+            <CardContent>
+              <h2 id="review-heading" className="display-h3">
+                Take up for review
+              </h2>
+              <p className="mt-2 body-sm text-muted-foreground">
+                Move this request into review once you're ready to assess it.
+              </p>
+              <Button
+                type="button"
+                className="mt-4"
+                disabled={takingUp}
+                onClick={() => void takeUpReview()}
+              >
+                {takingUp ? "Taking up…" : "Take up for review"}
+              </Button>
+              {review.status === "error" && (
+                <p role="alert" className="mt-4 body-sm text-destructive">
+                  {review.error}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
       <section className="mt-8" aria-labelledby="assignment-heading">
         <Card>
           <CardContent>

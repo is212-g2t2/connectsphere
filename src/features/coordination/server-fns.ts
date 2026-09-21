@@ -59,3 +59,22 @@ export const assignEventRequest = createServerFn({ method: "POST" })
 
     return request;
   });
+
+/**
+ * PTR-17 criterion 3: the assigned Coordinator marks a submitted request as under review.
+ * The handler enforces ownership, so a different Coordinator is refused 403.
+ */
+export const takeUpEventRequestForReview = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleTakeUpForReview }] = await loadServer();
+    const request = await handleTakeUpForReview(data, context.user, db);
+
+    log.info("Event request taken up for review", {
+      requestId: request.id,
+      actorId: context.user.id,
+    });
+
+    return request;
+  });

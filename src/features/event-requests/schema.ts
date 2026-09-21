@@ -365,10 +365,11 @@ export const ALREADY_SUBMITTED_MESSAGE = "This request has already been submitte
  * — so it is restated here rather than read off the Postgres enum in `#/db/schema`;
  * `tests/unit/db-schema.test.ts` holds the two lists to the same values.
  */
-export const EVENT_REQUEST_STATUSES = ["draft", "submitted"] as const;
+export const EVENT_REQUEST_STATUSES = ["draft", "submitted", "under_review"] as const;
 export type EventRequestStatus = (typeof EVENT_REQUEST_STATUSES)[number];
 
 export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   draft: "Draft",
   submitted: "Submitted",
+  under_review: "Under review",
 };

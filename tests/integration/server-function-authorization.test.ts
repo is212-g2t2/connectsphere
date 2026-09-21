@@ -13,6 +13,7 @@ import {
   getCoordinationRequest,
   listAssignedEventRequests,
   listCoordinators,
+  takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
 import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
 import {
@@ -155,6 +156,7 @@ describe("server-function authorization (PTR-69)", () => {
         method: "POST" as const,
       },
       { fn: getCoordinationRequest, data: { id: 1 }, method: "GET" as const },
+      { fn: takeUpEventRequestForReview, data: { id: 1 }, method: "POST" as const },
       { fn: listAssignedEventRequests, data: undefined, method: "GET" as const },
       { fn: listCoordinators, data: undefined, method: "GET" as const },
     ];
@@ -177,7 +179,7 @@ describe("server-function authorization (PTR-69)", () => {
         }
       }
     );
-    it("permits a Coordinator through all four boundaries", async () => {
+    it("permits a Coordinator through every boundary", async () => {
       signIn("event_coordinator");
       for (const endpoint of endpoints) {
         expect((await call(endpoint.fn, endpoint.data, endpoint.method)).error).toBeUndefined();
