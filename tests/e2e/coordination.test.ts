@@ -206,6 +206,10 @@ test("lists a submitted request assigned to the Coordinator", async ({ page }) =
   }
 });
 
+function fieldValue(page: Page, term: string) {
+  return page.locator("dt", { hasText: term }).locator("xpath=following-sibling::dd[1]");
+}
+
 test("shows every organiser-supplied field on an assigned request", async ({ page }) => {
   const ids: string[] = [];
   try {
@@ -247,16 +251,18 @@ test("shows every organiser-supplied field on an assigned request", async ({ pag
 
     await page.goto(`/coordination/${request.id}`);
     await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
-    await expect(page.getByText("Quarterly town hall")).toBeVisible();
-    await expect(page.getByText("All-staff briefing with Q&A")).toBeVisible();
-    await expect(page.getByText("Town hall")).toBeVisible();
-    await expect(page.getByText("150", { exact: false })).toBeVisible();
-    await expect(page.getByText("Auditorium with stage")).toBeVisible();
-    await expect(page.getByText("Theatre")).toBeVisible();
-    await expect(page.getByText("Wheelchair-accessible seating")).toBeVisible();
-    await expect(page.getByText("Live captioning")).toBeVisible();
-    await expect(page.getByText(/Projector/)).toBeVisible();
-    await expect(page.getByText(/Capacity 150/)).toBeVisible();
+    await expect(fieldValue(page, "Purpose")).toHaveText("Quarterly town hall");
+    await expect(fieldValue(page, "Description")).toHaveText("All-staff briefing with Q&A");
+    await expect(fieldValue(page, "Type of event")).toHaveText("Town hall");
+    await expect(fieldValue(page, "Expected attendance")).toHaveText("150");
+    await expect(fieldValue(page, "Venue requirements")).toHaveText("Auditorium with stage");
+    await expect(fieldValue(page, "Room-layout preference")).toHaveText("Theatre");
+    await expect(fieldValue(page, "Accessibility requirements")).toHaveText(
+      "Wheelchair-accessible seating"
+    );
+    await expect(fieldValue(page, "Special arrangements")).toHaveText("Live captioning");
+    await expect(fieldValue(page, "Equipment requirements")).toContainText("Projector");
+    await expect(fieldValue(page, "Attendee registration")).toContainText("Capacity 150");
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
   }
