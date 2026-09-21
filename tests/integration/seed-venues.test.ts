@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { asc, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -100,5 +100,34 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
     expect(after).toEqual(before);
     expect(before.venues).toBe(seedVenues.length);
     expect(before.periods).toBeGreaterThanOrEqual(seedVenueUnavailability.length);
+  });
+
+  it("rewrites a seeded period whose stored dates have gone stale (AC4)", async () => {
+    const period = seedVenueUnavailability[0];
+    const [venue] = await database
+      .select({ id: schema.venues.id })
+      .from(schema.venues)
+      .where(eq(schema.venues.name, period.venueName));
+    const where = and(
+      eq(schema.venueUnavailability.venueId, venue.id),
+      eq(schema.venueUnavailability.reason, period.reason)
+    );
+
+    await database
+      .update(schema.venueUnavailability)
+      .set({ startsAt: "2000-01-01 00:00:00", endsAt: "2000-01-02 00:00:00" })
+      .where(where);
+
+    await runSeed(database);
+
+    const [stored] = await database
+      .select({
+        startsAt: schema.venueUnavailability.startsAt,
+        endsAt: schema.venueUnavailability.endsAt,
+      })
+      .from(schema.venueUnavailability)
+      .where(where);
+
+    expect(stored).toEqual({ startsAt: period.startsAt, endsAt: period.endsAt });
   });
 });

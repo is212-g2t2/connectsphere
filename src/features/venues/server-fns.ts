@@ -1,7 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
-import { parseAvailabilityRequest, parseVenueId, parseVenueInput } from "#/features/venues/schema";
+import {
+  parseAvailabilityRequest,
+  parseVenueId,
+  parseVenueInput,
+  parseVenueSearchRequest,
+} from "#/features/venues/schema";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("venues");
@@ -26,6 +31,7 @@ function venueAction(data: unknown): "create" | "update" {
 }
 
 export const requireVenueRead = requirePermission({ venue: ["read"] });
+export const requireVenueSearch = requirePermission({ venue: ["search"] });
 export const requireVenueWrite = requirePermission(data => ({ venue: [venueAction(data)] }));
 
 export const listVenues = createServerFn({ method: "GET" })
@@ -34,6 +40,16 @@ export const listVenues = createServerFn({ method: "GET" })
     const [{ db }, { handleListVenues }] = await loadServer();
     return handleListVenues(db);
   });
+
+export const searchVenues = createServerFn({ method: "GET" })
+  .validator(parseVenueSearchRequest)
+  .middleware([requireVenueSearch])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleSearchVenues }] = await loadServer();
+    return handleSearchVenues(data, context.user, db);
+  });
+
+export type VenueSearchResult = Awaited<ReturnType<typeof searchVenues>>;
 
 /**
  * Wrapped in an object on purpose: a server function whose result is `Venue | null` infers as

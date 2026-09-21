@@ -34,6 +34,16 @@ export const LAYOUT_LABELS: Record<VenueLayout, string> = {
   other: "Other",
 };
 
+/**
+ * Every layout named in free text, in `VENUE_LAYOUTS` order. Matching is by whole word, so
+ * "another layout" names nothing and "Theatre seating" names theatre. A requested layout matches
+ * a venue when the venue supports at least one of the layouts named.
+ */
+export function parseLayouts(value: string): VenueLayout[] {
+  const words = new Set(value.toLocaleLowerCase("en").split(/[^\p{L}\p{N}]+/u));
+  return VENUE_LAYOUTS.filter(layout => words.has(layout));
+}
+
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
@@ -185,11 +195,144 @@ export function parseVenueId(data: unknown): VenueId {
   return parsed.data;
 }
 
+export const VENUE_SEARCH_TIME_MESSAGE = "Choose both a start and end time";
+export const VENUE_SEARCH_DATE_MESSAGE = "Choose a date when filtering by time";
+export const VENUE_SEARCH_TIME_ORDER_MESSAGE = "End time must be later than start time";
+export const VENUE_SEARCH_ATTENDANCE_MESSAGE =
+  "Expected attendance must be a positive whole number";
+export const VENUE_SEARCH_CAPACITY_MESSAGE = "Capacity must be a positive whole number";
+export const VENUE_SEARCH_EVENT_MESSAGE = "Choose an event";
 export const AVAILABILITY_MAX_DAYS = 366;
 export const AVAILABILITY_ORDER_MESSAGE = "End date must be on or after start date";
 export const AVAILABILITY_RANGE_MESSAGE = `Choose a range of ${AVAILABILITY_MAX_DAYS} days or fewer`;
-
 const MILLISECONDS_PER_DAY = 86_400_000;
+const VENUE_SEARCH_TEXT_MAX_LENGTH = 2000;
+
+function isWithinAvailabilityRange(startDate: string, endDate: string) {
+  return (
+    (Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) /
+      MILLISECONDS_PER_DAY +
+      1 <=
+    AVAILABILITY_MAX_DAYS
+  );
+}
+
+function blankToUndefined(value: unknown) {
+  return typeof value === "string" && value.trim() === "" ? undefined : value;
+}
+
+function optionalPositiveInteger(message: string) {
+  return z.preprocess(
+    blankToUndefined,
+    z.coerce
+      .number({ error: message })
+      .pipe(z.int32({ error: message }).positive(message))
+      .optional()
+  );
+}
+
+const OptionalSearchText = z.preprocess(
+  blankToUndefined,
+  z.string().trim().max(VENUE_SEARCH_TEXT_MAX_LENGTH).optional()
+);
+const OptionalSearchTime = z.preprocess(blankToUndefined, Time.optional());
+
+/**
+ * URL-shaped venue filters for PTR-29. Strings are kept as entered so an event's free-text
+ * requirements can be shown back to the Coordinator; the suitability evaluator normalises them
+ * when it compares the venue's structured tags and layout values.
+ */
+export const VenueSearchSchema = z
+  .object({
+    eventId: optionalPositiveInteger(VENUE_SEARCH_EVENT_MESSAGE),
+    date: z.preprocess(blankToUndefined, z.iso.date({ error: "Choose a date" }).optional()),
+    endDate: z.preprocess(blankToUndefined, z.iso.date({ error: "Choose an end date" }).optional()),
+    startTime: OptionalSearchTime,
+    endTime: OptionalSearchTime,
+    expectedAttendance: optionalPositiveInteger(VENUE_SEARCH_ATTENDANCE_MESSAGE),
+    capacity: optionalPositiveInteger(VENUE_SEARCH_CAPACITY_MESSAGE),
+    location: OptionalSearchText,
+    accessibility: OptionalSearchText,
+    layout: OptionalSearchText,
+    facilities: OptionalSearchText,
+  })
+  .superRefine((value, ctx) => {
+    const hasStart = value.startTime !== undefined;
+    const hasEnd = value.endTime !== undefined;
+    if (hasStart !== hasEnd) {
+      ctx.addIssue({ code: "custom", path: ["endTime"], message: VENUE_SEARCH_TIME_MESSAGE });
+      return;
+    }
+    if ((hasStart || value.endDate !== undefined) && value.date === undefined) {
+      ctx.addIssue({ code: "custom", path: ["date"], message: VENUE_SEARCH_DATE_MESSAGE });
+    }
+    if (value.date !== undefined && value.endDate !== undefined && value.endDate < value.date) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["endDate"],
+        message: AVAILABILITY_ORDER_MESSAGE,
+      });
+    }
+    if (
+      value.date !== undefined &&
+      value.endDate !== undefined &&
+      value.endDate >= value.date &&
+      !isWithinAvailabilityRange(value.date, value.endDate)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["endDate"],
+        message: AVAILABILITY_RANGE_MESSAGE,
+      });
+    }
+    if (
+      value.date !== undefined &&
+      value.startTime !== undefined &&
+      value.endTime !== undefined &&
+      `${value.endDate ?? value.date}T${value.endTime}` <= `${value.date}T${value.startTime}`
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["endTime"],
+        message: VENUE_SEARCH_TIME_ORDER_MESSAGE,
+      });
+    }
+    // A typo'd layout would otherwise silently match no venue, which reads as "none available".
+    if (value.layout !== undefined && parseLayouts(value.layout).length === 0) {
+      ctx.addIssue({ code: "custom", path: ["layout"], message: LAYOUT_MESSAGE });
+    }
+  });
+
+export type VenueSearch = z.infer<typeof VenueSearchSchema>;
+
+/**
+ * Whether a start/end pair names a window running past midnight. `VenueSearchSchema` still accepts
+ * `22:00`→`02:00` when a later `endDate` makes the range order valid; suitability refuses it,
+ * because "10:00 to 12:00 on each day" is the only shape a daily hosting window can take. The UI
+ * imports this to explain the refusal rather than showing a silent zero.
+ */
+export function crossesMidnight(filters: Pick<VenueSearch, "startTime" | "endTime">) {
+  return (
+    filters.startTime !== undefined &&
+    filters.endTime !== undefined &&
+    filters.startTime >= filters.endTime
+  );
+}
+
+/** Invalid hand-edited search parameters open a blank form instead of a route error. */
+export function parseVenueSearch(input: unknown): VenueSearch {
+  const parsed = VenueSearchSchema.safeParse(input);
+  return parsed.success ? parsed.data : {};
+}
+
+/** Server-function and form boundary: return typed filters or the first readable refusal. */
+export function parseVenueSearchRequest(input: unknown): VenueSearch {
+  const parsed = VenueSearchSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
 
 /**
  * The calendar selection: a venue and an inclusive civil-date range (PTR-28 criterion 1).
@@ -208,14 +351,10 @@ const AvailabilityFields = z.object({
 export const AvailabilitySelectionSchema = AvailabilityFields.refine(
   value => value.endDate >= value.startDate,
   { path: ["endDate"], message: AVAILABILITY_ORDER_MESSAGE }
-).refine(
-  value =>
-    (Date.parse(`${value.endDate}T00:00:00Z`) - Date.parse(`${value.startDate}T00:00:00Z`)) /
-      MILLISECONDS_PER_DAY +
-      1 <=
-    AVAILABILITY_MAX_DAYS,
-  { path: ["endDate"], message: AVAILABILITY_RANGE_MESSAGE }
-);
+).refine(value => isWithinAvailabilityRange(value.startDate, value.endDate), {
+  path: ["endDate"],
+  message: AVAILABILITY_RANGE_MESSAGE,
+});
 
 export type AvailabilitySelection = z.infer<typeof AvailabilitySelectionSchema>;
 

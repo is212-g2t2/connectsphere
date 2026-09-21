@@ -1,6 +1,8 @@
 import { CalendarDays, Clock3 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 
 import { Badge } from "#/components/ui/badge";
+import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import type { EventProjection } from "#/features/events/access";
 
@@ -106,6 +108,18 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                         </li>
                       ))}
                     </ul>
+                  </div>
+                )}
+
+                {access === "coordinator" && (
+                  <div className="mt-5 border-t border-border pt-4">
+                    <Link
+                      to="/venues"
+                      search={{ eventId: event.id }}
+                      className={buttonVariants({ variant: "outline", size: "sm" })}
+                    >
+                      Find venues for this event
+                    </Link>
                   </div>
                 )}
               </CardContent>

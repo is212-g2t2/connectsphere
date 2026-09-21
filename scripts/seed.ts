@@ -134,8 +134,8 @@ export const seedVenues: SeedVenue[] = [
  * (PTR-28) has something to show that is not a booking. Keyed by venue name because venue ids
  * are assigned by the database. Dates are relative to seed time, not fixed: "future" has to
  * stay true whichever day the seed runs. `YYYY-MM-DD HH:MM:SS` is the `mode: "string"` shape
- * the column reads back. Re-run idempotency is the per-venue existence check in `runSeed`
- * rather than the unique period index, because a moving date never collides.
+ * the column reads back. Re-run convergence replaces the seed's own `(venue, reason)` rows in
+ * `runSeed` rather than relying on the unique period index, because a moving date never collides.
  */
 function futureDate(days: number): string {
   return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
@@ -143,6 +143,17 @@ function futureDate(days: number): string {
 
 function futureDay(days: number, time = "00:00:00"): string {
   return `${futureDate(days)} ${time}`;
+}
+
+/**
+ * Harbour Hall closes on Sunday and is blocked for resurfacing across futureDay(30)–futureDay(34),
+ * so the demo request needs a Mon–Sat slot clear of both. A landed Sunday steps forward to Monday;
+ * a UTC weekday keeps the string it returns consistent with the calendar day `futureDate` derives.
+ */
+function futureWeekdayDate(days: number): string {
+  const date = new Date(Date.now() + days * 86_400_000);
+  if (date.getUTCDay() === 0) date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
 }
 
 export const seedVenueUnavailability: {
@@ -219,30 +230,32 @@ export async function runSeed(database: Database): Promise<void> {
     );
   const venueIdByName = new Map(venueRows.map(row => [row.name, row.id]));
 
-  const venuesWithPeriods = new Set(
-    (
-      await database
-        .select({ venueId: schema.venueUnavailability.venueId })
-        .from(schema.venueUnavailability)
-        .where(inArray(schema.venueUnavailability.venueId, [...venueIdByName.values()]))
-    ).map(row => row.venueId)
+  // Dates are relative to seed time, so a re-run has to replace the seed's own periods rather
+  // than skip a venue that already has one: a stale block would otherwise swallow the demo
+  // event, which moves forward on every run. `(venue, reason)` is the seed's own key — the
+  // unique period index cannot be it, because a moving date never collides.
+  await database.delete(schema.venueUnavailability).where(
+    and(
+      inArray(schema.venueUnavailability.venueId, [...venueIdByName.values()]),
+      inArray(
+        schema.venueUnavailability.reason,
+        seedVenueUnavailability.map(period => period.reason)
+      )
+    )
   );
 
-  const missingPeriods = seedVenueUnavailability.flatMap(period => {
-    const venueId = venueIdByName.get(period.venueName);
-    if (venueId === undefined) {
-      throw new Error(`Seed venue "${period.venueName}" was not inserted`);
-    }
-    // Dates are relative to seed time, so a second run would insert twin rows rather than
-    // collide with the unique period index.
-    return venuesWithPeriods.has(venueId)
-      ? []
-      : [{ venueId, startsAt: period.startsAt, endsAt: period.endsAt, reason: period.reason }];
-  });
-
-  if (missingPeriods.length > 0) {
-    await database.insert(schema.venueUnavailability).values(missingPeriods).onConflictDoNothing();
-  }
+  await database
+    .insert(schema.venueUnavailability)
+    .values(
+      seedVenueUnavailability.map(period => {
+        const venueId = venueIdByName.get(period.venueName);
+        if (venueId === undefined) {
+          throw new Error(`Seed venue "${period.venueName}" was not inserted`);
+        }
+        return { venueId, startsAt: period.startsAt, endsAt: period.endsAt, reason: period.reason };
+      })
+    )
+    .onConflictDoNothing();
   // One transaction with an advisory lock held for its duration: two concurrent seeds serialise
   // here instead of racing the lookup. The request row is also locked when it exists, so a
   // concurrent delete waits until the children are written.
@@ -262,11 +275,21 @@ export async function runSeed(database: Database): Promise<void> {
       .for("update");
 
     // Relative to seed time, and rewritten on every run: a database seeded more than a month ago
-    // would otherwise keep a registration window that has since closed.
+    // would otherwise keep a registration window that has since closed. One date is computed once
+    // so a run crossing midnight cannot produce a start and end on different days.
+    const demoDate = futureWeekdayDate(20);
     const demoTiming = {
-      proposedDates: [{ start: `${futureDate(30)}T09:00`, end: `${futureDate(30)}T17:00` }],
+      proposedDates: [{ start: `${demoDate}T09:00`, end: `${demoDate}T17:00` }],
       registrationOpensAt: `${futureDate(-1)}T09:00`,
-      registrationClosesAt: `${futureDate(29)}T17:00`,
+      registrationClosesAt: `${futureDate(19)}T17:00`,
+    };
+    // Harbour Hall's stored facilities/accessibility match this text word-for-word, so the event's
+    // prefilled search is a genuine PTR-29 AC5 match rather than a zero-result demo.
+    const demoRequirements = {
+      expectedAttendance: 120,
+      venueRequirements: "Projector, PA system",
+      roomLayoutPreference: "Theatre seating",
+      accessibilityRequirements: "Step-free access and hearing loop",
     };
 
     let demoRequestId = existingDemoRequests.at(0)?.id;
@@ -282,12 +305,9 @@ export async function runSeed(database: Database): Promise<void> {
           eventName: DEMO_EVENT_NAME,
           purpose: "Exercise each role's event access locally.",
           ...demoTiming,
-          expectedAttendance: 120,
+          ...demoRequirements,
           description: "A seeded event for exercising role-aware event access locally.",
           eventType: "Conference",
-          venueRequirements: "Projector, stage lighting and registration desk",
-          roomLayoutPreference: "Theatre seating",
-          accessibilityRequirements: "Step-free access and hearing loop",
           equipmentRequirements: [{ type: "Projector", quantity: 1 }],
           specialArrangements: "",
           registrationEnabled: true,
@@ -297,9 +317,11 @@ export async function runSeed(database: Database): Promise<void> {
 
       demoRequestId = inserted.id;
     } else {
+      // Requirements are rewritten too: a long-lived local database would otherwise keep the old
+      // text and never converge on the matchable demo request.
       await tx
         .update(schema.eventRequests)
-        .set(demoTiming)
+        .set({ ...demoTiming, ...demoRequirements })
         .where(eq(schema.eventRequests.id, demoRequestId));
     }
 

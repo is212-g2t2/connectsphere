@@ -17,7 +17,7 @@ import type { Role } from "#/features/auth/schema/role";
 const statement = {
   upload: ["create"],
   event_request: ["create", "coordinate"],
-  venue: ["create", "update", "read"],
+  venue: ["create", "update", "read", "search"],
 } as const;
 
 const ac = createAccessControl(statement);
@@ -43,7 +43,7 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   event_coordinator: ac.newRole({
     upload: ["create"],
     event_request: ["coordinate"],
-    venue: ["read"],
+    venue: ["read", "search"],
   }),
   venue_staff: ac.newRole({ upload: ["create"], venue: ["create", "update", "read"] }),
   technical_support_staff: ac.newRole({ upload: ["create"], venue: ["read"] }),

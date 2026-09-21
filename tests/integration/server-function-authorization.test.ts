@@ -43,6 +43,7 @@ import {
   getVenueAvailability,
   listVenues,
   saveVenue,
+  searchVenues,
 } from "#/features/venues/server-fns";
 import { auth } from "#/lib/auth.server";
 
@@ -193,12 +194,20 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
+      expect(await refusalFrom(searchVenues, {}, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
     });
 
     it("answers 403 to an external role the catalogue refuses", async () => {
       signIn("event_organiser");
 
       expect(await refusalFrom(listVenues, undefined, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+      expect(await refusalFrom(searchVenues, {}, "GET")).toEqual({
         status: 403,
         body: "Forbidden",
       });
@@ -212,6 +221,17 @@ describe("server-function authorization (PTR-69)", () => {
         expect((await call(listVenues, undefined, "GET")).error).toBeUndefined();
       }
     );
+
+    it("lets only a Coordinator search venues", async () => {
+      signIn("event_coordinator");
+      expect((await call(searchVenues, {}, "GET")).error).toBeUndefined();
+
+      signIn("venue_staff");
+      expect(await refusalFrom(searchVenues, {}, "GET")).toMatchObject({ status: 403 });
+
+      signIn("technical_support_staff");
+      expect(await refusalFrom(searchVenues, {}, "GET")).toMatchObject({ status: 403 });
+    });
 
     it("answers 401 to an unauthenticated save (PTR-98)", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);

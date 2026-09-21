@@ -117,6 +117,28 @@ describe("DashboardPage", () => {
     expect(screen.getByText("pending")).toBeTruthy();
   });
 
+  it("lets a Coordinator start venue search from an assigned event", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("event_coordinator")}
+        events={[
+          {
+            access: "coordinator",
+            event: {
+              id: 41,
+              name: "Annual summit",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "Find venues for this event" })).toBeTruthy();
+  });
+
   /**
    * PTR-71: the upload's `status`/`uploadedKey`/`errorMsg` trio is now one action, so a refused
    * presign cannot leave the trigger reading "Uploading…" with a stale key still on screen.
@@ -226,7 +248,12 @@ describe("SettingsPage", () => {
 
 describe("VenueListPage", () => {
   it("lists the loaded venues with their layouts spelled out", () => {
-    render(<VenueListPage user={userWithRole("event_coordinator")} venues={[venue]} />);
+    render(
+      <VenueListPage
+        user={userWithRole("event_coordinator")}
+        result={{ event: null, filters: {}, venues: [venue] }}
+      />
+    );
 
     expect(screen.getByRole("link", { name: "Great Hall" })).toBeTruthy();
     expect(screen.getByText("Theatre, Banquet")).toBeTruthy();
@@ -234,11 +261,43 @@ describe("VenueListPage", () => {
   });
 
   it("offers the create link only to a role holding venue:create", () => {
-    render(<VenueListPage user={userWithRole("venue_staff")} venues={[]} />);
+    render(
+      <VenueListPage
+        user={userWithRole("venue_staff")}
+        result={{ event: null, filters: {}, venues: [] }}
+      />
+    );
 
     expect(screen.getByText("No venues recorded yet.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "New venue" })).toBeTruthy();
   });
+
+  it.each(["venue_staff", "technical_support_staff"])(
+    "shows %s the catalogue without the search form or its description",
+    role => {
+      render(
+        <VenueListPage
+          user={userWithRole(role)}
+          result={{ event: null, filters: {}, venues: [venue] }}
+        />
+      );
+
+      expect(screen.getByRole("region", { name: "Venue results" })).toBeTruthy();
+      expect(screen.getByRole("link", { name: "Great Hall" })).toBeTruthy();
+      expect(
+        screen.getByText("ConnectSphere's rooms and spaces, and what each one offers.")
+      ).toBeTruthy();
+      expect(screen.queryByText("Search venues")).toBeNull();
+      expect(
+        screen.queryByText("Every result must satisfy every requirement you apply.")
+      ).toBeNull();
+      expect(
+        screen.queryByText(
+          "Search ConnectSphere's rooms and spaces against an event's hard requirements."
+        )
+      ).toBeNull();
+    }
+  );
 });
 
 describe("VenueDetailPage", () => {
