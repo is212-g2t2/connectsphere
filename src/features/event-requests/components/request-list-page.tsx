@@ -32,6 +32,7 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 const STATUS_VARIANT: Record<EventRequestStatus, "outline" | "progress"> = {
   draft: "outline",
   submitted: "progress",
+  under_review: "progress",
 };
 
 export const UNTITLED_REQUEST = "Untitled request";

@@ -25,7 +25,11 @@ import { user } from "./auth-schema";
  * approved, …) arrives with the stories that move a request into them. Widening this is a
  * generated `ALTER TYPE` migration, matching how the role/function matrix grows a row at a time.
  */
-export const eventRequestStatus = pgEnum("event_request_status", ["draft", "submitted"]);
+export const eventRequestStatus = pgEnum("event_request_status", [
+  "draft",
+  "submitted",
+  "under_review",
+]);
 
 export const eventRequests = pgTable(
   "event_requests",

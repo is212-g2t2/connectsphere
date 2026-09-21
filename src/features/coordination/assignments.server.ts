@@ -135,3 +135,37 @@ export async function handleAssignEventRequest(
     return updated;
   });
 }
+
+/**
+ * PTR-17 criterion 3: the assigned Coordinator marks a submitted request as under review. Only
+ * the current assignee can take it up; an unassigned or differently-assigned request is refused
+ * with 403 so the id space reveals nothing about other coordinators' work.
+ *
+ * A request that is already `under_review` is refused with 409: the button is hidden once the
+ * transition has occurred, so a repeat call means a stale page or a direct API call.
+ */
+export async function handleTakeUpForReview(data: unknown, actor: SessionUser, database: Database) {
+  const { id } = parseEventRequestId(data);
+  return database.transaction(async tx => {
+    const rows = await tx
+      .select()
+      .from(eventRequests)
+      .where(eq(eventRequests.id, id))
+      .for("update");
+    const request = rows.at(0);
+    if (!request || request.status === "draft" || request.assignedCoordinatorId !== actor.id) {
+      throw new AuthorizationError(
+        "Only the assigned Coordinator can take this request up for review."
+      );
+    }
+    if (request.status === "under_review") {
+      throw new ConflictError("This request is already under review.");
+    }
+    const [updated] = await tx
+      .update(eventRequests)
+      .set({ status: "under_review" })
+      .where(eq(eventRequests.id, id))
+      .returning();
+    return updated;
+  });
+}

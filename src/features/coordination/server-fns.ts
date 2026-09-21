@@ -20,6 +20,8 @@ export type Coordinator = Awaited<ReturnType<typeof listCoordinators>>[number];
 export type CoordinationRequest = Awaited<ReturnType<typeof getCoordinationRequest>>;
 /** A request already assigned to the signed-in Coordinator, as the coordination page sees it. */
 export type AssignedEventRequest = Awaited<ReturnType<typeof listAssignedEventRequests>>[number];
+/** A request after the Coordinator has taken it up for review (PTR-17 criterion 3). */
+export type ReviewedEventRequest = Awaited<ReturnType<typeof takeUpEventRequestForReview>>;
 
 export const listAssignedEventRequests = createServerFn({ method: "GET" })
   .middleware([requireEventRequestCoordinate])
@@ -55,6 +57,25 @@ export const assignEventRequest = createServerFn({ method: "POST" })
       actorId: context.user.id,
       fromCoordinatorId: data.expectedCoordinatorId,
       toCoordinatorId: request.assignedCoordinatorId,
+    });
+
+    return request;
+  });
+
+/**
+ * PTR-17 criterion 3: the assigned Coordinator marks a submitted request as under review.
+ * The handler enforces ownership, so a different Coordinator is refused 403.
+ */
+export const takeUpEventRequestForReview = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleTakeUpForReview }] = await loadServer();
+    const request = await handleTakeUpForReview(data, context.user, db);
+
+    log.info("Event request taken up for review", {
+      requestId: request.id,
+      actorId: context.user.id,
     });
 
     return request;
