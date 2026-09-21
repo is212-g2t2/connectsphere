@@ -237,11 +237,18 @@ describe("event list handler (PTR-8)", () => {
       },
     ]);
 
-    await database.insert(schema.eventRegistrations).values({
-      eventId: closed.id,
-      attendeeId: fixtureUsers.attendeeRegistered.id,
-      registeredAt: new Date("2026-01-02T03:04:05Z"),
-    });
+    await database.insert(schema.eventRegistrations).values([
+      {
+        eventId: closed.id,
+        attendeeId: fixtureUsers.attendeeRegistered.id,
+        registeredAt: new Date("2026-01-02T03:04:05Z"),
+      },
+      {
+        eventId: review.id,
+        attendeeId: fixtureUsers.attendeeRegistered.id,
+        registeredAt: new Date("2026-02-03T04:05:06Z"),
+      },
+    ]);
 
     fixtures = { main, closed, foreign, draft, review };
   });
@@ -459,6 +466,23 @@ describe("event list handler (PTR-8)", () => {
       await expect(
         handleListEvents({ eventId: fixtures.review.id }, session("attendee"), database as never)
       ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+    });
+
+    it("keeps an under-review event visible to an attendee who already registered", async () => {
+      const listed = await handleListEvents({}, session("attendeeRegistered"), database as never);
+
+      expect(listed.map(row => row.event.id)).toContain(fixtures.review.id);
+
+      const [projection] = await handleListEvents(
+        { eventId: fixtures.review.id },
+        session("attendeeRegistered"),
+        database as never
+      );
+      expect(projection.access).toBe("attendee");
+      expect(projection.event.registration).toEqual({
+        status: "registered",
+        registeredAt: "2026-02-03T04:05:06.000Z",
+      });
     });
   });
 

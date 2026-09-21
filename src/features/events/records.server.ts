@@ -32,9 +32,9 @@ export async function handleListEvents(
   const now = new Date();
 
   // The event is the event request (PTR-21/24's event record replaces this). Each role reaches
-  // only the rows its relationship names, filtered in SQL: internal roles see every non-draft
-  // status, while attendees keep `submitted` as the stand-in for PTR-44's `confirmed` (PTR-8).
-  // The window check lives in `isRegistrationWindowOpen`, which needs the stored local strings.
+  // only the rows its relationship names, filtered in SQL: the four internal roles see every
+  // non-draft status, while browsing attendees are gated on `submitted` as the stand-in for
+  // PTR-44's `confirmed` (PTR-8), and an existing registration keeps a non-draft event visible.
   const visible = ne(eventRequests.status, "draft");
   const attendeeVisible = eq(eventRequests.status, "submitted");
   let relationship: SQL | undefined;
@@ -70,10 +70,10 @@ export async function handleListEvents(
       );
       break;
     case "attendee":
-      relationship = and(
-        attendeeVisible,
-        or(
-          eq(eventRequests.registrationEnabled, true),
+      relationship = or(
+        and(attendeeVisible, eq(eventRequests.registrationEnabled, true)),
+        and(
+          visible,
           inArray(
             eventRequests.id,
             database
