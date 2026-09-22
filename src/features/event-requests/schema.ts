@@ -369,6 +369,8 @@ export const EVENT_REQUEST_STATUSES = [
   "draft",
   "submitted",
   "under_review",
+  "approved",
+  "rejected",
   "awaiting_organiser",
 ] as const;
 export type EventRequestStatus = (typeof EVENT_REQUEST_STATUSES)[number];
@@ -377,6 +379,8 @@ export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   draft: "Draft",
   submitted: "Submitted",
   under_review: "Under review",
+  approved: "Approved",
+  rejected: "Rejected",
   awaiting_organiser: "Awaiting organiser",
 };
 

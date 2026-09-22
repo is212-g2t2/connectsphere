@@ -11,6 +11,7 @@ import * as schema from "../../src/db/schema";
 import { waitForHydration } from "./hydration";
 
 const password = "Coordinate123!";
+const MAILPIT_URL = process.env.MAILPIT_URL ?? "http://localhost:8025";
 let pool: Pool;
 let database: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -317,6 +318,70 @@ test("hides the take-up-for-review action once already under review", async ({ p
   }
 });
 
+test("rejects an under-review request, records the decision and notifies the Organiser", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const organiserContext = await browser.newContext({ baseURL });
+  const organiserPage = await organiserContext.newPage();
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Decision Coordinator");
+    ids.push(coordinator.id);
+    const organiser = await register(organiserPage, "event_organiser", "Decision Organiser");
+    ids.push(organiser.id);
+    const eventName = `Decision ${randomUUID()}`;
+    const [request] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: organiser.id,
+        eventName,
+        status: "under_review",
+        submittedAt: new Date(),
+        assignedCoordinatorId: coordinator.id,
+        assignedAt: new Date(),
+      })
+      .returning();
+
+    await page.goto(`/coordination/${request.id}`);
+    await waitForHydration(page);
+    await page.getByRole("button", { name: "Reject request" }).click();
+    await expect(page.getByRole("alert")).toHaveText("Enter a reason to reject this request");
+    await page.getByLabel("Decision reason").fill("The requested venue is unavailable.");
+    await page.getByRole("button", { name: "Reject request" }).click();
+    await expect(page).toHaveURL(/\/coordination\/?$/);
+
+    const [stored] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(stored).toMatchObject({
+      status: "rejected",
+      decisionReason: "The requested venue is unavailable.",
+      decidedByCoordinatorId: coordinator.id,
+      decidedByCoordinatorName: coordinator.name,
+    });
+    expect(stored.decidedAt).toBeInstanceOf(Date);
+
+    await organiserPage.goto(`/event-requests/${request.id}`);
+    await expect(organiserPage.getByRole("heading", { name: "Recorded decision" })).toBeVisible();
+    await expect(fieldValue(organiserPage, "Decision")).toHaveText("Rejected");
+    await expect(fieldValue(organiserPage, "Reason")).toHaveText(
+      "The requested venue is unavailable."
+    );
+    await expect(fieldValue(organiserPage, "Decided by")).toHaveText(coordinator.name);
+
+    const notification = await waitForDecisionEmail(organiser.email);
+    expect(notification).toContain(eventName);
+    expect(notification).toContain("rejected");
+    expect(notification).toContain("The requested venue is unavailable.");
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await organiserContext.close();
+  }
+});
+
 test("does not list or expose another Coordinator's assigned request", async ({
   page,
   browser,
@@ -348,3 +413,33 @@ test("does not list or expose another Coordinator's assigned request", async ({
     await otherContext.close();
   }
 });
+
+interface MailpitAddress {
+  Address: string;
+}
+
+interface MailpitMessage {
+  ID: string;
+  Subject: string;
+  To: MailpitAddress[];
+}
+
+async function waitForDecisionEmail(recipient: string): Promise<string> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const listResponse = await fetch(`${MAILPIT_URL}/api/v1/messages`);
+    const { messages } = (await listResponse.json()) as { messages: MailpitMessage[] };
+    const message = messages.find(
+      candidate =>
+        candidate.Subject === "Your event request was rejected" &&
+        candidate.To.some(address => address.Address === recipient)
+    );
+    if (message) {
+      const detailResponse = await fetch(`${MAILPIT_URL}/api/v1/message/${message.ID}`);
+      const detail = (await detailResponse.json()) as { Text?: string; HTML?: string };
+      return detail.Text ?? detail.HTML ?? "";
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw new Error(`No decision email captured for ${recipient} at ${MAILPIT_URL}`);
+}

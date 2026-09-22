@@ -48,6 +48,10 @@ const base: EventRequestDetail = {
   submittedAt: null,
   assignedCoordinatorId: null,
   assignedAt: null,
+  decisionReason: null,
+  decidedByCoordinatorId: null,
+  decidedByCoordinatorName: null,
+  decidedAt: null,
   coordinator: null,
   clarifications: [],
   eventName: "",
@@ -247,5 +251,30 @@ describe("EventRequestDetailPage (PTR-14 AC4)", () => {
     expect(screen.getAllByText("None recorded").length).toBeGreaterThanOrEqual(8);
     expect(screen.getByText("Not required")).toBeTruthy();
     expect(screen.getByText(ASSIGNED_ON_SUBMIT)).toBeTruthy();
+  });
+
+  it("shows a recorded decision, reason, Coordinator and time (PTR-20 AC3)", () => {
+    render(
+      <EventRequestDetailPage
+        request={{
+          ...submitted,
+          status: "rejected",
+          decisionReason: "The requested room is unavailable.",
+          decidedByCoordinatorId: "seed-coordinator-1",
+          decidedByCoordinatorName: "Seeded Event Coordinator",
+          decidedAt: new Date("2026-09-16T03:30:00Z"),
+        }}
+      />
+    );
+
+    const decisionCard = screen
+      .getByRole("heading", { name: "Recorded decision" })
+      .closest('[data-slot="card"]');
+    expect(decisionCard).toBeTruthy();
+    const decision = within(decisionCard as HTMLElement);
+    expect(decision.getByText("Rejected")).toBeTruthy();
+    expect(decision.getByText("The requested room is unavailable.")).toBeTruthy();
+    expect(decision.getByText("Seeded Event Coordinator")).toBeTruthy();
+    expect(decision.getByText("16 Sept 2026, 11:30").tagName).toBe("TIME");
   });
 });

@@ -8,6 +8,7 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
   handleAssignEventRequest,
+  handleDecideEventRequest,
   handleGetCoordinationRequest,
   handleListAssignedEventRequests,
   handleListCoordinators,
@@ -64,6 +65,8 @@ const otherOrganiser: SessionUser = {
   email: "other.organiser@example.com",
   role: "event_organiser",
 };
+
+const noOpDecisionNotification = async () => undefined;
 
 /**
  * This file owns its organisers so its destructive hooks can scope to them by id. The seeded demo
@@ -1186,6 +1189,193 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(rejected).toHaveLength(1);
       expect(rejected[0]).toMatchObject({ reason: { status: 409 } });
       expect(await statusOf(request.id)).toBe("under_review");
+    });
+  });
+
+  describe("approving or rejecting a request (PTR-20)", () => {
+    const actor = extraCoordinators[0];
+    const other = extraCoordinators[1];
+
+    async function underReviewRequest() {
+      const request = await submitNew(fullRequest, organiser, database);
+      await handleTakeUpForReview({ id: request.id }, actor, database as never);
+      return request;
+    }
+
+    it("approves an under-review request and records the Coordinator and time (AC1, AC3)", async () => {
+      const request = await underReviewRequest();
+      const notifications: unknown[] = [];
+      const approved = await handleDecideEventRequest(
+        { id: request.id, decision: "approved" },
+        actor,
+        database as never,
+        async notification => notifications.push(notification)
+      );
+
+      expect(approved).toMatchObject({
+        status: "approved",
+        decisionReason: null,
+        decidedByCoordinatorId: actor.id,
+        decidedByCoordinatorName: actor.name,
+      });
+      expect(approved.decidedAt).toBeInstanceOf(Date);
+      expect(
+        await handleGetEventRequest({ id: request.id }, organiser, database as never)
+      ).toMatchObject({
+        status: "approved",
+        decidedByCoordinatorId: actor.id,
+        decidedByCoordinatorName: actor.name,
+        decidedAt: approved.decidedAt,
+      });
+      expect(notifications).toEqual([
+        {
+          organiserEmail: organiser.email,
+          eventName: fullRequest.eventName,
+          decision: "approved",
+        },
+      ]);
+    });
+
+    it("requires a rejection reason, then records it and notifies the Organiser (AC2, AC4)", async () => {
+      const request = await underReviewRequest();
+      const notifications: unknown[] = [];
+      const notify = async (notification: unknown) => notifications.push(notification);
+
+      await expect(
+        handleDecideEventRequest(
+          { id: request.id, decision: "rejected", reason: " " },
+          actor,
+          database as never,
+          notify
+        )
+      ).rejects.toThrow("Enter a reason to reject this request");
+      expect(notifications).toEqual([]);
+
+      const rejected = await handleDecideEventRequest(
+        { id: request.id, decision: "rejected", reason: "  Venue unavailable  " },
+        actor,
+        database as never,
+        notify
+      );
+      expect(rejected).toMatchObject({
+        status: "rejected",
+        decisionReason: "Venue unavailable",
+        decidedByCoordinatorId: actor.id,
+        decidedByCoordinatorName: actor.name,
+      });
+      expect(notifications).toEqual([
+        {
+          organiserEmail: organiser.email,
+          eventName: fullRequest.eventName,
+          decision: "rejected",
+          reason: "Venue unavailable",
+        },
+      ]);
+    });
+
+    it("refuses the wrong Coordinator, a pre-review request and a second decision", async () => {
+      const request = await underReviewRequest();
+      const submitted = await submitNew(fullRequest, organiser, database);
+      const submittedCoordinator = fixtureCoordinators.find(
+        coordinator => coordinator.id === submitted.assignedCoordinatorId
+      );
+      if (!submittedCoordinator) throw new Error("Expected the submitted request to be assigned");
+
+      await expect(
+        handleDecideEventRequest(
+          { id: request.id, decision: "approved" },
+          other,
+          database as never,
+          noOpDecisionNotification
+        )
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        handleDecideEventRequest(
+          { id: submitted.id, decision: "approved" },
+          submittedCoordinator,
+          database as never,
+          noOpDecisionNotification
+        )
+      ).rejects.toMatchObject({ status: 409 });
+
+      await handleDecideEventRequest(
+        { id: request.id, decision: "approved" },
+        actor,
+        database as never,
+        noOpDecisionNotification
+      );
+      await expect(
+        handleDecideEventRequest(
+          { id: request.id, decision: "rejected", reason: "Changed mind" },
+          actor,
+          database as never,
+          noOpDecisionNotification
+        )
+      ).rejects.toMatchObject({ status: 409 });
+    });
+
+    it("allows only one competing decision and sends one notification", async () => {
+      const request = await underReviewRequest();
+      const notifications: unknown[] = [];
+      const notify = async (notification: unknown) => notifications.push(notification);
+      const results = await Promise.allSettled([
+        handleDecideEventRequest(
+          { id: request.id, decision: "approved" },
+          actor,
+          database as never,
+          notify
+        ),
+        handleDecideEventRequest(
+          { id: request.id, decision: "rejected", reason: "Venue unavailable" },
+          actor,
+          database as never,
+          notify
+        ),
+      ]);
+
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+      expect(notifications).toHaveLength(1);
+    });
+
+    it("rolls the decision back when the Organiser notification cannot be sent", async () => {
+      const request = await underReviewRequest();
+      await expect(
+        handleDecideEventRequest(
+          { id: request.id, decision: "approved" },
+          actor,
+          database as never,
+          async () => {
+            throw new Error("mail unavailable");
+          }
+        )
+      ).rejects.toThrow("mail unavailable");
+
+      expect(
+        await handleGetCoordinationRequest({ id: request.id }, actor, database as never)
+      ).toMatchObject({
+        status: "under_review",
+        decidedAt: null,
+        decidedByCoordinatorId: null,
+      });
+    });
+
+    it("enforces decision attribution and rejection reasons at the database boundary", async () => {
+      const request = await underReviewRequest();
+      await expect(
+        database
+          .update(schema.eventRequests)
+          .set({
+            status: "rejected",
+            decidedByCoordinatorId: actor.id,
+            decidedByCoordinatorName: actor.name,
+            decidedAt: new Date(),
+            decisionReason: null,
+          })
+          .where(eq(schema.eventRequests.id, request.id))
+      ).rejects.toMatchObject({
+        cause: { constraint: "event_requests_rejection_has_reason" },
+      });
     });
   });
 

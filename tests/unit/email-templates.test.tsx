@@ -2,6 +2,7 @@ import { render } from "@react-email/render";
 import { describe, expect, it } from "vitest";
 import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
 import { Layout } from "#/features/emails/components/layout";
+import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
 
@@ -39,6 +40,20 @@ describe("Email templates rendering", () => {
     expect(html).toContain(url);
     expect(html).toContain("Reset Your Password");
     expect(html).toContain("This link will expire in 1 hour.");
+  });
+
+  it("renders the event decision and rejection reason", async () => {
+    const html = await render(
+      <EventDecisionEmail
+        eventName="Community workshop"
+        decision="rejected"
+        reason="The requested room is unavailable."
+      />
+    );
+
+    expect(html).toContain("Community workshop");
+    expect(html).toContain("rejected");
+    expect(html).toContain("The requested room is unavailable.");
   });
 
   it("renders ClarificationRequestEmail with the event name, clarification body, and action button", async () => {

@@ -3,18 +3,30 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoordinationRequestPage } from "#/features/coordination/components/coordination-request-page";
-import { parseAssignmentInput } from "#/features/coordination/schema";
+import {
+  DECISION_REASON_REQUIRED,
+  parseAssignmentInput,
+  parseDecisionInput,
+} from "#/features/coordination/schema";
 import type { AssignmentValues } from "#/features/coordination/schema";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 
-const { assignEventRequest, takeUpEventRequestForReview, navigate, success } = vi.hoisted(() => ({
-  assignEventRequest: vi.fn<(input: { data: AssignmentValues }) => Promise<unknown>>(),
-  takeUpEventRequestForReview: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
-  navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
-  success: vi.fn<(message: string) => void>(),
-}));
+const { assignEventRequest, decideEventRequest, takeUpEventRequestForReview, navigate, success } =
+  vi.hoisted(() => ({
+    assignEventRequest: vi.fn<(input: { data: AssignmentValues }) => Promise<unknown>>(),
+    decideEventRequest:
+      vi.fn<
+        (input: {
+          data: { id: number; decision: "approved" | "rejected"; reason?: string };
+        }) => Promise<unknown>
+      >(),
+    takeUpEventRequestForReview: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
+    navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
+    success: vi.fn<(message: string) => void>(),
+  }));
 vi.mock("#/features/coordination/server-fns", () => ({
   assignEventRequest,
+  decideEventRequest,
   takeUpEventRequestForReview,
 }));
 vi.mock("@tanstack/react-router", () => ({
@@ -48,6 +60,10 @@ const request: CoordinationRequest = {
   submittedAt: new Date("2026-09-15T02:00:00Z"),
   assignedAt: null,
   assignedCoordinatorId: null,
+  decisionReason: null,
+  decidedByCoordinatorId: null,
+  decidedByCoordinatorName: null,
+  decidedAt: null,
   purpose: "Meet neighbours",
   proposedDates: [],
   expectedAttendance: 25,
@@ -99,6 +115,21 @@ describe("assignment validation", () => {
         actorId: "spoofed",
       })
     ).toEqual({ id: 7, coordinatorId: "coord-b", expectedCoordinatorId: null });
+  });
+});
+
+describe("decision validation", () => {
+  it("requires and trims a rejection reason while allowing approval without one", () => {
+    expect(() => parseDecisionInput({ id: 7, decision: "rejected", reason: "  " })).toThrow(
+      DECISION_REASON_REQUIRED
+    );
+    expect(
+      parseDecisionInput({ id: 7, decision: "rejected", reason: "  Venue unavailable  " })
+    ).toEqual({ id: 7, decision: "rejected", reason: "Venue unavailable" });
+    expect(parseDecisionInput({ id: 7, decision: "approved", reason: "  " })).toEqual({
+      id: 7,
+      decision: "approved",
+    });
   });
 });
 
@@ -231,5 +262,68 @@ describe("Review pickup", () => {
     );
     expect(navigate).not.toHaveBeenCalled();
     expect(success).not.toHaveBeenCalled();
+  });
+});
+
+describe("Approval and rejection", () => {
+  const underReview = {
+    ...request,
+    status: "under_review" as const,
+    assignedCoordinatorId: actor.id,
+    assignedAt: new Date(),
+    coordinator: actor,
+  };
+
+  it("offers decision controls only to the assigned Coordinator while under review", () => {
+    const { rerender } = render(
+      <CoordinationRequestPage request={underReview} coordinators={coordinators} user={actor} />
+    );
+    expect(screen.getByRole("button", { name: "Approve request" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reject request" })).toBeTruthy();
+
+    rerender(
+      <CoordinationRequestPage
+        request={{ ...underReview, status: "approved" }}
+        coordinators={coordinators}
+        user={actor}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Approve request" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject request" })).toBeNull();
+  });
+
+  it("approves without a reason and leaves the stale detail", async () => {
+    render(
+      <CoordinationRequestPage request={underReview} coordinators={coordinators} user={actor} />
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Approve request" }));
+    await waitFor(() =>
+      expect(decideEventRequest).toHaveBeenCalledWith({
+        data: { id: request.id, decision: "approved" },
+      })
+    );
+    expect(success).toHaveBeenCalledWith("Request approved.");
+    expect(navigate).toHaveBeenCalledWith({ to: "/coordination" });
+  });
+
+  it("refuses a blank rejection reason, then records a supplied one", async () => {
+    render(
+      <CoordinationRequestPage request={underReview} coordinators={coordinators} user={actor} />
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Reject request" }));
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      DECISION_REASON_REQUIRED
+    );
+    expect(decideEventRequest).not.toHaveBeenCalled();
+
+    await userEvent.type(screen.getByLabelText("Decision reason"), "  Venue unavailable  ");
+    await userEvent.click(screen.getByRole("button", { name: "Reject request" }));
+    await waitFor(() =>
+      expect(decideEventRequest).toHaveBeenCalledWith({
+        data: { id: request.id, decision: "rejected", reason: "Venue unavailable" },
+      })
+    );
+    expect(success).toHaveBeenCalledWith("Request rejected.");
   });
 });

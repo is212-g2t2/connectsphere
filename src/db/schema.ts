@@ -29,6 +29,8 @@ export const eventRequestStatus = pgEnum("event_request_status", [
   "draft",
   "submitted",
   "under_review",
+  "approved",
+  "rejected",
   "awaiting_organiser",
 ]);
 
@@ -58,6 +60,11 @@ export const eventRequests = pgTable(
       onDelete: "set null",
     }),
     assignedAt: timestamp("assigned_at", { withTimezone: true }),
+    /** PTR-20: immutable decision attribution retained after the request leaves review. */
+    decisionReason: text("decision_reason"),
+    decidedByCoordinatorId: text("decided_by_coordinator_id"),
+    decidedByCoordinatorName: text("decided_by_coordinator_name"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
     eventName: text("event_name").notNull().default(""),
     purpose: text("purpose").notNull().default(""),
     /**
@@ -114,6 +121,14 @@ export const eventRequests = pgTable(
     check(
       "event_requests_draft_has_no_coordinator",
       sql`${table.status} <> 'draft' or ${table.assignedCoordinatorId} is null`
+    ),
+    check(
+      "event_requests_decision_matches_status",
+      sql`(${table.status} in ('approved', 'rejected') and ${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.status} not in ('approved', 'rejected') and ${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null)`
+    ),
+    check(
+      "event_requests_rejection_has_reason",
+      sql`${table.status} <> 'rejected' or (${table.decisionReason} is not null and btrim(${table.decisionReason}) <> '')`
     ),
     // Criterion 2/5, held for whichever path writes the row: terms exist exactly when enabled.
     check(

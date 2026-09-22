@@ -58,6 +58,17 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(eventRequests).submittedAt.name).toBe("submitted_at");
   });
 
+  it("defines the recorded decision columns (PTR-20)", () => {
+    expect(getTableColumns(eventRequests).decisionReason.name).toBe("decision_reason");
+    expect(getTableColumns(eventRequests).decidedByCoordinatorId.name).toBe(
+      "decided_by_coordinator_id"
+    );
+    expect(getTableColumns(eventRequests).decidedByCoordinatorName.name).toBe(
+      "decided_by_coordinator_name"
+    );
+    expect(getTableColumns(eventRequests).decidedAt.name).toBe("decided_at");
+  });
+
   it("defines relations between user, session, and account", () => {
     expect(userRelations.table).toBe(user);
     expect(sessionRelations.table).toBe(session);
