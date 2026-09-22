@@ -288,15 +288,16 @@ async function loadVenueBookings(
 /**
  * The statuses an assigned Coordinator is still working a request in. `submitted` alone (PTR-29's
  * original gate) refused the very events a Coordinator searches for: PTR-17 moves a request to
- * `under_review` the moment it is picked up, PTR-18 to `awaiting_organiser`, PTR-20 to `approved`.
- * A draft, a rejection and anything confirmed are not looking for a venue. `planning` joins this
- * list when PTR-21's enum widening lands.
+ * `under_review` the moment it is picked up, PTR-18 to `awaiting_organiser`, PTR-20 to `approved`
+ * and PTR-21 on to `planning`. A draft, a rejection and anything confirmed or beyond is not
+ * looking for a venue.
  */
 const SEARCHABLE_STATUSES = [
   "submitted",
   "under_review",
   "awaiting_organiser",
   "approved",
+  "planning",
 ] as const;
 
 /**

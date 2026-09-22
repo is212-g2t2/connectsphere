@@ -166,13 +166,13 @@ describe("venue search handler (PTR-29)", () => {
     expect(result.unsuitable.map(({ venue }) => venue.name)).not.toContain(venueNames[0]);
   });
 
-  it.each(["under_review", "awaiting_organiser", "approved"] as const)(
+  it.each(["under_review", "awaiting_organiser", "approved", "planning"] as const)(
     "still prefills from an assigned event that is %s (PTR-30)",
     async status => {
       await database
         .update(schema.eventRequests)
         .set(
-          status === "approved"
+          status === "approved" || status === "planning"
             ? {
                 status,
                 decidedByCoordinatorId: users.coordinator.id,
