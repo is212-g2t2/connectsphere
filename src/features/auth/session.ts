@@ -43,15 +43,13 @@ function loadAuthServer() {
  * Resolves the Better Auth session once per request and puts the sanitised user — or `null` —
  * on the server function's context. It is also the pipeline's refusal boundary: a handler may
  * still throw the status-carrying errors below (a draft that belongs to another organiser, a
- * venue row that is not there, a submitted request that is no longer an editable draft), and the
- * `Response` they become is served verbatim by TanStack Start, so a direct HTTP caller gets the
- * real 401/403/404/409 and an in-app caller receives that `Response` as a resolved value — the
- * protocol the routes already unwrap. Anything else is a genuine fault and keeps travelling as
- * an error.
+ * venue row that is not there, a submitted request that is no longer an editable draft), and
+ * sets the HTTP response status via `setResponseStatus`. Anything else is a genuine fault and
+ * keeps travelling as an error.
  */
 export const withSession = createMiddleware({ type: "function" }).server(async ({ next }) => {
+  const [{ getRequest, setResponseStatus }, { auth }] = await loadAuthServer();
   try {
-    const [{ getRequest }, { auth }] = await loadAuthServer();
     const session = await auth.api.getSession({ headers: getRequest().headers });
     return await next({ context: { user: getSessionUser(session) } });
   } catch (error) {
@@ -60,7 +58,8 @@ export const withSession = createMiddleware({ type: "function" }).server(async (
       error instanceof NotFoundError ||
       error instanceof ConflictError
     ) {
-      throw new Response(error.message, { status: error.status });
+      setResponseStatus(error.status);
+      throw error;
     }
     throw error;
   }
@@ -71,7 +70,7 @@ export const requireSession = createMiddleware({ type: "function" })
   .middleware([withSession])
   .server(({ next, context }) => {
     if (!context.user) {
-      throw new Response("Unauthorized", { status: 401 });
+      throw new AuthorizationError("Unauthorized");
     }
 
     // Re-emitted non-null: `next()` merges context, so everything downstream sees a
@@ -96,7 +95,7 @@ export function requirePermission(
     .server(({ next, context, data }) => {
       const request = typeof required === "function" ? required(data) : required;
       if (!can(context.user.role, request)) {
-        throw new Response("Forbidden", { status: 403 });
+        throw new AuthorizationError("Forbidden");
       }
 
       return next({ context: { user: context.user } });
@@ -118,34 +117,18 @@ export const listAccounts = createServerFn({ method: "GET" })
   });
 
 /**
- * The client half of the refusal protocol `withSession` describes: a refused server function
- * resolves with its `Response` in the browser, but rejects with it during SSR. Both become an
- * `Error` whose message the route can serialize and display; `fallbackMessage` covers an empty body.
- */
-export async function unwrapRefusal<T>(
-  result: T | Response | PromiseLike<T | Response>,
-  fallbackMessage: string
-): Promise<T> {
-  const value = await Promise.resolve(result).catch((error: unknown) => {
-    if (error instanceof Response) return error;
-    throw error;
-  });
-  if (value instanceof Response) throw new Error((await value.text()) || fallbackMessage);
-  return value;
-}
-
-/**
  * The refusal a handler still throws on its own — the row exists but belongs to someone else
  * (event-request drafts are scoped to their organiser). A plain `Error` on purpose, not a
  * `Response`: it is thrown from a pure `handle*` function that integration tests call directly,
- * and the message is the existing contract. `withSession` converts it to a 403 `Response`.
+ * and the message is the existing contract. `withSession` sets the HTTP status code via `setResponseStatus`.
  */
 export class AuthorizationError extends Error {
-  readonly status = 403;
+  readonly status: number;
 
-  constructor(message: string) {
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "AuthorizationError";
+    this.status = status ?? (message === "Unauthorized" ? 401 : 403);
   }
 }
 

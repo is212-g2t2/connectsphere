@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Page, PageHeader } from "#/components/layout/page";
 import { Button } from "#/components/ui/button";
 import { can } from "#/features/auth/permissions";
-import { unwrapRefusal } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { VenueRequestPanel } from "#/features/venue-requests/components/venue-request-panel";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
@@ -90,10 +89,7 @@ export function VenueDetailPage({
             // implicit live region, and re-announcing a repeat save needs the node to go
             // away and come back, not merely to hold the same words.
             setSaved(false);
-            await unwrapRefusal(
-              await saveVenue({ data: { ...values, id: venue.id } }),
-              "Could not save this venue. Try again."
-            );
+            await saveVenue({ data: { ...values, id: venue.id } });
             // The loader is the only source for the row. Invalidating re-runs it, which
             // replaces `venue` with the saved values and bumps `updatedAt` (the column is
             // `$onUpdate`), so the key above changes and the banner arrives together with

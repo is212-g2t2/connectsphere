@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getSessionUser, unwrapRefusal } from "#/features/auth/session";
+import {
+  AuthorizationError,
+  ConflictError,
+  getSessionUser,
+  NotFoundError,
+} from "#/features/auth/session";
 
 describe("getSessionUser helper", () => {
   it("returns null when session is null or has no user", () => {
@@ -58,53 +63,42 @@ describe("getSessionUser helper", () => {
   });
 });
 
-describe("unwrapRefusal helper", () => {
-  it("returns a non-refusal result untouched", async () => {
-    const row = { id: 7 };
-
-    await expect(unwrapRefusal(row, "fallback")).resolves.toBe(row);
+describe("status-carrying error classes", () => {
+  it("creates AuthorizationError with status 403 by default", () => {
+    const error = new AuthorizationError("Forbidden");
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe("AuthorizationError");
+    expect(error.message).toBe("Forbidden");
+    expect(error.status).toBe(403);
   });
 
-  it("throws an Error carrying the refusal body", async () => {
-    const refusal = new Response("Forbidden", { status: 403 });
-
-    await expect(unwrapRefusal(refusal, "fallback")).rejects.toThrow("Forbidden");
+  it("creates AuthorizationError with status 401 when message is Unauthorized", () => {
+    const error = new AuthorizationError("Unauthorized");
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe("AuthorizationError");
+    expect(error.message).toBe("Unauthorized");
+    expect(error.status).toBe(401);
   });
 
-  it("throws when the refusal arrives through the pending call", async () => {
-    // The settings loader passes the server function's promise straight in; awaiting internally
-    // is what keeps that refusal from resolving as loader data (PTR-76).
-    const refusal = Promise.resolve(new Response("Forbidden", { status: 403 }));
-
-    await expect(unwrapRefusal(refusal, "fallback")).rejects.toThrow("Forbidden");
+  it("creates AuthorizationError with explicit status", () => {
+    const error = new AuthorizationError("Custom refusal", 401);
+    expect(error.status).toBe(401);
+    expect(error.message).toBe("Custom refusal");
   });
 
-  it("does not attach a status to the thrown error", async () => {
-    // Deliberate: nothing branches on the refusal status yet; attach it when a story needs to.
-    const refusal = new Response("Forbidden", { status: 403 });
-
-    await expect(unwrapRefusal(refusal, "fallback")).rejects.not.toHaveProperty("status");
+  it("creates NotFoundError with status 404", () => {
+    const error = new NotFoundError("Not Found");
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe("NotFoundError");
+    expect(error.message).toBe("Not Found");
+    expect(error.status).toBe(404);
   });
 
-  it("turns an SSR rejection Response into a serializable Error (PTR-16)", async () => {
-    await expect(
-      unwrapRefusal(
-        Promise.reject(new Response("Coordination access refused", { status: 403 })),
-        "fallback"
-      )
-    ).rejects.toThrow("Coordination access refused");
-  });
-
-  it("preserves failures that are not refusal Responses", async () => {
-    const error = new Error("Database unavailable");
-    await expect(unwrapRefusal(Promise.reject(error), "fallback")).rejects.toBe(error);
-  });
-
-  it("falls back when the refusal body is empty", async () => {
-    const refusal = new Response("", { status: 401 });
-
-    await expect(unwrapRefusal(refusal, "Could not save this draft. Try again.")).rejects.toThrow(
-      "Could not save this draft. Try again."
-    );
+  it("creates ConflictError with status 409", () => {
+    const error = new ConflictError("Conflict");
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe("ConflictError");
+    expect(error.message).toBe("Conflict");
+    expect(error.status).toBe(409);
   });
 });

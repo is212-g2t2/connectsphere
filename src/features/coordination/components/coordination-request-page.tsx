@@ -13,7 +13,6 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Textarea } from "#/components/ui/textarea";
-import { unwrapRefusal } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   CoordinatorSelection,
@@ -48,16 +47,13 @@ export function CoordinationRequestPage({
   const unassigned = request.assignedCoordinatorId === null;
 
   const [assignment, assign, assigning] = useMutation(async (incomingId: string) => {
-    await unwrapRefusal(
-      assignEventRequest({
-        data: {
-          id: request.id,
-          coordinatorId: incomingId,
-          expectedCoordinatorId: request.assignedCoordinatorId,
-        },
-      }),
-      "Could not assign this request. Try again."
-    );
+    await assignEventRequest({
+      data: {
+        id: request.id,
+        coordinatorId: incomingId,
+        expectedCoordinatorId: request.assignedCoordinatorId,
+      },
+    });
     toast.success("Assignment recorded.");
     // Leave the old detail immediately: the actor may have just relinquished access to it.
     await navigate({ to: "/coordination" });
@@ -67,10 +63,7 @@ export function CoordinationRequestPage({
   // list, same as `assign` above, so the page never has to reconcile a stale `request` prop
   // against the new status itself.
   const [review, takeUpReview, takingUp] = useMutation(async () => {
-    await unwrapRefusal(
-      takeUpEventRequestForReview({ data: { id: request.id } }),
-      "Could not take up this request for review. Try again."
-    );
+    await takeUpEventRequestForReview({ data: { id: request.id } });
     toast.success("Request taken up for review.");
     await navigate({ to: "/coordination" });
   }, "Could not take up this request for review. Try again.");
@@ -85,10 +78,7 @@ export function CoordinationRequestPage({
           decision: value.decision,
           reason: value.reason,
         });
-        await unwrapRefusal(
-          decideEventRequest({ data: input }),
-          "Could not record this decision. Try again."
-        );
+        await decideEventRequest({ data: input });
         toast.success(input.decision === "approved" ? "Request approved." : "Request rejected.");
         await navigate({ to: "/coordination" });
       } catch (error) {
@@ -113,15 +103,12 @@ export function CoordinationRequestPage({
     validators: { onSubmit: ClarificationFormSchema },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await unwrapRefusal(
-          raiseClarificationRequest({
-            data: {
-              id: request.id,
-              body: value.body,
-            },
-          }),
-          "Could not send clarification request. Try again."
-        );
+        await raiseClarificationRequest({
+          data: {
+            id: request.id,
+            body: value.body,
+          },
+        });
         toast.success("Clarification request sent.");
         clarificationForm.reset();
         await router.invalidate();

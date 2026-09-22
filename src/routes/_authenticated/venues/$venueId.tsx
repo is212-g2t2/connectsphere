@@ -2,7 +2,6 @@ import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { can } from "#/features/auth/permissions";
-import { unwrapRefusal } from "#/features/auth/session";
 import { VenueRequestContextInput } from "#/features/venue-requests/schema";
 import { getVenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
@@ -61,15 +60,12 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
       : null;
 
     const [venueResult, contextResult] = await Promise.all([
-      unwrapRefusal(getVenue({ data: parsed.data }), "Could not load this venue. Try again."),
+      getVenue({ data: parsed.data }),
       // The request panel is an optional overlay on the venue record: a failed context load must
       // not take the venue down with it. It becomes a flag the page can report and retry, rather
       // than the same `null` as "this venue was opened without an event".
       selection
-        ? unwrapRefusal(
-            getVenueRequestContext({ data: selection }),
-            "Could not load the venue request. Try again."
-          )
+        ? getVenueRequestContext({ data: selection })
             .then(result => ({ context: result.context, failed: false }))
             .catch(() => ({ context: null, failed: true }))
         : null,

@@ -136,7 +136,9 @@ Because the middleware runs before a server function's own `.validator()`, a ref
 
 ### Refusals
 
-A handler may throw `AuthorizationError` (403), `NotFoundError` (404) or `ConflictError` (409): a row that is someone else's, missing, or no longer editable. `withSession` converts it to a status `Response`, which TanStack Start serves verbatim, so a direct HTTP call gets the real status. An in-app caller receives that `Response` as a resolved value rather than a rejection, so call sites that can be refused route the result through `unwrapRefusal` (`src/features/auth/session.ts`), which rethrows it as an `Error`.
+A handler or middleware throws a typed `Error` subclass when refusing a request: `AuthorizationError` (401 or 403), `NotFoundError` (404), or `ConflictError` (409). The middleware pipeline (`withSession`, `requireSession`, and `requirePermission`) calls `setResponseStatus` so the HTTP response on the wire carries the matching status code.
+
+Seroval serializes these errors across the network boundary. Callers and SSR reject with a standard `Error` naturally without caller-side response unwrapping.
 
 ## Observability
 

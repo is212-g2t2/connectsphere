@@ -92,7 +92,7 @@ describe("NewVenuePage", () => {
   });
 
   it("surfaces a refused save and does not navigate", async () => {
-    saveVenue.mockResolvedValue(new Response("That name is already taken", { status: 409 }));
+    saveVenue.mockRejectedValue(new Error("That name is already taken"));
     const user = userEvent.setup();
     render(<NewVenuePage />);
 

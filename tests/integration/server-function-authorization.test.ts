@@ -1,6 +1,7 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMiddleware, createServerFn } from "@tanstack/react-start";
+import { setResponseStatus } from "@tanstack/react-start/server";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -87,6 +88,7 @@ const currentRequest = new Request("http://localhost:3000/_serverFn", { method: 
 
 vi.mock("@tanstack/react-start/server", () => ({
   getRequest: () => currentRequest,
+  setResponseStatus: vi.fn<(status: number) => void>(),
 }));
 
 vi.mock("#/lib/auth.server", () => ({
@@ -120,11 +122,16 @@ async function refusalFrom(
   method: "GET" | "POST" = "POST"
 ) {
   const { error } = await call(serverFn, data, method);
-  if (!(error instanceof Response)) {
-    throw new Error("expected a refusal Response, but the pipeline returned none");
+  if (!(error instanceof Error && "status" in error)) {
+    throw new Error("expected a refusal Error carrying status, but the pipeline returned none");
   }
 
-  return { status: error.status, body: await error.text() };
+  const status = (error as { status: number }).status;
+  const body = error.message;
+
+  expect(setResponseStatus).toHaveBeenCalledWith(status);
+
+  return { status, body };
 }
 
 function signIn(role: string) {

@@ -64,7 +64,7 @@ describe("EventRequestsPage", () => {
   });
 
   it("keeps the confirmation off screen when a save is refused", async () => {
-    saveEventRequestDraft.mockResolvedValue(new Response("Unauthorized", { status: 401 }));
+    saveEventRequestDraft.mockRejectedValue(new Error("Unauthorized"));
     render(<EventRequestsPage />);
 
     await saveDraftNamed("Community workshop");
@@ -76,7 +76,7 @@ describe("EventRequestsPage", () => {
   it("retries onto the same draft after a refusal rather than opening a second one", async () => {
     saveEventRequestDraft
       .mockResolvedValueOnce({ id: 41 })
-      .mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }))
+      .mockRejectedValueOnce(new Error("Unauthorized"))
       .mockResolvedValueOnce({ id: 41 });
     render(<EventRequestsPage />);
 
@@ -207,7 +207,7 @@ describe("EventRequestsPage submission (PTR-13)", () => {
   });
 
   it("does not submit when the draft could not be saved", async () => {
-    saveEventRequestDraft.mockResolvedValue(new Response("Unauthorized", { status: 401 }));
+    saveEventRequestDraft.mockRejectedValue(new Error("Unauthorized"));
     render(<EventRequestsPage />);
 
     await submitRequest();
