@@ -94,6 +94,15 @@ Handled by **Better Auth**; rate limited to 20 requests per 60-second window.
 - **Email verification**: `emailVerification.sendOnSignUp` mails a link via the `VerificationEmail` template; Better Auth's `/api/auth/verify-email` consumes it, so there is no app route for it.
 - **Password reset**: `/reset-password` sends a link (1 hour expiry). The emailed callback returns to `/reset-password?token=…`, or `?error=INVALID_TOKEN` when it has expired. It does not create a session; the user signs in afterwards.
 
+## Event status
+
+`event_requests.status` is the one place an event's stage is recorded (PTR-21). The Postgres enum `event_request_status` holds the defined set — `draft`, `submitted`, `under_review`, `awaiting_organiser`, `approved`, `rejected`, `planning`, `confirmed`, `completed`, `cancelled` — and `EVENT_REQUEST_STATUSES` in `src/features/event-requests/schema.ts` restates it client-side, held identical by `tests/unit/db-schema.test.ts`. The plain-language labels and the status-pill variant for each live beside it, and `EventRequestStatusBadge` (`src/features/event-requests/components/status-badge.tsx`) is the only rendering: every list and detail page imports it rather than mapping a status to text itself.
+
+Two rules hold across every story:
+
+- **Only a user's status action writes `status`** (criterion 3, brief §9 item 7). A venue or equipment arrangement changing — a booking released, a reservation reduced, a venue record edited — never moves an event by itself; the affected Coordinator is told and acts. `tests/integration/event-request-drafts.test.ts` pins it for the arrangements that exist today.
+- **Every transition records who and when** (criterion 4), on the row or table the transition story owns: `submittedAt` (PTR-13), `event_assignments` with `actorId` and `createdAt` for every assignment and pick-up (PTR-15/16), `decidedByCoordinatorId`/`decidedByCoordinatorName`/`decidedAt` for a decision (PTR-20), and `clarification_requests` with `coordinatorId` and `createdAt` for the move to `awaiting_organiser` (PTR-18). A later story that adds a transition adds its attribution the same way. The `event_requests_decision_matches_status` CHECK is what keeps the decision attribution present from `approved` onward and absent before it; `cancelled` accepts either, complete or wholly absent, because a cancellation can happen on either side of the decision (PTR-54).
+
 ## Authorisation
 
 ### Roles

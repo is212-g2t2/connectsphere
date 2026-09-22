@@ -4,10 +4,10 @@ import { Page, PageHeader } from "#/components/layout/page";
 import { Card, CardContent } from "#/components/ui/card";
 import {
   ASSIGNED_ON_SUBMIT,
-  EventRequestStatusBadge,
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
 } from "#/features/event-requests/components/request-list-page";
+import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import {
   formatInstant,

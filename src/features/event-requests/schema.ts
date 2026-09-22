@@ -372,9 +372,14 @@ export const EVENT_REQUEST_STATUSES = [
   "approved",
   "rejected",
   "awaiting_organiser",
+  "planning",
+  "confirmed",
+  "completed",
+  "cancelled",
 ] as const;
 export type EventRequestStatus = (typeof EVENT_REQUEST_STATUSES)[number];
 
+/** PTR-21 criterion 2: the plain-language label every screen shows instead of the stored code. */
 export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   draft: "Draft",
   submitted: "Submitted",
@@ -382,7 +387,36 @@ export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   approved: "Approved",
   rejected: "Rejected",
   awaiting_organiser: "Awaiting organiser",
+  planning: "Planning",
+  confirmed: "Confirmed",
+  completed: "Completed",
+  cancelled: "Cancelled",
 };
+
+/**
+ * The design system's status pills (docs/DESIGN.md#status-pills), one per status: work in
+ * progress is amber, a settled good outcome is harbor, a stop is coral, the neutral ends of the
+ * life are outline (not started) and secondary (over). Pure data so any page can import it.
+ */
+export type EventRequestStatusVariant =
+  | "outline"
+  | "progress"
+  | "confirmed"
+  | "stopped"
+  | "secondary";
+export const EVENT_REQUEST_STATUS_VARIANTS: Record<EventRequestStatus, EventRequestStatusVariant> =
+  {
+    draft: "outline",
+    submitted: "progress",
+    under_review: "progress",
+    awaiting_organiser: "stopped",
+    approved: "confirmed",
+    planning: "progress",
+    confirmed: "confirmed",
+    completed: "secondary",
+    rejected: "stopped",
+    cancelled: "stopped",
+  };
 
 // ── Clarification requests (PTR-18) ─────────────────────────────────────────
 

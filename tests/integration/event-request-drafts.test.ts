@@ -1710,3 +1710,104 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     expect(unassigned.map(row => row.eventName)).toEqual(["Older wait", "Newer wait"]);
   });
 });
+
+describe("Status set and decision attribution (PTR-21)", () => {
+  let pool: Pool;
+  let database: ReturnType<typeof drizzle<typeof schema>>;
+
+  beforeAll(() => {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    database = drizzle(pool, { schema });
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  beforeEach(async () => {
+    await database.delete(schema.eventRequests);
+  });
+
+  const decided = {
+    decidedByCoordinatorId: "seed-coordinator-1",
+    decidedByCoordinatorName: "Seeded Event Coordinator",
+    decidedAt: new Date(),
+  };
+
+  async function submitted() {
+    const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    return handleSubmitEventRequest({ id: saved.id }, organiser, database as never);
+  }
+
+  it.each(["planning", "confirmed", "completed"] as const)(
+    "keeps the decision attribution through %s (AC1)",
+    async status => {
+      const request = await submitted();
+
+      await expect(
+        database
+          .update(schema.eventRequests)
+          .set({ status })
+          .where(eq(schema.eventRequests.id, request.id))
+      ).rejects.toMatchObject({ cause: { constraint: "event_requests_decision_matches_status" } });
+
+      const [row] = await database
+        .update(schema.eventRequests)
+        .set({ status, ...decided })
+        .where(eq(schema.eventRequests.id, request.id))
+        .returning();
+      expect(row.status).toBe(status);
+    }
+  );
+
+  it("lets a request be cancelled before or after a decision, never half-attributed", async () => {
+    const before = await submitted();
+    const [cancelledBefore] = await database
+      .update(schema.eventRequests)
+      .set({ status: "cancelled" })
+      .where(eq(schema.eventRequests.id, before.id))
+      .returning();
+    expect(cancelledBefore.status).toBe("cancelled");
+
+    const after = await submitted();
+    const [cancelledAfter] = await database
+      .update(schema.eventRequests)
+      .set({ status: "cancelled", ...decided })
+      .where(eq(schema.eventRequests.id, after.id))
+      .returning();
+    expect(cancelledAfter.decidedByCoordinatorId).toBe("seed-coordinator-1");
+
+    // A time without a decider on the never-decided row is the half-written shape the CHECK refuses.
+    await expect(
+      database
+        .update(schema.eventRequests)
+        .set({ status: "cancelled", decidedAt: new Date() })
+        .where(eq(schema.eventRequests.id, before.id))
+    ).rejects.toMatchObject({ cause: { constraint: "event_requests_decision_matches_status" } });
+  });
+
+  it("does not move the status when a venue arrangement changes (AC3)", async () => {
+    const request = await submitted();
+    // The only arrangement writes that exist today: the venue record and its unavailability.
+    await database
+      .update(schema.venues)
+      .set({ maxCapacity: 999 })
+      .where(eq(schema.venues.name, "Harbour Hall"));
+    await database
+      .insert(schema.venueUnavailability)
+      .values({
+        venueId: (await database.select({ id: schema.venues.id }).from(schema.venues).limit(1))[0]
+          .id,
+        startsAt: "2028-01-01 09:00:00",
+        endsAt: "2028-01-01 12:00:00",
+        reason: "PTR-21 AC3",
+      })
+      .onConflictDoNothing();
+
+    const [row] = await database
+      .select({ status: schema.eventRequests.status })
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(row.status).toBe("submitted");
+  });
+});

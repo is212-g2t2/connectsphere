@@ -10,10 +10,8 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import type { AssignedEventRequest } from "#/features/coordination/server-fns";
-import {
-  EventRequestStatusBadge,
-  UNTITLED_REQUEST,
-} from "#/features/event-requests/components/request-list-page";
+import { UNTITLED_REQUEST } from "#/features/event-requests/components/request-list-page";
+import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { formatFirstProposedDate, formatInstant } from "#/features/event-requests/format";
 import type { UnassignedEventRequest } from "#/features/event-requests/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
