@@ -24,6 +24,10 @@ const waiting: UnassignedEventRequest = {
   submittedAt: new Date("2026-09-15T02:00:00Z"),
   assignedCoordinatorId: null,
   assignedAt: null,
+  decisionReason: null,
+  decidedByCoordinatorId: null,
+  decidedByCoordinatorName: null,
+  decidedAt: null,
   eventName: "Annual dinner",
   purpose: "Thank the volunteers",
   proposedDates: [{ start: "2030-12-01T18:00", end: "2030-12-01T22:00" }],
@@ -81,5 +85,17 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
 
     rerender(<CoordinationPage unassigned={[]} assigned={[]} />);
     expect(screen.getByText("No requests are assigned to you.")).toBeTruthy();
+  });
+
+  it("shows the decided status next to an assigned request so it does not look actionable", () => {
+    const decided: AssignedEventRequest = {
+      ...waiting,
+      status: "rejected",
+      assignedCoordinatorId: "usr_coord",
+      assignedAt: new Date("2026-09-15T03:00:00Z"),
+    };
+    render(<CoordinationPage unassigned={[]} assigned={[decided]} />);
+
+    expect(screen.getByText("Rejected")).toBeTruthy();
   });
 });

@@ -8,6 +8,7 @@ import {
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
 } from "#/features/event-requests/components/request-list-page";
+import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import {
   formatInstant,
   formatLocalDateTime,
@@ -49,6 +50,14 @@ export function EventRequestDetailPage({
         description={
           request.status === "draft" ? (
             "Saved as a draft and not yet submitted."
+          ) : request.status === "approved" || request.status === "rejected" ? (
+            <>
+              Decision recorded on{" "}
+              <time dateTime={request.decidedAt?.toISOString()}>
+                {formatInstant(request.decidedAt)}
+              </time>
+              .
+            </>
           ) : (
             <>
               Submitted on{" "}
@@ -65,6 +74,26 @@ export function EventRequestDetailPage({
       />
 
       {children}
+
+      {(request.status === "approved" || request.status === "rejected") && (
+        <Card className="mt-8">
+          <CardContent>
+            <h2 className="display-h3">Recorded decision</h2>
+            <dl className="mt-5 grid gap-6 sm:grid-cols-2">
+              <Detail term="Decision">{EVENT_REQUEST_STATUS_LABELS[request.status]}</Detail>
+              <Detail term="Decided by">{request.decidedByCoordinatorName ?? NONE}</Detail>
+              <Detail term="Decided at">
+                <time dateTime={request.decidedAt?.toISOString()}>
+                  {formatInstant(request.decidedAt)}
+                </time>
+              </Detail>
+              <Detail term="Reason" wide>
+                {request.decisionReason || NONE}
+              </Detail>
+            </dl>
+          </CardContent>
+        </Card>
+      )}
 
       {request.clarifications.length > 0 && (
         <section className="mt-8" aria-labelledby="clarifications-heading">

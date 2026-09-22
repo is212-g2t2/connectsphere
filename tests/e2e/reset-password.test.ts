@@ -1,9 +1,8 @@
-// oxlint-disable node/no-process-env, no-await-in-loop
 import { test, expect } from "@playwright/test";
 
 import { waitForHydration } from "./hydration";
+import { waitForEmail } from "./mailpit";
 
-const MAILPIT_URL = process.env.MAILPIT_URL ?? "http://localhost:8025";
 const password = "Password123!";
 
 test.describe("Reset password", () => {
@@ -92,36 +91,10 @@ test.describe("Reset password journey", () => {
   });
 });
 
-interface MailpitAddress {
-  Address: string;
-}
-
-interface MailpitMessage {
-  ID: string;
-  Subject: string;
-  To: MailpitAddress[];
-}
-
-/** Polls Mailpit until the reset email arrives, then returns the token its link carries. */
+/** Reads the reset token out of the link in the reset email. */
 async function waitForResetToken(recipient: string): Promise<string> {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const listResponse = await fetch(`${MAILPIT_URL}/api/v1/messages`);
-    const { messages } = (await listResponse.json()) as { messages: MailpitMessage[] };
-    const message = messages.find(
-      candidate =>
-        candidate.Subject === "Reset your password" &&
-        candidate.To.some(address => address.Address === recipient)
-    );
-    if (message) {
-      const detailResponse = await fetch(`${MAILPIT_URL}/api/v1/message/${message.ID}`);
-      const detail = (await detailResponse.json()) as { Text?: string; HTML?: string };
-      const match = /\/api\/auth\/reset-password\/([A-Za-z0-9_-]+)/.exec(
-        detail.Text ?? detail.HTML ?? ""
-      );
-      if (match) return match[1];
-    }
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-  throw new Error(`No reset email captured for ${recipient} at ${MAILPIT_URL}`);
+  const body = await waitForEmail(recipient, "Reset your password");
+  const match = /\/api\/auth\/reset-password\/([A-Za-z0-9_-]+)/.exec(body);
+  if (!match) throw new Error(`Reset email for ${recipient} carried no token`);
+  return match[1];
 }

@@ -200,8 +200,8 @@ export async function handleSubmitEventRequest(
  * submit transaction covers the draft row, not this read — which criterion 1 permits; serialising
  * the pick is a trade against contention to weigh if burst fairness ever matters.
  *
- * Every non-draft request counts as load for now. When PTR-21's terminal statuses (completed,
- * cancelled, rejected) exist, they are the ones to exclude here.
+ * A rejected request is terminal and no longer counts as active coordination load. Approved
+ * requests still count because approval opens their downstream venue and equipment work.
  *
  * Exported for the integration test; its one application caller is `handleSubmitEventRequest`.
  */
@@ -213,7 +213,11 @@ export async function pickLeastLoadedCoordinator(
     .from(users)
     .leftJoin(
       eventRequests,
-      and(eq(eventRequests.assignedCoordinatorId, users.id), ne(eventRequests.status, "draft"))
+      and(
+        eq(eventRequests.assignedCoordinatorId, users.id),
+        ne(eventRequests.status, "draft"),
+        ne(eventRequests.status, "rejected")
+      )
     )
     .where(eq(users.role, "event_coordinator"))
     .groupBy(users.id, users.createdAt)

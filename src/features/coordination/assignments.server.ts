@@ -1,13 +1,14 @@
-import { createElement } from "react";
-import { and, asc, desc, eq, getTableColumns, ne, or, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray, ne, or, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { createElement } from "react";
 
 import type { db as Db } from "#/db";
 import { clarificationRequests, eventAssignments, eventRequests, user } from "#/db/schema";
 import { env } from "#/env";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { parseAssignmentInput } from "#/features/coordination/schema";
+import { parseAssignmentInput, parseDecisionInput } from "#/features/coordination/schema";
+import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
 import { parseClarificationBody, parseEventRequestId } from "#/features/event-requests/schema";
 import { logger } from "#/lib/logger";
@@ -27,6 +28,7 @@ const log = logger.getChild("coordination");
  */
 
 type Database = typeof Db;
+
 const organisers = alias(user, "organiser");
 const coordinators = alias(user, "coordinator");
 
@@ -122,6 +124,9 @@ export async function handleAssignEventRequest(
     if (request.assignedCoordinatorId !== input.expectedCoordinatorId) {
       throw new ConflictError("This assignment has changed. Refresh the request and try again.");
     }
+    if (request.status === "approved" || request.status === "rejected") {
+      throw new ConflictError("A decided request can no longer be reassigned.");
+    }
     if (request.assignedCoordinatorId === input.coordinatorId) {
       throw new ConflictError("This Coordinator is already assigned to the request.");
     }
@@ -202,6 +207,83 @@ export async function handleTakeUpForReview(data: unknown, actor: SessionUser, d
   throw new ConflictError(
     "This request changed while you were taking it up. Refresh and try again."
   );
+}
+
+/**
+ * PTR-20: record one terminal decision against a request held by the assigned Coordinator. The
+ * row lock makes competing approval/rejection calls serialize, so exactly one can win. The
+ * decision commits before the Organiser's email is attempted; a failed send is logged, not
+ * fatal, so a mail outage cannot lose a recorded decision.
+ */
+export async function handleDecideEventRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseDecisionInput(data);
+  const { recorded, organiserEmail } = await database.transaction(async tx => {
+    const request = (
+      await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
+    ).at(0);
+
+    if (!request || request.status === "draft" || request.assignedCoordinatorId !== actor.id) {
+      throw new AuthorizationError("Only the assigned Coordinator can decide this request.");
+    }
+    if (request.status === "approved" || request.status === "rejected") {
+      throw new ConflictError("This request already has a recorded decision.");
+    }
+    if (request.status !== "under_review") {
+      throw new ConflictError("Take this request up for review before deciding it.");
+    }
+
+    const people = await tx
+      .select({ id: user.id, name: user.name, email: user.email })
+      .from(user)
+      .where(inArray(user.id, [actor.id, request.organiserId]));
+    const decidingCoordinator = people.find(person => person.id === actor.id);
+    const requestOrganiser = people.find(person => person.id === request.organiserId);
+    if (!decidingCoordinator || !requestOrganiser) {
+      throw new ConflictError("The request's Coordinator or Organiser is no longer available.");
+    }
+
+    const now = new Date();
+    const [updated] = await tx
+      .update(eventRequests)
+      .set({
+        status: input.decision,
+        decisionReason: input.reason || null,
+        decidedByCoordinatorId: actor.id,
+        decidedByCoordinatorName: decidingCoordinator.name,
+        decidedAt: now,
+      })
+      .where(eq(eventRequests.id, request.id))
+      .returning();
+
+    return {
+      recorded: updated,
+      organiserEmail: requestOrganiser.email,
+    };
+  });
+
+  try {
+    await sendEmail(
+      organiserEmail,
+      `Your event request was ${input.decision}`,
+      createElement(EventDecisionEmail, {
+        eventName: recorded.eventName.trim() || "Untitled request",
+        decision: input.decision,
+        reason: input.reason,
+        eventRequestUrl: `${env.BETTER_AUTH_URL}/event-requests/${recorded.id}`,
+      })
+    );
+  } catch (error) {
+    // The decision is already committed; a failed notification must not lose it (matches PTR-18).
+    log.warn("Decision email failed", {
+      requestId: recorded.id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
+  return recorded;
 }
 
 /**

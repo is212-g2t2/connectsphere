@@ -9,6 +9,7 @@ import { eq, inArray } from "drizzle-orm";
 
 import * as schema from "../../src/db/schema";
 import { waitForHydration } from "./hydration";
+import { waitForEmail } from "./mailpit";
 
 const password = "Coordinate123!";
 let pool: Pool;
@@ -314,6 +315,73 @@ test("hides the take-up-for-review action once already under review", async ({ p
     await expect(page.getByRole("button", { name: "Take up for review" })).toHaveCount(0);
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
+  }
+});
+
+test("rejects an under-review request, records the decision and notifies the Organiser", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const organiserContext = await browser.newContext({ baseURL });
+  const organiserPage = await organiserContext.newPage();
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Decision Coordinator");
+    ids.push(coordinator.id);
+    const organiser = await register(organiserPage, "event_organiser", "Decision Organiser");
+    ids.push(organiser.id);
+    const eventName = `Decision ${randomUUID()}`;
+    const [request] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: organiser.id,
+        eventName,
+        status: "under_review",
+        submittedAt: new Date(),
+        assignedCoordinatorId: coordinator.id,
+        assignedAt: new Date(),
+      })
+      .returning();
+
+    await page.goto(`/coordination/${request.id}`);
+    await waitForHydration(page);
+    await page.getByRole("button", { name: "Reject request" }).click();
+    await expect(page.getByRole("alert")).toHaveText("Enter a reason to reject this request");
+    await page.getByLabel("Decision reason").fill("The requested venue is unavailable.");
+    await page.getByRole("button", { name: "Reject request" }).click();
+    await expect(page).toHaveURL(/\/coordination\/?$/);
+
+    const [stored] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(stored).toMatchObject({
+      status: "rejected",
+      decisionReason: "The requested venue is unavailable.",
+      decidedByCoordinatorId: coordinator.id,
+      decidedByCoordinatorName: coordinator.name,
+    });
+    expect(stored.decidedAt).toBeInstanceOf(Date);
+
+    await organiserPage.goto(`/event-requests/${request.id}`);
+    await expect(organiserPage.getByRole("heading", { name: "Recorded decision" })).toBeVisible();
+    await expect(fieldValue(organiserPage, "Decision")).toHaveText("Rejected");
+    await expect(fieldValue(organiserPage, "Reason")).toHaveText(
+      "The requested venue is unavailable."
+    );
+    await expect(fieldValue(organiserPage, "Decided by")).toHaveText(coordinator.name);
+    const decidedAt = fieldValue(organiserPage, "Decided at").locator("time");
+    await expect(decidedAt).toBeVisible();
+    await expect(decidedAt).toHaveAttribute("datetime", stored.decidedAt?.toISOString() ?? "");
+
+    const notification = await waitForEmail(organiser.email, "Your event request was rejected");
+    expect(notification).toContain(eventName);
+    expect(notification).toContain("rejected");
+    expect(notification).toContain("The requested venue is unavailable.");
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await organiserContext.close();
   }
 });
 

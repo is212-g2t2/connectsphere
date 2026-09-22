@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { parseAssignmentInput } from "#/features/coordination/schema";
+import { parseAssignmentInput, parseDecisionInput } from "#/features/coordination/schema";
 import { parseClarificationBody, parseEventRequestId } from "#/features/event-requests/schema";
 import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
 import { logger } from "#/lib/logger";
@@ -74,6 +74,23 @@ export const takeUpEventRequestForReview = createServerFn({ method: "POST" })
     log.info("Event request taken up for review", {
       requestId: request.id,
       actorId: context.user.id,
+    });
+
+    return request;
+  });
+
+/** PTR-20: decide an under-review request and notify its Organiser of the recorded outcome. */
+export const decideEventRequest = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseDecisionInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleDecideEventRequest }] = await loadServer();
+    const request = await handleDecideEventRequest(data, context.user, db);
+
+    log.info("Event request decision recorded", {
+      requestId: request.id,
+      actorId: context.user.id,
+      decision: request.status,
     });
 
     return request;

@@ -8,6 +8,7 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
   handleAssignEventRequest,
+  handleDecideEventRequest,
   handleGetCoordinationRequest,
   handleListAssignedEventRequests,
   handleListCoordinators,
@@ -40,8 +41,9 @@ import {
   missingFieldsMessage,
 } from "#/features/event-requests/schema";
 
-// The mailer is mocked so a clarification's notification is observable, and so a failed send is
-// exercised rather than hidden: the handler awaits `sendEmail` after the transaction commits.
+// The mailer is mocked so clarification and decision notifications are both observable, and so a
+// failed send is exercised rather than hidden: the handler awaits `sendEmail` after the transaction
+// commits.
 const { sendEmail } = vi.hoisted(() => ({
   sendEmail: vi
     .fn<(to: string, subject: string, react: ReactElement) => Promise<unknown>>()
@@ -1186,6 +1188,184 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(rejected).toHaveLength(1);
       expect(rejected[0]).toMatchObject({ reason: { status: 409 } });
       expect(await statusOf(request.id)).toBe("under_review");
+    });
+  });
+
+  describe("approving or rejecting a request (PTR-20)", () => {
+    const actor = extraCoordinators[0];
+    const other = extraCoordinators[1];
+
+    async function underReviewRequest() {
+      const request = await submitNew(fullRequest, organiser, database);
+      await handleTakeUpForReview({ id: request.id }, actor, database as never);
+      return request;
+    }
+
+    it("approves an under-review request and records the Coordinator and time (AC1, AC3)", async () => {
+      sendEmail.mockClear();
+      const request = await underReviewRequest();
+      const approved = await handleDecideEventRequest(
+        { id: request.id, decision: "approved" },
+        actor,
+        database as never
+      );
+
+      expect(approved).toMatchObject({
+        status: "approved",
+        decisionReason: null,
+        decidedByCoordinatorId: actor.id,
+        decidedByCoordinatorName: actor.name,
+      });
+      expect(approved.decidedAt).toBeInstanceOf(Date);
+      expect(
+        await handleGetEventRequest({ id: request.id }, organiser, database as never)
+      ).toMatchObject({
+        status: "approved",
+        decidedByCoordinatorId: actor.id,
+        decidedByCoordinatorName: actor.name,
+        decidedAt: approved.decidedAt,
+      });
+      expect(sendEmail).toHaveBeenCalledWith(
+        organiser.email,
+        "Your event request was approved",
+        expect.anything()
+      );
+    });
+
+    it("requires a rejection reason, then records it and notifies the Organiser (AC2, AC4)", async () => {
+      sendEmail.mockClear();
+      const request = await underReviewRequest();
+
+      await expect(
+        handleDecideEventRequest(
+          { id: request.id, decision: "rejected", reason: " " },
+          actor,
+          database as never
+        )
+      ).rejects.toThrow("Enter a reason to reject this request");
+      expect(sendEmail).not.toHaveBeenCalled();
+
+      const rejected = await handleDecideEventRequest(
+        { id: request.id, decision: "rejected", reason: "  Venue unavailable  " },
+        actor,
+        database as never
+      );
+      expect(rejected).toMatchObject({
+        status: "rejected",
+        decisionReason: "Venue unavailable",
+        decidedByCoordinatorId: actor.id,
+        decidedByCoordinatorName: actor.name,
+      });
+      expect(sendEmail).toHaveBeenCalledWith(
+        organiser.email,
+        "Your event request was rejected",
+        expect.anything()
+      );
+    });
+
+    it("refuses the wrong Coordinator, a pre-review request and a second decision", async () => {
+      const request = await underReviewRequest();
+      const submitted = await submitNew(fullRequest, organiser, database);
+      const submittedCoordinator = fixtureCoordinators.find(
+        coordinator => coordinator.id === submitted.assignedCoordinatorId
+      );
+      if (!submittedCoordinator) throw new Error("Expected the submitted request to be assigned");
+
+      await expect(
+        handleDecideEventRequest({ id: request.id, decision: "approved" }, other, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        handleDecideEventRequest(
+          { id: submitted.id, decision: "approved" },
+          submittedCoordinator,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409 });
+
+      await handleDecideEventRequest(
+        { id: request.id, decision: "approved" },
+        actor,
+        database as never
+      );
+      await expect(
+        handleDecideEventRequest(
+          { id: request.id, decision: "rejected", reason: "Changed mind" },
+          actor,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409 });
+    });
+
+    it("allows only one competing decision and sends one notification", async () => {
+      sendEmail.mockClear();
+      const request = await underReviewRequest();
+      const results = await Promise.allSettled([
+        handleDecideEventRequest(
+          { id: request.id, decision: "approved" },
+          actor,
+          database as never
+        ),
+        handleDecideEventRequest(
+          { id: request.id, decision: "rejected", reason: "Venue unavailable" },
+          actor,
+          database as never
+        ),
+      ]);
+
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the decision when the email fails", async () => {
+      sendEmail.mockClear();
+      const request = await underReviewRequest();
+      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
+
+      const approved = await handleDecideEventRequest(
+        { id: request.id, decision: "approved" },
+        actor,
+        database as never
+      );
+
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+      expect(approved.status).toBe("approved");
+      expect(
+        await handleGetCoordinationRequest({ id: request.id }, actor, database as never)
+      ).toMatchObject({
+        status: "approved",
+        decidedAt: approved.decidedAt,
+        decidedByCoordinatorId: actor.id,
+      });
+    });
+
+    it("enforces decision attribution and rejection reasons at the database boundary", async () => {
+      const request = await underReviewRequest();
+      await expect(
+        database
+          .update(schema.eventRequests)
+          .set({
+            status: "rejected",
+            decidedByCoordinatorId: actor.id,
+            decidedByCoordinatorName: actor.name,
+            decidedAt: new Date(),
+            decisionReason: null,
+          })
+          .where(eq(schema.eventRequests.id, request.id))
+      ).rejects.toMatchObject({
+        cause: { constraint: "event_requests_rejection_has_reason" },
+      });
+
+      // The rejected update above left the row untouched, so the same request still enforces the
+      // attribution CHECK: approved while the decision fields are null fails closed.
+      await expect(
+        database
+          .update(schema.eventRequests)
+          .set({ status: "approved" })
+          .where(eq(schema.eventRequests.id, request.id))
+      ).rejects.toMatchObject({
+        cause: { constraint: "event_requests_decision_matches_status" },
+      });
     });
   });
 
