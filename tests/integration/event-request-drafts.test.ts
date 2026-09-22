@@ -1,5 +1,6 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactElement } from "react";
 import { eq, inArray } from "drizzle-orm";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -38,6 +39,20 @@ import {
   SUBMITTED_EDIT_REFUSAL,
   missingFieldsMessage,
 } from "#/features/event-requests/schema";
+
+// The mailer is mocked so a clarification's notification is observable, and so a failed send is
+// exercised rather than hidden: the handler awaits `sendEmail` after the transaction commits.
+const { sendEmail } = vi.hoisted(() => ({
+  sendEmail: vi
+    .fn<(to: string, subject: string, react: ReactElement) => Promise<unknown>>()
+    .mockResolvedValue({ id: "test-email" }),
+}));
+
+vi.mock("#/lib/mailer.server", () => ({
+  createMailer: vi.fn<() => null>(() => null),
+  getMailer: vi.fn<() => null>(() => null),
+  sendEmail,
+}));
 
 const organiser: SessionUser = {
   id: "test-organiser-drafts",
@@ -1174,7 +1189,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     });
   });
 
-  describe("handleRaiseClarificationRequest (PTR-19)", () => {
+  describe("handleRaiseClarificationRequest (PTR-18)", () => {
     const actor = extraCoordinators[0];
     const other = extraCoordinators[1];
 
@@ -1268,6 +1283,43 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(orgView?.status).toBe("awaiting_organiser");
       expect(orgView?.clarifications).toHaveLength(1);
       expect(orgView?.clarifications[0].body).toBe("Please specify dietary requirements.");
+    });
+
+    it("emails the Organiser when a clarification is raised (AC3)", async () => {
+      sendEmail.mockClear();
+      const request = await submittedRequest(actor.id);
+      await handleTakeUpForReview({ id: request.id }, actor, database as never);
+
+      await handleRaiseClarificationRequest(
+        { id: request.id, body: "Please specify dietary requirements." },
+        actor,
+        database as never
+      );
+
+      expect(sendEmail).toHaveBeenCalledWith(
+        organiser.email,
+        "Clarification requested: Community workshop",
+        expect.anything()
+      );
+    });
+
+    it("keeps the clarification and status when the email fails", async () => {
+      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
+      const request = await submittedRequest(actor.id);
+      await handleTakeUpForReview({ id: request.id }, actor, database as never);
+
+      const clarification = await handleRaiseClarificationRequest(
+        { id: request.id, body: "Please specify dietary requirements." },
+        actor,
+        database as never
+      );
+
+      const stored = await database
+        .select()
+        .from(schema.clarificationRequests)
+        .where(eq(schema.clarificationRequests.id, clarification.id));
+      expect(stored).toHaveLength(1);
+      expect(await statusOf(request.id)).toBe("awaiting_organiser");
     });
 
     it("accepts a second clarification request alongside the first (AC5 / Option A)", async () => {

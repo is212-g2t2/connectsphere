@@ -148,7 +148,7 @@ export const eventAssignments = pgTable("event_assignments", {
 });
 
 /**
- * PTR-19: append-only clarification requests raised by the assigned Coordinator. User ids are
+ * PTR-18: append-only clarification requests raised by the assigned Coordinator. User ids are
  * snapshots so account deletion keeps attribution. A clarification cannot be deleted or edited
  * after it is recorded — the Coordinator must raise a new one if they need to add to it.
  */

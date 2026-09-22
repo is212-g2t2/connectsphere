@@ -17,6 +17,11 @@ export type EventRequestDraft = Awaited<ReturnType<typeof saveEventRequestDraft>
 /** One of the organiser's requests as the list and detail pages see it (PTR-14), Coordinator resolved (PTR-15). */
 export type EventRequestSummary = Awaited<ReturnType<typeof listEventRequests>>[number];
 
+/** One request as the detail page sees it, clarifications included. */
+export type EventRequestDetail = NonNullable<
+  Awaited<ReturnType<typeof getEventRequest>>["request"]
+>;
+
 /** A submitted request awaiting a Coordinator, as the coordination page sees it (PTR-15). */
 export type UnassignedEventRequest = Awaited<
   ReturnType<typeof listUnassignedEventRequests>

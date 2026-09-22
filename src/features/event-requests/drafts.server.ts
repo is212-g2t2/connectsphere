@@ -34,7 +34,7 @@ export interface Contact {
   email: string;
 }
 
-/** A request with its Coordinator resolved, for the organiser's list and detail (PTR-15 AC3). */
+/** A request with its Coordinator resolved, for the organiser's list (PTR-15 AC3); the detail adds clarifications. */
 export type EventRequestWithCoordinator = EventRequest & { coordinator: Contact | null };
 
 /** A submitted request nobody is handling yet, with its Organiser, for the unassigned list (AC5). */
@@ -248,12 +248,7 @@ export async function handleGetEventRequest(
   data: unknown,
   organiser: SessionUser,
   database: Database
-): Promise<
-  | (EventRequestWithCoordinator & {
-      clarifications: (typeof clarificationRequests.$inferSelect)[];
-    })
-  | null
-> {
+) {
   const { id } = parseEventRequestId(data);
   const rows = await database
     .select(withCoordinator)

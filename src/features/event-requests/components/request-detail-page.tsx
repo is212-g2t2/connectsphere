@@ -13,16 +13,10 @@ import {
   formatLocalDateTime,
   formatProposedWindow,
 } from "#/features/event-requests/format";
-import type { EventRequestSummary } from "#/features/event-requests/server-fns";
+import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 const NONE = "None recorded";
-
-export interface ClarificationItem {
-  id: number;
-  body: string;
-  createdAt: Date | string;
-}
 
 /**
  * One request as currently recorded, read-only (PTR-14 criterion 4). Every field the form
@@ -36,15 +30,12 @@ export function EventRequestDetailPage({
   request,
   back,
   children,
-  clarifications,
 }: {
-  request: EventRequestSummary & { clarifications?: ClarificationItem[] };
+  request: EventRequestDetail;
   back?: { to: "/event-requests" | "/coordination"; label: string };
   children?: React.ReactNode;
-  clarifications?: ClarificationItem[];
 }) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
-  const clarificationList = clarifications ?? request.clarifications ?? [];
 
   return (
     <Page width="page">
@@ -64,7 +55,10 @@ export function EventRequestDetailPage({
               <time dateTime={request.submittedAt?.toISOString()}>
                 {formatInstant(request.submittedAt)}
               </time>
-              . It is with ConnectSphere for review.
+              .{" "}
+              {request.status === "awaiting_organiser"
+                ? "Waiting on the Organiser."
+                : "It is with ConnectSphere for review."}
             </>
           )
         }
@@ -72,7 +66,7 @@ export function EventRequestDetailPage({
 
       {children}
 
-      {clarificationList.length > 0 && (
+      {request.clarifications.length > 0 && (
         <section className="mt-8" aria-labelledby="clarifications-heading">
           <Card>
             <CardContent>
@@ -83,15 +77,15 @@ export function EventRequestDetailPage({
                 Questions or additional details requested by the Event Coordinator.
               </p>
               <ul className="mt-4 divide-y divide-border">
-                {clarificationList.map((item, index) => (
+                {request.clarifications.map((item, index) => (
                   <li key={item.id} className="py-3 first:pt-0 last:pb-0">
                     <div className="flex items-center justify-between">
                       <span className="eyebrow text-muted-foreground">Request #{index + 1}</span>
                       <time
-                        dateTime={new Date(item.createdAt).toISOString()}
+                        dateTime={item.createdAt.toISOString()}
                         className="body-sm text-muted-foreground"
                       >
-                        {formatInstant(new Date(item.createdAt))}
+                        {formatInstant(item.createdAt)}
                       </time>
                     </div>
                     <p className="mt-2 body-md font-medium whitespace-pre-line text-foreground">

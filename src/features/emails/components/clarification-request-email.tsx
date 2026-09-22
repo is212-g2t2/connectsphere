@@ -3,16 +3,13 @@ import { Layout } from "./layout";
 import { emailButton, emailHeading, emailText } from "./email-styles";
 
 interface ClarificationRequestEmailProps {
-  /** The event name shown in the subject area. */
   eventName: string;
-  /** The clarification text the Coordinator wrote. */
   body: string;
-  /** Deep-link to the organiser's event request detail page. */
   eventRequestUrl: string;
 }
 
 /**
- * PTR-19 criterion 3: sent to the Organiser when the assigned Coordinator raises a
+ * PTR-18 criterion 3: sent to the Organiser when the assigned Coordinator raises a
  * clarification request (§6: additional information or amendment is requested).
  */
 export const ClarificationRequestEmail = ({

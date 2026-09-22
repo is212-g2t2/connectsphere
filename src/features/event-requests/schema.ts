@@ -380,23 +380,21 @@ export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   awaiting_organiser: "Awaiting organiser",
 };
 
-// ── Clarification requests (PTR-19) ─────────────────────────────────────────
+// ── Clarification requests (PTR-18) ─────────────────────────────────────────
 
 export const CLARIFICATION_BODY_MAX = 2000;
 export const CLARIFICATION_BODY_MESSAGE = `Clarification text must be ${CLARIFICATION_BODY_MAX} characters or fewer`;
 export const CLARIFICATION_BODY_REQUIRED = "Enter what you need the Organiser to clarify";
 
-export const ClarificationBodyInput = z.object({
-  id: z.int32({ error: EVENT_REQUEST_ID_MESSAGE }).positive(EVENT_REQUEST_ID_MESSAGE),
+const ClarificationBodyInput = EventRequestIdInput.extend({
   body: z
     .string()
     .trim()
     .min(1, CLARIFICATION_BODY_REQUIRED)
     .max(CLARIFICATION_BODY_MAX, CLARIFICATION_BODY_MESSAGE),
 });
-export type ClarificationBodyValues = z.infer<typeof ClarificationBodyInput>;
 
-export function parseClarificationBody(data: unknown): ClarificationBodyValues {
+export function parseClarificationBody(data: unknown) {
   const parsed = ClarificationBodyInput.safeParse(data);
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;

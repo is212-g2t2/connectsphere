@@ -18,7 +18,6 @@ async function loadServer() {
 
 export type Coordinator = Awaited<ReturnType<typeof listCoordinators>>[number];
 export type CoordinationRequest = Awaited<ReturnType<typeof getCoordinationRequest>>;
-export type ClarificationRequest = CoordinationRequest["clarifications"][number];
 /** A request already assigned to the signed-in Coordinator, as the coordination page sees it. */
 export type AssignedEventRequest = Awaited<ReturnType<typeof listAssignedEventRequests>>[number];
 
@@ -81,7 +80,7 @@ export const takeUpEventRequestForReview = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-19: the assigned Coordinator raises a clarification request for an event under review.
+ * PTR-18: the assigned Coordinator raises a clarification request for an event under review.
  */
 export const raiseClarificationRequest = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])

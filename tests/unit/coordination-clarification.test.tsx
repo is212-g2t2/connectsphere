@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CoordinationRequestPage } from "#/features/coordination/components/coordination-request-page";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
-import type { EventRequestSummary } from "#/features/event-requests/server-fns";
+import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 
 const { raiseClarificationRequest, invalidate, success } = vi.hoisted(() => ({
   raiseClarificationRequest:
@@ -74,7 +74,7 @@ const underReviewRequest: CoordinationRequest = {
   clarifications: [],
 };
 
-describe("Clarification requests (PTR-19)", () => {
+describe("Clarification requests (PTR-18)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
   });
@@ -208,45 +208,22 @@ describe("Clarification requests (PTR-19)", () => {
 
   describe("EventRequestDetailPage (Organiser view - AC4)", () => {
     it("displays clarification requests and their text to the organiser", () => {
-      const organiserSummary: EventRequestSummary = {
-        id: 7,
-        organiserId: "org",
-        eventName: "Annual Gala",
+      const organiserSummary: EventRequestDetail = {
+        ...underReviewRequest,
         status: "awaiting_organiser",
-        submittedAt: new Date("2026-09-15T02:00:00Z"),
-        assignedAt: new Date("2026-09-15T03:00:00Z"),
-        assignedCoordinatorId: "coord-a",
-        purpose: "Fundraiser",
-        proposedDates: [],
-        expectedAttendance: 100,
-        description: "",
-        eventType: "",
-        venueRequirements: "",
-        roomLayoutPreference: "",
-        accessibilityRequirements: "",
-        equipmentRequirements: [],
-        specialArrangements: "",
-        registrationEnabled: false,
-        registrationCapacity: null,
-        registrationOpensAt: null,
-        registrationClosesAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
         coordinator: { name: "Alex", email: "a@example.com" },
+        clarifications: [
+          {
+            id: 1,
+            eventRequestId: 7,
+            coordinatorId: "coord-a",
+            body: "Which layout is required for the workshop?",
+            createdAt: new Date("2026-09-16T08:00:00Z"),
+          },
+        ],
       };
 
-      render(
-        <EventRequestDetailPage
-          request={organiserSummary}
-          clarifications={[
-            {
-              id: 1,
-              body: "Which layout is required for the workshop?",
-              createdAt: new Date("2026-09-16T08:00:00Z"),
-            },
-          ]}
-        />
-      );
+      render(<EventRequestDetailPage request={organiserSummary} />);
 
       expect(screen.getByRole("heading", { name: "Clarification requests" })).toBeTruthy();
       expect(screen.getByText("Which layout is required for the workshop?")).toBeTruthy();

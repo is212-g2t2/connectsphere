@@ -1,12 +1,19 @@
+import { createElement } from "react";
 import { and, asc, desc, eq, getTableColumns, ne, or, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import { clarificationRequests, eventAssignments, eventRequests, user } from "#/db/schema";
+import { env } from "#/env";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { parseAssignmentInput } from "#/features/coordination/schema";
+import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
 import { parseClarificationBody, parseEventRequestId } from "#/features/event-requests/schema";
+import { logger } from "#/lib/logger";
+import { sendEmail } from "#/lib/mailer.server";
+
+const log = logger.getChild("coordination");
 
 /**
  * Server-only on purpose, and named for it. `#/db/schema` is a value import here: the table
@@ -198,7 +205,7 @@ export async function handleTakeUpForReview(data: unknown, actor: SessionUser, d
 }
 
 /**
- * PTR-19: the assigned Coordinator raises a clarification request for an event under review.
+ * PTR-18: the assigned Coordinator raises a clarification request for an event under review.
  * Updates status to awaiting_organiser and notifies the organiser via email (§6).
  * Multiple clarification requests are accepted alongside existing ones (AC5 / Option A).
  */
@@ -208,7 +215,7 @@ export async function handleRaiseClarificationRequest(
   database: Database
 ) {
   const input = parseClarificationBody(data);
-  return database.transaction(async tx => {
+  const { clarification, organiserEmail, eventName } = await database.transaction(async tx => {
     const rows = await tx
       .select({
         id: eventRequests.id,
@@ -232,7 +239,7 @@ export async function handleRaiseClarificationRequest(
       );
     }
 
-    const [clarification] = await tx
+    const [inserted] = await tx
       .insert(clarificationRequests)
       .values({
         eventRequestId: request.id,
@@ -247,30 +254,37 @@ export async function handleRaiseClarificationRequest(
       .where(eq(eventRequests.id, request.id));
 
     const [organiser] = await tx
-      .select({ email: user.email, name: user.name })
+      .select({ email: user.email })
       .from(user)
       .where(eq(user.id, request.organiserId));
 
-    try {
-      const { sendEmail } = await import("#/lib/mailer.server");
-      const { ClarificationRequestEmail } =
-        await import("#/features/emails/components/clarification-request-email");
-      const { env } = await import("#/env");
-      const { default: React } = await import("react");
-      const baseUrl = env.BETTER_AUTH_URL;
-      await sendEmail(
-        organiser.email,
-        `Clarification requested: ${request.eventName.trim() || "Event request"}`,
-        React.createElement(ClarificationRequestEmail, {
-          eventName: request.eventName.trim() || "Untitled request",
-          body: input.body,
-          eventRequestUrl: `${baseUrl}/event-requests/${request.id}`,
-        })
-      );
-    } catch {
-      // Email failure does not roll back the recorded clarification
-    }
-
-    return clarification;
+    return {
+      clarification: inserted,
+      organiserEmail: organiser.email,
+      eventName: request.eventName,
+    };
   });
+
+  const displayName = eventName.trim() || "Untitled request";
+
+  try {
+    await sendEmail(
+      organiserEmail,
+      `Clarification requested: ${displayName}`,
+      createElement(ClarificationRequestEmail, {
+        eventName: displayName,
+        body: input.body,
+        eventRequestUrl: `${env.BETTER_AUTH_URL}/event-requests/${clarification.eventRequestId}`,
+      })
+    );
+  } catch (error) {
+    // Email failure does not roll back the recorded clarification
+    log.warn("Clarification email failed", {
+      requestId: input.id,
+      clarificationId: clarification.id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
+
+  return clarification;
 }
