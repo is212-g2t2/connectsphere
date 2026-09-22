@@ -48,6 +48,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── event-requests/ # Requirement capture, drafts, submission
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view
+│   │   ├── venue-requests/ # Booking requests: raise, withdraw, notify
 │   │   └── venues/       # Venue catalogue, requirements search, and availability
 │   ├── hooks/            # Client hooks shared across features
 │   ├── lib/              # Shared integrations (auth, mail, storage, logger, SEO)
@@ -114,8 +115,9 @@ Source of truth is `src/features/auth/permissions.ts`, held to this table by `te
 | `venue:search`             |    —     |        —        |        ✅         |      —      |            —            |
 | `venue:create`             |    —     |        —        |         —         |     ✅      |            —            |
 | `venue:update`             |    —     |        —        |         —         |     ✅      |            —            |
+| `venue_request:request`    |    —     |        —        |        ✅         |      —      |            —            |
 
-`attendee` holds an empty role: `ac.newRole({})` authorizes nothing, the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one: both roles are self-assignable, so anyone set on uploading can register again as an organiser. `event_request:coordinate` is deliberately disjoint from `create`. All three internal roles may read the venue catalogue and availability; only Event Coordinators may search it against event requirements, and only Venue Staff may create or update records. Equipment functions are absent because the resource does not exist yet.
+`attendee` holds an empty role: `ac.newRole({})` authorizes nothing, the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one: both roles are self-assignable, so anyone set on uploading can register again as an organiser. `event_request:coordinate` is deliberately disjoint from `create`. All three internal roles may read the venue catalogue and availability; only Event Coordinators may search it against event requirements, and only Venue Staff may create or update records. `venue_request:request` is the Coordinator's raise-and-withdraw verb. Raising re-reads the event's assignment, so it acts only on the caller's own submitted event; withdrawing authorizes on the request's raiser, so the raiser keeps the power while the request is pending, even after the event moves past `submitted` or is reassigned; the new assignee cannot withdraw a request they did not raise. Equipment functions are absent because the resource does not exist yet.
 
 ### Enforcing it
 

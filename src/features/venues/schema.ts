@@ -89,8 +89,8 @@ export const CLOSES_BEFORE_OPENS_MESSAGE = "Closing time must be later than open
 export const DUPLICATE_NAME_MESSAGE = "A venue with this name already exists";
 export const VENUE_ID_MESSAGE = "Choose a venue";
 
-/** What `<input type="time">` submits: 24-hour `HH:MM`, no seconds. */
-const TIME_SHAPE = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** What `<input type="time">` submits: 24-hour `HH:MM`, no seconds. Shared with venue requests. */
+export const TIME_SHAPE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const Time = z.string().regex(TIME_SHAPE, TIME_MESSAGE);
 
 const OpeningRangeSchema = z

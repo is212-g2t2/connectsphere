@@ -325,14 +325,44 @@ export async function runSeed(database: Database): Promise<void> {
         .where(eq(schema.eventRequests.id, demoRequestId));
     }
 
-    await tx
-      .insert(schema.venueRequests)
-      .values({
+    const demoVenueId = venueIdByName.get("Harbour Hall");
+    if (demoVenueId === undefined) {
+      throw new Error('Seed venue "Harbour Hall" was not inserted');
+    }
+
+    // The event's own window: the demo request is what a Coordinator would raise from it. One
+    // object feeds both statements, so a window edit cannot reach only one of them. `requestedById`
+    // is the demo Coordinator, the identity AC5 authorizes withdrawal on.
+    const demoVenueRequest = {
+      venueId: demoVenueId,
+      requestedById: DEMO_EVENT_COORDINATOR_ID,
+      startsAt: `${demoDate} 09:00:00`,
+      endsAt: `${demoDate} 17:00:00`,
+    };
+
+    // Rewritten the way the demo event above is: the window moves with `demoDate`, and `status`
+    // comes back to `pending` so a local row withdrawn in the UI converges on every run.
+    // `assignedStaffId` is left alone — the integration tests rely on the demo row being assigned
+    // to the venue-staff fixture, not a generic staff user.
+    const existingDemoVenueRequests = await tx
+      .select({ id: schema.venueRequests.id })
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.id, "demo-venue-request-1"))
+      .limit(1);
+
+    if (existingDemoVenueRequests.length === 0) {
+      await tx.insert(schema.venueRequests).values({
         id: "demo-venue-request-1",
         eventId: demoRequestId,
+        ...demoVenueRequest,
         assignedStaffId: "seed-venue-staff-1",
-      })
-      .onConflictDoNothing();
+      });
+    } else {
+      await tx
+        .update(schema.venueRequests)
+        .set({ ...demoVenueRequest, status: "pending" })
+        .where(eq(schema.venueRequests.id, "demo-venue-request-1"));
+    }
     await tx
       .insert(schema.equipmentRequests)
       .values({

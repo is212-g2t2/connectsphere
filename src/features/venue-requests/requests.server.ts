@@ -1,0 +1,313 @@
+import { and, eq } from "drizzle-orm";
+import { createElement } from "react";
+
+import type { db as Db } from "#/db";
+import { eventRequests, user, venueRequests, venues } from "#/db/schema";
+import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
+import type { SessionUser } from "#/features/auth/session";
+import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
+import { eventTiming } from "#/features/events/access";
+import { loadAssignedSubmittedEvent } from "#/features/events/records.server";
+import {
+  VENUE_REQUEST_DUPLICATE_MESSAGE,
+  VENUE_REQUEST_SETTLED_MESSAGE,
+  parseVenueRequestContext,
+  parseVenueRequestId,
+  parseVenueRequestInput,
+} from "#/features/venue-requests/schema";
+import { normalizeDatabaseTimestamp } from "#/features/venues/availability";
+import { isConstraintViolation } from "#/lib/db-errors";
+import { logger } from "#/lib/logger";
+import { sendEmail } from "#/lib/mailer.server";
+
+/**
+ * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
+ * ship the whole database schema to the browser from any module a route can reach.
+ * `server-fns.ts` reaches this through a dynamic `import()` inside `.handler()`.
+ *
+ * The middleware pipeline has already verified the session and `venue_request:request` before
+ * these handlers run. Which event a caller may act on is data rather than a role permission, so
+ * the assignment check lives here, next to the rows it reads.
+ */
+
+type Database = typeof Db;
+
+const log = logger.getChild("venue-requests");
+
+interface VenueRequestNotification {
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+  expectedAttendance: number | null;
+  layout: string;
+  accessibilityRequirements: string;
+  requiredFacilities: string;
+}
+
+/**
+ * Every Venue Staff member works the shared pending queue, so all of them are told (§6: a venue
+ * booking is requested). One allSettled pass over the resolved recipients; a failure is logged
+ * and swallowed, because the request is already committed and losing a notification must not undo
+ * it — the best-effort shape the decision emails use.
+ */
+async function sendVenueRequestNotification(
+  notification: VenueRequestNotification,
+  recipients: string[]
+) {
+  const subject = `Venue booking requested: ${notification.venueName}`;
+  const results = await Promise.allSettled(
+    recipients.map(recipient =>
+      sendEmail(
+        recipient,
+        subject,
+        createElement(VenueBookingRequestEmail, {
+          venueName: notification.venueName,
+          startsAt: notification.startsAt,
+          endsAt: notification.endsAt,
+          expectedAttendance: notification.expectedAttendance,
+          layout: notification.layout,
+          accessibilityRequirements: notification.accessibilityRequirements,
+          requiredFacilities: notification.requiredFacilities,
+        })
+      )
+    )
+  );
+  const failed = results.filter(result => result.status === "rejected").length;
+  if (failed > 0) {
+    log.warn("Venue request notification failed", { failed, recipients: recipients.length });
+  }
+}
+
+/**
+ * The partial unique index is the guarantee; a racing double-submit meets it as a driver error,
+ * which `isConstraintViolation` reads. The sentence is the one the panel is built to show.
+ */
+function rethrowDuplicate(error: unknown): never {
+  if (isConstraintViolation(error, "venue_requests_pending_event_venue_idx")) {
+    throw new ConflictError(VENUE_REQUEST_DUPLICATE_MESSAGE);
+  }
+  throw error;
+}
+
+/**
+ * What the venue page's request panel needs: the caller's event defaults, and the pending request
+ * for this event and venue when one exists. The event is loaded by id alone rather than filtered to
+ * the current assignee, so the panel stays reachable after the event moves past `submitted` or is
+ * reassigned; the caller is refused instead. Deliberately not `loadAssignedSubmittedEvent`: that
+ * gate requires `submitted` and the current assignee, which would take withdrawal away from a
+ * raiser the moment their event moved on. Two ways a context is returned: to the Coordinator the
+ * event is currently assigned to, on an event still awaiting a booking decision, or to anyone who
+ * raised the pending request for this venue, whatever the event now stands at. `null` is the
+ * refusal — a stranger's stale `?eventId=` leaves the venue page readable, and the difference tells
+ * them nothing.
+ *
+ * PTR-31 criterion 2: the event part carries exactly the operational requirements the venue-staff
+ * projection exposes — timing, expected attendance, layout, accessibility and required facilities
+ * — so the panel can show what the request is asking of the venue. `canWithdraw` is the seam the
+ * panel uses to offer withdrawal: true only while the caller raised the pending request, which is
+ * what criterion 5 authorizes on.
+ */
+export async function handleGetVenueRequestContext(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const { eventId, venueId } = parseVenueRequestContext(data);
+
+  const eventRows = await database
+    .select({
+      id: eventRequests.id,
+      name: eventRequests.eventName,
+      status: eventRequests.status,
+      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+      proposedDates: eventRequests.proposedDates,
+      expectedAttendance: eventRequests.expectedAttendance,
+      roomLayoutPreference: eventRequests.roomLayoutPreference,
+      accessibilityRequirements: eventRequests.accessibilityRequirements,
+      venueRequirements: eventRequests.venueRequirements,
+    })
+    .from(eventRequests)
+    .where(eq(eventRequests.id, eventId))
+    .limit(1);
+  const event = eventRows.at(0);
+  if (!event) return null;
+
+  const requestRows = await database
+    .select({
+      id: venueRequests.id,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+      requestedById: venueRequests.requestedById,
+    })
+    .from(venueRequests)
+    .where(
+      and(
+        eq(venueRequests.eventId, eventId),
+        eq(venueRequests.venueId, venueId),
+        eq(venueRequests.status, "pending")
+      )
+    )
+    .limit(1);
+  const request = requestRows.at(0);
+
+  // Nothing is projected before this check, so a stranger still learns nothing: only the current
+  // assignee on a submitted event, or whoever raised the pending request, gets a context back.
+  const canRequest = event.assignedCoordinatorId === actor.id && event.status === "submitted";
+  const raisedByCaller = request?.requestedById === actor.id;
+  if (!canRequest && !raisedByCaller) return null;
+
+  return {
+    event: {
+      id: event.id,
+      name: event.name,
+      ...eventTiming(event.proposedDates),
+      expectedAttendance: event.expectedAttendance,
+      layout: event.roomLayoutPreference,
+      accessibilityRequirements: event.accessibilityRequirements,
+      requiredFacilities: event.venueRequirements,
+    },
+    request: request
+      ? {
+          id: request.id,
+          // The client speaks `datetime-local` (`YYYY-MM-DDTHH:MM`), the spelling `proposedDates`
+          // and `formatProposedWindow` already use; the stored seconds are display noise.
+          startsAt: normalizeDatabaseTimestamp(request.startsAt).slice(0, 16),
+          endsAt: normalizeDatabaseTimestamp(request.endsAt).slice(0, 16),
+          canWithdraw: raisedByCaller,
+        }
+      : null,
+  };
+}
+
+/**
+ * PTR-31 criteria 1–4: the Coordinator's request becomes one `pending` row, unassigned (the
+ * queue is shared), and every Venue Staff member is notified. The window is refused before the
+ * insert when it does not describe a real civil day, and the event must be the submitted request
+ * assigned to the caller — the gate PTR-29's venue search already applies, since the search is
+ * the only way the panel is reached.
+ *
+ * No overlap check runs here: only an approved booking holds a venue, and pending requests do not
+ * block one another; double-book prevention belongs to PTR-33/36.
+ */
+export async function handleCreateVenueRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseVenueRequestInput(data);
+
+  const created = await database.transaction(async tx => {
+    const event = await loadAssignedSubmittedEvent(tx, input.eventId, actor.id);
+    if (!event) throw new AuthorizationError("Forbidden");
+
+    const venueRows = await tx
+      .select({ id: venues.id, name: venues.name })
+      .from(venues)
+      .where(eq(venues.id, input.venueId))
+      .limit(1);
+    const venue = venueRows.at(0);
+    if (!venue) throw new NotFoundError("Not Found");
+
+    const rows = await tx
+      .insert(venueRequests)
+      .values({
+        id: crypto.randomUUID(),
+        eventId: event.id,
+        venueId: venue.id,
+        // Criterion 5's authorization: the row remembers who raised it, not the event.
+        requestedById: actor.id,
+        // The `mode: "string"` shape the column reads back: `YYYY-MM-DD HH:MM:SS`.
+        startsAt: `${input.date} ${input.startTime}:00`,
+        endsAt: `${input.date} ${input.endTime}:00`,
+      })
+      .returning()
+      .catch(rethrowDuplicate);
+
+    // Recipients are resolved in the transaction, the canonical shape; the send runs after the
+    // commit so a mail outage cannot undo the request.
+    const recipients = await tx
+      .select({ email: user.email })
+      .from(user)
+      .where(eq(user.role, "venue_staff"));
+
+    return {
+      request: rows[0],
+      venue,
+      recipientEmails: recipients.map(recipient => recipient.email),
+      expectedAttendance: event.expectedAttendance,
+      layout: event.roomLayoutPreference,
+      accessibilityRequirements: event.accessibilityRequirements,
+      requiredFacilities: event.venueRequirements,
+    };
+  });
+
+  if (created.recipientEmails.length === 0) {
+    // Nobody to tell does not refuse the request, but it must be observable rather than silent.
+    log.warn("No Venue Staff to notify of the venue request", { requestId: created.request.id });
+  } else {
+    try {
+      await sendVenueRequestNotification(
+        {
+          venueName: created.venue.name,
+          startsAt: created.request.startsAt,
+          endsAt: created.request.endsAt,
+          expectedAttendance: created.expectedAttendance,
+          layout: created.layout,
+          accessibilityRequirements: created.accessibilityRequirements,
+          requiredFacilities: created.requiredFacilities,
+        },
+        created.recipientEmails
+      );
+    } catch (error) {
+      // The request is committed, and a failed notification must not report it as failed — a
+      // retry would only meet the duplicate guard.
+      log.warn("Venue request notification failed", {
+        requestId: created.request.id,
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
+    }
+  }
+
+  return created.request;
+}
+
+/**
+ * PTR-31 criterion 5: the Coordinator takes back a pending request *they raised*, which leaves the
+ * queue. The row is kept as `withdrawn` rather than deleted, so the record of what was asked
+ * survives, and the partial unique index frees the event and venue to be requested again. A
+ * settled request is refused: PTR-33's decision is not undone by withdrawing the row beneath it.
+ *
+ * The authorization reads the request's own `requestedById`, not the event's current assignee: a
+ * reassigned event must not hand the new Coordinator the power to withdraw someone else's request.
+ */
+export async function handleWithdrawVenueRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const { id } = parseVenueRequestId(data);
+
+  return database.transaction(async tx => {
+    const rows = await tx
+      .select({
+        status: venueRequests.status,
+        requestedById: venueRequests.requestedById,
+      })
+      .from(venueRequests)
+      .where(eq(venueRequests.id, id))
+      .for("update");
+    const row = rows.at(0);
+    if (!row) throw new NotFoundError("Not Found");
+    if (row.requestedById !== actor.id) throw new AuthorizationError("Forbidden");
+    if (row.status !== "pending") {
+      throw new ConflictError(VENUE_REQUEST_SETTLED_MESSAGE);
+    }
+
+    const [withdrawn] = await tx
+      .update(venueRequests)
+      .set({ status: "withdrawn" })
+      .where(eq(venueRequests.id, id))
+      .returning();
+    return withdrawn;
+  });
+}

@@ -4,6 +4,7 @@ import {
   eventTiming,
   getEventAccess,
   isRegistrationWindowOpen,
+  isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
 
@@ -114,6 +115,22 @@ describe("event access", () => {
       equipment: [],
       venueRequest: { status: "pending" },
     });
+  });
+});
+
+describe("isVenueQueueRow", () => {
+  it("connects a Venue Staff member to their own rows and to the unassigned pending queue", () => {
+    expect(isVenueQueueRow({ assignedStaffId: "venue-1", status: "pending" }, "venue-1")).toBe(
+      true
+    );
+    expect(isVenueQueueRow({ assignedStaffId: null, status: "pending" }, "venue-1")).toBe(true);
+  });
+
+  it("does not connect another staff member's row or a settled unassigned one", () => {
+    expect(isVenueQueueRow({ assignedStaffId: "venue-2", status: "pending" }, "venue-1")).toBe(
+      false
+    );
+    expect(isVenueQueueRow({ assignedStaffId: null, status: "withdrawn" }, "venue-1")).toBe(false);
   });
 });
 
