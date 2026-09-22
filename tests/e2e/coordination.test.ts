@@ -9,9 +9,9 @@ import { eq, inArray } from "drizzle-orm";
 
 import * as schema from "../../src/db/schema";
 import { waitForHydration } from "./hydration";
+import { waitForEmail } from "./mailpit";
 
 const password = "Coordinate123!";
-const MAILPIT_URL = process.env.MAILPIT_URL ?? "http://localhost:8025";
 let pool: Pool;
 let database: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -371,8 +371,11 @@ test("rejects an under-review request, records the decision and notifies the Org
       "The requested venue is unavailable."
     );
     await expect(fieldValue(organiserPage, "Decided by")).toHaveText(coordinator.name);
+    const decidedAt = fieldValue(organiserPage, "Decided at").locator("time");
+    await expect(decidedAt).toBeVisible();
+    await expect(decidedAt).toHaveAttribute("datetime", stored.decidedAt?.toISOString() ?? "");
 
-    const notification = await waitForDecisionEmail(organiser.email);
+    const notification = await waitForEmail(organiser.email, "Your event request was rejected");
     expect(notification).toContain(eventName);
     expect(notification).toContain("rejected");
     expect(notification).toContain("The requested venue is unavailable.");
@@ -413,33 +416,3 @@ test("does not list or expose another Coordinator's assigned request", async ({
     await otherContext.close();
   }
 });
-
-interface MailpitAddress {
-  Address: string;
-}
-
-interface MailpitMessage {
-  ID: string;
-  Subject: string;
-  To: MailpitAddress[];
-}
-
-async function waitForDecisionEmail(recipient: string): Promise<string> {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const listResponse = await fetch(`${MAILPIT_URL}/api/v1/messages`);
-    const { messages } = (await listResponse.json()) as { messages: MailpitMessage[] };
-    const message = messages.find(
-      candidate =>
-        candidate.Subject === "Your event request was rejected" &&
-        candidate.To.some(address => address.Address === recipient)
-    );
-    if (message) {
-      const detailResponse = await fetch(`${MAILPIT_URL}/api/v1/message/${message.ID}`);
-      const detail = (await detailResponse.json()) as { Text?: string; HTML?: string };
-      return detail.Text ?? detail.HTML ?? "";
-    }
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-  throw new Error(`No decision email captured for ${recipient} at ${MAILPIT_URL}`);
-}

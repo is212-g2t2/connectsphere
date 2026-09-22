@@ -42,18 +42,21 @@ describe("Email templates rendering", () => {
     expect(html).toContain("This link will expire in 1 hour.");
   });
 
-  it("renders the event decision and rejection reason", async () => {
+  it("renders the event decision, rejection reason, and request link", async () => {
+    const eventRequestUrl = "http://localhost:3000/event-requests/42";
     const html = await render(
       <EventDecisionEmail
         eventName="Community workshop"
         decision="rejected"
         reason="The requested room is unavailable."
+        eventRequestUrl={eventRequestUrl}
       />
     );
 
     expect(html).toContain("Community workshop");
     expect(html).toContain("rejected");
     expect(html).toContain("The requested room is unavailable.");
+    expect(html).toContain(eventRequestUrl);
   });
 
   it("renders ClarificationRequestEmail with the event name, clarification body, and action button", async () => {

@@ -1,15 +1,21 @@
-import { Section, Text } from "@react-email/components";
+import { Button, Section, Text } from "@react-email/components";
 
-import { emailHeading, emailText } from "./email-styles";
+import { emailButton, emailHeading, emailText } from "./email-styles";
 import { Layout } from "./layout";
 
 interface EventDecisionEmailProps {
   eventName: string;
   decision: "approved" | "rejected";
   reason?: string;
+  eventRequestUrl: string;
 }
 
-export const EventDecisionEmail = ({ eventName, decision, reason }: EventDecisionEmailProps) => (
+export const EventDecisionEmail = ({
+  eventName,
+  decision,
+  reason,
+  eventRequestUrl,
+}: EventDecisionEmailProps) => (
   <Layout previewText={`Your event request was ${decision}`}>
     <Section>
       <Text style={emailHeading}>Event request {decision}</Text>
@@ -17,7 +23,9 @@ export const EventDecisionEmail = ({ eventName, decision, reason }: EventDecisio
         Your request for <strong>{eventName}</strong> was {decision}.
       </Text>
       {reason && <Text style={emailText}>Reason: {reason}</Text>}
-      <Text style={emailText}>Open ConnectSphere to view the recorded decision.</Text>
+      <Button href={eventRequestUrl} style={emailButton}>
+        View your request
+      </Button>
     </Section>
   </Layout>
 );

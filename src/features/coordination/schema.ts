@@ -27,13 +27,19 @@ export function parseAssignmentInput(input: unknown): AssignmentValues {
 
 export const DECISION_REASON_REQUIRED = "Enter a reason to reject this request";
 export const DECISION_REASON_MAX_LENGTH = 2000;
-export const DECISION_REASON_TOO_LONG = `Decision reason must be ${DECISION_REASON_MAX_LENGTH} characters or fewer`;
 
 const DecisionInput = z
   .object({
     id: z.int32({ error: EVENT_REQUEST_ID_MESSAGE }).positive(EVENT_REQUEST_ID_MESSAGE),
     decision: z.enum(["approved", "rejected"]),
-    reason: z.string().trim().max(DECISION_REASON_MAX_LENGTH, DECISION_REASON_TOO_LONG).optional(),
+    reason: z
+      .string()
+      .trim()
+      .max(
+        DECISION_REASON_MAX_LENGTH,
+        `Decision reason must be ${DECISION_REASON_MAX_LENGTH} characters or fewer`
+      )
+      .optional(),
   })
   .superRefine((values, context) => {
     if (values.decision === "rejected" && !values.reason) {
@@ -43,15 +49,7 @@ const DecisionInput = z
         message: DECISION_REASON_REQUIRED,
       });
     }
-  })
-  .transform(values =>
-    values.reason
-      ? values
-      : {
-          id: values.id,
-          decision: values.decision,
-        }
-  );
+  });
 
 export type DecisionValues = z.infer<typeof DecisionInput>;
 

@@ -84,14 +84,8 @@ export const decideEventRequest = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
   .validator(parseDecisionInput)
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleDecideEventRequest, sendEventDecisionNotification }] =
-      await loadServer();
-    const request = await handleDecideEventRequest(
-      data,
-      context.user,
-      db,
-      sendEventDecisionNotification
-    );
+    const [{ db }, { handleDecideEventRequest }] = await loadServer();
+    const request = await handleDecideEventRequest(data, context.user, db);
 
     log.info("Event request decision recorded", {
       requestId: request.id,

@@ -10,6 +10,7 @@ import { getCurrentUser, listAccounts, requireSession } from "#/features/auth/se
 import type { SessionUser } from "#/features/auth/session";
 import {
   assignEventRequest,
+  decideEventRequest,
   getCoordinationRequest,
   listAssignedEventRequests,
   listCoordinators,
@@ -155,6 +156,7 @@ describe("server-function authorization (PTR-69)", () => {
         data: { id: 1, coordinatorId: "coord-b", expectedCoordinatorId: null },
         method: "POST" as const,
       },
+      { fn: decideEventRequest, data: { id: 1, decision: "approved" }, method: "POST" as const },
       { fn: getCoordinationRequest, data: { id: 1 }, method: "GET" as const },
       { fn: takeUpEventRequestForReview, data: { id: 1 }, method: "POST" as const },
       { fn: listAssignedEventRequests, data: undefined, method: "GET" as const },

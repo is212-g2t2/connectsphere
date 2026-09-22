@@ -41,8 +41,9 @@ import {
   missingFieldsMessage,
 } from "#/features/event-requests/schema";
 
-// The mailer is mocked so a clarification's notification is observable, and so a failed send is
-// exercised rather than hidden: the handler awaits `sendEmail` after the transaction commits.
+// The mailer is mocked so clarification and decision notifications are both observable, and so a
+// failed send is exercised rather than hidden: the handler awaits `sendEmail` after the transaction
+// commits.
 const { sendEmail } = vi.hoisted(() => ({
   sendEmail: vi
     .fn<(to: string, subject: string, react: ReactElement) => Promise<unknown>>()
@@ -65,8 +66,6 @@ const otherOrganiser: SessionUser = {
   email: "other.organiser@example.com",
   role: "event_organiser",
 };
-
-const noOpDecisionNotification = async () => undefined;
 
 /**
  * This file owns its organisers so its destructive hooks can scope to them by id. The seeded demo
@@ -1203,13 +1202,12 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     }
 
     it("approves an under-review request and records the Coordinator and time (AC1, AC3)", async () => {
+      sendEmail.mockClear();
       const request = await underReviewRequest();
-      const notifications: unknown[] = [];
       const approved = await handleDecideEventRequest(
         { id: request.id, decision: "approved" },
         actor,
-        database as never,
-        async notification => notifications.push(notification)
+        database as never
       );
 
       expect(approved).toMatchObject({
@@ -1227,35 +1225,30 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         decidedByCoordinatorName: actor.name,
         decidedAt: approved.decidedAt,
       });
-      expect(notifications).toEqual([
-        {
-          organiserEmail: organiser.email,
-          eventName: fullRequest.eventName,
-          decision: "approved",
-        },
-      ]);
+      expect(sendEmail).toHaveBeenCalledWith(
+        organiser.email,
+        "Your event request was approved",
+        expect.anything()
+      );
     });
 
     it("requires a rejection reason, then records it and notifies the Organiser (AC2, AC4)", async () => {
+      sendEmail.mockClear();
       const request = await underReviewRequest();
-      const notifications: unknown[] = [];
-      const notify = async (notification: unknown) => notifications.push(notification);
 
       await expect(
         handleDecideEventRequest(
           { id: request.id, decision: "rejected", reason: " " },
           actor,
-          database as never,
-          notify
+          database as never
         )
       ).rejects.toThrow("Enter a reason to reject this request");
-      expect(notifications).toEqual([]);
+      expect(sendEmail).not.toHaveBeenCalled();
 
       const rejected = await handleDecideEventRequest(
         { id: request.id, decision: "rejected", reason: "  Venue unavailable  " },
         actor,
-        database as never,
-        notify
+        database as never
       );
       expect(rejected).toMatchObject({
         status: "rejected",
@@ -1263,14 +1256,11 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         decidedByCoordinatorId: actor.id,
         decidedByCoordinatorName: actor.name,
       });
-      expect(notifications).toEqual([
-        {
-          organiserEmail: organiser.email,
-          eventName: fullRequest.eventName,
-          decision: "rejected",
-          reason: "Venue unavailable",
-        },
-      ]);
+      expect(sendEmail).toHaveBeenCalledWith(
+        organiser.email,
+        "Your event request was rejected",
+        expect.anything()
+      );
     });
 
     it("refuses the wrong Coordinator, a pre-review request and a second decision", async () => {
@@ -1282,81 +1272,70 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       if (!submittedCoordinator) throw new Error("Expected the submitted request to be assigned");
 
       await expect(
-        handleDecideEventRequest(
-          { id: request.id, decision: "approved" },
-          other,
-          database as never,
-          noOpDecisionNotification
-        )
+        handleDecideEventRequest({ id: request.id, decision: "approved" }, other, database as never)
       ).rejects.toMatchObject({ status: 403 });
       await expect(
         handleDecideEventRequest(
           { id: submitted.id, decision: "approved" },
           submittedCoordinator,
-          database as never,
-          noOpDecisionNotification
+          database as never
         )
       ).rejects.toMatchObject({ status: 409 });
 
       await handleDecideEventRequest(
         { id: request.id, decision: "approved" },
         actor,
-        database as never,
-        noOpDecisionNotification
+        database as never
       );
       await expect(
         handleDecideEventRequest(
           { id: request.id, decision: "rejected", reason: "Changed mind" },
           actor,
-          database as never,
-          noOpDecisionNotification
+          database as never
         )
       ).rejects.toMatchObject({ status: 409 });
     });
 
     it("allows only one competing decision and sends one notification", async () => {
+      sendEmail.mockClear();
       const request = await underReviewRequest();
-      const notifications: unknown[] = [];
-      const notify = async (notification: unknown) => notifications.push(notification);
       const results = await Promise.allSettled([
         handleDecideEventRequest(
           { id: request.id, decision: "approved" },
           actor,
-          database as never,
-          notify
+          database as never
         ),
         handleDecideEventRequest(
           { id: request.id, decision: "rejected", reason: "Venue unavailable" },
           actor,
-          database as never,
-          notify
+          database as never
         ),
       ]);
 
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
       expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
-      expect(notifications).toHaveLength(1);
+      expect(sendEmail).toHaveBeenCalledTimes(1);
     });
 
-    it("rolls the decision back when the Organiser notification cannot be sent", async () => {
+    it("keeps the decision when the email fails", async () => {
+      sendEmail.mockClear();
       const request = await underReviewRequest();
-      await expect(
-        handleDecideEventRequest(
-          { id: request.id, decision: "approved" },
-          actor,
-          database as never,
-          async () => {
-            throw new Error("mail unavailable");
-          }
-        )
-      ).rejects.toThrow("mail unavailable");
+      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
 
+      const approved = await handleDecideEventRequest(
+        { id: request.id, decision: "approved" },
+        actor,
+        database as never
+      );
+
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+      expect(approved.status).toBe("approved");
       expect(
         await handleGetCoordinationRequest({ id: request.id }, actor, database as never)
       ).toMatchObject({
-        status: "under_review",
-        decidedAt: null,
-        decidedByCoordinatorId: null,
+        status: "approved",
+        decidedAt: approved.decidedAt,
+        decidedByCoordinatorId: actor.id,
       });
     });
 
@@ -1375,6 +1354,17 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
           .where(eq(schema.eventRequests.id, request.id))
       ).rejects.toMatchObject({
         cause: { constraint: "event_requests_rejection_has_reason" },
+      });
+
+      // The rejected update above left the row untouched, so the same request still enforces the
+      // attribution CHECK: approved while the decision fields are null fails closed.
+      await expect(
+        database
+          .update(schema.eventRequests)
+          .set({ status: "approved" })
+          .where(eq(schema.eventRequests.id, request.id))
+      ).rejects.toMatchObject({
+        cause: { constraint: "event_requests_decision_matches_status" },
       });
     });
   });

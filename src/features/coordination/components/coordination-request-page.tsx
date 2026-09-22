@@ -128,7 +128,8 @@ export function CoordinationRequestPage({
   const canTakeUpForReview =
     request.status === "submitted" && request.assignedCoordinatorId === user.id;
   const canDecide = request.status === "under_review" && request.assignedCoordinatorId === user.id;
-  const canAssign = request.status === "submitted" || request.status === "under_review";
+  const canAssign =
+    request.status !== "draft" && request.status !== "approved" && request.status !== "rejected";
 
   const canRequestClarification =
     (request.status === "under_review" || request.status === "awaiting_organiser") &&

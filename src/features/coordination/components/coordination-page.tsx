@@ -10,7 +10,10 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import type { AssignedEventRequest } from "#/features/coordination/server-fns";
-import { UNTITLED_REQUEST } from "#/features/event-requests/components/request-list-page";
+import {
+  EventRequestStatusBadge,
+  UNTITLED_REQUEST,
+} from "#/features/event-requests/components/request-list-page";
 import { formatFirstProposedDate, formatInstant } from "#/features/event-requests/format";
 import type { UnassignedEventRequest } from "#/features/event-requests/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -50,13 +53,16 @@ export function CoordinationPage({
           <ul className="mt-4 divide-y divide-border">
             {assigned.map(request => (
               <li key={request.id} className="py-3">
-                <Link
-                  to="/coordination/$requestId"
-                  params={{ requestId: String(request.id) }}
-                  className={NAV_LINK_CLASSNAME}
-                >
-                  {request.eventName.trim() || UNTITLED_REQUEST}
-                </Link>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    to="/coordination/$requestId"
+                    params={{ requestId: String(request.id) }}
+                    className={NAV_LINK_CLASSNAME}
+                  >
+                    {request.eventName.trim() || UNTITLED_REQUEST}
+                  </Link>
+                  <EventRequestStatusBadge status={request.status} />
+                </div>
                 <p className="mt-1 body-sm text-muted-foreground">{request.organiser.name}</p>
               </li>
             ))}

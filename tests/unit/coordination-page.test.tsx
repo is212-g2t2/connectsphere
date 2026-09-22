@@ -86,4 +86,16 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
     rerender(<CoordinationPage unassigned={[]} assigned={[]} />);
     expect(screen.getByText("No requests are assigned to you.")).toBeTruthy();
   });
+
+  it("shows the decided status next to an assigned request so it does not look actionable", () => {
+    const decided: AssignedEventRequest = {
+      ...waiting,
+      status: "rejected",
+      assignedCoordinatorId: "usr_coord",
+      assignedAt: new Date("2026-09-15T03:00:00Z"),
+    };
+    render(<CoordinationPage unassigned={[]} assigned={[decided]} />);
+
+    expect(screen.getByText("Rejected")).toBeTruthy();
+  });
 });

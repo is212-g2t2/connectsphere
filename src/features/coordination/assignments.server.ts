@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, getTableColumns, ne, or, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray, ne, or, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { createElement } from "react";
 
@@ -28,12 +28,6 @@ const log = logger.getChild("coordination");
  */
 
 type Database = typeof Db;
-export interface EventDecisionNotification {
-  organiserEmail: string;
-  eventName: string;
-  decision: "approved" | "rejected";
-  reason?: string;
-}
 
 const organisers = alias(user, "organiser");
 const coordinators = alias(user, "coordinator");
@@ -217,16 +211,17 @@ export async function handleTakeUpForReview(data: unknown, actor: SessionUser, d
 
 /**
  * PTR-20: record one terminal decision against a request held by the assigned Coordinator. The
- * row lock makes competing approval/rejection calls serialize, so exactly one can win.
+ * row lock makes competing approval/rejection calls serialize, so exactly one can win. The
+ * decision commits before the Organiser's email is attempted; a failed send is logged, not
+ * fatal, so a mail outage cannot lose a recorded decision.
  */
 export async function handleDecideEventRequest(
   data: unknown,
   actor: SessionUser,
-  database: Database,
-  notify: (notification: EventDecisionNotification) => Promise<unknown>
+  database: Database
 ) {
   const input = parseDecisionInput(data);
-  const recorded = await database.transaction(async tx => {
+  const { recorded, organiserEmail } = await database.transaction(async tx => {
     const request = (
       await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
     ).at(0);
@@ -241,15 +236,12 @@ export async function handleDecideEventRequest(
       throw new ConflictError("Take this request up for review before deciding it.");
     }
 
-    const [coordinator, organiser] = await Promise.all([
-      tx.select({ name: user.name }).from(user).where(eq(user.id, actor.id)),
-      tx
-        .select({ name: user.name, email: user.email })
-        .from(user)
-        .where(eq(user.id, request.organiserId)),
-    ]);
-    const decidingCoordinator = coordinator.at(0);
-    const requestOrganiser = organiser.at(0);
+    const people = await tx
+      .select({ id: user.id, name: user.name, email: user.email })
+      .from(user)
+      .where(inArray(user.id, [actor.id, request.organiserId]));
+    const decidingCoordinator = people.find(person => person.id === actor.id);
+    const requestOrganiser = people.find(person => person.id === request.organiserId);
     if (!decidingCoordinator || !requestOrganiser) {
       throw new ConflictError("The request's Coordinator or Organiser is no longer available.");
     }
@@ -259,7 +251,7 @@ export async function handleDecideEventRequest(
       .update(eventRequests)
       .set({
         status: input.decision,
-        decisionReason: input.reason ?? null,
+        decisionReason: input.reason || null,
         decidedByCoordinatorId: actor.id,
         decidedByCoordinatorName: decidingCoordinator.name,
         decidedAt: now,
@@ -267,27 +259,31 @@ export async function handleDecideEventRequest(
       .where(eq(eventRequests.id, request.id))
       .returning();
 
-    await notify({
+    return {
+      recorded: updated,
       organiserEmail: requestOrganiser.email,
-      eventName: request.eventName,
-      decision: input.decision,
-      ...(input.reason ? { reason: input.reason } : {}),
-    });
-    return updated;
+    };
   });
-  return recorded;
-}
 
-export function sendEventDecisionNotification(notification: EventDecisionNotification) {
-  return sendEmail(
-    notification.organiserEmail,
-    `Your event request was ${notification.decision}`,
-    createElement(EventDecisionEmail, {
-      eventName: notification.eventName,
-      decision: notification.decision,
-      reason: notification.reason,
-    })
-  );
+  try {
+    await sendEmail(
+      organiserEmail,
+      `Your event request was ${input.decision}`,
+      createElement(EventDecisionEmail, {
+        eventName: recorded.eventName.trim() || "Untitled request",
+        decision: input.decision,
+        reason: input.reason,
+        eventRequestUrl: `${env.BETTER_AUTH_URL}/event-requests/${recorded.id}`,
+      })
+    );
+  } catch (error) {
+    // The decision is already committed; a failed notification must not lose it (matches PTR-18).
+    log.warn("Decision email failed", {
+      requestId: recorded.id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
+  return recorded;
 }
 
 /**

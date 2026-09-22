@@ -1,5 +1,5 @@
 {
-  "id": "10807633-cce9-4f40-9988-31d21aef7eae",
+  "id": "e7891625-8fb9-4177-8da4-5058e38285ae",
   "prevId": "1d5acc36-1fc7-494a-84b7-b2537de92210",
   "version": "7",
   "dialect": "postgresql",
@@ -567,11 +567,11 @@
         },
         "event_requests_decision_matches_status": {
           "name": "event_requests_decision_matches_status",
-          "value": "(\"event_requests\".\"status\" in ('approved', 'rejected') and \"event_requests\".\"decided_by_coordinator_id\" is not null and btrim(\"event_requests\".\"decided_by_coordinator_id\") <> '' and \"event_requests\".\"decided_by_coordinator_name\" is not null and btrim(\"event_requests\".\"decided_by_coordinator_name\") <> '' and \"event_requests\".\"decided_at\" is not null) or (\"event_requests\".\"status\" not in ('approved', 'rejected') and \"event_requests\".\"decision_reason\" is null and \"event_requests\".\"decided_by_coordinator_id\" is null and \"event_requests\".\"decided_by_coordinator_name\" is null and \"event_requests\".\"decided_at\" is null)"
+          "value": "(\"event_requests\".\"status\"::text in ('approved', 'rejected') and \"event_requests\".\"decided_by_coordinator_id\" is not null and btrim(\"event_requests\".\"decided_by_coordinator_id\") <> '' and \"event_requests\".\"decided_by_coordinator_name\" is not null and btrim(\"event_requests\".\"decided_by_coordinator_name\") <> '' and \"event_requests\".\"decided_at\" is not null) or (\"event_requests\".\"status\"::text in ('draft', 'submitted', 'under_review', 'awaiting_organiser') and \"event_requests\".\"decision_reason\" is null and \"event_requests\".\"decided_by_coordinator_id\" is null and \"event_requests\".\"decided_by_coordinator_name\" is null and \"event_requests\".\"decided_at\" is null)"
         },
         "event_requests_rejection_has_reason": {
           "name": "event_requests_rejection_has_reason",
-          "value": "\"event_requests\".\"status\" <> 'rejected' or (\"event_requests\".\"decision_reason\" is not null and btrim(\"event_requests\".\"decision_reason\") <> '')"
+          "value": "\"event_requests\".\"status\"::text <> 'rejected' or (\"event_requests\".\"decision_reason\" is not null and btrim(\"event_requests\".\"decision_reason\") <> '')"
         },
         "event_requests_registration_terms_match_enabled": {
           "name": "event_requests_registration_terms_match_enabled",

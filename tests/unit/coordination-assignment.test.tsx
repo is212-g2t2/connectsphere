@@ -129,6 +129,7 @@ describe("decision validation", () => {
     expect(parseDecisionInput({ id: 7, decision: "approved", reason: "  " })).toEqual({
       id: 7,
       decision: "approved",
+      reason: "",
     });
   });
 });
@@ -181,6 +182,34 @@ describe("Coordinator handover and pickup", () => {
     );
     expect(navigate).toHaveBeenCalledWith({ to: "/coordination" });
     expect(success).toHaveBeenCalled();
+  });
+
+  it("still offers reassignment while awaiting the Organiser, but not after a decision", () => {
+    const owned = {
+      ...request,
+      status: "awaiting_organiser" as const,
+      assignedCoordinatorId: actor.id,
+      assignedAt: new Date(),
+      coordinator: actor,
+    };
+    const { rerender } = render(
+      <CoordinationRequestPage request={owned} coordinators={coordinators} user={actor} />
+    );
+
+    expect(screen.getByRole("heading", { name: "Reassign this request" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reassign Coordinator" })).toBeTruthy();
+
+    for (const status of ["approved", "rejected"] as const) {
+      rerender(
+        <CoordinationRequestPage
+          request={{ ...owned, status }}
+          coordinators={coordinators}
+          user={actor}
+        />
+      );
+      expect(screen.queryByRole("heading", { name: "Reassign this request" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Reassign Coordinator" })).toBeNull();
+    }
   });
 
   it("shows a server refusal without claiming success or navigating away", async () => {
@@ -292,14 +321,14 @@ describe("Approval and rejection", () => {
     expect(screen.queryByRole("button", { name: "Reject request" })).toBeNull();
   });
 
-  it("approves without a reason and leaves the stale detail", async () => {
+  it("approves without a reason and returns to the coordination list", async () => {
     render(
       <CoordinationRequestPage request={underReview} coordinators={coordinators} user={actor} />
     );
     await userEvent.click(screen.getByRole("button", { name: "Approve request" }));
     await waitFor(() =>
       expect(decideEventRequest).toHaveBeenCalledWith({
-        data: { id: request.id, decision: "approved" },
+        data: { id: request.id, decision: "approved", reason: "" },
       })
     );
     expect(success).toHaveBeenCalledWith("Request approved.");

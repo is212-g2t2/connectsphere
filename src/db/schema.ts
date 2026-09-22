@@ -122,13 +122,16 @@ export const eventRequests = pgTable(
       "event_requests_draft_has_no_coordinator",
       sql`${table.status} <> 'draft' or ${table.assignedCoordinatorId} is null`
     ),
+    // Decision attribution is required exactly while the status is approved or rejected, and must be
+    // absent for the pre-decision statuses. A future status that should retain it (e.g. completed)
+    // must extend this constraint alongside its enum value.
     check(
       "event_requests_decision_matches_status",
-      sql`(${table.status} in ('approved', 'rejected') and ${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.status} not in ('approved', 'rejected') and ${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null)`
+      sql`(${table.status}::text in ('approved', 'rejected') and ${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.status}::text in ('draft', 'submitted', 'under_review', 'awaiting_organiser') and ${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null)`
     ),
     check(
       "event_requests_rejection_has_reason",
-      sql`${table.status} <> 'rejected' or (${table.decisionReason} is not null and btrim(${table.decisionReason}) <> '')`
+      sql`${table.status}::text <> 'rejected' or (${table.decisionReason} is not null and btrim(${table.decisionReason}) <> '')`
     ),
     // Criterion 2/5, held for whichever path writes the row: terms exist exactly when enabled.
     check(

@@ -1,0 +1,8 @@
+ALTER TYPE "public"."event_request_status" ADD VALUE 'approved' BEFORE 'awaiting_organiser';--> statement-breakpoint
+ALTER TYPE "public"."event_request_status" ADD VALUE 'rejected' BEFORE 'awaiting_organiser';--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "decision_reason" text;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "decided_by_coordinator_id" text;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "decided_by_coordinator_name" text;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "decided_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_decision_matches_status" CHECK (("event_requests"."status"::text in ('approved', 'rejected') and "event_requests"."decided_by_coordinator_id" is not null and btrim("event_requests"."decided_by_coordinator_id") <> '' and "event_requests"."decided_by_coordinator_name" is not null and btrim("event_requests"."decided_by_coordinator_name") <> '' and "event_requests"."decided_at" is not null) or ("event_requests"."status"::text in ('draft', 'submitted', 'under_review', 'awaiting_organiser') and "event_requests"."decision_reason" is null and "event_requests"."decided_by_coordinator_id" is null and "event_requests"."decided_by_coordinator_name" is null and "event_requests"."decided_at" is null));--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_rejection_has_reason" CHECK ("event_requests"."status"::text <> 'rejected' or ("event_requests"."decision_reason" is not null and btrim("event_requests"."decision_reason") <> ''));
