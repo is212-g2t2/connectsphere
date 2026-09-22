@@ -25,6 +25,7 @@ export const Route = createFileRoute("/_authenticated/venues/")({
       event: null,
       filters: {},
       venues: await listVenues(),
+      unsuitable: [],
     };
   },
   component: () => (

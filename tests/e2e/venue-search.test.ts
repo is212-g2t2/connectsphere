@@ -89,3 +89,22 @@ test("[PTR-29][AC5] search launched from an event opens with its requirements pr
   const results = page.getByRole("region", { name: "Venue results" });
   await expect(results.getByRole("link", { name: "Harbour Hall", exact: true })).toBeVisible();
 });
+
+test("[PTR-30][AC2][AC3][AC5] the venues that do not suit the event say why", async ({ page }) => {
+  await signInAsStaff(page, "event_coordinator");
+  await page.goto("/dashboard");
+  await waitForHydration(page);
+  const demoEvent = page
+    .getByRole("heading", { name: DEMO_EVENT_NAME, exact: true })
+    .locator("xpath=ancestor::*[@data-slot='card'][1]");
+  await demoEvent.getByRole("link", { name: "Find venues for this event", exact: true }).click();
+  await expect(page.getByText(`Prefilled from ${DEMO_EVENT_NAME}`, { exact: true })).toBeVisible();
+
+  const unsuitable = page.getByRole("region", { name: "Not suitable" });
+  await expect(unsuitable).toBeVisible();
+  // Seminar Room 2A seats 40 against the demo event's 120; the sentence says exactly that.
+  const seminarRow = unsuitable.getByRole("row", { name: /Seminar Room 2A/ });
+  await expect(seminarRow).toContainText("Holds 40; 120 needed");
+  // Nothing was booked or blocked by reading a verdict (AC6): the calendar action is still theirs.
+  await expect(unsuitable.getByText(/books or blocks nothing/)).toBeVisible();
+});

@@ -261,7 +261,7 @@ describe("VenueListPage", () => {
     render(
       <VenueListPage
         user={userWithRole("event_coordinator")}
-        result={{ event: null, filters: {}, venues: [venue] }}
+        result={{ event: null, filters: {}, venues: [venue], unsuitable: [] }}
       />
     );
 
@@ -274,7 +274,7 @@ describe("VenueListPage", () => {
     render(
       <VenueListPage
         user={userWithRole("venue_staff")}
-        result={{ event: null, filters: {}, venues: [] }}
+        result={{ event: null, filters: {}, venues: [], unsuitable: [] }}
       />
     );
 
@@ -288,7 +288,7 @@ describe("VenueListPage", () => {
       render(
         <VenueListPage
           user={userWithRole(role)}
-          result={{ event: null, filters: {}, venues: [venue] }}
+          result={{ event: null, filters: {}, venues: [venue], unsuitable: [] }}
         />
       );
 

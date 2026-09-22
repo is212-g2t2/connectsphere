@@ -90,7 +90,7 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
   const navigate = useNavigate();
   const canCreate = can(user.role, { venue: ["create"] });
   const canSearch = can(user.role, { venue: ["search"] });
-  const { event, filters, venues } = result;
+  const { event, filters, venues, unsuitable } = result;
 
   const form = useForm({
     defaultValues: toSearchFormValues(filters),
@@ -120,6 +120,8 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
   }, [filters, form]);
 
   const hasFilters = Object.keys(filters).some(key => key !== "eventId");
+  // PTR-30 criterion 5: once something was asked of the venues, the ones that fell short say why.
+  const showUnsuitable = (hasFilters || event !== null) && unsuitable.length > 0;
 
   return (
     <Page width="wide">
@@ -232,6 +234,7 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
           <h2 className="display-h3">Venue results</h2>
           <p className="body-sm text-muted-foreground">
             {venues.length} {venues.length === 1 ? "venue" : "venues"}
+            {showUnsuitable ? ` suitable, ${unsuitable.length} not` : ""}
           </p>
         </div>
 
@@ -298,6 +301,48 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
           </Table>
         )}
       </section>
+
+      {showUnsuitable && (
+        <section aria-labelledby="unsuitable-heading" className="mt-10">
+          <h2 id="unsuitable-heading" className="display-h3">
+            Not suitable
+          </h2>
+          <p className="body-sm mt-1 text-muted-foreground">
+            Each venue below fails at least one requirement. A verdict books or blocks nothing;
+            Venue Staff still decide any request.
+          </p>
+          <Table className="mt-4">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Why not</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {unsuitable.map(({ venue, failures }) => (
+                <TableRow key={venue.id}>
+                  <TableCell>
+                    <Link
+                      to="/venues/$venueId"
+                      params={{ venueId: String(venue.id) }}
+                      className={NAV_LINK_CLASSNAME}
+                    >
+                      {venue.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <ul className="space-y-1">
+                      {failures.map(failure => (
+                        <li key={failure.criterion}>{failure.message}</li>
+                      ))}
+                    </ul>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </section>
+      )}
     </Page>
   );
 }

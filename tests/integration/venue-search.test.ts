@@ -144,6 +144,64 @@ describe("venue search handler (PTR-29)", () => {
     expect(result.venues.map(venue => venue.name)).toEqual([venueNames[0]]);
   });
 
+  it("returns the venues that fell short with each failing criterion named (PTR-30 AC5)", async () => {
+    const result = await handleSearchVenues(
+      {
+        expectedAttendance: "120",
+        layout: "theatre",
+        facilities: "Projector, PA system",
+        accessibility: "Step-free access",
+      },
+      session(users.coordinator),
+      database as never
+    );
+
+    const small = result.unsuitable.find(({ venue }) => venue.name === venueNames[1]);
+    expect(small?.failures).toEqual([
+      { criterion: "capacity", message: "Holds 30; 120 needed" },
+      { criterion: "layout", message: "Does not offer Theatre" },
+      { criterion: "accessibility", message: "Missing accessibility: step, free, access" },
+      { criterion: "facilities", message: "Missing facilities: projector, pa, system" },
+    ]);
+    expect(result.unsuitable.map(({ venue }) => venue.name)).not.toContain(venueNames[0]);
+  });
+
+  it.each(["under_review", "awaiting_organiser", "approved"] as const)(
+    "still prefills from an assigned event that is %s (PTR-30)",
+    async status => {
+      await database
+        .update(schema.eventRequests)
+        .set(
+          status === "approved"
+            ? {
+                status,
+                decidedByCoordinatorId: users.coordinator.id,
+                decidedByCoordinatorName: users.coordinator.name,
+                decidedAt: new Date(),
+              }
+            : { status }
+        )
+        .where(eq(schema.eventRequests.id, eventId));
+
+      const result = await handleSearchVenues(
+        { eventId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(result.event).toEqual({ id: eventId, name: "PTR-29 Event" });
+
+      await database
+        .update(schema.eventRequests)
+        .set({
+          status: "submitted",
+          decidedByCoordinatorId: null,
+          decidedByCoordinatorName: null,
+          decidedAt: null,
+        })
+        .where(eq(schema.eventRequests.id, eventId));
+    }
+  );
+
   it("excludes a venue when recorded unavailability overlaps the requested time", async () => {
     const [venue] = await database
       .select({ id: schema.venues.id })

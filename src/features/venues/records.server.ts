@@ -15,6 +15,7 @@ import {
 import type { AvailabilityRecord } from "#/features/venues/availability";
 import {
   DUPLICATE_NAME_MESSAGE,
+  LAYOUT_LABELS,
   crossesMidnight,
   parseAvailabilityRequest,
   parseLayouts,
@@ -60,24 +61,63 @@ function tagWords(value: string) {
 }
 
 /**
- * Every requested word must be one of the venue's stored tag words, in any order, so a stored tag
- * with extra words still satisfies a shorter request and punctuation is just a separator.
+ * The requested words the venue's stored tags do not carry — empty when every one is present, in
+ * any order, so a stored tag with extra words still satisfies a shorter request and punctuation
+ * is just a separator.
  *
  * ponytail: exact word-set matching, no synonyms — "PA system" does not match a stored "Sound and
  * lighting system". Add a synonym table (or embeddings) if cross-vocabulary recall matters.
  */
-function hasEveryTag(actual: readonly string[], requested: string | undefined) {
-  if (!requested) return true;
+function missingTagWords(actual: readonly string[], requested: string | undefined): string[] {
+  if (!requested) return [];
   const available = new Set(actual.flatMap(tagWords));
-  return tagWords(requested).every(word => available.has(word));
+  return tagWords(requested).filter(word => !available.has(word));
 }
 
-function isAvailable(
+/**
+ * PTR-30 criterion 5: the criterion a venue failed, named. `criterion` is stable for tests and
+ * any later grouping; `message` is the sentence the Coordinator reads.
+ */
+export type SuitabilityCriterion =
+  | "capacity"
+  | "location"
+  | "layout"
+  | "accessibility"
+  | "facilities"
+  | "availability"
+  | "booking";
+
+export interface SuitabilityFailure {
+  criterion: SuitabilityCriterion;
+  message: string;
+}
+
+/** Every rule is evaluated, so an unsuitable venue lists everything wrong with it, not the first thing. */
+export interface SuitabilityVerdict {
+  suitable: boolean;
+  failures: SuitabilityFailure[];
+}
+
+function overlaps(
+  period: { visibleStart: string; visibleEnd: string },
+  start: string,
+  end: string
+) {
+  return period.visibleStart < end && period.visibleEnd > start;
+}
+
+/**
+ * Whether the venue can host the requested window, and if not, why: closed, blocked by recorded
+ * unavailability, or — criterion 4 — holding an approved booking that overlaps it. Bookings are
+ * checked before blocks because a booked venue is the answer the Coordinator most needs.
+ */
+function availabilityFailure(
   venue: VenueSuitabilityCandidate,
   filters: VenueSearch,
-  blocks: readonly AvailabilityRecord[]
-) {
-  if (!filters.date) return true;
+  blocks: readonly AvailabilityRecord[],
+  bookings: readonly AvailabilityRecord[]
+): SuitabilityFailure | null {
+  if (!filters.date) return null;
 
   const endDate = filters.endDate ?? filters.date;
   const range = {
@@ -85,50 +125,106 @@ function isAvailable(
     endsAt: `${nextCivilDate(endDate)}T00:00:00`,
   };
   const projection = projectAvailability(range, {
-    bookings: [],
+    bookings,
     blocks,
     openPeriods: openingPeriods(filters.date, endDate, venue.operatingHours),
   });
+  const dates = filters.endDate ? `${filters.date} to ${filters.endDate}` : filters.date;
 
-  if (!filters.startTime || !filters.endTime) return projection.available.length > 0;
+  if (!filters.startTime || !filters.endTime) {
+    if (projection.available.length > 0) return null;
+    const booked = projection.occupied.find(period => period.state === "confirmed");
+    return booked
+      ? { criterion: "booking", message: `Booked for ${booked.label} on ${dates}` }
+      : { criterion: "availability", message: `Closed or unavailable on ${dates}` };
+  }
 
   // The times are a daily hosting window, not one continuous period: a two-day search needs each
   // day covered on its own, and a window running past midnight fits no civil day at all.
-  if (crossesMidnight(filters)) return false;
+  if (crossesMidnight(filters)) {
+    return { criterion: "availability", message: "The requested window crosses midnight" };
+  }
 
   for (let day = filters.date; day <= endDate; day = nextCivilDate(day)) {
     const requestedStart = `${day}T${filters.startTime}:00`;
     const requestedEnd = `${day}T${filters.endTime}:00`;
-    if (
-      !projection.available.some(
-        period => period.startsAt <= requestedStart && period.endsAt >= requestedEnd
-      )
-    ) {
-      return false;
+    const covered = projection.available.some(
+      period => period.startsAt <= requestedStart && period.endsAt >= requestedEnd
+    );
+    if (covered) continue;
+
+    const clash = projection.occupied.find(period =>
+      overlaps(period, requestedStart, requestedEnd)
+    );
+    if (clash?.state === "confirmed") {
+      return { criterion: "booking", message: `Booked for ${clash.label} on ${day}` };
     }
+    if (clash) {
+      return { criterion: "availability", message: `Unavailable on ${day}: ${clash.label}` };
+    }
+    return {
+      criterion: "availability",
+      message: `Not open ${filters.startTime}–${filters.endTime} on ${day}`,
+    };
   }
-  return true;
+  return null;
 }
 
-/** PTR-29's AND-composed search rules, kept beside their sole application caller. */
+/**
+ * PTR-29's AND-composed search rules and PTR-30's suitability verdict are one function, so a
+ * venue can never pass the filter and fail suitability on the same criterion (PTR-29 AC2). Every
+ * applied filter is checked and every failure named (PTR-30 AC5); `suitable` is what search
+ * filters on. Kept beside its sole application caller, `handleSearchVenues`.
+ */
 export function evaluateVenueSuitability(
   venue: VenueSuitabilityCandidate,
   filters: VenueSearch,
-  blocks: readonly AvailabilityRecord[]
-) {
+  blocks: readonly AvailabilityRecord[],
+  bookings: readonly AvailabilityRecord[] = []
+): SuitabilityVerdict {
+  const failures: SuitabilityFailure[] = [];
+
   // Both filters are lower bounds and a venue must clear both, so the stricter one decides.
   const requiredCapacity = Math.max(filters.expectedAttendance ?? 0, filters.capacity ?? 0);
-  if (requiredCapacity > venue.maxCapacity) return false;
+  if (requiredCapacity > venue.maxCapacity) {
+    failures.push({
+      criterion: "capacity",
+      message: `Holds ${venue.maxCapacity}; ${requiredCapacity} needed`,
+    });
+  }
   if (filters.location && !normalise(venue.location).includes(normalise(filters.location))) {
-    return false;
+    failures.push({
+      criterion: "location",
+      message: `Not in ${filters.location} (${venue.location})`,
+    });
   }
   if (filters.layout) {
     const requested = parseLayouts(filters.layout);
-    if (!requested.some(layout => venue.supportedLayouts.includes(layout))) return false;
+    if (!requested.some(layout => venue.supportedLayouts.includes(layout))) {
+      failures.push({
+        criterion: "layout",
+        message: `Does not offer ${requested.map(layout => LAYOUT_LABELS[layout]).join(" or ")}`,
+      });
+    }
   }
-  if (!hasEveryTag(venue.accessibilityFeatures, filters.accessibility)) return false;
-  if (!hasEveryTag(venue.facilities, filters.facilities)) return false;
-  return isAvailable(venue, filters, blocks);
+  const missingAccessibility = missingTagWords(venue.accessibilityFeatures, filters.accessibility);
+  if (missingAccessibility.length > 0) {
+    failures.push({
+      criterion: "accessibility",
+      message: `Missing accessibility: ${missingAccessibility.join(", ")}`,
+    });
+  }
+  const missingFacilities = missingTagWords(venue.facilities, filters.facilities);
+  if (missingFacilities.length > 0) {
+    failures.push({
+      criterion: "facilities",
+      message: `Missing facilities: ${missingFacilities.join(", ")}`,
+    });
+  }
+  const availability = availabilityFailure(venue, filters, blocks, bookings);
+  if (availability) failures.push(availability);
+
+  return { suitable: failures.length === 0, failures };
 }
 
 export async function handleListVenues(database: Database): Promise<Venue[]> {
@@ -171,10 +267,44 @@ async function loadVenueBlocks(
   }));
 }
 
+type VenueBooking = AvailabilityRecord & { venueId: number };
+
 /**
- * PTR-29's venue search. An optional event id belongs to the assigned Coordinator or is refused
- * without revealing whether the event exists. The event's first complete proposed window and
- * hard venue requirements become defaults; explicit filters are then ANDed by one evaluator.
+ * PTR-30 criterion 4's data: the approved bookings overlapping a range, per venue. A deliberate
+ * seam, not a fallback — `venue_requests` carries no venue or period until PTR-31 lands and no
+ * `approved` status until PTR-33 does, so there is nothing to read yet. The evaluator already
+ * treats whatever arrives here as occupied; the story that merges last of the three replaces the
+ * body with one query and deletes this comment. The unit tests prove the rule with fixtures.
+ */
+async function loadVenueBookings(
+  _database: Database,
+  _venueIds: readonly number[],
+  _startsAt: string,
+  _endsAt: string
+): Promise<VenueBooking[]> {
+  return [];
+}
+
+/**
+ * The statuses an assigned Coordinator is still working a request in. `submitted` alone (PTR-29's
+ * original gate) refused the very events a Coordinator searches for: PTR-17 moves a request to
+ * `under_review` the moment it is picked up, PTR-18 to `awaiting_organiser`, PTR-20 to `approved`.
+ * A draft, a rejection and anything confirmed are not looking for a venue. `planning` joins this
+ * list when PTR-21's enum widening lands.
+ */
+const SEARCHABLE_STATUSES = [
+  "submitted",
+  "under_review",
+  "awaiting_organiser",
+  "approved",
+] as const;
+
+/**
+ * PTR-29's venue search and PTR-30's verdicts. An optional event id belongs to the assigned
+ * Coordinator or is refused without revealing whether the event exists. The event's first
+ * complete proposed window and hard venue requirements become defaults; explicit filters are then
+ * evaluated by the one evaluator, which sorts every venue into `venues` (suitable) or `unsuitable`
+ * (with its failures named). Nothing here writes: a verdict books or blocks no venue (AC6).
  */
 export async function handleSearchVenues(data: unknown, user: SessionUser, database: Database) {
   const { eventId, ...requested } = parseVenueSearchRequest(data);
@@ -209,28 +339,34 @@ export async function handleSearchVenues(data: unknown, user: SessionUser, datab
   const filters: VenueSearch = { ...defaults, ...supplied };
   const venueRows = await handleListVenues(database);
   let blocksByVenue = new Map<number, VenueBlock[]>();
+  let bookingsByVenue = new Map<number, VenueBooking[]>();
 
   if (filters.date && venueRows.length > 0) {
     const startsAt = `${filters.date} 00:00:00`;
     const endsAt = `${nextCivilDate(filters.endDate ?? filters.date)} 00:00:00`;
-    blocksByVenue = Map.groupBy(
-      await loadVenueBlocks(
-        database,
-        venueRows.map(venue => venue.id),
-        startsAt,
-        endsAt
-      ),
-      block => block.venueId
-    );
+    const venueIds = venueRows.map(venue => venue.id);
+    const [blocks, bookings] = await Promise.all([
+      loadVenueBlocks(database, venueIds, startsAt, endsAt),
+      loadVenueBookings(database, venueIds, startsAt, endsAt),
+    ]);
+    blocksByVenue = Map.groupBy(blocks, block => block.venueId);
+    bookingsByVenue = Map.groupBy(bookings, booking => booking.venueId);
   }
 
-  return {
-    event,
-    filters,
-    venues: venueRows.filter(venue =>
-      evaluateVenueSuitability(venue, filters, blocksByVenue.get(venue.id) ?? [])
-    ),
-  };
+  const suitable: Venue[] = [];
+  const unsuitable: { venue: Venue; failures: SuitabilityFailure[] }[] = [];
+  for (const venue of venueRows) {
+    const verdict = evaluateVenueSuitability(
+      venue,
+      filters,
+      blocksByVenue.get(venue.id) ?? [],
+      bookingsByVenue.get(venue.id) ?? []
+    );
+    if (verdict.suitable) suitable.push(venue);
+    else unsuitable.push({ venue, failures: verdict.failures });
+  }
+
+  return { event, filters, venues: suitable, unsuitable };
 }
 
 export async function handleGetVenue(data: unknown, database: Database): Promise<Venue | null> {

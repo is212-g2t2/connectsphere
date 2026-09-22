@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { evaluateVenueSuitability } from "#/features/venues/records.server";
+import type { SuitabilityCriterion } from "#/features/venues/records.server";
 import {
   AVAILABILITY_RANGE_MESSAGE,
   DEFAULT_OPERATING_HOURS,
@@ -95,9 +96,13 @@ describe("PTR-29 venue-search input", () => {
   });
 });
 
+/** PTR-29's yes/no reading of the verdict PTR-30 widened it into. */
+const suits = (...args: Parameters<typeof evaluateVenueSuitability>) =>
+  evaluateVenueSuitability(...args).suitable;
+
 describe("PTR-29 suitability rules", () => {
   it("accepts a venue only when every applied filter passes", () => {
-    expect(evaluateVenueSuitability(venue, filters, [])).toBe(true);
+    expect(suits(venue, filters, [])).toBe(true);
   });
 
   it.each([
@@ -116,7 +121,7 @@ describe("PTR-29 suitability rules", () => {
       filters,
     ],
   ])("rejects a venue that fails the %s filter", (_criterion, candidate, applied) => {
-    expect(evaluateVenueSuitability(candidate, applied, [])).toBe(false);
+    expect(suits(candidate, applied, [])).toBe(false);
   });
 
   it("rejects a requested period that overlaps recorded unavailability", () => {
@@ -127,12 +132,12 @@ describe("PTR-29 suitability rules", () => {
       endsAt: "2026-10-05T13:00:00",
     };
 
-    expect(evaluateVenueSuitability(venue, filters, [overlap])).toBe(false);
+    expect(suits(venue, filters, [overlap])).toBe(false);
   });
 
   it("preserves a stored requirement whose name contains the word and", () => {
     expect(
-      evaluateVenueSuitability(
+      suits(
         { ...venue, facilities: ["Sound and lighting system"] },
         { facilities: "Sound and lighting system" },
         []
@@ -142,32 +147,24 @@ describe("PTR-29 suitability rules", () => {
 
   it("matches reordered and shorter requests against a longer stored tag", () => {
     expect(
-      evaluateVenueSuitability(
+      suits(
         { ...venue, facilities: ["Sound and lighting system"] },
         { facilities: "lighting sound system" },
         []
       )
     ).toBe(true);
     expect(
-      evaluateVenueSuitability(
-        { ...venue, facilities: ["Sound and lighting system"] },
-        { facilities: "sound" },
-        []
-      )
+      suits({ ...venue, facilities: ["Sound and lighting system"] }, { facilities: "sound" }, [])
     ).toBe(true);
   });
 
   it("fails when a requested word names a missing concept rather than a rewording", () => {
-    expect(
-      evaluateVenueSuitability(
-        { ...venue, facilities: ["Stage"] },
-        { facilities: "stage lighting" },
-        []
-      )
-    ).toBe(false);
+    expect(suits({ ...venue, facilities: ["Stage"] }, { facilities: "stage lighting" }, [])).toBe(
+      false
+    );
     // No synonyms: "PA system" cannot match "Sound and lighting system".
     expect(
-      evaluateVenueSuitability(
+      suits(
         { ...venue, facilities: ["Sound and lighting system"] },
         { facilities: "PA system" },
         []
@@ -177,15 +174,13 @@ describe("PTR-29 suitability rules", () => {
 
   it("matches stored requirements containing regular-expression punctuation", () => {
     const audioWifi = { ...venue, facilities: ["Audio (A/V) + Wi-Fi"] };
-    expect(evaluateVenueSuitability(audioWifi, { facilities: "Audio (A/V) + Wi-Fi" }, [])).toBe(
-      true
-    );
-    expect(evaluateVenueSuitability(audioWifi, { facilities: "Wi-Fi audio" }, [])).toBe(true);
+    expect(suits(audioWifi, { facilities: "Audio (A/V) + Wi-Fi" }, [])).toBe(true);
+    expect(suits(audioWifi, { facilities: "Wi-Fi audio" }, [])).toBe(true);
   });
 
   it("accepts a venue that supports any one of the requested layouts", () => {
     expect(
-      evaluateVenueSuitability(
+      suits(
         { ...venue, supportedLayouts: ["theatre"] as const },
         { layout: "classroom, theatre" },
         []
@@ -194,13 +189,9 @@ describe("PTR-29 suitability rules", () => {
   });
 
   it("does not treat other inside another word as the Other layout", () => {
-    expect(
-      evaluateVenueSuitability(
-        { ...venue, supportedLayouts: ["other"] },
-        { layout: "another layout" },
-        []
-      )
-    ).toBe(false);
+    expect(suits({ ...venue, supportedLayouts: ["other"] }, { layout: "another layout" }, [])).toBe(
+      false
+    );
   });
 
   it("refuses a layout filter that names no supported layout", () => {
@@ -209,7 +200,7 @@ describe("PTR-29 suitability rules", () => {
 
   it("refuses a window that crosses midnight, whatever the venue's hours", () => {
     expect(
-      evaluateVenueSuitability(
+      suits(
         venue,
         { date: "2026-10-05", endDate: "2026-10-06", startTime: "22:00", endTime: "02:00" },
         []
@@ -220,7 +211,7 @@ describe("PTR-29 suitability rules", () => {
   it("matches a multi-day window when the venue is open on every day", () => {
     // 2026-10-05 and 2026-10-06 are Monday and Tuesday; `DEFAULT_OPERATING_HOURS` closes the weekend.
     expect(
-      evaluateVenueSuitability(
+      suits(
         venue,
         { date: "2026-10-05", endDate: "2026-10-06", startTime: "10:00", endTime: "12:00" },
         []
@@ -231,7 +222,7 @@ describe("PTR-29 suitability rules", () => {
   it("refuses a multi-day window that includes a day the venue is closed", () => {
     // 2026-10-09 and 2026-10-10 are Friday and Saturday; the default hours close Saturday.
     expect(
-      evaluateVenueSuitability(
+      suits(
         venue,
         { date: "2026-10-09", endDate: "2026-10-10", startTime: "10:00", endTime: "12:00" },
         []
@@ -249,7 +240,7 @@ describe("PTR-29 suitability rules", () => {
 
     // Monday is free, Tuesday's requested 10:00–12:00 sits inside the block.
     expect(
-      evaluateVenueSuitability(
+      suits(
         venue,
         { date: "2026-10-05", endDate: "2026-10-06", startTime: "10:00", endTime: "12:00" },
         [tuesdayBlock]
@@ -258,18 +249,122 @@ describe("PTR-29 suitability rules", () => {
   });
 
   it("ANDs a passing filter with a failing one, refusing the venue", () => {
-    expect(evaluateVenueSuitability(venue, { location: "East Wing" }, [])).toBe(true);
-    expect(evaluateVenueSuitability(venue, { facilities: "Stage lighting" }, [])).toBe(false);
-    expect(
-      evaluateVenueSuitability(venue, { location: "East Wing", facilities: "Stage lighting" }, [])
-    ).toBe(false);
+    expect(suits(venue, { location: "East Wing" }, [])).toBe(true);
+    expect(suits(venue, { facilities: "Stage lighting" }, [])).toBe(false);
+    expect(suits(venue, { location: "East Wing", facilities: "Stage lighting" }, [])).toBe(false);
   });
 
   it("refuses a venue that fails two filters at once", () => {
-    expect(evaluateVenueSuitability(venue, { location: "West Wing" }, [])).toBe(false);
-    expect(evaluateVenueSuitability(venue, { facilities: "Stage lighting" }, [])).toBe(false);
+    expect(suits(venue, { location: "West Wing" }, [])).toBe(false);
+    expect(suits(venue, { facilities: "Stage lighting" }, [])).toBe(false);
+    expect(suits(venue, { location: "West Wing", facilities: "Stage lighting" }, [])).toBe(false);
+  });
+});
+
+function failures(...args: Parameters<typeof evaluateVenueSuitability>) {
+  return evaluateVenueSuitability(...args).failures;
+}
+function criteria(...args: Parameters<typeof evaluateVenueSuitability>): SuitabilityCriterion[] {
+  return failures(...args).map(failure => failure.criterion);
+}
+
+describe("PTR-30 suitability reasons", () => {
+  it("names a suitable venue's verdict with no failures", () => {
+    expect(evaluateVenueSuitability(venue, filters, [])).toEqual({ suitable: true, failures: [] });
+  });
+
+  it("names the capacity shortfall in seats (AC2)", () => {
+    // The stricter of the two lower bounds (attendance 120, minimum capacity 150) is the number.
+    expect(failures({ ...venue, maxCapacity: 119 }, filters, [])).toEqual([
+      { criterion: "capacity", message: "Holds 119; 150 needed" },
+    ]);
     expect(
-      evaluateVenueSuitability(venue, { location: "West Wing", facilities: "Stage lighting" }, [])
-    ).toBe(false);
+      failures({ ...venue, maxCapacity: 119 }, { ...filters, capacity: undefined }, [])
+    ).toEqual([{ criterion: "capacity", message: "Holds 119; 120 needed" }]);
+    // Exactly enough is enough.
+    expect(criteria({ ...venue, maxCapacity: 150 }, filters, [])).toEqual([]);
+  });
+
+  it("names the missing layout, facility words and accessibility words (AC3)", () => {
+    expect(
+      failures(
+        {
+          ...venue,
+          supportedLayouts: ["banquet"] as const,
+          facilities: ["Projector"],
+          accessibilityFeatures: ["Step-free access"],
+        },
+        filters,
+        []
+      )
+    ).toEqual([
+      { criterion: "layout", message: "Does not offer Theatre" },
+      { criterion: "accessibility", message: "Missing accessibility: hearing, loop" },
+      { criterion: "facilities", message: "Missing facilities: pa, system" },
+    ]);
+  });
+
+  it("names every failing criterion, not only the first (AC5)", () => {
+    expect(
+      criteria(
+        { ...venue, maxCapacity: 10, location: "West Wing", supportedLayouts: ["other"] as const },
+        filters,
+        []
+      )
+    ).toEqual(["capacity", "location", "layout"]);
+  });
+
+  it("names an approved booking that overlaps the requested window (AC4)", () => {
+    const booking = {
+      id: "booking-1",
+      label: "Annual dinner",
+      startsAt: "2026-10-05T11:00:00",
+      endsAt: "2026-10-05T13:00:00",
+    };
+    expect(failures(venue, filters, [], [booking])).toEqual([
+      { criterion: "booking", message: "Booked for Annual dinner on 2026-10-05" },
+    ]);
+  });
+
+  it("does not fail a venue for a booking that ends when the window starts", () => {
+    const adjacent = {
+      id: "booking-2",
+      label: "Morning briefing",
+      startsAt: "2026-10-05T08:00:00",
+      endsAt: "2026-10-05T10:00:00",
+    };
+    expect(suits(venue, filters, [], [adjacent])).toBe(true);
+  });
+
+  it("tells a block from a booking and a closed day from both", () => {
+    const block = {
+      id: "block-1",
+      label: "Floor resurfacing",
+      startsAt: "2026-10-05T09:00:00",
+      endsAt: "2026-10-05T17:00:00",
+    };
+    expect(failures(venue, filters, [block])).toEqual([
+      { criterion: "availability", message: "Unavailable on 2026-10-05: Floor resurfacing" },
+    ]);
+    expect(
+      failures({ ...venue, operatingHours: { ...DEFAULT_OPERATING_HOURS, mon: null } }, filters, [])
+    ).toEqual([{ criterion: "availability", message: "Not open 10:00–12:00 on 2026-10-05" }]);
+    expect(
+      failures(
+        { ...venue, operatingHours: { ...DEFAULT_OPERATING_HOURS, mon: null } },
+        { date: "2026-10-05" },
+        []
+      )
+    ).toEqual([{ criterion: "availability", message: "Closed or unavailable on 2026-10-05" }]);
+  });
+
+  it("names a window that crosses midnight rather than failing silently", () => {
+    expect(
+      failures(
+        venue,
+        { date: "2026-10-05", endDate: "2026-10-06", startTime: "22:00", endTime: "02:00" },
+        []
+      )
+    ).toEqual([{ criterion: "availability", message: "The requested window crosses midnight" }]);
   });
 });
