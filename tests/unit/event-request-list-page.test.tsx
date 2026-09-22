@@ -9,7 +9,7 @@ import {
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
 } from "#/features/event-requests/components/request-list-page";
-import type { EventRequestSummary } from "#/features/event-requests/server-fns";
+import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 
 const { deleteEventRequestDraft, invalidate } = vi.hoisted(() => ({
   deleteEventRequestDraft: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
@@ -41,7 +41,7 @@ vi.mock("@tanstack/react-router", () => ({
   }),
 }));
 
-const base: EventRequestSummary = {
+const base: EventRequestDetail = {
   id: 1,
   organiserId: "usr_1",
   status: "draft",
@@ -49,6 +49,7 @@ const base: EventRequestSummary = {
   assignedCoordinatorId: null,
   assignedAt: null,
   coordinator: null,
+  clarifications: [],
   eventName: "",
   purpose: "",
   proposedDates: [],
@@ -68,14 +69,14 @@ const base: EventRequestSummary = {
   updatedAt: new Date("2026-09-01T00:00:00Z"),
 };
 
-const draft: EventRequestSummary = {
+const draft: EventRequestDetail = {
   ...base,
   id: 41,
   eventName: "Community workshop",
   proposedDates: [{ start: "2030-11-18T09:30", end: "2030-11-18T12:45" }],
 };
 
-const submitted: EventRequestSummary = {
+const submitted: EventRequestDetail = {
   ...base,
   id: 42,
   status: "submitted",

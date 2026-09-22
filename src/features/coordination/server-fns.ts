@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { parseAssignmentInput } from "#/features/coordination/schema";
-import { parseEventRequestId } from "#/features/event-requests/schema";
+import { parseClarificationBody, parseEventRequestId } from "#/features/event-requests/schema";
 import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
 import { logger } from "#/lib/logger";
 
@@ -77,4 +77,23 @@ export const takeUpEventRequestForReview = createServerFn({ method: "POST" })
     });
 
     return request;
+  });
+
+/**
+ * PTR-18: the assigned Coordinator raises a clarification request for an event under review.
+ */
+export const raiseClarificationRequest = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseClarificationBody)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRaiseClarificationRequest }] = await loadServer();
+    const clarification = await handleRaiseClarificationRequest(data, context.user, db);
+
+    log.info("Clarification request raised", {
+      requestId: data.id,
+      actorId: context.user.id,
+      clarificationId: clarification.id,
+    });
+
+    return clarification;
   });

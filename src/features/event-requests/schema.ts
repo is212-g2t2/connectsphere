@@ -365,11 +365,37 @@ export const ALREADY_SUBMITTED_MESSAGE = "This request has already been submitte
  * — so it is restated here rather than read off the Postgres enum in `#/db/schema`;
  * `tests/unit/db-schema.test.ts` holds the two lists to the same values.
  */
-export const EVENT_REQUEST_STATUSES = ["draft", "submitted", "under_review"] as const;
+export const EVENT_REQUEST_STATUSES = [
+  "draft",
+  "submitted",
+  "under_review",
+  "awaiting_organiser",
+] as const;
 export type EventRequestStatus = (typeof EVENT_REQUEST_STATUSES)[number];
 
 export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   draft: "Draft",
   submitted: "Submitted",
   under_review: "Under review",
+  awaiting_organiser: "Awaiting organiser",
 };
+
+// ── Clarification requests (PTR-18) ─────────────────────────────────────────
+
+export const CLARIFICATION_BODY_MAX = 2000;
+export const CLARIFICATION_BODY_MESSAGE = `Clarification text must be ${CLARIFICATION_BODY_MAX} characters or fewer`;
+export const CLARIFICATION_BODY_REQUIRED = "Enter what you need the Organiser to clarify";
+
+const ClarificationBodyInput = EventRequestIdInput.extend({
+  body: z
+    .string()
+    .trim()
+    .min(1, CLARIFICATION_BODY_REQUIRED)
+    .max(CLARIFICATION_BODY_MAX, CLARIFICATION_BODY_MESSAGE),
+});
+
+export function parseClarificationBody(data: unknown) {
+  const parsed = ClarificationBodyInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}

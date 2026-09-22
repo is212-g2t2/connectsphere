@@ -29,10 +29,11 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
  * either, so the pill differs in colour as well as in text. The variants are the design
  * system's status pills (docs/DESIGN.md#status-pills).
  */
-const STATUS_VARIANT: Record<EventRequestStatus, "outline" | "progress"> = {
+const STATUS_VARIANT: Record<EventRequestStatus, "outline" | "progress" | "stopped"> = {
   draft: "outline",
   submitted: "progress",
   under_review: "progress",
+  awaiting_organiser: "stopped",
 };
 
 export const UNTITLED_REQUEST = "Untitled request";

@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useForm } from "@tanstack/react-form";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button";
@@ -12,11 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
+import { Textarea } from "#/components/ui/textarea";
 import { unwrapRefusal } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { CoordinatorSelection } from "#/features/coordination/schema";
 import {
   assignEventRequest,
+  raiseClarificationRequest,
   takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
@@ -65,6 +68,24 @@ export function CoordinationRequestPage({
     await navigate({ to: "/coordination" });
   }, "Could not take up this request for review. Try again.");
 
+  const router = useRouter();
+  const [clarificationText, setClarificationText] = useState("");
+
+  const [clarification, submitClarification, submittingClarification] = useMutation(async () => {
+    await unwrapRefusal(
+      raiseClarificationRequest({
+        data: {
+          id: request.id,
+          body: clarificationText,
+        },
+      }),
+      "Could not send clarification request. Try again."
+    );
+    toast.success("Clarification request sent.");
+    setClarificationText("");
+    await router.invalidate();
+  }, "Could not send clarification request. Try again.");
+
   const form = useForm({
     defaultValues: { coordinatorId: "" },
     validators: { onSubmit: CoordinatorSelection },
@@ -79,6 +100,10 @@ export function CoordinationRequestPage({
 
   const canTakeUpForReview =
     request.status === "submitted" && request.assignedCoordinatorId === user.id;
+
+  const canRequestClarification =
+    (request.status === "under_review" || request.status === "awaiting_organiser") &&
+    request.assignedCoordinatorId === user.id;
 
   return (
     <EventRequestDetailPage
@@ -106,6 +131,58 @@ export function CoordinationRequestPage({
               {review.status === "error" && (
                 <p role="alert" className="mt-4 body-sm text-destructive">
                   {review.error}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {canRequestClarification && (
+        <section className="mt-8" aria-labelledby="clarification-heading">
+          <Card>
+            <CardContent>
+              <h2 id="clarification-heading" className="display-h3">
+                Request clarification
+              </h2>
+              <p className="mt-2 body-sm text-muted-foreground">
+                Ask the Organiser to clarify vague or incomplete requirements before committing
+                resources.
+              </p>
+              <form
+                noValidate
+                className="mt-5 space-y-4"
+                onSubmit={event => {
+                  event.preventDefault();
+                  if (submittingClarification || !clarificationText.trim()) return;
+                  void submitClarification();
+                }}
+              >
+                <div>
+                  <label htmlFor="clarification-body" className="eyebrow text-muted-foreground">
+                    What needs clarification
+                  </label>
+                  <Textarea
+                    id="clarification-body"
+                    className="mt-2"
+                    rows={4}
+                    placeholder="Describe what needs clarification (e.g. required room layout, specific equipment models)..."
+                    value={clarificationText}
+                    onChange={e => setClarificationText(e.target.value)}
+                    disabled={submittingClarification}
+                    required
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  disabled={submittingClarification || !clarificationText.trim()}
+                >
+                  {submittingClarification ? "Sending…" : "Send clarification request"}
+                </Button>
+              </form>
+              {clarification.status === "error" && (
+                <p role="alert" className="mt-4 body-sm text-destructive">
+                  {clarification.error}
                 </p>
               )}
             </CardContent>

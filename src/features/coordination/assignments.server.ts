@@ -1,12 +1,19 @@
+import { createElement } from "react";
 import { and, asc, desc, eq, getTableColumns, ne, or, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
-import { eventAssignments, eventRequests, user } from "#/db/schema";
+import { clarificationRequests, eventAssignments, eventRequests, user } from "#/db/schema";
+import { env } from "#/env";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { parseAssignmentInput } from "#/features/coordination/schema";
-import { parseEventRequestId } from "#/features/event-requests/schema";
+import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
+import { parseClarificationBody, parseEventRequestId } from "#/features/event-requests/schema";
+import { logger } from "#/lib/logger";
+import { sendEmail } from "#/lib/mailer.server";
+
+const log = logger.getChild("coordination");
 
 /**
  * Server-only on purpose, and named for it. `#/db/schema` is a value import here: the table
@@ -76,7 +83,17 @@ export async function handleGetCoordinationRequest(
     throw new AuthorizationError(
       "You no longer have coordination access to this request, or it is unavailable."
     );
-  return request;
+
+  const clarifications = await database
+    .select()
+    .from(clarificationRequests)
+    .where(eq(clarificationRequests.eventRequestId, id))
+    .orderBy(asc(clarificationRequests.createdAt));
+
+  return {
+    ...request,
+    clarifications,
+  };
 }
 
 /** The row lock serialises pickups and handovers; all effects either commit together or roll back. */
@@ -185,4 +202,89 @@ export async function handleTakeUpForReview(data: unknown, actor: SessionUser, d
   throw new ConflictError(
     "This request changed while you were taking it up. Refresh and try again."
   );
+}
+
+/**
+ * PTR-18: the assigned Coordinator raises a clarification request for an event under review.
+ * Updates status to awaiting_organiser and notifies the organiser via email (§6).
+ * Multiple clarification requests are accepted alongside existing ones (AC5 / Option A).
+ */
+export async function handleRaiseClarificationRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseClarificationBody(data);
+  const { clarification, organiserEmail, eventName } = await database.transaction(async tx => {
+    const rows = await tx
+      .select({
+        id: eventRequests.id,
+        eventName: eventRequests.eventName,
+        status: eventRequests.status,
+        assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+        organiserId: eventRequests.organiserId,
+      })
+      .from(eventRequests)
+      .where(eq(eventRequests.id, input.id))
+      .for("update");
+    const request = rows.at(0);
+    if (!request || request.status === "draft" || request.assignedCoordinatorId !== actor.id) {
+      throw new AuthorizationError(
+        "Only the assigned Coordinator can request clarification for this event."
+      );
+    }
+    if (request.status !== "under_review" && request.status !== "awaiting_organiser") {
+      throw new ConflictError(
+        "Clarification can only be requested for events that are under review."
+      );
+    }
+
+    const [inserted] = await tx
+      .insert(clarificationRequests)
+      .values({
+        eventRequestId: request.id,
+        coordinatorId: actor.id,
+        body: input.body,
+      })
+      .returning();
+
+    await tx
+      .update(eventRequests)
+      .set({ status: "awaiting_organiser" })
+      .where(eq(eventRequests.id, request.id));
+
+    const [organiser] = await tx
+      .select({ email: user.email })
+      .from(user)
+      .where(eq(user.id, request.organiserId));
+
+    return {
+      clarification: inserted,
+      organiserEmail: organiser.email,
+      eventName: request.eventName,
+    };
+  });
+
+  const displayName = eventName.trim() || "Untitled request";
+
+  try {
+    await sendEmail(
+      organiserEmail,
+      `Clarification requested: ${displayName}`,
+      createElement(ClarificationRequestEmail, {
+        eventName: displayName,
+        body: input.body,
+        eventRequestUrl: `${env.BETTER_AUTH_URL}/event-requests/${clarification.eventRequestId}`,
+      })
+    );
+  } catch (error) {
+    // Email failure does not roll back the recorded clarification
+    log.warn("Clarification email failed", {
+      requestId: input.id,
+      clarificationId: clarification.id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
+
+  return clarification;
 }

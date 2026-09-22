@@ -13,7 +13,7 @@ import {
   formatLocalDateTime,
   formatProposedWindow,
 } from "#/features/event-requests/format";
-import type { EventRequestSummary } from "#/features/event-requests/server-fns";
+import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 const NONE = "None recorded";
@@ -31,7 +31,7 @@ export function EventRequestDetailPage({
   back,
   children,
 }: {
-  request: EventRequestSummary;
+  request: EventRequestDetail;
   back?: { to: "/event-requests" | "/coordination"; label: string };
   children?: React.ReactNode;
 }) {
@@ -55,13 +55,49 @@ export function EventRequestDetailPage({
               <time dateTime={request.submittedAt?.toISOString()}>
                 {formatInstant(request.submittedAt)}
               </time>
-              . It is with ConnectSphere for review.
+              .{" "}
+              {request.status === "awaiting_organiser"
+                ? "Waiting on the Organiser."
+                : "It is with ConnectSphere for review."}
             </>
           )
         }
       />
 
       {children}
+
+      {request.clarifications.length > 0 && (
+        <section className="mt-8" aria-labelledby="clarifications-heading">
+          <Card>
+            <CardContent>
+              <h2 id="clarifications-heading" className="display-h3">
+                Clarification requests
+              </h2>
+              <p className="mt-2 body-sm text-muted-foreground">
+                Questions or additional details requested by the Event Coordinator.
+              </p>
+              <ul className="mt-4 divide-y divide-border">
+                {request.clarifications.map((item, index) => (
+                  <li key={item.id} className="py-3 first:pt-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <span className="eyebrow text-muted-foreground">Request #{index + 1}</span>
+                      <time
+                        dateTime={item.createdAt.toISOString()}
+                        className="body-sm text-muted-foreground"
+                      >
+                        {formatInstant(item.createdAt)}
+                      </time>
+                    </div>
+                    <p className="mt-2 body-md font-medium whitespace-pre-line text-foreground">
+                      {item.body}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       <Card className="mt-8">
         <CardContent>
