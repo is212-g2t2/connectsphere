@@ -166,6 +166,80 @@ export const VenueInput = z.object({
 
 export type VenueValues = z.infer<typeof VenueInput>;
 
+const FormTagString = z.string().superRefine((value, ctx) => {
+  const tags = [
+    ...new Set(
+      value
+        .split(",")
+        .map(t => t.trim())
+        .filter(Boolean)
+    ),
+  ];
+  if (tags.length > TAGS_MAX_COUNT) {
+    ctx.addIssue({ code: "custom", message: TAGS_COUNT_MESSAGE });
+  }
+  for (const tag of tags) {
+    if (tag.length > TAG_MAX_LENGTH) {
+      ctx.addIssue({ code: "custom", message: TAG_MESSAGE });
+      break;
+    }
+  }
+});
+
+export const DayFormShape = z.object({
+  open: z.boolean(),
+  opens: z.string(),
+  closes: z.string(),
+});
+export type DayFormValues = z.infer<typeof DayFormShape>;
+
+export const VenueFormShape = z.object({
+  name: z.string(),
+  location: z.string(),
+  maxCapacity: z.string(),
+  facilities: FormTagString,
+  accessibilityFeatures: FormTagString,
+  supportedLayouts: z.array(z.enum(VENUE_LAYOUTS, { error: LAYOUT_MESSAGE })),
+  operatingHours: z.record(z.enum(WEEKDAYS), DayFormShape),
+});
+export type VenueFormValues = z.infer<typeof VenueFormShape>;
+
+export const VenueFormInput = VenueFormShape.transform((values): z.input<typeof VenueInput> => {
+  const operatingHours: OperatingHours = {
+    mon: values.operatingHours.mon.open
+      ? { opens: values.operatingHours.mon.opens, closes: values.operatingHours.mon.closes }
+      : null,
+    tue: values.operatingHours.tue.open
+      ? { opens: values.operatingHours.tue.opens, closes: values.operatingHours.tue.closes }
+      : null,
+    wed: values.operatingHours.wed.open
+      ? { opens: values.operatingHours.wed.opens, closes: values.operatingHours.wed.closes }
+      : null,
+    thu: values.operatingHours.thu.open
+      ? { opens: values.operatingHours.thu.opens, closes: values.operatingHours.thu.closes }
+      : null,
+    fri: values.operatingHours.fri.open
+      ? { opens: values.operatingHours.fri.opens, closes: values.operatingHours.fri.closes }
+      : null,
+    sat: values.operatingHours.sat.open
+      ? { opens: values.operatingHours.sat.opens, closes: values.operatingHours.sat.closes }
+      : null,
+    sun: values.operatingHours.sun.open
+      ? { opens: values.operatingHours.sun.opens, closes: values.operatingHours.sun.closes }
+      : null,
+  };
+
+  return {
+    name: values.name,
+    location: values.location,
+    maxCapacity: Number(values.maxCapacity),
+    facilities: values.facilities.split(","),
+    accessibilityFeatures: values.accessibilityFeatures.split(","),
+    supportedLayouts: values.supportedLayouts,
+    operatingHours,
+  };
+}).pipe(VenueInput);
+
 /**
  * Every way this can fail carries the same message — on the field *and* on the object, since a
  * caller that posts `"7"` rather than `{ id: 7 }` trips the object check and would otherwise
@@ -305,6 +379,37 @@ export const VenueSearchSchema = z
 
 export type VenueSearch = z.infer<typeof VenueSearchSchema>;
 
+export const VenueSearchFormShape = z.object({
+  eventId: z.string(),
+  date: z.string(),
+  endDate: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+  expectedAttendance: z.string(),
+  capacity: z.string(),
+  location: z.string(),
+  accessibility: z.string(),
+  layout: z.string(),
+  facilities: z.string(),
+});
+export type VenueSearchFormValues = z.infer<typeof VenueSearchFormShape>;
+
+export const VenueSearchFormInput = VenueSearchFormShape.transform(
+  (values): z.input<typeof VenueSearchSchema> => ({
+    eventId: values.eventId,
+    date: values.date,
+    endDate: values.endDate,
+    startTime: values.startTime,
+    endTime: values.endTime,
+    expectedAttendance: values.expectedAttendance,
+    capacity: values.capacity,
+    location: values.location,
+    accessibility: values.accessibility,
+    layout: values.layout,
+    facilities: values.facilities,
+  })
+).pipe(VenueSearchSchema);
+
 /**
  * Whether a start/end pair names a window running past midnight. `VenueSearchSchema` still accepts
  * `22:00`→`02:00` when a later `endDate` makes the range order valid; suitability refuses it,
@@ -357,6 +462,21 @@ export const AvailabilitySelectionSchema = AvailabilityFields.refine(
 });
 
 export type AvailabilitySelection = z.infer<typeof AvailabilitySelectionSchema>;
+
+export const AvailabilitySelectionFormShape = z.object({
+  venueId: z.string(),
+  startDate: z.string(),
+  endDate: z.string(),
+});
+export type AvailabilitySelectionFormValues = z.infer<typeof AvailabilitySelectionFormShape>;
+
+export const AvailabilitySelectionFormInput = AvailabilitySelectionFormShape.transform(
+  (values): z.input<typeof AvailabilitySelectionSchema> => ({
+    venueId: values.venueId,
+    startDate: values.startDate,
+    endDate: values.endDate,
+  })
+).pipe(AvailabilitySelectionSchema);
 
 /**
  * The same fields as search parameters, each optional: the page opens before a venue is chosen,

@@ -18,13 +18,10 @@ import {
 } from "#/components/ui/table";
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
-import { LAYOUT_LABELS, VenueSearchSchema, crossesMidnight } from "#/features/venues/schema";
-import type { VenueSearch } from "#/features/venues/schema";
+import { LAYOUT_LABELS, VenueSearchFormInput, crossesMidnight } from "#/features/venues/schema";
+import type { VenueSearch, VenueSearchFormValues } from "#/features/venues/schema";
 import type { VenueSearchResult } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
-
-/** What the inputs hold: every value a string, converted to `VenueSearch` only on submit. */
-type VenueSearchFormValues = Record<keyof VenueSearch, string>;
 
 /**
  * `filters` is `VenueSearch`, whose values arrive already parsed; the input shape is the same
@@ -45,29 +42,6 @@ function toSearchFormValues(filters: VenueSearch): VenueSearchFormValues {
     layout: filters.layout ?? "",
     facilities: filters.facilities ?? "",
   };
-}
-
-interface VenueSearchFormErrors {
-  fields: Record<string, { message: string }[]>;
-}
-
-/**
- * Validation lives here, not in the route: `VenueSearchSchema` is the same gate the server uses,
- * so every issue it names marks its own field, exactly as `venue-form.tsx` maps `VenueInput`.
- */
-function validateSearch(value: VenueSearchFormValues): VenueSearchFormErrors | undefined {
-  const parsed = VenueSearchSchema.safeParse(value);
-  if (parsed.success) {
-    return undefined;
-  }
-
-  const fields: VenueSearchFormErrors["fields"] = {};
-  for (const issue of parsed.error.issues) {
-    const path = issue.path.filter(segment => typeof segment === "string").join(".");
-    (fields[path] ??= []).push({ message: issue.message });
-  }
-
-  return { fields };
 }
 
 /** Only the slice of a `form.Field` a text row reads, as `venue-form.tsx` describes it. */
@@ -120,10 +94,10 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
 
   const form = useForm({
     defaultValues: toSearchFormValues(filters),
-    validators: { onSubmit: ({ value }) => validateSearch(value) },
+    validators: { onSubmit: VenueSearchFormInput },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await navigate({ to: "/venues", search: VenueSearchSchema.parse(value) });
+        await navigate({ to: "/venues", search: VenueSearchFormInput.parse(value) });
       } catch (searchError) {
         formApi.setErrorMap({
           onSubmit: {

@@ -403,3 +403,5 @@ export function parseClarificationBody(data: unknown) {
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;
 }
+
+export const ClarificationFormSchema = ClarificationBodyInput.pick({ body: true });

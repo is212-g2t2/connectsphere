@@ -95,7 +95,10 @@ describe("VenueCalendarPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Show availability" }));
 
-    expect(screen.getByRole("alert").textContent).toBe("Choose a venue");
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts[0].textContent).toBe("Choose a venue");
+    expect(screen.getByText("Choose a start date")).toBeTruthy();
+    expect(screen.getByText("Choose an end date")).toBeTruthy();
     expect(navigate).not.toHaveBeenCalled();
   });
 
