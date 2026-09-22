@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, user as users } from "#/db/schema";
+import { clarificationRequests, eventRequests, user as users } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
@@ -248,14 +248,28 @@ export async function handleGetEventRequest(
   data: unknown,
   organiser: SessionUser,
   database: Database
-): Promise<EventRequestWithCoordinator | null> {
+): Promise<
+  | (EventRequestWithCoordinator & {
+      clarifications: (typeof clarificationRequests.$inferSelect)[];
+    })
+  | null
+> {
   const { id } = parseEventRequestId(data);
   const rows = await database
     .select(withCoordinator)
     .from(eventRequests)
     .leftJoin(users, eq(users.id, eventRequests.assignedCoordinatorId))
     .where(ownRequest(id, organiser.id));
-  return rows.at(0) ?? null;
+  const request = rows.at(0);
+  if (!request) return null;
+
+  const clarifications = await database
+    .select()
+    .from(clarificationRequests)
+    .where(eq(clarificationRequests.eventRequestId, id))
+    .orderBy(asc(clarificationRequests.createdAt));
+
+  return { ...request, clarifications };
 }
 
 /**

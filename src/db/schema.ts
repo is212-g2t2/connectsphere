@@ -29,6 +29,7 @@ export const eventRequestStatus = pgEnum("event_request_status", [
   "draft",
   "submitted",
   "under_review",
+  "awaiting_organiser",
 ]);
 
 export const eventRequests = pgTable(
@@ -145,6 +146,26 @@ export const eventAssignments = pgTable("event_assignments", {
   actorId: text("actor_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * PTR-19: append-only clarification requests raised by the assigned Coordinator. User ids are
+ * snapshots so account deletion keeps attribution. A clarification cannot be deleted or edited
+ * after it is recorded — the Coordinator must raise a new one if they need to add to it.
+ */
+export const clarificationRequests = pgTable(
+  "clarification_requests",
+  {
+    id: serial("id").primaryKey(),
+    eventRequestId: integer("event_request_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    /** Snapshot of the Coordinator who raised the clarification. */
+    coordinatorId: text("coordinator_id").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [index("clarification_requests_event_request_id_idx").on(table.eventRequestId)]
+);
 
 export const venues = pgTable(
   "venues",

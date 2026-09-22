@@ -28,6 +28,10 @@ vi.mock("@tanstack/react-router", () => ({
     params?: { requestId: string };
   }) => <a href={params ? to.replace("$requestId", params.requestId) : to}>{children}</a>,
   useNavigate: () => navigate,
+  useRouter: () => ({
+    navigate: vi.fn<() => void>(),
+    invalidate: vi.fn<() => Promise<void>>(),
+  }),
 }));
 vi.mock("sonner", () => ({ toast: { success } }));
 
@@ -62,6 +66,7 @@ const request: CoordinationRequest = {
   updatedAt: new Date(),
   organiser: { name: "Organiser", email: "org@example.com" },
   coordinator: null,
+  clarifications: [],
 };
 
 beforeEach(() => {

@@ -10,6 +10,7 @@ import {
   handleGetCoordinationRequest,
   handleListAssignedEventRequests,
   handleListCoordinators,
+  handleRaiseClarificationRequest,
   handleTakeUpForReview,
 } from "#/features/coordination/assignments.server";
 import {
@@ -689,7 +690,11 @@ describe("Listing and reading an organiser's requests (PTR-14)", () => {
 
     const read = await handleGetEventRequest({ id: saved.id }, organiser, database as never);
 
-    expect(read).toEqual({ ...saved, coordinator: null });
+    expect(read).toEqual({
+      ...saved,
+      coordinator: null,
+      clarifications: [],
+    });
   });
 
   it("answers null for another organiser's request and for an id that does not exist", async () => {
@@ -1166,6 +1171,132 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(rejected).toHaveLength(1);
       expect(rejected[0]).toMatchObject({ reason: { status: 409 } });
       expect(await statusOf(request.id)).toBe("under_review");
+    });
+  });
+
+  describe("handleRaiseClarificationRequest (PTR-19)", () => {
+    const actor = extraCoordinators[0];
+    const other = extraCoordinators[1];
+
+    async function submittedRequest(coordinatorId: string | null) {
+      const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+      const [row] = await database
+        .update(schema.eventRequests)
+        .set({
+          status: "submitted",
+          submittedAt: new Date(),
+          assignedCoordinatorId: coordinatorId,
+          assignedAt: coordinatorId ? new Date() : null,
+        })
+        .where(eq(schema.eventRequests.id, saved.id))
+        .returning();
+      return row;
+    }
+
+    async function statusOf(id: number) {
+      const rows = await database
+        .select({ status: schema.eventRequests.status })
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, id));
+      return rows.at(0)?.status;
+    }
+
+    it("refuses a different Coordinator (403)", async () => {
+      const request = await submittedRequest(actor.id);
+      await handleTakeUpForReview({ id: request.id }, actor, database as never);
+      await expect(
+        handleRaiseClarificationRequest(
+          { id: request.id, body: "Need more info" },
+          other,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 403 });
+      expect(await statusOf(request.id)).toBe("under_review");
+    });
+
+    it("refuses an unassigned request (403)", async () => {
+      const request = await submittedRequest(null);
+      await expect(
+        handleRaiseClarificationRequest(
+          { id: request.id, body: "Need more info" },
+          actor,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("refuses a submitted request that is not yet under review (409)", async () => {
+      const request = await submittedRequest(actor.id);
+      await expect(
+        handleRaiseClarificationRequest(
+          { id: request.id, body: "Need more info" },
+          actor,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409 });
+      expect(await statusOf(request.id)).toBe("submitted");
+    });
+
+    it("records a clarification request and transitions status to awaiting_organiser (AC1, AC2)", async () => {
+      const request = await submittedRequest(actor.id);
+      await handleTakeUpForReview({ id: request.id }, actor, database as never);
+
+      const clarification = await handleRaiseClarificationRequest(
+        { id: request.id, body: "Please specify dietary requirements." },
+        actor,
+        database as never
+      );
+
+      expect(clarification).toMatchObject({
+        eventRequestId: request.id,
+        coordinatorId: actor.id,
+        body: "Please specify dietary requirements.",
+      });
+      expect(await statusOf(request.id)).toBe("awaiting_organiser");
+
+      // Verify either party can view the clarification (AC4)
+      const coordView = await handleGetCoordinationRequest(
+        { id: request.id },
+        actor,
+        database as never
+      );
+      expect(coordView.status).toBe("awaiting_organiser");
+      expect(coordView.clarifications).toHaveLength(1);
+      expect(coordView.clarifications[0].body).toBe("Please specify dietary requirements.");
+
+      const orgView = await handleGetEventRequest({ id: request.id }, organiser, database as never);
+      expect(orgView?.status).toBe("awaiting_organiser");
+      expect(orgView?.clarifications).toHaveLength(1);
+      expect(orgView?.clarifications[0].body).toBe("Please specify dietary requirements.");
+    });
+
+    it("accepts a second clarification request alongside the first (AC5 / Option A)", async () => {
+      const request = await submittedRequest(actor.id);
+      await handleTakeUpForReview({ id: request.id }, actor, database as never);
+
+      await handleRaiseClarificationRequest(
+        { id: request.id, body: "First question" },
+        actor,
+        database as never
+      );
+      await handleRaiseClarificationRequest(
+        { id: request.id, body: "Second question" },
+        actor,
+        database as never
+      );
+
+      expect(await statusOf(request.id)).toBe("awaiting_organiser");
+
+      const coordView = await handleGetCoordinationRequest(
+        { id: request.id },
+        actor,
+        database as never
+      );
+      expect(coordView.clarifications).toHaveLength(2);
+      expect(coordView.clarifications.map(c => c.body)).toEqual([
+        "First question",
+        "Second question",
+      ]);
     });
   });
 

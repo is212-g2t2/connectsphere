@@ -18,6 +18,12 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 const NONE = "None recorded";
 
+export interface ClarificationItem {
+  id: number;
+  body: string;
+  createdAt: Date | string;
+}
+
 /**
  * One request as currently recorded, read-only (PTR-14 criterion 4). Every field the form
  * captures is shown under the label the form gave it, so an organiser can check what
@@ -30,12 +36,15 @@ export function EventRequestDetailPage({
   request,
   back,
   children,
+  clarifications,
 }: {
-  request: EventRequestSummary;
+  request: EventRequestSummary & { clarifications?: ClarificationItem[] };
   back?: { to: "/event-requests" | "/coordination"; label: string };
   children?: React.ReactNode;
+  clarifications?: ClarificationItem[];
 }) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
+  const clarificationList = clarifications ?? request.clarifications ?? [];
 
   return (
     <Page width="page">
@@ -62,6 +71,39 @@ export function EventRequestDetailPage({
       />
 
       {children}
+
+      {clarificationList.length > 0 && (
+        <section className="mt-8" aria-labelledby="clarifications-heading">
+          <Card>
+            <CardContent>
+              <h2 id="clarifications-heading" className="display-h3">
+                Clarification requests
+              </h2>
+              <p className="mt-2 body-sm text-muted-foreground">
+                Questions or additional details requested by the Event Coordinator.
+              </p>
+              <ul className="mt-4 divide-y divide-border">
+                {clarificationList.map((item, index) => (
+                  <li key={item.id} className="py-3 first:pt-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <span className="eyebrow text-muted-foreground">Request #{index + 1}</span>
+                      <time
+                        dateTime={new Date(item.createdAt).toISOString()}
+                        className="body-sm text-muted-foreground"
+                      >
+                        {formatInstant(new Date(item.createdAt))}
+                      </time>
+                    </div>
+                    <p className="mt-2 body-md font-medium whitespace-pre-line text-foreground">
+                      {item.body}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       <Card className="mt-8">
         <CardContent>
