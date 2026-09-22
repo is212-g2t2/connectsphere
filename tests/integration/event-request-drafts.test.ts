@@ -26,6 +26,7 @@ import {
   pickLeastLoadedCoordinator,
 } from "#/features/event-requests/drafts.server";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import { handleSaveVenue } from "#/features/venues/records.server";
 import {
   ALREADY_SUBMITTED_MESSAGE,
   ATTENDANCE_MESSAGE,
@@ -1725,7 +1726,9 @@ describe("Status set and decision attribution (PTR-21)", () => {
   });
 
   beforeEach(async () => {
-    await database.delete(schema.eventRequests);
+    await database
+      .delete(schema.eventRequests)
+      .where(inArray(schema.eventRequests.organiserId, organiserIds));
   });
 
   const decided = {
@@ -1788,11 +1791,14 @@ describe("Status set and decision attribution (PTR-21)", () => {
 
   it("does not move the status when a venue arrangement changes (AC3)", async () => {
     const request = await submitted();
-    // The only arrangement writes that exist today: the venue record and its unavailability.
-    await database
-      .update(schema.venues)
-      .set({ maxCapacity: 999 })
+    // The only arrangement writes that exist today: the venue record, through its real save
+    // path so an application-level coupling would be caught, and its unavailability, which
+    // has no handler yet.
+    const [hall] = await database
+      .select()
+      .from(schema.venues)
       .where(eq(schema.venues.name, "Harbour Hall"));
+    await handleSaveVenue({ ...hall, maxCapacity: 999 }, database as never);
     await database
       .insert(schema.venueUnavailability)
       .values({
@@ -1809,5 +1815,6 @@ describe("Status set and decision attribution (PTR-21)", () => {
       .from(schema.eventRequests)
       .where(eq(schema.eventRequests.id, request.id));
     expect(row.status).toBe("submitted");
+    await handleSaveVenue(hall, database as never);
   });
 });

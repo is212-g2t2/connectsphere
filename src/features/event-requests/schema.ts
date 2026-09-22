@@ -360,10 +360,10 @@ export const SUBMITTED_EDIT_REFUSAL =
 export const ALREADY_SUBMITTED_MESSAGE = "This request has already been submitted.";
 
 /**
- * PTR-14 criterion 3: every status a request can hold, in the order the flow moves through
- * them, with what each is called on screen. Client-safe on purpose — the list page renders these
- * — so it is restated here rather than read off the Postgres enum in `#/db/schema`;
- * `tests/unit/db-schema.test.ts` holds the two lists to the same values.
+ * PTR-14 criterion 3: every status a request can hold, in the Postgres enum's order (the values
+ * were added over several stories, and `tests/unit/db-schema.test.ts` compares the two lists
+ * order-sensitively), with what each is called on screen. Client-safe on purpose — the list page
+ * renders these — so it is restated here rather than read off the enum in `#/db/schema`.
  */
 export const EVENT_REQUEST_STATUSES = [
   "draft",
@@ -394,16 +394,13 @@ export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
 };
 
 /**
- * The design system's status pills (docs/DESIGN.md#status-pills), one per status: work in
- * progress is amber, a settled good outcome is harbor, a stop is coral, the neutral ends of the
- * life are outline (not started) and secondary (over). Pure data so any page can import it.
+ * One `Badge` variant per status. The three status pills docs/DESIGN.md#status-pills defines —
+ * `progress` (amber) for work in progress, `confirmed` (harbor) for a settled good outcome,
+ * `stopped` (coral) for a stop — plus `Badge`'s neutral `outline` for not started and `secondary`
+ * for over, which the design system does not name as status pills. Pure data so any page can
+ * import it.
  */
-export type EventRequestStatusVariant =
-  | "outline"
-  | "progress"
-  | "confirmed"
-  | "stopped"
-  | "secondary";
+type EventRequestStatusVariant = "outline" | "progress" | "confirmed" | "stopped" | "secondary";
 export const EVENT_REQUEST_STATUS_VARIANTS: Record<EventRequestStatus, EventRequestStatusVariant> =
   {
     draft: "outline",
