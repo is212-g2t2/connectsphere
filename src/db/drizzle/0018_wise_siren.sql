@@ -1,0 +1,1 @@
+ALTER TYPE "public"."venue_request_status" ADD VALUE 'approved';

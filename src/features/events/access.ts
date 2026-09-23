@@ -128,7 +128,8 @@ export interface EventProjection {
     accessibilityRequirements?: string | null;
     requiredFacilities?: string | null;
     registration?: { status: string; registeredAt: string } | null;
-    venueRequest?: { status: string } | null;
+    /** PTR-36: `conflict` is present only when the pending request overlaps an approved booking. */
+    venueRequest?: { status: string; conflict?: boolean } | null;
     equipment?: Array<{
       id: string;
       item: string;
@@ -147,7 +148,7 @@ export function projectEvent(
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
   equipment: Array<{ id: string; item: string; arrangementStatus: string; notes: string | null }>,
-  venueRequest: { status: string } | null
+  venueRequest: { status: string; conflict?: boolean } | null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 

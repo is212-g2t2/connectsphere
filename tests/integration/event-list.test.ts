@@ -434,6 +434,33 @@ describe("event list handler (PTR-8)", () => {
       expect(projection.event).not.toHaveProperty("equipment");
     });
 
+    it("flags a pending request that overlaps an approved booking, and only that one (PTR-36 AC4)", async () => {
+      await database.insert(schema.venueRequests).values({
+        id: "el-venue-approved",
+        eventId: fixtures.review.id,
+        venueId: fixtureVenueId,
+        requestedById: fixtureUsers.coordinator.id,
+        assignedStaffId: fixtureUsers.venueStaff.id,
+        startsAt: "2026-10-12 15:00:00",
+        endsAt: "2026-10-12 16:00:00",
+        status: "approved",
+      });
+
+      const [flagged] = await handleListEvents(
+        { eventId: fixtures.main.id },
+        session("venueStaff"),
+        database as never
+      );
+      expect(flagged.event.venueRequest).toEqual({ status: "pending", conflict: true });
+
+      const [clear] = await handleListEvents(
+        { eventId: fixtures.review.id },
+        session("venueStaff"),
+        database as never
+      );
+      expect(clear.event.venueRequest).toEqual({ status: "pending" });
+    });
+
     it("gives Technical Support every equipment line of the event, not only their own", async () => {
       const [projection] = await handleListEvents(
         { eventId: fixtures.main.id },

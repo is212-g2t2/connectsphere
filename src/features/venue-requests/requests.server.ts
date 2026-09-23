@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createElement } from "react";
 
 import type { db as Db } from "#/db";
@@ -6,16 +6,20 @@ import { eventRequests, user, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
-import { eventTiming } from "#/features/events/access";
+import { eventTiming, isVenueQueueRow } from "#/features/events/access";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import {
+  VENUE_REQUEST_CONFLICT_MESSAGE,
+  VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
+  venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
 import { normalizeDatabaseTimestamp } from "#/features/venues/availability";
+import { loadVenueBookings } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 import { sendEmail } from "#/lib/mailer.server";
@@ -186,8 +190,8 @@ export async function handleGetVenueRequestContext(
  * assigned to the caller — the gate PTR-29's venue search already applies, since the search is
  * the only way the panel is reached.
  *
- * No overlap check runs here: only an approved booking holds a venue, and pending requests do not
- * block one another; double-book prevention belongs to PTR-33/36.
+ * No overlap check runs here: only an approved booking holds a venue, and pending requests stack
+ * by design; the approval path refuses the overlap (PTR-36).
  */
 export async function handleCreateVenueRequest(
   data: unknown,
@@ -268,7 +272,8 @@ export async function handleCreateVenueRequest(
  * PTR-31 criterion 5: the Coordinator takes back a pending request *they raised*, which leaves the
  * queue. The row is kept as `withdrawn` rather than deleted, so the record of what was asked
  * survives, and the partial unique index frees the event and venue to be requested again. A
- * settled request is refused: PTR-33's decision is not undone by withdrawing the row beneath it.
+ * settled request is refused: the approval decision (PTR-36) is not undone by withdrawing the row
+ * beneath it.
  *
  * The authorization reads the request's own `requestedById`, not the event's current assignee: a
  * reassigned event must not hand the new Coordinator the power to withdraw someone else's request.
@@ -303,4 +308,84 @@ export async function handleWithdrawVenueRequest(
       .returning();
     return withdrawn;
   });
+}
+
+/**
+ * PTR-36: an approval settles a pending request *and* holds the venue for its exact period. The
+ * exclusion constraint (`venue_requests_no_overlap`) is the guarantee; the advisory lock makes
+ * two simultaneous approvals for one venue queue instead of deadlocking on the index, and the
+ * overlap pre-check under that lock is what produces the named refusal. A writer that does not
+ * come through this function still meets the constraint, whose 23P01 maps to the same conflict.
+ *
+ * The shared queue is every unassigned pending row (PTR-31); a row assigned to another staff
+ * member is not the caller's to settle. The decision records who settled it (`assignedStaffId`),
+ * which is also what keeps the event connected to that staff member afterwards.
+ */
+export async function handleApproveVenueRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const { id } = parseVenueRequestId(data);
+
+  try {
+    return await database.transaction(async tx => {
+      const rows = await tx
+        .select({
+          status: venueRequests.status,
+          assignedStaffId: venueRequests.assignedStaffId,
+          venueId: venueRequests.venueId,
+          startsAt: venueRequests.startsAt,
+          endsAt: venueRequests.endsAt,
+        })
+        .from(venueRequests)
+        .where(eq(venueRequests.id, id))
+        .limit(1)
+        // The row lock makes the reads below current: a second approval of the same request waits
+        // here and then sees the settled row — refused by the queue rule or as decided, never
+        // handed a self-conflict sentence about the request it just approved.
+        .for("update");
+      const row = rows.at(0);
+      if (!row) throw new NotFoundError("Not Found");
+      if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
+
+      // Serialise per venue before touching the exclusion index: two concurrent approvals can
+      // otherwise deadlock on it (Postgres documents the race) and the loser would be a fault.
+      await tx.execute(sql`select pg_advisory_xact_lock(${row.venueId})`);
+
+      if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
+
+      // Under the lock this pre-check cannot race another approval; the constraint below is the
+      // backstop for a writer that does not come through this function.
+      const conflicts = await loadVenueBookings(tx, [row.venueId], row.startsAt, row.endsAt);
+      const conflict = conflicts.at(0);
+      if (conflict) {
+        const venueRows = await tx
+          .select({ name: venues.name })
+          .from(venues)
+          .where(eq(venues.id, row.venueId))
+          .limit(1);
+        throw new ConflictError(
+          venueRequestConflictMessage({
+            venueName: venueRows.at(0)?.name ?? "This venue",
+            startsAt: conflict.startsAt,
+            endsAt: conflict.endsAt,
+          })
+        );
+      }
+
+      // The row lock and the status check above make this the only writer of this row.
+      const [approved] = await tx
+        .update(venueRequests)
+        .set({ status: "approved", assignedStaffId: actor.id })
+        .where(eq(venueRequests.id, id))
+        .returning();
+      return approved;
+    });
+  } catch (error) {
+    // Defence in depth for a writer outside this function: the locked pre-check cannot see a
+    // booking another connection commits between it and the update, and the constraint can.
+    if (!isConstraintViolation(error, "venue_requests_no_overlap")) throw error;
+    throw new ConflictError(VENUE_REQUEST_CONFLICT_MESSAGE);
+  }
 }

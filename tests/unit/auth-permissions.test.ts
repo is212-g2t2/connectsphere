@@ -23,6 +23,7 @@ const EXPECTED: Record<
     venueCreate: boolean;
     venueUpdate: boolean;
     venueRequest: boolean;
+    venueDecide: boolean;
   }
 > = {
   attendee: {
@@ -34,6 +35,7 @@ const EXPECTED: Record<
     venueCreate: false,
     venueUpdate: false,
     venueRequest: false,
+    venueDecide: false,
   },
   event_organiser: {
     upload: true,
@@ -44,6 +46,7 @@ const EXPECTED: Record<
     venueCreate: false,
     venueUpdate: false,
     venueRequest: false,
+    venueDecide: false,
   },
   event_coordinator: {
     upload: true,
@@ -54,6 +57,7 @@ const EXPECTED: Record<
     venueCreate: false,
     venueUpdate: false,
     venueRequest: true,
+    venueDecide: false,
   },
   venue_staff: {
     upload: true,
@@ -64,6 +68,7 @@ const EXPECTED: Record<
     venueCreate: true,
     venueUpdate: true,
     venueRequest: false,
+    venueDecide: true,
   },
   technical_support_staff: {
     upload: true,
@@ -74,10 +79,11 @@ const EXPECTED: Record<
     venueCreate: false,
     venueUpdate: false,
     venueRequest: false,
+    venueDecide: false,
   },
 };
 
-describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31)", () => {
+describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-36)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
     expect(can(role, { upload: ["create"] })).toBe(EXPECTED[role].upload);
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
@@ -87,6 +93,7 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31)", () => {
     expect(can(role, { venue: ["create"] })).toBe(EXPECTED[role].venueCreate);
     expect(can(role, { venue: ["update"] })).toBe(EXPECTED[role].venueUpdate);
     expect(can(role, { venue_request: ["request"] })).toBe(EXPECTED[role].venueRequest);
+    expect(can(role, { venue_request: ["decide"] })).toBe(EXPECTED[role].venueDecide);
   });
 
   describe("fails closed", () => {

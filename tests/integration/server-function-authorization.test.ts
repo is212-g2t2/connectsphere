@@ -39,6 +39,7 @@ import {
   VENUE_REQUEST_ID_MESSAGE,
 } from "#/features/venue-requests/schema";
 import {
+  approveVenueRequest,
   getVenueRequestContext,
   requestVenue,
   withdrawVenueRequest,
@@ -349,6 +350,10 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
+      expect(await refusalFrom(approveVenueRequest, { id: "req-1" })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
     });
 
     it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
@@ -372,6 +377,21 @@ describe("server-function authorization (PTR-69)", () => {
       ).toBeUndefined();
       expect((await call(requestVenue, venueRequestInput)).error).toBeUndefined();
       expect((await call(withdrawVenueRequest, { id: "req-1" })).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "event_coordinator", "technical_support_staff"])(
+      "refuses %s the approval verb (PTR-36)",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(approveVenueRequest, {})).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("lets a Venue Staff member through the approval chain (PTR-36)", async () => {
+      signIn("venue_staff");
+
+      expect((await call(approveVenueRequest, { id: "req-1" })).error).toBeUndefined();
     });
   });
 
@@ -725,6 +745,7 @@ describe("server-function authorization (PTR-69)", () => {
     it("surfaces each function's own schema message instead of reaching the handler", async () => {
       signIn("venue_staff");
       expect(await messageFrom(saveVenue, { name: "" })).toBe(NAME_REQUIRED_MESSAGE);
+      expect(await messageFrom(approveVenueRequest, { id: "  " })).toBe(VENUE_REQUEST_ID_MESSAGE);
 
       signIn("event_coordinator");
       expect(await messageFrom(getVenue, { id: "seven" }, "GET")).toBe(VENUE_ID_MESSAGE);

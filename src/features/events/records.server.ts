@@ -1,5 +1,6 @@
-import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import { equipmentRequests, eventRegistrations, eventRequests, venueRequests } from "#/db/schema";
@@ -178,6 +179,40 @@ export async function handleListEvents(
       ),
   ]);
 
+  // PTR-36 criterion 4: which pending requests overlap an approved booking for the same venue.
+  // A self-join rather than a per-request read, and deliberately not scoped to `venueRows`: the
+  // approved booking can belong to an event the caller cannot see. Only a boolean reaches the
+  // client, never the other event.
+  const pendingRows = venueRows.filter(row => row.status === "pending");
+  let conflictingRequestIds = new Set<string>();
+  if (pendingRows.length > 0) {
+    const approved = alias(venueRequests, "approved_booking");
+    const conflicts = await database
+      .select({ id: venueRequests.id })
+      .from(venueRequests)
+      .innerJoin(
+        approved,
+        and(
+          eq(approved.venueId, venueRequests.venueId),
+          eq(approved.status, "approved"),
+          lt(venueRequests.startsAt, approved.endsAt),
+          gt(venueRequests.endsAt, approved.startsAt)
+        )
+      )
+      .where(
+        and(
+          inArray(
+            venueRequests.id,
+            pendingRows.map(row => row.id)
+          ),
+          // The id list was captured in an earlier statement; a row approved since then would
+          // otherwise self-join (a period always overlaps itself) and flag as conflicting.
+          eq(venueRequests.status, "pending")
+        )
+      );
+    conflictingRequestIds = new Set(conflicts.map(row => row.id));
+  }
+
   return requestRows.flatMap(record => {
     const ownRegistration = registrationRows.find(row => row.eventId === record.id) ?? null;
 
@@ -232,7 +267,12 @@ export async function handleListEvents(
             }
           : null,
         equipment,
-        venueRequest ? { status: venueRequest.status } : null
+        venueRequest
+          ? {
+              status: venueRequest.status,
+              ...(conflictingRequestIds.has(venueRequest.id) ? { conflict: true } : {}),
+            }
+          : null
       ),
     ];
   });

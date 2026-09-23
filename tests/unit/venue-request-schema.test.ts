@@ -9,6 +9,7 @@ import {
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
+  venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
 
 const VALID = {
@@ -73,6 +74,28 @@ describe("venue request ids (PTR-31 criterion 5)", () => {
   it("refuses an empty or whitespace-only id", () => {
     expect(() => parseVenueRequestId({ id: "  " })).toThrow(VENUE_REQUEST_ID_MESSAGE);
     expect(() => parseVenueRequestId({})).toThrow(VENUE_REQUEST_ID_MESSAGE);
+  });
+});
+
+describe("venueRequestConflictMessage (PTR-36 criterion 2)", () => {
+  it("names the venue and the conflicting period, and never the other event", () => {
+    expect(
+      venueRequestConflictMessage({
+        venueName: "Harbour Hall",
+        startsAt: "2027-06-01T09:00:00",
+        endsAt: "2027-06-01T12:30:00",
+      })
+    ).toBe("Harbour Hall is already booked 1 Jun 2027, 09:00 – 12:30");
+  });
+
+  it("names the end date too when the period crosses midnight", () => {
+    expect(
+      venueRequestConflictMessage({
+        venueName: "Harbour Hall",
+        startsAt: "2027-06-01T22:00:00",
+        endsAt: "2027-06-02T01:00:00",
+      })
+    ).toBe("Harbour Hall is already booked 1 Jun 2027, 22:00 – 2 Jun 2027, 01:00");
   });
 });
 

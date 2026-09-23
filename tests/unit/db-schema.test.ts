@@ -59,8 +59,8 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(venueRequests).createdAt.name).toBe("created_at");
   });
 
-  it("keeps the venue request status list identical to the Postgres enum (PTR-31)", () => {
-    expect([...schema.venueRequestStatus.enumValues]).toEqual(["pending", "withdrawn"]);
+  it("keeps the venue request status list identical to the Postgres enum (PTR-31, PTR-36)", () => {
+    expect([...schema.venueRequestStatus.enumValues]).toEqual(["pending", "withdrawn", "approved"]);
   });
 
   it("defines the event request assignment columns (PTR-15)", () => {
