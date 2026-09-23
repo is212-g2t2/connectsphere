@@ -33,6 +33,15 @@ import {
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
 import { listEvents } from "#/features/events/server-fns";
+import {
+  VENUE_REQUEST_DATE_MESSAGE,
+  VENUE_REQUEST_ID_MESSAGE,
+} from "#/features/venue-requests/schema";
+import {
+  getVenueRequestContext,
+  requestVenue,
+  withdrawVenueRequest,
+} from "#/features/venue-requests/server-fns";
 import { handleSaveVenue } from "#/features/venues/records.server";
 import {
   AVAILABILITY_ORDER_MESSAGE,
@@ -305,6 +314,57 @@ describe("server-function authorization (PTR-69)", () => {
         ).toBeUndefined();
       }
     );
+  });
+
+  describe("venue requests (PTR-31)", () => {
+    /** A payload the request validator accepts, so the allow path runs the whole chain. */
+    const venueRequestInput = {
+      eventId: 1,
+      venueId: 1,
+      date: "2027-04-20",
+      startTime: "09:00",
+      endTime: "12:30",
+    };
+
+    it("answers 401 to every endpoint without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(getVenueRequestContext, { eventId: 1, venueId: 1 }, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(requestVenue, venueRequestInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(withdrawVenueRequest, { id: "req-1" })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s even before payload validation",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(getVenueRequestContext, {}, "GET")).toMatchObject({
+          status: 403,
+        });
+        expect(await refusalFrom(requestVenue, {})).toMatchObject({ status: 403 });
+        expect(await refusalFrom(withdrawVenueRequest, {})).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("lets only a Coordinator through to the rest of the chain", async () => {
+      signIn("event_coordinator");
+
+      expect(
+        (await call(getVenueRequestContext, { eventId: 1, venueId: 1 }, "GET")).error
+      ).toBeUndefined();
+      expect((await call(requestVenue, venueRequestInput)).error).toBeUndefined();
+      expect((await call(withdrawVenueRequest, { id: "req-1" })).error).toBeUndefined();
+    });
   });
 
   describe("events", () => {
@@ -676,6 +736,16 @@ describe("server-function authorization (PTR-69)", () => {
       expect(await messageFrom(getCoordinationRequest, { id: 0 }, "GET")).toBe(
         EVENT_REQUEST_ID_MESSAGE
       );
+      expect(
+        await messageFrom(requestVenue, {
+          eventId: 1,
+          venueId: 1,
+          date: "",
+          startTime: "09:00",
+          endTime: "12:30",
+        })
+      ).toBe(VENUE_REQUEST_DATE_MESSAGE);
+      expect(await messageFrom(withdrawVenueRequest, { id: "  " })).toBe(VENUE_REQUEST_ID_MESSAGE);
 
       signIn("event_organiser");
       expect(await messageFrom(saveEventRequestDraft, { expectedAttendance: -1 })).toBe(

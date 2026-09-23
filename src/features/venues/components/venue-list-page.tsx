@@ -304,6 +304,9 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
                     <Link
                       to="/venues/$venueId"
                       params={{ venueId: String(venue.id) }}
+                      // Carried so the detail page can offer PTR-31's booking request for the
+                      // event this search was run for.
+                      search={event ? { eventId: event.id } : {}}
                       className={NAV_LINK_CLASSNAME}
                     >
                       {venue.name}

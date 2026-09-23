@@ -2,9 +2,12 @@ import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { Page, PageHeader } from "#/components/layout/page";
+import { Button } from "#/components/ui/button";
 import { can } from "#/features/auth/permissions";
 import { unwrapRefusal } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { VenueRequestPanel } from "#/features/venue-requests/components/venue-request-panel";
+import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";
 import { saveVenue } from "#/features/venues/server-fns";
@@ -13,6 +16,8 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 /**
  * One venue record — editable for `venue:update`, read-only for everyone else the route let in.
+ * A Coordinator who arrived from an event search also gets PTR-31's request panel; the loader
+ * only supplies a context when that is actually the caller's event.
  *
  * The row, the session user and the just-created flag are props rather than `Route.use*()` calls
  * so the view renders in a unit test without a router (PTR-75); the two router hooks it does keep
@@ -22,15 +27,20 @@ export function VenueDetailPage({
   venue,
   user,
   justCreated,
+  requestContext,
+  requestContextFailed,
 }: {
   venue: Venue;
   user: SessionUser;
   justCreated: boolean;
+  requestContext: VenueRequestContext | null;
+  requestContextFailed: boolean;
 }) {
   const navigate = useNavigate();
   const router = useRouter();
   const [saved, setSaved] = useState(justCreated);
   const canUpdate = can(user.role, { venue: ["update"] });
+  const canRequest = can(user.role, { venue_request: ["request"] });
 
   // The confirmation is seeded from `?saved=true` once, above, and then the param is stripped:
   // a search param is part of the URL, so F5 would re-evaluate it and re-announce a save that
@@ -95,6 +105,30 @@ export function VenueDetailPage({
         />
       ) : (
         <VenueDetails venue={venue} />
+      )}
+
+      {requestContext ? (
+        <VenueRequestPanel venueId={venue.id} venueName={venue.name} context={requestContext} />
+      ) : (
+        canRequest &&
+        (requestContextFailed ? (
+          // A transient failure, not "no event": the loader could not load the panel, so the
+          // Coordinator can retry the same read instead of being sent back to the search.
+          <div role="alert" className="mt-8 body-sm text-destructive">
+            Could not load this venue's request panel.{" "}
+            <Button type="button" variant="link" size="sm" onClick={() => void router.invalidate()}>
+              Try again
+            </Button>
+          </div>
+        ) : (
+          <p className="mt-8 body-sm text-muted-foreground">
+            Open your{" "}
+            <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
+              dashboard
+            </Link>{" "}
+            and use Find venues for this event.
+          </p>
+        ))
       )}
     </Page>
   );

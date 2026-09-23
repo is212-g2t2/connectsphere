@@ -1,10 +1,11 @@
 import { and, asc, eq, gt, inArray, lt } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, venueUnavailability, venues } from "#/db/schema";
+import { venueUnavailability, venues } from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import { eventTiming } from "#/features/events/access";
+import { loadAssignedSubmittedEvent } from "#/features/events/records.server";
 import {
   nextCivilDate,
   normalizeDatabaseTimestamp,
@@ -22,6 +23,7 @@ import {
   parseVenueSearchRequest,
 } from "#/features/venues/schema";
 import type { OperatingHours, VenueLayout, VenueSearch } from "#/features/venues/schema";
+import { isConstraintViolation } from "#/lib/db-errors";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -180,27 +182,7 @@ export async function handleSearchVenues(data: unknown, user: SessionUser, datab
   let defaults: VenueSearch = {};
 
   if (eventId !== undefined) {
-    const records = await database
-      .select({
-        id: eventRequests.id,
-        name: eventRequests.eventName,
-        proposedDates: eventRequests.proposedDates,
-        expectedAttendance: eventRequests.expectedAttendance,
-        layout: eventRequests.roomLayoutPreference,
-        accessibility: eventRequests.accessibilityRequirements,
-        facilities: eventRequests.venueRequirements,
-      })
-      .from(eventRequests)
-      .where(
-        and(
-          eq(eventRequests.id, eventId),
-          eq(eventRequests.status, "submitted"),
-          eq(eventRequests.assignedCoordinatorId, user.id)
-        )
-      )
-      .limit(1);
-    const record = records.at(0);
-
+    const record = await loadAssignedSubmittedEvent(database, eventId, user.id);
     if (!record) throw new AuthorizationError("Forbidden");
     event = { id: record.id, name: record.name };
 
@@ -212,9 +194,9 @@ export async function handleSearchVenues(data: unknown, user: SessionUser, datab
       startTime: timing.startTime ?? undefined,
       endTime: timing.endTime ?? undefined,
       expectedAttendance: record.expectedAttendance ?? undefined,
-      layout: record.layout || undefined,
-      accessibility: record.accessibility || undefined,
-      facilities: record.facilities || undefined,
+      layout: record.roomLayoutPreference || undefined,
+      accessibility: record.accessibilityRequirements || undefined,
+      facilities: record.venueRequirements || undefined,
     };
   }
 
@@ -261,7 +243,7 @@ export async function handleGetVenue(data: unknown, database: Database): Promise
  * A venue's availability across an inclusive civil-date range (PTR-28): its opening periods,
  * minus the recorded unavailability that overlaps the range, as floating venue-local timestamps.
  *
- * AC3 is mocked. Approved-booking persistence belongs to PTR-31/PTR-33, so there is no booking
+ * AC3 is mocked. Approved-booking persistence belongs to PTR-33/36, so there is no booking
  * row to read and `bookings: []` below is the seam those stories fill — `projectAvailability`
  * already renders an approved booking as a "confirmed" period, and the unit test pins that,
  * but the live calendar reports recorded unavailability only until the booking table exists.
@@ -292,7 +274,7 @@ export async function handleGetVenueAvailability(data: unknown, database: Databa
     ...projectAvailability(
       { startsAt, endsAt },
       {
-        // AC3 is mocked: there is no booking table to read until PTR-31/PTR-33, so this is the
+        // AC3 is mocked: there is no booking table to read until PTR-33/36, so this is the
         // seam, not a fallback. The projection's "confirmed" branch is pinned by the unit test.
         bookings: [],
         blocks,
@@ -303,18 +285,12 @@ export async function handleGetVenueAvailability(data: unknown, database: Databa
 }
 
 /**
- * Postgres reports a unique violation as a driver error that Drizzle wraps; the constraint
- * name is on `cause`. Turned into the sentence the form is built to show, since a duplicate
- * name is the one conflict the UI can trigger by itself.
+ * Postgres reports a unique violation as a driver error that Drizzle wraps; `isConstraintViolation`
+ * reads the constraint name off it. Turned into the sentence the form is built to show, since a
+ * duplicate name is the one conflict the UI can trigger by itself.
  */
 function rethrowReadable(error: unknown): never {
-  if (
-    error instanceof Error &&
-    typeof error.cause === "object" &&
-    error.cause !== null &&
-    "constraint" in error.cause &&
-    error.cause.constraint === "venues_name_unique"
-  ) {
+  if (isConstraintViolation(error, "venues_name_unique")) {
     throw new Error(DUPLICATE_NAME_MESSAGE, { cause: error });
   }
   throw error;

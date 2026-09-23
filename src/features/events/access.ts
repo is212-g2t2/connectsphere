@@ -35,6 +35,19 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
 }
 
 /**
+ * The shared venue queue (PTR-31): a Venue Staff member works the rows assigned to them, plus
+ * every unassigned `pending` one. `records.server.ts` scopes its event-list query with the same
+ * rule in SQL and calls this for its in-memory readers, so the rule has one home. It carries no
+ * `#/db` import — this module is client-reachable.
+ */
+export function isVenueQueueRow(
+  row: { assignedStaffId: string | null; status: string },
+  userId: string
+): boolean {
+  return row.assignedStaffId === null ? row.status === "pending" : row.assignedStaffId === userId;
+}
+
+/**
  * Whether registration is open at this instant. The stored window is a `datetime-local` string
  * with no offset (PTR-11), so it is read on the same arbitrary meridian the draft schema parses
  * it on, and compared as instants rather than lexicographically. Missing terms or registration
