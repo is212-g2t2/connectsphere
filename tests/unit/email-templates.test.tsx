@@ -1,12 +1,30 @@
 import { render } from "@react-email/render";
 import { describe, expect, it } from "vitest";
 import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
+import { ClarificationReplyEmail } from "#/features/emails/components/clarification-reply-email";
 import { Layout } from "#/features/emails/components/layout";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
 
 describe("Email templates rendering", () => {
+  it("renders the reply and question as escaped text with a Coordinator review link", async () => {
+    const html = await render(
+      <ClarificationReplyEmail
+        eventName="Community workshop"
+        question={'Can you use <script>alert("question")</script>?'}
+        body={'Yes.\n<img src=x onerror="alert(1)">'}
+        eventRequestUrl="http://localhost:3000/coordination/42"
+      />
+    );
+    expect(html).toContain("Clarification replied");
+    expect(html).toContain("http://localhost:3000/coordination/42");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("&lt;img");
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("white-space:pre-line");
+  });
   it("renders base Layout with children and custom preview text", async () => {
     const html = await render(
       <Layout previewText="Test Preview Text">

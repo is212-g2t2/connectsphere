@@ -390,7 +390,24 @@ export const CLARIFICATION_BODY_MAX = 2000;
 export const CLARIFICATION_BODY_MESSAGE = `Clarification text must be ${CLARIFICATION_BODY_MAX} characters or fewer`;
 export const CLARIFICATION_BODY_REQUIRED = "Enter what you need the Organiser to clarify";
 
+export const CLARIFICATION_FIELDS = [
+  { key: "eventName", label: "Event name" },
+  { key: "purpose", label: "Purpose" },
+  { key: "proposedDates", label: "Proposed dates and times" },
+  { key: "expectedAttendance", label: "Expected attendance" },
+  { key: "description", label: "Description" },
+  { key: "eventType", label: "Type of event" },
+  { key: "venueRequirements", label: "Venue requirements" },
+  { key: "roomLayoutPreference", label: "Room-layout preference" },
+  { key: "accessibilityRequirements", label: "Accessibility requirements" },
+  { key: "equipmentRequirements", label: "Equipment requirements" },
+  { key: "specialArrangements", label: "Special arrangements" },
+  { key: "attendeeRegistration", label: "Attendee registration" },
+] as const;
+export type ClarificationField = (typeof CLARIFICATION_FIELDS)[number]["key"];
+
 const ClarificationBodyInput = EventRequestIdInput.extend({
+  permittedFields: z.array(z.enum(CLARIFICATION_FIELDS.map(field => field.key))).default([]),
   body: z
     .string()
     .trim()
@@ -400,6 +417,24 @@ const ClarificationBodyInput = EventRequestIdInput.extend({
 
 export function parseClarificationBody(data: unknown) {
   const parsed = ClarificationBodyInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+
+export const CLARIFICATION_REPLY_MAX = 2000;
+const ClarificationReplyInput = z.strictObject({
+  id: z.int32().positive(),
+  clarificationId: z.int32().positive(),
+  body: z
+    .string()
+    .trim()
+    .min(1, "Enter your reply")
+    .max(CLARIFICATION_REPLY_MAX, `Reply must be ${CLARIFICATION_REPLY_MAX} characters or fewer`),
+  amendments: z.record(z.string(), z.unknown()).default({}),
+});
+
+export function parseClarificationReply(data: unknown) {
+  const parsed = ClarificationReplyInput.safeParse(data);
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;
 }

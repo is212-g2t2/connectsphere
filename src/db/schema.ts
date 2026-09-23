@@ -14,7 +14,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import type { ClarificationField, EventRequestDraftValues } from "#/features/event-requests/schema";
 import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 
 import { user } from "./auth-schema";
@@ -180,9 +180,23 @@ export const clarificationRequests = pgTable(
     /** Snapshot of the Coordinator who raised the clarification. */
     coordinatorId: text("coordinator_id").notNull(),
     body: text("body").notNull(),
+    permittedFields: text("permitted_fields")
+      .array()
+      .$type<ClarificationField[]>()
+      .notNull()
+      .default([]),
+    replyBody: text("reply_body"),
+    repliedByOrganiserId: text("replied_by_organiser_id"),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  table => [index("clarification_requests_event_request_id_idx").on(table.eventRequestId)]
+  table => [
+    index("clarification_requests_event_request_id_idx").on(table.eventRequestId),
+    check(
+      "clarification_requests_reply_complete",
+      sql`(${table.replyBody} is null and ${table.repliedByOrganiserId} is null and ${table.repliedAt} is null) or (${table.replyBody} is not null and btrim(${table.replyBody}) <> '' and ${table.repliedByOrganiserId} is not null and ${table.repliedAt} is not null)`
+    ),
+  ]
 );
 
 export const venues = pgTable(

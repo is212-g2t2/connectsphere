@@ -1,0 +1,1 @@
+ALTER TABLE "clarification_requests" ADD COLUMN "permitted_fields" text[] DEFAULT '{}' NOT NULL;

@@ -8,7 +8,9 @@ import {
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
 } from "#/features/event-requests/components/request-list-page";
+import { ClarificationReplyForm } from "#/features/event-requests/components/clarification-reply-form";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
+import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import {
   formatInstant,
   formatLocalDateTime,
@@ -31,10 +33,13 @@ export function EventRequestDetailPage({
   request,
   back,
   children,
+  showReplyForms = true,
 }: {
   request: EventRequestDetail;
   back?: { to: "/event-requests" | "/coordination"; label: string };
   children?: React.ReactNode;
+  /** Coordinator screens use this shared read-only detail view but must not reply as an Organiser. */
+  showReplyForms?: boolean;
 }) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
 
@@ -120,6 +125,40 @@ export function EventRequestDetailPage({
                     <p className="mt-2 body-md font-medium whitespace-pre-line text-foreground">
                       {item.body}
                     </p>
+                    {item.replyBody ? (
+                      <div className="mt-4 border-l-2 border-border pl-4">
+                        <p className="eyebrow text-muted-foreground">Organiser reply</p>
+                        <p className="mt-2 body-md whitespace-pre-line text-foreground">
+                          {item.replyBody}
+                        </p>
+                        {item.repliedAt && (
+                          <time
+                            dateTime={item.repliedAt.toISOString()}
+                            className="mt-2 block body-sm text-muted-foreground"
+                          >
+                            {formatInstant(item.repliedAt)}
+                          </time>
+                        )}
+                      </div>
+                    ) : (
+                      showReplyForms &&
+                      (request.status === "awaiting_organiser" ||
+                        request.status === "under_review") && (
+                        <div className="mt-4 border-t border-border pt-4">
+                          <h3 className="display-h3">Reply to clarification</h3>
+                          {item.permittedFields.length > 0 && (
+                            <p className="mt-2 body-sm text-muted-foreground">
+                              You may update the fields the Coordinator selected below.
+                            </p>
+                          )}
+                          <ClarificationReplyForm
+                            requestId={request.id}
+                            clarification={item}
+                            initialValues={toDraftValues(request)}
+                          />
+                        </div>
+                      )
+                    )}
                   </li>
                 ))}
               </ul>
@@ -219,6 +258,26 @@ export function EventRequestDetailPage({
       </Card>
     </Page>
   );
+}
+
+function toDraftValues(request: EventRequestDetail): EventRequestDraftValues {
+  return {
+    eventName: request.eventName,
+    purpose: request.purpose,
+    proposedDates: request.proposedDates,
+    expectedAttendance: request.expectedAttendance ?? undefined,
+    description: request.description,
+    eventType: request.eventType,
+    venueRequirements: request.venueRequirements,
+    roomLayoutPreference: request.roomLayoutPreference,
+    accessibilityRequirements: request.accessibilityRequirements,
+    equipmentRequirements: request.equipmentRequirements,
+    specialArrangements: request.specialArrangements,
+    registrationEnabled: request.registrationEnabled,
+    registrationCapacity: request.registrationCapacity ?? undefined,
+    registrationOpensAt: request.registrationOpensAt ?? undefined,
+    registrationClosesAt: request.registrationClosesAt ?? undefined,
+  };
 }
 
 function Detail({

@@ -229,6 +229,78 @@ function fieldValue(page: Page, term: string) {
   return page.locator("dt", { hasText: term }).locator("xpath=following-sibling::dd[1]");
 }
 
+test("Organiser amends the concerned fields, replies, and notifies the Coordinator", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const organiserContext = await browser.newContext({ baseURL });
+  const organiserPage = await organiserContext.newPage();
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Reply Coordinator");
+    ids.push(coordinator.id);
+    const organiser = await register(organiserPage, "event_organiser", "Reply Organiser");
+    ids.push(organiser.id);
+    const eventName = `Clarification reply ${randomUUID()}`;
+    const date = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const [request] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: organiser.id,
+        assignedCoordinatorId: coordinator.id,
+        assignedAt: new Date(),
+        submittedAt: new Date(),
+        status: "under_review",
+        eventName,
+        purpose: "Community workshop",
+        expectedAttendance: 100,
+        roomLayoutPreference: "Theatre",
+        proposedDates: [{ start: `${date}T09:00`, end: `${date}T17:00` }],
+      })
+      .returning();
+    const question = "Please confirm attendance and the room layout.";
+    const reply = "We expect 120 guests.\nPlease use a Classroom layout.";
+
+    await page.goto(`/coordination/${request.id}`);
+    await waitForHydration(page);
+    await page.getByLabel("What needs clarification").fill(question);
+    await page.getByRole("checkbox", { name: "Expected attendance", exact: true }).check();
+    await page.getByRole("checkbox", { name: "Room-layout preference", exact: true }).check();
+    await page.getByRole("button", { name: "Send clarification request" }).click();
+    await expect(page.getByText(question, { exact: true })).toBeVisible();
+    await expect(page.getByText("Awaiting organiser", { exact: true })).toBeVisible();
+
+    await organiserPage.goto(`/event-requests/${request.id}`);
+    await waitForHydration(organiserPage);
+    await expect(organiserPage.getByLabel("Event name (required)")).toBeDisabled();
+    await expect(organiserPage.getByLabel("Purpose (required)")).toBeDisabled();
+    await organiserPage.getByLabel("Expected attendance (required)").fill("120");
+    await organiserPage.getByLabel("Room-layout preference (optional)").fill("Classroom");
+    await organiserPage.getByLabel("Your reply").fill(reply);
+    await organiserPage.getByRole("button", { name: "Send reply", exact: true }).click();
+    await expect(organiserPage.getByText("Under review", { exact: true })).toBeVisible();
+    await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();
+    await expect(organiserPage.getByRole("button", { name: "Send reply" })).toHaveCount(0);
+    await expect(fieldValue(organiserPage, "Expected attendance")).toHaveText("120");
+
+    const email = await waitForEmail(coordinator.email, `Clarification replied: ${eventName}`);
+    expect(email).toContain(question);
+    expect(email).toContain("We expect 120 guests.");
+    expect(email).toContain(`/coordination/${request.id}`);
+    await page.reload();
+    await expect(page.getByText(question, { exact: true })).toBeVisible();
+    await expect(page.getByText(reply, { exact: true })).toBeVisible();
+    await expect(fieldValue(page, "Room-layout preference")).toHaveText("Classroom");
+    await expect(page.getByRole("button", { name: "Send reply", exact: true })).toHaveCount(0);
+    await organiserPage.reload();
+    await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await organiserContext.close();
+  }
+});
+
 test("shows every organiser-supplied field on an assigned request", async ({ page }) => {
   const ids: string[] = [];
   try {

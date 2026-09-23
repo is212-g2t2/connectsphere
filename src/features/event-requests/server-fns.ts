@@ -1,7 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
-import { parseDraftInput, parseEventRequestId } from "#/features/event-requests/schema";
+import {
+  parseClarificationReply,
+  parseDraftInput,
+  parseEventRequestId,
+} from "#/features/event-requests/schema";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("event-requests");
@@ -147,3 +151,14 @@ export const deleteEventRequestDraft = createServerFn({ method: "POST" })
   });
 
 export type EventRequestDeleted = Awaited<ReturnType<typeof deleteEventRequestDraft>>;
+
+export const replyToClarification = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCreate])
+  .validator(parseClarificationReply)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleReplyToClarification }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/replies.server"),
+    ]);
+    return handleReplyToClarification(data, context.user, db);
+  });

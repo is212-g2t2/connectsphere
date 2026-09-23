@@ -114,11 +114,22 @@ export function EventRequestForm({
   initialValues,
   onSave,
   onSubmitRequest,
+  editableFields,
+  saveLabel = "Save draft",
+  beforeFields,
+  afterFields,
+  idPrefix,
 }: {
   initialValues?: EventRequestDraftValues;
   onSave: (values: EventRequestDraftValues) => Promise<void>;
   /** Absent while the caller has nowhere to submit to yet; the control is dropped with it. */
   onSubmitRequest?: (values: EventRequestDraftValues) => Promise<void>;
+  /** When replying to a clarification, every other control remains visible but read-only. */
+  editableFields?: readonly string[];
+  saveLabel?: string;
+  beforeFields?: React.ReactNode;
+  afterFields?: React.ReactNode;
+  idPrefix?: string;
 }) {
   /**
    * Which control is submitting. A ref rather than state because the click and the submit are two
@@ -126,6 +137,8 @@ export function EventRequestForm({
    * render already closed over.
    */
   const intent = useRef<"save" | "submit">("save");
+  const editable = (field: string) => !editableFields || editableFields.includes(field);
+  const inputId = (name: string) => (idPrefix ? `${idPrefix}-${name}` : name);
 
   const form = useForm({
     defaultValues: initialValues ? toFormValues(initialValues) : DEFAULT_VALUES,
@@ -157,18 +170,22 @@ export function EventRequestForm({
       }}
     >
       <p className="mb-6 body-sm text-muted-foreground">
-        Fields marked required must be completed. Anything left blank is saved with the draft, so
-        you can finish it later.
+        {editableFields
+          ? "Only the fields selected by the Coordinator can be changed. Required values must remain complete."
+          : "Fields marked required must be completed. Anything left blank is saved with the draft, so you can finish it later."}
       </p>
+
+      {beforeFields}
 
       <FieldGroup>
         <form.Field name="eventName">
           {field => (
             <Field data-invalid={field.state.meta.errors.length > 0}>
-              <FieldLabel htmlFor={field.name}>Event name (required)</FieldLabel>
+              <FieldLabel htmlFor={inputId(field.name)}>Event name (required)</FieldLabel>
               <Input
-                id={field.name}
+                id={inputId(field.name)}
                 required
+                disabled={!editable("eventName")}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={event => field.handleChange(event.target.value)}
@@ -182,10 +199,11 @@ export function EventRequestForm({
         <form.Field name="purpose">
           {field => (
             <Field data-invalid={field.state.meta.errors.length > 0}>
-              <FieldLabel htmlFor={field.name}>Purpose (required)</FieldLabel>
+              <FieldLabel htmlFor={inputId(field.name)}>Purpose (required)</FieldLabel>
               <Textarea
-                id={field.name}
+                id={inputId(field.name)}
                 required
+                disabled={!editable("purpose")}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={event => field.handleChange(event.target.value)}
@@ -210,13 +228,14 @@ export function EventRequestForm({
                       <form.Field key={boundary} name={`proposedDates[${index}].${boundary}`}>
                         {boundaryField => (
                           <Field data-invalid={boundaryField.state.meta.errors.length > 0}>
-                            <FieldLabel htmlFor={boundaryField.name}>
+                            <FieldLabel htmlFor={inputId(boundaryField.name)}>
                               Proposed {boundary} {index + 1} (required)
                             </FieldLabel>
                             <Input
-                              id={boundaryField.name}
+                              id={inputId(boundaryField.name)}
                               type="datetime-local"
                               required
+                              disabled={!editable("proposedDates")}
                               value={boundaryField.state.value}
                               onBlur={boundaryField.handleBlur}
                               onChange={event => boundaryField.handleChange(event.target.value)}
@@ -232,6 +251,7 @@ export function EventRequestForm({
                         type="button"
                         variant="outline"
                         className="justify-self-start"
+                        disabled={!editable("proposedDates")}
                         onClick={() => field.removeValue(index)}
                       >
                         Remove proposed date {index + 1}
@@ -242,6 +262,7 @@ export function EventRequestForm({
                 <Button
                   type="button"
                   variant="outline"
+                  disabled={!editable("proposedDates")}
                   onClick={() => field.pushValue({ key: crypto.randomUUID(), start: "", end: "" })}
                 >
                   Add proposed date
@@ -254,13 +275,14 @@ export function EventRequestForm({
         <form.Field name="expectedAttendance">
           {field => (
             <Field data-invalid={field.state.meta.errors.length > 0}>
-              <FieldLabel htmlFor={field.name}>Expected attendance (required)</FieldLabel>
+              <FieldLabel htmlFor={inputId(field.name)}>Expected attendance (required)</FieldLabel>
               <Input
-                id={field.name}
+                id={inputId(field.name)}
                 type="number"
                 min="1"
                 step="1"
                 required
+                disabled={!editable("expectedAttendance")}
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={event => field.handleChange(event.target.value)}
@@ -281,11 +303,14 @@ export function EventRequestForm({
                 <h3 className="display-h3">Attendee registration</h3>
                 <Field orientation="horizontal">
                   <Checkbox
-                    id={field.name}
+                    id={inputId(field.name)}
                     checked={field.state.value}
+                    disabled={!editable("attendeeRegistration")}
                     onCheckedChange={checked => field.handleChange(checked)}
                   />
-                  <FieldLabel htmlFor={field.name}>Require attendee registration</FieldLabel>
+                  <FieldLabel htmlFor={inputId(field.name)}>
+                    Require attendee registration
+                  </FieldLabel>
                 </Field>
                 <FieldDescription>
                   Registered attendees sign up between these times, up to this capacity. Turning
@@ -299,10 +324,11 @@ export function EventRequestForm({
                     <form.Field key={name} name={name}>
                       {registrationField => (
                         <Field data-invalid={registrationField.state.meta.errors.length > 0}>
-                          <FieldLabel htmlFor={registrationField.name}>{label}</FieldLabel>
+                          <FieldLabel htmlFor={inputId(registrationField.name)}>{label}</FieldLabel>
                           <Input
-                            id={registrationField.name}
+                            id={inputId(registrationField.name)}
                             required
+                            disabled={!editable("attendeeRegistration")}
                             {...input}
                             value={registrationField.state.value}
                             onBlur={registrationField.handleBlur}
@@ -329,10 +355,11 @@ export function EventRequestForm({
             <form.Field key={name} name={name}>
               {field => (
                 <Field data-invalid={field.state.meta.errors.length > 0}>
-                  <FieldLabel htmlFor={field.name}>{label} (optional)</FieldLabel>
+                  <FieldLabel htmlFor={inputId(field.name)}>{label} (optional)</FieldLabel>
                   {name === "eventType" ? (
                     <Input
-                      id={field.name}
+                      id={inputId(field.name)}
+                      disabled={!editable(name)}
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={event => field.handleChange(event.target.value)}
@@ -340,7 +367,8 @@ export function EventRequestForm({
                     />
                   ) : (
                     <Textarea
-                      id={field.name}
+                      id={inputId(field.name)}
+                      disabled={!editable(name)}
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={event => field.handleChange(event.target.value)}
@@ -365,15 +393,16 @@ export function EventRequestForm({
                       <form.Field key={part} name={`equipmentRequirements[${index}].${part}`}>
                         {partField => (
                           <Field data-invalid={partField.state.meta.errors.length > 0}>
-                            <FieldLabel htmlFor={partField.name}>
+                            <FieldLabel htmlFor={inputId(partField.name)}>
                               {part === "type" ? "Equipment type" : "Quantity"} {index + 1}
                             </FieldLabel>
                             <Input
-                              id={partField.name}
+                              id={inputId(partField.name)}
                               {...(part === "quantity"
                                 ? { type: "number", min: "1", step: "1" }
                                 : {})}
                               value={partField.state.value}
+                              disabled={!editable("equipmentRequirements")}
                               onBlur={partField.handleBlur}
                               onChange={event => partField.handleChange(event.target.value)}
                               aria-invalid={partField.state.meta.errors.length > 0}
@@ -387,6 +416,7 @@ export function EventRequestForm({
                       type="button"
                       variant="outline"
                       className="justify-self-start"
+                      disabled={!editable("equipmentRequirements")}
                       onClick={() => field.removeValue(index)}
                     >
                       Remove equipment {index + 1}
@@ -396,6 +426,7 @@ export function EventRequestForm({
                 <Button
                   type="button"
                   variant="outline"
+                  disabled={!editable("equipmentRequirements")}
                   onClick={() =>
                     field.pushValue({ key: crypto.randomUUID(), type: "", quantity: "" })
                   }
@@ -406,6 +437,8 @@ export function EventRequestForm({
             </div>
           )}
         </form.Field>
+
+        {afterFields}
 
         <form.Subscribe selector={state => state.errorMap.onSubmit}>
           {onSubmitError => {
@@ -424,7 +457,7 @@ export function EventRequestForm({
                   intent.current = "save";
                 }}
               >
-                {isSubmitting && intent.current === "save" ? "Saving…" : "Save draft"}
+                {isSubmitting && intent.current === "save" ? "Saving…" : saveLabel}
               </Button>
               {onSubmitRequest && (
                 <Button

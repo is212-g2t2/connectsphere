@@ -29,6 +29,7 @@ import {
   listEventRequests,
   listUnassignedEventRequests,
   requireEventRequestCreate,
+  replyToClarification,
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
@@ -145,6 +146,25 @@ function seam(run: () => Promise<unknown>) {
 describe("server-function authorization (PTR-69)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("allows clarification replies only for an authenticated Organiser, before validating input", async () => {
+    vi.mocked(auth.api.getSession).mockResolvedValue(null);
+    expect(await refusalFrom(replyToClarification, {})).toMatchObject({ status: 401 });
+    for (const role of [
+      "attendee",
+      "event_coordinator",
+      "venue_staff",
+      "technical_support_staff",
+    ]) {
+      signIn(role);
+      // oxlint-disable-next-line no-await-in-loop
+      expect(await refusalFrom(replyToClarification, {})).toMatchObject({ status: 403 });
+    }
+    signIn("event_organiser");
+    expect(
+      (await call(replyToClarification, { id: 1, clarificationId: 2, body: "Confirmed" })).error
+    ).toBeUndefined();
   });
 
   describe("PTR-16 coordination boundaries", () => {

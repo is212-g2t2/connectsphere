@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
+import { Checkbox } from "#/components/ui/checkbox";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import {
   Select,
@@ -31,6 +32,8 @@ import {
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import { formatInstant } from "#/features/event-requests/format";
+import { CLARIFICATION_BODY_MAX, CLARIFICATION_FIELDS } from "#/features/event-requests/schema";
+import type { ClarificationField } from "#/features/event-requests/schema";
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -97,6 +100,7 @@ export function CoordinationRequestPage({
 
   const router = useRouter();
   const [clarificationText, setClarificationText] = useState("");
+  const [permittedFields, setPermittedFields] = useState<ClarificationField[]>([]);
 
   const [clarification, submitClarification, submittingClarification] = useMutation(async () => {
     await unwrapRefusal(
@@ -104,12 +108,14 @@ export function CoordinationRequestPage({
         data: {
           id: request.id,
           body: clarificationText,
+          permittedFields,
         },
       }),
       "Could not send clarification request. Try again."
     );
     toast.success("Clarification request sent.");
     setClarificationText("");
+    setPermittedFields([]);
     await router.invalidate();
   }, "Could not send clarification request. Try again.");
 
@@ -139,6 +145,7 @@ export function CoordinationRequestPage({
     <EventRequestDetailPage
       request={request}
       back={{ to: "/coordination", label: "Back to coordination" }}
+      showReplyForms={false}
     >
       {canTakeUpForReview && (
         <section className="mt-8" aria-labelledby="review-heading">
@@ -251,11 +258,37 @@ export function CoordinationRequestPage({
                     rows={4}
                     placeholder="Describe what needs clarification (e.g. required room layout, specific equipment models)..."
                     value={clarificationText}
+                    maxLength={CLARIFICATION_BODY_MAX}
                     onChange={e => setClarificationText(e.target.value)}
                     disabled={submittingClarification}
                     required
                   />
                 </div>
+                <fieldset className="space-y-3 border-t border-border pt-4">
+                  <legend className="eyebrow text-muted-foreground">
+                    Allow the Organiser to amend these fields (optional)
+                  </legend>
+                  <p className="body-sm text-muted-foreground">
+                    Leave every field unselected when you only need an explanation.
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {CLARIFICATION_FIELDS.map(({ key, label }) => (
+                      <Field key={key} orientation="horizontal">
+                        <Checkbox
+                          id={`clarification-field-${key}`}
+                          checked={permittedFields.includes(key)}
+                          disabled={submittingClarification}
+                          onCheckedChange={checked => {
+                            setPermittedFields(current =>
+                              checked ? [...current, key] : current.filter(field => field !== key)
+                            );
+                          }}
+                        />
+                        <FieldLabel htmlFor={`clarification-field-${key}`}>{label}</FieldLabel>
+                      </Field>
+                    ))}
+                  </div>
+                </fieldset>
                 <Button
                   type="submit"
                   disabled={submittingClarification || !clarificationText.trim()}

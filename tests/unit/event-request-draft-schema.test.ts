@@ -721,6 +721,7 @@ describe("parseClarificationBody", () => {
     expect(parseClarificationBody({ id: 7, body: "  Need more info  " })).toEqual({
       id: 7,
       body: "Need more info",
+      permittedFields: [],
     });
   });
 

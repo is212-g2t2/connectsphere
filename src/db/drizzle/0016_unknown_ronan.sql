@@ -1,0 +1,4 @@
+ALTER TABLE "clarification_requests" ADD COLUMN "reply_body" text;--> statement-breakpoint
+ALTER TABLE "clarification_requests" ADD COLUMN "replied_by_organiser_id" text;--> statement-breakpoint
+ALTER TABLE "clarification_requests" ADD COLUMN "replied_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "clarification_requests" ADD CONSTRAINT "clarification_requests_reply_complete" CHECK (("clarification_requests"."reply_body" is null and "clarification_requests"."replied_by_organiser_id" is null and "clarification_requests"."replied_at" is null) or ("clarification_requests"."reply_body" is not null and btrim("clarification_requests"."reply_body") <> '' and "clarification_requests"."replied_by_organiser_id" is not null and "clarification_requests"."replied_at" is not null));
