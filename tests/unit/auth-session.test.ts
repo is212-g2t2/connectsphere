@@ -72,8 +72,8 @@ describe("status-carrying error classes", () => {
     expect(error.status).toBe(403);
   });
 
-  it("creates AuthorizationError with status 401 when message is Unauthorized", () => {
-    const error = new AuthorizationError("Unauthorized");
+  it("creates AuthorizationError with explicit status 401", () => {
+    const error = new AuthorizationError("Unauthorized", 401);
     expect(error).toBeInstanceOf(Error);
     expect(error.name).toBe("AuthorizationError");
     expect(error.message).toBe("Unauthorized");

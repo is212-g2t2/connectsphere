@@ -70,7 +70,7 @@ export const requireSession = createMiddleware({ type: "function" })
   .middleware([withSession])
   .server(({ next, context }) => {
     if (!context.user) {
-      throw new AuthorizationError("Unauthorized");
+      throw new AuthorizationError("Unauthorized", 401);
     }
 
     // Re-emitted non-null: `next()` merges context, so everything downstream sees a
@@ -125,10 +125,10 @@ export const listAccounts = createServerFn({ method: "GET" })
 export class AuthorizationError extends Error {
   readonly status: number;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status = 403) {
     super(message);
     this.name = "AuthorizationError";
-    this.status = status ?? (message === "Unauthorized" ? 401 : 403);
+    this.status = status;
   }
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useForm } from "@tanstack/react-form";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CalendarDays } from "lucide-react";
@@ -73,14 +73,6 @@ export function VenueCalendarPage({
       }
     },
   });
-
-  useEffect(() => {
-    form.reset({
-      venueId: search.venueId === undefined ? "" : String(search.venueId),
-      startDate: search.startDate ?? "",
-      endDate: search.endDate ?? "",
-    });
-  }, [form, search]);
 
   const [month, setMonth] = useState(() =>
     search.startDate ? civilDate(search.startDate) : new Date()
