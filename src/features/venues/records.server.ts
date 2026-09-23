@@ -61,17 +61,21 @@ function tagWords(value: string) {
 }
 
 /**
- * The requested words the venue's stored tags do not carry — empty when every one is present, in
- * any order, so a stored tag with extra words still satisfies a shorter request and punctuation
- * is just a separator.
+ * The requested phrases — split on commas and the word "and" — that the venue's stored tags do
+ * not cover, named as the Coordinator typed them. A phrase is covered when every one of its words
+ * is some stored tag's word, in any order, so a stored tag with extra words still satisfies a
+ * shorter request and punctuation is just a separator.
  *
  * ponytail: exact word-set matching, no synonyms — "PA system" does not match a stored "Sound and
  * lighting system". Add a synonym table (or embeddings) if cross-vocabulary recall matters.
  */
-function missingTagWords(actual: readonly string[], requested: string | undefined): string[] {
+function missingTagPhrases(actual: readonly string[], requested: string | undefined): string[] {
   if (!requested) return [];
   const available = new Set(actual.flatMap(tagWords));
-  return tagWords(requested).filter(word => !available.has(word));
+  return requested
+    .split(/,|\band\b/iu)
+    .map(phrase => phrase.trim())
+    .filter(phrase => tagWords(phrase).some(word => !available.has(word)));
 }
 
 /**
@@ -129,17 +133,24 @@ function availabilityFailure(
     blocks,
     openPeriods: openingPeriods(filters.date, endDate, venue.operatingHours),
   });
-  const dates = filters.endDate ? `${filters.date} to ${filters.endDate}` : filters.date;
-
+  // Without times the event needs some open time on each requested day, so a day that is closed,
+  // blocked or booked right through fails the range however free the other days are.
   if (!filters.startTime || !filters.endTime) {
-    if (projection.available.length > 0) return null;
-    const booked = projection.occupied.find(period => period.state === "confirmed");
-    return booked
-      ? {
-          criterion: "booking",
-          message: `Booked for ${booked.label} on ${booked.visibleStart.slice(0, 10)}`,
-        }
-      : { criterion: "availability", message: `Closed or unavailable on ${dates}` };
+    for (let day = filters.date; day <= endDate; day = nextCivilDate(day)) {
+      const dayStart = `${day}T00:00:00`;
+      const dayEnd = `${nextCivilDate(day)}T00:00:00`;
+      const open = projection.available.some(
+        period => period.startsAt < dayEnd && period.endsAt > dayStart
+      );
+      if (open) continue;
+      const booked = projection.occupied.find(
+        period => period.state === "confirmed" && overlaps(period, dayStart, dayEnd)
+      );
+      return booked
+        ? { criterion: "booking", message: `Booked for ${booked.label} on ${day}` }
+        : { criterion: "availability", message: `Closed or unavailable on ${day}` };
+    }
+    return null;
   }
 
   // The times are a daily hosting window, not one continuous period: a two-day search needs each
@@ -186,7 +197,7 @@ export function evaluateVenueSuitability(
   venue: VenueSuitabilityCandidate,
   filters: VenueSearch,
   blocks: readonly AvailabilityRecord[],
-  bookings: readonly AvailabilityRecord[] = []
+  bookings: readonly AvailabilityRecord[]
 ): SuitabilityVerdict {
   const failures: SuitabilityFailure[] = [];
 
@@ -216,14 +227,17 @@ export function evaluateVenueSuitability(
       failures.push({ criterion: "layout", message: `Does not offer ${wanted}` });
     }
   }
-  const missingAccessibility = missingTagWords(venue.accessibilityFeatures, filters.accessibility);
+  const missingAccessibility = missingTagPhrases(
+    venue.accessibilityFeatures,
+    filters.accessibility
+  );
   if (missingAccessibility.length > 0) {
     failures.push({
       criterion: "accessibility",
       message: `Missing accessibility: ${missingAccessibility.join(", ")}`,
     });
   }
-  const missingFacilities = missingTagWords(venue.facilities, filters.facilities);
+  const missingFacilities = missingTagPhrases(venue.facilities, filters.facilities);
   if (missingFacilities.length > 0) {
     failures.push({
       criterion: "facilities",
@@ -276,24 +290,29 @@ async function loadVenueBlocks(
   }));
 }
 
-type VenueBooking = AvailabilityRecord & { venueId: number };
+export type VenueBooking = AvailabilityRecord & { venueId: number };
 
 /**
  * PTR-30 criterion 4's data: the approved bookings overlapping a range, per venue. A deliberate
  * seam, not a fallback — `venue_requests` carries no venue or period until PTR-31 lands and no
- * `approved` status until PTR-33 does, so there is nothing to read yet. The evaluator already
- * treats whatever arrives here as occupied, and the availability calendar reads the same seam; the
- * story that merges last of the three replaces the body with one query and deletes this comment.
- * The unit tests prove the rule with fixtures.
+ * `approved` status until PTR-33 does, so there is nothing to read yet. The search and the
+ * availability calendar both read it, and the search's wiring is pinned by an integration test
+ * that injects a loader; the story that merges last of the three replaces the body with one
+ * query and deletes this comment.
  */
-async function loadVenueBookings(
+export type VenueBookingLoader = (
+  database: Database,
+  venueIds: readonly number[],
+  startsAt: string,
+  endsAt: string
+) => Promise<VenueBooking[]>;
+
+const loadVenueBookings: VenueBookingLoader = async (
   _database: Database,
   _venueIds: readonly number[],
   _startsAt: string,
   _endsAt: string
-): Promise<VenueBooking[]> {
-  return [];
-}
+) => [];
 
 /**
  * The statuses an assigned Coordinator is still working a request in. `submitted` alone (PTR-29's
@@ -317,7 +336,12 @@ const SEARCHABLE_STATUSES = [
  * evaluated by the one evaluator, which sorts every venue into `venues` (suitable) or `unsuitable`
  * (with its failures named). Nothing here writes: a verdict books or blocks no venue (AC6).
  */
-export async function handleSearchVenues(data: unknown, user: SessionUser, database: Database) {
+export async function handleSearchVenues(
+  data: unknown,
+  user: SessionUser,
+  database: Database,
+  loadBookings: VenueBookingLoader = loadVenueBookings
+) {
   const { eventId, ...requested } = parseVenueSearchRequest(data);
   let event: { id: number; name: string } | null = null;
   let defaults: VenueSearch = {};
@@ -358,7 +382,7 @@ export async function handleSearchVenues(data: unknown, user: SessionUser, datab
     const venueIds = venueRows.map(venue => venue.id);
     const [blocks, bookings] = await Promise.all([
       loadVenueBlocks(database, venueIds, startsAt, endsAt),
-      loadVenueBookings(database, venueIds, startsAt, endsAt),
+      loadBookings(database, venueIds, startsAt, endsAt),
     ]);
     blocksByVenue = Map.groupBy(blocks, block => block.venueId);
     bookingsByVenue = Map.groupBy(bookings, booking => booking.venueId);

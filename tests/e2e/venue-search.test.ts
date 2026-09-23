@@ -57,9 +57,7 @@ test("[PTR-29][AC4] an unavailable date and time renders an explicit empty resul
   await page.getByLabel("Required facilities", { exact: true }).fill("Projector, PA system");
   await page.getByRole("button", { name: "Search venues", exact: true }).click();
 
-  await expect(
-    page.getByText("No venues match these requirements.", { exact: true })
-  ).toBeVisible();
+  await expect(page.getByText("No venue meets every requirement.", { exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 

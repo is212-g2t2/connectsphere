@@ -241,7 +241,7 @@ describe("VenueListPage suitability (PTR-30)", () => {
     );
 
     const results = screen.getByRole("region", { name: "Venue results" });
-    expect(within(results).getByText("1 venue suitable, 1 not")).toBeTruthy();
+    expect(within(results).getByText("1 venue suitable, 1 not suitable")).toBeTruthy();
     // Results stay the suitable venues; the shortfalls are their own region beneath them.
     expect(within(results).queryByRole("link", { name: "Small Room" })).toBeNull();
     const unsuitable = screen.getByRole("region", { name: "Not suitable" });
@@ -281,7 +281,7 @@ describe("VenueListPage suitability (PTR-30)", () => {
       />
     );
 
-    expect(screen.getByText("No venues match these requirements.")).toBeTruthy();
+    expect(screen.getByText("No venue meets every requirement.")).toBeTruthy();
     expect(screen.getByText("Holds 40; 500 needed")).toBeTruthy();
   });
 });

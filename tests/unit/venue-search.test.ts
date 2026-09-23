@@ -96,9 +96,17 @@ describe("PTR-29 venue-search input", () => {
   });
 });
 
-/** PTR-29's yes/no reading of the verdict PTR-30 widened it into. */
-const suits = (...args: Parameters<typeof evaluateVenueSuitability>) =>
-  evaluateVenueSuitability(...args).suitable;
+type Evaluate = Parameters<typeof evaluateVenueSuitability>;
+
+/** PTR-29's yes/no reading of the verdict PTR-30 widened it into; no bookings unless given. */
+function suits(
+  candidate: Evaluate[0],
+  search: Evaluate[1],
+  blocks: Evaluate[2],
+  bookings: Evaluate[3] = []
+) {
+  return evaluateVenueSuitability(candidate, search, blocks, bookings).suitable;
+}
 
 describe("PTR-29 suitability rules", () => {
   it("accepts a venue only when every applied filter passes", () => {
@@ -261,16 +269,24 @@ describe("PTR-29 suitability rules", () => {
   });
 });
 
-function failures(...args: Parameters<typeof evaluateVenueSuitability>) {
-  return evaluateVenueSuitability(...args).failures;
+function failures(
+  candidate: Evaluate[0],
+  search: Evaluate[1],
+  blocks: Evaluate[2],
+  bookings: Evaluate[3] = []
+) {
+  return evaluateVenueSuitability(candidate, search, blocks, bookings).failures;
 }
-function criteria(...args: Parameters<typeof evaluateVenueSuitability>): SuitabilityCriterion[] {
+function criteria(...args: Parameters<typeof failures>): SuitabilityCriterion[] {
   return failures(...args).map(failure => failure.criterion);
 }
 
 describe("PTR-30 suitability reasons", () => {
   it("names a suitable venue's verdict with no failures", () => {
-    expect(evaluateVenueSuitability(venue, filters, [])).toEqual({ suitable: true, failures: [] });
+    expect(evaluateVenueSuitability(venue, filters, [], [])).toEqual({
+      suitable: true,
+      failures: [],
+    });
   });
 
   it("names the capacity shortfall in seats (AC2)", () => {
@@ -299,8 +315,8 @@ describe("PTR-30 suitability reasons", () => {
       )
     ).toEqual([
       { criterion: "layout", message: "Does not offer Theatre" },
-      { criterion: "accessibility", message: "Missing accessibility: hearing, loop" },
-      { criterion: "facilities", message: "Missing facilities: pa, system" },
+      { criterion: "accessibility", message: "Missing accessibility: hearing loop" },
+      { criterion: "facilities", message: "Missing facilities: PA system" },
     ]);
   });
 
@@ -382,19 +398,34 @@ describe("PTR-30 suitability reasons", () => {
     ]);
   });
 
-  it("names the booking's own day in a multi-day search with no times", () => {
+  it("fails a date-only range on the first day with no open time, naming a booking by its day", () => {
     const booking = {
       id: "booking-1",
       label: "Annual dinner",
       startsAt: "2026-10-06T00:00:00",
       endsAt: "2026-10-07T00:00:00",
     };
-    const closed = {
-      ...venue,
-      operatingHours: { ...DEFAULT_OPERATING_HOURS, mon: null, wed: null },
-    };
-    expect(failures(closed, { date: "2026-10-05", endDate: "2026-10-07" }, [], [booking])).toEqual([
+    // The 5th and the 7th are open; a venue booked right through the 6th cannot host the range.
+    expect(failures(venue, { date: "2026-10-05", endDate: "2026-10-07" }, [], [booking])).toEqual([
       { criterion: "booking", message: "Booked for Annual dinner on 2026-10-06" },
+    ]);
+    expect(suits(venue, { date: "2026-10-05", endDate: "2026-10-07" }, [])).toBe(true);
+  });
+
+  it("names the requested phrases, not their words, as the Coordinator typed them", () => {
+    const bare = { ...venue, accessibilityFeatures: [], facilities: ["Projector"] };
+    expect(
+      failures(
+        bare,
+        { accessibility: "Step-free access and hearing loop", facilities: "projector, PA system" },
+        []
+      )
+    ).toEqual([
+      {
+        criterion: "accessibility",
+        message: "Missing accessibility: Step-free access, hearing loop",
+      },
+      { criterion: "facilities", message: "Missing facilities: PA system" },
     ]);
   });
 
