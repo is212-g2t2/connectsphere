@@ -124,6 +124,32 @@ describe("DashboardPage", () => {
     // The free-text layout reads back as the layout it names, parsed rather than raw.
     expect(screen.getByText("Theatre")).toBeTruthy();
     expect(screen.getByText("Pending")).toBeTruthy();
+    // PTR-36 criterion 4: no overlap, no conflict badge.
+    expect(screen.queryByText("Conflicting")).toBeNull();
+  });
+
+  it("flags a venue request that overlaps an approved booking (PTR-36 AC4)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("venue_staff")}
+        events={[
+          {
+            access: "venue_staff",
+            event: {
+              id: 7,
+              status: "submitted",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+              venueRequest: { status: "pending", conflict: true },
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Pending")).toBeTruthy();
+    expect(screen.getByText("Conflicting")).toBeTruthy();
   });
 
   it("lets a Coordinator start venue search from an assigned event", () => {

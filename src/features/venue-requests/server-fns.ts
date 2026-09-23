@@ -76,3 +76,26 @@ export const withdrawVenueRequest = createServerFn({ method: "POST" })
 
     return request;
   });
+
+/**
+ * PTR-36: the Venue Staff verb that settles a pending request. The handler re-reads the queue
+ * rule, so the function grants the role its verb, never a specific row.
+ */
+export const requireVenueDecision = requirePermission({ venue_request: ["decide"] });
+
+export const approveVenueRequest = createServerFn({ method: "POST" })
+  .validator(parseVenueRequestId)
+  .middleware([requireVenueDecision])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleApproveVenueRequest }] = await loadServer();
+    const request = await handleApproveVenueRequest(data, context.user, db);
+
+    log.info("Venue request approved", {
+      requestId: request.id,
+      eventId: request.eventId,
+      venueId: request.venueId,
+      actorId: context.user.id,
+    });
+
+    return request;
+  });

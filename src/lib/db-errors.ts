@@ -1,8 +1,9 @@
 /**
  * Whether a Drizzle-wrapped driver error is a Postgres constraint violation for `constraint`.
- * Postgres reports the violated constraint's name on `cause`, and the two write paths that turn
- * one into a readable message — the venue name's unique index and the pending venue request's
- * partial index — must agree on that shape or their mapping silently stops working.
+ * Postgres reports the violated constraint's name on `cause`, and the write paths that turn one
+ * into a readable message — the venue name's unique index, the pending venue request's partial
+ * index and the booking overlap exclusion — must agree on that shape or their mapping silently
+ * stops working.
  */
 export function isConstraintViolation(error: unknown, constraint: string): boolean {
   return (

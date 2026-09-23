@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, inArray, lt } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { venueUnavailability, venues } from "#/db/schema";
+import { venueRequests, venueUnavailability, venues } from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import { eventTiming } from "#/features/events/access";
@@ -299,26 +299,55 @@ async function loadVenueBlocks(
 export type VenueBooking = AvailabilityRecord & { venueId: number };
 
 /**
- * PTR-30 criterion 4's data: the approved bookings overlapping a range, per venue. A deliberate
- * seam, not a fallback — `venue_requests` carries no venue or period until PTR-31 lands and no
- * `approved` status until PTR-33 does, so there is nothing to read yet. The search and the
- * availability calendar both read it, and the search's wiring is pinned by an integration test
- * that injects a loader; the story that merges last of the three replaces the body with one
- * query and deletes this comment.
+ * PTR-30 criterion 4's data: the approved bookings overlapping a range, per venue. An approved
+ * `venue_requests` row *is* the booking (PTR-36), so this is the read the seam was waiting for;
+ * the search and the availability calendar both call it, and the search's wiring stays pinned by
+ * an integration test that injects its own loader. `label` is deliberately anonymous: the
+ * calendar and search never leak another event's name, and the approval refusal names the venue
+ * and period instead.
  */
 export type VenueBookingLoader = (
-  database: Database,
+  database: Pick<Database, "select">,
   venueIds: readonly number[],
   startsAt: string,
   endsAt: string
 ) => Promise<VenueBooking[]>;
 
-const loadVenueBookings: VenueBookingLoader = async (
-  _database: Database,
-  _venueIds: readonly number[],
-  _startsAt: string,
-  _endsAt: string
-) => [];
+export const loadVenueBookings: VenueBookingLoader = async (
+  database,
+  venueIds,
+  startsAt,
+  endsAt
+) => {
+  if (venueIds.length === 0) return [];
+
+  const rows = await database
+    .select({
+      id: venueRequests.id,
+      venueId: venueRequests.venueId,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+    })
+    .from(venueRequests)
+    .where(
+      and(
+        inArray(venueRequests.venueId, venueIds),
+        eq(venueRequests.status, "approved"),
+        // The same strict half-open overlap the projection and the exclusion constraint use:
+        // periods that only touch at a boundary do not conflict.
+        lt(venueRequests.startsAt, endsAt),
+        gt(venueRequests.endsAt, startsAt)
+      )
+    );
+
+  return rows.map(row => ({
+    id: row.id,
+    venueId: row.venueId,
+    startsAt: normalizeDatabaseTimestamp(row.startsAt),
+    endsAt: normalizeDatabaseTimestamp(row.endsAt),
+    label: "another event",
+  }));
+};
 
 /**
  * PTR-29's venue search and PTR-30's verdicts. An optional event id belongs to the assigned
@@ -403,12 +432,9 @@ export async function handleGetVenue(data: unknown, database: Database): Promise
 
 /**
  * A venue's availability across an inclusive civil-date range (PTR-28): its opening periods,
- * minus the recorded unavailability that overlaps the range, as floating venue-local timestamps.
- *
- * AC3 is mocked. Approved-booking persistence belongs to PTR-33/36, so there is no booking
- * row to read and `bookings: []` below is the seam those stories fill — `projectAvailability`
- * already renders an approved booking as a "confirmed" period, and the unit test pins that,
- * but the live calendar reports recorded unavailability only until the booking table exists.
+ * minus the recorded unavailability and the approved bookings that overlap the range, as
+ * floating venue-local timestamps. PTR-36 filled the booking seam, so an approved booking now
+ * renders as a "confirmed" period.
  */
 export async function handleGetVenueAvailability(data: unknown, database: Database) {
   const selection = parseAvailabilityRequest(data);
@@ -439,8 +465,7 @@ export async function handleGetVenueAvailability(data: unknown, database: Databa
     ...projectAvailability(
       { startsAt, endsAt },
       {
-        // The same seam the search reads; the projection's "confirmed" branch is pinned by the
-        // unit test until bookings exist to read.
+        // The same approved bookings the search reads (PTR-36).
         bookings,
         blocks,
         openPeriods: openingPeriods(selection.startDate, selection.endDate, venue.operatingHours),

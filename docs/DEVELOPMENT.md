@@ -149,7 +149,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
   ```bash
   bun run db:generate
   ```
-- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`. Handwritten migrations will cause snapshot drift.
+- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`. Handwritten migrations will cause snapshot drift. One reviewed exception: the booking exclusion constraint Drizzle cannot express ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)) is created with `db:generate --custom`; because the migrator runs all pending migrations in one transaction, its predicate calls an IMMUTABLE wrapper function rather than comparing the newly added enum label.
 - **Commit schema and migrations together**: Always commit the schema modifications along with the resulting generated files in `src/db/drizzle/`.
 - **Apply migrations**: Run `bun run db:migrate` to apply pending migrations.
 - **Prototyping**: During early exploration, `bun run db:push` synchronises the schema directly without recording a migration file. Never use `db:push` in production.

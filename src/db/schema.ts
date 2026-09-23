@@ -253,10 +253,16 @@ export * from "./auth-schema";
 /**
  * PTR-8: the statuses an event's child records can hold. Same rule as `eventRequestStatus`
  * above — only what a story writes today — so widening one is a generated `ALTER TYPE`
- * migration when PTR-33/34/39/44 start moving it. PTR-31 added `withdrawn`: a request the
- * Coordinator took back is kept rather than deleted, so the record of it survives.
+ * migration when PTR-34/37/39/44 start moving it. PTR-31 added `withdrawn`: a request the
+ * Coordinator took back is kept rather than deleted, so the record of it survives. PTR-36
+ * added `approved`: an approved request is the booking that holds the venue, and the exclusion
+ * constraint in migration 0019 is label-based, not order-based.
  */
-export const venueRequestStatus = pgEnum("venue_request_status", ["pending", "withdrawn"]);
+export const venueRequestStatus = pgEnum("venue_request_status", [
+  "pending",
+  "withdrawn",
+  "approved",
+]);
 
 export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status", [
   "requested",
@@ -270,6 +276,10 @@ export const eventRegistrationStatus = pgEnum("event_registration_status", ["reg
  * so every child below references `event_requests.id` rather than a parallel events table.
  * `venue_requests` and `equipment_requests` are the requests directed at Venue Staff and
  * Technical Support (PTR-8 criterion 3); PTR-31 filled the venue request's own columns.
+ *
+ * PTR-36: no two `approved` rows may overlap for one venue. The guarantee is the partial
+ * exclusion constraint in migration `0019_booking-overlap-constraint`, which Drizzle cannot
+ * express here and never drops; see docs/adrs/ADR-5-venue-booking-overlap.md.
  */
 export const venueRequests = pgTable(
   "venue_requests",
@@ -295,7 +305,7 @@ export const venueRequests = pgTable(
     endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
     /**
      * Who is working the request. Null on creation (PTR-31): the queue is shared, so a request
-     * is not routed to a person — PTR-33's decision records the Venue Staff member who settled it.
+     * is not routed to a person — the approval records the Venue Staff member who settled it (PTR-36).
      */
     assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
     /**

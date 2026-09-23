@@ -16,6 +16,33 @@ export const VENUE_REQUEST_DUPLICATE_MESSAGE =
   "A request for this venue is already pending for this event";
 export const VENUE_REQUEST_SETTLED_MESSAGE =
   "This request has already been settled and can no longer be withdrawn.";
+/** PTR-36: a request that is no longer pending cannot be approved again. */
+export const VENUE_REQUEST_DECIDED_MESSAGE = "This request has already been decided.";
+/**
+ * PTR-36: the backstop sentence when the exclusion constraint refuses a write the locked
+ * pre-check did not see — a writer outside `handleApproveVenueRequest`.
+ */
+export const VENUE_REQUEST_CONFLICT_MESSAGE =
+  "This venue is already booked for an overlapping period.";
+
+/**
+ * PTR-36 criterion 2: the refusal names the venue and the conflicting period, never the other
+ * event's name — Venue Staff keep the nameless projection PTR-8/PTR-31 established. The times
+ * arrive in the loader's normalized `YYYY-MM-DDTHH:MM:SS` spelling.
+ */
+export function venueRequestConflictMessage(conflict: {
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+}) {
+  // A period that crosses midnight names its end date too; within one civil day the shared date
+  // reads once.
+  const end =
+    conflict.endsAt.slice(0, 10) === conflict.startsAt.slice(0, 10)
+      ? conflict.endsAt.slice(11, 16)
+      : conflict.endsAt.slice(0, 16);
+  return `${conflict.venueName} is already booked ${conflict.startsAt.slice(0, 16)}–${end}`;
+}
 
 const Time = z.string().regex(TIME_SHAPE, VENUE_REQUEST_TIME_MESSAGE);
 const EventId = z.int32({ error: VENUE_SEARCH_EVENT_MESSAGE }).positive(VENUE_SEARCH_EVENT_MESSAGE);
