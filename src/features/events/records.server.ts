@@ -14,6 +14,7 @@ import {
 } from "#/features/events/access";
 import type { EventProjection } from "#/features/events/access";
 import { parseEventListInput } from "#/features/events/schema";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -28,16 +29,18 @@ import { parseEventListInput } from "#/features/events/schema";
 type Database = typeof Db;
 
 /**
- * The caller's own submitted event request, read through the gate both venue-request callers
- * apply (PTR-29/PTR-31): the event must be `submitted` and assigned to the Coordinator asking.
- * Two application callers reach it — the venue search that prefills the request form and the
- * request create handler — so it lives here with the event reads. `null` is the refusal both
- * callers turn into `AuthorizationError("Forbidden")`.
+ * The caller's own event request, read through the gate both venue callers apply: the event must
+ * be assigned to the Coordinator asking and stand at one of the statuses the caller works in —
+ * `submitted` alone for raising a venue request (PTR-31), the wider set an assigned Coordinator
+ * searches from (PTR-30). Two application callers reach it — the venue search that prefills the
+ * request form and the request create handler — so it lives here with the event reads. `null` is
+ * the refusal both callers turn into `AuthorizationError("Forbidden")`.
  */
-export async function loadAssignedSubmittedEvent(
+export async function loadAssignedEvent(
   database: Pick<Database, "select">,
   eventId: number,
-  coordinatorId: string
+  coordinatorId: string,
+  statuses: readonly EventRequestStatus[]
 ) {
   const rows = await database
     .select({
@@ -53,7 +56,7 @@ export async function loadAssignedSubmittedEvent(
     .where(
       and(
         eq(eventRequests.id, eventId),
-        eq(eventRequests.status, "submitted"),
+        inArray(eventRequests.status, [...statuses]),
         eq(eventRequests.assignedCoordinatorId, coordinatorId)
       )
     )

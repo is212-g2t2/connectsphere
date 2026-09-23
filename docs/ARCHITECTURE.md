@@ -49,7 +49,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view
 │   │   ├── venue-requests/ # Booking requests: raise, withdraw, notify
-│   │   └── venues/       # Venue catalogue, requirements search, and availability
+│   │   └── venues/       # Venue catalogue, requirements search with suitability verdicts, and availability
 │   ├── hooks/            # Client hooks shared across features
 │   ├── lib/              # Shared integrations (auth, mail, storage, logger, SEO)
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata
@@ -93,6 +93,12 @@ Handled by **Better Auth**; rate limited to 20 requests per 60-second window.
 - **Password policy**: `PasswordSchema` (`src/features/auth/schema/password.ts`) requires 8–128 characters with a number and a symbol. Better Auth enforces only a length range of its own accord, so a `hooks.before` middleware in `src/lib/auth.server.ts` re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). `/sign-in/email` is deliberately excluded, so accounts predating the policy can still sign in.
 - **Email verification**: `emailVerification.sendOnSignUp` mails a link via the `VerificationEmail` template; Better Auth's `/api/auth/verify-email` consumes it, so there is no app route for it.
 - **Password reset**: `/reset-password` sends a link (1 hour expiry). The emailed callback returns to `/reset-password?token=…`, or `?error=INVALID_TOKEN` when it has expired. It does not create a session; the user signs in afterwards.
+
+## Venue suitability
+
+`evaluateVenueSuitability` (`src/features/venues/records.server.ts`) checks every applied requirement — capacity, location, layout, accessibility and facility phrases, availability for the window — and returns `{ suitable, failures }` with each failing criterion named in a sentence. `handleSearchVenues` sorts the catalogue by that verdict into `venues` and `unsuitable`, and the `/venues` page lists the shortfalls beneath the results. A verdict writes nothing; Venue Staff still decide every request.
+
+Availability is operating hours minus recorded unavailability and the bookings `loadVenueBookings` supplies, as floating venue-local timestamps (`src/features/venues/availability.ts`); the search and the availability calendar read the same loader. Search from an event accepts `submitted`, `under_review`, `awaiting_organiser`, `approved` and `planning`, and refuses the rest without revealing whether the event exists.
 
 ## Authorisation
 

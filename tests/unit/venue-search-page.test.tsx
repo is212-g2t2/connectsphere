@@ -41,6 +41,7 @@ function result(overrides: Partial<VenueSearchResult> = {}): VenueSearchResult {
     event: null,
     filters: {},
     venues: [matchingVenue],
+    unsuitable: [],
     ...overrides,
   };
 }
@@ -208,5 +209,102 @@ describe("VenueListPage search", () => {
     expect(fieldValue("Start time")).toBe("");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(navigate).toHaveBeenCalledWith({ to: "/venues", search: {} });
+  });
+});
+
+describe("VenueListPage suitability (PTR-30)", () => {
+  const smallRoom = {
+    ...matchingVenue,
+    id: 8,
+    name: "Small Room",
+    maxCapacity: 40,
+    facilities: ["Whiteboard"],
+  };
+
+  it("names why each unsuitable venue fell short once something was asked (AC5)", () => {
+    render(
+      <VenueListPage
+        user={user}
+        result={result({
+          filters: { expectedAttendance: 120, facilities: "Projector" },
+          unsuitable: [
+            {
+              venue: smallRoom,
+              failures: [
+                { criterion: "capacity", message: "Holds 40; 120 needed" },
+                { criterion: "facilities", message: "Missing facilities: projector" },
+              ],
+            },
+          ],
+        })}
+      />
+    );
+
+    const results = screen.getByRole("region", { name: "Venue results" });
+    expect(within(results).getByText("1 venue suitable, 1 not suitable")).toBeTruthy();
+    // Results stay the suitable venues; the shortfalls are their own region beneath them.
+    expect(within(results).queryByRole("link", { name: "Small Room" })).toBeNull();
+    const unsuitable = screen.getByRole("region", { name: "Not suitable" });
+    expect(within(unsuitable).getByRole("link", { name: "Small Room" })).toBeTruthy();
+    expect(within(unsuitable).getByText("Holds 40; 120 needed")).toBeTruthy();
+    expect(within(unsuitable).getByText("Missing facilities: projector")).toBeTruthy();
+    // AC6 stated where the verdict is read.
+    expect(within(unsuitable).getByText(/books or blocks nothing/)).toBeTruthy();
+  });
+
+  it("keeps the catalogue plain when nothing has been asked of it", () => {
+    render(
+      <VenueListPage
+        user={user}
+        result={result({ unsuitable: [{ venue: smallRoom, failures: [] }] })}
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Not suitable" })).toBeNull();
+    expect(screen.getByText("1 venue")).toBeTruthy();
+  });
+
+  it("does not list the venues as failing a window that crosses midnight", () => {
+    render(
+      <VenueListPage
+        user={user}
+        result={result({
+          filters: { date: "2026-10-05", startTime: "22:00", endTime: "02:00" },
+          venues: [],
+          unsuitable: [
+            {
+              venue: smallRoom,
+              failures: [
+                { criterion: "availability", message: "The requested window crosses midnight" },
+              ],
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText("A search window cannot cross midnight.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Not suitable" })).toBeNull();
+  });
+
+  it("shows the reasons beneath an explicit empty result", () => {
+    render(
+      <VenueListPage
+        user={user}
+        result={result({
+          filters: { expectedAttendance: 500 },
+          venues: [],
+          unsuitable: [
+            {
+              venue: smallRoom,
+              failures: [{ criterion: "capacity", message: "Holds 40; 500 needed" }],
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText("No venue meets every requirement.")).toBeTruthy();
+    expect(screen.getByText("Holds 40; 500 needed")).toBeTruthy();
   });
 });

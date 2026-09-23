@@ -7,7 +7,7 @@ import { AuthorizationError, ConflictError, NotFoundError } from "#/features/aut
 import type { SessionUser } from "#/features/auth/session";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { eventTiming } from "#/features/events/access";
-import { loadAssignedSubmittedEvent } from "#/features/events/records.server";
+import { loadAssignedEvent } from "#/features/events/records.server";
 import {
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
@@ -93,7 +93,7 @@ function rethrowDuplicate(error: unknown): never {
  * What the venue page's request panel needs: the caller's event defaults, and the pending request
  * for this event and venue when one exists. The event is loaded by id alone rather than filtered to
  * the current assignee, so the panel stays reachable after the event moves past `submitted` or is
- * reassigned; the caller is refused instead. Deliberately not `loadAssignedSubmittedEvent`: that
+ * reassigned; the caller is refused instead. Deliberately not `loadAssignedEvent`: that
  * gate requires `submitted` and the current assignee, which would take withdrawal away from a
  * raiser the moment their event moved on. Two ways a context is returned: to the Coordinator the
  * event is currently assigned to, on an event still awaiting a booking decision, or to anyone who
@@ -197,7 +197,7 @@ export async function handleCreateVenueRequest(
   const input = parseVenueRequestInput(data);
 
   const created = await database.transaction(async tx => {
-    const event = await loadAssignedSubmittedEvent(tx, input.eventId, actor.id);
+    const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
     if (!event) throw new AuthorizationError("Forbidden");
 
     const venueRows = await tx
