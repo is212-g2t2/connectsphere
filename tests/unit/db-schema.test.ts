@@ -16,6 +16,7 @@ import {
   accountRelations,
   venues,
   venueUnavailability,
+  venueRequests,
   eventRequests,
 } from "#/db/schema";
 
@@ -45,6 +46,21 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(eventRequests).registrationCapacity.name).toBe("registration_capacity");
     expect(getTableColumns(eventRequests).registrationOpensAt.name).toBe("registration_opens_at");
     expect(getTableColumns(eventRequests).registrationClosesAt.name).toBe("registration_closes_at");
+  });
+
+  it("defines the venue request columns (PTR-31)", () => {
+    expect(getTableColumns(venueRequests).venueId.name).toBe("venue_id");
+    expect(getTableColumns(venueRequests).requestedById.name).toBe("requested_by_id");
+    // Nullable with `set null`, matching `assignedCoordinatorId`: deleting a staff account must
+    // not delete the requests they raised.
+    expect(getTableColumns(venueRequests).requestedById.notNull).toBe(false);
+    expect(getTableColumns(venueRequests).startsAt.name).toBe("starts_at");
+    expect(getTableColumns(venueRequests).endsAt.name).toBe("ends_at");
+    expect(getTableColumns(venueRequests).createdAt.name).toBe("created_at");
+  });
+
+  it("keeps the venue request status list identical to the Postgres enum (PTR-31, PTR-36)", () => {
+    expect([...schema.venueRequestStatus.enumValues]).toEqual(["pending", "withdrawn", "approved"]);
   });
 
   it("defines the event request assignment columns (PTR-15)", () => {

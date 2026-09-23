@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router";
 
 import { Page, PageHeader } from "#/components/layout/page";
 import { Card, CardContent } from "#/components/ui/card";
-import { unwrapRefusal } from "#/features/auth/session";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import { SUBMITTED_EDIT_REFUSAL } from "#/features/event-requests/schema";
 import { saveEventRequestDraft, submitEventRequest } from "#/features/event-requests/server-fns";
@@ -32,18 +31,15 @@ function toDraftValues(row: EventRequestDraft): EventRequestDraftValues {
 }
 export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequestDraft } = {}) {
   const [draft, saveDraft, saving] = useMutation<EventRequestDraftValues, EventRequestDraft>(
-    async (values, previous) =>
-      unwrapRefusal(
-        await saveEventRequestDraft({
-          data: { ...values, id: previous?.id ?? existingDraft?.id },
-        }),
-        SAVE_FAILED
-      ),
+    (values, previous) =>
+      saveEventRequestDraft({
+        data: { ...values, id: previous?.id ?? existingDraft?.id },
+      }),
     SAVE_FAILED
   );
 
   const [submission, submitDraft, submitting] = useMutation<number, EventRequestDraft>(
-    async id => unwrapRefusal(await submitEventRequest({ data: { id } }), SUBMIT_FAILED),
+    id => submitEventRequest({ data: { id } }),
     SUBMIT_FAILED
   );
 

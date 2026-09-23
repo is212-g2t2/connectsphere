@@ -1,10 +1,14 @@
 import { CalendarDays, Clock3 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
 import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
+import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import type { EventProjection } from "#/features/events/access";
+import { EventRequirements } from "#/features/events/components/event-requirements";
+import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(
@@ -50,9 +54,12 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                     </p>
                     <h3 className="mt-2 display-h3">{event.name ?? "Venue request"}</h3>
                   </div>
-                  {event.registration?.status && (
-                    <Badge variant="confirmed">{event.registration.status}</Badge>
-                  )}
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <EventRequestStatusBadge status={event.status} />
+                    {event.registration?.status && (
+                      <Badge variant="confirmed">{event.registration.status}</Badge>
+                    )}
+                  </div>
                 </div>
 
                 {event.description && (
@@ -76,25 +83,24 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                 {(access === "venue_staff" ||
                   access === "organiser" ||
                   access === "coordinator") && (
-                  <dl className="mt-5 grid gap-3 border-t border-border pt-4 body-sm sm:grid-cols-2">
-                    {event.expectedAttendance !== null &&
-                      event.expectedAttendance !== undefined && (
-                        <Detail
-                          label="Expected attendance"
-                          value={String(event.expectedAttendance)}
-                        />
-                      )}
-                    {event.layout && <Detail label="Layout" value={event.layout} />}
-                    {event.accessibilityRequirements && (
-                      <Detail label="Accessibility" value={event.accessibilityRequirements} />
-                    )}
-                    {event.requiredFacilities && (
-                      <Detail label="Facilities" value={event.requiredFacilities} />
-                    )}
+                  <EventRequirements
+                    event={event}
+                    className="mt-5 border-t border-border pt-4 body-sm"
+                  >
                     {event.venueRequest && (
-                      <Detail label="Venue request" value={event.venueRequest.status} />
+                      <Detail
+                        label="Venue request"
+                        value={
+                          <span className="flex flex-wrap items-center gap-2">
+                            <Badge variant="progress">Pending</Badge>
+                            {event.venueRequest.conflict && (
+                              <Badge variant="stopped">Conflicting booking</Badge>
+                            )}
+                          </span>
+                        }
+                      />
                     )}
-                  </dl>
+                  </EventRequirements>
                 )}
 
                 {event.equipment && event.equipment.length > 0 && (
@@ -111,7 +117,7 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                   </div>
                 )}
 
-                {access === "coordinator" && (
+                {access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(event.status) && (
                   <div className="mt-5 border-t border-border pt-4">
                     <Link
                       to="/venues"
@@ -131,10 +137,11 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+/** The one extra row a card adds beside the shared requirements: its pending request. */
+function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
-      <dt className="text-muted-foreground">{label}</dt>
+      <dt className="eyebrow text-muted-foreground">{label}</dt>
       <dd className="mt-1 font-medium text-foreground">{value}</dd>
     </div>
   );

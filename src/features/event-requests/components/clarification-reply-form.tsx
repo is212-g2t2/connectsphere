@@ -2,7 +2,6 @@ import { useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { unwrapRefusal } from "#/features/auth/session";
 import { Button } from "#/components/ui/button";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Textarea } from "#/components/ui/textarea";
@@ -42,17 +41,14 @@ export function ClarificationReplyForm({
     setIsSaving(true);
 
     try {
-      const result = await unwrapRefusal(
-        replyToClarification({
-          data: {
-            id: requestId,
-            clarificationId: clarification.id,
-            body: replyBody.trim(),
-            amendments: replyAmendments,
-          },
-        }),
-        "Could not send reply. Try again."
-      );
+      const result = await replyToClarification({
+        data: {
+          id: requestId,
+          clarificationId: clarification.id,
+          body: replyBody.trim(),
+          amendments: replyAmendments,
+        },
+      });
 
       // The mutation committed even if a route reload has a transient failure. Lock this form so
       // retrying the browser action cannot create a second reply while the page is stale.

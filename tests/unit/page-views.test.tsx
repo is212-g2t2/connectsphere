@@ -9,6 +9,7 @@ import { VenueDetailPage } from "#/features/venues/components/venue-detail-page"
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import type { SessionUser } from "#/features/auth/session";
+import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
 
 /**
@@ -20,12 +21,16 @@ import type { Venue } from "#/features/venues/server-fns";
  * and the two router hooks the venue page still needs (navigate, invalidate) are mocked at the
  * module, the way `login-form.test.tsx` already mocks them for the forms.
  */
+const { routerInvalidate } = vi.hoisted(() => ({
+  routerInvalidate: vi.fn<() => Promise<void>>(),
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
   useNavigate: () => vi.fn<() => void>(),
-  useRouter: () => ({ invalidate: vi.fn<() => void>() }),
+  useRouter: () => ({ invalidate: routerInvalidate }),
 }));
 
 const { deleteUser, toast } = vi.hoisted(() => ({
@@ -97,11 +102,12 @@ describe("DashboardPage", () => {
             access: "venue_staff",
             event: {
               id: 7,
+              status: "submitted",
               eventDate: "2026-10-01",
               startTime: "09:00",
               endTime: "17:00",
               expectedAttendance: 120,
-              layout: "Theatre",
+              layout: "Theatre seating",
               requiredFacilities: "Projector",
               venueRequest: { status: "pending" },
             },
@@ -113,8 +119,37 @@ describe("DashboardPage", () => {
     expect(screen.getByText("venue staff access")).toBeTruthy();
     // The venue staff projection carries no name, so the fallback title is what it shows.
     expect(screen.getByRole("heading", { name: "Venue request" })).toBeTruthy();
+    expect(screen.getByText("Expected attendance")).toBeTruthy();
     expect(screen.getByText("120")).toBeTruthy();
-    expect(screen.getByText("pending")).toBeTruthy();
+    // The free-text layout reads back as the layout it names, parsed rather than raw.
+    expect(screen.getByText("Theatre")).toBeTruthy();
+    expect(screen.getByText("Pending")).toBeTruthy();
+    // PTR-36 criterion 4: no overlap, no conflict badge.
+    expect(screen.queryByText("Conflicting booking")).toBeNull();
+  });
+
+  it("flags a venue request that overlaps an approved booking (PTR-36 AC4)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("venue_staff")}
+        events={[
+          {
+            access: "venue_staff",
+            event: {
+              id: 7,
+              status: "submitted",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+              venueRequest: { status: "pending", conflict: true },
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Pending")).toBeTruthy();
+    expect(screen.getByText("Conflicting booking")).toBeTruthy();
   });
 
   it("lets a Coordinator start venue search from an assigned event", () => {
@@ -126,6 +161,7 @@ describe("DashboardPage", () => {
             access: "coordinator",
             event: {
               id: 41,
+              status: "submitted",
               name: "Annual summit",
               eventDate: "2026-10-01",
               startTime: "09:00",
@@ -137,6 +173,29 @@ describe("DashboardPage", () => {
     );
 
     expect(screen.getByRole("link", { name: "Find venues for this event" })).toBeTruthy();
+  });
+
+  it("does not offer the venue search once an event is past finding one (PTR-30)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("event_coordinator")}
+        events={[
+          {
+            access: "coordinator",
+            event: {
+              id: 41,
+              status: "confirmed",
+              name: "Annual summit",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.queryByRole("link", { name: "Find venues for this event" })).toBeNull();
   });
 
   /**
@@ -251,7 +310,7 @@ describe("VenueListPage", () => {
     render(
       <VenueListPage
         user={userWithRole("event_coordinator")}
-        result={{ event: null, filters: {}, venues: [venue] }}
+        result={{ event: null, filters: {}, venues: [venue], unsuitable: [] }}
       />
     );
 
@@ -264,7 +323,7 @@ describe("VenueListPage", () => {
     render(
       <VenueListPage
         user={userWithRole("venue_staff")}
-        result={{ event: null, filters: {}, venues: [] }}
+        result={{ event: null, filters: {}, venues: [], unsuitable: [] }}
       />
     );
 
@@ -278,7 +337,7 @@ describe("VenueListPage", () => {
       render(
         <VenueListPage
           user={userWithRole(role)}
-          result={{ event: null, filters: {}, venues: [venue] }}
+          result={{ event: null, filters: {}, venues: [venue], unsuitable: [] }}
         />
       );
 
@@ -303,7 +362,13 @@ describe("VenueListPage", () => {
 describe("VenueDetailPage", () => {
   it("shows the read-only record to a role that may not update it", () => {
     render(
-      <VenueDetailPage user={userWithRole("event_coordinator")} venue={venue} justCreated={false} />
+      <VenueDetailPage
+        user={userWithRole("event_coordinator")}
+        venue={venue}
+        justCreated={false}
+        requestContext={null}
+        requestContextFailed={false}
+      />
     );
 
     expect(screen.getByRole("heading", { name: "Great Hall" })).toBeTruthy();
@@ -312,9 +377,123 @@ describe("VenueDetailPage", () => {
   });
 
   it("shows the edit form to Venue Staff, and the banner a fresh record arrives with", () => {
-    render(<VenueDetailPage user={userWithRole("venue_staff")} venue={venue} justCreated />);
+    render(
+      <VenueDetailPage
+        user={userWithRole("venue_staff")}
+        venue={venue}
+        justCreated
+        requestContext={null}
+        requestContextFailed={false}
+      />
+    );
 
     expect(screen.getByRole("button", { name: "Save venue" })).toBeTruthy();
     expect(screen.getByText("Venue saved.")).toBeTruthy();
+  });
+
+  it("points a Coordinator without an event context at their dashboard", () => {
+    render(
+      <VenueDetailPage
+        user={userWithRole("event_coordinator")}
+        venue={venue}
+        justCreated={false}
+        requestContext={null}
+        requestContextFailed={false}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "dashboard" })).toBeTruthy();
+    expect(screen.getByText(/use Find venues for this event/)).toBeTruthy();
+  });
+
+  it("reports a failed request-context load and retries it instead of sending the Coordinator back", async () => {
+    const user = userEvent.setup();
+    render(
+      <VenueDetailPage
+        user={userWithRole("event_coordinator")}
+        venue={venue}
+        justCreated={false}
+        requestContext={null}
+        requestContextFailed
+      />
+    );
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Could not load this venue's request panel."
+    );
+    // The dead-end search hint belongs to "no event", not to a transient failure.
+    expect(screen.queryByRole("link", { name: "dashboard" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(routerInvalidate).toHaveBeenCalled();
+  });
+
+  it("does not offer the request hint to a role without venue_request:request", () => {
+    render(
+      <VenueDetailPage
+        user={userWithRole("venue_staff")}
+        venue={venue}
+        justCreated={false}
+        requestContext={null}
+        requestContextFailed={false}
+      />
+    );
+
+    expect(screen.queryByText(/use Find venues for this event/)).toBeNull();
+  });
+
+  /**
+   * PTR-31: a successful send or withdraw swaps the panel's branch under the same heading, so
+   * focus would otherwise fall to `<body>` and the new state go unannounced. The panel watches its
+   * own event/venue/request identity and moves focus only when a request changes within the same
+   * context, never on the first paint.
+   */
+  it("focuses the panel heading when the request changes, but not on first paint", () => {
+    const openContext: VenueRequestContext = {
+      event: {
+        id: 12,
+        name: "Annual Gala",
+        eventDate: "2026-10-12",
+        endDate: "2026-10-12",
+        startTime: "14:30",
+        endTime: "18:45",
+        expectedAttendance: 80,
+        layout: "Theatre seating",
+        accessibilityRequirements: "Step-free access",
+        requiredFacilities: "Projector, PA system",
+      },
+      request: null,
+    };
+    const { rerender } = render(
+      <VenueDetailPage
+        user={userWithRole("event_coordinator")}
+        venue={venue}
+        justCreated={false}
+        requestContext={openContext}
+        requestContextFailed={false}
+      />
+    );
+
+    expect(document.activeElement).toBe(document.body);
+
+    rerender(
+      <VenueDetailPage
+        user={userWithRole("event_coordinator")}
+        venue={venue}
+        justCreated={false}
+        requestContext={{
+          ...openContext,
+          request: {
+            id: "req-1",
+            startsAt: "2026-10-12T14:30",
+            endsAt: "2026-10-12T18:45",
+            canWithdraw: true,
+          },
+        }}
+        requestContextFailed={false}
+      />
+    );
+
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Venue request" }));
   });
 });

@@ -79,9 +79,9 @@ test.describe("Event access", () => {
     // PTR-31 AC2: timing, attendance, layout, accessibility and facilities — never the name.
     await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
     await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toHaveCount(0);
-    // Scoped to the venue-request detail row: "pending" also appears in the registration badge.
+    // Scoped to the venue-request detail row: the pending state is a status pill, not raw text.
     await expect(
-      page.locator("dl", { hasText: "Venue request" }).getByText("pending", { exact: true })
+      page.locator("dl", { hasText: "Venue request" }).getByText("Pending", { exact: true })
     ).toBeVisible();
   });
 

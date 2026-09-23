@@ -73,4 +73,4 @@ Three places, all required: `src/env.ts` (optional unless the app cannot boot wi
 
 ## Database schemas and migrations
 
-When touching any schema file (`src/db/schema.ts`, `src/db/auth-schema.ts`): run `bun run db:generate`, review the generated DDL in `src/db/drizzle/`, and commit the schema with its migration together. Never handwrite SQL, and never use `db:push` outside local prototyping; it records no migration history. Workflow: `docs/DEVELOPMENT.md` §Migration Rules.
+When touching any schema file (`src/db/schema.ts`, `src/db/auth-schema.ts`): run `bun run db:generate`, review the generated DDL in `src/db/drizzle/`, and commit the schema with its migration together. Never handwrite SQL, and never use `db:push` outside local prototyping; it records no migration history. One reviewed exception is the booking exclusion constraint Drizzle cannot express, added with `db:generate --custom` (`docs/adrs/ADR-5-venue-booking-overlap.md`). Workflow: `docs/DEVELOPMENT.md` §Migration Rules.

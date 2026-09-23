@@ -5,6 +5,7 @@ import { ClarificationReplyEmail } from "#/features/emails/components/clarificat
 import { Layout } from "#/features/emails/components/layout";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
+import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
 
 describe("Email templates rendering", () => {
@@ -96,5 +97,63 @@ describe("Email templates rendering", () => {
     expect(html).toContain(eventRequestUrl);
     expect(html).toContain("View your request");
     expect(html).toContain("Sent from ConnectSphere.");
+  });
+
+  it("renders VenueBookingRequestEmail with the venue, window, and expected attendance", async () => {
+    const html = await render(
+      <VenueBookingRequestEmail
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-12 18:45:00"
+        expectedAttendance={120}
+        layout="Theatre seating"
+        accessibilityRequirements="Step-free access"
+        requiredFacilities="Projector, PA system"
+      />
+    );
+
+    expect(html).toContain("Venue booking requested");
+    expect(html).toContain("Harbour Hall");
+    expect(html).toContain("12 October 2026");
+    expect(html).toContain("14:30–18:45");
+    expect(html).toContain("Expected attendance: 120");
+    expect(html).toContain("pending booking requests");
+  });
+
+  it("renders one requirement line per non-empty venue requirement (PTR-31 AC2)", async () => {
+    const html = await render(
+      <VenueBookingRequestEmail
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-12 18:45:00"
+        expectedAttendance={120}
+        layout="Theatre seating"
+        accessibilityRequirements="Step-free access"
+        requiredFacilities="Projector, PA system"
+      />
+    );
+
+    expect(html).toContain("Layout: Theatre seating");
+    expect(html).toContain("Accessibility requirements: Step-free access");
+    expect(html).toContain("Required facilities: Projector, PA system");
+  });
+
+  it("omits empty venue requirement lines (PTR-31 AC2)", async () => {
+    const html = await render(
+      <VenueBookingRequestEmail
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-12 18:45:00"
+        expectedAttendance={null}
+        layout=""
+        accessibilityRequirements=""
+        requiredFacilities=""
+      />
+    );
+
+    expect(html).not.toContain("Layout:");
+    expect(html).not.toContain("Accessibility requirements:");
+    expect(html).not.toContain("Required facilities:");
+    expect(html).not.toContain("Expected attendance");
   });
 });

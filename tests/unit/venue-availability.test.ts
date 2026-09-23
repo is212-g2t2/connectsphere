@@ -57,11 +57,10 @@ describe("PTR-28 availability projection", () => {
   });
 
   /**
-   * AC3 is mocked until PTR-31/PTR-33 own booking persistence: no live caller passes a booking
-   * (`records.server.ts` passes `bookings: []`), but the projection must already render one, or
-   * the story's confirmed state would arrive untested.
+   * The projection's confirmed state, pinned as pure logic: `loadVenueBookings` feeds it live
+   * approved bookings (PTR-36), and this keeps the rendering rule independent of that query.
    */
-  it("[AC3 mocked] renders an approved booking as a confirmed period", () => {
+  it("renders an approved booking as a confirmed period (PTR-36)", () => {
     const projection = projectAvailability(
       range,
       source({

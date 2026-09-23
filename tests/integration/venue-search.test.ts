@@ -7,6 +7,7 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleSearchVenues } from "#/features/venues/records.server";
+import type { VenueBookingLoader } from "#/features/venues/records.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
 const users = {
@@ -143,6 +144,103 @@ describe("venue search handler (PTR-29)", () => {
 
     expect(result.venues.map(venue => venue.name)).toEqual([venueNames[0]]);
   });
+
+  it("returns the venues that fell short with each failing criterion named (PTR-30 AC5)", async () => {
+    const result = await handleSearchVenues(
+      {
+        expectedAttendance: "120",
+        layout: "theatre",
+        facilities: "Projector, PA system",
+        accessibility: "Step-free access",
+      },
+      session(users.coordinator),
+      database as never
+    );
+
+    const small = result.unsuitable.find(({ venue }) => venue.name === venueNames[1]);
+    expect(small?.failures).toEqual([
+      { criterion: "capacity", message: "Holds 30; 120 needed" },
+      { criterion: "layout", message: "Does not offer Theatre" },
+      { criterion: "accessibility", message: "Missing accessibility: Step-free access" },
+      { criterion: "facilities", message: "Missing facilities: Projector, PA system" },
+    ]);
+    expect(result.unsuitable.map(({ venue }) => venue.name)).not.toContain(venueNames[0]);
+  });
+
+  it("assesses the bookings the loader supplies for the requested period (PTR-30 AC1, AC4)", async () => {
+    const [hall] = await database
+      .select({ id: schema.venues.id })
+      .from(schema.venues)
+      .where(eq(schema.venues.name, venueNames[0]));
+    const calls: { venueIds: readonly number[]; startsAt: string; endsAt: string }[] = [];
+    const loadBookings: VenueBookingLoader = async (_database, venueIds, startsAt, endsAt) => {
+      calls.push({ venueIds, startsAt, endsAt });
+      return [
+        {
+          venueId: hall.id,
+          id: "booking-1",
+          label: "Annual dinner",
+          startsAt: "2027-03-15T11:00:00",
+          endsAt: "2027-03-15T13:00:00",
+        },
+      ];
+    };
+
+    const result = await handleSearchVenues(
+      { date: "2027-03-15", startTime: "10:00", endTime: "12:00" },
+      session(users.coordinator),
+      database as never,
+      loadBookings
+    );
+
+    expect(calls).toEqual([
+      {
+        venueIds: expect.arrayContaining([hall.id]),
+        startsAt: "2027-03-15 00:00:00",
+        endsAt: "2027-03-16 00:00:00",
+      },
+    ]);
+    expect(result.venues.map(venue => venue.id)).not.toContain(hall.id);
+    expect(result.unsuitable.find(({ venue }) => venue.id === hall.id)?.failures).toEqual([
+      { criterion: "booking", message: "Booked for Annual dinner on 2027-03-15" },
+    ]);
+  });
+
+  it.each(["under_review", "awaiting_organiser", "approved", "planning"] as const)(
+    "still prefills from an assigned event that is %s (PTR-30)",
+    async status => {
+      await database
+        .update(schema.eventRequests)
+        .set(
+          status === "approved" || status === "planning"
+            ? {
+                status,
+                decidedByCoordinatorId: users.coordinator.id,
+                decidedByCoordinatorName: users.coordinator.name,
+                decidedAt: new Date(),
+              }
+            : { status }
+        )
+        .where(eq(schema.eventRequests.id, eventId));
+
+      const result = await handleSearchVenues(
+        { eventId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(result.event).toEqual({ id: eventId, name: "PTR-29 Event" });
+
+      await database
+        .update(schema.eventRequests)
+        .set({
+          status: "submitted",
+          decidedByCoordinatorId: null,
+          decidedByCoordinatorName: null,
+          decidedAt: null,
+        })
+        .where(eq(schema.eventRequests.id, eventId));
+    }
+  );
 
   it("excludes a venue when recorded unavailability overlaps the requested time", async () => {
     const [venue] = await database

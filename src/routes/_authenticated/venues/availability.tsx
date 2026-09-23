@@ -1,7 +1,6 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { unwrapRefusal } from "#/features/auth/session";
 import { VenueCalendarPage } from "#/features/venues/components/venue-calendar-page";
 import { parseAvailabilitySearch, parseAvailabilitySelection } from "#/features/venues/schema";
 import { getVenueAvailability, listVenues } from "#/features/venues/server-fns";
@@ -18,13 +17,10 @@ export const Route = createFileRoute("/_authenticated/venues/availability")({
   // The chosen venue and range are the loader's input, so the loader re-runs when they change.
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
-    const venues = await unwrapRefusal(listVenues(), "Could not load venues. Try again.");
+    const venues = await listVenues();
     const selection = parseAvailabilitySelection(deps);
     if (!selection) return { venues, schedule: null };
-    const { availability } = await unwrapRefusal(
-      getVenueAvailability({ data: selection }),
-      "Availability could not be loaded. Try again."
-    );
+    const { availability } = await getVenueAvailability({ data: selection });
     // A venue id that no row holds answers `null`, the same read convention `$venueId.tsx` uses: the router's own not-found boundary, not the error boundary a 404 response would raise.
     if (!availability) throw notFound();
     return { venues, schedule: availability };

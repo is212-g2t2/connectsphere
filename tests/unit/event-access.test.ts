@@ -4,6 +4,7 @@ import {
   eventTiming,
   getEventAccess,
   isRegistrationWindowOpen,
+  isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
 
@@ -11,7 +12,7 @@ const request = {
   id: 1,
   name: "ConnectSphere Demo",
   description: "A demo event",
-  status: "submitted",
+  status: "submitted" as const,
   proposedDates: [{ start: "2026-10-01T09:00", end: "2026-10-01T17:00" }],
   expectedAttendance: 100,
   roomLayoutPreference: "Theatre",
@@ -101,8 +102,15 @@ describe("event access", () => {
     });
     expect(result.event).not.toHaveProperty("expectedAttendance");
     expect(result.event).not.toHaveProperty("equipment");
-    expect(result.event).not.toHaveProperty("status");
   });
+
+  it.each(["attendee", "venue_staff", "technical_support", "organiser", "coordinator"] as const)(
+    "carries the event's stage for the %s, who has access to it (PTR-21 AC2)",
+    access => {
+      const result = projectEvent(request, access, null, [], null);
+      expect(result.event.status).toBe("submitted");
+    }
+  );
 
   it.each(["organiser", "coordinator"] as const)("projects the full record for the %s", access => {
     const result = projectEvent(request, access, null, [], { status: "pending" });
@@ -114,6 +122,22 @@ describe("event access", () => {
       equipment: [],
       venueRequest: { status: "pending" },
     });
+  });
+});
+
+describe("isVenueQueueRow", () => {
+  it("connects a Venue Staff member to their own rows and to the unassigned pending queue", () => {
+    expect(isVenueQueueRow({ assignedStaffId: "venue-1", status: "pending" }, "venue-1")).toBe(
+      true
+    );
+    expect(isVenueQueueRow({ assignedStaffId: null, status: "pending" }, "venue-1")).toBe(true);
+  });
+
+  it("does not connect another staff member's row or a settled unassigned one", () => {
+    expect(isVenueQueueRow({ assignedStaffId: "venue-2", status: "pending" }, "venue-1")).toBe(
+      false
+    );
+    expect(isVenueQueueRow({ assignedStaffId: null, status: "withdrawn" }, "venue-1")).toBe(false);
   });
 });
 

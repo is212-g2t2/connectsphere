@@ -2,7 +2,6 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Page, PageHeader } from "#/components/layout/page";
-import { Badge } from "#/components/ui/badge";
 import { Button, buttonVariants } from "#/components/ui/button";
 import {
   Table,
@@ -12,10 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table";
-import { unwrapRefusal } from "#/features/auth/session";
+import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { formatFirstProposedDate } from "#/features/event-requests/format";
-import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
-import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { deleteEventRequestDraft } from "#/features/event-requests/server-fns";
 import type {
   EventRequestDeleted,
@@ -24,21 +21,6 @@ import type {
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
-/**
- * PTR-14 criterion 3: a draft and a submitted request must be told apart without opening
- * either, so the pill differs in colour as well as in text. The variants are the design
- * system's status pills (docs/DESIGN.md#status-pills).
- */
-const STATUS_VARIANT: Record<EventRequestStatus, "outline" | "progress" | "confirmed" | "stopped"> =
-  {
-    draft: "outline",
-    submitted: "progress",
-    under_review: "progress",
-    approved: "confirmed",
-    rejected: "stopped",
-    awaiting_organiser: "stopped",
-  };
-
 export const UNTITLED_REQUEST = "Untitled request";
 /** What criterion 2's Coordinator column reads on a submitted request nobody could be assigned to. */
 export const NOT_YET_ASSIGNED = "Not yet assigned";
@@ -46,10 +28,6 @@ export const NOT_YET_ASSIGNED = "Not yet assigned";
 export const ASSIGNED_ON_SUBMIT = "Assigned when you submit";
 
 const DELETE_FAILED = "Could not delete this draft. Try again.";
-
-export function EventRequestStatusBadge({ status }: { status: EventRequestStatus }) {
-  return <Badge variant={STATUS_VARIANT[status]}>{EVENT_REQUEST_STATUS_LABELS[status]}</Badge>;
-}
 
 /**
  * The organiser's own requests (PTR-14). Rows come from the route's loader as a prop, so the
@@ -61,7 +39,7 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
   const [deleteState, deleteDraft, deleting] = useMutation<number, EventRequestDeleted>(
-    async id => unwrapRefusal(await deleteEventRequestDraft({ data: { id } }), DELETE_FAILED),
+    id => deleteEventRequestDraft({ data: { id } }),
     DELETE_FAILED
   );
 

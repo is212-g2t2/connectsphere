@@ -4,12 +4,15 @@ import { Page, PageHeader } from "#/components/layout/page";
 import { Card, CardContent } from "#/components/ui/card";
 import {
   ASSIGNED_ON_SUBMIT,
-  EventRequestStatusBadge,
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
 } from "#/features/event-requests/components/request-list-page";
 import { ClarificationReplyForm } from "#/features/event-requests/components/clarification-reply-form";
-import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
+import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
+import {
+  EVENT_REQUEST_STATUS_LABELS,
+  EVENT_REQUEST_STATUS_STAGES,
+} from "#/features/event-requests/schema";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import {
   formatInstant,
@@ -42,6 +45,9 @@ export function EventRequestDetailPage({
   showReplyForms?: boolean;
 }) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
+  const stage = EVENT_REQUEST_STATUS_STAGES[request.status];
+  // A cancelled request keeps whatever decision it had, so the record decides, not the status.
+  const hasDecision = stage.decided || request.decidedAt !== null;
 
   return (
     <Page width="page">
@@ -54,14 +60,14 @@ export function EventRequestDetailPage({
         actions={<EventRequestStatusBadge status={request.status} />}
         description={
           request.status === "draft" ? (
-            "Saved as a draft and not yet submitted."
-          ) : request.status === "approved" || request.status === "rejected" ? (
+            stage.note
+          ) : hasDecision ? (
             <>
               Decision recorded on{" "}
               <time dateTime={request.decidedAt?.toISOString()}>
                 {formatInstant(request.decidedAt)}
               </time>
-              .
+              .{stage.note && ` ${stage.note}`}
             </>
           ) : (
             <>
@@ -69,10 +75,7 @@ export function EventRequestDetailPage({
               <time dateTime={request.submittedAt?.toISOString()}>
                 {formatInstant(request.submittedAt)}
               </time>
-              .{" "}
-              {request.status === "awaiting_organiser"
-                ? "Waiting on the Organiser."
-                : "It is with ConnectSphere for review."}
+              . {stage.note}
             </>
           )
         }
@@ -80,12 +83,18 @@ export function EventRequestDetailPage({
 
       {children}
 
-      {(request.status === "approved" || request.status === "rejected") && (
+      {hasDecision && (
         <Card className="mt-8">
           <CardContent>
             <h2 className="display-h3">Recorded decision</h2>
             <dl className="mt-5 grid gap-6 sm:grid-cols-2">
-              <Detail term="Decision">{EVENT_REQUEST_STATUS_LABELS[request.status]}</Detail>
+              <Detail term="Decision">
+                {stage.outcome
+                  ? EVENT_REQUEST_STATUS_LABELS[stage.outcome]
+                  : // The row keeps who decided and when, not which way; say so rather than
+                    // present the cancellation as the decision.
+                    "Cancelled after a recorded decision"}
+              </Detail>
               <Detail term="Decided by">{request.decidedByCoordinatorName ?? NONE}</Detail>
               <Detail term="Decided at">
                 <time dateTime={request.decidedAt?.toISOString()}>

@@ -10,6 +10,7 @@ import { eq, inArray } from "drizzle-orm";
 import * as schema from "../../src/db/schema";
 import { waitForHydration } from "./hydration";
 import { waitForEmail } from "./mailpit";
+import { registerAccount } from "./register";
 
 const password = "Coordinate123!";
 let pool: Pool;
@@ -24,26 +25,7 @@ test.afterAll(async () => {
 });
 
 async function register(page: Page, role: "event_organiser" | "event_coordinator", name: string) {
-  const email = `coordination-${randomUUID()}@example.invalid`;
-  const response = await page.request.post("/api/auth/sign-up/email", {
-    data: { name, email, password, role: "event_organiser" },
-  });
-  expect(response.ok(), await response.text()).toBe(true);
-  const [account] = await database.select().from(schema.user).where(eq(schema.user.email, email));
-  if (role === "event_coordinator") {
-    // Provision only this test's own account; self-registration cannot grant an internal role.
-    await database.update(schema.user).set({ role }).where(eq(schema.user.id, account.id));
-    const logout = await page.request.post("/api/auth/sign-out", {
-      headers: { Origin: "http://localhost:3000" },
-    });
-    expect(logout.ok(), await logout.text()).toBe(true);
-    const login = await page.request.post("/api/auth/sign-in/email", {
-      headers: { Origin: "http://localhost:3000" },
-      data: { email, password },
-    });
-    expect(login.ok(), await login.text()).toBe(true);
-  }
-  return account;
+  return registerAccount(database, page, { role, name, password });
 }
 
 /**

@@ -99,6 +99,7 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
   return (
     <div className={cn("flex flex-col gap-5", className)} {...props}>
       <form
+        noValidate
         onSubmit={e => {
           e.preventDefault();
           void form.handleSubmit();
@@ -200,7 +201,12 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
                     field.handleChange(SelfAssignableRoleSchema.catch(DEFAULT_ROLE).parse(value))
                   }
                 >
-                  <SelectTrigger id="role" className="w-full">
+                  <SelectTrigger
+                    id="role"
+                    className="w-full"
+                    onBlur={field.handleBlur}
+                    aria-invalid={field.state.meta.errors.length > 0}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -209,6 +215,7 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
                   </SelectContent>
                 </Select>
                 <FieldDescription>Select your account role</FieldDescription>
+                <FieldError errors={field.state.meta.errors} />
               </Field>
             )}
           </form.Field>

@@ -213,9 +213,7 @@ describe("Coordinator handover and pickup", () => {
   });
 
   it("shows a server refusal without claiming success or navigating away", async () => {
-    assignEventRequest.mockResolvedValue(
-      new Response("This assignment has changed.", { status: 409 })
-    );
+    assignEventRequest.mockRejectedValue(new Error("This assignment has changed."));
     render(<CoordinationRequestPage request={request} coordinators={coordinators} user={actor} />);
     await userEvent.click(screen.getByRole("button", { name: "Assign to me" }));
     expect(await screen.findByRole("alert")).toHaveProperty(
@@ -280,9 +278,7 @@ describe("Review pickup", () => {
   });
 
   it("shows a review refusal without claiming success or navigating away", async () => {
-    takeUpEventRequestForReview.mockResolvedValue(
-      new Response("This request has changed.", { status: 409 })
-    );
+    takeUpEventRequestForReview.mockRejectedValue(new Error("This request has changed."));
     render(<CoordinationRequestPage request={owned} coordinators={coordinators} user={actor} />);
     await userEvent.click(screen.getByRole("button", { name: "Take up for review" }));
     expect(await screen.findByRole("alert")).toHaveProperty(

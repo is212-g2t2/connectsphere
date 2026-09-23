@@ -1,6 +1,5 @@
 import { useForm } from "@tanstack/react-form";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button";
@@ -15,14 +14,13 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Textarea } from "#/components/ui/textarea";
-import { unwrapRefusal } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   CoordinatorSelection,
   DECISION_REASON_MAX_LENGTH,
+  DecisionFormSchema,
   parseDecisionInput,
 } from "#/features/coordination/schema";
-import type { DecisionValues } from "#/features/coordination/schema";
 import {
   assignEventRequest,
   decideEventRequest,
@@ -32,7 +30,11 @@ import {
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import { formatInstant } from "#/features/event-requests/format";
-import { CLARIFICATION_BODY_MAX, CLARIFICATION_FIELDS } from "#/features/event-requests/schema";
+import {
+  CLARIFICATION_BODY_MAX,
+  CLARIFICATION_FIELDS,
+  ClarificationFormSchema,
+} from "#/features/event-requests/schema";
 import type { ClarificationField } from "#/features/event-requests/schema";
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -47,21 +49,17 @@ export function CoordinationRequestPage({
   user: SessionUser;
 }) {
   const navigate = useNavigate();
+  const router = useRouter();
   const unassigned = request.assignedCoordinatorId === null;
-  const [reason, setReason] = useState("");
-  const [decisionValidationError, setDecisionValidationError] = useState<string | null>(null);
 
   const [assignment, assign, assigning] = useMutation(async (incomingId: string) => {
-    await unwrapRefusal(
-      assignEventRequest({
-        data: {
-          id: request.id,
-          coordinatorId: incomingId,
-          expectedCoordinatorId: request.assignedCoordinatorId,
-        },
-      }),
-      "Could not assign this request. Try again."
-    );
+    await assignEventRequest({
+      data: {
+        id: request.id,
+        coordinatorId: incomingId,
+        expectedCoordinatorId: request.assignedCoordinatorId,
+      },
+    });
     toast.success("Assignment recorded.");
     // Leave the old detail immediately: the actor may have just relinquished access to it.
     await navigate({ to: "/coordination" });
@@ -71,53 +69,69 @@ export function CoordinationRequestPage({
   // list, same as `assign` above, so the page never has to reconcile a stale `request` prop
   // against the new status itself.
   const [review, takeUpReview, takingUp] = useMutation(async () => {
-    await unwrapRefusal(
-      takeUpEventRequestForReview({ data: { id: request.id } }),
-      "Could not take up this request for review. Try again."
-    );
+    await takeUpEventRequestForReview({ data: { id: request.id } });
     toast.success("Request taken up for review.");
     await navigate({ to: "/coordination" });
   }, "Could not take up this request for review. Try again.");
 
-  const [decisionState, decide, deciding] = useMutation(async (input: DecisionValues) => {
-    await unwrapRefusal(
-      decideEventRequest({ data: input }),
-      "Could not record this decision. Try again."
-    );
-    toast.success(input.decision === "approved" ? "Request approved." : "Request rejected.");
-    await navigate({ to: "/coordination" });
-  }, "Could not record this decision. Try again.");
+  const decisionForm = useForm({
+    defaultValues: { decision: "approved" as "approved" | "rejected", reason: "" },
+    validators: { onSubmit: DecisionFormSchema },
+    onSubmit: async ({ value, formApi }) => {
+      try {
+        const input = parseDecisionInput({
+          id: request.id,
+          decision: value.decision,
+          reason: value.reason,
+        });
+        await decideEventRequest({ data: input });
+        toast.success(input.decision === "approved" ? "Request approved." : "Request rejected.");
+        await navigate({ to: "/coordination" });
+      } catch (error) {
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form:
+              error instanceof Error ? error.message : "Could not record this decision. Try again.",
+          },
+        });
+      }
+    },
+  });
 
   function submitDecision(decision: "approved" | "rejected") {
-    try {
-      const input = parseDecisionInput({ id: request.id, decision, reason });
-      setDecisionValidationError(null);
-      void decide(input);
-    } catch (error) {
-      setDecisionValidationError(error instanceof Error ? error.message : "Check the decision.");
-    }
+    decisionForm.setFieldValue("decision", decision);
+    void decisionForm.handleSubmit();
   }
 
-  const router = useRouter();
-  const [clarificationText, setClarificationText] = useState("");
-  const [permittedFields, setPermittedFields] = useState<ClarificationField[]>([]);
-
-  const [clarification, submitClarification, submittingClarification] = useMutation(async () => {
-    await unwrapRefusal(
-      raiseClarificationRequest({
-        data: {
-          id: request.id,
-          body: clarificationText,
-          permittedFields,
-        },
-      }),
-      "Could not send clarification request. Try again."
-    );
-    toast.success("Clarification request sent.");
-    setClarificationText("");
-    setPermittedFields([]);
-    await router.invalidate();
-  }, "Could not send clarification request. Try again.");
+  const clarificationForm = useForm({
+    defaultValues: { body: "", permittedFields: [] as ClarificationField[] },
+    validators: { onSubmit: ClarificationFormSchema },
+    onSubmit: async ({ value, formApi }) => {
+      try {
+        await raiseClarificationRequest({
+          data: {
+            id: request.id,
+            body: value.body,
+            permittedFields: value.permittedFields,
+          },
+        });
+        toast.success("Clarification request sent.");
+        clarificationForm.reset();
+        await router.invalidate();
+      } catch (error) {
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form:
+              error instanceof Error
+                ? error.message
+                : "Could not send clarification request. Try again.",
+          },
+        });
+      }
+    },
+  });
 
   const form = useForm({
     defaultValues: { coordinatorId: "" },
@@ -186,43 +200,58 @@ export function CoordinationRequestPage({
                 A reason is required for rejection and optional for approval. The Organiser will be
                 notified of the outcome.
               </p>
-              <Field className="mt-5" data-invalid={decisionValidationError !== null}>
-                <FieldLabel htmlFor="decisionReason">Decision reason</FieldLabel>
-                <Textarea
-                  id="decisionReason"
-                  value={reason}
-                  maxLength={DECISION_REASON_MAX_LENGTH}
-                  disabled={deciding}
-                  aria-invalid={decisionValidationError !== null}
-                  onChange={event => {
-                    setReason(event.target.value);
-                    setDecisionValidationError(null);
-                  }}
-                />
-                <FieldError>{decisionValidationError}</FieldError>
-              </Field>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <Button
-                  type="button"
-                  disabled={deciding}
-                  onClick={() => submitDecision("approved")}
-                >
-                  {deciding ? "Recording…" : "Approve request"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={deciding}
-                  onClick={() => submitDecision("rejected")}
-                >
-                  Reject request
-                </Button>
-              </div>
-              {decisionState.status === "error" && (
-                <p role="alert" className="mt-4 body-sm text-destructive">
-                  {decisionState.error}
-                </p>
-              )}
+              <form
+                noValidate
+                className="mt-5 space-y-4"
+                onSubmit={event => {
+                  event.preventDefault();
+                }}
+              >
+                <decisionForm.Field name="reason">
+                  {field => (
+                    <Field data-invalid={field.state.meta.errors.length > 0}>
+                      <FieldLabel htmlFor="decisionReason">Decision reason</FieldLabel>
+                      <Textarea
+                        id="decisionReason"
+                        value={field.state.value}
+                        maxLength={DECISION_REASON_MAX_LENGTH}
+                        aria-invalid={field.state.meta.errors.length > 0}
+                        onChange={event => field.handleChange(event.target.value)}
+                        onBlur={field.handleBlur}
+                      />
+                      <FieldError errors={field.state.meta.errors} />
+                    </Field>
+                  )}
+                </decisionForm.Field>
+                <decisionForm.Subscribe selector={s => [s.isSubmitting, s.errorMap.onSubmit]}>
+                  {([isSubmitting, onSubmitError]) => (
+                    <>
+                      <div className="flex flex-wrap gap-3">
+                        <Button
+                          type="button"
+                          disabled={Boolean(isSubmitting)}
+                          onClick={() => submitDecision("approved")}
+                        >
+                          {isSubmitting ? "Recording…" : "Approve request"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          disabled={Boolean(isSubmitting)}
+                          onClick={() => submitDecision("rejected")}
+                        >
+                          Reject request
+                        </Button>
+                      </div>
+                      {typeof onSubmitError === "string" ? (
+                        <p role="alert" className="body-sm text-destructive">
+                          {onSubmitError}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </decisionForm.Subscribe>
+              </form>
             </CardContent>
           </Card>
         </section>
@@ -236,71 +265,80 @@ export function CoordinationRequestPage({
                 Request clarification
               </h2>
               <p className="mt-2 body-sm text-muted-foreground">
-                Ask the Organiser to clarify vague or incomplete requirements before committing
-                resources.
+                Ask the Organiser for more details before recording a decision.
               </p>
               <form
                 noValidate
                 className="mt-5 space-y-4"
                 onSubmit={event => {
                   event.preventDefault();
-                  if (submittingClarification || !clarificationText.trim()) return;
-                  void submitClarification();
+                  void clarificationForm.handleSubmit();
                 }}
               >
-                <div>
-                  <label htmlFor="clarification-body" className="eyebrow text-muted-foreground">
-                    What needs clarification
-                  </label>
-                  <Textarea
-                    id="clarification-body"
-                    className="mt-2"
-                    rows={4}
-                    placeholder="Describe what needs clarification (e.g. required room layout, specific equipment models)..."
-                    value={clarificationText}
-                    maxLength={CLARIFICATION_BODY_MAX}
-                    onChange={e => setClarificationText(e.target.value)}
-                    disabled={submittingClarification}
-                    required
-                  />
-                </div>
-                <fieldset className="space-y-3 border-t border-border pt-4">
-                  <legend className="eyebrow text-muted-foreground">
-                    Allow the Organiser to amend these fields (optional)
-                  </legend>
-                  <p className="body-sm text-muted-foreground">
-                    Leave every field unselected when you only need an explanation.
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {CLARIFICATION_FIELDS.map(({ key, label }) => (
-                      <Field key={key} orientation="horizontal">
-                        <Checkbox
-                          id={`clarification-field-${key}`}
-                          checked={permittedFields.includes(key)}
-                          disabled={submittingClarification}
-                          onCheckedChange={checked => {
-                            setPermittedFields(current =>
-                              checked ? [...current, key] : current.filter(field => field !== key)
-                            );
-                          }}
-                        />
-                        <FieldLabel htmlFor={`clarification-field-${key}`}>{label}</FieldLabel>
-                      </Field>
-                    ))}
-                  </div>
-                </fieldset>
-                <Button
-                  type="submit"
-                  disabled={submittingClarification || !clarificationText.trim()}
-                >
-                  {submittingClarification ? "Sending…" : "Send clarification request"}
-                </Button>
+                <clarificationForm.Field name="body">
+                  {field => (
+                    <Field data-invalid={field.state.meta.errors.length > 0}>
+                      <FieldLabel htmlFor="clarification-body">What needs clarification</FieldLabel>
+                      <Textarea
+                        id="clarification-body"
+                        className="mt-2"
+                        rows={4}
+                        maxLength={CLARIFICATION_BODY_MAX}
+                        placeholder="Describe what needs clarification (e.g. required room layout, specific equipment models)..."
+                        value={field.state.value}
+                        onChange={e => field.handleChange(e.target.value)}
+                        onBlur={field.handleBlur}
+                        aria-invalid={field.state.meta.errors.length > 0}
+                      />
+                      <FieldError errors={field.state.meta.errors} />
+                    </Field>
+                  )}
+                </clarificationForm.Field>
+                <clarificationForm.Field name="permittedFields">
+                  {field => (
+                    <fieldset className="space-y-3 border-t border-border pt-4">
+                      <legend className="eyebrow text-muted-foreground">
+                        Allow the Organiser to amend these fields (optional)
+                      </legend>
+                      <p className="body-sm text-muted-foreground">
+                        Leave every field unselected when you only need an explanation.
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {CLARIFICATION_FIELDS.map(({ key, label }) => (
+                          <Field key={key} orientation="horizontal">
+                            <Checkbox
+                              id={`clarification-field-${key}`}
+                              checked={field.state.value.includes(key)}
+                              onCheckedChange={checked => {
+                                field.handleChange(
+                                  checked
+                                    ? [...field.state.value, key]
+                                    : field.state.value.filter(value => value !== key)
+                                );
+                              }}
+                            />
+                            <FieldLabel htmlFor={`clarification-field-${key}`}>{label}</FieldLabel>
+                          </Field>
+                        ))}
+                      </div>
+                    </fieldset>
+                  )}
+                </clarificationForm.Field>
+                <clarificationForm.Subscribe selector={s => [s.isSubmitting, s.errorMap.onSubmit]}>
+                  {([isSubmitting, onSubmitError]) => (
+                    <>
+                      <Button type="submit" disabled={Boolean(isSubmitting)}>
+                        {isSubmitting ? "Sending…" : "Send clarification request"}
+                      </Button>
+                      {typeof onSubmitError === "string" ? (
+                        <p role="alert" className="body-sm text-destructive">
+                          {onSubmitError}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </clarificationForm.Subscribe>
               </form>
-              {clarification.status === "error" && (
-                <p role="alert" className="mt-4 body-sm text-destructive">
-                  {clarification.error}
-                </p>
-              )}
             </CardContent>
           </Card>
         </section>
@@ -374,17 +412,13 @@ export function CoordinationRequestPage({
                   )}
                 </form.Field>
                 <div className="flex flex-wrap gap-3">
-                  <form.Subscribe selector={state => state.values.coordinatorId}>
-                    {coordinatorId => (
-                      <Button type="submit" disabled={assigning || !coordinatorId}>
-                        {assigning
-                          ? "Assigning…"
-                          : unassigned
-                            ? "Assign Coordinator"
-                            : "Reassign Coordinator"}
-                      </Button>
-                    )}
-                  </form.Subscribe>
+                  <Button type="submit" disabled={assigning}>
+                    {assigning
+                      ? "Assigning…"
+                      : unassigned
+                        ? "Assign Coordinator"
+                        : "Reassign Coordinator"}
+                  </Button>
                   {unassigned && (
                     <Button
                       type="button"

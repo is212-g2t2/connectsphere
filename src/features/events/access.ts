@@ -1,3 +1,5 @@
+import type { EventRequestStatus } from "#/features/event-requests/schema";
+
 export type EventAccess =
   | "organiser"
   | "coordinator"
@@ -32,6 +34,19 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
   if (input.role === "attendee" && (input.isRegistrationWindowOpen || input.hasOwnRegistration))
     return "attendee";
   return null;
+}
+
+/**
+ * The shared venue queue (PTR-31): a Venue Staff member works the rows assigned to them, plus
+ * every unassigned `pending` one. `records.server.ts` scopes its event-list query with the same
+ * rule in SQL and calls this for its in-memory readers, so the rule has one home. It carries no
+ * `#/db` import — this module is client-reachable.
+ */
+export function isVenueQueueRow(
+  row: { assignedStaffId: string | null; status: string },
+  userId: string
+): boolean {
+  return row.assignedStaffId === null ? row.status === "pending" : row.assignedStaffId === userId;
 }
 
 /**
@@ -80,7 +95,7 @@ interface EventRecord {
   id: number;
   name: string;
   description: string;
-  status: string;
+  status: EventRequestStatus;
   proposedDates: Array<{ start?: string; end?: string }>;
   expectedAttendance: number | null;
   roomLayoutPreference: string;
@@ -105,7 +120,7 @@ export interface EventProjection {
     endDate?: string | null;
     startTime: string | null;
     endTime: string | null;
-    status?: string;
+    status: EventRequestStatus;
     registrationOpensAt?: string | null;
     registrationClosesAt?: string | null;
     expectedAttendance?: number | null;
@@ -113,7 +128,8 @@ export interface EventProjection {
     accessibilityRequirements?: string | null;
     requiredFacilities?: string | null;
     registration?: { status: string; registeredAt: string } | null;
-    venueRequest?: { status: string } | null;
+    /** PTR-36: `conflict` is present only when the pending request overlaps an approved booking. */
+    venueRequest?: { status: string; conflict?: boolean } | null;
     equipment?: Array<{
       id: string;
       item: string;
@@ -132,7 +148,7 @@ export function projectEvent(
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
   equipment: Array<{ id: string; item: string; arrangementStatus: string; notes: string | null }>,
-  venueRequest: { status: string } | null
+  venueRequest: { status: string; conflict?: boolean } | null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 
@@ -145,6 +161,7 @@ export function projectEvent(
           name: record.name,
           description: record.description,
           ...timing,
+          status: record.status,
           registrationOpensAt: record.registrationOpensAt,
           registrationClosesAt: record.registrationClosesAt,
           registration: ownRegistration,
@@ -152,13 +169,15 @@ export function projectEvent(
       };
 
     // PTR-31 criterion 2: event timing, expected attendance, layout, accessibility and required
-    // facilities — and no other event information, so not even the name.
+    // facilities — and no other event information, so not even the name. The stage is the one
+    // exception every branch carries (PTR-21 criterion 2): anyone with access sees it.
     case "venue_staff":
       return {
         access,
         event: {
           id: record.id,
           ...timing,
+          status: record.status,
           expectedAttendance: record.expectedAttendance,
           layout: record.roomLayoutPreference,
           accessibilityRequirements: record.accessibilityRequirements,
@@ -174,6 +193,7 @@ export function projectEvent(
           id: record.id,
           name: record.name,
           ...timing,
+          status: record.status,
           equipment,
         },
       };

@@ -18,13 +18,10 @@ import {
 } from "#/components/ui/table";
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
-import { LAYOUT_LABELS, VenueSearchSchema, crossesMidnight } from "#/features/venues/schema";
-import type { VenueSearch } from "#/features/venues/schema";
+import { LAYOUT_LABELS, VenueSearchFormInput, crossesMidnight } from "#/features/venues/schema";
+import type { VenueSearch, VenueSearchFormValues } from "#/features/venues/schema";
 import type { VenueSearchResult } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
-
-/** What the inputs hold: every value a string, converted to `VenueSearch` only on submit. */
-type VenueSearchFormValues = Record<keyof VenueSearch, string>;
 
 /**
  * `filters` is `VenueSearch`, whose values arrive already parsed; the input shape is the same
@@ -45,29 +42,6 @@ function toSearchFormValues(filters: VenueSearch): VenueSearchFormValues {
     layout: filters.layout ?? "",
     facilities: filters.facilities ?? "",
   };
-}
-
-interface VenueSearchFormErrors {
-  fields: Record<string, { message: string }[]>;
-}
-
-/**
- * Validation lives here, not in the route: `VenueSearchSchema` is the same gate the server uses,
- * so every issue it names marks its own field, exactly as `venue-form.tsx` maps `VenueInput`.
- */
-function validateSearch(value: VenueSearchFormValues): VenueSearchFormErrors | undefined {
-  const parsed = VenueSearchSchema.safeParse(value);
-  if (parsed.success) {
-    return undefined;
-  }
-
-  const fields: VenueSearchFormErrors["fields"] = {};
-  for (const issue of parsed.error.issues) {
-    const path = issue.path.filter(segment => typeof segment === "string").join(".");
-    (fields[path] ??= []).push({ message: issue.message });
-  }
-
-  return { fields };
 }
 
 /** Only the slice of a `form.Field` a text row reads, as `venue-form.tsx` describes it. */
@@ -116,14 +90,14 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
   const navigate = useNavigate();
   const canCreate = can(user.role, { venue: ["create"] });
   const canSearch = can(user.role, { venue: ["search"] });
-  const { event, filters, venues } = result;
+  const { event, filters, venues, unsuitable } = result;
 
   const form = useForm({
     defaultValues: toSearchFormValues(filters),
-    validators: { onSubmit: ({ value }) => validateSearch(value) },
+    validators: { onSubmit: VenueSearchFormInput },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await navigate({ to: "/venues", search: VenueSearchSchema.parse(value) });
+        await navigate({ to: "/venues", search: VenueSearchFormInput.parse(value) });
       } catch (searchError) {
         formApi.setErrorMap({
           onSubmit: {
@@ -146,6 +120,10 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
   }, [filters, form]);
 
   const hasFilters = Object.keys(filters).some(key => key !== "eventId");
+  // PTR-30 criterion 5: once something was asked of the venues, the ones that fell short say why.
+  // A window that crosses midnight is the Coordinator's slip, not a venue's failing.
+  const showUnsuitable =
+    (hasFilters || event !== null) && unsuitable.length > 0 && !crossesMidnight(filters);
 
   return (
     <Page width="wide">
@@ -258,6 +236,7 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
           <h2 className="display-h3">Venue results</h2>
           <p className="body-sm text-muted-foreground">
             {venues.length} {venues.length === 1 ? "venue" : "venues"}
+            {showUnsuitable ? ` suitable, ${unsuitable.length} not suitable` : ""}
           </p>
         </div>
 
@@ -275,12 +254,20 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
               ) : (
                 <>
                   <EmptyTitle>
-                    {hasFilters ? "No venues match these requirements." : "No venues recorded yet."}
+                    {showUnsuitable
+                      ? "No venue meets every requirement."
+                      : hasFilters
+                        ? "No venues match these requirements."
+                        : "No venues recorded yet."}
                   </EmptyTitle>
-                  {hasFilters && (
-                    <EmptyDescription>
-                      Change or clear a requirement and search again.
-                    </EmptyDescription>
+                  {showUnsuitable ? (
+                    <EmptyDescription>See below why each fell short.</EmptyDescription>
+                  ) : (
+                    hasFilters && (
+                      <EmptyDescription>
+                        Change or clear a requirement and search again.
+                      </EmptyDescription>
+                    )
                   )}
                 </>
               )}
@@ -304,6 +291,9 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
                     <Link
                       to="/venues/$venueId"
                       params={{ venueId: String(venue.id) }}
+                      // Carried so the detail page can offer PTR-31's booking request for the
+                      // event this search was run for.
+                      search={event ? { eventId: event.id } : {}}
                       className={NAV_LINK_CLASSNAME}
                     >
                       {venue.name}
@@ -321,6 +311,48 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
           </Table>
         )}
       </section>
+
+      {showUnsuitable && (
+        <section aria-labelledby="unsuitable-heading" className="mt-8">
+          <h2 id="unsuitable-heading" className="display-h3">
+            Not suitable
+          </h2>
+          <p className="body-sm mt-2 text-muted-foreground">
+            Each venue below fails at least one requirement. A verdict books or blocks nothing;
+            Venue Staff still decide any request.
+          </p>
+          <Table className="mt-4">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-56">Name</TableHead>
+                <TableHead>Why not</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {unsuitable.map(({ venue, failures }) => (
+                <TableRow key={venue.id}>
+                  <TableCell>
+                    <Link
+                      to="/venues/$venueId"
+                      params={{ venueId: String(venue.id) }}
+                      className={NAV_LINK_CLASSNAME}
+                    >
+                      {venue.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="whitespace-normal">
+                    <ul className="space-y-1">
+                      {failures.map(failure => (
+                        <li key={failure.criterion}>{failure.message}</li>
+                      ))}
+                    </ul>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </section>
+      )}
     </Page>
   );
 }

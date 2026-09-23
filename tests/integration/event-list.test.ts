@@ -1,12 +1,13 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
+import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
 /**
  * PTR-8 at the `handleListEvents` boundary: which event rows a caller's role and relationships
@@ -77,6 +78,8 @@ const fixtureUserIds = Object.values(fixtureUsers).map(user => user.id);
 const organiserIds = [fixtureUsers.organiser.id, fixtureUsers.outsider.id];
 const attendeeIds = [fixtureUsers.attendee.id, fixtureUsers.attendeeRegistered.id];
 
+const FIXTURE_VENUE_NAME = "Event List Hall";
+
 function session(key: keyof typeof fixtureUsers): SessionUser {
   const user = fixtureUsers[key];
   return { id: user.id, email: user.email, role: user.role };
@@ -104,11 +107,22 @@ describe("event list handler (PTR-8)", () => {
   let pool: Pool;
   let database: Database;
   let fixtures: Fixtures;
+  let fixtureVenueId: number;
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     database = drizzle(pool, { schema });
     await database.insert(schema.user).values(Object.values(fixtureUsers)).onConflictDoNothing();
+    const [venue] = await database
+      .insert(schema.venues)
+      .values({
+        name: FIXTURE_VENUE_NAME,
+        location: "Fixture location",
+        maxCapacity: 100,
+        operatingHours: DEFAULT_OPERATING_HOURS,
+      })
+      .returning({ id: schema.venues.id });
+    fixtureVenueId = venue.id;
   });
 
   afterAll(async () => {
@@ -116,6 +130,7 @@ describe("event list handler (PTR-8)", () => {
       .delete(schema.eventRequests)
       .where(inArray(schema.eventRequests.organiserId, organiserIds));
     await database.delete(schema.user).where(inArray(schema.user.id, fixtureUserIds));
+    await database.delete(schema.venues).where(eq(schema.venues.id, fixtureVenueId));
     await pool.end();
   });
 
@@ -203,14 +218,44 @@ describe("event list handler (PTR-8)", () => {
 
     await database.insert(schema.venueRequests).values([
       {
+        // Sorts before the pending row; with the fallback gone it must not reach the card, and the
+        // pending row below is the only one the assertion sees (PTR-31 AC5).
+        id: "el-venue-0-withdrawn",
+        eventId: main.id,
+        venueId: fixtureVenueId,
+        requestedById: fixtureUsers.coordinator.id,
+        startsAt: "2026-10-12 09:00:00",
+        endsAt: "2026-10-12 10:00:00",
+        assignedStaffId: fixtureUsers.venueStaff.id,
+        status: "withdrawn",
+      },
+      {
         id: "el-venue-main",
         eventId: main.id,
+        venueId: fixtureVenueId,
+        requestedById: fixtureUsers.coordinator.id,
+        startsAt: "2026-10-12 14:30:00",
+        endsAt: "2026-10-12 18:45:00",
         assignedStaffId: fixtureUsers.venueStaff.id,
       },
       {
         id: "el-venue-review",
         eventId: review.id,
+        venueId: fixtureVenueId,
+        requestedById: fixtureUsers.coordinator.id,
+        startsAt: "2026-11-01 09:00:00",
+        endsAt: "2026-11-01 12:00:00",
         assignedStaffId: fixtureUsers.venueStaff.id,
+      },
+      {
+        // The closed event's only request is withdrawn, so its card shows no venue request.
+        id: "el-venue-closed-withdrawn",
+        eventId: closed.id,
+        venueId: fixtureVenueId,
+        requestedById: fixtureUsers.coordinator.id,
+        startsAt: "2026-11-01 09:00:00",
+        endsAt: "2026-11-01 12:00:00",
+        status: "withdrawn",
       },
     ]);
 
@@ -335,6 +380,16 @@ describe("event list handler (PTR-8)", () => {
       ]);
     });
 
+    it("shows no venue request once the only one is withdrawn (PTR-31 AC5)", async () => {
+      const [projection] = await handleListEvents(
+        { eventId: fixtures.closed.id },
+        session("organiser"),
+        database as never
+      );
+
+      expect(projection.event.venueRequest).toBeNull();
+    });
+
     it("gives a Coordinator the same full record as the organiser", async () => {
       const [projection] = await handleListEvents(
         { eventId: fixtures.main.id },
@@ -374,8 +429,36 @@ describe("event list handler (PTR-8)", () => {
       // PTR-31 criterion 2: not even the name, and none of the organiser-only fields.
       expect(projection.event).not.toHaveProperty("name");
       expect(projection.event).not.toHaveProperty("description");
-      expect(projection.event).not.toHaveProperty("status");
+      // Everyone with access sees the stage.
+      expect(projection.event.status).toBe("submitted");
       expect(projection.event).not.toHaveProperty("equipment");
+    });
+
+    it("flags a pending request that overlaps an approved booking, and only that one (PTR-36 AC4)", async () => {
+      await database.insert(schema.venueRequests).values({
+        id: "el-venue-approved",
+        eventId: fixtures.review.id,
+        venueId: fixtureVenueId,
+        requestedById: fixtureUsers.coordinator.id,
+        assignedStaffId: fixtureUsers.venueStaff.id,
+        startsAt: "2026-10-12 15:00:00",
+        endsAt: "2026-10-12 16:00:00",
+        status: "approved",
+      });
+
+      const [flagged] = await handleListEvents(
+        { eventId: fixtures.main.id },
+        session("venueStaff"),
+        database as never
+      );
+      expect(flagged.event.venueRequest).toEqual({ status: "pending", conflict: true });
+
+      const [clear] = await handleListEvents(
+        { eventId: fixtures.review.id },
+        session("venueStaff"),
+        database as never
+      );
+      expect(clear.event.venueRequest).toEqual({ status: "pending" });
     });
 
     it("gives Technical Support every equipment line of the event, not only their own", async () => {
@@ -427,7 +510,8 @@ describe("event list handler (PTR-8)", () => {
         registrationClosesAt: OPEN_WINDOW.registrationClosesAt,
         registration: null,
       });
-      expect(projection.event).not.toHaveProperty("status");
+      // Everyone with access sees the stage.
+      expect(projection.event.status).toBe("submitted");
       expect(projection.event).not.toHaveProperty("expectedAttendance");
       expect(projection.event).not.toHaveProperty("equipment");
       expect(projection.event).not.toHaveProperty("venueRequest");

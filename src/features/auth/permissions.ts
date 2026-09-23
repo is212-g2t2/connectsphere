@@ -18,6 +18,7 @@ const statement = {
   upload: ["create"],
   event_request: ["create", "coordinate"],
   venue: ["create", "update", "read", "search"],
+  venue_request: ["request", "decide"],
 } as const;
 
 const ac = createAccessControl(statement);
@@ -34,6 +35,11 @@ const ac = createAccessControl(statement);
  * `venue` (PTR-26) is the first internal/external split: Venue Staff maintain the catalogue,
  * the other two internal roles read it, and the external roles hold nothing — PTR-28
  * criterion 5 refuses them the calendar, so they are refused the record beneath it too.
+ *
+ * `venue_request:request` (PTR-31) is what a Coordinator raises and withdraws a booking request
+ * with; the handler re-reads the event's assignment, so the function says "may ask", not "may ask
+ * for any event". `venue_request:decide` (PTR-36) is the Venue Staff verb that approves one; the
+ * handler re-reads the shared-queue rule, so it says "may settle", not "may settle any row".
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
@@ -44,8 +50,13 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
     upload: ["create"],
     event_request: ["coordinate"],
     venue: ["read", "search"],
+    venue_request: ["request"],
   }),
-  venue_staff: ac.newRole({ upload: ["create"], venue: ["create", "update", "read"] }),
+  venue_staff: ac.newRole({
+    upload: ["create"],
+    venue: ["create", "update", "read"],
+    venue_request: ["decide"],
+  }),
   technical_support_staff: ac.newRole({ upload: ["create"], venue: ["read"] }),
 };
 

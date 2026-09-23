@@ -1,3 +1,4 @@
+ALTER TABLE "clarification_requests" ADD COLUMN "permitted_fields" text[] DEFAULT '{}' NOT NULL;--> statement-breakpoint
 ALTER TABLE "clarification_requests" ADD COLUMN "reply_body" text;--> statement-breakpoint
 ALTER TABLE "clarification_requests" ADD COLUMN "replied_by_organiser_id" text;--> statement-breakpoint
 ALTER TABLE "clarification_requests" ADD COLUMN "replied_at" timestamp with time zone;--> statement-breakpoint

@@ -1,5 +1,5 @@
 {
-  "id": "a7f15ef7-5aa8-4631-882e-e3829c7ca099",
+  "id": "b5512da8-157a-42d6-bbdd-ce5e061e40a3",
   "prevId": "e7891625-8fb9-4177-8da4-5058e38285ae",
   "version": "7",
   "dialect": "postgresql",
@@ -31,24 +31,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "reply_body": {
-          "name": "reply_body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "replied_by_organiser_id": {
-          "name": "replied_by_organiser_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "replied_at": {
-          "name": "replied_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -89,12 +71,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "clarification_requests_reply_complete": {
-          "name": "clarification_requests_reply_complete",
-          "value": "(\"clarification_requests\".\"reply_body\" is null and \"clarification_requests\".\"replied_by_organiser_id\" is null and \"clarification_requests\".\"replied_at\" is null) or (\"clarification_requests\".\"reply_body\" is not null and btrim(\"clarification_requests\".\"reply_body\") <> '' and \"clarification_requests\".\"replied_by_organiser_id\" is not null and \"clarification_requests\".\"replied_at\" is not null)"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.equipment_requests": {
@@ -627,8 +604,32 @@
           "primaryKey": false,
           "notNull": true
         },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
         "assigned_staff_id": {
           "name": "assigned_staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_by_id": {
+          "name": "requested_by_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -640,9 +641,45 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
+        "venue_requests_pending_event_venue_idx": {
+          "name": "venue_requests_pending_event_venue_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"venue_requests\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "venue_requests_event_id_idx": {
           "name": "venue_requests_event_id_idx",
           "columns": [
@@ -684,6 +721,15 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
+        "venue_requests_venue_id_venues_id_fk": {
+          "name": "venue_requests_venue_id_venues_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "venues",
+          "columnsFrom": ["venue_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "venue_requests_assigned_staff_id_user_id_fk": {
           "name": "venue_requests_assigned_staff_id_user_id_fk",
           "tableFrom": "venue_requests",
@@ -692,12 +738,26 @@
           "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
+        },
+        "venue_requests_requested_by_id_user_id_fk": {
+          "name": "venue_requests_requested_by_id_user_id_fk",
+          "tableFrom": "venue_requests",
+          "tableTo": "user",
+          "columnsFrom": ["requested_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "venue_requests_ends_after_starts": {
+          "name": "venue_requests_ends_after_starts",
+          "value": "\"venue_requests\".\"ends_at\" > \"venue_requests\".\"starts_at\""
+        }
+      },
       "isRLSEnabled": false
     },
     "public.venue_unavailability": {
@@ -1253,7 +1313,7 @@
     "public.venue_request_status": {
       "name": "venue_request_status",
       "schema": "public",
-      "values": ["pending"]
+      "values": ["pending", "withdrawn"]
     }
   },
   "schemas": {},
