@@ -395,25 +395,48 @@ export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
 
 /**
  * One `Badge` variant per status. The three status pills docs/DESIGN.md#status-pills defines —
- * `progress` (amber) for work in progress, `confirmed` (harbor) for a settled good outcome,
- * `stopped` (coral) for a stop — plus `Badge`'s neutral `outline` for not started and `secondary`
- * for over, which the design system does not name as status pills. Pure data so any page can
- * import it.
+ * `progress` (amber) for anything still pending, including a request waiting on the Organiser,
+ * `confirmed` (harbor) for a settled good outcome, `stopped` (coral) for a stop — plus `Badge`'s
+ * neutral `outline` for a draft that has not started. Pure data so any page can import it.
  */
-type EventRequestStatusVariant = "outline" | "progress" | "confirmed" | "stopped" | "secondary";
+type EventRequestStatusVariant = "outline" | "progress" | "confirmed" | "stopped";
 export const EVENT_REQUEST_STATUS_VARIANTS: Record<EventRequestStatus, EventRequestStatusVariant> =
   {
     draft: "outline",
     submitted: "progress",
     under_review: "progress",
-    awaiting_organiser: "stopped",
+    awaiting_organiser: "progress",
     approved: "confirmed",
     planning: "progress",
     confirmed: "confirmed",
-    completed: "secondary",
+    completed: "confirmed",
     rejected: "stopped",
     cancelled: "stopped",
   };
+
+/**
+ * What each status says about the request's record: whether a decision stands on it (the
+ * database requires the deciding Coordinator and time from `approved` onward), which way that
+ * decision went, and the one sentence the detail page adds after the date. Pure data, so no page
+ * re-branches the status set when a status is added.
+ */
+export interface EventRequestStage {
+  decided: boolean;
+  outcome: "approved" | "rejected" | null;
+  note: string;
+}
+export const EVENT_REQUEST_STATUS_STAGES: Record<EventRequestStatus, EventRequestStage> = {
+  draft: { decided: false, outcome: null, note: "Saved as a draft and not yet submitted." },
+  submitted: { decided: false, outcome: null, note: "It is with ConnectSphere for review." },
+  under_review: { decided: false, outcome: null, note: "It is with ConnectSphere for review." },
+  awaiting_organiser: { decided: false, outcome: null, note: "Waiting on the Organiser." },
+  approved: { decided: true, outcome: "approved", note: "" },
+  rejected: { decided: true, outcome: "rejected", note: "" },
+  planning: { decided: true, outcome: "approved", note: "Approved and being planned." },
+  confirmed: { decided: true, outcome: "approved", note: "Confirmed and going ahead." },
+  completed: { decided: true, outcome: "approved", note: "The event has taken place." },
+  cancelled: { decided: false, outcome: null, note: "Cancelled." },
+};
 
 // ── Clarification requests (PTR-18) ─────────────────────────────────────────
 

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
+import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import type { EventProjection } from "#/features/events/access";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 
@@ -52,9 +53,12 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                     </p>
                     <h3 className="mt-2 display-h3">{event.name ?? "Venue request"}</h3>
                   </div>
-                  {event.registration?.status && (
-                    <Badge variant="confirmed">{event.registration.status}</Badge>
-                  )}
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <EventRequestStatusBadge status={event.status} />
+                    {event.registration?.status && (
+                      <Badge variant="confirmed">{event.registration.status}</Badge>
+                    )}
+                  </div>
                 </div>
 
                 {event.description && (

@@ -102,6 +102,7 @@ describe("DashboardPage", () => {
             access: "venue_staff",
             event: {
               id: 7,
+              status: "submitted",
               eventDate: "2026-10-01",
               startTime: "09:00",
               endTime: "17:00",
@@ -134,6 +135,7 @@ describe("DashboardPage", () => {
             access: "coordinator",
             event: {
               id: 41,
+              status: "submitted",
               name: "Annual summit",
               eventDate: "2026-10-01",
               startTime: "09:00",

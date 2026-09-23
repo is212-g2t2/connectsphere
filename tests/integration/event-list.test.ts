@@ -429,7 +429,8 @@ describe("event list handler (PTR-8)", () => {
       // PTR-31 criterion 2: not even the name, and none of the organiser-only fields.
       expect(projection.event).not.toHaveProperty("name");
       expect(projection.event).not.toHaveProperty("description");
-      expect(projection.event).not.toHaveProperty("status");
+      // Everyone with access sees the stage.
+      expect(projection.event.status).toBe("submitted");
       expect(projection.event).not.toHaveProperty("equipment");
     });
 
@@ -482,7 +483,8 @@ describe("event list handler (PTR-8)", () => {
         registrationClosesAt: OPEN_WINDOW.registrationClosesAt,
         registration: null,
       });
-      expect(projection.event).not.toHaveProperty("status");
+      // Everyone with access sees the stage.
+      expect(projection.event.status).toBe("submitted");
       expect(projection.event).not.toHaveProperty("expectedAttendance");
       expect(projection.event).not.toHaveProperty("equipment");
       expect(projection.event).not.toHaveProperty("venueRequest");

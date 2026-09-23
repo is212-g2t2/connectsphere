@@ -20,10 +20,11 @@ import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 import { user } from "./auth-schema";
 
 /**
- * Only the statuses the stories have built, so a typo'd value cannot reach the column
- * (PTR-9 criterion 2). `submitted` arrives with PTR-13; the rest of PTR-21's set (under review,
- * approved, …) arrives with the stories that move a request into them. Widening this is a
- * generated `ALTER TYPE` migration, matching how the role/function matrix grows a row at a time.
+ * The full defined set (PTR-21): the one place an event's stage is recorded. Only a user's status
+ * action writes it — a venue or equipment arrangement changing never moves an event by itself —
+ * and every decision keeps who and when (the `event_requests_decision_matches_status` CHECK). The
+ * client restates the set in `src/features/event-requests/schema.ts`, held identical by
+ * `tests/unit/db-schema.test.ts`; widening it is a generated `ALTER TYPE` migration.
  */
 export const eventRequestStatus = pgEnum("event_request_status", [
   "draft",

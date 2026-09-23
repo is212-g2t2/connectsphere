@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import {
   EVENT_REQUEST_STATUS_LABELS,
+  EVENT_REQUEST_STATUS_STAGES,
   EVENT_REQUEST_STATUS_VARIANTS,
   EVENT_REQUEST_STATUSES,
 } from "#/features/event-requests/schema";
@@ -50,10 +51,30 @@ describe("Event request statuses (PTR-21)", () => {
     const variant = EVENT_REQUEST_STATUS_VARIANTS;
     // Good outcomes share one look, stops share another, and neither is the in-progress amber.
     expect(variant.approved).toBe(variant.confirmed);
+    expect(variant.completed).toBe(variant.confirmed);
     expect(variant.rejected).toBe(variant.cancelled);
     expect(variant.approved).not.toBe(variant.rejected);
     expect(variant.under_review).toBe("progress");
+    // Waiting on the Organiser is pending work, not a stop.
+    expect(variant.awaiting_organiser).toBe("progress");
     expect(variant.approved).not.toBe("progress");
     expect(variant.rejected).not.toBe("progress");
+  });
+
+  it("names the pill as a status for assistive technology", () => {
+    render(<EventRequestStatusBadge status="planning" />);
+    expect(screen.getByLabelText("Status: Planning").textContent).toBe("Planning");
+  });
+
+  it("records a decision on every status from approved onward, and only there", () => {
+    const decided = EVENT_REQUEST_STATUSES.filter(
+      status => EVENT_REQUEST_STATUS_STAGES[status].decided
+    );
+    expect(decided.toSorted()).toEqual(
+      ["approved", "rejected", "planning", "confirmed", "completed"].toSorted()
+    );
+    for (const status of decided) {
+      expect(EVENT_REQUEST_STATUS_STAGES[status].outcome).not.toBeNull();
+    }
   });
 });

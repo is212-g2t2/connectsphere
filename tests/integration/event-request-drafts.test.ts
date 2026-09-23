@@ -1793,28 +1793,35 @@ describe("Status set and decision attribution (PTR-21)", () => {
     const request = await submitted();
     // The only arrangement writes that exist today: the venue record, through its real save
     // path so an application-level coupling would be caught, and its unavailability, which
-    // has no handler yet.
+    // has no handler yet. Equipment arrangements have no writer at all yet; when one lands it
+    // belongs here too.
     const [hall] = await database
       .select()
       .from(schema.venues)
       .where(eq(schema.venues.name, "Harbour Hall"));
-    await handleSaveVenue({ ...hall, maxCapacity: 999 }, database as never);
-    await database
-      .insert(schema.venueUnavailability)
-      .values({
-        venueId: (await database.select({ id: schema.venues.id }).from(schema.venues).limit(1))[0]
-          .id,
-        startsAt: "2028-01-01 09:00:00",
-        endsAt: "2028-01-01 12:00:00",
-        reason: "PTR-21 AC3",
-      })
-      .onConflictDoNothing();
+    try {
+      await handleSaveVenue({ ...hall, maxCapacity: 999 }, database as never);
+      await database
+        .insert(schema.venueUnavailability)
+        .values({
+          venueId: hall.id,
+          startsAt: "2028-01-01 09:00:00",
+          endsAt: "2028-01-01 12:00:00",
+          reason: "PTR-21 AC3",
+        })
+        .onConflictDoNothing();
 
-    const [row] = await database
-      .select({ status: schema.eventRequests.status })
-      .from(schema.eventRequests)
-      .where(eq(schema.eventRequests.id, request.id));
-    expect(row.status).toBe("submitted");
-    await handleSaveVenue(hall, database as never);
+      const [row] = await database
+        .select({ status: schema.eventRequests.status })
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, request.id));
+      expect(row.status).toBe("submitted");
+    } finally {
+      // The seed rows are shared; put the venue back and remove the period even on failure.
+      await handleSaveVenue(hall, database as never);
+      await database
+        .delete(schema.venueUnavailability)
+        .where(eq(schema.venueUnavailability.reason, "PTR-21 AC3"));
+    }
   });
 });

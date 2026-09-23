@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
+import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import {
   ASSIGNED_ON_SUBMIT,
   EventRequestListPage,
@@ -276,5 +277,48 @@ describe("EventRequestDetailPage (PTR-14 AC4)", () => {
     expect(decision.getByText("The requested room is unavailable.")).toBeTruthy();
     expect(decision.getByText("Seeded Event Coordinator")).toBeTruthy();
     expect(decision.getByText("16 Sept 2026, 11:30").tagName).toBe("TIME");
+  });
+});
+
+describe("EventRequestDetailPage stages (PTR-21 AC2)", () => {
+  const decided = {
+    decidedByCoordinatorId: "seed-coordinator-1",
+    decidedByCoordinatorName: "Seeded Event Coordinator",
+    decidedAt: new Date("2026-09-16T03:30:00Z"),
+  };
+
+  it.each([
+    ["planning", "Approved and being planned."],
+    ["confirmed", "Confirmed and going ahead."],
+    ["completed", "The event has taken place."],
+  ] as const)("describes %s as a decided stage with its decision shown", (status, note) => {
+    render(<EventRequestDetailPage request={{ ...submitted, status, ...decided }} />);
+    expect(screen.getByLabelText(`Status: ${EVENT_REQUEST_STATUS_LABELS[status]}`)).toBeTruthy();
+    expect(screen.getByText(/Decision recorded on/).textContent).toContain(note);
+    const card = within(
+      screen
+        .getByRole("heading", { name: "Recorded decision" })
+        .closest("[data-slot='card']") as HTMLElement
+    );
+    expect(card.getByText("Approved")).toBeTruthy();
+    expect(card.getByText("Seeded Event Coordinator")).toBeTruthy();
+  });
+
+  it("describes a cancellation before any decision as submitted and cancelled, with no decision card", () => {
+    render(<EventRequestDetailPage request={{ ...submitted, status: "cancelled" }} />);
+    expect(screen.getByText(/Submitted on/).textContent).toContain("Cancelled.");
+    expect(screen.queryByRole("heading", { name: "Recorded decision" })).toBeNull();
+  });
+
+  it("keeps the decision on a cancellation made after one, without calling the cancellation the decision", () => {
+    render(<EventRequestDetailPage request={{ ...submitted, status: "cancelled", ...decided }} />);
+    expect(screen.getByText(/Decision recorded on/).textContent).toContain("Cancelled.");
+    const card = within(
+      screen
+        .getByRole("heading", { name: "Recorded decision" })
+        .closest("[data-slot='card']") as HTMLElement
+    );
+    expect(card.getByText("Cancelled after a recorded decision")).toBeTruthy();
+    expect(card.getByText("Seeded Event Coordinator")).toBeTruthy();
   });
 });
