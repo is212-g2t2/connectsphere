@@ -120,6 +120,13 @@
       "when": 1790099281857,
       "tag": "0016_skinny_captain_britain",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790137632415,
+      "tag": "0017_sudden_excalibur",
+      "breakpoints": true
     }
   ]
 }

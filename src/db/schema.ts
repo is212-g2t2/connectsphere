@@ -20,10 +20,11 @@ import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 import { user } from "./auth-schema";
 
 /**
- * Only the statuses the stories have built, so a typo'd value cannot reach the column
- * (PTR-9 criterion 2). `submitted` arrives with PTR-13; the rest of PTR-21's set (under review,
- * approved, …) arrives with the stories that move a request into them. Widening this is a
- * generated `ALTER TYPE` migration, matching how the role/function matrix grows a row at a time.
+ * The full defined set (PTR-21): the one place an event's stage is recorded. Only a user's status
+ * action writes it — a venue or equipment arrangement changing never moves an event by itself —
+ * and every decision keeps who and when (the `event_requests_decision_matches_status` CHECK). The
+ * client restates the set in `src/features/event-requests/schema.ts`, held identical by
+ * `tests/unit/db-schema.test.ts`; widening it is a generated `ALTER TYPE` migration.
  */
 export const eventRequestStatus = pgEnum("event_request_status", [
   "draft",
@@ -32,6 +33,13 @@ export const eventRequestStatus = pgEnum("event_request_status", [
   "approved",
   "rejected",
   "awaiting_organiser",
+  // PTR-21 criterion 1: the rest of the defined set, added once so PTR-24 (confirmed), PTR-25
+  // (completed) and PTR-54 (cancelled) write into an enum that already holds their value.
+  // `planning` is the stage between approval and confirmation the brief names (§5 steps 6–9).
+  "planning",
+  "confirmed",
+  "completed",
+  "cancelled",
 ]);
 
 export const eventRequests = pgTable(
@@ -122,12 +130,13 @@ export const eventRequests = pgTable(
       "event_requests_draft_has_no_coordinator",
       sql`${table.status} <> 'draft' or ${table.assignedCoordinatorId} is null`
     ),
-    // Decision attribution is required exactly while the status is approved or rejected, and must be
-    // absent for the pre-decision statuses. A future status that should retain it (e.g. completed)
-    // must extend this constraint alongside its enum value.
+    // Decision attribution is required from the moment a request is approved or rejected and is
+    // kept through every later stage (planning, confirmed, completed); it must be absent before a
+    // decision exists. A cancellation can happen on either side of the decision (PTR-54), so
+    // `cancelled` accepts the attribution complete or wholly absent, never half-written.
     check(
       "event_requests_decision_matches_status",
-      sql`(${table.status}::text in ('approved', 'rejected') and ${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.status}::text in ('draft', 'submitted', 'under_review', 'awaiting_organiser') and ${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null)`
+      sql`(${table.status}::text in ('approved', 'rejected', 'planning', 'confirmed', 'completed') and ${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.status}::text in ('draft', 'submitted', 'under_review', 'awaiting_organiser') and ${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null) or (${table.status}::text = 'cancelled' and ((${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null)))`
     ),
     check(
       "event_requests_rejection_has_reason",

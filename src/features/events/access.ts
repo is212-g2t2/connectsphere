@@ -1,3 +1,5 @@
+import type { EventRequestStatus } from "#/features/event-requests/schema";
+
 export type EventAccess =
   | "organiser"
   | "coordinator"
@@ -93,7 +95,7 @@ interface EventRecord {
   id: number;
   name: string;
   description: string;
-  status: string;
+  status: EventRequestStatus;
   proposedDates: Array<{ start?: string; end?: string }>;
   expectedAttendance: number | null;
   roomLayoutPreference: string;
@@ -118,7 +120,7 @@ export interface EventProjection {
     endDate?: string | null;
     startTime: string | null;
     endTime: string | null;
-    status?: string;
+    status: EventRequestStatus;
     registrationOpensAt?: string | null;
     registrationClosesAt?: string | null;
     expectedAttendance?: number | null;
@@ -158,6 +160,7 @@ export function projectEvent(
           name: record.name,
           description: record.description,
           ...timing,
+          status: record.status,
           registrationOpensAt: record.registrationOpensAt,
           registrationClosesAt: record.registrationClosesAt,
           registration: ownRegistration,
@@ -165,13 +168,15 @@ export function projectEvent(
       };
 
     // PTR-31 criterion 2: event timing, expected attendance, layout, accessibility and required
-    // facilities — and no other event information, so not even the name.
+    // facilities — and no other event information, so not even the name. The stage is the one
+    // exception every branch carries (PTR-21 criterion 2): anyone with access sees it.
     case "venue_staff":
       return {
         access,
         event: {
           id: record.id,
           ...timing,
+          status: record.status,
           expectedAttendance: record.expectedAttendance,
           layout: record.roomLayoutPreference,
           accessibilityRequirements: record.accessibilityRequirements,
@@ -187,6 +192,7 @@ export function projectEvent(
           id: record.id,
           name: record.name,
           ...timing,
+          status: record.status,
           equipment,
         },
       };
