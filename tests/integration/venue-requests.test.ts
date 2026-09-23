@@ -686,7 +686,7 @@ describe("venue request handlers (PTR-31)", () => {
       await expect(approve(second.id, users.venueStaffB)).rejects.toMatchObject({
         name: "ConflictError",
         status: 409,
-        message: `${VENUE_NAME} is already booked ${WINDOW.date}T09:00–12:30`,
+        message: `${VENUE_NAME} is already booked 20 Apr 2027, 09:00 – 12:30`,
       });
 
       const rows = await database

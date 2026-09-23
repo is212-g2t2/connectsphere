@@ -85,7 +85,7 @@ describe("venueRequestConflictMessage (PTR-36 criterion 2)", () => {
         startsAt: "2027-06-01T09:00:00",
         endsAt: "2027-06-01T12:30:00",
       })
-    ).toBe("Harbour Hall is already booked 2027-06-01T09:00–12:30");
+    ).toBe("Harbour Hall is already booked 1 Jun 2027, 09:00 – 12:30");
   });
 
   it("names the end date too when the period crosses midnight", () => {
@@ -95,7 +95,7 @@ describe("venueRequestConflictMessage (PTR-36 criterion 2)", () => {
         startsAt: "2027-06-01T22:00:00",
         endsAt: "2027-06-02T01:00:00",
       })
-    ).toBe("Harbour Hall is already booked 2027-06-01T22:00–2027-06-02T01:00");
+    ).toBe("Harbour Hall is already booked 1 Jun 2027, 22:00 – 2 Jun 2027, 01:00");
   });
 });
 

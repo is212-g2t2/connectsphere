@@ -125,7 +125,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Theatre")).toBeTruthy();
     expect(screen.getByText("Pending")).toBeTruthy();
     // PTR-36 criterion 4: no overlap, no conflict badge.
-    expect(screen.queryByText("Conflicting")).toBeNull();
+    expect(screen.queryByText("Conflicting booking")).toBeNull();
   });
 
   it("flags a venue request that overlaps an approved booking (PTR-36 AC4)", () => {
@@ -149,7 +149,7 @@ describe("DashboardPage", () => {
     );
 
     expect(screen.getByText("Pending")).toBeTruthy();
-    expect(screen.getByText("Conflicting")).toBeTruthy();
+    expect(screen.getByText("Conflicting booking")).toBeTruthy();
   });
 
   it("lets a Coordinator start venue search from an assigned event", () => {

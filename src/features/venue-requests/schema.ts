@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { formatLocalDateTime } from "#/features/event-requests/format";
 import { TIME_SHAPE, VENUE_ID_MESSAGE, VENUE_SEARCH_EVENT_MESSAGE } from "#/features/venues/schema";
 
 /**
@@ -28,7 +29,8 @@ export const VENUE_REQUEST_CONFLICT_MESSAGE =
 /**
  * PTR-36 criterion 2: the refusal names the venue and the conflicting period, never the other
  * event's name — Venue Staff keep the nameless projection PTR-8/PTR-31 established. The times
- * arrive in the loader's normalized `YYYY-MM-DDTHH:MM:SS` spelling.
+ * arrive in the loader's normalized `YYYY-MM-DDTHH:MM:SS` spelling and are read the way the rest
+ * of the app reads wall-clock values (`formatLocalDateTime`), not as the stored string.
  */
 export function venueRequestConflictMessage(conflict: {
   venueName: string;
@@ -37,11 +39,12 @@ export function venueRequestConflictMessage(conflict: {
 }) {
   // A period that crosses midnight names its end date too; within one civil day the shared date
   // reads once.
+  const start = formatLocalDateTime(conflict.startsAt.slice(0, 16));
   const end =
     conflict.endsAt.slice(0, 10) === conflict.startsAt.slice(0, 10)
       ? conflict.endsAt.slice(11, 16)
-      : conflict.endsAt.slice(0, 16);
-  return `${conflict.venueName} is already booked ${conflict.startsAt.slice(0, 16)}–${end}`;
+      : formatLocalDateTime(conflict.endsAt.slice(0, 16));
+  return `${conflict.venueName} is already booked ${start} – ${end}`;
 }
 
 const Time = z.string().regex(TIME_SHAPE, VENUE_REQUEST_TIME_MESSAGE);

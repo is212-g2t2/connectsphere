@@ -94,7 +94,7 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                           <span className="flex flex-wrap items-center gap-2">
                             <Badge variant="progress">Pending</Badge>
                             {event.venueRequest.conflict && (
-                              <Badge variant="stopped">Conflicting</Badge>
+                              <Badge variant="stopped">Conflicting booking</Badge>
                             )}
                           </span>
                         }

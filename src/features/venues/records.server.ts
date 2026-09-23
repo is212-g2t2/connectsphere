@@ -338,7 +338,10 @@ export const loadVenueBookings: VenueBookingLoader = async (
         lt(venueRequests.startsAt, endsAt),
         gt(venueRequests.endsAt, startsAt)
       )
-    );
+    )
+    // Earliest first, so a refusal that finds several overlapping bookings always names the same
+    // one; the projection re-sorts anyway.
+    .orderBy(asc(venueRequests.startsAt));
 
   return rows.map(row => ({
     id: row.id,

@@ -200,9 +200,14 @@ export async function handleListEvents(
         )
       )
       .where(
-        inArray(
-          venueRequests.id,
-          pendingRows.map(row => row.id)
+        and(
+          inArray(
+            venueRequests.id,
+            pendingRows.map(row => row.id)
+          ),
+          // The id list was captured in an earlier statement; a row approved since then would
+          // otherwise self-join (a period always overlaps itself) and flag as conflicting.
+          eq(venueRequests.status, "pending")
         )
       );
     conflictingRequestIds = new Set(conflicts.map(row => row.id));
