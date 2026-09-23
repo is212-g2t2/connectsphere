@@ -358,6 +358,46 @@ describe("PTR-30 suitability reasons", () => {
     ).toEqual([{ criterion: "availability", message: "Closed or unavailable on 2026-10-05" }]);
   });
 
+  it("names the asked-for layout when an event's free-text preference matches none", () => {
+    expect(failures(venue, { ...filters, layout: "Cabaret" }, [])).toEqual([
+      { criterion: "layout", message: "Does not offer Cabaret" },
+    ]);
+  });
+
+  it("names the booking ahead of a block that starts earlier the same day", () => {
+    const block = {
+      id: "block-1",
+      label: "Floor resurfacing",
+      startsAt: "2026-10-05T09:00:00",
+      endsAt: "2026-10-05T11:00:00",
+    };
+    const booking = {
+      id: "booking-1",
+      label: "Annual dinner",
+      startsAt: "2026-10-05T11:00:00",
+      endsAt: "2026-10-05T13:00:00",
+    };
+    expect(failures(venue, filters, [block], [booking])).toEqual([
+      { criterion: "booking", message: "Booked for Annual dinner on 2026-10-05" },
+    ]);
+  });
+
+  it("names the booking's own day in a multi-day search with no times", () => {
+    const booking = {
+      id: "booking-1",
+      label: "Annual dinner",
+      startsAt: "2026-10-06T00:00:00",
+      endsAt: "2026-10-07T00:00:00",
+    };
+    const closed = {
+      ...venue,
+      operatingHours: { ...DEFAULT_OPERATING_HOURS, mon: null, wed: null },
+    };
+    expect(failures(closed, { date: "2026-10-05", endDate: "2026-10-07" }, [], [booking])).toEqual([
+      { criterion: "booking", message: "Booked for Annual dinner on 2026-10-06" },
+    ]);
+  });
+
   it("names a window that crosses midnight rather than failing silently", () => {
     expect(
       failures(

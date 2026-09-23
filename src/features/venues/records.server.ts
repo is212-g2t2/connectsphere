@@ -108,8 +108,8 @@ function overlaps(
 
 /**
  * Whether the venue can host the requested window, and if not, why: closed, blocked by recorded
- * unavailability, or — criterion 4 — holding an approved booking that overlaps it. Bookings are
- * checked before blocks because a booked venue is the answer the Coordinator most needs.
+ * unavailability, or — criterion 4 — holding an approved booking that overlaps it. A booking is
+ * named ahead of a block on the same day because it is the answer the Coordinator most needs.
  */
 function availabilityFailure(
   venue: VenueSuitabilityCandidate,
@@ -135,7 +135,10 @@ function availabilityFailure(
     if (projection.available.length > 0) return null;
     const booked = projection.occupied.find(period => period.state === "confirmed");
     return booked
-      ? { criterion: "booking", message: `Booked for ${booked.label} on ${dates}` }
+      ? {
+          criterion: "booking",
+          message: `Booked for ${booked.label} on ${booked.visibleStart.slice(0, 10)}`,
+        }
       : { criterion: "availability", message: `Closed or unavailable on ${dates}` };
   }
 
@@ -153,14 +156,17 @@ function availabilityFailure(
     );
     if (covered) continue;
 
-    const clash = projection.occupied.find(period =>
+    // Occupied periods are sorted by start, so look for a booking first: a booked venue is the
+    // answer the Coordinator most needs, even when a block starts earlier the same day.
+    const clashes = projection.occupied.filter(period =>
       overlaps(period, requestedStart, requestedEnd)
     );
-    if (clash?.state === "confirmed") {
-      return { criterion: "booking", message: `Booked for ${clash.label} on ${day}` };
+    const booked = clashes.find(period => period.state === "confirmed");
+    if (booked) {
+      return { criterion: "booking", message: `Booked for ${booked.label} on ${day}` };
     }
-    if (clash) {
-      return { criterion: "availability", message: `Unavailable on ${day}: ${clash.label}` };
+    if (clashes[0]) {
+      return { criterion: "availability", message: `Unavailable on ${day}: ${clashes[0].label}` };
     }
     return {
       criterion: "availability",
@@ -201,10 +207,13 @@ export function evaluateVenueSuitability(
   if (filters.layout) {
     const requested = parseLayouts(filters.layout);
     if (!requested.some(layout => venue.supportedLayouts.includes(layout))) {
-      failures.push({
-        criterion: "layout",
-        message: `Does not offer ${requested.map(layout => LAYOUT_LABELS[layout]).join(" or ")}`,
-      });
+      // An event's layout preference is free text and skips the search form's guard, so it can
+      // name none of the six layouts; the sentence then names what was asked for.
+      const wanted =
+        requested.length > 0
+          ? requested.map(layout => LAYOUT_LABELS[layout]).join(" or ")
+          : filters.layout;
+      failures.push({ criterion: "layout", message: `Does not offer ${wanted}` });
     }
   }
   const missingAccessibility = missingTagWords(venue.accessibilityFeatures, filters.accessibility);
@@ -273,8 +282,9 @@ type VenueBooking = AvailabilityRecord & { venueId: number };
  * PTR-30 criterion 4's data: the approved bookings overlapping a range, per venue. A deliberate
  * seam, not a fallback — `venue_requests` carries no venue or period until PTR-31 lands and no
  * `approved` status until PTR-33 does, so there is nothing to read yet. The evaluator already
- * treats whatever arrives here as occupied; the story that merges last of the three replaces the
- * body with one query and deletes this comment. The unit tests prove the rule with fixtures.
+ * treats whatever arrives here as occupied, and the availability calendar reads the same seam; the
+ * story that merges last of the three replaces the body with one query and deletes this comment.
+ * The unit tests prove the rule with fixtures.
  */
 async function loadVenueBookings(
   _database: Database,
@@ -402,7 +412,10 @@ export async function handleGetVenueAvailability(data: unknown, database: Databa
   const endsAt = `${nextCivilDate(selection.endDate)}T00:00:00`;
   const databaseStartsAt = startsAt.replace("T", " ");
   const databaseEndsAt = endsAt.replace("T", " ");
-  const blocks = await loadVenueBlocks(database, [venue.id], databaseStartsAt, databaseEndsAt);
+  const [blocks, bookings] = await Promise.all([
+    loadVenueBlocks(database, [venue.id], databaseStartsAt, databaseEndsAt),
+    loadVenueBookings(database, [venue.id], databaseStartsAt, databaseEndsAt),
+  ]);
 
   return {
     venue: { id: venue.id, name: venue.name },
@@ -411,9 +424,9 @@ export async function handleGetVenueAvailability(data: unknown, database: Databa
     ...projectAvailability(
       { startsAt, endsAt },
       {
-        // AC3 is mocked: there is no booking table to read until PTR-33/36, so this is the
-        // seam, not a fallback. The projection's "confirmed" branch is pinned by the unit test.
-        bookings: [],
+        // The same seam the search reads; the projection's "confirmed" branch is pinned by the
+        // unit test until bookings exist to read.
+        bookings,
         blocks,
         openPeriods: openingPeriods(selection.startDate, selection.endDate, venue.operatingHours),
       }
