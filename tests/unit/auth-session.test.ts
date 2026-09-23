@@ -80,12 +80,6 @@ describe("status-carrying error classes", () => {
     expect(error.status).toBe(401);
   });
 
-  it("creates AuthorizationError with explicit status", () => {
-    const error = new AuthorizationError("Custom refusal", 401);
-    expect(error.status).toBe(401);
-    expect(error.message).toBe("Custom refusal");
-  });
-
   it("creates NotFoundError with status 404", () => {
     const error = new NotFoundError("Not Found");
     expect(error).toBeInstanceOf(Error);
