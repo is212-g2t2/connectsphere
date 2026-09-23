@@ -245,27 +245,20 @@ export async function handleCreateVenueRequest(
     // Nobody to tell does not refuse the request, but it must be observable rather than silent.
     log.warn("No Venue Staff to notify of the venue request", { requestId: created.request.id });
   } else {
-    try {
-      await sendVenueRequestNotification(
-        {
-          venueName: created.venue.name,
-          startsAt: created.request.startsAt,
-          endsAt: created.request.endsAt,
-          expectedAttendance: created.expectedAttendance,
-          layout: created.layout,
-          accessibilityRequirements: created.accessibilityRequirements,
-          requiredFacilities: created.requiredFacilities,
-        },
-        created.recipientEmails
-      );
-    } catch (error) {
-      // The request is committed, and a failed notification must not report it as failed — a
-      // retry would only meet the duplicate guard.
-      log.warn("Venue request notification failed", {
-        requestId: created.request.id,
-        errorName: error instanceof Error ? error.name : "unknown",
-      });
-    }
+    // sendVenueRequestNotification settles every send through Promise.allSettled and only logs,
+    // so it never rejects; the request stays committed either way.
+    await sendVenueRequestNotification(
+      {
+        venueName: created.venue.name,
+        startsAt: created.request.startsAt,
+        endsAt: created.request.endsAt,
+        expectedAttendance: created.expectedAttendance,
+        layout: created.layout,
+        accessibilityRequirements: created.accessibilityRequirements,
+        requiredFacilities: created.requiredFacilities,
+      },
+      created.recipientEmails
+    );
   }
 
   return created.request;
