@@ -158,7 +158,7 @@ describe("VenueRequestPanel (PTR-31)", () => {
 
   it("shows the refusal a refused request comes back with", async () => {
     const user = userEvent.setup();
-    requestVenue.mockResolvedValueOnce(new Response("Forbidden", { status: 403 }));
+    requestVenue.mockRejectedValueOnce(new Error("Forbidden"));
     renderPanel(openContext);
 
     await user.click(screen.getByRole("button", { name: "Send booking request" }));
@@ -213,7 +213,7 @@ describe("VenueRequestPanel (PTR-31)", () => {
 
   it("shows a refused withdrawal inside the open dialog, leaving Confirm usable", async () => {
     const user = userEvent.setup();
-    withdrawVenueRequest.mockResolvedValueOnce(new Response("Forbidden", { status: 403 }));
+    withdrawVenueRequest.mockRejectedValueOnce(new Error("Forbidden"));
     renderPanel(pendingContext);
 
     await user.click(screen.getByRole("button", { name: "Withdraw request" }));

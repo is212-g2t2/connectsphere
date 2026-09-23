@@ -19,7 +19,6 @@ import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
-import { unwrapRefusal } from "#/features/auth/session";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { VenueRequestInput } from "#/features/venue-requests/schema";
@@ -74,10 +73,7 @@ export function VenueRequestPanel({
   const headingRef = useRef<HTMLHeadingElement | null>(null);
 
   const [withdrawState, withdraw, withdrawing] = useMutation(async (requestId: string) => {
-    await unwrapRefusal(
-      withdrawVenueRequest({ data: { id: requestId } }),
-      "Could not withdraw this request. Try again."
-    );
+    await withdrawVenueRequest({ data: { id: requestId } });
     toast.success("Venue request withdrawn.");
     await router.invalidate();
   }, "Could not withdraw this request. Try again.");
@@ -89,10 +85,7 @@ export function VenueRequestPanel({
     validators: { onSubmit: VenueRequestInput },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await unwrapRefusal(
-          requestVenue({ data: value }),
-          "Could not send this request. Try again."
-        );
+        await requestVenue({ data: value });
         toast.success("Venue request sent.");
         // The loader is the only source for the panel's state: re-running it is what swaps the form
         // for the pending request.

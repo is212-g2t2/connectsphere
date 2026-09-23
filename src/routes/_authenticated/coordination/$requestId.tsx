@@ -1,7 +1,6 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { unwrapRefusal } from "#/features/auth/session";
 import { CoordinationRequestPage } from "#/features/coordination/components/coordination-request-page";
 import { CoordinationRequestPageSkeleton } from "#/features/coordination/components/coordination-request-page-skeleton";
 import { getCoordinationRequest, listCoordinators } from "#/features/coordination/server-fns";
@@ -23,8 +22,8 @@ export const Route = createFileRoute("/_authenticated/coordination/$requestId")(
       throw notFound();
     }
     const [request, coordinators] = await Promise.all([
-      unwrapRefusal(getCoordinationRequest({ data: parsed.data }), "Could not open this request."),
-      unwrapRefusal(listCoordinators(), "Could not load the Coordinators."),
+      getCoordinationRequest({ data: parsed.data }),
+      listCoordinators(),
     ]);
     return { request, coordinators };
   },

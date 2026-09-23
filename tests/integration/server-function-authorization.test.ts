@@ -1,6 +1,7 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMiddleware, createServerFn } from "@tanstack/react-start";
+import { setResponseStatus } from "@tanstack/react-start/server";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -79,14 +80,16 @@ const availabilitySelection = {
  * and can catch a function wired to the wrong guard. The request and the session are the two
  * things the runtime supplies, so they are the two things mocked here.
  *
- * On a refusal the middleware short-circuits: `error` is the status `Response`, and the handler
- * below it never runs (the uncompiled test module does not carry a handler body at all — TanStack
- * Start's compiler supplies it in a real build, which the e2e suite exercises end to end).
+ * On a refusal the middleware short-circuits: `error` is the status-carrying `Error`,
+ * `setResponseStatus` sets the HTTP status code, and the handler below it never runs
+ * (the uncompiled test module does not carry a handler body at all — TanStack Start's
+ * compiler supplies it in a real build, which the e2e suite exercises end to end).
  */
 const currentRequest = new Request("http://localhost:3000/_serverFn", { method: "POST" });
 
 vi.mock("@tanstack/react-start/server", () => ({
   getRequest: () => currentRequest,
+  setResponseStatus: vi.fn<(status: number) => void>(),
 }));
 
 vi.mock("#/lib/auth.server", () => ({
@@ -120,11 +123,16 @@ async function refusalFrom(
   method: "GET" | "POST" = "POST"
 ) {
   const { error } = await call(serverFn, data, method);
-  if (!(error instanceof Response)) {
-    throw new Error("expected a refusal Response, but the pipeline returned none");
+  if (!(error instanceof Error && "status" in error)) {
+    throw new Error("expected a refusal Error carrying status, but the pipeline returned none");
   }
 
-  return { status: error.status, body: await error.text() };
+  const status = (error as { status: number }).status;
+  const body = error.message;
+
+  expect(setResponseStatus).toHaveBeenCalledWith(status);
+
+  return { status, body };
 }
 
 function signIn(role: string) {
@@ -559,12 +567,13 @@ describe("server-function authorization (PTR-69)", () => {
   /**
    * PTR-98: the matrix above proves each endpoint refuses at the middleware boundary, and the
    * handler tests prove each handler throws the right error class. Neither executes the join —
-   * `withSession`'s catch that turns that class into the `Response` a direct caller receives.
+   * `withSession`'s catch that records the status via `setResponseStatus` and rethrows the
+   * status-carrying `Error`.
    *
    * The uncompiled test module carries no handler body (the compiler supplies it in a real
    * build; see the file comment), so each case calls a real handler from a middleware placed
    * after the real session guard. The handler's throw then travels the same `next()` path a
-   * terminal handler's would, into `withSession`'s conversion.
+   * terminal handler's would, into `withSession`'s handler.
    */
   describe("refusal seam (PTR-98)", () => {
     let pool: Pool;

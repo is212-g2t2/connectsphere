@@ -8,6 +8,9 @@ import { authClient } from "#/lib/auth-client";
 import { PasswordSchema } from "#/features/auth/schema/password";
 import { useState } from "react";
 
+const RequestResetSchema = z.object({ email: z.email("Enter a valid email address") });
+const SetNewPasswordSchema = z.object({ password: PasswordSchema });
+
 /**
  * `token` is present when the user arrived from the emailed link; Better Auth sends `error`
  * (`INVALID_TOKEN`) instead when that link expired or was already used.
@@ -21,7 +24,7 @@ function RequestReset({ expired }: { expired: boolean }) {
 
   const form = useForm({
     defaultValues: { email: "" },
-    validators: { onSubmit: z.object({ email: z.email("Enter a valid email address") }) },
+    validators: { onSubmit: RequestResetSchema },
     onSubmit: async ({ value, formApi }) => {
       const { error } = await authClient.requestPasswordReset({
         email: value.email,
@@ -60,6 +63,7 @@ function RequestReset({ expired }: { expired: boolean }) {
 
   return (
     <form
+      noValidate
       onSubmit={e => {
         e.preventDefault();
         void form.handleSubmit();
@@ -124,7 +128,7 @@ function SetNewPassword({ token }: { token: string }) {
 
   const form = useForm({
     defaultValues: { password: "" },
-    validators: { onSubmit: z.object({ password: PasswordSchema }) },
+    validators: { onSubmit: SetNewPasswordSchema },
     onSubmit: async ({ value, formApi }) => {
       const { error } = await authClient.resetPassword({ newPassword: value.password, token });
       if (error) {
@@ -144,6 +148,7 @@ function SetNewPassword({ token }: { token: string }) {
 
   return (
     <form
+      noValidate
       onSubmit={e => {
         e.preventDefault();
         void form.handleSubmit();

@@ -1,7 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { unwrapRefusal } from "#/features/auth/session";
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
 import { VenueListPageSkeleton } from "#/features/venues/components/venue-list-page-skeleton";
 import { parseVenueSearch } from "#/features/venues/schema";
@@ -19,16 +18,13 @@ export const Route = createFileRoute("/_authenticated/venues/")({
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
     if (can(context.user.role, { venue: ["search"] })) {
-      return unwrapRefusal(
-        await searchVenues({ data: deps }),
-        "Venue search could not be loaded. Try again."
-      );
+      return searchVenues({ data: deps });
     }
 
     return {
       event: null,
       filters: {},
-      venues: await unwrapRefusal(listVenues(), "Venues could not be loaded. Try again."),
+      venues: await listVenues(),
     };
   },
   component: () => (

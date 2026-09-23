@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useForm } from "@tanstack/react-form";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CalendarDays } from "lucide-react";
 
@@ -7,8 +8,8 @@ import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Calendar, CalendarDayButton } from "#/components/ui/calendar";
 import { Card, CardContent } from "#/components/ui/card";
+import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
-import { Label } from "#/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -22,7 +23,7 @@ import {
   timestampEndDay,
   timestampTime,
 } from "#/features/venues/availability";
-import { AvailabilitySelectionSchema } from "#/features/venues/schema";
+import { AvailabilitySelectionFormInput } from "#/features/venues/schema";
 import type { AvailabilitySearch } from "#/features/venues/schema";
 import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
 import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -44,23 +45,38 @@ export function VenueCalendarPage({
   search: AvailabilitySearch;
 }) {
   const navigate = useNavigate();
-  const [draft, setDraft] = useState({
-    venueId: search.venueId === undefined ? "" : String(search.venueId),
-    startDate: search.startDate ?? "",
-    endDate: search.endDate ?? "",
+  const form = useForm({
+    defaultValues: {
+      venueId: search.venueId === undefined ? "" : String(search.venueId),
+      startDate: search.startDate ?? "",
+      endDate: search.endDate ?? "",
+    },
+    validators: {
+      onSubmit: AvailabilitySelectionFormInput,
+    },
+    onSubmit: async ({ value, formApi }) => {
+      try {
+        await navigate({
+          to: "/venues/availability",
+          search: AvailabilitySelectionFormInput.parse(value),
+        });
+      } catch (submitError) {
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form:
+              submitError instanceof Error
+                ? submitError.message
+                : "Could not load availability. Try again.",
+          },
+        });
+      }
+    },
   });
-  const [error, setError] = useState<string | null>(null);
+
   const [month, setMonth] = useState(() =>
     search.startDate ? civilDate(search.startDate) : new Date()
   );
-
-  const selected = {
-    from: draft.startDate ? civilDate(draft.startDate) : undefined,
-    to:
-      draft.endDate && draft.startDate && draft.endDate >= draft.startDate
-        ? civilDate(draft.endDate)
-        : undefined,
-  };
 
   const occupiedDays = new Map<string, "confirmed" | "blocked">();
   for (const period of schedule?.occupied ?? []) {
@@ -71,17 +87,6 @@ export function VenueCalendarPage({
     ) {
       if (!occupiedDays.has(day)) occupiedDays.set(day, period.state);
     }
-  }
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const parsed = AvailabilitySelectionSchema.safeParse(draft);
-    if (!parsed.success) {
-      setError(parsed.error.issues[0].message);
-      return;
-    }
-    setError(null);
-    void navigate({ to: "/venues/availability", search: parsed.data });
   }
 
   const periods = schedule
@@ -110,29 +115,37 @@ export function VenueCalendarPage({
         <aside aria-label="Calendar view">
           <Card>
             <CardContent>
-              <Calendar
-                mode="range"
-                timeZone="UTC"
-                selected={selected}
-                month={month}
-                onMonthChange={setMonth}
-                modifiers={{
-                  blocked: [...occupiedDays]
-                    .filter(([, state]) => state === "blocked")
-                    .map(([day]) => civilDate(day)),
-                  confirmed: [...occupiedDays]
-                    .filter(([, state]) => state === "confirmed")
-                    .map(([day]) => civilDate(day)),
+              <form.Subscribe selector={state => [state.values.startDate, state.values.endDate]}>
+                {([startDate, endDate]) => {
+                  const selected = {
+                    from: startDate ? civilDate(startDate) : undefined,
+                    to:
+                      endDate && startDate && endDate >= startDate ? civilDate(endDate) : undefined,
+                  };
+                  return (
+                    <Calendar
+                      mode="range"
+                      timeZone="UTC"
+                      selected={selected}
+                      month={month}
+                      onMonthChange={setMonth}
+                      modifiers={{
+                        blocked: [...occupiedDays]
+                          .filter(([, state]) => state === "blocked")
+                          .map(([day]) => civilDate(day)),
+                        confirmed: [...occupiedDays]
+                          .filter(([, state]) => state === "confirmed")
+                          .map(([day]) => civilDate(day)),
+                      }}
+                      onSelect={range => {
+                        form.setFieldValue("startDate", range?.from ? civilDay(range.from) : "");
+                        form.setFieldValue("endDate", range?.to ? civilDay(range.to) : "");
+                      }}
+                      components={{ DayButton: OccupiedDayButton }}
+                    />
+                  );
                 }}
-                onSelect={range =>
-                  setDraft(current => ({
-                    ...current,
-                    startDate: range?.from ? civilDay(range.from) : "",
-                    endDate: range?.to ? civilDay(range.to) : "",
-                  }))
-                }
-                components={{ DayButton: OccupiedDayButton }}
-              />
+              </form.Subscribe>
               <ul
                 aria-label="Availability legend"
                 className="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-border pt-4 body-sm text-muted-foreground"
@@ -171,61 +184,100 @@ export function VenueCalendarPage({
             {venues.length === 0 ? (
               <p className="body-sm text-muted-foreground">No venues recorded yet.</p>
             ) : (
-              <form className="space-y-5" noValidate onSubmit={submit}>
-                <div className="space-y-2">
-                  <Label htmlFor="availability-venue">Venue</Label>
-                  <Select
-                    value={draft.venueId === "" ? null : draft.venueId}
-                    onValueChange={value => setDraft({ ...draft, venueId: value ?? "" })}
-                    required
-                  >
-                    <SelectTrigger id="availability-venue" className="w-full">
-                      <SelectValue>
-                        {(value: string | null) =>
-                          venues.find(option => String(option.id) === value)?.name ??
-                          "Select a venue"
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {venues.map(venue => (
-                        <SelectItem key={venue.id} value={String(venue.id)}>
-                          {venue.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <form
+                className="space-y-5"
+                noValidate
+                onSubmit={event => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void form.handleSubmit();
+                }}
+              >
+                <form.Field name="venueId">
+                  {field => (
+                    <Field data-invalid={field.state.meta.errors.length > 0}>
+                      <FieldLabel htmlFor="availability-venue">Venue</FieldLabel>
+                      <Select
+                        value={field.state.value === "" ? null : field.state.value}
+                        onValueChange={value => field.handleChange(value ?? "")}
+                      >
+                        <SelectTrigger
+                          id="availability-venue"
+                          className="w-full"
+                          aria-invalid={field.state.meta.errors.length > 0}
+                          onBlur={field.handleBlur}
+                        >
+                          <SelectValue>
+                            {(value: string | null) =>
+                              venues.find(option => String(option.id) === value)?.name ??
+                              "Select a venue"
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {venues.map(venue => (
+                            <SelectItem key={venue.id} value={String(venue.id)}>
+                              {venue.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FieldError errors={field.state.meta.errors} />
+                    </Field>
+                  )}
+                </form.Field>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="min-w-0 space-y-2">
-                    <Label htmlFor="availability-start">Start date</Label>
-                    <Input
-                      id="availability-start"
-                      type="date"
-                      value={draft.startDate}
-                      onChange={event => setDraft({ ...draft, startDate: event.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="min-w-0 space-y-2">
-                    <Label htmlFor="availability-end">End date</Label>
-                    <Input
-                      id="availability-end"
-                      type="date"
-                      value={draft.endDate}
-                      onChange={event => setDraft({ ...draft, endDate: event.target.value })}
-                      required
-                    />
-                  </div>
+                  <form.Field name="startDate">
+                    {field => (
+                      <Field className="min-w-0" data-invalid={field.state.meta.errors.length > 0}>
+                        <FieldLabel htmlFor="availability-start">Start date</FieldLabel>
+                        <Input
+                          id="availability-start"
+                          type="date"
+                          value={field.state.value}
+                          onChange={event => field.handleChange(event.target.value)}
+                          onBlur={field.handleBlur}
+                          aria-invalid={field.state.meta.errors.length > 0}
+                        />
+                        <FieldError errors={field.state.meta.errors} />
+                      </Field>
+                    )}
+                  </form.Field>
+                  <form.Field name="endDate">
+                    {field => (
+                      <Field className="min-w-0" data-invalid={field.state.meta.errors.length > 0}>
+                        <FieldLabel htmlFor="availability-end">End date</FieldLabel>
+                        <Input
+                          id="availability-end"
+                          type="date"
+                          value={field.state.value}
+                          onChange={event => field.handleChange(event.target.value)}
+                          onBlur={field.handleBlur}
+                          aria-invalid={field.state.meta.errors.length > 0}
+                        />
+                        <FieldError errors={field.state.meta.errors} />
+                      </Field>
+                    )}
+                  </form.Field>
                 </div>
-                {error && (
-                  <p role="alert" className="body-sm text-destructive">
-                    {error}
-                  </p>
-                )}
-                <Button type="submit" className="w-full sm:w-auto">
-                  Show availability
-                </Button>
+                <form.Subscribe selector={state => [state.isSubmitting, state.errorMap.onSubmit]}>
+                  {([isSubmitting, onSubmitError]) => (
+                    <>
+                      {typeof onSubmitError === "string" ? (
+                        <p role="alert" className="body-sm text-destructive">
+                          {onSubmitError}
+                        </p>
+                      ) : null}
+                      <Button
+                        type="submit"
+                        className="w-full sm:w-auto"
+                        disabled={Boolean(isSubmitting)}
+                      >
+                        {isSubmitting ? "Loading…" : "Show availability"}
+                      </Button>
+                    </>
+                  )}
+                </form.Subscribe>
               </form>
             )}
           </CardContent>

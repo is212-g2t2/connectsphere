@@ -1,7 +1,6 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { unwrapRefusal } from "#/features/auth/session";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import { EventRequestIdInput } from "#/features/event-requests/schema";
 import { getEventRequest } from "#/features/event-requests/server-fns";
@@ -22,10 +21,7 @@ export const Route = createFileRoute("/_authenticated/event-requests/$requestId"
     if (!parsed.success) {
       throw notFound();
     }
-    const { request } = await unwrapRefusal(
-      await getEventRequest({ data: parsed.data }),
-      "Could not load this request. Try again."
-    );
+    const { request } = await getEventRequest({ data: parsed.data });
     // A row that is another organiser's comes back `null` too, so both cases are this 404.
     if (!request) {
       throw notFound();

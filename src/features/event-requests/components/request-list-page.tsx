@@ -12,7 +12,6 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table";
-import { unwrapRefusal } from "#/features/auth/session";
 import { formatFirstProposedDate } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
@@ -61,7 +60,7 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
   const [deleteState, deleteDraft, deleting] = useMutation<number, EventRequestDeleted>(
-    async id => unwrapRefusal(await deleteEventRequestDraft({ data: { id } }), DELETE_FAILED),
+    id => deleteEventRequestDraft({ data: { id } }),
     DELETE_FAILED
   );
 
