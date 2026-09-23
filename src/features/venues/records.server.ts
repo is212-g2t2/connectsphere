@@ -5,7 +5,7 @@ import { venueUnavailability, venues } from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import { eventTiming } from "#/features/events/access";
-import { loadAssignedSubmittedEvent } from "#/features/events/records.server";
+import { loadAssignedEvent } from "#/features/events/records.server";
 import {
   nextCivilDate,
   normalizeDatabaseTimestamp,
@@ -16,6 +16,7 @@ import type { AvailabilityRecord } from "#/features/venues/availability";
 import {
   DUPLICATE_NAME_MESSAGE,
   LAYOUT_LABELS,
+  SEARCHABLE_EVENT_STATUSES,
   crossesMidnight,
   parseAvailabilityRequest,
   parseLayouts,
@@ -139,12 +140,17 @@ function availabilityFailure(
     for (let day = filters.date; day <= endDate; day = nextCivilDate(day)) {
       const dayStart = `${day}T00:00:00`;
       const dayEnd = `${nextCivilDate(day)}T00:00:00`;
-      const open = projection.available.some(
+      const free = projection.available.some(
         period => period.startsAt < dayEnd && period.endsAt > dayStart
       );
-      if (open) continue;
+      if (free) continue;
+      // Name a booking only when it takes some of the day's opening time; a booking outside the
+      // hours, or on a closed day, is not what removed the day.
+      const opening = openingPeriods(day, day, venue.operatingHours);
       const booked = projection.occupied.find(
-        period => period.state === "confirmed" && overlaps(period, dayStart, dayEnd)
+        period =>
+          period.state === "confirmed" &&
+          opening.some(open => overlaps(period, open.startsAt, open.endsAt))
       );
       return booked
         ? { criterion: "booking", message: `Booked for ${booked.label} on ${day}` }
@@ -315,21 +321,6 @@ const loadVenueBookings: VenueBookingLoader = async (
 ) => [];
 
 /**
- * The statuses an assigned Coordinator is still working a request in. `submitted` alone (PTR-29's
- * original gate) refused the very events a Coordinator searches for: PTR-17 moves a request to
- * `under_review` the moment it is picked up, PTR-18 to `awaiting_organiser`, PTR-20 to `approved`
- * and PTR-21 on to `planning`. A draft, a rejection and anything confirmed or beyond is not
- * looking for a venue.
- */
-const SEARCHABLE_STATUSES = [
-  "submitted",
-  "under_review",
-  "awaiting_organiser",
-  "approved",
-  "planning",
-] as const;
-
-/**
  * PTR-29's venue search and PTR-30's verdicts. An optional event id belongs to the assigned
  * Coordinator or is refused without revealing whether the event exists. The event's first
  * complete proposed window and hard venue requirements become defaults; explicit filters are then
@@ -347,7 +338,7 @@ export async function handleSearchVenues(
   let defaults: VenueSearch = {};
 
   if (eventId !== undefined) {
-    const record = await loadAssignedSubmittedEvent(database, eventId, user.id);
+    const record = await loadAssignedEvent(database, eventId, user.id, SEARCHABLE_EVENT_STATUSES);
     if (!record) throw new AuthorizationError("Forbidden");
     event = { id: record.id, name: record.name };
 

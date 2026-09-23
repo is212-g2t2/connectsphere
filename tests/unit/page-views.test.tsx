@@ -149,6 +149,29 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("link", { name: "Find venues for this event" })).toBeTruthy();
   });
 
+  it("does not offer the venue search once an event is past finding one (PTR-30)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("event_coordinator")}
+        events={[
+          {
+            access: "coordinator",
+            event: {
+              id: 41,
+              status: "confirmed",
+              name: "Annual summit",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.queryByRole("link", { name: "Find venues for this event" })).toBeNull();
+  });
+
   /**
    * PTR-71: the upload's `status`/`uploadedKey`/`errorMsg` trio is now one action, so a refused
    * presign cannot leave the trigger reading "Uploading…" with a stale key still on screen.

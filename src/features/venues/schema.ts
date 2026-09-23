@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 /**
  * Pure data and Zod only: routes and the form import this module, so per AGENTS.md nothing
@@ -25,6 +26,21 @@ export type VenueLayout = (typeof VENUE_LAYOUTS)[number];
  * `venue-form.tsx` drags that module — and `@tanstack/react-form` with it — into the read-only
  * path's import graph.
  */
+/**
+ * The statuses an assigned Coordinator is still finding a venue for. `submitted` alone refused
+ * the very events a Coordinator searches from: a pick-up moves a request to `under_review`, a
+ * clarification to `awaiting_organiser`, a decision to `approved` and on to `planning`. A draft,
+ * a rejection and anything confirmed or beyond is not looking for a venue. Client-safe so the
+ * dashboard offers the search only where it will be answered.
+ */
+export const SEARCHABLE_EVENT_STATUSES: readonly EventRequestStatus[] = [
+  "submitted",
+  "under_review",
+  "awaiting_organiser",
+  "approved",
+  "planning",
+];
+
 export const LAYOUT_LABELS: Record<VenueLayout, string> = {
   theatre: "Theatre",
   classroom: "Classroom",

@@ -264,6 +264,29 @@ describe("VenueListPage suitability (PTR-30)", () => {
     expect(screen.getByText("1 venue")).toBeTruthy();
   });
 
+  it("does not list the venues as failing a window that crosses midnight", () => {
+    render(
+      <VenueListPage
+        user={user}
+        result={result({
+          filters: { date: "2026-10-05", startTime: "22:00", endTime: "02:00" },
+          venues: [],
+          unsuitable: [
+            {
+              venue: smallRoom,
+              failures: [
+                { criterion: "availability", message: "The requested window crosses midnight" },
+              ],
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText("A search window cannot cross midnight.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Not suitable" })).toBeNull();
+  });
+
   it("shows the reasons beneath an explicit empty result", () => {
     render(
       <VenueListPage

@@ -412,6 +412,19 @@ describe("PTR-30 suitability reasons", () => {
     expect(suits(venue, { date: "2026-10-05", endDate: "2026-10-07" }, [])).toBe(true);
   });
 
+  it("does not blame a booking outside the hours for a day the venue is closed", () => {
+    const booking = {
+      id: "booking-1",
+      label: "Night market",
+      startsAt: "2026-10-05T20:00:00",
+      endsAt: "2026-10-05T23:00:00",
+    };
+    const closed = { ...venue, operatingHours: { ...DEFAULT_OPERATING_HOURS, mon: null } };
+    expect(failures(closed, { date: "2026-10-05" }, [], [booking])).toEqual([
+      { criterion: "availability", message: "Closed or unavailable on 2026-10-05" },
+    ]);
+  });
+
   it("names the requested phrases, not their words, as the Coordinator typed them", () => {
     const bare = { ...venue, accessibilityFeatures: [], facilities: ["Projector"] };
     expect(

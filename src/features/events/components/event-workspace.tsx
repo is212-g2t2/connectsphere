@@ -8,6 +8,7 @@ import { Card, CardContent } from "#/components/ui/card";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import type { EventProjection } from "#/features/events/access";
 import { EventRequirements } from "#/features/events/components/event-requirements";
+import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(
@@ -109,7 +110,7 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                   </div>
                 )}
 
-                {access === "coordinator" && (
+                {access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(event.status) && (
                   <div className="mt-5 border-t border-border pt-4">
                     <Link
                       to="/venues"
