@@ -41,7 +41,9 @@ import {
 } from "#/features/venue-requests/schema";
 import {
   approveVenueRequest,
+  getPendingVenueRequest,
   getVenueRequestContext,
+  listPendingVenueRequests,
   requestVenue,
   withdrawVenueRequest,
 } from "#/features/venue-requests/server-fns";
@@ -374,6 +376,14 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
+      expect(await refusalFrom(listPendingVenueRequests, undefined, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(getPendingVenueRequest, { id: "req-1" }, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
     });
 
     it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
@@ -388,6 +398,27 @@ describe("server-function authorization (PTR-69)", () => {
         expect(await refusalFrom(withdrawVenueRequest, {})).toMatchObject({ status: 403 });
       }
     );
+
+    it.each(["attendee", "event_organiser", "event_coordinator", "technical_support_staff"])(
+      "refuses %s the pending queue read before payload validation",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(listPendingVenueRequests, undefined, "GET")).toMatchObject({
+          status: 403,
+        });
+        expect(await refusalFrom(getPendingVenueRequest, {}, "GET")).toMatchObject({
+          status: 403,
+        });
+      }
+    );
+
+    it("lets Venue Staff reach both pending queue reads", async () => {
+      signIn("venue_staff");
+
+      expect((await call(listPendingVenueRequests, undefined, "GET")).error).toBeUndefined();
+      expect((await call(getPendingVenueRequest, { id: "req-1" }, "GET")).error).toBeUndefined();
+    });
 
     it("lets only a Coordinator through to the rest of the chain", async () => {
       signIn("event_coordinator");

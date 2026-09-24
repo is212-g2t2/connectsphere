@@ -15,7 +15,7 @@ const log = logger.getChild("venue-requests");
  * pipeline is client-safe, and `./requests.server` and `#/db` are reached inside the handlers,
  * which TanStack Start strips from the client build.
  */
-async function loadServer() {
+async function loadVenueRequestServerDependencies() {
   return Promise.all([import("#/db"), import("#/features/venue-requests/requests.server")]);
 }
 
@@ -26,6 +26,28 @@ async function loadServer() {
  */
 export const requireVenueRequest = requirePermission({ venue_request: ["request"] });
 
+/** PTR-32: Venue Staff may read the shared pending queue without gaining the approval verb. */
+export const requireVenueRequestRead = requirePermission({ venue_request: ["read"] });
+
+export const listPendingVenueRequests = createServerFn({ method: "GET" })
+  .middleware([requireVenueRequestRead])
+  .handler(async () => {
+    const [{ db }, { handleListPendingVenueRequests }] = await loadVenueRequestServerDependencies();
+    return handleListPendingVenueRequests(db);
+  });
+
+export type PendingBookingRequest = Awaited<ReturnType<typeof listPendingVenueRequests>>[number];
+
+export const getPendingVenueRequest = createServerFn({ method: "GET" })
+  .validator(parseVenueRequestId)
+  .middleware([requireVenueRequestRead])
+  .handler(async ({ data }) => {
+    const [{ db }, { handleGetPendingVenueRequest }] = await loadVenueRequestServerDependencies();
+    return handleGetPendingVenueRequest(data, db);
+  });
+
+export type PendingBookingRequestDetail = Awaited<ReturnType<typeof getPendingVenueRequest>>;
+
 /**
  * The venue page's read. Wrapped in `{ context }` for the reason `getVenue` documents: a nullable
  * top-level result infers as `never`. A `null` context is an ordinary answer — the venue page
@@ -35,7 +57,7 @@ export const getVenueRequestContext = createServerFn({ method: "GET" })
   .validator(parseVenueRequestContext)
   .middleware([requireVenueRequest])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleGetVenueRequestContext }] = await loadServer();
+    const [{ db }, { handleGetVenueRequestContext }] = await loadVenueRequestServerDependencies();
     return { context: await handleGetVenueRequestContext(data, context.user, db) };
   });
 
@@ -48,7 +70,7 @@ export const requestVenue = createServerFn({ method: "POST" })
   .validator(parseVenueRequestInput)
   .middleware([requireVenueRequest])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleCreateVenueRequest }] = await loadServer();
+    const [{ db }, { handleCreateVenueRequest }] = await loadVenueRequestServerDependencies();
     const request = await handleCreateVenueRequest(data, context.user, db);
 
     log.info("Venue request created", {
@@ -65,7 +87,7 @@ export const withdrawVenueRequest = createServerFn({ method: "POST" })
   .validator(parseVenueRequestId)
   .middleware([requireVenueRequest])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleWithdrawVenueRequest }] = await loadServer();
+    const [{ db }, { handleWithdrawVenueRequest }] = await loadVenueRequestServerDependencies();
     const request = await handleWithdrawVenueRequest(data, context.user, db);
 
     log.info("Venue request withdrawn", {
@@ -87,7 +109,7 @@ export const approveVenueRequest = createServerFn({ method: "POST" })
   .validator(parseVenueRequestId)
   .middleware([requireVenueDecision])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleApproveVenueRequest }] = await loadServer();
+    const [{ db }, { handleApproveVenueRequest }] = await loadVenueRequestServerDependencies();
     const request = await handleApproveVenueRequest(data, context.user, db);
 
     log.info("Venue request approved", {

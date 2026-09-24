@@ -1,16 +1,23 @@
 import { Card, CardContent } from "#/components/ui/card";
+import { Badge } from "#/components/ui/badge";
 import { formatInstant, formatLocalDateTime } from "#/features/event-requests/format";
-import type { BookingRequestDetail } from "#/features/venue-requests/types";
+import type { PendingBookingRequestDetail } from "#/features/venue-requests/server-fns";
 
 const NONE_SPECIFIED = "None specified";
 
-/** A read-only view of the stored booking-request snapshot supplied by a future adapter. */
-export function BookingRequestDetails({ request }: { request: BookingRequestDetail }) {
+/** A read-only view of the current pending booking-request data supplied by the server reader. */
+export function BookingRequestDetails({ request }: { request: PendingBookingRequestDetail }) {
   return (
     <section aria-labelledby="booking-request-details-heading">
       <h2 id="booking-request-details-heading" className="display-h2">
         Booking request details
       </h2>
+
+      {request.conflict ? (
+        <Badge className="mt-4" variant="progress">
+          Overlaps approved booking
+        </Badge>
+      ) : null}
 
       <Card className="mt-4">
         <CardContent>
@@ -26,13 +33,15 @@ export function BookingRequestDetails({ request }: { request: BookingRequestDeta
             <Detail term="Event timing" wide>
               {request.requirements.eventTiming}
             </Detail>
-            <Detail term="Expected attendance">{request.requirements.expectedAttendance}</Detail>
+            <Detail term="Expected attendance">
+              {orNoneSpecified(request.requirements.expectedAttendance)}
+            </Detail>
             <Detail term="Layout">{orNoneSpecified(request.requirements.layout)}</Detail>
             <Detail term="Accessibility">
               {orNoneSpecified(request.requirements.accessibility)}
             </Detail>
             <Detail term="Required facilities" wide>
-              {request.requirements.requiredFacilities.join(", ") || NONE_SPECIFIED}
+              {orNoneSpecified(request.requirements.requiredFacilities)}
             </Detail>
           </dl>
         </CardContent>
@@ -41,7 +50,8 @@ export function BookingRequestDetails({ request }: { request: BookingRequestDeta
   );
 }
 
-function orNoneSpecified(value: string | null): string {
+function orNoneSpecified(value: string | number | null): string {
+  if (typeof value === "number") return String(value);
   return value?.trim() ? value : NONE_SPECIFIED;
 }
 

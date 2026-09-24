@@ -1,4 +1,5 @@
 import { Button } from "#/components/ui/button";
+import { Badge } from "#/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -8,7 +9,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { formatInstant, formatLocalDateTime } from "#/features/event-requests/format";
-import type { BookingRequestSummary } from "#/features/venue-requests/types";
+import type { PendingBookingRequest } from "#/features/venue-requests/server-fns";
 
 /**
  * A presentational pending queue. Its caller owns the pending filter, oldest-first ordering, and
@@ -18,7 +19,7 @@ export function BookingRequestQueue({
   pendingRequestsOldestFirst,
   onOpenRequest,
 }: {
-  pendingRequestsOldestFirst: readonly BookingRequestSummary[];
+  pendingRequestsOldestFirst: readonly PendingBookingRequest[];
   onOpenRequest: (id: string) => void;
 }) {
   return (
@@ -38,6 +39,7 @@ export function BookingRequestQueue({
                 <TableHead>Starts at</TableHead>
                 <TableHead>Ends at</TableHead>
                 <TableHead>Submitted</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>
                   <span className="sr-only">Open request</span>
                 </TableHead>
@@ -53,6 +55,11 @@ export function BookingRequestQueue({
                     <time dateTime={request.submittedAt.toISOString()}>
                       {formatInstant(request.submittedAt)}
                     </time>
+                  </TableCell>
+                  <TableCell>
+                    {request.conflict ? (
+                      <Badge variant="progress">Overlaps approved booking</Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <Button

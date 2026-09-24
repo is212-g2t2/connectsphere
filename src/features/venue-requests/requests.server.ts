@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { createElement } from "react";
 
 import type { db as Db } from "#/db";
@@ -7,6 +7,7 @@ import { AuthorizationError, ConflictError, NotFoundError } from "#/features/aut
 import type { SessionUser } from "#/features/auth/session";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
+import { formatProposedWindow } from "#/features/event-requests/format";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import {
   VENUE_REQUEST_CONFLICT_MESSAGE,
@@ -91,6 +92,110 @@ function rethrowDuplicate(error: unknown): never {
     throw new ConflictError(VENUE_REQUEST_DUPLICATE_MESSAGE);
   }
   throw error;
+}
+
+function requestPeriod(value: string): string {
+  return normalizeDatabaseTimestamp(value).slice(0, 16);
+}
+
+async function hasApprovedConflict(
+  database: Database,
+  venueId: number,
+  startsAt: string,
+  endsAt: string
+): Promise<boolean> {
+  return (await loadVenueBookings(database, [venueId], startsAt, endsAt)).length > 0;
+}
+
+async function summarizePendingVenueRequest(
+  database: Database,
+  row: {
+    id: string;
+    venueId: number;
+    venueName: string;
+    startsAt: string;
+    endsAt: string;
+    submittedAt: Date;
+  }
+) {
+  return {
+    id: row.id,
+    venueName: row.venueName,
+    startsAt: requestPeriod(row.startsAt),
+    endsAt: requestPeriod(row.endsAt),
+    submittedAt: row.submittedAt,
+    conflict: await hasApprovedConflict(database, row.venueId, row.startsAt, row.endsAt),
+  };
+}
+
+/**
+ * PTR-32 AC1–AC2 and AC5: the shared Venue Staff queue. The status filter and submission ordering
+ * live in the reader rather than in the table component, so every caller receives all pending rows
+ * (including multiple rows for one event) in one stable order. Conflict detection deliberately
+ * reuses the approved-only, strict-overlap loader from PTR-36; pending and withdrawn rows never
+ * become bookings and a touching boundary remains available.
+ */
+export async function handleListPendingVenueRequests(database: Database) {
+  const rows = await database
+    .select({
+      id: venueRequests.id,
+      venueId: venueRequests.venueId,
+      venueName: venues.name,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+      submittedAt: venueRequests.createdAt,
+    })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .where(eq(venueRequests.status, "pending"))
+    .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id));
+
+  return Promise.all(rows.map(row => summarizePendingVenueRequest(database, row)));
+}
+
+/**
+ * PTR-32 AC3 and TC12's refreshed contract: detail reads the current PTR-31 event requirement
+ * fields, because main does not persist a requirement snapshot on `venue_requests`. It still
+ * projects only venue, requested period, submission instant and operational requirements; event
+ * names and conflicting-event details remain outside the Venue Staff contract.
+ */
+export async function handleGetPendingVenueRequest(data: unknown, database: Database) {
+  const { id } = parseVenueRequestId(data);
+  const rows = await database
+    .select({
+      id: venueRequests.id,
+      venueId: venueRequests.venueId,
+      venueName: venues.name,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+      submittedAt: venueRequests.createdAt,
+      proposedDates: eventRequests.proposedDates,
+      expectedAttendance: eventRequests.expectedAttendance,
+      layout: eventRequests.roomLayoutPreference,
+      accessibility: eventRequests.accessibilityRequirements,
+      requiredFacilities: eventRequests.venueRequirements,
+    })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+    .where(and(eq(venueRequests.id, id), eq(venueRequests.status, "pending")))
+    .limit(1);
+  const row = rows.at(0);
+  if (!row) throw new NotFoundError("Not Found");
+
+  return {
+    ...(await summarizePendingVenueRequest(database, row)),
+    requirements: {
+      eventTiming: formatProposedWindow(
+        row.proposedDates.find(window => window.start !== undefined || window.end !== undefined) ??
+          {}
+      ),
+      expectedAttendance: row.expectedAttendance,
+      layout: row.layout,
+      accessibility: row.accessibility,
+      requiredFacilities: row.requiredFacilities,
+    },
+  };
 }
 
 /**

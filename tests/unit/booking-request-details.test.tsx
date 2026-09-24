@@ -2,20 +2,21 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { BookingRequestDetails } from "#/features/venue-requests/components/booking-request-details";
-import type { BookingRequestDetail } from "#/features/venue-requests/types";
+import type { PendingBookingRequestDetail } from "#/features/venue-requests/server-fns";
 
-const request: BookingRequestDetail = {
+const request: PendingBookingRequestDetail = {
   id: "request-001",
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",
   submittedAt: new Date("2030-11-01T01:00:00Z"),
+  conflict: true,
   requirements: {
     eventTiming: "Doors open at 09:00; event starts at 09:30.",
     expectedAttendance: 85,
     layout: "Cabaret",
     accessibility: "Step-free access and two reserved wheelchair spaces.",
-    requiredFacilities: ["Projector", "Two wireless microphones"],
+    requiredFacilities: "Projector\nTwo wireless microphones",
   },
 };
 
@@ -26,7 +27,7 @@ function detailValue(term: string) {
 }
 
 describe("BookingRequestDetails component slice (PTR-32)", () => {
-  it("shows the chosen venue, exact local times, submission instant, and every snapshot category (TC04, TC05)", () => {
+  it("shows the chosen venue, exact local times, submission instant, and every live requirement category (TC04, TC05)", () => {
     render(<BookingRequestDetails request={request} />);
 
     expect(detailValue("Venue").textContent).toBe("Orchid Room");
@@ -44,13 +45,14 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
       "Step-free access and two reserved wheelchair spaces."
     );
     expect(detailValue("Required facilities").textContent).toBe(
-      "Projector, Two wireless microphones"
+      "Projector\nTwo wireless microphones"
     );
+    expect(screen.getByText("Overlaps approved booking")).toBeTruthy();
   });
 
   it("refreshes all fields when rendered with a different selected request (TC06)", () => {
     const { rerender } = render(<BookingRequestDetails request={request} />);
-    const replacement: BookingRequestDetail = {
+    const replacement: PendingBookingRequestDetail = {
       ...request,
       id: "request-002",
       venueName: "Harbour Hall",
@@ -62,7 +64,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
         expectedAttendance: 120,
         layout: "Theatre",
         accessibility: "Hearing loop requested.",
-        requiredFacilities: ["Stage lighting"],
+        requiredFacilities: "Stage lighting",
       },
     };
 
@@ -85,7 +87,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(screen.queryByText("Projector")).toBeNull();
   });
 
-  it("makes blank optional fields explicit and preserves long multiline snapshot text (TC13)", () => {
+  it("makes blank optional fields explicit and preserves long multiline live text (TC13)", () => {
     const longMultilineTiming = `Setup starts at 07:30.\nPlease keep the east entrance clear for deliveries.\nThe organising team will arrive at 08:15.`;
     render(
       <BookingRequestDetails
@@ -94,9 +96,10 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
           requirements: {
             ...request.requirements,
             eventTiming: longMultilineTiming,
+            expectedAttendance: null,
             layout: "   ",
-            accessibility: null,
-            requiredFacilities: [],
+            accessibility: "",
+            requiredFacilities: "",
           },
         }}
       />
@@ -106,7 +109,8 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
       (_, element) => element?.tagName === "DD" && element.textContent === longMultilineTiming
     );
     expect(timing.textContent).toBe(longMultilineTiming);
-    expect(screen.getAllByText("None specified")).toHaveLength(3);
+    expect(screen.getAllByText("None specified")).toHaveLength(4);
+    expect(timing.className).toContain("whitespace-pre-line");
   });
 
   it("offers no approval, rejection, assignment, or other mutation controls (TC20)", () => {
@@ -114,6 +118,6 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
 
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.queryByText(/approve|reject|assign|update/i)).toBeNull();
+    expect(screen.queryByText(/\b(approve|reject|assign|update)\b/i)).toBeNull();
   });
 });

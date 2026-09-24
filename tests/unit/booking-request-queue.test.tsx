@@ -3,22 +3,24 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { BookingRequestQueue } from "#/features/venue-requests/components/booking-request-queue";
-import type { BookingRequestSummary } from "#/features/venue-requests/types";
+import type { PendingBookingRequest } from "#/features/venue-requests/server-fns";
 
-const firstRequest: BookingRequestSummary = {
+const firstRequest: PendingBookingRequest = {
   id: "request-001",
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",
   submittedAt: new Date("2030-11-01T01:00:00Z"),
+  conflict: true,
 };
 
-const secondRequest: BookingRequestSummary = {
+const secondRequest: PendingBookingRequest = {
   id: "request-002",
   venueName: "Harbour Hall",
   startsAt: "2030-11-18T13:00",
   endsAt: "2030-11-18T15:30",
-  submittedAt: new Date("2030-11-01T01:00:00Z"),
+  submittedAt: new Date("2030-11-01T02:00:00Z"),
+  conflict: false,
 };
 
 describe("BookingRequestQueue component slice (PTR-32)", () => {
@@ -56,7 +58,7 @@ describe("BookingRequestQueue component slice (PTR-32)", () => {
   });
 
   it("preserves the caller's oldest-first order, including equal submission times (TC03, TC11; render-only)", () => {
-    const oldestRequest: BookingRequestSummary = {
+    const oldestRequest: PendingBookingRequest = {
       ...firstRequest,
       id: "request-z",
       venueName: "Late booking, oldest submission",
@@ -128,5 +130,23 @@ describe("BookingRequestQueue component slice (PTR-32)", () => {
     const submission = within(row).getByText("1 Nov 2030, 09:00");
     expect(submission.tagName).toBe("TIME");
     expect(submission.getAttribute("dateTime")).toBe("2030-11-01T01:00:00.000Z");
+  });
+
+  it("flags only rows whose server result reports an approved-booking conflict (TC21)", () => {
+    render(
+      <BookingRequestQueue
+        pendingRequestsOldestFirst={[firstRequest, secondRequest]}
+        onOpenRequest={vi.fn<(id: string) => void>()}
+      />
+    );
+
+    expect(screen.getByText("Overlaps approved booking")).toBeTruthy();
+    expect(
+      within(screen.getAllByRole("row")[1]).getByText("Overlaps approved booking")
+    ).toBeTruthy();
+    expect(
+      within(screen.getAllByRole("row")[2]).queryByText("Overlaps approved booking")
+    ).toBeNull();
+    expect(screen.queryByText(/another event|event name/i)).toBeNull();
   });
 });
