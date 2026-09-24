@@ -4,7 +4,15 @@ import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
-import { Field, FieldError, FieldLabel } from "#/components/ui/field";
+import { Checkbox } from "#/components/ui/checkbox";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "#/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -29,7 +37,12 @@ import {
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import { formatInstant } from "#/features/event-requests/format";
-import { ClarificationFormSchema } from "#/features/event-requests/schema";
+import {
+  CLARIFICATION_FIELDS,
+  CLARIFICATION_TEXT_MAX,
+  ClarificationFormSchema,
+} from "#/features/event-requests/schema";
+import type { ClarificationField } from "#/features/event-requests/schema";
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -99,7 +112,7 @@ export function CoordinationRequestPage({
   }
 
   const clarificationForm = useForm({
-    defaultValues: { body: "" },
+    defaultValues: { body: "", permittedFields: [] as ClarificationField[] },
     validators: { onSubmit: ClarificationFormSchema },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -107,6 +120,7 @@ export function CoordinationRequestPage({
           data: {
             id: request.id,
             body: value.body,
+            permittedFields: value.permittedFields,
           },
         });
         toast.success("Clarification request sent.");
@@ -275,6 +289,7 @@ export function CoordinationRequestPage({
                         id="clarification-body"
                         className="mt-2"
                         rows={4}
+                        maxLength={CLARIFICATION_TEXT_MAX}
                         placeholder="Describe what needs clarification (e.g. required room layout, specific equipment models)..."
                         value={field.state.value}
                         onChange={e => field.handleChange(e.target.value)}
@@ -283,6 +298,40 @@ export function CoordinationRequestPage({
                       />
                       <FieldError errors={field.state.meta.errors} />
                     </Field>
+                  )}
+                </clarificationForm.Field>
+                <clarificationForm.Field name="permittedFields">
+                  {field => (
+                    <div className="border-t border-border pt-4">
+                      <FieldSet>
+                        <FieldLegend>
+                          Allow the Organiser to amend these fields (optional)
+                        </FieldLegend>
+                        <FieldDescription>
+                          Leave every field unselected when you only need an explanation.
+                        </FieldDescription>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {CLARIFICATION_FIELDS.map(({ key, label }) => (
+                            <Field key={key} orientation="horizontal">
+                              <Checkbox
+                                id={`clarification-field-${key}`}
+                                checked={field.state.value.includes(key)}
+                                onCheckedChange={checked => {
+                                  field.handleChange(
+                                    checked
+                                      ? [...field.state.value, key]
+                                      : field.state.value.filter(value => value !== key)
+                                  );
+                                }}
+                              />
+                              <FieldLabel htmlFor={`clarification-field-${key}`}>
+                                {label}
+                              </FieldLabel>
+                            </Field>
+                          ))}
+                        </div>
+                      </FieldSet>
+                    </div>
                   )}
                 </clarificationForm.Field>
                 <clarificationForm.Subscribe selector={s => [s.isSubmitting, s.errorMap.onSubmit]}>

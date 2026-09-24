@@ -9,7 +9,11 @@ import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 
 const { raiseClarificationRequest, invalidate, success } = vi.hoisted(() => ({
   raiseClarificationRequest:
-    vi.fn<(input: { data: { id: number; body: string } }) => Promise<unknown>>(),
+    vi.fn<
+      (input: {
+        data: { id: number; body: string; permittedFields?: string[] };
+      }) => Promise<unknown>
+    >(),
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
 }));
@@ -164,6 +168,7 @@ describe("Clarification requests (PTR-18)", () => {
           data: {
             id: 7,
             body: "Please specify dietary requirements.",
+            permittedFields: [],
           },
         });
       });
@@ -171,6 +176,36 @@ describe("Clarification requests (PTR-18)", () => {
       await waitFor(() => {
         expect(success).toHaveBeenCalledWith("Clarification request sent.");
         expect(invalidate).toHaveBeenCalled();
+      });
+    });
+
+    it("sends the Coordinator's selected field groups with the clarification", async () => {
+      const user = userEvent.setup();
+      raiseClarificationRequest.mockResolvedValueOnce({ id: 1 });
+
+      render(
+        <CoordinationRequestPage
+          request={underReviewRequest}
+          coordinators={coordinators}
+          user={actor}
+        />
+      );
+
+      await user.type(
+        screen.getByLabelText("What needs clarification"),
+        "Please confirm attendance."
+      );
+      await user.click(screen.getByRole("checkbox", { name: "Expected attendance" }));
+      await user.click(screen.getByRole("button", { name: "Send clarification request" }));
+
+      await waitFor(() => {
+        expect(raiseClarificationRequest).toHaveBeenCalledWith({
+          data: {
+            id: 7,
+            body: "Please confirm attendance.",
+            permittedFields: ["expectedAttendance"],
+          },
+        });
       });
     });
 
@@ -184,6 +219,11 @@ describe("Clarification requests (PTR-18)", () => {
             eventRequestId: 7,
             coordinatorId: "coord-a",
             body: "Need projector model requirements.",
+            permittedFields: [],
+            replyBody: null,
+            repliedAt: null,
+            repliedByOrganiserId: null,
+            amendments: [],
             createdAt: new Date("2026-09-16T10:00:00Z"),
           },
           {
@@ -191,6 +231,11 @@ describe("Clarification requests (PTR-18)", () => {
             eventRequestId: 7,
             coordinatorId: "coord-a",
             body: "Also please confirm catering timings.",
+            permittedFields: [],
+            replyBody: null,
+            repliedAt: null,
+            repliedByOrganiserId: null,
+            amendments: [],
             createdAt: new Date("2026-09-16T11:00:00Z"),
           },
         ],
@@ -207,6 +252,7 @@ describe("Clarification requests (PTR-18)", () => {
       expect(screen.getByRole("heading", { name: "Clarification requests" })).toBeTruthy();
       expect(screen.getByText("Need projector model requirements.")).toBeTruthy();
       expect(screen.getByText("Also please confirm catering timings.")).toBeTruthy();
+      expect(screen.queryByLabelText("Your reply")).toBeNull();
     });
   });
 
@@ -222,16 +268,88 @@ describe("Clarification requests (PTR-18)", () => {
             eventRequestId: 7,
             coordinatorId: "coord-a",
             body: "Which layout is required for the workshop?",
+            permittedFields: [],
+            replyBody: null,
+            repliedAt: null,
+            repliedByOrganiserId: null,
+            amendments: [],
             createdAt: new Date("2026-09-16T08:00:00Z"),
           },
         ],
       };
 
-      render(<EventRequestDetailPage request={organiserSummary} />);
+      render(<EventRequestDetailPage request={organiserSummary} showReplyForms />);
 
       expect(screen.getByRole("heading", { name: "Clarification requests" })).toBeTruthy();
       expect(screen.getByText("Which layout is required for the workshop?")).toBeTruthy();
       expect(screen.getByText("Awaiting organiser")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send reply" })).toBeTruthy();
+    });
+
+    it("keeps unsaved input in a still-open reply form after a sibling clarification is answered", async () => {
+      const user = userEvent.setup();
+      const clarifications: EventRequestDetail["clarifications"] = [
+        {
+          id: 1,
+          eventRequestId: 7,
+          coordinatorId: "coord-a",
+          body: "Please confirm the purpose.",
+          permittedFields: ["purpose"],
+          replyBody: null,
+          repliedAt: null,
+          repliedByOrganiserId: null,
+          amendments: [],
+          createdAt: new Date("2026-09-16T08:00:00Z"),
+        },
+        {
+          id: 2,
+          eventRequestId: 7,
+          coordinatorId: "coord-a",
+          body: "Please confirm the event type.",
+          permittedFields: ["eventType"],
+          replyBody: null,
+          repliedAt: null,
+          repliedByOrganiserId: null,
+          amendments: [],
+          createdAt: new Date("2026-09-16T09:00:00Z"),
+        },
+      ];
+      const request: EventRequestDetail = {
+        ...underReviewRequest,
+        status: "awaiting_organiser",
+        coordinator: { name: "Alex", email: "a@example.com" },
+        clarifications,
+      };
+
+      const { rerender } = render(<EventRequestDetailPage request={request} showReplyForms />);
+
+      const [, secondReply] =
+        screen.getAllByLabelText<HTMLTextAreaElement>("Your reply (required)");
+      await user.type(secondReply, "Still drafting my answer about the event type.");
+
+      // Simulates the page refetching (`router.invalidate()`) after the FIRST clarification's
+      // reply was sent: only that clarification now carries a reply, the second is untouched.
+      rerender(
+        <EventRequestDetailPage
+          request={{
+            ...request,
+            clarifications: [
+              {
+                ...clarifications[0],
+                replyBody: "The purpose is a fundraiser.",
+                repliedAt: new Date("2026-09-16T10:00:00Z"),
+                repliedByOrganiserId: "org",
+              },
+              clarifications[1],
+            ],
+          }}
+          showReplyForms
+        />
+      );
+
+      expect(screen.getByLabelText<HTMLTextAreaElement>("Your reply (required)").value).toBe(
+        "Still drafting my answer about the event type."
+      );
     });
   });
 });

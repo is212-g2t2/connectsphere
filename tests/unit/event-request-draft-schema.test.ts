@@ -6,9 +6,9 @@ import {
   ATTENDANCE_MAX,
   ATTENDANCE_MAX_MESSAGE,
   ATTENDANCE_MESSAGE,
-  CLARIFICATION_BODY_MAX,
   CLARIFICATION_BODY_MESSAGE,
   CLARIFICATION_BODY_REQUIRED,
+  CLARIFICATION_TEXT_MAX,
   DESCRIPTION_MAX_LENGTH,
   DESCRIPTION_MESSAGE,
   END_BEFORE_START_MESSAGE,
@@ -721,6 +721,7 @@ describe("parseClarificationBody", () => {
     expect(parseClarificationBody({ id: 7, body: "  Need more info  " })).toEqual({
       id: 7,
       body: "Need more info",
+      permittedFields: [],
     });
   });
 
@@ -730,7 +731,7 @@ describe("parseClarificationBody", () => {
 
   it("refuses a body over the stored limit", () => {
     expect(() =>
-      parseClarificationBody({ id: 7, body: "a".repeat(CLARIFICATION_BODY_MAX + 1) })
+      parseClarificationBody({ id: 7, body: "a".repeat(CLARIFICATION_TEXT_MAX + 1) })
     ).toThrow(CLARIFICATION_BODY_MESSAGE);
   });
 

@@ -14,7 +14,11 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import type {
+  ClarificationAmendment,
+  ClarificationField,
+  EventRequestDraftValues,
+} from "#/features/event-requests/schema";
 import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 
 import { user } from "./auth-schema";
@@ -175,9 +179,10 @@ export const eventAssignments = pgTable("event_assignments", {
 });
 
 /**
- * PTR-18: append-only clarification requests raised by the assigned Coordinator. User ids are
- * snapshots so account deletion keeps attribution. A clarification cannot be deleted or edited
- * after it is recorded — the Coordinator must raise a new one if they need to add to it.
+ * PTR-18: clarification requests raised by the assigned Coordinator. User ids are snapshots so
+ * account deletion keeps attribution. The question body is immutable once recorded — the
+ * Coordinator must raise a new one to add to it — while the reply columns are written once when
+ * the Organiser answers.
  */
 export const clarificationRequests = pgTable(
   "clarification_requests",
@@ -189,9 +194,29 @@ export const clarificationRequests = pgTable(
     /** Snapshot of the Coordinator who raised the clarification. */
     coordinatorId: text("coordinator_id").notNull(),
     body: text("body").notNull(),
+    permittedFields: text("permitted_fields")
+      .array()
+      .$type<ClarificationField[]>()
+      .notNull()
+      .default([]),
+    replyBody: text("reply_body"),
+    repliedByOrganiserId: text("replied_by_organiser_id"),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    /**
+     * PTR-19: what the reply changed on the request, as `{field, from, to}` entries, so both detail
+     * pages can show the amendment beside the reply. Empty when the reply answered without
+     * amending anything. `jsonb` keeps the before/after values exactly as the request stored them.
+     */
+    amendments: jsonb("amendments").$type<ClarificationAmendment[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  table => [index("clarification_requests_event_request_id_idx").on(table.eventRequestId)]
+  table => [
+    index("clarification_requests_event_request_id_idx").on(table.eventRequestId),
+    check(
+      "clarification_requests_reply_complete",
+      sql`(${table.replyBody} is null and ${table.repliedByOrganiserId} is null and ${table.repliedAt} is null) or (${table.replyBody} is not null and btrim(${table.replyBody}) <> '' and ${table.repliedByOrganiserId} is not null and ${table.repliedAt} is not null)`
+    ),
+  ]
 );
 
 export const venues = pgTable(

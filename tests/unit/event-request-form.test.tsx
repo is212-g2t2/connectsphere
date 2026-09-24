@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
+import type { EventRequestFormSubmitContext } from "#/features/event-requests/components/request-form";
 import {
   REGISTRATION_CAPACITY_MESSAGE,
   REGISTRATION_CAPACITY_REQUIRED_MESSAGE,
@@ -55,11 +56,19 @@ const ENABLED_REGISTRATION = {
 };
 
 function makeOnSave() {
-  return vi.fn<(values: EventRequestDraftValues) => Promise<void>>().mockResolvedValue(undefined);
+  return vi
+    .fn<
+      (values: EventRequestDraftValues, context: EventRequestFormSubmitContext) => Promise<void>
+    >()
+    .mockResolvedValue(undefined);
 }
 
 function makeOnSubmitRequest() {
-  return vi.fn<(values: EventRequestDraftValues) => Promise<void>>().mockResolvedValue(undefined);
+  return vi
+    .fn<
+      (values: EventRequestDraftValues, context: EventRequestFormSubmitContext) => Promise<void>
+    >()
+    .mockResolvedValue(undefined);
 }
 
 function inputValue(label: string) {
@@ -81,10 +90,13 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
-      expect(onSave).toHaveBeenCalledExactlyOnceWith({
-        ...BLANK_DRAFT,
-        eventName: "Community workshop",
-      });
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...BLANK_DRAFT,
+          eventName: "Community workshop",
+        },
+        expect.anything()
+      );
     });
   });
 
@@ -98,10 +110,13 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
-      expect(onSave).toHaveBeenCalledExactlyOnceWith({
-        ...BLANK_DRAFT,
-        eventName: "Community workshop",
-      });
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...BLANK_DRAFT,
+          eventName: "Community workshop",
+        },
+        expect.anything()
+      );
     });
   });
 
@@ -135,7 +150,7 @@ describe("EventRequestForm", () => {
 
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
-    expect(onSave).toHaveBeenCalledExactlyOnceWith(initialValues);
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(initialValues, expect.anything());
   });
 
   it("submits added proposed dates and equipment lines", async () => {
@@ -158,18 +173,21 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
-      expect(onSave).toHaveBeenCalledExactlyOnceWith({
-        ...BLANK_DRAFT,
-        eventName: "Workshop",
-        proposedDates: [
-          { start: "2030-11-18T09:30", end: "2030-11-18T11:00" },
-          { start: "2030-11-19T13:00", end: "2030-11-19T15:30" },
-        ],
-        equipmentRequirements: [
-          { type: "Projector", quantity: 1 },
-          { type: "Microphone", quantity: 2 },
-        ],
-      });
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...BLANK_DRAFT,
+          eventName: "Workshop",
+          proposedDates: [
+            { start: "2030-11-18T09:30", end: "2030-11-18T11:00" },
+            { start: "2030-11-19T13:00", end: "2030-11-19T15:30" },
+          ],
+          equipmentRequirements: [
+            { type: "Projector", quantity: 1 },
+            { type: "Microphone", quantity: 2 },
+          ],
+        },
+        expect.anything()
+      );
     });
   });
 
@@ -213,7 +231,10 @@ describe("EventRequestForm", () => {
 
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
-    expect(onSave).toHaveBeenCalledExactlyOnceWith({ ...initialValues, equipmentRequirements });
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      { ...initialValues, equipmentRequirements },
+      expect.anything()
+    );
   });
 
   it("keeps the remaining equipment values when a line is removed and another is added", async () => {
@@ -245,19 +266,24 @@ describe("EventRequestForm", () => {
     fill("Quantity 2", "3");
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
-    expect(onSave).toHaveBeenCalledExactlyOnceWith({
-      ...initialValues,
-      equipmentRequirements: [
-        { type: "  Wireless microphones  ", quantity: 2 },
-        { type: "Speakers", quantity: 3 },
-      ],
-    });
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      {
+        ...initialValues,
+        equipmentRequirements: [
+          { type: "  Wireless microphones  ", quantity: 2 },
+          { type: "Speakers", quantity: 3 },
+        ],
+      },
+      expect.anything()
+    );
   });
 
   it("displays a save failure and retains the entered requirements for another attempt", async () => {
     const user = userEvent.setup();
     const onSave = vi
-      .fn<(values: EventRequestDraftValues) => Promise<void>>()
+      .fn<
+        (values: EventRequestDraftValues, context: EventRequestFormSubmitContext) => Promise<void>
+      >()
       .mockRejectedValueOnce(new Error("Could not save this draft. Try again."))
       .mockResolvedValue(undefined);
     render(<EventRequestForm initialValues={initialValues} onSave={onSave} />);
@@ -277,7 +303,7 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     expect(onSave).toHaveBeenCalledTimes(2);
-    expect(onSave).toHaveBeenLastCalledWith({ ...initialValues, description });
+    expect(onSave).toHaveBeenLastCalledWith({ ...initialValues, description }, expect.anything());
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -307,11 +333,14 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
-      expect(onSave).toHaveBeenCalledExactlyOnceWith({
-        ...BLANK_DRAFT,
-        eventName: "Workshop",
-        ...ENABLED_REGISTRATION,
-      });
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...BLANK_DRAFT,
+          eventName: "Workshop",
+          ...ENABLED_REGISTRATION,
+        },
+        expect.anything()
+      );
     });
   });
 
@@ -405,7 +434,10 @@ describe("EventRequestForm", () => {
 
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
-    expect(onSave).toHaveBeenCalledExactlyOnceWith({ ...initialValues, ...ENABLED_REGISTRATION });
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(
+      { ...initialValues, ...ENABLED_REGISTRATION },
+      expect.anything()
+    );
   });
 
   it("drops the terms when registration is turned off before saving", async () => {
@@ -422,7 +454,7 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
-      expect(onSave).toHaveBeenCalledExactlyOnceWith(BLANK_DRAFT);
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(BLANK_DRAFT, expect.anything());
     });
   });
 
@@ -442,10 +474,13 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Submit request" }));
 
     await waitFor(() => {
-      expect(onSubmitRequest).toHaveBeenCalledExactlyOnceWith({
-        ...BLANK_DRAFT,
-        eventName: "Community workshop",
-      });
+      expect(onSubmitRequest).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...BLANK_DRAFT,
+          eventName: "Community workshop",
+        },
+        expect.anything()
+      );
     });
     expect(onSave).not.toHaveBeenCalled();
   });
@@ -460,10 +495,13 @@ describe("EventRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
-      expect(onSave).toHaveBeenCalledExactlyOnceWith({
-        ...BLANK_DRAFT,
-        eventName: "Community workshop",
-      });
+      expect(onSave).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...BLANK_DRAFT,
+          eventName: "Community workshop",
+        },
+        expect.anything()
+      );
     });
     expect(onSubmitRequest).not.toHaveBeenCalled();
   });
@@ -482,5 +520,90 @@ describe("EventRequestForm", () => {
       expect(screen.getByRole("alert").textContent).toBe("This request is missing: Event name");
     });
     expect(inputValue("Description (optional)")).toBe("  Keep this draft note  ");
+  });
+
+  it("leads with the reply body and the editable fields, folding the rest into a collapsed block", () => {
+    render(
+      <EventRequestForm
+        initialValues={initialValues}
+        editableFields={["expectedAttendance"]}
+        replyBody={{ label: "Your reply" }}
+        onSave={makeOnSave()}
+      />
+    );
+
+    expect(screen.getByLabelText("Your reply (required)").closest("details")).toBeNull();
+    expect(screen.getByLabelText("Expected attendance (required)").closest("details")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save draft" }).closest("details")).toBeNull();
+    expect(screen.getByLabelText("Event name (required)").closest("details")).not.toBeNull();
+    expect(screen.getByLabelText("Purpose (required)").closest("details")).not.toBeNull();
+    expect(screen.getByText("Other request details (read-only)")).toBeTruthy();
+  });
+
+  it("reports the top-level names of only the fields the organiser changed", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    render(
+      <EventRequestForm
+        initialValues={initialValues}
+        editableFields={["expectedAttendance", "roomLayoutPreference", "proposedDates"]}
+        onSave={onSave}
+      />
+    );
+
+    fill("Proposed start 1 (required)", "2030-11-18T08:00");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    const context = onSave.mock.calls[0][1];
+    expect(context.changedFields).toContain("proposedDates");
+    expect(context.changedFields).not.toContain("expectedAttendance");
+    expect(context.changedFields).not.toContain("roomLayoutPreference");
+    expect(context.replyBody).toBe("");
+  });
+
+  it("keeps the edited field and the reply body when a fresh snapshot is handed to the same form", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    const replyForm = (values: EventRequestDraftValues) => (
+      <EventRequestForm
+        initialValues={values}
+        editableFields={["expectedAttendance", "roomLayoutPreference"]}
+        replyBody={{ label: "Your reply" }}
+        onSave={onSave}
+      />
+    );
+    const { rerender } = render(replyForm(initialValues));
+
+    fill("Room-layout preference (optional)", "Boardroom");
+    await user.type(screen.getByLabelText("Your reply (required)"), "Please use a boardroom.");
+
+    rerender(
+      replyForm({ ...initialValues, expectedAttendance: 120, roomLayoutPreference: "Classroom" })
+    );
+
+    // The form owns its values for this mount: the reply and the organiser's own edits survive.
+    expect(inputValue("Expected attendance (required)")).toBe("125");
+    expect(inputValue("Room-layout preference (optional)")).toBe("Boardroom");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Your reply (required)").value).toBe(
+      "Please use a boardroom."
+    );
+  });
+
+  it("starts a freshly mounted reply form from the snapshot it is given", () => {
+    render(
+      <EventRequestForm
+        initialValues={{ ...initialValues, expectedAttendance: 120 }}
+        editableFields={["expectedAttendance", "roomLayoutPreference"]}
+        replyBody={{ label: "Your reply" }}
+        onSave={makeOnSave()}
+      />
+    );
+
+    expect(inputValue("Expected attendance (required)")).toBe("120");
+    expect(inputValue("Room-layout preference (optional)")).toBe(
+      initialValues.roomLayoutPreference
+    );
+    expect(inputValue("Your reply (required)")).toBe("");
   });
 });

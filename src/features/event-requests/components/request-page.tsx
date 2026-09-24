@@ -19,8 +19,11 @@ const SUBMIT_FAILED = "Could not submit this request. Try again.";
  * carries an id across saves within this sitting, and starts undefined here since no save has
  * happened yet — without the fallback, the first save after reopening would insert a second row
  * instead of updating the one that was loaded.
+ *
+ * Exported for `EventRequestDetailPage`, whose reply form seeds the same shape; a request detail
+ * carries every draft field plus its relations, so the row is assignable as-is.
  */
-function toDraftValues(row: EventRequestDraft): EventRequestDraftValues {
+export function toDraftValues(row: EventRequestDraft): EventRequestDraftValues {
   return {
     ...row,
     expectedAttendance: row.expectedAttendance ?? undefined,
@@ -90,7 +93,10 @@ export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequ
           )}
 
           <div className="mt-10">
+            {/* The draft is fixed for this mount: the form derives `isDefaultValue` from the values
+                it started with, so a save's reload must not reseed them underneath it. */}
             <EventRequestForm
+              key={existingDraft?.id ?? "new"}
               initialValues={existingDraft ? toDraftValues(existingDraft) : undefined}
               onSave={async values => {
                 const { error } = await saveDraft(values);

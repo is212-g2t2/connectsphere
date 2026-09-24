@@ -327,6 +327,7 @@ export async function handleRaiseClarificationRequest(
         eventRequestId: request.id,
         coordinatorId: actor.id,
         body: input.body,
+        permittedFields: input.permittedFields,
       })
       .returning();
 

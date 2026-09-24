@@ -141,6 +141,13 @@
       "when": 1790148285355,
       "tag": "0019_booking-overlap-constraint",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790216325866,
+      "tag": "0020_rapid_sleeper",
+      "breakpoints": true
     }
   ]
 }

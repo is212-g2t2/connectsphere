@@ -211,6 +211,188 @@ function fieldValue(page: Page, term: string) {
   return page.locator("dt", { hasText: term }).locator("xpath=following-sibling::dd[1]");
 }
 
+test("Organiser amends the concerned fields, replies, and notifies the Coordinator", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const organiserContext = await browser.newContext({ baseURL });
+  const organiserPage = await organiserContext.newPage();
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Reply Coordinator");
+    ids.push(coordinator.id);
+    const organiser = await register(organiserPage, "event_organiser", "Reply Organiser");
+    ids.push(organiser.id);
+    const eventName = `Clarification reply ${randomUUID()}`;
+    const date = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const [request] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: organiser.id,
+        assignedCoordinatorId: coordinator.id,
+        assignedAt: new Date(),
+        submittedAt: new Date(),
+        status: "under_review",
+        eventName,
+        purpose: "Community workshop",
+        expectedAttendance: 100,
+        roomLayoutPreference: "Theatre",
+        proposedDates: [{ start: `${date}T09:00`, end: `${date}T17:00` }],
+      })
+      .returning();
+    const question = "Please confirm attendance and the room layout.";
+    const reply = "We expect 120 guests.\nPlease use a Classroom layout.";
+
+    await page.goto(`/coordination/${request.id}`);
+    await waitForHydration(page);
+    await page.getByLabel("What needs clarification").fill(question);
+    await page.getByRole("checkbox", { name: "Expected attendance", exact: true }).check();
+    await page.getByRole("checkbox", { name: "Room-layout preference", exact: true }).check();
+    await page.getByRole("button", { name: "Send clarification request" }).click();
+    await expect(page.getByText(question, { exact: true })).toBeVisible();
+    await expect(page.getByText("Awaiting organiser", { exact: true })).toBeVisible();
+
+    await organiserPage.goto(`/event-requests/${request.id}`);
+    await waitForHydration(organiserPage);
+    await expect(organiserPage.getByLabel("Event name (required)")).toBeDisabled();
+    await expect(organiserPage.getByLabel("Purpose (required)")).toBeDisabled();
+    await organiserPage.getByLabel("Expected attendance (required)").fill("120");
+    await organiserPage.getByLabel("Room-layout preference (optional)").fill("Classroom");
+    await organiserPage.getByLabel("Your reply").fill(reply);
+    await organiserPage.getByRole("button", { name: "Send reply", exact: true }).click();
+    await expect(organiserPage.getByText("Under review", { exact: true })).toBeVisible();
+    await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();
+    await expect(organiserPage.getByRole("button", { name: "Send reply" })).toHaveCount(0);
+    await expect(fieldValue(organiserPage, "Expected attendance")).toHaveText("120");
+    // PTR-19: the reply records what changed, with the before and after the Coordinator can read.
+    await expect(organiserPage.getByText("Expected attendance: 100 → 120")).toBeVisible();
+    await expect(
+      organiserPage.getByText("Room-layout preference: Theatre → Classroom")
+    ).toBeVisible();
+
+    const email = await waitForEmail(coordinator.email, `Clarification replied: ${eventName}`);
+    expect(email).toContain(question);
+    expect(email).toContain("We expect 120 guests.");
+    expect(email).toContain(`/coordination/${request.id}`);
+    await page.reload();
+    await expect(page.getByText(question, { exact: true })).toBeVisible();
+    await expect(page.getByText(reply, { exact: true })).toBeVisible();
+    await expect(fieldValue(page, "Room-layout preference")).toHaveText("Classroom");
+    await expect(page.getByRole("button", { name: "Send reply", exact: true })).toHaveCount(0);
+    await organiserPage.reload();
+    await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await organiserContext.close();
+  }
+});
+
+test("a reply to a second question never reverts the first reply's amendment", async ({
+  browser,
+  baseURL,
+}) => {
+  const organiserContext = await browser.newContext({ baseURL });
+  const organiserPage = await organiserContext.newPage();
+  const ids: string[] = [];
+  try {
+    const coordinatorId = randomUUID();
+    await database.insert(schema.user).values({
+      id: coordinatorId,
+      name: "Two Question Coordinator",
+      email: `${coordinatorId}@example.invalid`,
+      role: "event_coordinator",
+    });
+    ids.push(coordinatorId);
+    const organiser = await register(organiserPage, "event_organiser", "Two Question Organiser");
+    ids.push(organiser.id);
+    const eventName = `Two questions ${randomUUID()}`;
+    const date = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const [request] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: organiser.id,
+        assignedCoordinatorId: coordinatorId,
+        assignedAt: new Date(),
+        submittedAt: new Date(),
+        status: "awaiting_organiser",
+        eventName,
+        purpose: "Community workshop",
+        expectedAttendance: 100,
+        proposedDates: [{ start: `${date}T09:00`, end: `${date}T17:00` }],
+      })
+      .returning();
+    // Both questions permit the attendance, so one page load renders two reply forms from the
+    // same 100 snapshot. Distinct timestamps pin the order the loader reads them back in.
+    const clarifications = await database
+      .insert(schema.clarificationRequests)
+      .values([
+        {
+          eventRequestId: request.id,
+          coordinatorId,
+          body: "How many guests?",
+          permittedFields: ["expectedAttendance"],
+          createdAt: new Date("2026-09-22T01:00:00Z"),
+        },
+        {
+          eventRequestId: request.id,
+          coordinatorId,
+          body: "Confirm the guest count.",
+          permittedFields: ["expectedAttendance"],
+          createdAt: new Date("2026-09-22T02:00:00Z"),
+        },
+      ])
+      .returning();
+    const [firstQuestion, secondQuestion] = clarifications;
+    if (!firstQuestion || !secondQuestion) throw new Error("Expected two clarifications");
+
+    await organiserPage.goto(`/event-requests/${request.id}`);
+    await waitForHydration(organiserPage);
+    await expect(organiserPage.getByLabel("Your reply")).toHaveCount(2);
+
+    await organiserPage
+      .locator(`#clarification-${firstQuestion.id}-expectedAttendance`)
+      .fill("120");
+    await organiserPage
+      .locator(`#clarification-${firstQuestion.id}-replyBody`)
+      .fill("We now expect 120 guests.");
+    await organiserPage.getByRole("button", { name: "Send reply", exact: true }).first().click();
+
+    // The surviving form picks up the amendment from the reloaded request, not its 100 snapshot.
+    // Waiting on its value is the reload sync point; the reply text alone is not, because the text
+    // matcher reads a textarea's current value and the answered form is still mounted until then.
+    await expect(
+      organiserPage.locator(`#clarification-${secondQuestion.id}-expectedAttendance`)
+    ).toHaveValue("120");
+    await expect(organiserPage.getByLabel("Your reply")).toHaveCount(1);
+    await expect(
+      organiserPage.getByText("We now expect 120 guests.", { exact: true })
+    ).toBeVisible();
+
+    // The second reply leaves the attendance untouched, so it must not echo the stale 100 back.
+    await organiserPage
+      .locator(`#clarification-${secondQuestion.id}-replyBody`)
+      .fill("The count is unchanged.");
+    await organiserPage.getByRole("button", { name: "Send reply", exact: true }).click();
+
+    await expect(organiserPage.getByText("The count is unchanged.", { exact: true })).toBeVisible();
+    await expect(organiserPage.getByText("How many guests?", { exact: true })).toBeVisible();
+    await expect(
+      organiserPage.getByText("Confirm the guest count.", { exact: true })
+    ).toBeVisible();
+    await expect(fieldValue(organiserPage, "Expected attendance")).toHaveText("120");
+
+    const [stored] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(stored.expectedAttendance).toBe(120);
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await organiserContext.close();
+  }
+});
+
 test("shows every organiser-supplied field on an assigned request", async ({ page }) => {
   const ids: string[] = [];
   try {
