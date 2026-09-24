@@ -1,3 +1,5 @@
+import type { EventRequestStatus } from "#/features/event-requests/schema";
+
 export type EventAccess =
   | "organiser"
   | "coordinator"
@@ -35,13 +37,27 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
 }
 
 /**
+ * The shared venue queue (PTR-31): a Venue Staff member works the rows assigned to them, plus
+ * every unassigned `pending` one. `records.server.ts` scopes its event-list query with the same
+ * rule in SQL and calls this for its in-memory readers, so the rule has one home. It carries no
+ * `#/db` import — this module is client-reachable.
+ */
+export function isVenueQueueRow(
+  row: { assignedStaffId: string | null; status: string },
+  userId: string
+): boolean {
+  return row.assignedStaffId === null ? row.status === "pending" : row.assignedStaffId === userId;
+}
+
+/**
  * Whether registration is open at this instant. The stored window is a `datetime-local` string
  * with no offset (PTR-11), so it is read on the same arbitrary meridian the draft schema parses
  * it on, and compared as instants rather than lexicographically. Missing terms or registration
  * turned off fail closed.
  *
  * PTR-8 criterion 4 says "open to registration" for a *published* event; until PTR-21/24 add
- * `confirmed`, the caller has already filtered to `submitted` and this only answers the window.
+ * `confirmed`, the caller applies the status gate for browsing attendees and this only answers
+ * the window.
  */
 export function isRegistrationWindowOpen(
   request: {
@@ -65,10 +81,11 @@ export function isRegistrationWindowOpen(
 export function eventTiming(dates: Array<{ start?: string; end?: string }>) {
   const window = dates.find(date => date.start !== undefined && date.end !== undefined);
   if (window?.start === undefined || window.end === undefined) {
-    return { eventDate: null, startTime: null, endTime: null };
+    return { eventDate: null, endDate: null, startTime: null, endTime: null };
   }
   return {
     eventDate: window.start.slice(0, 10),
+    endDate: window.end.slice(0, 10),
     startTime: window.start.slice(11),
     endTime: window.end.slice(11),
   };
@@ -78,7 +95,7 @@ interface EventRecord {
   id: number;
   name: string;
   description: string;
-  status: string;
+  status: EventRequestStatus;
   proposedDates: Array<{ start?: string; end?: string }>;
   expectedAttendance: number | null;
   roomLayoutPreference: string;
@@ -100,9 +117,10 @@ export interface EventProjection {
     name?: string;
     description?: string;
     eventDate: string | null;
+    endDate?: string | null;
     startTime: string | null;
     endTime: string | null;
-    status?: string;
+    status: EventRequestStatus;
     registrationOpensAt?: string | null;
     registrationClosesAt?: string | null;
     expectedAttendance?: number | null;
@@ -110,7 +128,8 @@ export interface EventProjection {
     accessibilityRequirements?: string | null;
     requiredFacilities?: string | null;
     registration?: { status: string; registeredAt: string } | null;
-    venueRequest?: { status: string } | null;
+    /** PTR-36: `conflict` is present only when the pending request overlaps an approved booking. */
+    venueRequest?: { status: string; conflict?: boolean } | null;
     equipment?: Array<{
       id: string;
       item: string;
@@ -129,7 +148,7 @@ export function projectEvent(
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
   equipment: Array<{ id: string; item: string; arrangementStatus: string; notes: string | null }>,
-  venueRequest: { status: string } | null
+  venueRequest: { status: string; conflict?: boolean } | null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 
@@ -142,6 +161,7 @@ export function projectEvent(
           name: record.name,
           description: record.description,
           ...timing,
+          status: record.status,
           registrationOpensAt: record.registrationOpensAt,
           registrationClosesAt: record.registrationClosesAt,
           registration: ownRegistration,
@@ -149,13 +169,15 @@ export function projectEvent(
       };
 
     // PTR-31 criterion 2: event timing, expected attendance, layout, accessibility and required
-    // facilities — and no other event information, so not even the name.
+    // facilities — and no other event information, so not even the name. The stage is the one
+    // exception every branch carries (PTR-21 criterion 2): anyone with access sees it.
     case "venue_staff":
       return {
         access,
         event: {
           id: record.id,
           ...timing,
+          status: record.status,
           expectedAttendance: record.expectedAttendance,
           layout: record.roomLayoutPreference,
           accessibilityRequirements: record.accessibilityRequirements,
@@ -171,6 +193,7 @@ export function projectEvent(
           id: record.id,
           name: record.name,
           ...timing,
+          status: record.status,
           equipment,
         },
       };

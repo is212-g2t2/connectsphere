@@ -1,6 +1,7 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMiddleware, createServerFn } from "@tanstack/react-start";
+import { setResponseStatus } from "@tanstack/react-start/server";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -10,9 +11,11 @@ import { getCurrentUser, listAccounts, requireSession } from "#/features/auth/se
 import type { SessionUser } from "#/features/auth/session";
 import {
   assignEventRequest,
+  decideEventRequest,
   getCoordinationRequest,
   listAssignedEventRequests,
   listCoordinators,
+  takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
 import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
 import {
@@ -27,10 +30,21 @@ import {
   listEventRequests,
   listUnassignedEventRequests,
   requireEventRequestCreate,
+  replyToClarification,
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
 import { listEvents } from "#/features/events/server-fns";
+import {
+  VENUE_REQUEST_DATE_MESSAGE,
+  VENUE_REQUEST_ID_MESSAGE,
+} from "#/features/venue-requests/schema";
+import {
+  approveVenueRequest,
+  getVenueRequestContext,
+  requestVenue,
+  withdrawVenueRequest,
+} from "#/features/venue-requests/server-fns";
 import { handleSaveVenue } from "#/features/venues/records.server";
 import {
   AVAILABILITY_ORDER_MESSAGE,
@@ -43,6 +57,7 @@ import {
   getVenueAvailability,
   listVenues,
   saveVenue,
+  searchVenues,
 } from "#/features/venues/server-fns";
 import { auth } from "#/lib/auth.server";
 
@@ -67,14 +82,16 @@ const availabilitySelection = {
  * and can catch a function wired to the wrong guard. The request and the session are the two
  * things the runtime supplies, so they are the two things mocked here.
  *
- * On a refusal the middleware short-circuits: `error` is the status `Response`, and the handler
- * below it never runs (the uncompiled test module does not carry a handler body at all — TanStack
- * Start's compiler supplies it in a real build, which the e2e suite exercises end to end).
+ * On a refusal the middleware short-circuits: `error` is the status-carrying `Error`,
+ * `setResponseStatus` sets the HTTP status code, and the handler below it never runs
+ * (the uncompiled test module does not carry a handler body at all — TanStack Start's
+ * compiler supplies it in a real build, which the e2e suite exercises end to end).
  */
 const currentRequest = new Request("http://localhost:3000/_serverFn", { method: "POST" });
 
 vi.mock("@tanstack/react-start/server", () => ({
   getRequest: () => currentRequest,
+  setResponseStatus: vi.fn<(status: number) => void>(),
 }));
 
 vi.mock("#/lib/auth.server", () => ({
@@ -108,11 +125,16 @@ async function refusalFrom(
   method: "GET" | "POST" = "POST"
 ) {
   const { error } = await call(serverFn, data, method);
-  if (!(error instanceof Response)) {
-    throw new Error("expected a refusal Response, but the pipeline returned none");
+  if (!(error instanceof Error && "status" in error)) {
+    throw new Error("expected a refusal Error carrying status, but the pipeline returned none");
   }
 
-  return { status: error.status, body: await error.text() };
+  const status = (error as { status: number }).status;
+  const body = error.message;
+
+  expect(setResponseStatus).toHaveBeenCalledWith(status);
+
+  return { status, body };
 }
 
 function signIn(role: string) {
@@ -144,6 +166,25 @@ describe("server-function authorization (PTR-69)", () => {
     vi.clearAllMocks();
   });
 
+  it("allows clarification replies only for an authenticated Organiser, before validating input", async () => {
+    vi.mocked(auth.api.getSession).mockResolvedValue(null);
+    expect(await refusalFrom(replyToClarification, {})).toMatchObject({ status: 401 });
+    for (const role of [
+      "attendee",
+      "event_coordinator",
+      "venue_staff",
+      "technical_support_staff",
+    ]) {
+      signIn(role);
+      // oxlint-disable-next-line no-await-in-loop
+      expect(await refusalFrom(replyToClarification, {})).toMatchObject({ status: 403 });
+    }
+    signIn("event_organiser");
+    expect(
+      (await call(replyToClarification, { id: 1, clarificationId: 2, body: "Confirmed" })).error
+    ).toBeUndefined();
+  });
+
   describe("PTR-16 coordination boundaries", () => {
     // These calls share the mocked request context; keep its lazy module loading sequential.
     // oxlint-disable no-await-in-loop
@@ -153,7 +194,9 @@ describe("server-function authorization (PTR-69)", () => {
         data: { id: 1, coordinatorId: "coord-b", expectedCoordinatorId: null },
         method: "POST" as const,
       },
+      { fn: decideEventRequest, data: { id: 1, decision: "approved" }, method: "POST" as const },
       { fn: getCoordinationRequest, data: { id: 1 }, method: "GET" as const },
+      { fn: takeUpEventRequestForReview, data: { id: 1 }, method: "POST" as const },
       { fn: listAssignedEventRequests, data: undefined, method: "GET" as const },
       { fn: listCoordinators, data: undefined, method: "GET" as const },
     ];
@@ -176,7 +219,7 @@ describe("server-function authorization (PTR-69)", () => {
         }
       }
     );
-    it("permits a Coordinator through all four boundaries", async () => {
+    it("permits a Coordinator through every boundary", async () => {
       signIn("event_coordinator");
       for (const endpoint of endpoints) {
         expect((await call(endpoint.fn, endpoint.data, endpoint.method)).error).toBeUndefined();
@@ -193,12 +236,20 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
+      expect(await refusalFrom(searchVenues, {}, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
     });
 
     it("answers 403 to an external role the catalogue refuses", async () => {
       signIn("event_organiser");
 
       expect(await refusalFrom(listVenues, undefined, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+      expect(await refusalFrom(searchVenues, {}, "GET")).toEqual({
         status: 403,
         body: "Forbidden",
       });
@@ -212,6 +263,17 @@ describe("server-function authorization (PTR-69)", () => {
         expect((await call(listVenues, undefined, "GET")).error).toBeUndefined();
       }
     );
+
+    it("lets only a Coordinator search venues", async () => {
+      signIn("event_coordinator");
+      expect((await call(searchVenues, {}, "GET")).error).toBeUndefined();
+
+      signIn("venue_staff");
+      expect(await refusalFrom(searchVenues, {}, "GET")).toMatchObject({ status: 403 });
+
+      signIn("technical_support_staff");
+      expect(await refusalFrom(searchVenues, {}, "GET")).toMatchObject({ status: 403 });
+    });
 
     it("answers 401 to an unauthenticated save (PTR-98)", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
@@ -281,6 +343,76 @@ describe("server-function authorization (PTR-69)", () => {
         ).toBeUndefined();
       }
     );
+  });
+
+  describe("venue requests (PTR-31)", () => {
+    /** A payload the request validator accepts, so the allow path runs the whole chain. */
+    const venueRequestInput = {
+      eventId: 1,
+      venueId: 1,
+      date: "2027-04-20",
+      startTime: "09:00",
+      endTime: "12:30",
+    };
+
+    it("answers 401 to every endpoint without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(getVenueRequestContext, { eventId: 1, venueId: 1 }, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(requestVenue, venueRequestInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(withdrawVenueRequest, { id: "req-1" })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(approveVenueRequest, { id: "req-1" })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s even before payload validation",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(getVenueRequestContext, {}, "GET")).toMatchObject({
+          status: 403,
+        });
+        expect(await refusalFrom(requestVenue, {})).toMatchObject({ status: 403 });
+        expect(await refusalFrom(withdrawVenueRequest, {})).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("lets only a Coordinator through to the rest of the chain", async () => {
+      signIn("event_coordinator");
+
+      expect(
+        (await call(getVenueRequestContext, { eventId: 1, venueId: 1 }, "GET")).error
+      ).toBeUndefined();
+      expect((await call(requestVenue, venueRequestInput)).error).toBeUndefined();
+      expect((await call(withdrawVenueRequest, { id: "req-1" })).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "event_coordinator", "technical_support_staff"])(
+      "refuses %s the approval verb (PTR-36)",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(approveVenueRequest, {})).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("lets a Venue Staff member through the approval chain (PTR-36)", async () => {
+      signIn("venue_staff");
+
+      expect((await call(approveVenueRequest, { id: "req-1" })).error).toBeUndefined();
+    });
   });
 
   describe("events", () => {
@@ -475,12 +607,13 @@ describe("server-function authorization (PTR-69)", () => {
   /**
    * PTR-98: the matrix above proves each endpoint refuses at the middleware boundary, and the
    * handler tests prove each handler throws the right error class. Neither executes the join —
-   * `withSession`'s catch that turns that class into the `Response` a direct caller receives.
+   * `withSession`'s catch that records the status via `setResponseStatus` and rethrows the
+   * status-carrying `Error`.
    *
    * The uncompiled test module carries no handler body (the compiler supplies it in a real
    * build; see the file comment), so each case calls a real handler from a middleware placed
    * after the real session guard. The handler's throw then travels the same `next()` path a
-   * terminal handler's would, into `withSession`'s conversion.
+   * terminal handler's would, into `withSession`'s handler.
    */
   describe("refusal seam (PTR-98)", () => {
     let pool: Pool;
@@ -632,6 +765,7 @@ describe("server-function authorization (PTR-69)", () => {
     it("surfaces each function's own schema message instead of reaching the handler", async () => {
       signIn("venue_staff");
       expect(await messageFrom(saveVenue, { name: "" })).toBe(NAME_REQUIRED_MESSAGE);
+      expect(await messageFrom(approveVenueRequest, { id: "  " })).toBe(VENUE_REQUEST_ID_MESSAGE);
 
       signIn("event_coordinator");
       expect(await messageFrom(getVenue, { id: "seven" }, "GET")).toBe(VENUE_ID_MESSAGE);
@@ -652,6 +786,16 @@ describe("server-function authorization (PTR-69)", () => {
       expect(await messageFrom(getCoordinationRequest, { id: 0 }, "GET")).toBe(
         EVENT_REQUEST_ID_MESSAGE
       );
+      expect(
+        await messageFrom(requestVenue, {
+          eventId: 1,
+          venueId: 1,
+          date: "",
+          startTime: "09:00",
+          endTime: "12:30",
+        })
+      ).toBe(VENUE_REQUEST_DATE_MESSAGE);
+      expect(await messageFrom(withdrawVenueRequest, { id: "  " })).toBe(VENUE_REQUEST_ID_MESSAGE);
 
       signIn("event_organiser");
       expect(await messageFrom(saveEventRequestDraft, { expectedAttendance: -1 })).toBe(

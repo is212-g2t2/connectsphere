@@ -360,15 +360,188 @@ export const SUBMITTED_EDIT_REFUSAL =
 export const ALREADY_SUBMITTED_MESSAGE = "This request has already been submitted.";
 
 /**
- * PTR-14 criterion 3: every status a request can hold, in the order the flow moves through
- * them, with what each is called on screen. Client-safe on purpose — the list page renders these
- * — so it is restated here rather than read off the Postgres enum in `#/db/schema`;
- * `tests/unit/db-schema.test.ts` holds the two lists to the same values.
+ * PTR-14 criterion 3: every status a request can hold, in the Postgres enum's order (the values
+ * were added over several stories, and `tests/unit/db-schema.test.ts` compares the two lists
+ * order-sensitively), with what each is called on screen. Client-safe on purpose — the list page
+ * renders these — so it is restated here rather than read off the enum in `#/db/schema`.
  */
-export const EVENT_REQUEST_STATUSES = ["draft", "submitted"] as const;
+export const EVENT_REQUEST_STATUSES = [
+  "draft",
+  "submitted",
+  "under_review",
+  "approved",
+  "rejected",
+  "awaiting_organiser",
+  "planning",
+  "confirmed",
+  "completed",
+  "cancelled",
+] as const;
 export type EventRequestStatus = (typeof EVENT_REQUEST_STATUSES)[number];
 
+/** PTR-21 criterion 2: the plain-language label every screen shows instead of the stored code. */
 export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   draft: "Draft",
   submitted: "Submitted",
+  under_review: "Under review",
+  approved: "Approved",
+  rejected: "Rejected",
+  awaiting_organiser: "Awaiting organiser",
+  planning: "Planning",
+  confirmed: "Confirmed",
+  completed: "Completed",
+  cancelled: "Cancelled",
 };
+
+/**
+ * One `Badge` variant per status. The three status pills docs/DESIGN.md#status-pills defines —
+ * `progress` (amber) for anything still pending, including a request waiting on the Organiser,
+ * `confirmed` (harbor) for a settled good outcome, `stopped` (coral) for a stop — plus `Badge`'s
+ * neutral `outline` for a draft that has not started. Pure data so any page can import it.
+ */
+type EventRequestStatusVariant = "outline" | "progress" | "confirmed" | "stopped";
+export const EVENT_REQUEST_STATUS_VARIANTS: Record<EventRequestStatus, EventRequestStatusVariant> =
+  {
+    draft: "outline",
+    submitted: "progress",
+    under_review: "progress",
+    awaiting_organiser: "progress",
+    approved: "confirmed",
+    planning: "progress",
+    confirmed: "confirmed",
+    completed: "confirmed",
+    rejected: "stopped",
+    cancelled: "stopped",
+  };
+
+/**
+ * What each status says about the request's record: whether a decision stands on it (the
+ * database requires the deciding Coordinator and time from `approved` onward), which way that
+ * decision went, and the one sentence the detail page adds after the date. Pure data, so no page
+ * re-branches the status set when a status is added.
+ */
+export interface EventRequestStage {
+  decided: boolean;
+  outcome: "approved" | "rejected" | null;
+  note: string;
+}
+export const EVENT_REQUEST_STATUS_STAGES: Record<EventRequestStatus, EventRequestStage> = {
+  draft: { decided: false, outcome: null, note: "Saved as a draft and not yet submitted." },
+  submitted: { decided: false, outcome: null, note: "It is with ConnectSphere for review." },
+  under_review: { decided: false, outcome: null, note: "It is with ConnectSphere for review." },
+  awaiting_organiser: { decided: false, outcome: null, note: "Waiting on the Organiser." },
+  approved: { decided: true, outcome: "approved", note: "" },
+  rejected: { decided: true, outcome: "rejected", note: "" },
+  planning: { decided: true, outcome: "approved", note: "Approved and being planned." },
+  confirmed: { decided: true, outcome: "approved", note: "Confirmed and going ahead." },
+  completed: { decided: true, outcome: "approved", note: "The event has taken place." },
+  cancelled: { decided: false, outcome: null, note: "Cancelled." },
+};
+
+// ── Clarification requests (PTR-18) ─────────────────────────────────────────
+
+/**
+ * One ceiling for both the Coordinator's question and the Organiser's reply: the two sit in the
+ * same thread, so separate limits would be an arbitrary difference to explain.
+ */
+export const CLARIFICATION_TEXT_MAX = 2000;
+export const CLARIFICATION_BODY_MESSAGE = `Clarification text must be ${CLARIFICATION_TEXT_MAX} characters or fewer`;
+export const CLARIFICATION_BODY_REQUIRED = "Enter what you need the Organiser to clarify";
+
+/**
+ * The request fields a Coordinator may ask about. Most map one-to-one onto an `event_requests`
+ * column; `attendeeRegistration` is a single question that spans four columns. This is the one
+ * place the server and the reply form read, so a field cannot be offered on screen without being
+ * writable on the server.
+ */
+export const CLARIFICATION_FIELDS = [
+  { key: "eventName", label: "Event name" },
+  { key: "purpose", label: "Purpose" },
+  { key: "proposedDates", label: "Proposed dates and times" },
+  { key: "expectedAttendance", label: "Expected attendance" },
+  { key: "description", label: "Description" },
+  { key: "eventType", label: "Type of event" },
+  { key: "venueRequirements", label: "Venue requirements" },
+  { key: "roomLayoutPreference", label: "Room-layout preference" },
+  { key: "accessibilityRequirements", label: "Accessibility requirements" },
+  { key: "equipmentRequirements", label: "Equipment requirements" },
+  { key: "specialArrangements", label: "Special arrangements" },
+  { key: "attendeeRegistration", label: "Attendee registration" },
+] as const;
+export type ClarificationField = (typeof CLARIFICATION_FIELDS)[number]["key"];
+
+/** The four columns a reply to the one `attendeeRegistration` question may amend as a group. */
+export const ATTENDEE_REGISTRATION_AMENDMENT_KEYS = [
+  "registrationEnabled",
+  "registrationCapacity",
+  "registrationOpensAt",
+  "registrationClosesAt",
+] as const;
+
+/** What a reply changed: the question's field and the before/after values a detail page shows. */
+export type ClarificationAmendment = {
+  field: ClarificationField;
+  from: ClarificationAmendmentValue;
+  to: ClarificationAmendmentValue;
+};
+
+/**
+ * The JSON-shaped value of an amended field. It is what `jsonb` stores, and naming it rather than
+ * `unknown` is what lets TanStack Start prove the detail payload serializes to the client.
+ */
+export type ClarificationAmendmentValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ClarificationAmendmentValue[]
+  | { [key: string]: ClarificationAmendmentValue };
+
+/** The `event_requests` columns a reply to this field may write; empty for a field no longer known. */
+export function clarificationAmendmentKeys(field: ClarificationField): readonly string[] {
+  if (!CLARIFICATION_FIELDS.some(candidate => candidate.key === field)) return [];
+  return field === "attendeeRegistration" ? ATTENDEE_REGISTRATION_AMENDMENT_KEYS : [field];
+}
+
+const ClarificationBodyInput = EventRequestIdInput.extend({
+  permittedFields: z.array(z.enum(CLARIFICATION_FIELDS.map(field => field.key))).default([]),
+  body: z
+    .string()
+    .trim()
+    .min(1, CLARIFICATION_BODY_REQUIRED)
+    .max(CLARIFICATION_TEXT_MAX, CLARIFICATION_BODY_MESSAGE),
+});
+
+export function parseClarificationBody(data: unknown) {
+  const parsed = ClarificationBodyInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+
+/** The reply body alone, shared by the wire schema below and the reply form's validator. */
+export const ClarificationReplyBodyInput = z
+  .string()
+  .trim()
+  .min(1, "Enter your reply")
+  .max(CLARIFICATION_TEXT_MAX, `Reply must be ${CLARIFICATION_TEXT_MAX} characters or fewer`);
+
+const ClarificationReplyInput = z.strictObject({
+  id: z.int32().positive(),
+  clarificationId: z.int32().positive(),
+  body: ClarificationReplyBodyInput,
+  amendments: z.record(z.string(), z.unknown()).default({}),
+});
+
+export function parseClarificationReply(data: unknown) {
+  const parsed = ClarificationReplyInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+/**
+ * The reply form's validator. `permittedFields` is unwrapped from the wire schema's `.default([])`
+ * because a default widens the validator's input to accept `undefined`, and the form's value type
+ * always carries the array. Unwrapping keeps the validator's input and output the same shape.
+ */
+export const ClarificationFormSchema = ClarificationBodyInput.pick({ body: true }).extend({
+  permittedFields: ClarificationBodyInput.shape.permittedFields.unwrap(),
+});

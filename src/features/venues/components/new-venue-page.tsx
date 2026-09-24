@@ -1,7 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 
 import { Page, PageHeader } from "#/components/layout/page";
-import { unwrapRefusal } from "#/features/auth/session";
 import { VenueForm } from "#/features/venues/components/venue-form";
 import { saveVenue } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -24,10 +23,7 @@ export function NewVenuePage() {
       <VenueForm
         submitLabel="Create venue"
         onSave={async values => {
-          const venue = await unwrapRefusal(
-            await saveVenue({ data: values }),
-            "Could not save this venue. Try again."
-          );
+          const venue = await saveVenue({ data: values });
           // `?saved=true` is only the hand-off; the detail route strips it on arrival so a
           // reload cannot resurrect the confirmation.
           await navigate({

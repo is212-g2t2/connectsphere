@@ -139,7 +139,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 
 ### Schema Locations
 
-- `src/db/schema.ts`: Application domain schemas. Re-exports the auth tables; holds `eventRequests`, Coordinator handover history (`eventAssignments`), and the venue catalogue (`venues`, `venue_unavailability`). The equipment tables arrive with the stories that build them.
+- `src/db/schema.ts`: Application domain schemas. Re-exports the auth tables; holds `eventRequests`, its handover history (`eventAssignments`) and clarifications (`clarificationRequests`), the venue catalogue (`venues`, `venueUnavailability`), the venue and equipment requests (`venueRequests`, `equipmentRequests`), and event registrations (`eventRegistrations`).
 - `src/db/auth-schema.ts`: Better Auth schemas (`user` with `role`, `session`, `account`, `verification`).
 - `src/db/drizzle/`: Generated SQL migration files and metadata.
 
@@ -149,7 +149,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
   ```bash
   bun run db:generate
   ```
-- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`. Handwritten migrations will cause snapshot drift.
+- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`. Handwritten migrations will cause snapshot drift. One reviewed exception: the booking exclusion constraint Drizzle cannot express ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)) is created with `db:generate --custom`; because the migrator runs all pending migrations in one transaction, its predicate calls an IMMUTABLE wrapper function rather than comparing the newly added enum label.
 - **Commit schema and migrations together**: Always commit the schema modifications along with the resulting generated files in `src/db/drizzle/`.
 - **Apply migrations**: Run `bun run db:migrate` to apply pending migrations.
 - **Prototyping**: During early exploration, `bun run db:push` synchronises the schema directly without recording a migration file. Never use `db:push` in production.

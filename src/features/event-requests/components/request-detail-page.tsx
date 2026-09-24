@@ -4,16 +4,29 @@ import { Page, PageHeader } from "#/components/layout/page";
 import { Card, CardContent } from "#/components/ui/card";
 import {
   ASSIGNED_ON_SUBMIT,
-  EventRequestStatusBadge,
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
 } from "#/features/event-requests/components/request-list-page";
+import { ClarificationReplyForm } from "#/features/event-requests/components/clarification-reply-form";
+import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
+import { toDraftValues } from "#/features/event-requests/components/request-page";
+import {
+  CLARIFICATION_FIELDS,
+  EVENT_REQUEST_STATUS_LABELS,
+  EVENT_REQUEST_STATUS_STAGES,
+  clarificationAmendmentKeys,
+} from "#/features/event-requests/schema";
+import type {
+  ClarificationAmendmentValue,
+  ClarificationField,
+  EventRequestDraftValues,
+} from "#/features/event-requests/schema";
 import {
   formatInstant,
   formatLocalDateTime,
   formatProposedWindow,
 } from "#/features/event-requests/format";
-import type { EventRequestSummary } from "#/features/event-requests/server-fns";
+import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 const NONE = "None recorded";
@@ -30,12 +43,19 @@ export function EventRequestDetailPage({
   request,
   back,
   children,
+  showReplyForms = false,
 }: {
-  request: EventRequestSummary;
+  request: EventRequestDetail;
   back?: { to: "/event-requests" | "/coordination"; label: string };
   children?: React.ReactNode;
+  /** The Organiser's own screen opts in; the Coordinator's shared read-only view must not reply. */
+  showReplyForms?: boolean;
 }) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
+  const stage = EVENT_REQUEST_STATUS_STAGES[request.status];
+  // A cancelled request keeps whatever decision it had, so the record decides, not the status.
+  const hasDecision = stage.decided || request.decidedAt !== null;
+  const replyValues = toDraftValues(request);
 
   return (
     <Page width="page">
@@ -48,20 +68,126 @@ export function EventRequestDetailPage({
         actions={<EventRequestStatusBadge status={request.status} />}
         description={
           request.status === "draft" ? (
-            "Saved as a draft and not yet submitted."
+            stage.note
+          ) : hasDecision ? (
+            <>
+              Decision recorded on{" "}
+              <time dateTime={request.decidedAt?.toISOString()}>
+                {formatInstant(request.decidedAt)}
+              </time>
+              .{stage.note && ` ${stage.note}`}
+            </>
           ) : (
             <>
               Submitted on{" "}
               <time dateTime={request.submittedAt?.toISOString()}>
                 {formatInstant(request.submittedAt)}
               </time>
-              . It is with ConnectSphere for review.
+              . {stage.note}
             </>
           )
         }
       />
 
       {children}
+
+      {hasDecision && (
+        <Card className="mt-8">
+          <CardContent>
+            <h2 className="display-h3">Recorded decision</h2>
+            <dl className="mt-5 grid gap-6 sm:grid-cols-2">
+              <Detail term="Decision">
+                {stage.outcome
+                  ? EVENT_REQUEST_STATUS_LABELS[stage.outcome]
+                  : // The row keeps who decided and when, not which way; say so rather than
+                    // present the cancellation as the decision.
+                    "Cancelled after a recorded decision"}
+              </Detail>
+              <Detail term="Decided by">{request.decidedByCoordinatorName ?? NONE}</Detail>
+              <Detail term="Decided at">
+                <time dateTime={request.decidedAt?.toISOString()}>
+                  {formatInstant(request.decidedAt)}
+                </time>
+              </Detail>
+              <Detail term="Reason" wide>
+                {request.decisionReason || NONE}
+              </Detail>
+            </dl>
+          </CardContent>
+        </Card>
+      )}
+
+      {request.clarifications.length > 0 && (
+        <section className="mt-8" aria-labelledby="clarifications-heading">
+          <Card>
+            <CardContent>
+              <h2 id="clarifications-heading" className="display-h3">
+                Clarification requests
+              </h2>
+              <p className="mt-2 body-sm text-muted-foreground">
+                Questions or additional details requested by the Event Coordinator.
+              </p>
+              <ul className="mt-4 divide-y divide-border">
+                {request.clarifications.map((item, index) => (
+                  <li key={item.id} className="py-3 first:pt-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <span className="eyebrow text-muted-foreground">Request #{index + 1}</span>
+                      <time
+                        dateTime={item.createdAt.toISOString()}
+                        className="body-sm text-muted-foreground"
+                      >
+                        {formatInstant(item.createdAt)}
+                      </time>
+                    </div>
+                    <p className="mt-2 body-md font-medium whitespace-pre-line text-foreground">
+                      {item.body}
+                    </p>
+                    {item.replyBody ? (
+                      <div className="mt-4 border-l-2 border-border pl-4">
+                        <p className="eyebrow text-muted-foreground">Organiser reply</p>
+                        <p className="mt-2 body-md whitespace-pre-line text-foreground">
+                          {item.replyBody}
+                        </p>
+                        {item.repliedAt && (
+                          <time
+                            dateTime={item.repliedAt.toISOString()}
+                            className="mt-2 block body-sm text-muted-foreground"
+                          >
+                            {formatInstant(item.repliedAt)}
+                          </time>
+                        )}
+                        {item.amendments.map(amendment => (
+                          <p key={amendment.field} className="mt-2 body-sm text-foreground">
+                            <span className="font-medium">
+                              {clarificationFieldLabel(amendment.field)}:
+                            </span>{" "}
+                            {formatAmendmentValue(amendment.field, amendment.from)} →{" "}
+                            {formatAmendmentValue(amendment.field, amendment.to)}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      showReplyForms &&
+                      (request.status === "awaiting_organiser" ||
+                        request.status === "under_review") && (
+                        <div className="mt-4 border-t border-border pt-4">
+                          <h3 className="display-h3">Reply to clarification</h3>
+                          <ClarificationReplyForm
+                            key={`${item.id}:${replyValuesSignature(item.permittedFields, replyValues)}`}
+                            requestId={request.id}
+                            clarification={item}
+                            initialValues={replyValues}
+                          />
+                        </div>
+                      )
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       <Card className="mt-8">
         <CardContent>
@@ -154,6 +280,100 @@ export function EventRequestDetailPage({
       </Card>
     </Page>
   );
+}
+
+/**
+ * A reply form's remount key: JSON of only the draft columns its own question's permitted fields
+ * cover. A reply to one open question reloads this page and refreshes every form's `initialValues`,
+ * but only the submitted question's fields actually changed. Scoping the signature to a question's
+ * own fields means a sibling's still-open form only remounts (and loses unsaved input) when a value
+ * it could itself amend changed underneath it — not on every reply on the page.
+ */
+function replyValuesSignature(
+  permittedFields: readonly ClarificationField[],
+  values: EventRequestDraftValues
+): string {
+  const keys = new Set(permittedFields.flatMap(clarificationAmendmentKeys));
+  const subset = Object.fromEntries(Object.entries(values).filter(([key]) => keys.has(key)));
+  return JSON.stringify(subset);
+}
+
+const CLARIFICATION_FIELD_LABELS = new Map(
+  CLARIFICATION_FIELDS.map(field => [field.key, field.label])
+);
+
+function clarificationFieldLabel(field: ClarificationField): string {
+  return CLARIFICATION_FIELD_LABELS.get(field) ?? field;
+}
+
+/** A `jsonb` value is plain JSON, so an object is narrowed by hand before its keys are read. */
+function isObjectValue(
+  value: ClarificationAmendmentValue
+): value is Record<string, ClarificationAmendmentValue> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringOrUndefined(value: ClarificationAmendmentValue | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberOrNull(value: ClarificationAmendmentValue | undefined): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+/** A leaf, or the JSON of anything nested, so an unexpected shape is never shown as `[object Object]`. */
+function plainAmendmentText(value: ClarificationAmendmentValue): string {
+  if (value === null || value === "") return "None";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+/**
+ * One amended value as a reader sees it, per field kind. The field name is what decides the shape:
+ * a proposed window, an equipment line, or the four columns an attendee-registration amendment spans.
+ */
+function formatAmendmentValue(
+  field: ClarificationField,
+  value: ClarificationAmendmentValue
+): string {
+  if (value === null) return "None";
+
+  switch (field) {
+    case "proposedDates":
+      if (!Array.isArray(value)) return plainAmendmentText(value);
+      return value
+        .map(window =>
+          isObjectValue(window)
+            ? formatProposedWindow({
+                start: stringOrUndefined(window.start),
+                end: stringOrUndefined(window.end),
+              })
+            : plainAmendmentText(window)
+        )
+        .join("; ");
+    case "equipmentRequirements":
+      if (!Array.isArray(value)) return plainAmendmentText(value);
+      return value
+        .map(line => {
+          if (!isObjectValue(line)) return plainAmendmentText(line);
+          const type = stringOrUndefined(line.type) ?? "";
+          const quantity = numberOrNull(line.quantity);
+          return `${type || "Unnamed equipment"} × ${quantity ?? "?"}`;
+        })
+        .join("; ");
+    case "attendeeRegistration": {
+      if (!isObjectValue(value)) return plainAmendmentText(value);
+      const opens = stringOrUndefined(value.registrationOpensAt) ?? null;
+      const closes = stringOrUndefined(value.registrationClosesAt) ?? null;
+      const capacity = numberOrNull(value.registrationCapacity);
+      return `Capacity ${capacity ?? "None"}; opens ${
+        opens === null ? "None" : formatLocalDateTime(opens)
+      }, closes ${closes === null ? "None" : formatLocalDateTime(closes)}`;
+    }
+    default:
+      return plainAmendmentText(value);
+  }
 }
 
 function Detail({

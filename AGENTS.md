@@ -15,7 +15,7 @@ Read these instead of re-deriving; do not duplicate their content here.
 
 Each kind of content has exactly one home; decide it before writing:
 
-- **What shipped**: `docs/CHANGELOG.md`, curated by the maintainer. Never add, edit, or remove a changelog entry, even for work that ships; acceptance detail stays in the PR.
+- **What shipped**: `CHANGELOG.md` at the repo root, curated by the maintainer. Never add, edit, or remove a changelog entry, even for work that ships; acceptance detail stays in the PR.
 - **Why a decision was made**: `docs/adrs/`.
 - **How to do a procedure**: `docs/DEVELOPMENT.md`, `DEPLOYMENT.md`, `CONTRIBUTING.md`.
 - **What is true about the system now**: `docs/ARCHITECTURE.md`.
@@ -73,4 +73,4 @@ Three places, all required: `src/env.ts` (optional unless the app cannot boot wi
 
 ## Database schemas and migrations
 
-When touching any schema file (`src/db/schema.ts`, `src/db/auth-schema.ts`): run `bun run db:generate`, review the generated DDL in `src/db/drizzle/`, and commit the schema with its migration together. Never handwrite SQL, and never use `db:push` outside local prototyping; it records no migration history. Workflow: `docs/DEVELOPMENT.md` §Migration Rules.
+When touching any schema file (`src/db/schema.ts`, `src/db/auth-schema.ts`): run `bun run db:generate`, review the generated DDL in `src/db/drizzle/`, and commit the schema with its migration together. Never handwrite SQL, and never use `db:push` outside local prototyping; it records no migration history. One reviewed exception is the booking exclusion constraint Drizzle cannot express, added with `db:generate --custom` (`docs/adrs/ADR-5-venue-booking-overlap.md`). Workflow: `docs/DEVELOPMENT.md` §Migration Rules.

@@ -1,7 +1,6 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
-import { unwrapRefusal } from "#/features/auth/session";
 import { EventRequestsPage } from "#/features/event-requests/components/request-page";
 import { EventRequestIdInput } from "#/features/event-requests/schema";
 import { getEventRequestDraft } from "#/features/event-requests/server-fns";
@@ -25,10 +24,7 @@ export const Route = createFileRoute("/_authenticated/event-requests/reopenDraft
     if (!parsed.success) {
       throw notFound();
     }
-    const { draft } = await unwrapRefusal(
-      await getEventRequestDraft({ data: parsed.data }),
-      "Could not load this draft. Try again."
-    );
+    const { draft } = await getEventRequestDraft({ data: parsed.data });
     // Another organiser's row, a submitted request, and a missing id all come back `null`, so none of them is reopenable here and all three are this 404.
     if (!draft) {
       throw notFound();

@@ -1,7 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
-import { parseDraftInput, parseEventRequestId } from "#/features/event-requests/schema";
+import {
+  parseClarificationReply,
+  parseDraftInput,
+  parseEventRequestId,
+} from "#/features/event-requests/schema";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("event-requests");
@@ -16,6 +20,11 @@ export type EventRequestDraft = Awaited<ReturnType<typeof saveEventRequestDraft>
 
 /** One of the organiser's requests as the list and detail pages see it (PTR-14), Coordinator resolved (PTR-15). */
 export type EventRequestSummary = Awaited<ReturnType<typeof listEventRequests>>[number];
+
+/** One request as the detail page sees it, clarifications included. */
+export type EventRequestDetail = NonNullable<
+  Awaited<ReturnType<typeof getEventRequest>>["request"]
+>;
 
 /** A submitted request awaiting a Coordinator, as the coordination page sees it (PTR-15). */
 export type UnassignedEventRequest = Awaited<
@@ -142,3 +151,22 @@ export const deleteEventRequestDraft = createServerFn({ method: "POST" })
   });
 
 export type EventRequestDeleted = Awaited<ReturnType<typeof deleteEventRequestDraft>>;
+
+export const replyToClarification = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCreate])
+  .validator(parseClarificationReply)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleReplyToClarification }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/replies.server"),
+    ]);
+    const result = await handleReplyToClarification(data, context.user, db);
+
+    log.info("Clarification replied", {
+      requestId: data.id,
+      clarificationId: data.clarificationId,
+      organiserId: context.user.id,
+    });
+
+    return result;
+  });

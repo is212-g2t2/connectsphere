@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, user as users } from "#/db/schema";
+import { clarificationRequests, eventRequests, user as users } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
@@ -34,7 +34,7 @@ export interface Contact {
   email: string;
 }
 
-/** A request with its Coordinator resolved, for the organiser's list and detail (PTR-15 AC3). */
+/** A request with its Coordinator resolved, for the organiser's list (PTR-15 AC3); the detail adds clarifications. */
 export type EventRequestWithCoordinator = EventRequest & { coordinator: Contact | null };
 
 /** A submitted request nobody is handling yet, with its Organiser, for the unassigned list (AC5). */
@@ -200,8 +200,8 @@ export async function handleSubmitEventRequest(
  * submit transaction covers the draft row, not this read — which criterion 1 permits; serialising
  * the pick is a trade against contention to weigh if burst fairness ever matters.
  *
- * Every non-draft request counts as load for now. When PTR-21's terminal statuses (completed,
- * cancelled, rejected) exist, they are the ones to exclude here.
+ * A rejected request is terminal and no longer counts as active coordination load. Approved
+ * requests still count because approval opens their downstream venue and equipment work.
  *
  * Exported for the integration test; its one application caller is `handleSubmitEventRequest`.
  */
@@ -213,7 +213,11 @@ export async function pickLeastLoadedCoordinator(
     .from(users)
     .leftJoin(
       eventRequests,
-      and(eq(eventRequests.assignedCoordinatorId, users.id), ne(eventRequests.status, "draft"))
+      and(
+        eq(eventRequests.assignedCoordinatorId, users.id),
+        ne(eventRequests.status, "draft"),
+        ne(eventRequests.status, "rejected")
+      )
     )
     .where(eq(users.role, "event_coordinator"))
     .groupBy(users.id, users.createdAt)
@@ -248,14 +252,23 @@ export async function handleGetEventRequest(
   data: unknown,
   organiser: SessionUser,
   database: Database
-): Promise<EventRequestWithCoordinator | null> {
+) {
   const { id } = parseEventRequestId(data);
   const rows = await database
     .select(withCoordinator)
     .from(eventRequests)
     .leftJoin(users, eq(users.id, eventRequests.assignedCoordinatorId))
     .where(ownRequest(id, organiser.id));
-  return rows.at(0) ?? null;
+  const request = rows.at(0);
+  if (!request) return null;
+
+  const clarifications = await database
+    .select()
+    .from(clarificationRequests)
+    .where(eq(clarificationRequests.eventRequestId, id))
+    .orderBy(asc(clarificationRequests.createdAt));
+
+  return { ...request, clarifications };
 }
 
 /**

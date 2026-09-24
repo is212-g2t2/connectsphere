@@ -1,0 +1,1 @@
+ALTER TYPE "public"."event_request_status" ADD VALUE 'under_review';

@@ -1,5 +1,5 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -49,14 +49,23 @@ describe("Venue records (PTR-26)", () => {
     expect(created).toMatchObject(record);
     expect(created.id).toBeGreaterThan(0);
 
-    const updated = await handleSaveVenue(
-      { ...record, id: created.id, maxCapacity: 75, facilities: ["Projector", "Whiteboard"] },
-      database as never
-    );
-    expect(updated.id).toBe(created.id);
-    expect(updated.maxCapacity).toBe(75);
-    expect(updated.facilities).toEqual(["Projector", "Whiteboard"]);
-    expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(created.updatedAt.getTime());
+    // Inserts use the database clock; updates use the application clock. Control the latter so
+    // a small host/container clock skew cannot turn an otherwise correct edit into a failure.
+    const editedAt = new Date(created.updatedAt.getTime() + 1000);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(editedAt);
+    try {
+      const updated = await handleSaveVenue(
+        { ...record, id: created.id, maxCapacity: 75, facilities: ["Projector", "Whiteboard"] },
+        database as never
+      );
+      expect(updated.id).toBe(created.id);
+      expect(updated.maxCapacity).toBe(75);
+      expect(updated.facilities).toEqual(["Projector", "Whiteboard"]);
+      expect(updated.updatedAt).toEqual(editedAt);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("serves the edited values on the next read, with no stale copy (AC5)", async () => {

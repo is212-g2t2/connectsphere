@@ -6,6 +6,9 @@ import {
   ATTENDANCE_MAX,
   ATTENDANCE_MAX_MESSAGE,
   ATTENDANCE_MESSAGE,
+  CLARIFICATION_BODY_MESSAGE,
+  CLARIFICATION_BODY_REQUIRED,
+  CLARIFICATION_TEXT_MAX,
   DESCRIPTION_MAX_LENGTH,
   DESCRIPTION_MESSAGE,
   END_BEFORE_START_MESSAGE,
@@ -36,6 +39,7 @@ import {
   VENUE_REQUIREMENTS_MESSAGE,
   missingRequiredFields,
   missingFieldsMessage,
+  parseClarificationBody,
   parseDraftInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
@@ -708,6 +712,32 @@ describe("missingFieldsMessage", () => {
   it("lists the missing fields in submission order", () => {
     expect(missingFieldsMessage(["Event name", "Purpose"])).toBe(
       "This request is missing: Event name, Purpose"
+    );
+  });
+});
+
+describe("parseClarificationBody", () => {
+  it("returns the trimmed body with its request id", () => {
+    expect(parseClarificationBody({ id: 7, body: "  Need more info  " })).toEqual({
+      id: 7,
+      body: "Need more info",
+      permittedFields: [],
+    });
+  });
+
+  it.each(["", " ", "\n\t"])("refuses the blank body %j", body => {
+    expect(() => parseClarificationBody({ id: 7, body })).toThrow(CLARIFICATION_BODY_REQUIRED);
+  });
+
+  it("refuses a body over the stored limit", () => {
+    expect(() =>
+      parseClarificationBody({ id: 7, body: "a".repeat(CLARIFICATION_TEXT_MAX + 1) })
+    ).toThrow(CLARIFICATION_BODY_MESSAGE);
+  });
+
+  it("refuses an id that is not a positive whole number", () => {
+    expect(() => parseClarificationBody({ id: 0, body: "Need more info" })).toThrow(
+      EVENT_REQUEST_ID_MESSAGE
     );
   });
 });

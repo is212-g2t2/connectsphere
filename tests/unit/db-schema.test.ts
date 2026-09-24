@@ -16,6 +16,7 @@ import {
   accountRelations,
   venues,
   venueUnavailability,
+  venueRequests,
   eventRequests,
 } from "#/db/schema";
 
@@ -47,6 +48,21 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(eventRequests).registrationClosesAt.name).toBe("registration_closes_at");
   });
 
+  it("defines the venue request columns (PTR-31)", () => {
+    expect(getTableColumns(venueRequests).venueId.name).toBe("venue_id");
+    expect(getTableColumns(venueRequests).requestedById.name).toBe("requested_by_id");
+    // Nullable with `set null`, matching `assignedCoordinatorId`: deleting a staff account must
+    // not delete the requests they raised.
+    expect(getTableColumns(venueRequests).requestedById.notNull).toBe(false);
+    expect(getTableColumns(venueRequests).startsAt.name).toBe("starts_at");
+    expect(getTableColumns(venueRequests).endsAt.name).toBe("ends_at");
+    expect(getTableColumns(venueRequests).createdAt.name).toBe("created_at");
+  });
+
+  it("keeps the venue request status list identical to the Postgres enum (PTR-31, PTR-36)", () => {
+    expect([...schema.venueRequestStatus.enumValues]).toEqual(["pending", "withdrawn", "approved"]);
+  });
+
   it("defines the event request assignment columns (PTR-15)", () => {
     expect(getTableColumns(eventRequests).assignedCoordinatorId.name).toBe(
       "assigned_coordinator_id"
@@ -56,6 +72,17 @@ describe("Database Schema Definitions", () => {
 
   it("defines the event request submission column (PTR-13)", () => {
     expect(getTableColumns(eventRequests).submittedAt.name).toBe("submitted_at");
+  });
+
+  it("defines the recorded decision columns (PTR-20)", () => {
+    expect(getTableColumns(eventRequests).decisionReason.name).toBe("decision_reason");
+    expect(getTableColumns(eventRequests).decidedByCoordinatorId.name).toBe(
+      "decided_by_coordinator_id"
+    );
+    expect(getTableColumns(eventRequests).decidedByCoordinatorName.name).toBe(
+      "decided_by_coordinator_name"
+    );
+    expect(getTableColumns(eventRequests).decidedAt.name).toBe("decided_at");
   });
 
   it("defines relations between user, session, and account", () => {

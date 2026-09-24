@@ -124,9 +124,9 @@ export interface AvailabilityProjection {
  * `[start, end)` extents, not permission to create adjacent bookings — buffers belong to booking
  * policy, which no story owns yet.
  *
- * `bookings` is the seam an approved booking arrives through: PTR-31/PTR-33 own booking
- * persistence, so today every caller passes an empty list and only `blocks` are live. The empty
- * list is deliberate and marked at the call site (`records.server.ts`); it is not a fallback.
+ * `bookings` carries the approved bookings `loadVenueBookings` reads (PTR-36); `blocks` are the
+ * recorded unavailability. Both are positive-duration `[start, end)` extents, never permission
+ * to create adjacent bookings.
  */
 export function projectAvailability(
   range: AvailabilityPeriod,

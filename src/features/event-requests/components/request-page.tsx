@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router";
 
 import { Page, PageHeader } from "#/components/layout/page";
 import { Card, CardContent } from "#/components/ui/card";
-import { unwrapRefusal } from "#/features/auth/session";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import { SUBMITTED_EDIT_REFUSAL } from "#/features/event-requests/schema";
 import { saveEventRequestDraft, submitEventRequest } from "#/features/event-requests/server-fns";
@@ -20,8 +19,11 @@ const SUBMIT_FAILED = "Could not submit this request. Try again.";
  * carries an id across saves within this sitting, and starts undefined here since no save has
  * happened yet — without the fallback, the first save after reopening would insert a second row
  * instead of updating the one that was loaded.
+ *
+ * Exported for `EventRequestDetailPage`, whose reply form seeds the same shape; a request detail
+ * carries every draft field plus its relations, so the row is assignable as-is.
  */
-function toDraftValues(row: EventRequestDraft): EventRequestDraftValues {
+export function toDraftValues(row: EventRequestDraft): EventRequestDraftValues {
   return {
     ...row,
     expectedAttendance: row.expectedAttendance ?? undefined,
@@ -32,18 +34,15 @@ function toDraftValues(row: EventRequestDraft): EventRequestDraftValues {
 }
 export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequestDraft } = {}) {
   const [draft, saveDraft, saving] = useMutation<EventRequestDraftValues, EventRequestDraft>(
-    async (values, previous) =>
-      unwrapRefusal(
-        await saveEventRequestDraft({
-          data: { ...values, id: previous?.id ?? existingDraft?.id },
-        }),
-        SAVE_FAILED
-      ),
+    (values, previous) =>
+      saveEventRequestDraft({
+        data: { ...values, id: previous?.id ?? existingDraft?.id },
+      }),
     SAVE_FAILED
   );
 
   const [submission, submitDraft, submitting] = useMutation<number, EventRequestDraft>(
-    async id => unwrapRefusal(await submitEventRequest({ data: { id } }), SUBMIT_FAILED),
+    id => submitEventRequest({ data: { id } }),
     SUBMIT_FAILED
   );
 
@@ -94,7 +93,10 @@ export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequ
           )}
 
           <div className="mt-10">
+            {/* The draft is fixed for this mount: the form derives `isDefaultValue` from the values
+                it started with, so a save's reload must not reseed them underneath it. */}
             <EventRequestForm
+              key={existingDraft?.id ?? "new"}
               initialValues={existingDraft ? toDraftValues(existingDraft) : undefined}
               onSave={async values => {
                 const { error } = await saveDraft(values);

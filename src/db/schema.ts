@@ -14,18 +14,37 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import type {
+  ClarificationAmendment,
+  ClarificationField,
+  EventRequestDraftValues,
+} from "#/features/event-requests/schema";
 import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 
 import { user } from "./auth-schema";
 
 /**
- * Only the statuses the stories have built, so a typo'd value cannot reach the column
- * (PTR-9 criterion 2). `submitted` arrives with PTR-13; the rest of PTR-21's set (under review,
- * approved, …) arrives with the stories that move a request into them. Widening this is a
- * generated `ALTER TYPE` migration, matching how the role/function matrix grows a row at a time.
+ * The full defined set (PTR-21): the one place an event's stage is recorded. Only a user's status
+ * action writes it — a venue or equipment arrangement changing never moves an event by itself —
+ * and every decision keeps who and when (the `event_requests_decision_matches_status` CHECK). The
+ * client restates the set in `src/features/event-requests/schema.ts`, held identical by
+ * `tests/unit/db-schema.test.ts`; widening it is a generated `ALTER TYPE` migration.
  */
-export const eventRequestStatus = pgEnum("event_request_status", ["draft", "submitted"]);
+export const eventRequestStatus = pgEnum("event_request_status", [
+  "draft",
+  "submitted",
+  "under_review",
+  "approved",
+  "rejected",
+  "awaiting_organiser",
+  // PTR-21 criterion 1: the rest of the defined set, added once so PTR-24 (confirmed), PTR-25
+  // (completed) and PTR-54 (cancelled) write into an enum that already holds their value.
+  // `planning` is the stage between approval and confirmation the brief names (§5 steps 6–9).
+  "planning",
+  "confirmed",
+  "completed",
+  "cancelled",
+]);
 
 export const eventRequests = pgTable(
   "event_requests",
@@ -53,6 +72,11 @@ export const eventRequests = pgTable(
       onDelete: "set null",
     }),
     assignedAt: timestamp("assigned_at", { withTimezone: true }),
+    /** PTR-20: immutable decision attribution retained after the request leaves review. */
+    decisionReason: text("decision_reason"),
+    decidedByCoordinatorId: text("decided_by_coordinator_id"),
+    decidedByCoordinatorName: text("decided_by_coordinator_name"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
     eventName: text("event_name").notNull().default(""),
     purpose: text("purpose").notNull().default(""),
     /**
@@ -110,6 +134,18 @@ export const eventRequests = pgTable(
       "event_requests_draft_has_no_coordinator",
       sql`${table.status} <> 'draft' or ${table.assignedCoordinatorId} is null`
     ),
+    // Decision attribution is required from the moment a request is approved or rejected and is
+    // kept through every later stage (planning, confirmed, completed); it must be absent before a
+    // decision exists. A cancellation can happen on either side of the decision (PTR-54), so
+    // `cancelled` accepts the attribution complete or wholly absent, never half-written.
+    check(
+      "event_requests_decision_matches_status",
+      sql`(${table.status}::text in ('approved', 'rejected', 'planning', 'confirmed', 'completed') and ${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.status}::text in ('draft', 'submitted', 'under_review', 'awaiting_organiser') and ${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null) or (${table.status}::text = 'cancelled' and ((${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null)))`
+    ),
+    check(
+      "event_requests_rejection_has_reason",
+      sql`${table.status}::text <> 'rejected' or (${table.decisionReason} is not null and btrim(${table.decisionReason}) <> '')`
+    ),
     // Criterion 2/5, held for whichever path writes the row: terms exist exactly when enabled.
     check(
       "event_requests_registration_terms_match_enabled",
@@ -141,6 +177,47 @@ export const eventAssignments = pgTable("event_assignments", {
   actorId: text("actor_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * PTR-18: clarification requests raised by the assigned Coordinator. User ids are snapshots so
+ * account deletion keeps attribution. The question body is immutable once recorded — the
+ * Coordinator must raise a new one to add to it — while the reply columns are written once when
+ * the Organiser answers.
+ */
+export const clarificationRequests = pgTable(
+  "clarification_requests",
+  {
+    id: serial("id").primaryKey(),
+    eventRequestId: integer("event_request_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    /** Snapshot of the Coordinator who raised the clarification. */
+    coordinatorId: text("coordinator_id").notNull(),
+    body: text("body").notNull(),
+    permittedFields: text("permitted_fields")
+      .array()
+      .$type<ClarificationField[]>()
+      .notNull()
+      .default([]),
+    replyBody: text("reply_body"),
+    repliedByOrganiserId: text("replied_by_organiser_id"),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    /**
+     * PTR-19: what the reply changed on the request, as `{field, from, to}` entries, so both detail
+     * pages can show the amendment beside the reply. Empty when the reply answered without
+     * amending anything. `jsonb` keeps the before/after values exactly as the request stored them.
+     */
+    amendments: jsonb("amendments").$type<ClarificationAmendment[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    index("clarification_requests_event_request_id_idx").on(table.eventRequestId),
+    check(
+      "clarification_requests_reply_complete",
+      sql`(${table.replyBody} is null and ${table.repliedByOrganiserId} is null and ${table.repliedAt} is null) or (${table.replyBody} is not null and btrim(${table.replyBody}) <> '' and ${table.repliedByOrganiserId} is not null and ${table.repliedAt} is not null)`
+    ),
+  ]
+);
 
 export const venues = pgTable(
   "venues",
@@ -201,9 +278,16 @@ export * from "./auth-schema";
 /**
  * PTR-8: the statuses an event's child records can hold. Same rule as `eventRequestStatus`
  * above — only what a story writes today — so widening one is a generated `ALTER TYPE`
- * migration when PTR-31/39/44 start moving it.
+ * migration when PTR-34/37/39/44 start moving it. PTR-31 added `withdrawn`: a request the
+ * Coordinator took back is kept rather than deleted, so the record of it survives. PTR-36
+ * added `approved`: an approved request is the booking that holds the venue, and the exclusion
+ * constraint in migration 0019 is label-based, not order-based.
  */
-export const venueRequestStatus = pgEnum("venue_request_status", ["pending"]);
+export const venueRequestStatus = pgEnum("venue_request_status", [
+  "pending",
+  "withdrawn",
+  "approved",
+]);
 
 export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status", [
   "requested",
@@ -216,7 +300,11 @@ export const eventRegistrationStatus = pgEnum("event_registration_status", ["reg
  * PTR-8: until the event record arrives (PTR-21/24), the submitted event request *is* the event,
  * so every child below references `event_requests.id` rather than a parallel events table.
  * `venue_requests` and `equipment_requests` are the requests directed at Venue Staff and
- * Technical Support (PTR-8 criterion 3); their owning stories (PTR-31/39) widen the columns.
+ * Technical Support (PTR-8 criterion 3); PTR-31 filled the venue request's own columns.
+ *
+ * PTR-36: no two `approved` rows may overlap for one venue. The guarantee is the partial
+ * exclusion constraint in migration `0019_booking-overlap-constraint`, which Drizzle cannot
+ * express here and never drops; see docs/adrs/ADR-5-venue-booking-overlap.md.
  */
 export const venueRequests = pgTable(
   "venue_requests",
@@ -225,10 +313,53 @@ export const venueRequests = pgTable(
     eventId: integer("event_id")
       .notNull()
       .references(() => eventRequests.id, { onDelete: "cascade" }),
+    /**
+     * PTR-31 criterion 1: the venue the Coordinator chose. Deleting a venue is not a story yet,
+     * so the default `no action` is the safe side of that decision.
+     */
+    venueId: integer("venue_id")
+      .notNull()
+      .references(() => venues.id),
+    /**
+     * PTR-31 criterion 1: the requested window, in the `mode: "string"` shape
+     * `venueUnavailability` already uses, so the `datetime-local` spelling survives the round
+     * trip and the CHECK below compares fixed-width strings as times. What the Coordinator
+     * submits is a civil date plus a start and end time, combined into one pair here.
+     */
+    startsAt: timestamp("starts_at", { mode: "string" }).notNull(),
+    endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
+    /**
+     * Who is working the request. Null on creation (PTR-31): the queue is shared, so a request
+     * is not routed to a person — the approval records the Venue Staff member who settled it (PTR-36).
+     */
     assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
+    /**
+     * PTR-31 criterion 5: the Coordinator who raised the request, snapshotted at creation. Withdraw
+     * authorizes on this rather than the event's current assignee, so reassigning an event does not
+     * hand another Coordinator the power to take back a request they never raised. `set null` rather
+     * than cascade, matching `assignedCoordinatorId`: deleting a staff account must not delete the
+     * requests they raised, including approved bookings that will hold the venue — the row stays and
+     * becomes unattributable, and null reads as "not the raiser" in the withdrawal check.
+     */
+    requestedById: text("requested_by_id").references(() => user.id, { onDelete: "set null" }),
     status: venueRequestStatus("status").default("pending").notNull(),
+    /** When the Coordinator raised it — the queue's first-come-first-served order (PTR-32). */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Mirrors `venues`/`eventRequests`: the row's `status` is mutable (withdrawal), so it records
+    // when it last changed.
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date()),
   },
   table => [
+    // Criterion 1: a request that ends before it starts is not a request.
+    check("venue_requests_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
+    // Criterion 1 again: a double-submit cannot leave two live requests for one venue on one
+    // event. Partial, so withdrawing frees the pair to be requested again.
+    uniqueIndex("venue_requests_pending_event_venue_idx")
+      .on(table.eventId, table.venueId)
+      .where(sql`${table.status} = 'pending'`),
     // Both directions are looked up per request: the caller's assignments, and the requests of
     // the events a caller can already see.
     index("venue_requests_event_id_idx").on(table.eventId),

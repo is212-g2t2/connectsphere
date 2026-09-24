@@ -1,14 +1,21 @@
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import { equipmentRequests, eventRegistrations, eventRequests, venueRequests } from "#/db/schema";
 import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { getEventAccess, isRegistrationWindowOpen, projectEvent } from "#/features/events/access";
+import {
+  getEventAccess,
+  isRegistrationWindowOpen,
+  isVenueQueueRow,
+  projectEvent,
+} from "#/features/events/access";
 import type { EventProjection } from "#/features/events/access";
 import { parseEventListInput } from "#/features/events/schema";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -22,6 +29,42 @@ import { parseEventListInput } from "#/features/events/schema";
 
 type Database = typeof Db;
 
+/**
+ * The caller's own event request, read through the gate both venue callers apply: the event must
+ * be assigned to the Coordinator asking and stand at one of the statuses the caller works in —
+ * `submitted` alone for raising a venue request (PTR-31), the wider set an assigned Coordinator
+ * searches from (PTR-30). Two application callers reach it — the venue search that prefills the
+ * request form and the request create handler — so it lives here with the event reads. `null` is
+ * the refusal both callers turn into `AuthorizationError("Forbidden")`.
+ */
+export async function loadAssignedEvent(
+  database: Pick<Database, "select">,
+  eventId: number,
+  coordinatorId: string,
+  statuses: readonly EventRequestStatus[]
+) {
+  const rows = await database
+    .select({
+      id: eventRequests.id,
+      name: eventRequests.eventName,
+      proposedDates: eventRequests.proposedDates,
+      expectedAttendance: eventRequests.expectedAttendance,
+      roomLayoutPreference: eventRequests.roomLayoutPreference,
+      accessibilityRequirements: eventRequests.accessibilityRequirements,
+      venueRequirements: eventRequests.venueRequirements,
+    })
+    .from(eventRequests)
+    .where(
+      and(
+        eq(eventRequests.id, eventId),
+        inArray(eventRequests.status, [...statuses]),
+        eq(eventRequests.assignedCoordinatorId, coordinatorId)
+      )
+    )
+    .limit(1);
+  return rows.at(0) ?? null;
+}
+
 export async function handleListEvents(
   data: unknown,
   user: SessionUser,
@@ -32,33 +75,40 @@ export async function handleListEvents(
   const now = new Date();
 
   // The event is the event request (PTR-21/24's event record replaces this). Each role reaches
-  // only the rows its relationship names, filtered in SQL, and a draft is not yet an event for
-  // anyone. Attendees are narrowed to registration-enabled requests here; the window is compared
-  // in `isRegistrationWindowOpen`, which needs the stored local strings.
-  const submitted = eq(eventRequests.status, "submitted");
+  // only the rows its relationship names, filtered in SQL: the four internal roles see every
+  // non-draft status, while browsing attendees are gated on `submitted` as the stand-in for
+  // PTR-44's `confirmed` (PTR-8), and an existing registration keeps a non-draft event visible.
+  const visible = ne(eventRequests.status, "draft");
+  const attendeeVisible = eq(eventRequests.status, "submitted");
   let relationship: SQL | undefined;
   switch (role) {
     case "event_organiser":
-      relationship = and(submitted, eq(eventRequests.organiserId, user.id));
+      relationship = and(visible, eq(eventRequests.organiserId, user.id));
       break;
     case "event_coordinator":
-      relationship = and(submitted, eq(eventRequests.assignedCoordinatorId, user.id));
+      relationship = and(visible, eq(eventRequests.assignedCoordinatorId, user.id));
       break;
     case "venue_staff":
+      // PTR-31: an unassigned `pending` row is the shared queue, so it connects every Venue Staff member to the event; an assigned row connects only the staff it names. `isVenueQueueRow` in `access.ts` states the same rule for the in-memory readers below.
       relationship = and(
-        submitted,
+        visible,
         inArray(
           eventRequests.id,
           database
             .select({ id: venueRequests.eventId })
             .from(venueRequests)
-            .where(eq(venueRequests.assignedStaffId, user.id))
+            .where(
+              or(
+                eq(venueRequests.assignedStaffId, user.id),
+                and(eq(venueRequests.status, "pending"), isNull(venueRequests.assignedStaffId))
+              )
+            )
         )
       );
       break;
     case "technical_support_staff":
       relationship = and(
-        submitted,
+        visible,
         inArray(
           eventRequests.id,
           database
@@ -69,10 +119,10 @@ export async function handleListEvents(
       );
       break;
     case "attendee":
-      relationship = and(
-        submitted,
-        or(
-          eq(eventRequests.registrationEnabled, true),
+      relationship = or(
+        and(attendeeVisible, eq(eventRequests.registrationEnabled, true)),
+        and(
+          visible,
           inArray(
             eventRequests.id,
             database
@@ -129,16 +179,52 @@ export async function handleListEvents(
       ),
   ]);
 
+  // PTR-36 criterion 4: which pending requests overlap an approved booking for the same venue.
+  // A self-join rather than a per-request read, and deliberately not scoped to `venueRows`: the
+  // approved booking can belong to an event the caller cannot see. Only a boolean reaches the
+  // client, never the other event.
+  const pendingRows = venueRows.filter(row => row.status === "pending");
+  let conflictingRequestIds = new Set<string>();
+  if (pendingRows.length > 0) {
+    const approved = alias(venueRequests, "approved_booking");
+    const conflicts = await database
+      .select({ id: venueRequests.id })
+      .from(venueRequests)
+      .innerJoin(
+        approved,
+        and(
+          eq(approved.venueId, venueRequests.venueId),
+          eq(approved.status, "approved"),
+          lt(venueRequests.startsAt, approved.endsAt),
+          gt(venueRequests.endsAt, approved.startsAt)
+        )
+      )
+      .where(
+        and(
+          inArray(
+            venueRequests.id,
+            pendingRows.map(row => row.id)
+          ),
+          // The id list was captured in an earlier statement; a row approved since then would
+          // otherwise self-join (a period always overlaps itself) and flag as conflicting.
+          eq(venueRequests.status, "pending")
+        )
+      );
+    conflictingRequestIds = new Set(conflicts.map(row => row.id));
+  }
+
   return requestRows.flatMap(record => {
     const ownRegistration = registrationRows.find(row => row.eventId === record.id) ?? null;
 
+    // The shared queue, in memory: a Venue Staff member works their own rows plus every unassigned `pending` one. `isVenueQueueRow` is the rule; the relationship's SQL states it too.
     const access = getEventAccess({
       role,
       userId: user.id,
       organiserId: record.organiserId,
       assignedCoordinatorId: record.assignedCoordinatorId,
+      // Only the caller's id can satisfy the access check, so a queue row contributes exactly that.
       venueStaffIds: venueRows.flatMap(row =>
-        row.eventId === record.id && row.assignedStaffId ? [row.assignedStaffId] : []
+        row.eventId === record.id && isVenueQueueRow(row, user.id) ? [user.id] : []
       ),
       technicalSupportIds: equipmentRows.flatMap(row =>
         row.eventId === record.id && row.assignedStaffId ? [row.assignedStaffId] : []
@@ -159,11 +245,14 @@ export async function handleListEvents(
         arrangementStatus: row.arrangementStatus,
         notes: row.notes,
       }));
+    // PTR-31 criterion 5: a withdrawn request leaves the card, so only a pending row is reported; no fallback to an older withdrawn request — an event with none shows no venue request. A Venue Staff caller sees only the rows the queue rule grants them.
     const venueRequest =
-      access === "venue_staff"
-        ? (venueRows.find(row => row.eventId === record.id && row.assignedStaffId === user.id) ??
-          null)
-        : (venueRows.find(row => row.eventId === record.id) ?? null);
+      venueRows.find(
+        row =>
+          row.eventId === record.id &&
+          row.status === "pending" &&
+          (access !== "venue_staff" || isVenueQueueRow(row, user.id))
+      ) ?? null;
 
     return [
       projectEvent(
@@ -178,7 +267,12 @@ export async function handleListEvents(
             }
           : null,
         equipment,
-        venueRequest ? { status: venueRequest.status } : null
+        venueRequest
+          ? {
+              status: venueRequest.status,
+              ...(conflictingRequestIds.has(venueRequest.id) ? { conflict: true } : {}),
+            }
+          : null
       ),
     ];
   });

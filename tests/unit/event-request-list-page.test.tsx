@@ -3,13 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
+import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import {
   ASSIGNED_ON_SUBMIT,
   EventRequestListPage,
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
 } from "#/features/event-requests/components/request-list-page";
-import type { EventRequestSummary } from "#/features/event-requests/server-fns";
+import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 
 const { deleteEventRequestDraft, invalidate } = vi.hoisted(() => ({
   deleteEventRequestDraft: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
@@ -41,14 +42,19 @@ vi.mock("@tanstack/react-router", () => ({
   }),
 }));
 
-const base: EventRequestSummary = {
+const base: EventRequestDetail = {
   id: 1,
   organiserId: "usr_1",
   status: "draft",
   submittedAt: null,
   assignedCoordinatorId: null,
   assignedAt: null,
+  decisionReason: null,
+  decidedByCoordinatorId: null,
+  decidedByCoordinatorName: null,
+  decidedAt: null,
   coordinator: null,
+  clarifications: [],
   eventName: "",
   purpose: "",
   proposedDates: [],
@@ -68,14 +74,14 @@ const base: EventRequestSummary = {
   updatedAt: new Date("2026-09-01T00:00:00Z"),
 };
 
-const draft: EventRequestSummary = {
+const draft: EventRequestDetail = {
   ...base,
   id: 41,
   eventName: "Community workshop",
   proposedDates: [{ start: "2030-11-18T09:30", end: "2030-11-18T12:45" }],
 };
 
-const submitted: EventRequestSummary = {
+const submitted: EventRequestDetail = {
   ...base,
   id: 42,
   status: "submitted",
@@ -246,5 +252,73 @@ describe("EventRequestDetailPage (PTR-14 AC4)", () => {
     expect(screen.getAllByText("None recorded").length).toBeGreaterThanOrEqual(8);
     expect(screen.getByText("Not required")).toBeTruthy();
     expect(screen.getByText(ASSIGNED_ON_SUBMIT)).toBeTruthy();
+  });
+
+  it("shows a recorded decision, reason, Coordinator and time (PTR-20 AC3)", () => {
+    render(
+      <EventRequestDetailPage
+        request={{
+          ...submitted,
+          status: "rejected",
+          decisionReason: "The requested room is unavailable.",
+          decidedByCoordinatorId: "seed-coordinator-1",
+          decidedByCoordinatorName: "Seeded Event Coordinator",
+          decidedAt: new Date("2026-09-16T03:30:00Z"),
+        }}
+      />
+    );
+
+    const decisionCard = screen
+      .getByRole("heading", { name: "Recorded decision" })
+      .closest('[data-slot="card"]');
+    expect(decisionCard).toBeTruthy();
+    const decision = within(decisionCard as HTMLElement);
+    expect(decision.getByText("Rejected")).toBeTruthy();
+    expect(decision.getByText("The requested room is unavailable.")).toBeTruthy();
+    expect(decision.getByText("Seeded Event Coordinator")).toBeTruthy();
+    expect(decision.getByText("16 Sept 2026, 11:30").tagName).toBe("TIME");
+  });
+});
+
+describe("EventRequestDetailPage stages (PTR-21 AC2)", () => {
+  const decided = {
+    decidedByCoordinatorId: "seed-coordinator-1",
+    decidedByCoordinatorName: "Seeded Event Coordinator",
+    decidedAt: new Date("2026-09-16T03:30:00Z"),
+  };
+
+  it.each([
+    ["planning", "Approved and being planned."],
+    ["confirmed", "Confirmed and going ahead."],
+    ["completed", "The event has taken place."],
+  ] as const)("describes %s as a decided stage with its decision shown", (status, note) => {
+    render(<EventRequestDetailPage request={{ ...submitted, status, ...decided }} />);
+    expect(screen.getByLabelText(`Status: ${EVENT_REQUEST_STATUS_LABELS[status]}`)).toBeTruthy();
+    expect(screen.getByText(/Decision recorded on/).textContent).toContain(note);
+    const card = within(
+      screen
+        .getByRole("heading", { name: "Recorded decision" })
+        .closest("[data-slot='card']") as HTMLElement
+    );
+    expect(card.getByText("Approved")).toBeTruthy();
+    expect(card.getByText("Seeded Event Coordinator")).toBeTruthy();
+  });
+
+  it("describes a cancellation before any decision as submitted and cancelled, with no decision card", () => {
+    render(<EventRequestDetailPage request={{ ...submitted, status: "cancelled" }} />);
+    expect(screen.getByText(/Submitted on/).textContent).toContain("Cancelled.");
+    expect(screen.queryByRole("heading", { name: "Recorded decision" })).toBeNull();
+  });
+
+  it("keeps the decision on a cancellation made after one, without calling the cancellation the decision", () => {
+    render(<EventRequestDetailPage request={{ ...submitted, status: "cancelled", ...decided }} />);
+    expect(screen.getByText(/Decision recorded on/).textContent).toContain("Cancelled.");
+    const card = within(
+      screen
+        .getByRole("heading", { name: "Recorded decision" })
+        .closest("[data-slot='card']") as HTMLElement
+    );
+    expect(card.getByText("Cancelled after a recorded decision")).toBeTruthy();
+    expect(card.getByText("Seeded Event Coordinator")).toBeTruthy();
   });
 });

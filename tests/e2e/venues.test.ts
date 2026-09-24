@@ -2,18 +2,11 @@ import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { SEED_STAFF_PASSWORD } from "../../scripts/seed";
 import { waitForHydration } from "./hydration";
+import { signInWithSeedPassword as signInAsSeeded } from "./staff-auth";
 
 // Sign-up can only mint external roles, so the internal accounts these tests sign in as come
 // from the seed that `global-setup.ts` runs once before the suite.
-
-async function signInAsSeeded(page: Page, email: string): Promise<void> {
-  const response = await page.request.post("/api/auth/sign-in/email", {
-    data: { email, password: SEED_STAFF_PASSWORD },
-  });
-  expect(response.ok(), await response.text()).toBe(true);
-}
 
 async function signInAsVenueStaff(page: Page): Promise<void> {
   await signInAsSeeded(page, "venue.staff.seed@example.com");
@@ -71,7 +64,7 @@ test.describe("Venue records", () => {
     await page.goto("/dashboard");
     await waitForHydration(page);
     await page.getByRole("link", { name: "Venues", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Venues" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Venues", exact: true })).toBeVisible();
     await page.getByRole("link", { name: "New venue" }).click();
     await expect(page.getByRole("heading", { name: "New venue" })).toBeVisible();
     // Controlled inputs: typing before hydration completes is thrown away when React attaches.
@@ -114,7 +107,7 @@ test.describe("Venue records", () => {
 
     await page.goto("/venues/new");
     await expect(page).toHaveURL(/\/venues$/);
-    await expect(page.getByRole("heading", { name: "Venues" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Venues", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "New venue" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Create venue" })).toHaveCount(0);
   });

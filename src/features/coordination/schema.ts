@@ -24,3 +24,45 @@ export function parseAssignmentInput(input: unknown): AssignmentValues {
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;
 }
+
+export const DECISION_REASON_REQUIRED = "Enter a reason to reject this request";
+export const DECISION_REASON_MAX_LENGTH = 2000;
+
+function refineDecision(
+  values: { decision: "approved" | "rejected"; reason?: string },
+  context: z.RefinementCtx
+) {
+  if (values.decision === "rejected" && !values.reason) {
+    context.addIssue({
+      code: "custom",
+      path: ["reason"],
+      message: DECISION_REASON_REQUIRED,
+    });
+  }
+}
+
+const DecisionShape = z.object({
+  id: z.int32({ error: EVENT_REQUEST_ID_MESSAGE }).positive(EVENT_REQUEST_ID_MESSAGE),
+  decision: z.enum(["approved", "rejected"]),
+  reason: z
+    .string()
+    .trim()
+    .max(
+      DECISION_REASON_MAX_LENGTH,
+      `Decision reason must be ${DECISION_REASON_MAX_LENGTH} characters or fewer`
+    ),
+});
+
+const DecisionInput = DecisionShape.extend({
+  reason: DecisionShape.shape.reason.optional(),
+}).superRefine(refineDecision);
+
+export type DecisionValues = z.infer<typeof DecisionInput>;
+
+export const DecisionFormSchema = DecisionShape.omit({ id: true }).superRefine(refineDecision);
+
+export function parseDecisionInput(input: unknown): DecisionValues {
+  const parsed = DecisionInput.safeParse(input);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}

@@ -16,28 +16,17 @@ import {
   DEFAULT_OPERATING_HOURS,
   LAYOUT_LABELS,
   VENUE_LAYOUTS,
-  VenueInput,
+  VenueFormInput,
   WEEKDAY_LABELS,
   WEEKDAYS,
 } from "#/features/venues/schema";
-import type { OperatingHours, VenueLayout, VenueValues, Weekday } from "#/features/venues/schema";
-
-interface DayFormValues {
-  open: boolean;
-  opens: string;
-  closes: string;
-}
-
-/** What the inputs hold: strings and booleans, converted to `VenueValues` only on submit. */
-interface VenueFormValues {
-  name: string;
-  location: string;
-  maxCapacity: string;
-  facilities: string;
-  accessibilityFeatures: string;
-  supportedLayouts: VenueLayout[];
-  operatingHours: Record<Weekday, DayFormValues>;
-}
+import type {
+  DayFormValues,
+  OperatingHours,
+  VenueFormValues,
+  VenueValues,
+  Weekday,
+} from "#/features/venues/schema";
 
 /** The record the form starts from — a saved venue when editing, nothing when creating. */
 export type VenueFormInitial = Omit<VenueValues, "id">;
@@ -78,47 +67,6 @@ function toFormValues(initial?: VenueFormInitial): VenueFormValues {
     supportedLayouts: [...(initial?.supportedLayouts ?? [])],
     operatingHours: toFormHours(initial?.operatingHours ?? DEFAULT_OPERATING_HOURS),
   };
-}
-
-function toVenueValues(values: VenueFormValues): unknown {
-  const operatingHours: OperatingHours = mapDays(day => {
-    const { open, opens, closes } = values.operatingHours[day];
-    return open ? { opens, closes } : null;
-  });
-
-  return {
-    name: values.name,
-    location: values.location,
-    // Every unusable capacity already comes back as criterion 3's own message, so nothing needs
-    // to pre-screen the string: `""` converts to 0 and fails `.positive()`, `"12.5"` fails
-    // `.int()`, and `"12abc"` converts to NaN, which `z.number()` itself rejects.
-    maxCapacity: Number(values.maxCapacity),
-    facilities: values.facilities.split(","),
-    accessibilityFeatures: values.accessibilityFeatures.split(","),
-    supportedLayouts: values.supportedLayouts,
-    operatingHours,
-  };
-}
-
-interface VenueFormErrors {
-  fields: Record<string, { message: string }[]>;
-}
-
-function validateVenue(value: VenueFormValues): VenueFormErrors | undefined {
-  const parsed = VenueInput.safeParse(toVenueValues(value));
-  if (parsed.success) {
-    return undefined;
-  }
-
-  const fields: VenueFormErrors["fields"] = {};
-  for (const issue of parsed.error.issues) {
-    // `operatingHours.mon.closes` → the `operatingHours.mon.closes` field; list item paths such
-    // as `facilities.2` collapse onto the list input the entry came from.
-    const path = issue.path.filter(segment => typeof segment === "string").join(".");
-    (fields[path] ??= []).push({ message: issue.message });
-  }
-
-  return { fields };
 }
 
 /**
@@ -178,11 +126,11 @@ export function VenueForm({
 }) {
   const form = useForm({
     defaultValues: toFormValues(initial),
-    validators: { onSubmit: ({ value }) => validateVenue(value) },
+    validators: { onSubmit: VenueFormInput },
     onSubmit: async ({ value, formApi }) => {
       try {
         // Validation has already passed, so this parse is the typed handoff, not a second gate.
-        await onSave(VenueInput.parse(toVenueValues(value)));
+        await onSave(VenueFormInput.parse(value));
       } catch (error) {
         // `fields` is what makes the library read this as a global error and store `form` verbatim.
         formApi.setErrorMap({

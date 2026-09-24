@@ -9,6 +9,8 @@ import { eq, inArray } from "drizzle-orm";
 
 import * as schema from "../../src/db/schema";
 import { waitForHydration } from "./hydration";
+import { waitForEmail } from "./mailpit";
+import { registerAccount } from "./register";
 
 const password = "Coordinate123!";
 let pool: Pool;
@@ -23,26 +25,39 @@ test.afterAll(async () => {
 });
 
 async function register(page: Page, role: "event_organiser" | "event_coordinator", name: string) {
-  const email = `coordination-${randomUUID()}@example.invalid`;
-  const response = await page.request.post("/api/auth/sign-up/email", {
-    data: { name, email, password, role: "event_organiser" },
+  return registerAccount(database, page, { role, name, password });
+}
+
+/**
+ * Seeds a submitted request already assigned to `coordinatorId`. The organiser id is pushed onto
+ * `ids` before the request insert, so a failed insert cannot leak it.
+ */
+async function seedAssignedRequest(
+  ids: string[],
+  coordinatorId: string,
+  overrides: Partial<typeof schema.eventRequests.$inferInsert> = {}
+) {
+  const organiserId = randomUUID();
+  await database.insert(schema.user).values({
+    id: organiserId,
+    name: "Seeded Organiser",
+    email: `${organiserId}@example.invalid`,
+    role: "event_organiser",
   });
-  expect(response.ok(), await response.text()).toBe(true);
-  const [account] = await database.select().from(schema.user).where(eq(schema.user.email, email));
-  if (role === "event_coordinator") {
-    // Provision only this test's own account; self-registration cannot grant an internal role.
-    await database.update(schema.user).set({ role }).where(eq(schema.user.id, account.id));
-    const logout = await page.request.post("/api/auth/sign-out", {
-      headers: { Origin: "http://localhost:3000" },
-    });
-    expect(logout.ok(), await logout.text()).toBe(true);
-    const login = await page.request.post("/api/auth/sign-in/email", {
-      headers: { Origin: "http://localhost:3000" },
-      data: { email, password },
-    });
-    expect(login.ok(), await login.text()).toBe(true);
-  }
-  return account;
+  ids.push(organiserId);
+  const [request] = await database
+    .insert(schema.eventRequests)
+    .values({
+      organiserId,
+      eventName: `Assigned ${randomUUID()}`,
+      status: "submitted",
+      submittedAt: new Date(),
+      assignedCoordinatorId: coordinatorId,
+      assignedAt: new Date(),
+      ...overrides,
+    })
+    .returning();
+  return request;
 }
 
 test("redirects unauthenticated visitors from the coordination detail", async ({ page }) => {
@@ -170,6 +185,396 @@ test("picks up unassigned events for yourself or a named Coordinator", async ({
       expect(audit.actorId).toBe(actor.id);
       expect(audit.fromCoordinatorId).toBeNull();
     }
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await otherContext.close();
+  }
+});
+test("lists a submitted request assigned to the Coordinator", async ({ page }) => {
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "List Coordinator");
+    ids.push(coordinator.id);
+    const request = await seedAssignedRequest(ids, coordinator.id, {
+      eventName: `Assigned List ${randomUUID()}`,
+    });
+
+    await page.goto("/coordination");
+    await expect(page.getByRole("heading", { name: "Assigned to you" })).toBeVisible();
+    await expect(page.getByRole("link", { name: request.eventName })).toBeVisible();
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+  }
+});
+
+function fieldValue(page: Page, term: string) {
+  return page.locator("dt", { hasText: term }).locator("xpath=following-sibling::dd[1]");
+}
+
+test("Organiser amends the concerned fields, replies, and notifies the Coordinator", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const organiserContext = await browser.newContext({ baseURL });
+  const organiserPage = await organiserContext.newPage();
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Reply Coordinator");
+    ids.push(coordinator.id);
+    const organiser = await register(organiserPage, "event_organiser", "Reply Organiser");
+    ids.push(organiser.id);
+    const eventName = `Clarification reply ${randomUUID()}`;
+    const date = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const [request] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: organiser.id,
+        assignedCoordinatorId: coordinator.id,
+        assignedAt: new Date(),
+        submittedAt: new Date(),
+        status: "under_review",
+        eventName,
+        purpose: "Community workshop",
+        expectedAttendance: 100,
+        roomLayoutPreference: "Theatre",
+        proposedDates: [{ start: `${date}T09:00`, end: `${date}T17:00` }],
+      })
+      .returning();
+    const question = "Please confirm attendance and the room layout.";
+    const reply = "We expect 120 guests.\nPlease use a Classroom layout.";
+
+    await page.goto(`/coordination/${request.id}`);
+    await waitForHydration(page);
+    await page.getByLabel("What needs clarification").fill(question);
+    await page.getByRole("checkbox", { name: "Expected attendance", exact: true }).check();
+    await page.getByRole("checkbox", { name: "Room-layout preference", exact: true }).check();
+    await page.getByRole("button", { name: "Send clarification request" }).click();
+    await expect(page.getByText(question, { exact: true })).toBeVisible();
+    await expect(page.getByText("Awaiting organiser", { exact: true })).toBeVisible();
+
+    await organiserPage.goto(`/event-requests/${request.id}`);
+    await waitForHydration(organiserPage);
+    await expect(organiserPage.getByLabel("Event name (required)")).toBeDisabled();
+    await expect(organiserPage.getByLabel("Purpose (required)")).toBeDisabled();
+    await organiserPage.getByLabel("Expected attendance (required)").fill("120");
+    await organiserPage.getByLabel("Room-layout preference (optional)").fill("Classroom");
+    await organiserPage.getByLabel("Your reply").fill(reply);
+    await organiserPage.getByRole("button", { name: "Send reply", exact: true }).click();
+    await expect(organiserPage.getByText("Under review", { exact: true })).toBeVisible();
+    await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();
+    await expect(organiserPage.getByRole("button", { name: "Send reply" })).toHaveCount(0);
+    await expect(fieldValue(organiserPage, "Expected attendance")).toHaveText("120");
+    // PTR-19: the reply records what changed, with the before and after the Coordinator can read.
+    await expect(organiserPage.getByText("Expected attendance: 100 → 120")).toBeVisible();
+    await expect(
+      organiserPage.getByText("Room-layout preference: Theatre → Classroom")
+    ).toBeVisible();
+
+    const email = await waitForEmail(coordinator.email, `Clarification replied: ${eventName}`);
+    expect(email).toContain(question);
+    expect(email).toContain("We expect 120 guests.");
+    expect(email).toContain(`/coordination/${request.id}`);
+    await page.reload();
+    await expect(page.getByText(question, { exact: true })).toBeVisible();
+    await expect(page.getByText(reply, { exact: true })).toBeVisible();
+    await expect(fieldValue(page, "Room-layout preference")).toHaveText("Classroom");
+    await expect(page.getByRole("button", { name: "Send reply", exact: true })).toHaveCount(0);
+    await organiserPage.reload();
+    await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await organiserContext.close();
+  }
+});
+
+test("a reply to a second question never reverts the first reply's amendment", async ({
+  browser,
+  baseURL,
+}) => {
+  const organiserContext = await browser.newContext({ baseURL });
+  const organiserPage = await organiserContext.newPage();
+  const ids: string[] = [];
+  try {
+    const coordinatorId = randomUUID();
+    await database.insert(schema.user).values({
+      id: coordinatorId,
+      name: "Two Question Coordinator",
+      email: `${coordinatorId}@example.invalid`,
+      role: "event_coordinator",
+    });
+    ids.push(coordinatorId);
+    const organiser = await register(organiserPage, "event_organiser", "Two Question Organiser");
+    ids.push(organiser.id);
+    const eventName = `Two questions ${randomUUID()}`;
+    const date = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const [request] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: organiser.id,
+        assignedCoordinatorId: coordinatorId,
+        assignedAt: new Date(),
+        submittedAt: new Date(),
+        status: "awaiting_organiser",
+        eventName,
+        purpose: "Community workshop",
+        expectedAttendance: 100,
+        proposedDates: [{ start: `${date}T09:00`, end: `${date}T17:00` }],
+      })
+      .returning();
+    // Both questions permit the attendance, so one page load renders two reply forms from the
+    // same 100 snapshot. Distinct timestamps pin the order the loader reads them back in.
+    const clarifications = await database
+      .insert(schema.clarificationRequests)
+      .values([
+        {
+          eventRequestId: request.id,
+          coordinatorId,
+          body: "How many guests?",
+          permittedFields: ["expectedAttendance"],
+          createdAt: new Date("2026-09-22T01:00:00Z"),
+        },
+        {
+          eventRequestId: request.id,
+          coordinatorId,
+          body: "Confirm the guest count.",
+          permittedFields: ["expectedAttendance"],
+          createdAt: new Date("2026-09-22T02:00:00Z"),
+        },
+      ])
+      .returning();
+    const [firstQuestion, secondQuestion] = clarifications;
+    if (!firstQuestion || !secondQuestion) throw new Error("Expected two clarifications");
+
+    await organiserPage.goto(`/event-requests/${request.id}`);
+    await waitForHydration(organiserPage);
+    await expect(organiserPage.getByLabel("Your reply")).toHaveCount(2);
+
+    await organiserPage
+      .locator(`#clarification-${firstQuestion.id}-expectedAttendance`)
+      .fill("120");
+    await organiserPage
+      .locator(`#clarification-${firstQuestion.id}-replyBody`)
+      .fill("We now expect 120 guests.");
+    await organiserPage.getByRole("button", { name: "Send reply", exact: true }).first().click();
+
+    // The surviving form picks up the amendment from the reloaded request, not its 100 snapshot.
+    // Waiting on its value is the reload sync point; the reply text alone is not, because the text
+    // matcher reads a textarea's current value and the answered form is still mounted until then.
+    await expect(
+      organiserPage.locator(`#clarification-${secondQuestion.id}-expectedAttendance`)
+    ).toHaveValue("120");
+    await expect(organiserPage.getByLabel("Your reply")).toHaveCount(1);
+    await expect(
+      organiserPage.getByText("We now expect 120 guests.", { exact: true })
+    ).toBeVisible();
+
+    // The second reply leaves the attendance untouched, so it must not echo the stale 100 back.
+    await organiserPage
+      .locator(`#clarification-${secondQuestion.id}-replyBody`)
+      .fill("The count is unchanged.");
+    await organiserPage.getByRole("button", { name: "Send reply", exact: true }).click();
+
+    await expect(organiserPage.getByText("The count is unchanged.", { exact: true })).toBeVisible();
+    await expect(organiserPage.getByText("How many guests?", { exact: true })).toBeVisible();
+    await expect(
+      organiserPage.getByText("Confirm the guest count.", { exact: true })
+    ).toBeVisible();
+    await expect(fieldValue(organiserPage, "Expected attendance")).toHaveText("120");
+
+    const [stored] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(stored.expectedAttendance).toBe(120);
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await organiserContext.close();
+  }
+});
+
+test("shows every organiser-supplied field on an assigned request", async ({ page }) => {
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Detail Coordinator");
+    ids.push(coordinator.id);
+    const request = await seedAssignedRequest(ids, coordinator.id, {
+      eventName: `Full Detail ${randomUUID()}`,
+      purpose: "Quarterly town hall",
+      description: "All-staff briefing with Q&A",
+      eventType: "Town hall",
+      expectedAttendance: 150,
+      venueRequirements: "Auditorium with stage",
+      roomLayoutPreference: "Theatre",
+      accessibilityRequirements: "Wheelchair-accessible seating",
+      specialArrangements: "Live captioning",
+      proposedDates: [{ start: "2026-10-05T09:00", end: "2026-10-05T11:00" }],
+      equipmentRequirements: [{ type: "Projector", quantity: 2 }],
+      registrationEnabled: true,
+      registrationCapacity: 150,
+      registrationOpensAt: "2024-05-01T09:00",
+      registrationClosesAt: "2024-05-10T17:00",
+    });
+
+    await page.goto(`/coordination/${request.id}`);
+    await expect(page.getByRole("heading", { name: request.eventName })).toBeVisible();
+    await expect(fieldValue(page, "Purpose")).toHaveText("Quarterly town hall");
+    await expect(fieldValue(page, "Description")).toHaveText("All-staff briefing with Q&A");
+    await expect(fieldValue(page, "Type of event")).toHaveText("Town hall");
+    await expect(fieldValue(page, "Expected attendance")).toHaveText("150");
+    await expect(fieldValue(page, "Venue requirements")).toHaveText("Auditorium with stage");
+    await expect(fieldValue(page, "Room-layout preference")).toHaveText("Theatre");
+    await expect(fieldValue(page, "Accessibility requirements")).toHaveText(
+      "Wheelchair-accessible seating"
+    );
+    await expect(fieldValue(page, "Special arrangements")).toHaveText("Live captioning");
+    await expect(fieldValue(page, "Proposed dates and times")).toHaveText(
+      "5 Oct 2026, 09:00 – 11:00"
+    );
+    await expect(fieldValue(page, "Equipment requirements")).toHaveText("Projector × 2");
+    await expect(fieldValue(page, "Attendee registration")).toContainText("Capacity 150");
+    await expect(fieldValue(page, "Attendee registration")).toContainText(
+      "Opens 1 May 2024, 09:00, closes 10 May 2024, 17:00"
+    );
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+  }
+});
+
+test("takes an assigned request up for review", async ({ page }) => {
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Review Coordinator");
+    ids.push(coordinator.id);
+    const request = await seedAssignedRequest(ids, coordinator.id);
+
+    await page.goto(`/coordination/${request.id}`);
+    await waitForHydration(page);
+    await page.getByRole("button", { name: "Take up for review" }).click();
+    await expect(page).toHaveURL(/\/coordination\/?$/);
+    await expect(page.getByRole("link", { name: request.eventName })).toBeVisible();
+
+    const [stored] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(stored.status).toBe("under_review");
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+  }
+});
+
+test("hides the take-up-for-review action once already under review", async ({ page }) => {
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Already Reviewing Coordinator");
+    ids.push(coordinator.id);
+    const request = await seedAssignedRequest(ids, coordinator.id, {
+      eventName: `Already Reviewing ${randomUUID()}`,
+      status: "under_review",
+    });
+
+    await page.goto(`/coordination/${request.id}`);
+    await expect(page.getByRole("heading", { name: request.eventName })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Take up for review" })).toHaveCount(0);
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+  }
+});
+
+test("rejects an under-review request, records the decision and notifies the Organiser", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const organiserContext = await browser.newContext({ baseURL });
+  const organiserPage = await organiserContext.newPage();
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Decision Coordinator");
+    ids.push(coordinator.id);
+    const organiser = await register(organiserPage, "event_organiser", "Decision Organiser");
+    ids.push(organiser.id);
+    const eventName = `Decision ${randomUUID()}`;
+    const [request] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: organiser.id,
+        eventName,
+        status: "under_review",
+        submittedAt: new Date(),
+        assignedCoordinatorId: coordinator.id,
+        assignedAt: new Date(),
+      })
+      .returning();
+
+    await page.goto(`/coordination/${request.id}`);
+    await waitForHydration(page);
+    await page.getByRole("button", { name: "Reject request" }).click();
+    await expect(page.getByRole("alert")).toHaveText("Enter a reason to reject this request");
+    await page.getByLabel("Decision reason").fill("The requested venue is unavailable.");
+    await page.getByRole("button", { name: "Reject request" }).click();
+    await expect(page).toHaveURL(/\/coordination\/?$/);
+
+    const [stored] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(stored).toMatchObject({
+      status: "rejected",
+      decisionReason: "The requested venue is unavailable.",
+      decidedByCoordinatorId: coordinator.id,
+      decidedByCoordinatorName: coordinator.name,
+    });
+    expect(stored.decidedAt).toBeInstanceOf(Date);
+
+    await organiserPage.goto(`/event-requests/${request.id}`);
+    await expect(organiserPage.getByRole("heading", { name: "Recorded decision" })).toBeVisible();
+    await expect(fieldValue(organiserPage, "Decision")).toHaveText("Rejected");
+    await expect(fieldValue(organiserPage, "Reason")).toHaveText(
+      "The requested venue is unavailable."
+    );
+    await expect(fieldValue(organiserPage, "Decided by")).toHaveText(coordinator.name);
+    const decidedAt = fieldValue(organiserPage, "Decided at").locator("time");
+    await expect(decidedAt).toBeVisible();
+    await expect(decidedAt).toHaveAttribute("datetime", stored.decidedAt?.toISOString() ?? "");
+
+    const notification = await waitForEmail(organiser.email, "Your event request was rejected");
+    expect(notification).toContain(eventName);
+    expect(notification).toContain("rejected");
+    expect(notification).toContain("The requested venue is unavailable.");
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await organiserContext.close();
+  }
+});
+
+test("does not list or expose another Coordinator's assigned request", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const otherContext = await browser.newContext({ baseURL });
+  const otherPage = await otherContext.newPage();
+  const ids: string[] = [];
+  try {
+    const viewer = await register(page, "event_coordinator", "Excluded Viewer");
+    ids.push(viewer.id);
+    const owner = await register(otherPage, "event_coordinator", "Excluded Owner");
+    ids.push(owner.id);
+    const request = await seedAssignedRequest(ids, owner.id, {
+      eventName: `Owned By Other ${randomUUID()}`,
+    });
+
+    await page.goto("/coordination");
+    await expect(page.getByRole("link", { name: request.eventName })).toHaveCount(0);
+
+    await page.goto(`/coordination/${request.id}`);
+    await expect(
+      page.getByText(
+        "You no longer have coordination access to this request, or it is unavailable."
+      )
+    ).toBeVisible();
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
     await otherContext.close();
