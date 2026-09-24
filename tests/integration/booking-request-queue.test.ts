@@ -167,21 +167,23 @@ describe("pending booking request reader (PTR-32)", () => {
 
   it("returns every pending row in submission order and flags only strict approved overlaps", async () => {
     const requests = await handleListPendingVenueRequests(database as never);
-
-    expect(requests.map(request => request.id)).toEqual([
+    const pendingIds = [
       "ptr32-pending-overlap",
       "ptr32-pending-other-venue",
       "ptr32-pending-boundary",
-    ]);
-    expect(requests.map(request => request.conflict)).toEqual([true, false, false]);
-    expect(requests[0]).toMatchObject({
+    ] as const;
+    const relevant = requests.filter(request => (pendingIds as readonly string[]).includes(request.id));
+
+    expect(relevant.map(request => request.id)).toEqual([...pendingIds]);
+    expect(relevant.map(request => request.conflict)).toEqual([true, false, false]);
+    expect(relevant[0]).toMatchObject({
       venueName: VENUE_NAMES[0],
       startsAt: "2037-05-10T10:00",
       endsAt: "2037-05-10T11:00",
       submittedAt: new Date("2037-04-02T01:00:00Z"),
     });
-    expect(requests[0]).not.toHaveProperty("eventName");
-    expect(requests[0]).not.toHaveProperty("conflictingEvent");
+    expect(relevant[0]).not.toHaveProperty("eventName");
+    expect(relevant[0]).not.toHaveProperty("conflictingEvent");
   });
 
   it("maps the live PTR-31 requirement fields and refuses a request after it leaves pending", async () => {

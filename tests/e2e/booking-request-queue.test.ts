@@ -113,7 +113,9 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
     await page.goto("/venue-requests");
     await waitForHydration(page);
 
-    await expect(page.getByRole("heading", { name: "Pending booking requests" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Pending booking requests", level: 1 })
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: `Open request ${requestIds[0]}` })).toBeVisible();
     await expect(page.getByRole("button", { name: `Open request ${requestIds[1]}` })).toBeVisible();
     await expect(page.getByText("Overlaps approved booking").first()).toBeVisible();
