@@ -187,7 +187,7 @@ export async function handleGetPendingVenueRequest(data: unknown, database: Data
     ...(await summarizePendingVenueRequest(database, row)),
     requirements: {
       eventTiming: formatProposedWindow(
-        row.proposedDates.find(window => window.start !== undefined || window.end !== undefined) ??
+        row.proposedDates.find(window => window.start !== undefined && window.end !== undefined) ??
           {}
       ),
       expectedAttendance: row.expectedAttendance,
@@ -280,8 +280,8 @@ export async function handleGetVenueRequestContext(
           id: request.id,
           // The client speaks `datetime-local` (`YYYY-MM-DDTHH:MM`), the spelling `proposedDates`
           // and `formatProposedWindow` already use; the stored seconds are display noise.
-          startsAt: normalizeDatabaseTimestamp(request.startsAt).slice(0, 16),
-          endsAt: normalizeDatabaseTimestamp(request.endsAt).slice(0, 16),
+          startsAt: requestPeriod(request.startsAt),
+          endsAt: requestPeriod(request.endsAt),
           canWithdraw: raisedByCaller,
         }
       : null,
