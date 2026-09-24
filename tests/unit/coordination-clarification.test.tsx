@@ -285,5 +285,71 @@ describe("Clarification requests (PTR-18)", () => {
       expect(screen.getByText("Awaiting organiser")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send reply" })).toBeTruthy();
     });
+
+    it("keeps unsaved input in a still-open reply form after a sibling clarification is answered", async () => {
+      const user = userEvent.setup();
+      const clarifications: EventRequestDetail["clarifications"] = [
+        {
+          id: 1,
+          eventRequestId: 7,
+          coordinatorId: "coord-a",
+          body: "Please confirm the purpose.",
+          permittedFields: ["purpose"],
+          replyBody: null,
+          repliedAt: null,
+          repliedByOrganiserId: null,
+          amendments: [],
+          createdAt: new Date("2026-09-16T08:00:00Z"),
+        },
+        {
+          id: 2,
+          eventRequestId: 7,
+          coordinatorId: "coord-a",
+          body: "Please confirm the event type.",
+          permittedFields: ["eventType"],
+          replyBody: null,
+          repliedAt: null,
+          repliedByOrganiserId: null,
+          amendments: [],
+          createdAt: new Date("2026-09-16T09:00:00Z"),
+        },
+      ];
+      const request: EventRequestDetail = {
+        ...underReviewRequest,
+        status: "awaiting_organiser",
+        coordinator: { name: "Alex", email: "a@example.com" },
+        clarifications,
+      };
+
+      const { rerender } = render(<EventRequestDetailPage request={request} showReplyForms />);
+
+      const [, secondReply] =
+        screen.getAllByLabelText<HTMLTextAreaElement>("Your reply (required)");
+      await user.type(secondReply, "Still drafting my answer about the event type.");
+
+      // Simulates the page refetching (`router.invalidate()`) after the FIRST clarification's
+      // reply was sent: only that clarification now carries a reply, the second is untouched.
+      rerender(
+        <EventRequestDetailPage
+          request={{
+            ...request,
+            clarifications: [
+              {
+                ...clarifications[0],
+                replyBody: "The purpose is a fundraiser.",
+                repliedAt: new Date("2026-09-16T10:00:00Z"),
+                repliedByOrganiserId: "org",
+              },
+              clarifications[1],
+            ],
+          }}
+          showReplyForms
+        />
+      );
+
+      expect(screen.getByLabelText<HTMLTextAreaElement>("Your reply (required)").value).toBe(
+        "Still drafting my answer about the event type."
+      );
+    });
   });
 });

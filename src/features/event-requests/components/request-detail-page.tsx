@@ -14,10 +14,12 @@ import {
   CLARIFICATION_FIELDS,
   EVENT_REQUEST_STATUS_LABELS,
   EVENT_REQUEST_STATUS_STAGES,
+  clarificationAmendmentKeys,
 } from "#/features/event-requests/schema";
 import type {
   ClarificationAmendmentValue,
   ClarificationField,
+  EventRequestDraftValues,
 } from "#/features/event-requests/schema";
 import {
   formatInstant,
@@ -53,14 +55,7 @@ export function EventRequestDetailPage({
   const stage = EVENT_REQUEST_STATUS_STAGES[request.status];
   // A cancelled request keeps whatever decision it had, so the record decides, not the status.
   const hasDecision = stage.decided || request.decidedAt !== null;
-  /**
-   * One signature of the values a reply may amend. A reply by one question's form reloads this page
-   * for the next one; a form left mounted would keep the snapshot from before that reply, so the
-   * key remounts it with the values just loaded. Fields with no row-level representation (the reply
-   * body) belong to a mount, not to this signature.
-   */
   const replyValues = toDraftValues(request);
-  const replyValuesKey = JSON.stringify(replyValues);
 
   return (
     <Page width="page">
@@ -178,7 +173,7 @@ export function EventRequestDetailPage({
                         <div className="mt-4 border-t border-border pt-4">
                           <h3 className="display-h3">Reply to clarification</h3>
                           <ClarificationReplyForm
-                            key={`${item.id}:${replyValuesKey}`}
+                            key={`${item.id}:${replyValuesSignature(item.permittedFields, replyValues)}`}
                             requestId={request.id}
                             clarification={item}
                             initialValues={replyValues}
@@ -285,6 +280,22 @@ export function EventRequestDetailPage({
       </Card>
     </Page>
   );
+}
+
+/**
+ * A reply form's remount key: JSON of only the draft columns its own question's permitted fields
+ * cover. A reply to one open question reloads this page and refreshes every form's `initialValues`,
+ * but only the submitted question's fields actually changed. Scoping the signature to a question's
+ * own fields means a sibling's still-open form only remounts (and loses unsaved input) when a value
+ * it could itself amend changed underneath it — not on every reply on the page.
+ */
+function replyValuesSignature(
+  permittedFields: readonly ClarificationField[],
+  values: EventRequestDraftValues
+): string {
+  const keys = new Set(permittedFields.flatMap(clarificationAmendmentKeys));
+  const subset = Object.fromEntries(Object.entries(values).filter(([key]) => keys.has(key)));
+  return JSON.stringify(subset);
 }
 
 const CLARIFICATION_FIELD_LABELS = new Map(
