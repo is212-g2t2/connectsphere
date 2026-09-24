@@ -172,7 +172,9 @@ describe("pending booking request reader (PTR-32)", () => {
       "ptr32-pending-other-venue",
       "ptr32-pending-boundary",
     ] as const;
-    const relevant = requests.filter(request => (pendingIds as readonly string[]).includes(request.id));
+    const relevant = requests.filter(request =>
+      (pendingIds as readonly string[]).includes(request.id)
+    );
 
     expect(relevant.map(request => request.id)).toEqual([...pendingIds]);
     expect(relevant.map(request => request.conflict)).toEqual([true, false, false]);
