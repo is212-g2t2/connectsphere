@@ -440,10 +440,20 @@ export const EVENT_REQUEST_STATUS_STAGES: Record<EventRequestStatus, EventReques
 
 // ── Clarification requests (PTR-18) ─────────────────────────────────────────
 
-export const CLARIFICATION_BODY_MAX = 2000;
-export const CLARIFICATION_BODY_MESSAGE = `Clarification text must be ${CLARIFICATION_BODY_MAX} characters or fewer`;
+/**
+ * One ceiling for both the Coordinator's question and the Organiser's reply: the two sit in the
+ * same thread, so separate limits would be an arbitrary difference to explain.
+ */
+export const CLARIFICATION_TEXT_MAX = 2000;
+export const CLARIFICATION_BODY_MESSAGE = `Clarification text must be ${CLARIFICATION_TEXT_MAX} characters or fewer`;
 export const CLARIFICATION_BODY_REQUIRED = "Enter what you need the Organiser to clarify";
 
+/**
+ * The request fields a Coordinator may ask about. Most map one-to-one onto an `event_requests`
+ * column; `attendeeRegistration` is a single question that spans four columns. This is the one
+ * place the server and the reply form read, so a field cannot be offered on screen without being
+ * writable on the server.
+ */
 export const CLARIFICATION_FIELDS = [
   { key: "eventName", label: "Event name" },
   { key: "purpose", label: "Purpose" },
@@ -460,13 +470,46 @@ export const CLARIFICATION_FIELDS = [
 ] as const;
 export type ClarificationField = (typeof CLARIFICATION_FIELDS)[number]["key"];
 
+/** The four columns a reply to the one `attendeeRegistration` question may amend as a group. */
+export const ATTENDEE_REGISTRATION_AMENDMENT_KEYS = [
+  "registrationEnabled",
+  "registrationCapacity",
+  "registrationOpensAt",
+  "registrationClosesAt",
+] as const;
+
+/** What a reply changed: the question's field and the before/after values a detail page shows. */
+export type ClarificationAmendment = {
+  field: ClarificationField;
+  from: ClarificationAmendmentValue;
+  to: ClarificationAmendmentValue;
+};
+
+/**
+ * The JSON-shaped value of an amended field. It is what `jsonb` stores, and naming it rather than
+ * `unknown` is what lets TanStack Start prove the detail payload serializes to the client.
+ */
+export type ClarificationAmendmentValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ClarificationAmendmentValue[]
+  | { [key: string]: ClarificationAmendmentValue };
+
+/** The `event_requests` columns a reply to this field may write; empty for a field no longer known. */
+export function clarificationAmendmentKeys(field: ClarificationField): readonly string[] {
+  if (!CLARIFICATION_FIELDS.some(candidate => candidate.key === field)) return [];
+  return field === "attendeeRegistration" ? ATTENDEE_REGISTRATION_AMENDMENT_KEYS : [field];
+}
+
 const ClarificationBodyInput = EventRequestIdInput.extend({
   permittedFields: z.array(z.enum(CLARIFICATION_FIELDS.map(field => field.key))).default([]),
   body: z
     .string()
     .trim()
     .min(1, CLARIFICATION_BODY_REQUIRED)
-    .max(CLARIFICATION_BODY_MAX, CLARIFICATION_BODY_MESSAGE),
+    .max(CLARIFICATION_TEXT_MAX, CLARIFICATION_BODY_MESSAGE),
 });
 
 export function parseClarificationBody(data: unknown) {
@@ -475,15 +518,17 @@ export function parseClarificationBody(data: unknown) {
   return parsed.data;
 }
 
-export const CLARIFICATION_REPLY_MAX = 2000;
+/** The reply body alone, shared by the wire schema below and the reply form's validator. */
+export const ClarificationReplyBodyInput = z
+  .string()
+  .trim()
+  .min(1, "Enter your reply")
+  .max(CLARIFICATION_TEXT_MAX, `Reply must be ${CLARIFICATION_TEXT_MAX} characters or fewer`);
+
 const ClarificationReplyInput = z.strictObject({
   id: z.int32().positive(),
   clarificationId: z.int32().positive(),
-  body: z
-    .string()
-    .trim()
-    .min(1, "Enter your reply")
-    .max(CLARIFICATION_REPLY_MAX, `Reply must be ${CLARIFICATION_REPLY_MAX} characters or fewer`),
+  body: ClarificationReplyBodyInput,
   amendments: z.record(z.string(), z.unknown()).default({}),
 });
 
@@ -492,6 +537,11 @@ export function parseClarificationReply(data: unknown) {
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;
 }
+/**
+ * The reply form's validator. `permittedFields` is unwrapped from the wire schema's `.default([])`
+ * because a default widens the validator's input to accept `undefined`, and the form's value type
+ * always carries the array. Unwrapping keeps the validator's input and output the same shape.
+ */
 export const ClarificationFormSchema = ClarificationBodyInput.pick({ body: true }).extend({
   permittedFields: ClarificationBodyInput.shape.permittedFields.unwrap(),
 });

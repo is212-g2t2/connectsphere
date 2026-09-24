@@ -223,6 +223,7 @@ describe("Clarification requests (PTR-18)", () => {
             replyBody: null,
             repliedAt: null,
             repliedByOrganiserId: null,
+            amendments: [],
             createdAt: new Date("2026-09-16T10:00:00Z"),
           },
           {
@@ -234,6 +235,7 @@ describe("Clarification requests (PTR-18)", () => {
             replyBody: null,
             repliedAt: null,
             repliedByOrganiserId: null,
+            amendments: [],
             createdAt: new Date("2026-09-16T11:00:00Z"),
           },
         ],
@@ -270,12 +272,13 @@ describe("Clarification requests (PTR-18)", () => {
             replyBody: null,
             repliedAt: null,
             repliedByOrganiserId: null,
+            amendments: [],
             createdAt: new Date("2026-09-16T08:00:00Z"),
           },
         ],
       };
 
-      render(<EventRequestDetailPage request={organiserSummary} />);
+      render(<EventRequestDetailPage request={organiserSummary} showReplyForms />);
 
       expect(screen.getByRole("heading", { name: "Clarification requests" })).toBeTruthy();
       expect(screen.getByText("Which layout is required for the workshop?")).toBeTruthy();

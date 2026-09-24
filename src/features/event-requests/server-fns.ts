@@ -160,5 +160,13 @@ export const replyToClarification = createServerFn({ method: "POST" })
       import("#/db"),
       import("#/features/event-requests/replies.server"),
     ]);
-    return handleReplyToClarification(data, context.user, db);
+    const result = await handleReplyToClarification(data, context.user, db);
+
+    log.info("Clarification replied", {
+      requestId: data.id,
+      clarificationId: data.clarificationId,
+      organiserId: context.user.id,
+    });
+
+    return result;
   });

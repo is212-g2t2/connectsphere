@@ -9,11 +9,16 @@ import {
 } from "#/features/event-requests/components/request-list-page";
 import { ClarificationReplyForm } from "#/features/event-requests/components/clarification-reply-form";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
+import { toDraftValues } from "#/features/event-requests/components/request-page";
 import {
+  CLARIFICATION_FIELDS,
   EVENT_REQUEST_STATUS_LABELS,
   EVENT_REQUEST_STATUS_STAGES,
 } from "#/features/event-requests/schema";
-import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import type {
+  ClarificationAmendmentValue,
+  ClarificationField,
+} from "#/features/event-requests/schema";
 import {
   formatInstant,
   formatLocalDateTime,
@@ -36,18 +41,26 @@ export function EventRequestDetailPage({
   request,
   back,
   children,
-  showReplyForms = true,
+  showReplyForms = false,
 }: {
   request: EventRequestDetail;
   back?: { to: "/event-requests" | "/coordination"; label: string };
   children?: React.ReactNode;
-  /** Coordinator screens use this shared read-only detail view but must not reply as an Organiser. */
+  /** The Organiser's own screen opts in; the Coordinator's shared read-only view must not reply. */
   showReplyForms?: boolean;
 }) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
   const stage = EVENT_REQUEST_STATUS_STAGES[request.status];
   // A cancelled request keeps whatever decision it had, so the record decides, not the status.
   const hasDecision = stage.decided || request.decidedAt !== null;
+  /**
+   * One signature of the values a reply may amend. A reply by one question's form reloads this page
+   * for the next one; a form left mounted would keep the snapshot from before that reply, so the
+   * key remounts it with the values just loaded. Fields with no row-level representation (the reply
+   * body) belong to a mount, not to this signature.
+   */
+  const replyValues = toDraftValues(request);
+  const replyValuesKey = JSON.stringify(replyValues);
 
   return (
     <Page width="page">
@@ -148,6 +161,15 @@ export function EventRequestDetailPage({
                             {formatInstant(item.repliedAt)}
                           </time>
                         )}
+                        {item.amendments.map(amendment => (
+                          <p key={amendment.field} className="mt-2 body-sm text-foreground">
+                            <span className="font-medium">
+                              {clarificationFieldLabel(amendment.field)}:
+                            </span>{" "}
+                            {formatAmendmentValue(amendment.field, amendment.from)} →{" "}
+                            {formatAmendmentValue(amendment.field, amendment.to)}
+                          </p>
+                        ))}
                       </div>
                     ) : (
                       showReplyForms &&
@@ -155,15 +177,11 @@ export function EventRequestDetailPage({
                         request.status === "under_review") && (
                         <div className="mt-4 border-t border-border pt-4">
                           <h3 className="display-h3">Reply to clarification</h3>
-                          {item.permittedFields.length > 0 && (
-                            <p className="mt-2 body-sm text-muted-foreground">
-                              You may update the fields the Coordinator selected below.
-                            </p>
-                          )}
                           <ClarificationReplyForm
+                            key={`${item.id}:${replyValuesKey}`}
                             requestId={request.id}
                             clarification={item}
-                            initialValues={toDraftValues(request)}
+                            initialValues={replyValues}
                           />
                         </div>
                       )
@@ -269,24 +287,82 @@ export function EventRequestDetailPage({
   );
 }
 
-function toDraftValues(request: EventRequestDetail): EventRequestDraftValues {
-  return {
-    eventName: request.eventName,
-    purpose: request.purpose,
-    proposedDates: request.proposedDates,
-    expectedAttendance: request.expectedAttendance ?? undefined,
-    description: request.description,
-    eventType: request.eventType,
-    venueRequirements: request.venueRequirements,
-    roomLayoutPreference: request.roomLayoutPreference,
-    accessibilityRequirements: request.accessibilityRequirements,
-    equipmentRequirements: request.equipmentRequirements,
-    specialArrangements: request.specialArrangements,
-    registrationEnabled: request.registrationEnabled,
-    registrationCapacity: request.registrationCapacity ?? undefined,
-    registrationOpensAt: request.registrationOpensAt ?? undefined,
-    registrationClosesAt: request.registrationClosesAt ?? undefined,
-  };
+const CLARIFICATION_FIELD_LABELS = new Map(
+  CLARIFICATION_FIELDS.map(field => [field.key, field.label])
+);
+
+function clarificationFieldLabel(field: ClarificationField): string {
+  return CLARIFICATION_FIELD_LABELS.get(field) ?? field;
+}
+
+/** A `jsonb` value is plain JSON, so an object is narrowed by hand before its keys are read. */
+function isObjectValue(
+  value: ClarificationAmendmentValue
+): value is Record<string, ClarificationAmendmentValue> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringOrUndefined(value: ClarificationAmendmentValue | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberOrNull(value: ClarificationAmendmentValue | undefined): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+/** A leaf, or the JSON of anything nested, so an unexpected shape is never shown as `[object Object]`. */
+function plainAmendmentText(value: ClarificationAmendmentValue): string {
+  if (value === null || value === "") return "None";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+/**
+ * One amended value as a reader sees it, per field kind. The field name is what decides the shape:
+ * a proposed window, an equipment line, or the four columns an attendee-registration amendment spans.
+ */
+function formatAmendmentValue(
+  field: ClarificationField,
+  value: ClarificationAmendmentValue
+): string {
+  if (value === null) return "None";
+
+  switch (field) {
+    case "proposedDates":
+      if (!Array.isArray(value)) return plainAmendmentText(value);
+      return value
+        .map(window =>
+          isObjectValue(window)
+            ? formatProposedWindow({
+                start: stringOrUndefined(window.start),
+                end: stringOrUndefined(window.end),
+              })
+            : plainAmendmentText(window)
+        )
+        .join("; ");
+    case "equipmentRequirements":
+      if (!Array.isArray(value)) return plainAmendmentText(value);
+      return value
+        .map(line => {
+          if (!isObjectValue(line)) return plainAmendmentText(line);
+          const type = stringOrUndefined(line.type) ?? "";
+          const quantity = numberOrNull(line.quantity);
+          return `${type || "Unnamed equipment"} × ${quantity ?? "?"}`;
+        })
+        .join("; ");
+    case "attendeeRegistration": {
+      if (!isObjectValue(value)) return plainAmendmentText(value);
+      const opens = stringOrUndefined(value.registrationOpensAt) ?? null;
+      const closes = stringOrUndefined(value.registrationClosesAt) ?? null;
+      const capacity = numberOrNull(value.registrationCapacity);
+      return `Capacity ${capacity ?? "None"}; opens ${
+        opens === null ? "None" : formatLocalDateTime(opens)
+      }, closes ${closes === null ? "None" : formatLocalDateTime(closes)}`;
+    }
+    default:
+      return plainAmendmentText(value);
+  }
 }
 
 function Detail({

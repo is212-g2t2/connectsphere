@@ -1,5 +1,5 @@
 {
-  "id": "2024abc3-3446-4e54-bb9d-0dc9d6ec5799",
+  "id": "2c7ff75e-4a30-488b-9b4d-cb458c84b655",
   "prevId": "1087db12-36cf-42b3-9fe9-c95655f3b64c",
   "version": "7",
   "dialect": "postgresql",
@@ -56,6 +56,13 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "amendments": {
+          "name": "amendments",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
         },
         "created_at": {
           "name": "created_at",

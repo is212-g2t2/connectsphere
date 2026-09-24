@@ -190,6 +190,84 @@ describe("Organiser clarification replies", () => {
       ],
     });
   });
+  it("records only the fields whose value actually changed, grouping attendee registration", async () => {
+    const { request, input } = await question([
+      "expectedAttendance",
+      "roomLayoutPreference",
+      "attendeeRegistration",
+    ]);
+    await handleReplyToClarification(
+      {
+        ...input,
+        amendments: {
+          expectedAttendance: 120,
+          // Identical to the fixture: permitted, but not an amendment.
+          roomLayoutPreference: "Theatre",
+          registrationEnabled: true,
+          registrationCapacity: 50,
+          registrationOpensAt: "2026-10-01T09:00",
+          registrationClosesAt: "2026-10-20T17:00",
+        },
+      },
+      organiser,
+      database as never
+    );
+    const read = await handleGetEventRequest({ id: request.id }, organiser, database as never);
+    expect(read?.clarifications[0].amendments).toEqual([
+      { field: "expectedAttendance", from: 100, to: 120 },
+      {
+        field: "attendeeRegistration",
+        from: {
+          registrationEnabled: false,
+          registrationCapacity: null,
+          registrationOpensAt: null,
+          registrationClosesAt: null,
+        },
+        to: {
+          registrationEnabled: true,
+          registrationCapacity: 50,
+          registrationOpensAt: "2026-10-01T09:00",
+          registrationClosesAt: "2026-10-20T17:00",
+        },
+      },
+    ]);
+  });
+  it("records no amendment when a permitted attendee registration question leaves it off and unchanged", async () => {
+    const { request, input } = await question(["attendeeRegistration"]);
+    await handleReplyToClarification(input, organiser, database as never);
+    const read = await handleGetEventRequest({ id: request.id }, organiser, database as never);
+    expect(read?.clarifications[0].amendments).toEqual([]);
+  });
+  it("keeps an earlier reply's amendment when a later reply to the same field omits it", async () => {
+    const { request, clarification, input } = await question(["expectedAttendance"]);
+    const second = await handleRaiseClarificationRequest(
+      {
+        id: request.id,
+        body: "Confirm the attendance again.",
+        permittedFields: ["expectedAttendance"],
+      },
+      coordinator,
+      database as never
+    );
+    sendEmail.mockClear();
+    await handleReplyToClarification(
+      { ...input, amendments: { expectedAttendance: 120 } },
+      organiser,
+      database as never
+    );
+    await handleReplyToClarification(
+      { id: request.id, clarificationId: second.id, body: "No further change." },
+      organiser,
+      database as never
+    );
+    const read = await handleGetEventRequest({ id: request.id }, organiser, database as never);
+    expect(read).toMatchObject({ status: "under_review", expectedAttendance: 120 });
+    expect(read?.clarifications.map(row => row.id)).toEqual([clarification.id, second.id]);
+    expect(read?.clarifications.map(row => row.amendments)).toEqual([
+      [{ field: "expectedAttendance", from: 100, to: 120 }],
+      [],
+    ]);
+  });
   it("saves an explanation, returns the event to review, and shows the paired history to both parties", async () => {
     const { request, clarification, input } = await question();
     await handleReplyToClarification(input, organiser, database as never);
