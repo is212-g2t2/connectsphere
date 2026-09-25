@@ -116,16 +116,19 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
     await expect(
       page.getByRole("heading", { name: "Pending booking requests", level: 1 })
     ).toBeVisible();
+    // The venue name is the row's only link, named by venue and start.
     await expect(
-      page.getByRole("link", { name: `Open request for ${venueNames[0]}` })
+      page.getByRole("link", { name: `Open request for ${venueNames[0]}, 10 May 2037, 10:00` })
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: `Open request for ${venueNames[1]}` })
+      page.getByRole("link", { name: `Open request for ${venueNames[1]}, 10 May 2037, 10:00` })
     ).toBeVisible();
-    await expect(page.getByText("Overlaps approved booking").first()).toBeVisible();
+    await expect(page.getByText("Conflicting booking").first()).toBeVisible();
     await expect(page.getByText(approvedEventName, { exact: true })).toHaveCount(0);
 
-    await page.getByRole("link", { name: `Open request for ${venueNames[0]}` }).click();
+    await page
+      .getByRole("link", { name: `Open request for ${venueNames[0]}, 10 May 2037, 10:00` })
+      .click();
     await waitForHydration(page);
 
     await expect(page.getByRole("heading", { name: "Booking request details" })).toBeVisible();
@@ -142,6 +145,24 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
       "pre-line"
     );
     await expect(page.getByText(pendingEventName, { exact: true })).toHaveCount(0);
+
+    // The approved request is not pending, so its id is the router's not-found page.
+    await page.goto(`/venue-requests/${requestIds[2]}`);
+    await waitForHydration(page);
+    await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
+    await expect(page.getByText("The page you are looking for does not exist.")).toBeVisible();
+
+    // The second pending request shows the same event's facilities and drops the null attendance
+    // term rather than rendering a labelled blank.
+    await page.goto("/venue-requests");
+    await waitForHydration(page);
+    await page
+      .getByRole("link", { name: `Open request for ${venueNames[1]}, 10 May 2037, 10:00` })
+      .click();
+    await waitForHydration(page);
+    await expect(page.getByRole("heading", { name: "Booking request details" })).toBeVisible();
+    await expect(page.locator("dd").filter({ hasText: "Projector." }).first()).toBeVisible();
+    await expect(page.getByText("Expected attendance", { exact: true })).toHaveCount(0);
   } finally {
     await database.delete(schema.venueRequests).where(inArray(schema.venueRequests.id, requestIds));
     await database.delete(schema.eventRequests).where(inArray(schema.eventRequests.id, eventIds));

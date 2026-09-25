@@ -36,7 +36,7 @@ export const listPendingVenueRequests = createServerFn({ method: "GET" })
     return handleListPendingVenueRequests(db);
   });
 
-export type PendingBookingRequest = Awaited<ReturnType<typeof listPendingVenueRequests>>[number];
+export type PendingVenueRequest = Awaited<ReturnType<typeof listPendingVenueRequests>>[number];
 
 export const getPendingVenueRequest = createServerFn({ method: "GET" })
   .validator(parseVenueRequestId)
@@ -46,7 +46,7 @@ export const getPendingVenueRequest = createServerFn({ method: "GET" })
     return handleGetPendingVenueRequest(data, db);
   });
 
-export type PendingBookingRequestDetail = NonNullable<
+export type PendingVenueRequestDetail = NonNullable<
   Awaited<ReturnType<typeof getPendingVenueRequest>>
 >;
 

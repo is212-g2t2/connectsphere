@@ -2,6 +2,7 @@ import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
 import { BookingRequestDetailsPage } from "#/features/venue-requests/components/booking-request-details-page";
+import { BookingRequestDetailsSkeleton } from "#/features/venue-requests/components/booking-request-details-skeleton";
 import { VenueRequestIdInput } from "#/features/venue-requests/schema";
 import { getPendingVenueRequest } from "#/features/venue-requests/server-fns";
 import { createSeoHead } from "#/lib/seo";
@@ -22,4 +23,5 @@ export const Route = createFileRoute("/_authenticated/venue-requests/$requestId"
     return request;
   },
   component: () => <BookingRequestDetailsPage request={Route.useLoaderData()} />,
+  pendingComponent: BookingRequestDetailsSkeleton,
 });

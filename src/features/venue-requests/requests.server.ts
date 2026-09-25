@@ -94,7 +94,11 @@ function rethrowDuplicate(error: unknown): never {
   throw error;
 }
 
-function requestPeriod(value: string): string {
+/**
+ * The client speaks `datetime-local` (`YYYY-MM-DDTHH:MM`), the spelling `proposedDates`
+ * and `formatProposedWindow` already use; the stored seconds are display noise.
+ */
+function toLocalMinuteValue(value: string): string {
   return normalizeDatabaseTimestamp(value).slice(0, 16);
 }
 
@@ -120,8 +124,8 @@ function summarizePendingVenueRequest(
   return {
     id: row.id,
     venueName: row.venueName,
-    startsAt: requestPeriod(row.startsAt),
-    endsAt: requestPeriod(row.endsAt),
+    startsAt: toLocalMinuteValue(row.startsAt),
+    endsAt: toLocalMinuteValue(row.endsAt),
     submittedAt: row.submittedAt,
     conflict,
   };
@@ -177,9 +181,10 @@ async function pendingConflictIds(
 /**
  * PTR-32 AC1–AC2 and AC5: the shared Venue Staff queue. The status filter and submission ordering
  * live in the reader rather than in the table component, so every caller receives all pending rows
- * (including multiple rows for one event) in one stable order. Conflict detection deliberately
- * reuses the approved-only, strict-overlap loader from PTR-36; pending and withdrawn rows never
- * become bookings and a touching boundary remains available.
+ * (including multiple rows for one event) in one stable order. Conflict detection batches every
+ * pending row through `pendingConflictIds`, one approved-only read for the whole queue rather than
+ * the per-row `loadVenueBookings` from PTR-36; pending and withdrawn rows never become bookings and
+ * a touching boundary remains available.
  */
 export async function handleListPendingVenueRequests(database: Database) {
   const rows = await database
@@ -329,10 +334,8 @@ export async function handleGetVenueRequestContext(
     request: request
       ? {
           id: request.id,
-          // The client speaks `datetime-local` (`YYYY-MM-DDTHH:MM`), the spelling `proposedDates`
-          // and `formatProposedWindow` already use; the stored seconds are display noise.
-          startsAt: requestPeriod(request.startsAt),
-          endsAt: requestPeriod(request.endsAt),
+          startsAt: toLocalMinuteValue(request.startsAt),
+          endsAt: toLocalMinuteValue(request.endsAt),
           canWithdraw: raisedByCaller,
         }
       : null,

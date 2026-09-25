@@ -22,18 +22,19 @@ interface Requirement {
  * and a free-text layout reads back as the layout it names rather than the raw stored words.
  */
 function requirementPairs(event: EventRequirementFields): Requirement[] {
-  const layouts = parseLayouts(event.layout ?? "").map(layout => LAYOUT_LABELS[layout]);
+  // Whitespace-only text is treated as absent, so a field that reads as blank on screen drops out
+  // instead of rendering a labelled empty term. `0` is a real answer and stays.
+  const layout = event.layout?.trim() ?? "";
+  const layouts = parseLayouts(layout).map(name => LAYOUT_LABELS[name]);
+  const accessibilityRequirements = event.accessibilityRequirements?.trim();
+  const requiredFacilities = event.requiredFacilities?.trim();
   const pairs: (Requirement | null)[] = [
     event.expectedAttendance === null || event.expectedAttendance === undefined
       ? null
       : { label: "Expected attendance", value: String(event.expectedAttendance) },
-    event.layout
-      ? { label: "Layout", value: layouts.length > 0 ? layouts.join(", ") : event.layout }
-      : null,
-    event.accessibilityRequirements
-      ? { label: "Accessibility", value: event.accessibilityRequirements }
-      : null,
-    event.requiredFacilities ? { label: "Facilities", value: event.requiredFacilities } : null,
+    layout ? { label: "Layout", value: layouts.length > 0 ? layouts.join(", ") : layout } : null,
+    accessibilityRequirements ? { label: "Accessibility", value: accessibilityRequirements } : null,
+    requiredFacilities ? { label: "Facilities", value: requiredFacilities } : null,
   ];
   return pairs.filter((pair): pair is Requirement => pair !== null);
 }

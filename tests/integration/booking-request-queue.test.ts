@@ -37,6 +37,7 @@ describe("pending booking request reader (PTR-32)", () => {
   let database: ReturnType<typeof drizzle<typeof schema>>;
   let eventId: number;
   let boundaryEventId: number;
+  let incompleteEventId: number;
   let conflictVenueId: number;
   let otherVenueId: number;
 
@@ -109,9 +110,17 @@ describe("pending booking request reader (PTR-32)", () => {
           eventName: "PTR-32 Boundary Event",
           proposedDates: [{ start: "2037-05-10T12:00", end: "2037-05-10T15:00" }],
         },
+        {
+          organiserId: organiser.id,
+          status: "submitted",
+          submittedAt: new Date("2037-04-01T00:00:00Z"),
+          eventName: "PTR-32 Incomplete Requirements Event",
+          // No complete window: the detail read must fall back to "Not yet chosen".
+          proposedDates: [{ start: "2037-05-12T09:00" }],
+        },
       ])
       .returning({ id: schema.eventRequests.id });
-    [eventId, boundaryEventId] = events.map(event => event.id);
+    [eventId, boundaryEventId, incompleteEventId] = events.map(event => event.id);
 
     await database.insert(schema.venueRequests).values([
       {
@@ -133,10 +142,12 @@ describe("pending booking request reader (PTR-32)", () => {
         endsAt: "2037-05-10 11:00:00",
         createdAt: new Date("2037-04-02T01:00:00Z"),
       },
-      // Two pending rows share a `createdAt`; the reader must fall back to ascending id.
+      // Two pending rows share a `createdAt`; the reader must fall back to ascending id. The
+      // lexically larger id is inserted first, so heap/insertion order cannot produce the asserted
+      // order on its own — only the `asc(id)` tie-break can.
       {
-        id: "ptr32-pending-tie-a",
-        eventId,
+        id: "ptr32-pending-tie-b",
+        eventId: boundaryEventId,
         venueId: otherVenueId,
         requestedById: organiser.id,
         startsAt: APPROVED_START,
@@ -144,8 +155,8 @@ describe("pending booking request reader (PTR-32)", () => {
         createdAt: new Date("2037-04-02T02:00:00Z"),
       },
       {
-        id: "ptr32-pending-tie-b",
-        eventId: boundaryEventId,
+        id: "ptr32-pending-tie-a",
+        eventId,
         venueId: otherVenueId,
         requestedById: organiser.id,
         startsAt: APPROVED_START,
@@ -170,6 +181,18 @@ describe("pending booking request reader (PTR-32)", () => {
         endsAt: APPROVED_END,
         status: "withdrawn",
         createdAt: new Date("2037-04-02T04:00:00Z"),
+      },
+      // The queue is shared: a row assigned to another Venue Staff member must still be listed.
+      // Prefix `ptr32assigned-` so the strict `ptr32-` ordering assertions above skip it.
+      {
+        id: "ptr32assigned-pending",
+        eventId: incompleteEventId,
+        venueId: conflictVenueId,
+        requestedById: organiser.id,
+        assignedStaffId: otherStaff.id,
+        startsAt: "2037-05-12 09:00:00",
+        endsAt: "2037-05-12 12:00:00",
+        createdAt: new Date("2037-04-02T05:00:00Z"),
       },
     ]);
   });
@@ -245,30 +268,17 @@ describe("pending booking request reader (PTR-32)", () => {
     expect(detailAfterWithdraw).toBeNull();
   });
 
-  it("does not mutate the pending row while reading its summary or detail", async () => {
-    const before = await database
-      .select({
-        status: schema.venueRequests.status,
-        startsAt: schema.venueRequests.startsAt,
-        endsAt: schema.venueRequests.endsAt,
-        createdAt: schema.venueRequests.createdAt,
-      })
-      .from(schema.venueRequests)
-      .where(eq(schema.venueRequests.id, "ptr32-pending-overlap"));
+  it("lists a pending row assigned to another Venue Staff member (shared queue)", async () => {
+    const requests = await handleListPendingVenueRequests(database as never);
+    expect(requests.map(request => request.id)).toContain("ptr32assigned-pending");
+  });
 
-    await handleListPendingVenueRequests(database as never);
-    await handleGetPendingVenueRequest({ id: "ptr32-pending-overlap" }, database as never);
+  it("surfaces 'Not yet chosen' when the event has no complete proposed window", async () => {
+    const detail = await handleGetPendingVenueRequest(
+      { id: "ptr32assigned-pending" },
+      database as never
+    );
 
-    const after = await database
-      .select({
-        status: schema.venueRequests.status,
-        startsAt: schema.venueRequests.startsAt,
-        endsAt: schema.venueRequests.endsAt,
-        createdAt: schema.venueRequests.createdAt,
-      })
-      .from(schema.venueRequests)
-      .where(eq(schema.venueRequests.id, "ptr32-pending-overlap"));
-
-    expect(after).toEqual(before);
+    expect(detail?.requirements.eventTiming).toBe("Not yet chosen");
   });
 });

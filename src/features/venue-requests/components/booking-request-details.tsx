@@ -2,7 +2,7 @@ import { Card, CardContent } from "#/components/ui/card";
 import { Badge } from "#/components/ui/badge";
 import { formatInstant, formatLocalDateTime } from "#/features/event-requests/format";
 import { EventRequirements } from "#/features/events/components/event-requirements";
-import type { PendingBookingRequestDetail } from "#/features/venue-requests/server-fns";
+import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
 /**
  * A read-only view of the current pending booking-request data supplied by the server reader.
@@ -11,7 +11,7 @@ import type { PendingBookingRequestDetail } from "#/features/venue-requests/serv
  * specified". The server names its accessibility field `accessibility`, so the call site maps it
  * onto the canonical `accessibilityRequirements`.
  */
-export function BookingRequestDetails({ request }: { request: PendingBookingRequestDetail }) {
+export function BookingRequestDetails({ request }: { request: PendingVenueRequestDetail }) {
   return (
     <section aria-labelledby="booking-request-details-heading">
       <h2 id="booking-request-details-heading" className="display-h2">
@@ -20,7 +20,7 @@ export function BookingRequestDetails({ request }: { request: PendingBookingRequ
 
       {request.conflict ? (
         <Badge className="mt-4" variant="progress">
-          Overlaps approved booking
+          Conflicting booking
         </Badge>
       ) : null}
 

@@ -1,14 +1,14 @@
 import { Link } from "@tanstack/react-router";
 
 import { Page, PageHeader } from "#/components/layout/page";
-import type { PendingBookingRequest } from "#/features/venue-requests/server-fns";
+import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
 import { BookingRequestQueue } from "#/features/venue-requests/components/booking-request-queue";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 export function BookingRequestQueuePage({
   requests,
 }: {
-  requests: readonly PendingBookingRequest[];
+  requests: readonly PendingVenueRequest[];
 }) {
   return (
     <Page width="wide">
@@ -18,9 +18,9 @@ export function BookingRequestQueuePage({
       <PageHeader
         eyebrow="Venue operations"
         title="Pending booking requests"
-        description="Review every pending request in submission order. Conflict flags identify periods that overlap an approved booking before you open the request."
+        description="Review every pending request, oldest first. Conflict flags identify periods that overlap an approved booking before you open the request."
       />
-      <BookingRequestQueue pendingRequestsOldestFirst={requests} />
+      <BookingRequestQueue requests={requests} />
     </Page>
   );
 }

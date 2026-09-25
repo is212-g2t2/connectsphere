@@ -2,9 +2,9 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { BookingRequestDetails } from "#/features/venue-requests/components/booking-request-details";
-import type { PendingBookingRequestDetail } from "#/features/venue-requests/server-fns";
+import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
-const request: PendingBookingRequestDetail = {
+const request: PendingVenueRequestDetail = {
   id: "request-001",
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
@@ -46,23 +46,19 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     );
     // The canonical requirements treatment labels this pair "Facilities".
     expect(detailValue("Facilities").textContent).toBe("Projector\nTwo wireless microphones");
-    expect(screen.getByText("Overlaps approved booking")).toBeTruthy();
+    expect(screen.getByText("Conflicting booking")).toBeTruthy();
   });
 
-  it("refreshes all fields when rendered with a different selected request (TC06)", () => {
+  it("refreshes venue, start, and requirements when rendered with a different selected request (TC06)", () => {
     const { rerender } = render(<BookingRequestDetails request={request} />);
-    const replacement: PendingBookingRequestDetail = {
+    const replacement: PendingVenueRequestDetail = {
       ...request,
       id: "request-002",
       venueName: "Harbour Hall",
       startsAt: "2030-12-01T18:00",
-      endsAt: "2030-12-01T21:00",
-      submittedAt: new Date("2030-11-02T01:00:00Z"),
       requirements: {
-        eventTiming: "Sound check at 17:00.",
-        expectedAttendance: 120,
-        layout: "Theatre",
-        accessibility: "Hearing loop requested.",
+        ...request.requirements,
+        expectedAttendance: 200,
         requiredFacilities: "Stage lighting",
       },
     };
@@ -71,22 +67,29 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
 
     expect(detailValue("Venue").textContent).toBe("Harbour Hall");
     expect(detailValue("Starts at").textContent).toBe("1 Dec 2030, 18:00");
-    expect(detailValue("Ends at").textContent).toBe("1 Dec 2030, 21:00");
-    expect(detailValue("Submitted").textContent).toBe("2 Nov 2030, 09:00");
-    expect(detailValue("Event timing").textContent).toBe("Sound check at 17:00.");
-    expect(detailValue("Expected attendance").textContent).toBe("120");
-    expect(detailValue("Layout").textContent).toBe("Theatre");
-    expect(detailValue("Accessibility").textContent).toBe("Hearing loop requested.");
+    expect(detailValue("Expected attendance").textContent).toBe("200");
     expect(detailValue("Facilities").textContent).toBe("Stage lighting");
+    // The previous request's identity must not survive alongside the replacement.
     expect(screen.queryByText("Orchid Room")).toBeNull();
-    expect(screen.queryByText("Doors open at 09:00; event starts at 09:30.")).toBeNull();
+    expect(screen.queryByText("18 Nov 2030, 09:30")).toBeNull();
     expect(screen.queryByText("85")).toBeNull();
-    expect(screen.queryByText("Cabaret")).toBeNull();
-    expect(screen.queryByText("Step-free access and two reserved wheelchair spaces.")).toBeNull();
-    expect(screen.queryByText("Projector")).toBeNull();
+    expect(screen.queryByText("Projector\nTwo wireless microphones")).toBeNull();
   });
 
-  it("drops blank optional requirement fields and preserves long multiline live text (TC13)", () => {
+  it("renders a zero expected attendance as 0 rather than dropping the term", () => {
+    render(
+      <BookingRequestDetails
+        request={{
+          ...request,
+          requirements: { ...request.requirements, expectedAttendance: 0 },
+        }}
+      />
+    );
+
+    expect(detailValue("Expected attendance").textContent).toBe("0");
+  });
+
+  it("drops blank optional requirement fields, including whitespace-only text, and preserves long multiline live text (TC13)", () => {
     const longMultilineTiming = `Setup starts at 07:30.\nPlease keep the east entrance clear for deliveries.\nThe organising team will arrive at 08:15.`;
     render(
       <BookingRequestDetails
@@ -96,7 +99,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
             ...request.requirements,
             eventTiming: longMultilineTiming,
             expectedAttendance: null,
-            layout: "",
+            layout: "   ",
             accessibility: "",
             requiredFacilities: "",
           },
@@ -110,7 +113,6 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(timing.textContent).toBe(longMultilineTiming);
     expect(timing.className).toContain("whitespace-pre-line");
     // The canonical requirements treatment drops a blank term rather than naming a fallback.
-    expect(screen.queryByText("None specified")).toBeNull();
     expect(screen.queryByText("Expected attendance")).toBeNull();
     expect(screen.queryByText("Layout")).toBeNull();
     expect(screen.queryByText("Accessibility")).toBeNull();

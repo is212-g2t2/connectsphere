@@ -1,7 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
 import { Badge } from "#/components/ui/badge";
-import { buttonVariants } from "#/components/ui/button";
 import {
   Table,
   TableBody,
@@ -11,25 +10,24 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { formatInstant, formatLocalDateTime } from "#/features/event-requests/format";
-import type { PendingBookingRequest } from "#/features/venue-requests/server-fns";
+import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
+import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 /**
- * A presentational pending queue. Its caller owns the pending filter, oldest-first ordering, and
- * access checks; this component only renders the supplied records and links each to its detail
- * page.
+ * A presentational pending queue. Its caller owns the pending filter, access checks, and the
+ * ordering: `requests` arrives oldest-first. This component only renders the supplied records and
+ * links each to its detail page.
  */
-export function BookingRequestQueue({
-  pendingRequestsOldestFirst,
-}: {
-  pendingRequestsOldestFirst: readonly PendingBookingRequest[];
-}) {
+export function BookingRequestQueue({ requests }: { requests: readonly PendingVenueRequest[] }) {
   return (
     <section aria-labelledby="pending-booking-requests-heading">
-      <h2 id="pending-booking-requests-heading" className="display-h2">
+      {/* The page h1 already names the queue; this keeps the section's accessible name without
+          repeating that heading visually. */}
+      <h2 id="pending-booking-requests-heading" className="sr-only">
         Pending booking requests
       </h2>
 
-      {pendingRequestsOldestFirst.length === 0 ? (
+      {requests.length === 0 ? (
         <p className="mt-4 body-sm text-muted-foreground">No pending booking requests.</p>
       ) : (
         <div className="mt-4">
@@ -41,15 +39,21 @@ export function BookingRequestQueue({
                 <TableHead>Ends at</TableHead>
                 <TableHead>Submitted</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>
-                  <span className="sr-only">Open request</span>
-                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pendingRequestsOldestFirst.map(request => (
+              {requests.map(request => (
                 <TableRow key={request.id}>
-                  <TableCell>{request.venueName}</TableCell>
+                  <TableCell>
+                    <Link
+                      to="/venue-requests/$requestId"
+                      params={{ requestId: request.id }}
+                      aria-label={`Open request for ${request.venueName}, ${formatLocalDateTime(request.startsAt)}`}
+                      className={NAV_LINK_CLASSNAME}
+                    >
+                      {request.venueName}
+                    </Link>
+                  </TableCell>
                   <TableCell>{formatLocalDateTime(request.startsAt)}</TableCell>
                   <TableCell>{formatLocalDateTime(request.endsAt)}</TableCell>
                   <TableCell>
@@ -59,18 +63,10 @@ export function BookingRequestQueue({
                   </TableCell>
                   <TableCell>
                     {request.conflict ? (
-                      <Badge variant="progress">Overlaps approved booking</Badge>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    <Link
-                      to="/venue-requests/$requestId"
-                      params={{ requestId: request.id }}
-                      aria-label={`Open request for ${request.venueName}`}
-                      className={buttonVariants({ variant: "outline", size: "sm" })}
-                    >
-                      Open
-                    </Link>
+                      <Badge variant="progress">Conflicting booking</Badge>
+                    ) : (
+                      "No conflict"
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
