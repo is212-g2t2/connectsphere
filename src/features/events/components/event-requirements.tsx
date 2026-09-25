@@ -60,7 +60,7 @@ export function EventRequirements({
       {items.map(item => (
         <div key={item.label}>
           <dt className="eyebrow text-muted-foreground">{item.label}</dt>
-          <dd className="mt-1 font-medium text-foreground">{item.value}</dd>
+          <dd className="mt-1 font-medium whitespace-pre-line text-foreground">{item.value}</dd>
         </div>
       ))}
       {children}

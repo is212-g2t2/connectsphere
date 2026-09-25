@@ -44,9 +44,8 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(detailValue("Accessibility").textContent).toBe(
       "Step-free access and two reserved wheelchair spaces."
     );
-    expect(detailValue("Required facilities").textContent).toBe(
-      "Projector\nTwo wireless microphones"
-    );
+    // The canonical requirements treatment labels this pair "Facilities".
+    expect(detailValue("Facilities").textContent).toBe("Projector\nTwo wireless microphones");
     expect(screen.getByText("Overlaps approved booking")).toBeTruthy();
   });
 
@@ -78,7 +77,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(detailValue("Expected attendance").textContent).toBe("120");
     expect(detailValue("Layout").textContent).toBe("Theatre");
     expect(detailValue("Accessibility").textContent).toBe("Hearing loop requested.");
-    expect(detailValue("Required facilities").textContent).toBe("Stage lighting");
+    expect(detailValue("Facilities").textContent).toBe("Stage lighting");
     expect(screen.queryByText("Orchid Room")).toBeNull();
     expect(screen.queryByText("Doors open at 09:00; event starts at 09:30.")).toBeNull();
     expect(screen.queryByText("85")).toBeNull();
@@ -87,7 +86,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(screen.queryByText("Projector")).toBeNull();
   });
 
-  it("makes blank optional fields explicit and preserves long multiline live text (TC13)", () => {
+  it("drops blank optional requirement fields and preserves long multiline live text (TC13)", () => {
     const longMultilineTiming = `Setup starts at 07:30.\nPlease keep the east entrance clear for deliveries.\nThe organising team will arrive at 08:15.`;
     render(
       <BookingRequestDetails
@@ -97,7 +96,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
             ...request.requirements,
             eventTiming: longMultilineTiming,
             expectedAttendance: null,
-            layout: "   ",
+            layout: "",
             accessibility: "",
             requiredFacilities: "",
           },
@@ -109,8 +108,13 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
       (_, element) => element?.tagName === "DD" && element.textContent === longMultilineTiming
     );
     expect(timing.textContent).toBe(longMultilineTiming);
-    expect(screen.getAllByText("None specified")).toHaveLength(4);
     expect(timing.className).toContain("whitespace-pre-line");
+    // The canonical requirements treatment drops a blank term rather than naming a fallback.
+    expect(screen.queryByText("None specified")).toBeNull();
+    expect(screen.queryByText("Expected attendance")).toBeNull();
+    expect(screen.queryByText("Layout")).toBeNull();
+    expect(screen.queryByText("Accessibility")).toBeNull();
+    expect(screen.queryByText("Facilities")).toBeNull();
   });
 
   it("offers no approval, rejection, assignment, or other mutation controls (TC20)", () => {

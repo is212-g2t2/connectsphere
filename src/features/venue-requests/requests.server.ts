@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { createElement } from "react";
 
 import type { db as Db } from "#/db";
@@ -107,16 +107,15 @@ async function hasApprovedConflict(
   return (await loadVenueBookings(database, [venueId], startsAt, endsAt)).length > 0;
 }
 
-async function summarizePendingVenueRequest(
-  database: Database,
+function summarizePendingVenueRequest(
   row: {
     id: string;
-    venueId: number;
     venueName: string;
     startsAt: string;
     endsAt: string;
     submittedAt: Date;
-  }
+  },
+  conflict: boolean
 ) {
   return {
     id: row.id,
@@ -124,8 +123,55 @@ async function summarizePendingVenueRequest(
     startsAt: requestPeriod(row.startsAt),
     endsAt: requestPeriod(row.endsAt),
     submittedAt: row.submittedAt,
-    conflict: await hasApprovedConflict(database, row.venueId, row.startsAt, row.endsAt),
+    conflict,
   };
+}
+
+// ponytail: single batched read replaces N+1 loadVenueBookings per row; re-batch per venue if the
+// pending queue grows large.
+async function pendingConflictIds(
+  database: Database,
+  rows: readonly { id: string; venueId: number; startsAt: string; endsAt: string }[]
+): Promise<Set<string>> {
+  if (rows.length === 0) return new Set();
+
+  const venueIds = [...new Set(rows.map(row => row.venueId))];
+  const minStart = rows.reduce(
+    (min, row) => (row.startsAt < min ? row.startsAt : min),
+    rows[0].startsAt
+  );
+  const maxEnd = rows.reduce((max, row) => (row.endsAt > max ? row.endsAt : max), rows[0].endsAt);
+
+  const bookings = await database
+    .select({
+      venueId: venueRequests.venueId,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+    })
+    .from(venueRequests)
+    .where(
+      and(
+        eq(venueRequests.status, "approved"),
+        inArray(venueRequests.venueId, venueIds),
+        lt(venueRequests.startsAt, maxEnd),
+        gt(venueRequests.endsAt, minStart)
+      )
+    );
+
+  const conflicts = new Set<string>();
+  for (const row of rows) {
+    if (
+      bookings.some(
+        booking =>
+          booking.venueId === row.venueId &&
+          booking.startsAt < row.endsAt &&
+          booking.endsAt > row.startsAt
+      )
+    ) {
+      conflicts.add(row.id);
+    }
+  }
+  return conflicts;
 }
 
 /**
@@ -150,7 +196,8 @@ export async function handleListPendingVenueRequests(database: Database) {
     .where(eq(venueRequests.status, "pending"))
     .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id));
 
-  return Promise.all(rows.map(row => summarizePendingVenueRequest(database, row)));
+  const conflicts = await pendingConflictIds(database, rows);
+  return rows.map(row => summarizePendingVenueRequest(row, conflicts.has(row.id)));
 }
 
 /**
@@ -181,10 +228,14 @@ export async function handleGetPendingVenueRequest(data: unknown, database: Data
     .where(and(eq(venueRequests.id, id), eq(venueRequests.status, "pending")))
     .limit(1);
   const row = rows.at(0);
-  if (!row) throw new NotFoundError("Not Found");
+  // A missing row, or one that already left `pending`, is an ordinary answer the route turns into
+  // its 404, matching `handleGetVenue` and `handleGetEventRequest`.
+  if (!row) return null;
+
+  const conflict = await hasApprovedConflict(database, row.venueId, row.startsAt, row.endsAt);
 
   return {
-    ...(await summarizePendingVenueRequest(database, row)),
+    ...summarizePendingVenueRequest(row, conflict),
     requirements: {
       eventTiming: formatProposedWindow(
         row.proposedDates.find(window => window.start !== undefined && window.end !== undefined) ??

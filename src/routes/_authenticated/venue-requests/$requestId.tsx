@@ -16,7 +16,10 @@ export const Route = createFileRoute("/_authenticated/venue-requests/$requestId"
   loader: async ({ params }) => {
     const parsed = VenueRequestIdInput.safeParse({ id: params.requestId });
     if (!parsed.success) throw notFound();
-    return getPendingVenueRequest({ data: parsed.data });
+    const request = await getPendingVenueRequest({ data: parsed.data });
+    // A missing row, or one that already left `pending`, comes back `null`: both are this 404.
+    if (!request) throw notFound();
+    return request;
   },
   component: () => <BookingRequestDetailsPage request={Route.useLoaderData()} />,
 });

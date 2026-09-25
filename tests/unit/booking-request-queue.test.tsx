@@ -1,9 +1,34 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { BookingRequestQueue } from "#/features/venue-requests/components/booking-request-queue";
 import type { PendingBookingRequest } from "#/features/venue-requests/server-fns";
+
+// The queue links rather than callbacks; the mock substitutes the route params the way
+// coordination-page.test.tsx does, and passes className and aria-label through to the anchor.
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    children,
+    to,
+    params,
+    className,
+    "aria-label": ariaLabel,
+  }: {
+    children: React.ReactNode;
+    to: string;
+    params?: { requestId: string };
+    className?: string;
+    "aria-label"?: string;
+  }) => (
+    <a
+      href={params ? to.replace("$requestId", params.requestId) : to}
+      className={className}
+      aria-label={ariaLabel}
+    >
+      {children}
+    </a>
+  ),
+}));
 
 const firstRequest: PendingBookingRequest = {
   id: "request-001",
@@ -25,12 +50,7 @@ const secondRequest: PendingBookingRequest = {
 
 describe("BookingRequestQueue component slice (PTR-32)", () => {
   it("shows an empty-state message when no pending requests are supplied (TC02)", () => {
-    render(
-      <BookingRequestQueue
-        pendingRequestsOldestFirst={[]}
-        onOpenRequest={vi.fn<(id: string) => void>()}
-      />
-    );
+    render(<BookingRequestQueue pendingRequestsOldestFirst={[]} />);
 
     expect(screen.getByText("No pending booking requests.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
@@ -43,12 +63,7 @@ describe("BookingRequestQueue component slice (PTR-32)", () => {
       venueName: `Venue ${index + 1}`,
     }));
 
-    render(
-      <BookingRequestQueue
-        pendingRequestsOldestFirst={requests}
-        onOpenRequest={vi.fn<(id: string) => void>()}
-      />
-    );
+    render(<BookingRequestQueue pendingRequestsOldestFirst={requests} />);
 
     const rows = screen.getAllByRole("row").slice(1);
     expect(rows).toHaveLength(53);
@@ -69,12 +84,7 @@ describe("BookingRequestQueue component slice (PTR-32)", () => {
     // The equal-time requests deliberately reverse lexical id order.
     const pendingRequestsOldestFirst = Object.freeze([oldestRequest, secondRequest, firstRequest]);
 
-    render(
-      <BookingRequestQueue
-        pendingRequestsOldestFirst={pendingRequestsOldestFirst}
-        onOpenRequest={vi.fn<(id: string) => void>()}
-      />
-    );
+    render(<BookingRequestQueue pendingRequestsOldestFirst={pendingRequestsOldestFirst} />);
 
     const rows = screen.getAllByRole("row").slice(1);
     expect(within(rows[0]).getByText("Late booking, oldest submission")).toBeTruthy();
@@ -90,38 +100,24 @@ describe("BookingRequestQueue component slice (PTR-32)", () => {
     ]);
 
     expect(() =>
-      render(
-        <BookingRequestQueue
-          pendingRequestsOldestFirst={pendingRequestsOldestFirst}
-          onOpenRequest={vi.fn<(id: string) => void>()}
-        />
-      )
+      render(<BookingRequestQueue pendingRequestsOldestFirst={pendingRequestsOldestFirst} />)
     ).not.toThrow();
     expect(pendingRequestsOldestFirst).toEqual([firstRequest, secondRequest]);
   });
 
-  it("opens the selected request's exact id (TC06)", async () => {
-    const onOpenRequest = vi.fn<(id: string) => void>();
-    const user = userEvent.setup();
-    render(
-      <BookingRequestQueue
-        pendingRequestsOldestFirst={[firstRequest, secondRequest]}
-        onOpenRequest={onOpenRequest}
-      />
-    );
+  it("links each row to its request's detail page, named by venue (TC06)", () => {
+    render(<BookingRequestQueue pendingRequestsOldestFirst={[firstRequest, secondRequest]} />);
 
-    await user.click(screen.getByRole("button", { name: "Open request request-002" }));
-
-    expect(onOpenRequest).toHaveBeenCalledExactlyOnceWith("request-002");
+    const orchid = screen.getByRole("link", { name: "Open request for Orchid Room" });
+    expect(orchid.getAttribute("href")).toBe("/venue-requests/request-001");
+    const harbour = screen.getByRole("link", { name: "Open request for Harbour Hall" });
+    expect(harbour.getAttribute("href")).toBe("/venue-requests/request-002");
+    // Opening is a plain navigation now: the queue renders links, not callback buttons.
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("shows supplied venue, local requested times, and submission instant", () => {
-    render(
-      <BookingRequestQueue
-        pendingRequestsOldestFirst={[firstRequest]}
-        onOpenRequest={vi.fn<(id: string) => void>()}
-      />
-    );
+    render(<BookingRequestQueue pendingRequestsOldestFirst={[firstRequest]} />);
 
     const row = screen.getAllByRole("row")[1];
     expect(within(row).getByText("Orchid Room")).toBeTruthy();
@@ -133,12 +129,7 @@ describe("BookingRequestQueue component slice (PTR-32)", () => {
   });
 
   it("flags only rows whose server result reports an approved-booking conflict (TC21)", () => {
-    render(
-      <BookingRequestQueue
-        pendingRequestsOldestFirst={[firstRequest, secondRequest]}
-        onOpenRequest={vi.fn<(id: string) => void>()}
-      />
-    );
+    render(<BookingRequestQueue pendingRequestsOldestFirst={[firstRequest, secondRequest]} />);
 
     expect(screen.getByText("Overlaps approved booking")).toBeTruthy();
     expect(

@@ -1,11 +1,16 @@
 import { Card, CardContent } from "#/components/ui/card";
 import { Badge } from "#/components/ui/badge";
 import { formatInstant, formatLocalDateTime } from "#/features/event-requests/format";
+import { EventRequirements } from "#/features/events/components/event-requirements";
 import type { PendingBookingRequestDetail } from "#/features/venue-requests/server-fns";
 
-const NONE_SPECIFIED = "None specified";
-
-/** A read-only view of the current pending booking-request data supplied by the server reader. */
+/**
+ * A read-only view of the current pending booking-request data supplied by the server reader.
+ * The four operational requirement fields reuse the canonical `EventRequirements` treatment the
+ * venue panel and event cards share, so a blank field drops out rather than reading "None
+ * specified". The server names its accessibility field `accessibility`, so the call site maps it
+ * onto the canonical `accessibilityRequirements`.
+ */
 export function BookingRequestDetails({ request }: { request: PendingBookingRequestDetail }) {
   return (
     <section aria-labelledby="booking-request-details-heading">
@@ -33,26 +38,18 @@ export function BookingRequestDetails({ request }: { request: PendingBookingRequ
             <Detail term="Event timing" wide>
               {request.requirements.eventTiming}
             </Detail>
-            <Detail term="Expected attendance">
-              {orNoneSpecified(request.requirements.expectedAttendance)}
-            </Detail>
-            <Detail term="Layout">{orNoneSpecified(request.requirements.layout)}</Detail>
-            <Detail term="Accessibility">
-              {orNoneSpecified(request.requirements.accessibility)}
-            </Detail>
-            <Detail term="Required facilities" wide>
-              {orNoneSpecified(request.requirements.requiredFacilities)}
-            </Detail>
           </dl>
+          <EventRequirements
+            event={{
+              ...request.requirements,
+              accessibilityRequirements: request.requirements.accessibility,
+            }}
+            className="mt-6"
+          />
         </CardContent>
       </Card>
     </section>
   );
-}
-
-function orNoneSpecified(value: string | number | null): string {
-  if (typeof value === "number") return String(value);
-  return value?.trim() ? value : NONE_SPECIFIED;
 }
 
 function Detail({

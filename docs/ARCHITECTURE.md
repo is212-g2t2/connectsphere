@@ -20,6 +20,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 - [ADR-3: Google Cloud Run in a single GCP project](./adrs/ADR-3-cloud-run.md)
 - [ADR-4: Trunk-based main with release-gated production](./adrs/ADR-4-trunk-based-main.md)
 - [ADR-5: Overlap-free approved bookings, enforced by a Postgres exclusion constraint](./adrs/ADR-5-venue-booking-overlap.md)
+- [ADR-6: Pending booking request detail reads live event requirements](./adrs/ADR-6-venue-request-live-requirements.md)
 
 ## Directory Structure
 
@@ -57,6 +58,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
 │       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues
+│       │   └── venue-requests/ # Pending booking request queue and detail
 │       ├── api/          # Better Auth handler, health, smoke, upload-url
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites

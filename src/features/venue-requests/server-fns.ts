@@ -15,7 +15,7 @@ const log = logger.getChild("venue-requests");
  * pipeline is client-safe, and `./requests.server` and `#/db` are reached inside the handlers,
  * which TanStack Start strips from the client build.
  */
-async function loadVenueRequestServerDependencies() {
+async function loadServer() {
   return Promise.all([import("#/db"), import("#/features/venue-requests/requests.server")]);
 }
 
@@ -32,7 +32,7 @@ export const requireVenueRequestRead = requirePermission({ venue_request: ["read
 export const listPendingVenueRequests = createServerFn({ method: "GET" })
   .middleware([requireVenueRequestRead])
   .handler(async () => {
-    const [{ db }, { handleListPendingVenueRequests }] = await loadVenueRequestServerDependencies();
+    const [{ db }, { handleListPendingVenueRequests }] = await loadServer();
     return handleListPendingVenueRequests(db);
   });
 
@@ -42,11 +42,13 @@ export const getPendingVenueRequest = createServerFn({ method: "GET" })
   .validator(parseVenueRequestId)
   .middleware([requireVenueRequestRead])
   .handler(async ({ data }) => {
-    const [{ db }, { handleGetPendingVenueRequest }] = await loadVenueRequestServerDependencies();
+    const [{ db }, { handleGetPendingVenueRequest }] = await loadServer();
     return handleGetPendingVenueRequest(data, db);
   });
 
-export type PendingBookingRequestDetail = Awaited<ReturnType<typeof getPendingVenueRequest>>;
+export type PendingBookingRequestDetail = NonNullable<
+  Awaited<ReturnType<typeof getPendingVenueRequest>>
+>;
 
 /**
  * The venue page's read. Wrapped in `{ context }` for the reason `getVenue` documents: a nullable
@@ -57,7 +59,7 @@ export const getVenueRequestContext = createServerFn({ method: "GET" })
   .validator(parseVenueRequestContext)
   .middleware([requireVenueRequest])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleGetVenueRequestContext }] = await loadVenueRequestServerDependencies();
+    const [{ db }, { handleGetVenueRequestContext }] = await loadServer();
     return { context: await handleGetVenueRequestContext(data, context.user, db) };
   });
 
@@ -70,7 +72,7 @@ export const requestVenue = createServerFn({ method: "POST" })
   .validator(parseVenueRequestInput)
   .middleware([requireVenueRequest])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleCreateVenueRequest }] = await loadVenueRequestServerDependencies();
+    const [{ db }, { handleCreateVenueRequest }] = await loadServer();
     const request = await handleCreateVenueRequest(data, context.user, db);
 
     log.info("Venue request created", {
@@ -87,7 +89,7 @@ export const withdrawVenueRequest = createServerFn({ method: "POST" })
   .validator(parseVenueRequestId)
   .middleware([requireVenueRequest])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleWithdrawVenueRequest }] = await loadVenueRequestServerDependencies();
+    const [{ db }, { handleWithdrawVenueRequest }] = await loadServer();
     const request = await handleWithdrawVenueRequest(data, context.user, db);
 
     log.info("Venue request withdrawn", {
@@ -109,7 +111,7 @@ export const approveVenueRequest = createServerFn({ method: "POST" })
   .validator(parseVenueRequestId)
   .middleware([requireVenueDecision])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleApproveVenueRequest }] = await loadVenueRequestServerDependencies();
+    const [{ db }, { handleApproveVenueRequest }] = await loadServer();
     const request = await handleApproveVenueRequest(data, context.user, db);
 
     log.info("Venue request approved", {

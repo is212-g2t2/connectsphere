@@ -116,16 +116,19 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
     await expect(
       page.getByRole("heading", { name: "Pending booking requests", level: 1 })
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: `Open request ${requestIds[0]}` })).toBeVisible();
-    await expect(page.getByRole("button", { name: `Open request ${requestIds[1]}` })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: `Open request for ${venueNames[0]}` })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: `Open request for ${venueNames[1]}` })
+    ).toBeVisible();
     await expect(page.getByText("Overlaps approved booking").first()).toBeVisible();
     await expect(page.getByText(approvedEventName, { exact: true })).toHaveCount(0);
 
-    await page.getByRole("button", { name: `Open request ${requestIds[0]}` }).click();
+    await page.getByRole("link", { name: `Open request for ${venueNames[0]}` }).click();
     await waitForHydration(page);
 
     await expect(page.getByRole("heading", { name: "Booking request details" })).toBeVisible();
-    await expect(page.getByText("None specified", { exact: true })).toBeVisible();
     const accessibility = page.locator("dd").filter({ hasText: "Step-free access." }).first();
     const facilities = page.locator("dd").filter({ hasText: "Projector." }).first();
     await expect(accessibility).toBeVisible();

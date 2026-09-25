@@ -133,12 +133,21 @@ describe("pending booking request reader (PTR-32)", () => {
         endsAt: "2037-05-10 11:00:00",
         createdAt: new Date("2037-04-02T01:00:00Z"),
       },
+      // Two pending rows share a `createdAt`; the reader must fall back to ascending id.
       {
-        id: "ptr32-pending-other-venue",
+        id: "ptr32-pending-tie-a",
         eventId,
         venueId: otherVenueId,
         requestedById: organiser.id,
-        assignedStaffId: otherStaff.id,
+        startsAt: APPROVED_START,
+        endsAt: APPROVED_END,
+        createdAt: new Date("2037-04-02T02:00:00Z"),
+      },
+      {
+        id: "ptr32-pending-tie-b",
+        eventId: boundaryEventId,
+        venueId: otherVenueId,
+        requestedById: organiser.id,
         startsAt: APPROVED_START,
         endsAt: APPROVED_END,
         createdAt: new Date("2037-04-02T02:00:00Z"),
@@ -165,30 +174,43 @@ describe("pending booking request reader (PTR-32)", () => {
     ]);
   });
 
-  it("returns every pending row in submission order and flags only strict approved overlaps", async () => {
+  it("returns exactly the pending rows in submission order, tie-breaking by id, and flags only strict approved overlaps", async () => {
     const requests = await handleListPendingVenueRequests(database as never);
     const pendingIds = [
       "ptr32-pending-overlap",
-      "ptr32-pending-other-venue",
+      "ptr32-pending-tie-a",
+      "ptr32-pending-tie-b",
       "ptr32-pending-boundary",
-    ] as const;
-    const relevant = requests.filter(request =>
-      (pendingIds as readonly string[]).includes(request.id)
-    );
+    ];
 
-    expect(relevant.map(request => request.id)).toEqual([...pendingIds]);
-    expect(relevant.map(request => request.conflict)).toEqual([true, false, false]);
-    expect(relevant[0]).toMatchObject({
+    // AC4: neither this suite's `approved` nor `withdrawn` fixture may appear in the queue. Other
+    // suites seed their own legitimate pending rows (e.g. `demo-venue-request-1`), so the strict
+    // order assertions run over only this suite's `ptr32-` fixtures.
+    const receivedIds = requests.map(request => request.id);
+    expect(receivedIds).not.toContain("ptr32-approved-booking");
+    expect(receivedIds).not.toContain("ptr32-withdrawn");
+
+    const ours = requests.filter(request => request.id.startsWith("ptr32-"));
+    expect(ours.map(request => request.id)).toEqual(pendingIds);
+    expect(ours.map(request => request.conflict)).toEqual([true, false, false, false]);
+
+    // Identical `createdAt`, so only the ascending-id tie-break can order these two.
+    const tied = ours.filter(
+      request => request.submittedAt.getTime() === new Date("2037-04-02T02:00:00Z").getTime()
+    );
+    expect(tied.map(request => request.id)).toEqual(["ptr32-pending-tie-a", "ptr32-pending-tie-b"]);
+
+    expect(ours[0]).toMatchObject({
       venueName: VENUE_NAMES[0],
       startsAt: "2037-05-10T10:00",
       endsAt: "2037-05-10T11:00",
       submittedAt: new Date("2037-04-02T01:00:00Z"),
     });
-    expect(relevant[0]).not.toHaveProperty("eventName");
-    expect(relevant[0]).not.toHaveProperty("conflictingEvent");
+    expect(ours[0]).not.toHaveProperty("eventName");
+    expect(ours[0]).not.toHaveProperty("conflictingEvent");
   });
 
-  it("maps the live PTR-31 requirement fields and refuses a request after it leaves pending", async () => {
+  it("maps the live PTR-31 requirement fields and returns null once the request leaves pending", async () => {
     const detail = await handleGetPendingVenueRequest(
       { id: "ptr32-pending-overlap" },
       database as never
@@ -216,9 +238,11 @@ describe("pending booking request reader (PTR-32)", () => {
       .set({ status: "withdrawn" })
       .where(eq(schema.venueRequests.id, "ptr32-pending-overlap"));
 
-    await expect(
-      handleGetPendingVenueRequest({ id: "ptr32-pending-overlap" }, database as never)
-    ).rejects.toMatchObject({ message: "Not Found" });
+    const detailAfterWithdraw = await handleGetPendingVenueRequest(
+      { id: "ptr32-pending-overlap" },
+      database as never
+    );
+    expect(detailAfterWithdraw).toBeNull();
   });
 
   it("does not mutate the pending row while reading its summary or detail", async () => {

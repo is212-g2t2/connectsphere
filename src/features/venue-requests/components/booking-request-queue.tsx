@@ -1,5 +1,7 @@
-import { Button } from "#/components/ui/button";
+import { Link } from "@tanstack/react-router";
+
 import { Badge } from "#/components/ui/badge";
+import { buttonVariants } from "#/components/ui/button";
 import {
   Table,
   TableBody,
@@ -13,14 +15,13 @@ import type { PendingBookingRequest } from "#/features/venue-requests/server-fns
 
 /**
  * A presentational pending queue. Its caller owns the pending filter, oldest-first ordering, and
- * access checks; this component only renders the supplied records and reports a selected id.
+ * access checks; this component only renders the supplied records and links each to its detail
+ * page.
  */
 export function BookingRequestQueue({
   pendingRequestsOldestFirst,
-  onOpenRequest,
 }: {
   pendingRequestsOldestFirst: readonly PendingBookingRequest[];
-  onOpenRequest: (id: string) => void;
 }) {
   return (
     <section aria-labelledby="pending-booking-requests-heading">
@@ -62,15 +63,14 @@ export function BookingRequestQueue({
                     ) : null}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      aria-label={`Open request ${request.id}`}
-                      onClick={() => onOpenRequest(request.id)}
+                    <Link
+                      to="/venue-requests/$requestId"
+                      params={{ requestId: request.id }}
+                      aria-label={`Open request for ${request.venueName}`}
+                      className={buttonVariants({ variant: "outline", size: "sm" })}
                     >
                       Open
-                    </Button>
+                    </Link>
                   </TableCell>
                 </TableRow>
               ))}
