@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { createElement } from "react";
 
 import type { db as Db } from "#/db";
@@ -7,6 +7,7 @@ import { AuthorizationError, ConflictError, NotFoundError } from "#/features/aut
 import type { SessionUser } from "#/features/auth/session";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
+import { formatProposedWindow } from "#/features/event-requests/format";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import {
   VENUE_REQUEST_CONFLICT_MESSAGE,
@@ -94,6 +95,166 @@ function rethrowDuplicate(error: unknown): never {
 }
 
 /**
+ * The client speaks `datetime-local` (`YYYY-MM-DDTHH:MM`), the spelling `proposedDates`
+ * and `formatProposedWindow` already use; the stored seconds are display noise.
+ */
+function toLocalMinuteValue(value: string): string {
+  return normalizeDatabaseTimestamp(value).slice(0, 16);
+}
+
+async function hasApprovedConflict(
+  database: Database,
+  venueId: number,
+  startsAt: string,
+  endsAt: string
+): Promise<boolean> {
+  return (await loadVenueBookings(database, [venueId], startsAt, endsAt)).length > 0;
+}
+
+function summarizePendingVenueRequest(
+  row: {
+    id: string;
+    venueName: string;
+    startsAt: string;
+    endsAt: string;
+    submittedAt: Date;
+  },
+  conflict: boolean
+) {
+  return {
+    id: row.id,
+    venueName: row.venueName,
+    startsAt: toLocalMinuteValue(row.startsAt),
+    endsAt: toLocalMinuteValue(row.endsAt),
+    submittedAt: row.submittedAt,
+    conflict,
+  };
+}
+
+// ponytail: single batched read replaces N+1 loadVenueBookings per row; re-batch per venue if the
+// pending queue grows large.
+async function pendingConflictIds(
+  database: Database,
+  rows: readonly { id: string; venueId: number; startsAt: string; endsAt: string }[]
+): Promise<Set<string>> {
+  if (rows.length === 0) return new Set();
+
+  const venueIds = [...new Set(rows.map(row => row.venueId))];
+  const minStart = rows.reduce(
+    (min, row) => (row.startsAt < min ? row.startsAt : min),
+    rows[0].startsAt
+  );
+  const maxEnd = rows.reduce((max, row) => (row.endsAt > max ? row.endsAt : max), rows[0].endsAt);
+
+  const bookings = await database
+    .select({
+      venueId: venueRequests.venueId,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+    })
+    .from(venueRequests)
+    .where(
+      and(
+        eq(venueRequests.status, "approved"),
+        inArray(venueRequests.venueId, venueIds),
+        lt(venueRequests.startsAt, maxEnd),
+        gt(venueRequests.endsAt, minStart)
+      )
+    );
+
+  const conflicts = new Set<string>();
+  for (const row of rows) {
+    if (
+      bookings.some(
+        booking =>
+          booking.venueId === row.venueId &&
+          booking.startsAt < row.endsAt &&
+          booking.endsAt > row.startsAt
+      )
+    ) {
+      conflicts.add(row.id);
+    }
+  }
+  return conflicts;
+}
+
+/**
+ * PTR-32 AC1–AC2 and AC5: the shared Venue Staff queue. The status filter and submission ordering
+ * live in the reader rather than in the table component, so every caller receives all pending rows
+ * (including multiple rows for one event) in one stable order. Conflict detection batches every
+ * pending row through `pendingConflictIds`, one approved-only read for the whole queue rather than
+ * the per-row `loadVenueBookings` from PTR-36; pending and withdrawn rows never become bookings and
+ * a touching boundary remains available.
+ */
+export async function handleListPendingVenueRequests(database: Database) {
+  const rows = await database
+    .select({
+      id: venueRequests.id,
+      venueId: venueRequests.venueId,
+      venueName: venues.name,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+      submittedAt: venueRequests.createdAt,
+    })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .where(eq(venueRequests.status, "pending"))
+    .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id));
+
+  const conflicts = await pendingConflictIds(database, rows);
+  return rows.map(row => summarizePendingVenueRequest(row, conflicts.has(row.id)));
+}
+
+/**
+ * PTR-32 AC3 and TC12's refreshed contract: detail reads the current PTR-31 event requirement
+ * fields, because main does not persist a requirement snapshot on `venue_requests`. It still
+ * projects only venue, requested period, submission instant and operational requirements; event
+ * names and conflicting-event details remain outside the Venue Staff contract.
+ */
+export async function handleGetPendingVenueRequest(data: unknown, database: Database) {
+  const { id } = parseVenueRequestId(data);
+  const rows = await database
+    .select({
+      id: venueRequests.id,
+      venueId: venueRequests.venueId,
+      venueName: venues.name,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+      submittedAt: venueRequests.createdAt,
+      proposedDates: eventRequests.proposedDates,
+      expectedAttendance: eventRequests.expectedAttendance,
+      layout: eventRequests.roomLayoutPreference,
+      accessibility: eventRequests.accessibilityRequirements,
+      requiredFacilities: eventRequests.venueRequirements,
+    })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+    .where(and(eq(venueRequests.id, id), eq(venueRequests.status, "pending")))
+    .limit(1);
+  const row = rows.at(0);
+  // A missing row, or one that already left `pending`, is an ordinary answer the route turns into
+  // its 404, matching `handleGetVenue` and `handleGetEventRequest`.
+  if (!row) return null;
+
+  const conflict = await hasApprovedConflict(database, row.venueId, row.startsAt, row.endsAt);
+
+  return {
+    ...summarizePendingVenueRequest(row, conflict),
+    requirements: {
+      eventTiming: formatProposedWindow(
+        row.proposedDates.find(window => window.start !== undefined && window.end !== undefined) ??
+          {}
+      ),
+      expectedAttendance: row.expectedAttendance,
+      layout: row.layout,
+      accessibility: row.accessibility,
+      requiredFacilities: row.requiredFacilities,
+    },
+  };
+}
+
+/**
  * What the venue page's request panel needs: the caller's event defaults, and the pending request
  * for this event and venue when one exists. The event is loaded by id alone rather than filtered to
  * the current assignee, so the panel stays reachable after the event moves past `submitted` or is
@@ -173,10 +334,8 @@ export async function handleGetVenueRequestContext(
     request: request
       ? {
           id: request.id,
-          // The client speaks `datetime-local` (`YYYY-MM-DDTHH:MM`), the spelling `proposedDates`
-          // and `formatProposedWindow` already use; the stored seconds are display noise.
-          startsAt: normalizeDatabaseTimestamp(request.startsAt).slice(0, 16),
-          endsAt: normalizeDatabaseTimestamp(request.endsAt).slice(0, 16),
+          startsAt: toLocalMinuteValue(request.startsAt),
+          endsAt: toLocalMinuteValue(request.endsAt),
           canWithdraw: raisedByCaller,
         }
       : null,

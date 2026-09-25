@@ -5,8 +5,8 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import type { Role } from "#/features/auth/schema/role";
 
 /**
- * The role/function matrix of PTR-7, PTR-9, PTR-15, PTR-26 and PTR-31, restated independently of
- * `permissions.ts`.
+ * The role/function matrix of PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32 and PTR-36, restated
+ * independently of `permissions.ts`.
  *
  * The duplication is deliberate: widening a role has to be written twice and can never be a
  * slip. `Record<Role, …>` covers completeness, so a new role fails `type:check` before it
@@ -23,6 +23,7 @@ const EXPECTED: Record<
     venueCreate: boolean;
     venueUpdate: boolean;
     venueRequest: boolean;
+    venueRequestRead: boolean;
     venueDecide: boolean;
   }
 > = {
@@ -35,6 +36,7 @@ const EXPECTED: Record<
     venueCreate: false,
     venueUpdate: false,
     venueRequest: false,
+    venueRequestRead: false,
     venueDecide: false,
   },
   event_organiser: {
@@ -46,6 +48,7 @@ const EXPECTED: Record<
     venueCreate: false,
     venueUpdate: false,
     venueRequest: false,
+    venueRequestRead: false,
     venueDecide: false,
   },
   event_coordinator: {
@@ -57,6 +60,7 @@ const EXPECTED: Record<
     venueCreate: false,
     venueUpdate: false,
     venueRequest: true,
+    venueRequestRead: false,
     venueDecide: false,
   },
   venue_staff: {
@@ -68,6 +72,7 @@ const EXPECTED: Record<
     venueCreate: true,
     venueUpdate: true,
     venueRequest: false,
+    venueRequestRead: true,
     venueDecide: true,
   },
   technical_support_staff: {
@@ -79,11 +84,12 @@ const EXPECTED: Record<
     venueCreate: false,
     venueUpdate: false,
     venueRequest: false,
+    venueRequestRead: false,
     venueDecide: false,
   },
 };
 
-describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-36)", () => {
+describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
     expect(can(role, { upload: ["create"] })).toBe(EXPECTED[role].upload);
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
@@ -93,6 +99,7 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-36)", 
     expect(can(role, { venue: ["create"] })).toBe(EXPECTED[role].venueCreate);
     expect(can(role, { venue: ["update"] })).toBe(EXPECTED[role].venueUpdate);
     expect(can(role, { venue_request: ["request"] })).toBe(EXPECTED[role].venueRequest);
+    expect(can(role, { venue_request: ["read"] })).toBe(EXPECTED[role].venueRequestRead);
     expect(can(role, { venue_request: ["decide"] })).toBe(EXPECTED[role].venueDecide);
   });
 

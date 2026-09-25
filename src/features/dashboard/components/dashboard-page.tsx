@@ -71,6 +71,12 @@ export function DashboardPage({ user, events }: { user: SessionUser; events: Eve
             Venue calendar
           </Link>
         )}
+
+        {can(user.role, { venue_request: ["read"] }) && (
+          <Link to="/venue-requests" className={NAV_LINK_CLASSNAME}>
+            Booking requests
+          </Link>
+        )}
       </div>
 
       {can(user.role, { upload: ["create"] }) && <FileUploadCard />}

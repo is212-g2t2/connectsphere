@@ -57,6 +57,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
 │       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues
+│       │   └── venue-requests/ # Pending booking request queue and detail
 │       ├── api/          # Better Auth handler, health, smoke, upload-url
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
@@ -123,9 +124,10 @@ Source of truth is `src/features/auth/permissions.ts`, held to this table by `te
 | `venue:create`             |    —     |        —        |         —         |     ✅      |            —            |
 | `venue:update`             |    —     |        —        |         —         |     ✅      |            —            |
 | `venue_request:request`    |    —     |        —        |        ✅         |      —      |            —            |
+| `venue_request:read`       |    —     |        —        |         —         |     ✅      |            —            |
 | `venue_request:decide`     |    —     |        —        |         —         |     ✅      |            —            |
 
-`attendee` holds an empty role: `ac.newRole({})` authorizes nothing, the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one: both roles are self-assignable, so anyone set on uploading can register again as an organiser. `event_request:coordinate` is deliberately disjoint from `create`. All three internal roles may read the venue catalogue and availability; only Event Coordinators may search it against event requirements, and only Venue Staff may create or update records. `venue_request:request` is the Coordinator's raise-and-withdraw verb. Raising re-reads the event's assignment, so it acts only on the caller's own submitted event; withdrawing authorizes on the request's raiser, so the raiser keeps the power while the request is pending, even after the event moves past `submitted` or is reassigned; the new assignee cannot withdraw a request they did not raise. `venue_request:decide` is Venue Staff's approval verb; the handler re-reads the shared-queue rule, so a row assigned to another staff member is refused. Equipment functions are absent because the resource does not exist yet.
+`attendee` holds an empty role: `ac.newRole({})` authorizes nothing, the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one: both roles are self-assignable, so anyone set on uploading can register again as an organiser. `event_request:coordinate` is deliberately disjoint from `create`. All three internal roles may read the venue catalogue and availability; only Event Coordinators may search it against event requirements, and only Venue Staff may create or update records. `venue_request:request` is the Coordinator's raise-and-withdraw verb. Raising re-reads the event's assignment, so it acts only on the caller's own submitted event; withdrawing authorizes on the request's raiser, so the raiser keeps the power while the request is pending, even after the event moves past `submitted` or is reassigned; the new assignee cannot withdraw a request they did not raise. `venue_request:read` is the Venue Staff shared pending queue and read-only detail permission; it is separate from `venue_request:decide`, so reading the queue does not grant approval authority. `venue_request:decide` is Venue Staff's approval verb; the handler re-reads the shared-queue rule, so a row assigned to another staff member is refused. Equipment functions are absent because the resource does not exist yet.
 
 ### Enforcing it
 

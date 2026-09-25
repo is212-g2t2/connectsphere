@@ -26,6 +26,30 @@ async function loadServer() {
  */
 export const requireVenueRequest = requirePermission({ venue_request: ["request"] });
 
+/** PTR-32: Venue Staff may read the shared pending queue without gaining the approval verb. */
+export const requireVenueRequestRead = requirePermission({ venue_request: ["read"] });
+
+export const listPendingVenueRequests = createServerFn({ method: "GET" })
+  .middleware([requireVenueRequestRead])
+  .handler(async () => {
+    const [{ db }, { handleListPendingVenueRequests }] = await loadServer();
+    return handleListPendingVenueRequests(db);
+  });
+
+export type PendingVenueRequest = Awaited<ReturnType<typeof listPendingVenueRequests>>[number];
+
+export const getPendingVenueRequest = createServerFn({ method: "GET" })
+  .validator(parseVenueRequestId)
+  .middleware([requireVenueRequestRead])
+  .handler(async ({ data }) => {
+    const [{ db }, { handleGetPendingVenueRequest }] = await loadServer();
+    return handleGetPendingVenueRequest(data, db);
+  });
+
+export type PendingVenueRequestDetail = NonNullable<
+  Awaited<ReturnType<typeof getPendingVenueRequest>>
+>;
+
 /**
  * The venue page's read. Wrapped in `{ context }` for the reason `getVenue` documents: a nullable
  * top-level result infers as `never`. A `null` context is an ordinary answer — the venue page

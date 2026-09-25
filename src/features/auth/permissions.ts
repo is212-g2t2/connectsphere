@@ -18,7 +18,7 @@ const statement = {
   upload: ["create"],
   event_request: ["create", "coordinate"],
   venue: ["create", "update", "read", "search"],
-  venue_request: ["request", "decide"],
+  venue_request: ["request", "read", "decide"],
 } as const;
 
 const ac = createAccessControl(statement);
@@ -38,8 +38,9 @@ const ac = createAccessControl(statement);
  *
  * `venue_request:request` (PTR-31) is what a Coordinator raises and withdraws a booking request
  * with; the handler re-reads the event's assignment, so the function says "may ask", not "may ask
- * for any event". `venue_request:decide` (PTR-36) is the Venue Staff verb that approves one; the
- * handler re-reads the shared-queue rule, so it says "may settle", not "may settle any row".
+ * for any event". `venue_request:read` (PTR-32) is the shared Venue Staff queue read, while
+ * `venue_request:decide` (PTR-36) is the verb that approves one; the handlers re-read their data
+ * rules, so these permissions never grant access to another role's event or row.
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
@@ -55,7 +56,7 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   venue_staff: ac.newRole({
     upload: ["create"],
     venue: ["create", "update", "read"],
-    venue_request: ["decide"],
+    venue_request: ["read", "decide"],
   }),
   technical_support_staff: ac.newRole({ upload: ["create"], venue: ["read"] }),
 };

@@ -26,6 +26,8 @@ import { Route as AuthenticatedCoordinationRequestIdRouteImport } from './routes
 import { Route as AuthenticatedEventRequestsIndexRouteImport } from './routes/_authenticated/event-requests/index'
 import { Route as AuthenticatedEventRequestsRequestIdRouteImport } from './routes/_authenticated/event-requests/$requestId'
 import { Route as AuthenticatedEventRequestsNewRouteImport } from './routes/_authenticated/event-requests/new'
+import { Route as AuthenticatedVenueRequestsIndexRouteImport } from './routes/_authenticated/venue-requests/index'
+import { Route as AuthenticatedVenueRequestsRequestIdRouteImport } from './routes/_authenticated/venue-requests/$requestId'
 import { Route as AuthenticatedVenuesIndexRouteImport } from './routes/_authenticated/venues/index'
 import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authenticated/venues/$venueId'
 import { Route as AuthenticatedVenuesAvailabilityRouteImport } from './routes/_authenticated/venues/availability'
@@ -122,6 +124,18 @@ const AuthenticatedEventRequestsNewRoute =
     path: '/event-requests/new',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedVenueRequestsIndexRoute =
+  AuthenticatedVenueRequestsIndexRouteImport.update({
+    id: '/venue-requests/',
+    path: '/venue-requests/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedVenueRequestsRequestIdRoute =
+  AuthenticatedVenueRequestsRequestIdRouteImport.update({
+    id: '/venue-requests/$requestId',
+    path: '/venue-requests/$requestId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedVenuesIndexRoute =
   AuthenticatedVenuesIndexRouteImport.update({
     id: '/venues/',
@@ -172,12 +186,14 @@ export interface FileRoutesByFullPath {
   '/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
+  '/venue-requests/$requestId': typeof AuthenticatedVenueRequestsRequestIdRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/coordination/': typeof AuthenticatedCoordinationIndexRoute
   '/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
+  '/venue-requests/': typeof AuthenticatedVenueRequestsIndexRoute
   '/venues/': typeof AuthenticatedVenuesIndexRoute
   '/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
 }
@@ -196,12 +212,14 @@ export interface FileRoutesByTo {
   '/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
+  '/venue-requests/$requestId': typeof AuthenticatedVenueRequestsRequestIdRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/coordination': typeof AuthenticatedCoordinationIndexRoute
   '/event-requests': typeof AuthenticatedEventRequestsIndexRoute
+  '/venue-requests': typeof AuthenticatedVenueRequestsIndexRoute
   '/venues': typeof AuthenticatedVenuesIndexRoute
   '/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
 }
@@ -222,12 +240,14 @@ export interface FileRoutesById {
   '/_authenticated/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
   '/_authenticated/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/_authenticated/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
+  '/_authenticated/venue-requests/$requestId': typeof AuthenticatedVenueRequestsRequestIdRoute
   '/_authenticated/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/_authenticated/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
   '/_authenticated/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_authenticated/coordination/': typeof AuthenticatedCoordinationIndexRoute
   '/_authenticated/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
+  '/_authenticated/venue-requests/': typeof AuthenticatedVenueRequestsIndexRoute
   '/_authenticated/venues/': typeof AuthenticatedVenuesIndexRoute
   '/_authenticated/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
 }
@@ -248,12 +268,14 @@ export interface FileRouteTypes {
     | '/coordination/$requestId'
     | '/event-requests/$requestId'
     | '/event-requests/new'
+    | '/venue-requests/$requestId'
     | '/venues/$venueId'
     | '/venues/availability'
     | '/venues/new'
     | '/api/auth/$'
     | '/coordination/'
     | '/event-requests/'
+    | '/venue-requests/'
     | '/venues/'
     | '/event-requests/reopenDraft/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -272,12 +294,14 @@ export interface FileRouteTypes {
     | '/coordination/$requestId'
     | '/event-requests/$requestId'
     | '/event-requests/new'
+    | '/venue-requests/$requestId'
     | '/venues/$venueId'
     | '/venues/availability'
     | '/venues/new'
     | '/api/auth/$'
     | '/coordination'
     | '/event-requests'
+    | '/venue-requests'
     | '/venues'
     | '/event-requests/reopenDraft/$id'
   id:
@@ -297,12 +321,14 @@ export interface FileRouteTypes {
     | '/_authenticated/coordination/$requestId'
     | '/_authenticated/event-requests/$requestId'
     | '/_authenticated/event-requests/new'
+    | '/_authenticated/venue-requests/$requestId'
     | '/_authenticated/venues/$venueId'
     | '/_authenticated/venues/availability'
     | '/_authenticated/venues/new'
     | '/api/auth/$'
     | '/_authenticated/coordination/'
     | '/_authenticated/event-requests/'
+    | '/_authenticated/venue-requests/'
     | '/_authenticated/venues/'
     | '/_authenticated/event-requests/reopenDraft/$id'
   fileRoutesById: FileRoutesById
@@ -442,6 +468,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedEventRequestsNewRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/venue-requests/': {
+      id: '/_authenticated/venue-requests/'
+      path: '/venue-requests'
+      fullPath: '/venue-requests/'
+      preLoaderRoute: typeof AuthenticatedVenueRequestsIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/venue-requests/$requestId': {
+      id: '/_authenticated/venue-requests/$requestId'
+      path: '/venue-requests/$requestId'
+      fullPath: '/venue-requests/$requestId'
+      preLoaderRoute: typeof AuthenticatedVenueRequestsRequestIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/venues/': {
       id: '/_authenticated/venues/'
       path: '/venues'
@@ -493,11 +533,13 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCoordinationRequestIdRoute: typeof AuthenticatedCoordinationRequestIdRoute
   AuthenticatedEventRequestsRequestIdRoute: typeof AuthenticatedEventRequestsRequestIdRoute
   AuthenticatedEventRequestsNewRoute: typeof AuthenticatedEventRequestsNewRoute
+  AuthenticatedVenueRequestsRequestIdRoute: typeof AuthenticatedVenueRequestsRequestIdRoute
   AuthenticatedVenuesVenueIdRoute: typeof AuthenticatedVenuesVenueIdRoute
   AuthenticatedVenuesAvailabilityRoute: typeof AuthenticatedVenuesAvailabilityRoute
   AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
   AuthenticatedCoordinationIndexRoute: typeof AuthenticatedCoordinationIndexRoute
   AuthenticatedEventRequestsIndexRoute: typeof AuthenticatedEventRequestsIndexRoute
+  AuthenticatedVenueRequestsIndexRoute: typeof AuthenticatedVenueRequestsIndexRoute
   AuthenticatedVenuesIndexRoute: typeof AuthenticatedVenuesIndexRoute
   AuthenticatedEventRequestsReopenDraftIdRoute: typeof AuthenticatedEventRequestsReopenDraftIdRoute
 }
@@ -510,11 +552,14 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedEventRequestsRequestIdRoute:
     AuthenticatedEventRequestsRequestIdRoute,
   AuthenticatedEventRequestsNewRoute: AuthenticatedEventRequestsNewRoute,
+  AuthenticatedVenueRequestsRequestIdRoute:
+    AuthenticatedVenueRequestsRequestIdRoute,
   AuthenticatedVenuesVenueIdRoute: AuthenticatedVenuesVenueIdRoute,
   AuthenticatedVenuesAvailabilityRoute: AuthenticatedVenuesAvailabilityRoute,
   AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
   AuthenticatedCoordinationIndexRoute: AuthenticatedCoordinationIndexRoute,
   AuthenticatedEventRequestsIndexRoute: AuthenticatedEventRequestsIndexRoute,
+  AuthenticatedVenueRequestsIndexRoute: AuthenticatedVenueRequestsIndexRoute,
   AuthenticatedVenuesIndexRoute: AuthenticatedVenuesIndexRoute,
   AuthenticatedEventRequestsReopenDraftIdRoute:
     AuthenticatedEventRequestsReopenDraftIdRoute,
