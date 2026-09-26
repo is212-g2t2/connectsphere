@@ -1,11 +1,13 @@
 import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { createElement } from "react";
+import type { ReactElement } from "react";
 
 import type { db as Db } from "#/db";
 import { eventRequests, user, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
+import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
 import { formatProposedWindow } from "#/features/event-requests/format";
@@ -14,7 +16,9 @@ import {
   VENUE_REQUEST_CONFLICT_MESSAGE,
   VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
+  VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
+  parseVenueRejectionInput,
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
@@ -102,6 +106,54 @@ function rethrowDuplicate(error: unknown): never {
 function rethrowOverlap(error: unknown): never {
   if (!isConstraintViolation(error, "venue_requests_no_overlap")) throw error;
   throw new ConflictError(VENUE_REQUEST_CONFLICT_MESSAGE);
+}
+
+/**
+ * What a decision email needs, read in the decision's own transaction: the event, the venue, and
+ * the address of the Coordinator who raised the request. That Coordinator is the raiser
+ * (`requestedById`), not the event's current assignee; a raiser whose account is gone has no
+ * address, so `requesterEmail` may be null.
+ */
+async function loadDecisionNotice(database: Pick<Database, "select">, id: string) {
+  const [notice] = await database
+    .select({
+      eventName: eventRequests.eventName,
+      venueName: venues.name,
+      requesterEmail: user.email,
+    })
+    .from(venueRequests)
+    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .leftJoin(user, eq(user.id, venueRequests.requestedById))
+    .where(eq(venueRequests.id, id))
+    .limit(1);
+  return notice;
+}
+
+/**
+ * Best effort, like the request notification: the decision is committed, and a mail outage must
+ * not turn a held venue or a recorded rejection into a failure. A missing address is logged rather
+ * than silent.
+ */
+async function notifyRaiser(
+  requestId: string,
+  requesterEmail: string | null,
+  subject: string,
+  body: ReactElement,
+  decision: "approval" | "rejection"
+) {
+  if (!requesterEmail) {
+    log.warn(`No Coordinator to notify of the venue ${decision}`, { requestId });
+    return;
+  }
+  try {
+    await sendEmail(requesterEmail, subject, body);
+  } catch (error) {
+    log.warn(`Venue ${decision} notification failed`, {
+      requestId,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
 }
 
 /**
@@ -466,6 +518,7 @@ export async function handleWithdrawVenueRequest(
     const row = rows.at(0);
     if (!row) throw new NotFoundError("Not Found");
     if (row.requestedById !== actor.id) throw new AuthorizationError("Forbidden");
+    if (row.status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
     if (row.status !== "pending") {
       throw new ConflictError(VENUE_REQUEST_SETTLED_MESSAGE);
     }
@@ -522,6 +575,7 @@ export async function handleApproveVenueRequest(
       // otherwise deadlock on it (Postgres documents the race) and the loser would be a fault.
       await tx.execute(sql`select pg_advisory_xact_lock(${row.venueId})`);
 
+      if (row.status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
       if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
 
       // Under the lock this pre-check cannot race another approval; the constraint below is the
@@ -550,48 +604,111 @@ export async function handleApproveVenueRequest(
         .where(eq(venueRequests.id, id))
         .returning();
 
-      // Resolved in the transaction, the canonical shape; the send runs after the commit. A
-      // requester whose account is gone has no address to tell, and the approval still stands.
-      const [notice] = await tx
-        .select({
-          eventName: eventRequests.eventName,
-          venueName: venues.name,
-          requesterEmail: user.email,
-        })
-        .from(venueRequests)
-        .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
-        .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-        .leftJoin(user, eq(user.id, venueRequests.requestedById))
-        .where(eq(venueRequests.id, id))
-        .limit(1);
+      // The send runs after the commit.
+      const notice = await loadDecisionNotice(tx, id);
       return { approved, notice };
     })
     .catch(rethrowOverlap);
 
   const { approved, notice } = decided;
-  if (notice.requesterEmail) {
-    // Best effort, like the request notification: the booking is committed, and a mail outage
-    // must not turn a held venue into a failed approval.
-    try {
-      await sendEmail(
-        notice.requesterEmail,
-        `Venue booking approved: ${notice.venueName}`,
-        createElement(VenueBookingApprovedEmail, {
-          eventName: notice.eventName,
-          venueName: notice.venueName,
-          startsAt: approved.startsAt,
-          endsAt: approved.endsAt,
-        })
-      );
-    } catch (error) {
-      log.warn("Venue approval notification failed", {
-        requestId: approved.id,
-        errorName: error instanceof Error ? error.name : "unknown",
-      });
-    }
-  } else {
-    log.warn("No Coordinator to notify of the venue approval", { requestId: approved.id });
-  }
+  await notifyRaiser(
+    approved.id,
+    notice.requesterEmail,
+    `Venue booking approved: ${notice.venueName}`,
+    createElement(VenueBookingApprovedEmail, {
+      eventName: notice.eventName,
+      venueName: notice.venueName,
+      startsAt: approved.startsAt,
+      endsAt: approved.endsAt,
+    }),
+    "approval"
+  );
 
   return approved;
+}
+
+/**
+ * PTR-34: Venue Staff settle a pending request by rejecting it with a reason, and may attach a
+ * suggested alternative (venue, date or time, each optional). It follows the approval's row lock
+ * and queue rule, so an approval and a rejection racing for one request settle it exactly once. No
+ * venue lock is needed: a rejection holds nothing, and the exclusion constraint only reads
+ * `approved`. The raising Coordinator is emailed after the commit.
+ *
+ * A rejected request is final: approving, withdrawing or rejecting it again is refused with the
+ * sentence that tells the Coordinator to raise a new request. The partial unique index covers only
+ * pending rows, so raising one is always open.
+ */
+export async function handleRejectVenueRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseVenueRejectionInput(data);
+
+  const decided = await database.transaction(async tx => {
+    const rows = await tx
+      .select({ status: venueRequests.status, assignedStaffId: venueRequests.assignedStaffId })
+      .from(venueRequests)
+      .where(eq(venueRequests.id, input.id))
+      .limit(1)
+      .for("update");
+    const row = rows.at(0);
+    if (!row) throw new NotFoundError("Not Found");
+    if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
+    if (row.status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
+    if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
+
+    // The suggestion is optional, but a venue it names must exist; the same refusal a request for
+    // a missing venue gets, and the name is what the email shows.
+    let suggestedVenueName: string | undefined;
+    if (input.suggestedVenueId !== undefined) {
+      const venueRows = await tx
+        .select({ name: venues.name })
+        .from(venues)
+        .where(eq(venues.id, input.suggestedVenueId))
+        .limit(1);
+      if (!venueRows[0]) throw new NotFoundError("Not Found");
+      suggestedVenueName = venueRows[0].name;
+    }
+
+    const [updated] = await tx
+      .update(venueRequests)
+      .set({
+        status: "rejected",
+        assignedStaffId: actor.id,
+        rejectionReason: input.reason,
+        suggestedVenueId: input.suggestedVenueId ?? null,
+        suggestedDate: input.suggestedDate ?? null,
+        suggestedStartTime: input.suggestedStartTime ?? null,
+        suggestedEndTime: input.suggestedEndTime ?? null,
+      })
+      .where(eq(venueRequests.id, input.id))
+      .returning();
+
+    const notice = await loadDecisionNotice(tx, input.id);
+    return { rejected: updated, notice, suggestedVenueName };
+  });
+
+  const { rejected, notice, suggestedVenueName } = decided;
+  await notifyRaiser(
+    rejected.id,
+    notice.requesterEmail,
+    `Venue booking rejected: ${notice.venueName}`,
+    createElement(VenueBookingRejectedEmail, {
+      eventName: notice.eventName,
+      venueName: notice.venueName,
+      startsAt: rejected.startsAt,
+      endsAt: rejected.endsAt,
+      reason: input.reason,
+      suggestion: {
+        venueName: suggestedVenueName,
+        date: input.suggestedDate,
+        startTime: input.suggestedStartTime,
+        endTime: input.suggestedEndTime,
+      },
+    }),
+    "rejection"
+  );
+
+  return rejected;
 }

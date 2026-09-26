@@ -5,6 +5,7 @@ import { BookingRequestDetailsPage } from "#/features/venue-requests/components/
 import { BookingRequestDetailsSkeleton } from "#/features/venue-requests/components/booking-request-details-skeleton";
 import { VenueRequestIdInput } from "#/features/venue-requests/schema";
 import { getPendingVenueRequest } from "#/features/venue-requests/server-fns";
+import { listVenues } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/venue-requests/$requestId")({
@@ -14,19 +15,27 @@ export const Route = createFileRoute("/_authenticated/venue-requests/$requestId"
       throw redirect({ to: "/dashboard" });
     }
   },
-  loader: async ({ params }) => {
+  loader: async ({ params, context }) => {
     const parsed = VenueRequestIdInput.safeParse({ id: params.requestId });
     if (!parsed.success) throw notFound();
-    const request = await getPendingVenueRequest({ data: parsed.data });
+    const [request, venues] = await Promise.all([
+      getPendingVenueRequest({ data: parsed.data }),
+      // Only a role that may reject offers a suggested venue, and it picks from the catalogue.
+      can(context.user.role, { venue_request: ["decide"] }) ? listVenues() : [],
+    ]);
     // A missing row, or one that already left `pending`, comes back `null`: both are this 404.
     if (!request) throw notFound();
-    return request;
+    return { request, venues: venues.map(({ id, name }) => ({ id, name })) };
   },
-  component: () => (
-    <BookingRequestDetailsPage
-      request={Route.useLoaderData()}
-      user={Route.useRouteContext().user}
-    />
-  ),
+  component: () => {
+    const { request, venues } = Route.useLoaderData();
+    return (
+      <BookingRequestDetailsPage
+        request={request}
+        venues={venues}
+        user={Route.useRouteContext().user}
+      />
+    );
+  },
   pendingComponent: BookingRequestDetailsSkeleton,
 });

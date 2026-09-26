@@ -49,7 +49,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── event-requests/ # Requirement capture, drafts, submission
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view
-│   │   ├── venue-requests/ # Booking requests: raise, withdraw, approve, notify
+│   │   ├── venue-requests/ # Booking requests: raise, withdraw, approve, reject, notify
 │   │   └── venues/       # Venue catalogue, requirements search with suitability verdicts, and availability
 │   ├── hooks/            # Client hooks shared across features
 │   ├── lib/              # Shared integrations (auth, mail, storage, logger, SEO)
@@ -57,7 +57,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
 │       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues
-│       │   └── venue-requests/ # Pending booking request queue, detail and approval
+│       │   └── venue-requests/ # Pending booking request queue, detail, approval and rejection
 │       ├── api/          # Better Auth handler, health, smoke, upload-url
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
@@ -100,7 +100,7 @@ Handled by **Better Auth**; rate limited to 20 requests per 60-second window.
 
 `evaluateVenueSuitability` (`src/features/venues/records.server.ts`) checks every applied requirement — capacity, location, layout, accessibility and facility phrases, availability for the window — and returns `{ suitable, failures }` with each failing criterion named in a sentence. `handleSearchVenues` sorts the catalogue by that verdict into `venues` and `unsuitable`, and the `/venues` page lists the shortfalls beneath the results. A verdict writes nothing; Venue Staff still decide every request.
 
-Availability is operating hours minus recorded unavailability and the approved bookings `loadVenueBookings` supplies, as floating venue-local timestamps (`src/features/venues/availability.ts`); the search and the availability calendar read the same loader, and an approved venue request _is_ the booking. Approvals cannot overlap for one venue: a partial exclusion constraint (ADR-5) refuses the second, and the refusal names the venue and period. A committed approval emails the requesting Coordinator best-effort; a mail failure never undoes the booking. Search from an event accepts `submitted`, `under_review`, `awaiting_organiser`, `approved` and `planning`, and refuses the rest without revealing whether the event exists.
+Availability is operating hours minus recorded unavailability and the approved bookings `loadVenueBookings` supplies, as floating venue-local timestamps (`src/features/venues/availability.ts`); the search and the availability calendar read the same loader, and an approved venue request _is_ the booking. Approvals cannot overlap for one venue: a partial exclusion constraint (ADR-5) refuses the second, and the refusal names the venue and period. A committed approval emails the requesting Coordinator best-effort; a mail failure never undoes the booking. Venue Staff may instead reject a pending request with a required reason and an optional suggested venue, date or time. A rejection holds nothing, is final (approving, withdrawing or rejecting it again is refused, and the Coordinator raises a new request), emails the requesting Coordinator, and shows on that Coordinator's event card when no request is pending. Search from an event accepts `submitted`, `under_review`, `awaiting_organiser`, `approved` and `planning`, and refuses the rest without revealing whether the event exists.
 
 ## Authorisation
 
@@ -127,7 +127,7 @@ Source of truth is `src/features/auth/permissions.ts`, held to this table by `te
 | `venue_request:read`       |    —     |        —        |         —         |     ✅      |            —            |
 | `venue_request:decide`     |    —     |        —        |         —         |     ✅      |            —            |
 
-`attendee` holds an empty role: `ac.newRole({})` authorizes nothing, the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one: both roles are self-assignable, so anyone set on uploading can register again as an organiser. `event_request:coordinate` is deliberately disjoint from `create`. All three internal roles may read the venue catalogue and availability; only Event Coordinators may search it against event requirements, and only Venue Staff may create or update records. `venue_request:request` is the Coordinator's raise-and-withdraw verb. Raising re-reads the event's assignment, so it acts only on the caller's own submitted event; withdrawing authorizes on the request's raiser, so the raiser keeps the power while the request is pending, even after the event moves past `submitted` or is reassigned; the new assignee cannot withdraw a request they did not raise. `venue_request:read` is the Venue Staff read of the shared pending queue and its detail pages; it is separate from `venue_request:decide`, so reading the queue does not grant approval authority. `venue_request:decide` is Venue Staff's approval verb; the handler re-reads the shared-queue rule, so a row assigned to another staff member is refused. Equipment functions are absent because the resource does not exist yet.
+`attendee` holds an empty role: `ac.newRole({})` authorizes nothing, the fail-closed default. The attendee/organiser line is an entitlement boundary, not a security one: both roles are self-assignable, so anyone set on uploading can register again as an organiser. `event_request:coordinate` is deliberately disjoint from `create`. All three internal roles may read the venue catalogue and availability; only Event Coordinators may search it against event requirements, and only Venue Staff may create or update records. `venue_request:request` is the Coordinator's raise-and-withdraw verb. Raising re-reads the event's assignment, so it acts only on the caller's own submitted event; withdrawing authorizes on the request's raiser, so the raiser keeps the power while the request is pending, even after the event moves past `submitted` or is reassigned; the new assignee cannot withdraw a request they did not raise. `venue_request:read` is the Venue Staff read of the shared pending queue and its detail pages; it is separate from `venue_request:decide`, so reading the queue does not grant approval authority. `venue_request:decide` is Venue Staff's approve and reject verb; the handler re-reads the shared-queue rule, so a row assigned to another staff member is refused. Equipment functions are absent because the resource does not exist yet.
 
 ### Enforcing it
 
