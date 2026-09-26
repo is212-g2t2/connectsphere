@@ -42,7 +42,7 @@ function requirementPairs(event: EventRequirementFields): Requirement[] {
 /**
  * The one requirements treatment the request panel and the dashboard's event cards share: four
  * labelled facts from the event's fields, and nothing when the event is bare. `className` is the
- * host's outer spacing, and `children` is the one extra row a card adds (its pending request).
+ * host's outer spacing, and `children` is the extra rows a card adds (its venue request and any rejection).
  */
 export function EventRequirements({
   event,

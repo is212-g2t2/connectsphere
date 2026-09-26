@@ -1,4 +1,5 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import type { VenueSuggestion } from "#/features/venue-requests/schema";
 
 export type EventAccess =
   | "organiser"
@@ -106,6 +107,27 @@ interface EventRecord {
 }
 
 /**
+ * PTR-34 criterion 3: what the requesting Coordinator sees of a rejected venue request, so
+ * planning continues rather than restarting. `suggestion` is null when Venue Staff gave none;
+ * otherwise each part they did give, with the rest null. Times are `HH:MM`.
+ */
+export interface VenueRequestRejection {
+  reason: string;
+  suggestion: VenueSuggestion | null;
+}
+
+/**
+ * The card's one venue request. PTR-36: `conflict` is present only when a pending request overlaps
+ * an approved booking. PTR-34: `rejection` is present only on a rejected request, which only the
+ * assigned Coordinator is shown.
+ */
+export interface EventVenueRequest {
+  status: string;
+  conflict?: boolean;
+  rejection?: VenueRequestRejection;
+}
+
+/**
  * What a client receives: the caller's access plus the fields their story names, and nothing
  * else. The branches below are the whole contract — a field added to `EventRecord` reaches a
  * client only when its branch is changed to carry it.
@@ -128,8 +150,7 @@ export interface EventProjection {
     accessibilityRequirements?: string | null;
     requiredFacilities?: string | null;
     registration?: { status: string; registeredAt: string } | null;
-    /** PTR-36: `conflict` is present only when the pending request overlaps an approved booking. */
-    venueRequest?: { status: string; conflict?: boolean } | null;
+    venueRequest?: EventVenueRequest | null;
     equipment?: Array<{
       id: string;
       item: string;
@@ -148,7 +169,7 @@ export function projectEvent(
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
   equipment: Array<{ id: string; item: string; arrangementStatus: string; notes: string | null }>,
-  venueRequest: { status: string; conflict?: boolean } | null
+  venueRequest: EventVenueRequest | null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 

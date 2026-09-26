@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -10,6 +11,7 @@ import {
   primaryKey,
   serial,
   text,
+  time,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -281,12 +283,14 @@ export * from "./auth-schema";
  * migration when PTR-34/37/39/44 start moving it. PTR-31 added `withdrawn`: a request the
  * Coordinator took back is kept rather than deleted, so the record of it survives. PTR-36
  * added `approved`: an approved request is the booking that holds the venue, and the exclusion
- * constraint in migration 0019 is label-based, not order-based.
+ * constraint in migration 0019 is label-based, not order-based. PTR-34 added `rejected`, which
+ * holds nothing: the exclusion constraint only looks at `approved`.
  */
 export const venueRequestStatus = pgEnum("venue_request_status", [
   "pending",
   "withdrawn",
   "approved",
+  "rejected",
 ]);
 
 export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status", [
@@ -343,6 +347,22 @@ export const venueRequests = pgTable(
      */
     requestedById: text("requested_by_id").references(() => user.id, { onDelete: "set null" }),
     status: venueRequestStatus("status").default("pending").notNull(),
+    /**
+     * PTR-34 criterion 1: why Venue Staff rejected it, kept on the row so the Coordinator sees it
+     * whenever they view the event. The CHECK below refuses a rejected row without one.
+     */
+    rejectionReason: text("rejection_reason"),
+    /**
+     * PTR-34 criterion 2: the alternative Venue Staff may suggest, each part optional and
+     * independent. PTR-35 pre-fills a new request from these. `set null` so a removed venue leaves
+     * the rejection and its reason standing.
+     */
+    suggestedVenueId: integer("suggested_venue_id").references(() => venues.id, {
+      onDelete: "set null",
+    }),
+    suggestedDate: date("suggested_date", { mode: "string" }),
+    suggestedStartTime: time("suggested_start_time"),
+    suggestedEndTime: time("suggested_end_time"),
     /** When the Coordinator raised it — the queue's first-come-first-served order (PTR-32). */
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Mirrors `venues`/`eventRequests`: the row's `status` is mutable (withdrawal), so it records
@@ -355,6 +375,12 @@ export const venueRequests = pgTable(
   table => [
     // Criterion 1: a request that ends before it starts is not a request.
     check("venue_requests_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
+    // PTR-34 criterion 1, held for whichever path writes the row. Compared as text: Postgres
+    // refuses a value added to an enum in the same transaction, which is where this migration runs.
+    check(
+      "venue_requests_rejection_has_reason",
+      sql`${table.status}::text <> 'rejected' or btrim(coalesce(${table.rejectionReason}, '')) <> ''`
+    ),
     // Criterion 1 again: a double-submit cannot leave two live requests for one venue on one
     // event. Partial, so withdrawing frees the pair to be requested again.
     uniqueIndex("venue_requests_pending_event_venue_idx")

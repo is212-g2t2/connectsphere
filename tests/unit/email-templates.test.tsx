@@ -6,6 +6,7 @@ import { Layout } from "#/features/emails/components/layout";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
+import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
 
@@ -172,5 +173,52 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Community workshop");
     expect(html).toContain("Harbour Hall");
     expect(html).toContain("12 October 2026, 14:30–18:45");
+  });
+
+  it("renders VenueBookingRejectedEmail with the reason and a suggested alternative (PTR-34 AC4)", async () => {
+    const html = await render(
+      <VenueBookingRejectedEmail
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-12 18:45:00"
+        reason="Closed for floor resurfacing"
+        suggestion={{
+          venueName: "Seminar Room 2A",
+          date: "2026-10-14",
+          startTime: "10:00",
+          endTime: "13:30",
+        }}
+      />
+    );
+
+    expect(html).toContain("Venue booking rejected");
+    expect(html).toContain("Community workshop");
+    expect(html).toContain("Harbour Hall");
+    expect(html).toContain("12 October 2026, 14:30–18:45");
+    expect(html).toContain("Closed for floor resurfacing");
+    expect(html).toContain("Suggested instead: Seminar Room 2A, 14 October 2026, 10:00–13:30.");
+  });
+
+  it("renders only the parts of a suggestion that were given, and none when there is not one (PTR-34 AC2)", async () => {
+    const base = {
+      eventName: "Community workshop",
+      venueName: "Harbour Hall",
+      startsAt: "2026-10-12 14:30:00",
+      endsAt: "2026-10-12 18:45:00",
+      reason: "Fully booked",
+    };
+
+    const dateOnly = await render(
+      <VenueBookingRejectedEmail
+        {...base}
+        suggestion={{ venueName: null, date: "2026-10-14", startTime: null, endTime: null }}
+      />
+    );
+    expect(dateOnly).toContain("Suggested instead: 14 October 2026.");
+
+    const none = await render(<VenueBookingRejectedEmail {...base} suggestion={null} />);
+    expect(none).toContain("Fully booked");
+    expect(none).not.toContain("Suggested instead");
   });
 });

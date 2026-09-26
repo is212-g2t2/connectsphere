@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 
+import { VENUE_ID_MESSAGE } from "#/features/venues/schema";
 import {
+  VENUE_REJECTION_REASON_MAX_LENGTH,
+  VENUE_REJECTION_REASON_REQUIRED,
+  VENUE_REJECTION_TIME_PAIR_MESSAGE,
   VENUE_REQUEST_DATE_MESSAGE,
   VENUE_REQUEST_ID_MESSAGE,
   VENUE_REQUEST_TIME_MESSAGE,
   VENUE_REQUEST_TIME_ORDER_MESSAGE,
+  VenueRejectionInput,
   VenueRequestInput,
+  parseVenueRejectionInput,
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
@@ -112,5 +118,99 @@ describe("venue request context selection", () => {
       VENUE_REQUEST_DATE_MESSAGE
     );
     expect(() => parseVenueRequestContext({ eventId: 0, venueId: 7 })).toThrow("Choose an event");
+  });
+});
+
+describe("VenueRejectionInput (PTR-34 criteria 1 and 2)", () => {
+  const REJECT = { id: "request-1", reason: "Closed for floor resurfacing" };
+
+  it("accepts a reason alone and trims it", () => {
+    expect(VenueRejectionInput.parse(REJECT)).toEqual(REJECT);
+    expect(VenueRejectionInput.parse({ ...REJECT, reason: "  Too small  " }).reason).toBe(
+      "Too small"
+    );
+  });
+
+  it("refuses a missing, empty or whitespace-only reason", () => {
+    for (const reason of [undefined, "", "   "]) {
+      expect(firstIssue(VenueRejectionInput.safeParse({ id: REJECT.id, reason }))).toBe(
+        VENUE_REJECTION_REASON_REQUIRED
+      );
+    }
+  });
+
+  it("bounds the reason at 2,000 characters", () => {
+    const at = "a".repeat(VENUE_REJECTION_REASON_MAX_LENGTH);
+    expect(VenueRejectionInput.safeParse({ ...REJECT, reason: at }).success).toBe(true);
+    expect(firstIssue(VenueRejectionInput.safeParse({ ...REJECT, reason: `${at}a` }))).toBe(
+      `Rejection reason must be ${VENUE_REJECTION_REASON_MAX_LENGTH} characters or fewer`
+    );
+  });
+
+  it("accepts a full suggestion, and any part of one alone", () => {
+    const full = {
+      suggestedVenueId: 4,
+      suggestedDate: "2027-04-21",
+      suggestedStartTime: "10:00",
+      suggestedEndTime: "13:30",
+    };
+    expect(VenueRejectionInput.parse({ ...REJECT, ...full })).toEqual({ ...REJECT, ...full });
+    for (const part of [
+      { suggestedVenueId: 4 },
+      { suggestedDate: "2027-04-21" },
+      { suggestedStartTime: "10:00", suggestedEndTime: "13:30" },
+    ]) {
+      expect(VenueRejectionInput.parse({ ...REJECT, ...part })).toEqual({ ...REJECT, ...part });
+    }
+  });
+
+  it("refuses a start time without an end time, and the reverse", () => {
+    expect(
+      firstIssue(VenueRejectionInput.safeParse({ ...REJECT, suggestedStartTime: "10:00" }))
+    ).toBe(VENUE_REJECTION_TIME_PAIR_MESSAGE);
+    expect(
+      firstIssue(VenueRejectionInput.safeParse({ ...REJECT, suggestedEndTime: "10:00" }))
+    ).toBe(VENUE_REJECTION_TIME_PAIR_MESSAGE);
+  });
+
+  it("refuses a suggested end that is not later than the start", () => {
+    for (const suggestedEndTime of ["14:00", "13:00"]) {
+      expect(
+        firstIssue(
+          VenueRejectionInput.safeParse({
+            ...REJECT,
+            suggestedStartTime: "14:00",
+            suggestedEndTime,
+          })
+        )
+      ).toBe(VENUE_REQUEST_TIME_ORDER_MESSAGE);
+    }
+  });
+
+  it("refuses a malformed suggested date, time or venue", () => {
+    expect(
+      firstIssue(VenueRejectionInput.safeParse({ ...REJECT, suggestedDate: "2027-02-30" }))
+    ).toBe(VENUE_REQUEST_DATE_MESSAGE);
+    expect(
+      firstIssue(
+        VenueRejectionInput.safeParse({
+          ...REJECT,
+          suggestedStartTime: "25:00",
+          suggestedEndTime: "26:00",
+        })
+      )
+    ).toBe(VENUE_REQUEST_TIME_MESSAGE);
+    for (const suggestedVenueId of [0, -1, 1.5]) {
+      expect(firstIssue(VenueRejectionInput.safeParse({ ...REJECT, suggestedVenueId }))).toBe(
+        VENUE_ID_MESSAGE
+      );
+    }
+  });
+
+  it("rethrows the first readable refusal for the server-function boundary", () => {
+    expect(() => parseVenueRejectionInput({ id: REJECT.id })).toThrow(
+      VENUE_REJECTION_REASON_REQUIRED
+    );
+    expect(parseVenueRejectionInput(REJECT)).toEqual(REJECT);
   });
 });

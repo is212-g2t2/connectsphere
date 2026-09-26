@@ -16,7 +16,10 @@ const { approveVenueRequest, navigate, invalidate, success } = vi.hoisted(() => 
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
 }));
-vi.mock("#/features/venue-requests/server-fns", () => ({ approveVenueRequest }));
+vi.mock("#/features/venue-requests/server-fns", () => ({
+  approveVenueRequest,
+  rejectVenueRequest: vi.fn<() => Promise<unknown>>(),
+}));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     children,
@@ -130,7 +133,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
   });
 
   it("approves from the request's detail page and returns to the queue", async () => {
-    render(<BookingRequestDetailsPage user={venueStaff} request={detail} />);
+    render(<BookingRequestDetailsPage user={venueStaff} request={detail} venues={[]} />);
 
     await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
 
@@ -147,14 +150,14 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
   });
 
   it("offers the approval only to a role that may decide, on the detail page", () => {
-    render(<BookingRequestDetailsPage user={coordinator} request={detail} />);
+    render(<BookingRequestDetailsPage user={coordinator} request={detail} venues={[]} />);
 
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Record a decision" })).toBeNull();
   });
 
   it("no longer describes the detail page as read-only", () => {
-    render(<BookingRequestDetailsPage user={venueStaff} request={detail} />);
+    render(<BookingRequestDetailsPage user={venueStaff} request={detail} venues={[]} />);
 
     expect(screen.queryByText(/read-only/i)).toBeNull();
   });
