@@ -22,6 +22,11 @@ export const Route = createFileRoute("/_authenticated/venue-requests/$requestId"
     if (!request) throw notFound();
     return request;
   },
-  component: () => <BookingRequestDetailsPage request={Route.useLoaderData()} />,
+  component: () => (
+    <BookingRequestDetailsPage
+      request={Route.useLoaderData()}
+      user={Route.useRouteContext().user}
+    />
+  ),
   pendingComponent: BookingRequestDetailsSkeleton,
 });

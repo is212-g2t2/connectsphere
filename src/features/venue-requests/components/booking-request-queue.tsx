@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import type { ComponentType } from "react";
 
 import { Badge } from "#/components/ui/badge";
 import {
@@ -16,9 +17,16 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 /**
  * A presentational pending queue. Its caller owns the pending filter, access checks, and the
  * ordering: `requests` arrives oldest-first. This component only renders the supplied records and
- * links each to its detail page.
+ * links each to its detail page; `RowAction` is the caller's per-row control (PTR-33's approval),
+ * and without it the table has no action column.
  */
-export function BookingRequestQueue({ requests }: { requests: readonly PendingVenueRequest[] }) {
+export function BookingRequestQueue({
+  requests,
+  RowAction,
+}: {
+  requests: readonly PendingVenueRequest[];
+  RowAction?: ComponentType<{ request: PendingVenueRequest }>;
+}) {
   return (
     <section aria-labelledby="pending-booking-requests-heading">
       {/* The page h1 already names the queue; this keeps the section's accessible name without
@@ -39,6 +47,7 @@ export function BookingRequestQueue({ requests }: { requests: readonly PendingVe
                 <TableHead>Ends at</TableHead>
                 <TableHead>Submitted</TableHead>
                 <TableHead>Status</TableHead>
+                {RowAction && <TableHead>Action</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -68,6 +77,11 @@ export function BookingRequestQueue({ requests }: { requests: readonly PendingVe
                       "No conflict"
                     )}
                   </TableCell>
+                  {RowAction && (
+                    <TableCell>
+                      <RowAction request={request} />
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

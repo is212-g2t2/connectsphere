@@ -5,6 +5,7 @@ import type { db as Db } from "#/db";
 import { eventRequests, user, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
 import { formatProposedWindow } from "#/features/event-requests/format";
@@ -92,6 +93,15 @@ function rethrowDuplicate(error: unknown): never {
     throw new ConflictError(VENUE_REQUEST_DUPLICATE_MESSAGE);
   }
   throw error;
+}
+
+/**
+ * Defence in depth for a writer outside `handleApproveVenueRequest`: the locked pre-check cannot
+ * see a booking another connection commits between it and the update, and the constraint can.
+ */
+function rethrowOverlap(error: unknown): never {
+  if (!isConstraintViolation(error, "venue_requests_no_overlap")) throw error;
+  throw new ConflictError(VENUE_REQUEST_CONFLICT_MESSAGE);
 }
 
 /**
@@ -487,8 +497,8 @@ export async function handleApproveVenueRequest(
 ) {
   const { id } = parseVenueRequestId(data);
 
-  try {
-    return await database.transaction(async tx => {
+  const decided = await database
+    .transaction(async tx => {
       const rows = await tx
         .select({
           status: venueRequests.status,
@@ -539,12 +549,49 @@ export async function handleApproveVenueRequest(
         .set({ status: "approved", assignedStaffId: actor.id })
         .where(eq(venueRequests.id, id))
         .returning();
-      return approved;
-    });
-  } catch (error) {
-    // Defence in depth for a writer outside this function: the locked pre-check cannot see a
-    // booking another connection commits between it and the update, and the constraint can.
-    if (!isConstraintViolation(error, "venue_requests_no_overlap")) throw error;
-    throw new ConflictError(VENUE_REQUEST_CONFLICT_MESSAGE);
+
+      // Resolved in the transaction, the canonical shape; the send runs after the commit. A
+      // requester whose account is gone has no address to tell, and the approval still stands.
+      const [notice] = await tx
+        .select({
+          eventName: eventRequests.eventName,
+          venueName: venues.name,
+          requesterEmail: user.email,
+        })
+        .from(venueRequests)
+        .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+        .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+        .leftJoin(user, eq(user.id, venueRequests.requestedById))
+        .where(eq(venueRequests.id, id))
+        .limit(1);
+      return { approved, notice };
+    })
+    .catch(rethrowOverlap);
+
+  const { approved, notice } = decided;
+  if (notice.requesterEmail) {
+    // Best effort, like the request notification: the booking is committed, and a mail outage
+    // must not turn a held venue into a failed approval.
+    try {
+      await sendEmail(
+        notice.requesterEmail,
+        `Venue booking approved: ${notice.venueName}`,
+        createElement(VenueBookingApprovedEmail, {
+          eventName: notice.eventName,
+          venueName: notice.venueName,
+          startsAt: approved.startsAt,
+          endsAt: approved.endsAt,
+        })
+      );
+    } catch (error) {
+      log.warn("Venue approval notification failed", {
+        requestId: approved.id,
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
+    }
+  } else {
+    log.warn("No Coordinator to notify of the venue approval", { requestId: approved.id });
   }
+
+  return approved;
 }

@@ -14,6 +14,8 @@ export const Route = createFileRoute("/_authenticated/venue-requests/")({
     }
   },
   loader: () => listPendingVenueRequests(),
-  component: () => <BookingRequestQueuePage requests={Route.useLoaderData()} />,
+  component: () => (
+    <BookingRequestQueuePage requests={Route.useLoaderData()} user={Route.useRouteContext().user} />
+  ),
   pendingComponent: BookingRequestQueueSkeleton,
 });
