@@ -210,7 +210,10 @@ describe("Email templates rendering", () => {
     };
 
     const dateOnly = await render(
-      <VenueBookingRejectedEmail {...base} suggestion={{ date: "2026-10-14" }} />
+      <VenueBookingRejectedEmail
+        {...base}
+        suggestion={{ venueName: null, date: "2026-10-14", startTime: null, endTime: null }}
+      />
     );
     expect(dateOnly).toContain("Suggested instead: 14 October 2026.");
 

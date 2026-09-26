@@ -43,6 +43,18 @@ function toRejectionInput(id: string, values: FormValues) {
   };
 }
 
+/** The suggestion's plain inputs; the reason and the venue select differ enough to stay inline. */
+const SUGGESTION_INPUTS = [
+  { name: "suggestedDate", id: "rejection-date", label: "Suggested date", type: "date" },
+  {
+    name: "suggestedStartTime",
+    id: "rejection-start",
+    label: "Suggested start time",
+    type: "time",
+  },
+  { name: "suggestedEndTime", id: "rejection-end", label: "Suggested end time", type: "time" },
+] as const;
+
 /**
  * PTR-34 criteria 1 and 2: Venue Staff reject a pending request with a reason, and may suggest a
  * venue, date or time instead. The server's schema is the gate, so the reason, the suggestion and
@@ -72,9 +84,7 @@ export function RejectBookingForm({
     },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await rejectVenueRequest({
-          data: VenueRejectionInput.parse(toRejectionInput(request.id, value)),
-        });
+        await rejectVenueRequest({ data: toRejectionInput(request.id, value) });
       } catch (error) {
         await router.invalidate();
         // `fields` is what makes the library read this as a global error and store `form` verbatim.
@@ -147,54 +157,24 @@ export function RejectBookingForm({
               </Field>
             )}
           </form.Field>
-          <form.Field name="suggestedDate">
-            {field => (
-              <Field data-invalid={field.state.meta.errors.length > 0}>
-                <FieldLabel htmlFor="rejection-date">Suggested date</FieldLabel>
-                <Input
-                  id="rejection-date"
-                  type="date"
-                  value={field.state.value}
-                  aria-invalid={field.state.meta.errors.length > 0}
-                  onChange={event => field.handleChange(event.target.value)}
-                  onBlur={field.handleBlur}
-                />
-                <FieldError errors={field.state.meta.errors} />
-              </Field>
-            )}
-          </form.Field>
-          <form.Field name="suggestedStartTime">
-            {field => (
-              <Field data-invalid={field.state.meta.errors.length > 0}>
-                <FieldLabel htmlFor="rejection-start">Suggested start time</FieldLabel>
-                <Input
-                  id="rejection-start"
-                  type="time"
-                  value={field.state.value}
-                  aria-invalid={field.state.meta.errors.length > 0}
-                  onChange={event => field.handleChange(event.target.value)}
-                  onBlur={field.handleBlur}
-                />
-                <FieldError errors={field.state.meta.errors} />
-              </Field>
-            )}
-          </form.Field>
-          <form.Field name="suggestedEndTime">
-            {field => (
-              <Field data-invalid={field.state.meta.errors.length > 0}>
-                <FieldLabel htmlFor="rejection-end">Suggested end time</FieldLabel>
-                <Input
-                  id="rejection-end"
-                  type="time"
-                  value={field.state.value}
-                  aria-invalid={field.state.meta.errors.length > 0}
-                  onChange={event => field.handleChange(event.target.value)}
-                  onBlur={field.handleBlur}
-                />
-                <FieldError errors={field.state.meta.errors} />
-              </Field>
-            )}
-          </form.Field>
+          {SUGGESTION_INPUTS.map(({ name, id, label, type }) => (
+            <form.Field key={name} name={name}>
+              {field => (
+                <Field data-invalid={field.state.meta.errors.length > 0}>
+                  <FieldLabel htmlFor={id}>{label}</FieldLabel>
+                  <Input
+                    id={id}
+                    type={type}
+                    value={field.state.value}
+                    aria-invalid={field.state.meta.errors.length > 0}
+                    onChange={event => field.handleChange(event.target.value)}
+                    onBlur={field.handleBlur}
+                  />
+                  <FieldError errors={field.state.meta.errors} />
+                </Field>
+              )}
+            </form.Field>
+          ))}
         </div>
       </FieldSet>
 

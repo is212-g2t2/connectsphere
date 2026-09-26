@@ -168,6 +168,17 @@ export const VenueRejectionInput = z
 
 export type VenueRejectionValues = z.infer<typeof VenueRejectionInput>;
 
+/**
+ * PTR-34 criterion 2 as it is shown back: whichever parts of a suggestion Venue Staff gave, and
+ * null for the rest. The email and the Coordinator's event card share it. Times are `HH:MM`.
+ */
+export interface VenueSuggestion {
+  venueName: string | null;
+  date: string | null;
+  startTime: string | null;
+  endTime: string | null;
+}
+
 export function parseVenueRejectionInput(data: unknown): VenueRejectionValues {
   const parsed = VenueRejectionInput.safeParse(data);
   if (!parsed.success) {

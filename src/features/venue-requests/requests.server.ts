@@ -701,10 +701,10 @@ export async function handleRejectVenueRequest(
       endsAt: rejected.endsAt,
       reason: input.reason,
       suggestion: {
-        venueName: suggestedVenueName,
-        date: input.suggestedDate,
-        startTime: input.suggestedStartTime,
-        endTime: input.suggestedEndTime,
+        venueName: suggestedVenueName ?? null,
+        date: input.suggestedDate ?? null,
+        startTime: input.suggestedStartTime ?? null,
+        endTime: input.suggestedEndTime ?? null,
       },
     }),
     "rejection"

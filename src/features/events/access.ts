@@ -1,4 +1,5 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import type { VenueSuggestion } from "#/features/venue-requests/schema";
 
 export type EventAccess =
   | "organiser"
@@ -112,12 +113,7 @@ interface EventRecord {
  */
 export interface VenueRequestRejection {
   reason: string;
-  suggestion: {
-    venueName: string | null;
-    date: string | null;
-    startTime: string | null;
-    endTime: string | null;
-  } | null;
+  suggestion: VenueSuggestion | null;
 }
 
 /**
