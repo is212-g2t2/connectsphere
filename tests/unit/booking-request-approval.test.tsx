@@ -104,7 +104,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     expect(navigate).toHaveBeenCalledWith({ to: "/venue-requests" });
   });
 
-  it("shows the server's refusal, naming the conflicting period, and stays put", async () => {
+  it("shows the server's refusal, naming the conflicting period, stays put and reloads the queue", async () => {
     approveVenueRequest.mockRejectedValue(
       new Error("Orchid Room is already booked 18 Nov 2030, 09:00 – 10:00")
     );
@@ -119,17 +119,8 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     );
     expect(success).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
-  });
-
-  it("reloads the queue after a refusal, so a request someone else decided drops out", async () => {
-    approveVenueRequest.mockRejectedValue(new Error("This request has already been decided."));
-    render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
-
-    await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
-
-    await screen.findByRole("alert");
+    // Another member of staff may have decided the row, so the loader reruns.
     expect(invalidate).toHaveBeenCalledOnce();
-    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("offers no approval on an empty queue", () => {

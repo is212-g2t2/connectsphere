@@ -4,19 +4,18 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { formatLocalDateTime } from "#/features/event-requests/format";
 import { approveVenueRequest } from "#/features/venue-requests/server-fns";
+import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 
 /**
- * PTR-33 criterion 1: Venue Staff approve a pending request from the queue row or its detail page.
- * Either way the request leaves `pending`, so both land on a reloaded queue: the detail route
- * would 404 on reload. A refusal (the overlap sentence PTR-36 names, or an already-decided row)
- * stays beside the button and the page stays where it is, but the loader reruns: another member
- * of staff may have decided the row, and the conflict flag may have moved.
+ * PTR-33 criterion 1: approve a pending request from its queue row or detail page. Success lands
+ * on a reloaded queue, since the detail route 404s once the request leaves `pending`; a refusal
+ * stays beside the button and reloads the loader, in case someone else decided the row.
  */
 export function ApproveBookingButton({
   request,
 }: {
-  request: { id: string; venueName: string; startsAt: string };
+  request: Pick<PendingVenueRequest, "id" | "venueName" | "startsAt">;
 }) {
   const router = useRouter();
   const [state, approve, approving] = useMutation(async () => {

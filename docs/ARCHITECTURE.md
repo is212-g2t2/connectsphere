@@ -45,7 +45,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── auth/         # Sessions, permissions, login/signup/reset/settings
 │   │   ├── coordination/ # Coordinator assignments and pickups
 │   │   ├── dashboard/    # Signed-in home view
-│   │   ├── emails/       # Email templates
+│   │   ├── emails/       # Email templates and shared date formatting
 │   │   ├── event-requests/ # Requirement capture, drafts, submission
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view
@@ -57,7 +57,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
 │       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues
-│       │   └── venue-requests/ # Pending booking request queue and detail
+│       │   └── venue-requests/ # Pending booking request queue, detail and approval
 │       ├── api/          # Better Auth handler, health, smoke, upload-url
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
@@ -100,7 +100,7 @@ Handled by **Better Auth**; rate limited to 20 requests per 60-second window.
 
 `evaluateVenueSuitability` (`src/features/venues/records.server.ts`) checks every applied requirement — capacity, location, layout, accessibility and facility phrases, availability for the window — and returns `{ suitable, failures }` with each failing criterion named in a sentence. `handleSearchVenues` sorts the catalogue by that verdict into `venues` and `unsuitable`, and the `/venues` page lists the shortfalls beneath the results. A verdict writes nothing; Venue Staff still decide every request.
 
-Availability is operating hours minus recorded unavailability and the approved bookings `loadVenueBookings` supplies, as floating venue-local timestamps (`src/features/venues/availability.ts`); the search and the availability calendar read the same loader, and an approved venue request _is_ the booking. Approvals cannot overlap for one venue: a partial exclusion constraint (ADR-5) refuses the second, and the refusal names the venue and period. Search from an event accepts `submitted`, `under_review`, `awaiting_organiser`, `approved` and `planning`, and refuses the rest without revealing whether the event exists.
+Availability is operating hours minus recorded unavailability and the approved bookings `loadVenueBookings` supplies, as floating venue-local timestamps (`src/features/venues/availability.ts`); the search and the availability calendar read the same loader, and an approved venue request _is_ the booking. Approvals cannot overlap for one venue: a partial exclusion constraint (ADR-5) refuses the second, and the refusal names the venue and period. A committed approval emails the requesting Coordinator best-effort; a mail failure never undoes the booking. Search from an event accepts `submitted`, `under_review`, `awaiting_organiser`, `approved` and `planning`, and refuses the rest without revealing whether the event exists.
 
 ## Authorisation
 

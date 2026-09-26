@@ -96,6 +96,15 @@ function rethrowDuplicate(error: unknown): never {
 }
 
 /**
+ * Defence in depth for a writer outside `handleApproveVenueRequest`: the locked pre-check cannot
+ * see a booking another connection commits between it and the update, and the constraint can.
+ */
+function rethrowOverlap(error: unknown): never {
+  if (!isConstraintViolation(error, "venue_requests_no_overlap")) throw error;
+  throw new ConflictError(VENUE_REQUEST_CONFLICT_MESSAGE);
+}
+
+/**
  * The client speaks `datetime-local` (`YYYY-MM-DDTHH:MM`), the spelling `proposedDates`
  * and `formatProposedWindow` already use; the stored seconds are display noise.
  */
@@ -488,9 +497,8 @@ export async function handleApproveVenueRequest(
 ) {
   const { id } = parseVenueRequestId(data);
 
-  let decided;
-  try {
-    decided = await database.transaction(async tx => {
+  const decided = await database
+    .transaction(async tx => {
       const rows = await tx
         .select({
           status: venueRequests.status,
@@ -557,13 +565,8 @@ export async function handleApproveVenueRequest(
         .where(eq(venueRequests.id, id))
         .limit(1);
       return { approved, notice };
-    });
-  } catch (error) {
-    // Defence in depth for a writer outside this function: the locked pre-check cannot see a
-    // booking another connection commits between it and the update, and the constraint can.
-    if (!isConstraintViolation(error, "venue_requests_no_overlap")) throw error;
-    throw new ConflictError(VENUE_REQUEST_CONFLICT_MESSAGE);
-  }
+    })
+    .catch(rethrowOverlap);
 
   const { approved, notice } = decided;
   if (notice.requesterEmail) {

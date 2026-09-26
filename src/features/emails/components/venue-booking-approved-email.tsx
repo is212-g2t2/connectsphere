@@ -12,19 +12,14 @@ interface VenueBookingApprovedEmailProps {
   endsAt: string;
 }
 
-/**
- * PTR-33 criterion 2: sent to the Coordinator who raised the request when Venue Staff approve it
- * (§6: a venue booking is approved). Unlike the staff-facing request email it names the event,
- * since the recipient is the Coordinator the event is assigned to.
- */
+/** PTR-33 criterion 2 (§6: a venue booking is approved): tells the raising Coordinator, naming the event. */
 export const VenueBookingApprovedEmail = ({
   eventName,
   venueName,
   startsAt,
   endsAt,
 }: VenueBookingApprovedEmailProps) => {
-  // One string, not three interpolations: adjacent JSX interpolations are separated by markup
-  // comments, which splits the window across text nodes in the rendered HTML.
+  // One string: adjacent JSX interpolations render as separate text nodes.
   const period = `${formatDate(startsAt)}, ${formatTime(startsAt)}–${formatTime(endsAt)}`;
 
   return (
