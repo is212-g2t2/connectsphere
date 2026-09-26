@@ -6,7 +6,7 @@ import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
-import type { EventProjection } from "#/features/events/access";
+import type { EventProjection, VenueRequestRejection } from "#/features/events/access";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 
@@ -14,6 +14,17 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(
     new Date(`${value}T00:00:00`)
   );
+}
+
+/** PTR-34: whichever parts of the suggestion Venue Staff gave, as one line. */
+function formatSuggestion(suggestion: NonNullable<VenueRequestRejection["suggestion"]>) {
+  return [
+    suggestion.venueName,
+    suggestion.date && formatDate(suggestion.date),
+    suggestion.startTime && suggestion.endTime && `${suggestion.startTime}–${suggestion.endTime}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 /**
@@ -88,17 +99,41 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                     className="mt-5 border-t border-border pt-4 body-sm"
                   >
                     {event.venueRequest && (
-                      <Detail
-                        label="Venue request"
-                        value={
-                          <span className="flex flex-wrap items-center gap-2">
-                            <Badge variant="progress">Pending</Badge>
-                            {event.venueRequest.conflict && (
-                              <Badge variant="stopped">Conflicting booking</Badge>
+                      <>
+                        <Detail
+                          label="Venue request"
+                          value={
+                            <span className="flex flex-wrap items-center gap-2">
+                              {event.venueRequest.status === "rejected" ? (
+                                <Badge variant="stopped">Rejected</Badge>
+                              ) : (
+                                <Badge variant="progress">Pending</Badge>
+                              )}
+                              {event.venueRequest.conflict && (
+                                <Badge variant="stopped">Conflicting booking</Badge>
+                              )}
+                            </span>
+                          }
+                        />
+                        {event.venueRequest.rejection && (
+                          <>
+                            <Detail
+                              label="Rejection reason"
+                              value={
+                                <span className="whitespace-pre-line">
+                                  {event.venueRequest.rejection.reason}
+                                </span>
+                              }
+                            />
+                            {event.venueRequest.rejection.suggestion && (
+                              <Detail
+                                label="Suggested alternative"
+                                value={formatSuggestion(event.venueRequest.rejection.suggestion)}
+                              />
                             )}
-                          </span>
-                        }
-                      />
+                          </>
+                        )}
+                      </>
                     )}
                   </EventRequirements>
                 )}

@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
 import {
+  parseVenueRejectionInput,
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
@@ -115,6 +116,24 @@ export const approveVenueRequest = createServerFn({ method: "POST" })
     const request = await handleApproveVenueRequest(data, context.user, db);
 
     log.info("Venue request approved", {
+      requestId: request.id,
+      eventId: request.eventId,
+      venueId: request.venueId,
+      actorId: context.user.id,
+    });
+
+    return request;
+  });
+
+/** PTR-34: the same Venue Staff verb settles a request the other way, with a reason and any suggestion. */
+export const rejectVenueRequest = createServerFn({ method: "POST" })
+  .validator(parseVenueRejectionInput)
+  .middleware([requireVenueDecision])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRejectVenueRequest }] = await loadServer();
+    const request = await handleRejectVenueRequest(data, context.user, db);
+
+    log.info("Venue request rejected", {
       requestId: request.id,
       eventId: request.eventId,
       venueId: request.venueId,

@@ -125,6 +125,27 @@ describe("event access", () => {
   });
 });
 
+describe("projectEvent with a rejected venue request (PTR-34 AC3)", () => {
+  const rejected = {
+    status: "rejected",
+    rejection: {
+      reason: "Closed for floor resurfacing",
+      suggestion: {
+        venueName: "Harbour Hall",
+        date: "2026-10-14",
+        startTime: "10:00",
+        endTime: "13:30",
+      },
+    },
+  };
+
+  it("carries the rejection's reason and suggestion to the coordinator", () => {
+    const result = projectEvent(request, "coordinator", null, [], rejected);
+
+    expect(result.event.venueRequest).toEqual(rejected);
+  });
+});
+
 describe("isVenueQueueRow", () => {
   it("connects a Venue Staff member to their own rows and to the unassigned pending queue", () => {
     expect(isVenueQueueRow({ assignedStaffId: "venue-1", status: "pending" }, "venue-1")).toBe(

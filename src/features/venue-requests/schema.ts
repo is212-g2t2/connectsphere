@@ -26,6 +26,15 @@ export const VENUE_REQUEST_DECIDED_MESSAGE = "This request has already been deci
 export const VENUE_REQUEST_CONFLICT_MESSAGE =
   "This venue is already booked for an overlapping period.";
 
+/** PTR-34: a rejected request is final; the Coordinator raises a new one instead. */
+export const VENUE_REQUEST_REJECTED_MESSAGE =
+  "This request was rejected. Raise a new request instead.";
+/** PTR-34 criterion 1: Venue Staff owe the Coordinator a reason, mirroring PTR-20's rule. */
+export const VENUE_REJECTION_REASON_REQUIRED = "Enter a reason to reject this request";
+export const VENUE_REJECTION_REASON_MAX_LENGTH = 2000;
+/** PTR-34 criterion 2: a suggested window needs both ends, or neither. */
+export const VENUE_REJECTION_TIME_PAIR_MESSAGE = "Enter both a start and end time";
+
 /**
  * PTR-36 criterion 2: the refusal names the venue and the conflicting period, never the other
  * event's name — Venue Staff keep the nameless projection PTR-8/PTR-31 established. The times
@@ -113,6 +122,54 @@ export function parseVenueRequestId(data: unknown): VenueRequestId {
 
 export function parseVenueRequestContext(data: unknown): VenueRequestContextSelection {
   const parsed = VenueRequestContextInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+/**
+ * PTR-34 criteria 1 and 2: a rejection is a reason, plus whatever alternative Venue Staff choose
+ * to suggest. Every part of the suggestion is optional and independent; only a time is a pair,
+ * and its end must come after its start, the rule the request itself follows.
+ */
+export const VenueRejectionInput = z
+  .object({
+    id: VenueRequestIdInput.shape.id,
+    reason: z
+      .string({ error: VENUE_REJECTION_REASON_REQUIRED })
+      .trim()
+      .min(1, VENUE_REJECTION_REASON_REQUIRED)
+      .max(
+        VENUE_REJECTION_REASON_MAX_LENGTH,
+        `Rejection reason must be ${VENUE_REJECTION_REASON_MAX_LENGTH} characters or fewer`
+      ),
+    suggestedVenueId: VenueId.optional(),
+    suggestedDate: z.iso.date({ error: VENUE_REQUEST_DATE_MESSAGE }).optional(),
+    suggestedStartTime: Time.optional(),
+    suggestedEndTime: Time.optional(),
+  })
+  .superRefine((value, context) => {
+    const { suggestedStartTime: start, suggestedEndTime: end } = value;
+    if ((start === undefined) !== (end === undefined)) {
+      context.addIssue({
+        code: "custom",
+        path: [start === undefined ? "suggestedStartTime" : "suggestedEndTime"],
+        message: VENUE_REJECTION_TIME_PAIR_MESSAGE,
+      });
+    } else if (start !== undefined && end !== undefined && end <= start) {
+      context.addIssue({
+        code: "custom",
+        path: ["suggestedEndTime"],
+        message: VENUE_REQUEST_TIME_ORDER_MESSAGE,
+      });
+    }
+  });
+
+export type VenueRejectionValues = z.infer<typeof VenueRejectionInput>;
+
+export function parseVenueRejectionInput(data: unknown): VenueRejectionValues {
+  const parsed = VenueRejectionInput.safeParse(data);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0].message);
   }

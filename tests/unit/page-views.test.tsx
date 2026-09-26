@@ -154,6 +154,72 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Conflicting booking")).toBeTruthy();
   });
 
+  it("shows a Coordinator the rejection, its reason and the suggested alternative (PTR-34 AC3)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("event_coordinator")}
+        events={[
+          {
+            access: "coordinator",
+            event: {
+              id: 7,
+              name: "Annual dinner",
+              status: "submitted",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+              venueRequest: {
+                status: "rejected",
+                rejection: {
+                  reason: "Closed for floor resurfacing",
+                  suggestion: {
+                    venueName: "Harbour Hall",
+                    date: "2027-04-21",
+                    startTime: "10:00",
+                    endTime: "13:30",
+                  },
+                },
+              },
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Rejected")).toBeTruthy();
+    expect(screen.queryByText("Pending")).toBeNull();
+    expect(screen.getByText("Closed for floor resurfacing")).toBeTruthy();
+    expect(screen.getByText("Harbour Hall, 21 Apr 2027, 10:00–13:30")).toBeTruthy();
+  });
+
+  it("shows only the reason when the rejection carries no suggestion (PTR-34 AC3)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("event_coordinator")}
+        events={[
+          {
+            access: "coordinator",
+            event: {
+              id: 7,
+              name: "Annual dinner",
+              status: "submitted",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+              venueRequest: {
+                status: "rejected",
+                rejection: { reason: "Fully booked", suggestion: null },
+              },
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Fully booked")).toBeTruthy();
+    expect(screen.queryByText("Suggested alternative")).toBeNull();
+  });
+
   it("lets a Coordinator start venue search from an assigned event", () => {
     render(
       <DashboardPage

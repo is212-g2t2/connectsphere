@@ -1,5 +1,5 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@react-email/render";
 import type { ReactElement } from "react";
 import { and, eq, inArray } from "drizzle-orm";
@@ -10,14 +10,18 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
 import {
+  VENUE_REJECTION_REASON_REQUIRED,
   VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
+  VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
 } from "#/features/venue-requests/schema";
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
   handleGetVenueRequestContext,
+  handleListPendingVenueRequests,
+  handleRejectVenueRequest,
   handleWithdrawVenueRequest,
 } from "#/features/venue-requests/requests.server";
 import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venues/records.server";
@@ -942,6 +946,315 @@ describe("venue request handlers (PTR-31)", () => {
           "ptr-36-direct-8",
         ].toSorted()
       );
+    });
+  });
+
+  describe("rejecting a booking (PTR-34)", () => {
+    const ALTERNATIVE_VENUE_NAME = "PTR-34 Alternative Room";
+    const REASON = "Closed for floor resurfacing";
+
+    afterEach(async () => {
+      await database.delete(schema.venues).where(eq(schema.venues.name, ALTERNATIVE_VENUE_NAME));
+    });
+
+    async function createEvent(name: string) {
+      const [event] = await database
+        .insert(schema.eventRequests)
+        .values({
+          organiserId: users.organiser.id,
+          status: "submitted",
+          submittedAt: new Date(),
+          assignedCoordinatorId: users.coordinator.id,
+          assignedAt: new Date(),
+          eventName: name,
+        })
+        .returning({ id: schema.eventRequests.id });
+      return event.id;
+    }
+
+    async function createAlternativeVenue() {
+      const [alternative] = await database
+        .insert(schema.venues)
+        .values({
+          name: ALTERNATIVE_VENUE_NAME,
+          location: "Request Wing",
+          maxCapacity: 120,
+          operatingHours: DEFAULT_OPERATING_HOURS,
+        })
+        .returning({ id: schema.venues.id });
+      return alternative.id;
+    }
+
+    function raiseRequest(requestEventId: number, startTime: string, endTime: string) {
+      return handleCreateVenueRequest(
+        { ...WINDOW, startTime, endTime, eventId: requestEventId, venueId },
+        session(users.coordinator),
+        database as never
+      );
+    }
+
+    function reject(
+      id: string,
+      staff: (typeof users)["venueStaffA"],
+      extra: Record<string, unknown> = {}
+    ) {
+      return handleRejectVenueRequest(
+        { id, reason: REASON, ...extra },
+        session(staff),
+        database as never
+      );
+    }
+
+    function approve(id: string, staff: (typeof users)["venueStaffA"]) {
+      return handleApproveVenueRequest({ id }, session(staff), database as never);
+    }
+
+    async function readRow(id: string) {
+      const [row] = await database
+        .select()
+        .from(schema.venueRequests)
+        .where(eq(schema.venueRequests.id, id));
+      return row;
+    }
+
+    it("records the rejection with its reason and who made it, and leaves the pending queue (AC1)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      const rejected = await reject(request.id, users.venueStaffA);
+
+      expect(rejected).toMatchObject({
+        status: "rejected",
+        rejectionReason: REASON,
+        assignedStaffId: users.venueStaffA.id,
+        suggestedVenueId: null,
+        suggestedDate: null,
+        suggestedStartTime: null,
+        suggestedEndTime: null,
+      });
+      const queue = await handleListPendingVenueRequests(database as never);
+      expect(queue.map(queued => queued.id)).not.toContain(request.id);
+    });
+
+    it("trims the reason it stores (AC1)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      const rejected = await reject(request.id, users.venueStaffA, { reason: "  Too small  " });
+
+      expect(rejected.rejectionReason).toBe("Too small");
+    });
+
+    it("refuses a rejection without a reason and leaves the request pending (AC1)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      sendEmail.mockClear();
+
+      await Promise.all(
+        [undefined, "", "   "].map(reason =>
+          expect(
+            handleRejectVenueRequest(
+              { id: request.id, reason },
+              session(users.venueStaffA),
+              database as never
+            )
+          ).rejects.toThrow(VENUE_REJECTION_REASON_REQUIRED)
+        )
+      );
+
+      expect(await readRow(request.id)).toMatchObject({ status: "pending", rejectionReason: null });
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("stores a suggested venue, date and time with the rejection (AC2)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      const alternativeId = await createAlternativeVenue();
+
+      const rejected = await reject(request.id, users.venueStaffA, {
+        suggestedVenueId: alternativeId,
+        suggestedDate: "2027-04-21",
+        suggestedStartTime: "10:00",
+        suggestedEndTime: "13:30",
+      });
+
+      expect(rejected).toMatchObject({
+        suggestedVenueId: alternativeId,
+        suggestedDate: "2027-04-21",
+        suggestedStartTime: "10:00:00",
+        suggestedEndTime: "13:30:00",
+      });
+    });
+
+    it("accepts any part of a suggestion alone (AC2)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      const rejected = await reject(request.id, users.venueStaffA, { suggestedDate: "2027-04-22" });
+
+      expect(rejected).toMatchObject({
+        suggestedVenueId: null,
+        suggestedDate: "2027-04-22",
+        suggestedStartTime: null,
+        suggestedEndTime: null,
+      });
+    });
+
+    it("refuses a suggested venue that does not exist and leaves the request pending (AC2)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      await expect(
+        reject(request.id, users.venueStaffA, { suggestedVenueId: 2147483647 })
+      ).rejects.toMatchObject({ name: "NotFoundError", status: 404 });
+
+      expect(await readRow(request.id)).toMatchObject({ status: "pending" });
+    });
+
+    it("refuses a request assigned to another staff member (AC1)", async () => {
+      await database.insert(schema.venueRequests).values({
+        id: "ptr-34-assigned-other",
+        eventId,
+        venueId,
+        requestedById: users.coordinator.id,
+        assignedStaffId: users.venueStaffB.id,
+        startsAt: "2027-04-20 09:00:00",
+        endsAt: "2027-04-20 12:30:00",
+      });
+
+      await expect(reject("ptr-34-assigned-other", users.venueStaffA)).rejects.toMatchObject({
+        name: "AuthorizationError",
+        status: 403,
+      });
+    });
+
+    it("notifies the Coordinator who raised the request, with the reason and suggestion (AC4)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      const alternativeId = await createAlternativeVenue();
+      sendEmail.mockClear();
+
+      await reject(request.id, users.venueStaffA, {
+        suggestedVenueId: alternativeId,
+        suggestedDate: "2027-04-21",
+        suggestedStartTime: "10:00",
+        suggestedEndTime: "13:30",
+      });
+
+      expect(sendEmail).toHaveBeenCalledOnce();
+      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
+      expect(sendEmail.mock.calls[0][1]).toBe(`Venue booking rejected: ${VENUE_NAME}`);
+      const html = await render(sendEmail.mock.calls[0][2]);
+      expect(html).toContain("PTR-31 Event");
+      expect(html).toContain(REASON);
+      expect(html).toContain(ALTERNATIVE_VENUE_NAME);
+      expect(html).toContain("21 April 2027, 10:00–13:30");
+    });
+
+    it("keeps the rejection when the notification fails (AC4)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      sendEmail.mockRejectedValue(new Error("smtp is down"));
+
+      const rejected = await reject(request.id, users.venueStaffA);
+
+      expect(rejected.status).toBe("rejected");
+    });
+
+    it("refuses to approve a rejected request, and the venue stays free (AC5)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await reject(request.id, users.venueStaffA);
+
+      await expect(approve(request.id, users.venueStaffA)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_REJECTED_MESSAGE,
+      });
+      await expect(approve(request.id, users.venueStaffB)).rejects.toMatchObject({ status: 403 });
+
+      expect(await readRow(request.id)).toMatchObject({ status: "rejected" });
+      const availability = await handleGetVenueAvailability(
+        { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        database as never
+      );
+      expect(availability?.occupied ?? []).toEqual([]);
+    });
+
+    it("refuses to withdraw or reject a rejected request again (AC5)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await reject(request.id, users.venueStaffA);
+
+      await expect(
+        handleWithdrawVenueRequest(
+          { id: request.id },
+          session(users.coordinator),
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
+      await expect(
+        reject(request.id, users.venueStaffA, { reason: "Changed my mind" })
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
+
+      expect(await readRow(request.id)).toMatchObject({
+        status: "rejected",
+        rejectionReason: REASON,
+      });
+    });
+
+    it("frees the event and venue to be requested again after a rejection (AC5)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await reject(request.id, users.venueStaffA);
+
+      const replacement = await raiseRequest(eventId, "13:00", "15:00");
+
+      expect(replacement.status).toBe("pending");
+      const queue = await handleListPendingVenueRequests(database as never);
+      expect(queue.map(queued => queued.id)).toContain(replacement.id);
+    });
+
+    it("does not hold the venue for a rejected request (AC5)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await reject(request.id, users.venueStaffA);
+
+      const search = await handleSearchVenues(
+        { date: WINDOW.date, startTime: "09:00", endTime: "12:30" },
+        session(users.coordinator),
+        database as never
+      );
+      expect(search.venues.map(venue => venue.id)).toContain(venueId);
+
+      const other = await raiseRequest(await createEvent("PTR-34 Other Event"), "10:00", "11:00");
+      expect((await approve(other.id, users.venueStaffB)).status).toBe("approved");
+    });
+
+    it("settles a request once when an approval and a rejection race", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      const results = await Promise.allSettled([
+        approve(request.id, users.venueStaffA),
+        reject(request.id, users.venueStaffB),
+      ]);
+
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const row = await readRow(request.id);
+      expect(row.status === "approved" ? row.rejectionReason : row.status).toBe(
+        row.status === "approved" ? null : "rejected"
+      );
+    });
+
+    it("refuses a rejected row without a reason at the database (AC1)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      await Promise.all(
+        [null, "   "].map(rejectionReason =>
+          expect(
+            database
+              .update(schema.venueRequests)
+              .set({ status: "rejected", rejectionReason })
+              .where(eq(schema.venueRequests.id, request.id))
+          ).rejects.toMatchObject({
+            cause: { code: "23514", constraint: "venue_requests_rejection_has_reason" },
+          })
+        )
+      );
+
+      await database
+        .update(schema.venueRequests)
+        .set({ status: "rejected", rejectionReason: REASON })
+        .where(eq(schema.venueRequests.id, request.id));
+      expect((await readRow(request.id)).status).toBe("rejected");
     });
   });
 });
