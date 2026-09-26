@@ -1,6 +1,7 @@
 import { Section, Text } from "@react-email/components";
 
 import { formatDate, formatTime } from "#/features/emails/format";
+import type { VenueSuggestion } from "#/features/venue-requests/schema";
 import { emailHeading, emailText } from "./email-styles";
 import { Layout } from "./layout";
 
@@ -11,13 +12,8 @@ interface VenueBookingRejectedEmailProps {
   startsAt: string;
   endsAt: string;
   reason: string;
-  /** Whatever Venue Staff chose to suggest; each part is optional and times are `HH:MM`. */
-  suggestion: {
-    venueName?: string;
-    date?: string;
-    startTime?: string;
-    endTime?: string;
-  } | null;
+  /** Whatever Venue Staff chose to suggest; null when they suggested nothing. */
+  suggestion: VenueSuggestion | null;
 }
 
 /** PTR-34 criterion 4 (§6: a venue booking is rejected): tells the raising Coordinator why, and what would work. */

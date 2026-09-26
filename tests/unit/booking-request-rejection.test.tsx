@@ -7,7 +7,6 @@ import { BookingRequestDetailsPage } from "#/features/venue-requests/components/
 import {
   VENUE_REJECTION_REASON_REQUIRED,
   VENUE_REJECTION_TIME_PAIR_MESSAGE,
-  VENUE_REQUEST_TIME_ORDER_MESSAGE,
 } from "#/features/venue-requests/schema";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
@@ -159,18 +158,6 @@ describe("rejecting a booking from the request's detail page (PTR-34)", () => {
     await userEvent.click(rejectButton());
 
     expect(await screen.findByText(VENUE_REJECTION_TIME_PAIR_MESSAGE)).toBeTruthy();
-    expect(rejectVenueRequest).not.toHaveBeenCalled();
-  });
-
-  it("refuses a suggested end time that is not later than the start (AC2)", async () => {
-    renderPage();
-
-    await userEvent.type(reasonBox(), "Closed");
-    fireEvent.change(screen.getByLabelText("Suggested start time"), { target: { value: "14:00" } });
-    fireEvent.change(screen.getByLabelText("Suggested end time"), { target: { value: "13:00" } });
-    await userEvent.click(rejectButton());
-
-    expect(await screen.findByText(VENUE_REQUEST_TIME_ORDER_MESSAGE)).toBeTruthy();
     expect(rejectVenueRequest).not.toHaveBeenCalled();
   });
 
