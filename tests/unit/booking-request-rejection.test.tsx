@@ -8,6 +8,7 @@ import {
   VENUE_REJECTION_REASON_REQUIRED,
   VENUE_REJECTION_TIME_PAIR_MESSAGE,
   VENUE_REQUEST_DECIDED_MESSAGE,
+  VENUE_REQUEST_REJECTED_MESSAGE,
 } from "#/features/venue-requests/schema";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
@@ -188,18 +189,22 @@ describe("rejecting a booking from the request's detail page (PTR-34)", () => {
   /**
    * A conflict means someone else already settled the row: reloading this page's loader would
    * 404 it out from under the form (PTR-34 review), so the refusal is toasted from the queue
-   * instead of flashed on a page the router is about to replace.
+   * instead of flashed on a page the router is about to replace. Both settle sentences take this
+   * branch — rejected, and approved/withdrawn.
    */
-  it("toasts and returns to the queue when someone else already decided the request", async () => {
-    rejectVenueRequest.mockRejectedValue(new Error(VENUE_REQUEST_DECIDED_MESSAGE));
-    renderPage();
+  it.each([VENUE_REQUEST_DECIDED_MESSAGE, VENUE_REQUEST_REJECTED_MESSAGE])(
+    "toasts and returns to the queue when someone else already settled the request (%s)",
+    async message => {
+      rejectVenueRequest.mockRejectedValue(new Error(message));
+      renderPage();
 
-    await userEvent.type(reasonBox(), "Closed");
-    await userEvent.click(rejectButton());
+      await userEvent.type(reasonBox(), "Closed");
+      await userEvent.click(rejectButton());
 
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith(VENUE_REQUEST_DECIDED_MESSAGE));
-    expect(navigate).toHaveBeenCalledWith({ to: "/venue-requests" });
-    expect(success).not.toHaveBeenCalled();
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith(message));
+      expect(navigate).toHaveBeenCalledWith({ to: "/venue-requests" });
+      expect(success).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alert")).toBeNull();
+    }
+  );
 });

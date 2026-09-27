@@ -769,10 +769,14 @@ describe("venue request handlers (PTR-31)", () => {
       ]);
 
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
-      // The settled row now belongs to the winner, so the loser is refused by the queue rule —
-      // never handed a self-conflict sentence about the request it just approved.
+      // The settled row now belongs to the winner, so the loser sees the settled sentence — never a
+      // self-conflict sentence about the request it just approved, and never a bare Forbidden.
       expect(results.find(result => result.status === "rejected")).toMatchObject({
-        reason: { name: "AuthorizationError", status: 403 },
+        reason: {
+          name: "ConflictError",
+          status: 409,
+          message: VENUE_REQUEST_DECIDED_MESSAGE,
+        },
       });
     });
 
@@ -1172,6 +1176,41 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
       expect(availability?.occupied ?? []).toEqual([]);
+    });
+
+    it("tells any staff member a settled request is settled, not forbidden", async () => {
+      // Approved by one staff member: another staff member's attempt gets the settled sentence
+      // rather than a bare Forbidden, so a stale form can toast it instead of reloading into 404.
+      const approved = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(approved.id, users.venueStaffA);
+      await expect(approve(approved.id, users.venueStaffB)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+      await expect(reject(approved.id, users.venueStaffB)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+
+      // Withdrawn by the raiser: the same sentence for either attempt on the stale row.
+      const withdrawn = await raiseRequest(eventId, "13:00", "15:00");
+      await handleWithdrawVenueRequest(
+        { id: withdrawn.id },
+        session(users.coordinator),
+        database as never
+      );
+      await expect(reject(withdrawn.id, users.venueStaffB)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+      await expect(approve(withdrawn.id, users.venueStaffA)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
     });
 
     it("refuses to withdraw or reject a rejected request again (AC5)", async () => {

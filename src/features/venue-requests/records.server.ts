@@ -19,10 +19,11 @@ type Database = typeof Db;
  * PTR-34 criterion 3, owned here rather than re-derived by the events feature (which would
  * otherwise read `venue_requests` and `venues` directly, and PTR-35 prefill would need to do it
  * again): the most recent rejection for each of the given events, shaped for a Coordinator's card
- * or a prefill. Only an event whose newest row of *any* status is that rejection is included — a
- * rejection followed by a fresh pending, approved or withdrawn row is no longer the event's live
- * state, and it is not this reader's business to reach further back than the newest row. One join
- * carries the suggested venue's name, so a caller never reads `venues` for this itself.
+ * or a prefill. Only an event whose newest non-withdrawn row is that rejection is included — a
+ * rejection followed by a fresh pending or approved row is no longer the event's live state. A
+ * withdrawal carries no decision, so it does not erase the last rejection: the Coordinator is back
+ * to planning and the reason still applies. One join carries the suggested venue's name, so a
+ * caller never reads `venues` for this itself.
  */
 export async function loadRejectionsForEvents(
   database: Pick<Database, "select">,
@@ -51,10 +52,13 @@ export async function loadRejectionsForEvents(
     .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
     .where(inArray(venueRequests.eventId, [...eventIds]));
 
-  // The newest row per event, any status; a tie (same instant) falls to the higher id, the same
-  // stable rule the single-event reader used before this moved.
+  // The newest row per event, a withdrawal excluded; a tie (same instant) falls to the higher id,
+  // the same stable rule the single-event reader used before this moved.
   const newestByEvent = new Map<number, (typeof rows)[number]>();
   for (const row of rows) {
+    // A withdrawal is not a decision: it must not erase the last rejection (PTR-34 review). The
+    // newest pending, approved or rejected row is the event's live state.
+    if (row.status === "withdrawn") continue;
     const current = newestByEvent.get(row.eventId);
     if (
       !current ||

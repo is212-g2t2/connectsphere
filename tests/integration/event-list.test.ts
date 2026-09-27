@@ -587,6 +587,29 @@ describe("event list handler (PTR-8)", () => {
         expect(await coordinatorCard(fixtures.closed.id)).toBeNull();
       });
 
+      it("keeps the rejection when the replacement request is withdrawn", async () => {
+        await insertRejected("el-venue-rejected-then-withdrawn", {
+          updatedAt: new Date("2026-10-01T00:00:00Z"),
+        });
+        await database.insert(schema.venueRequests).values({
+          id: "el-venue-withdrawn-after-rejection",
+          eventId: fixtures.closed.id,
+          venueId: fixtureVenueId,
+          requestedById: fixtureUsers.coordinator.id,
+          startsAt: "2026-11-06 09:00:00",
+          endsAt: "2026-11-06 12:00:00",
+          status: "withdrawn",
+          updatedAt: new Date("2026-10-05T00:00:00Z"),
+        });
+
+        // A withdrawal carries no decision, so the Coordinator is back to planning and the last
+        // rejection is still the event's live state (PTR-34 review).
+        expect(await coordinatorCard(fixtures.closed.id)).toMatchObject({
+          status: "rejected",
+          rejection: { reason: "Closed for floor resurfacing" },
+        });
+      });
+
       it("leaves the organiser's view as it was, with no rejection and no reason", async () => {
         await insertRejected("el-venue-rejected-org");
 

@@ -508,8 +508,9 @@ export async function handleCreateVenueRequest(
 
 /**
  * PTR-34: a rejected request is final on every decision path (withdraw, approve, reject), so one
- * place states the refusal rather than three copies of the same `if`. Each caller still checks its
- * own "not pending, not rejected" case afterwards, since that message differs by verb.
+ * place states the refusal rather than three copies of the same `if`. Approve and reject call it
+ * before their queue rule, so the sentence reaches every staff member, not only the one who
+ * decided the row; each caller then checks its own "not pending" case, whose message differs.
  */
 function assertNotRejected(status: string): void {
   if (status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
@@ -595,17 +596,17 @@ export async function handleApproveVenueRequest(
         .for("update");
       const row = rows.at(0);
       if (!row) throw new NotFoundError("Not Found");
-      // Checked before the queue rule: rejection stamps `assignedStaffId` to the rejecter, and the
-      // queue rule below would otherwise turn a second staff member's attempt into a bare Forbidden
-      // instead of the sentence that tells them to raise a new request (PTR-34 AC5).
+      // Settled checks run before the queue rule: a decision can change who owns the row, and the
+      // queue rule would otherwise answer a second staff member with a bare Forbidden instead of
+      // the sentence that says the request is settled (PTR-34 AC5). `assertNotRejected` carries the
+      // rejected half of that.
       assertNotRejected(row.status);
+      if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
       if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
 
       // Serialise per venue before touching the exclusion index: two concurrent approvals can
       // otherwise deadlock on it (Postgres documents the race) and the loser would be a fault.
       await tx.execute(sql`select pg_advisory_xact_lock(${row.venueId})`);
-
-      if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
 
       // Under the lock this pre-check cannot race another approval; the constraint below is the
       // backstop for a writer that does not come through this function.
@@ -686,12 +687,11 @@ export async function handleRejectVenueRequest(
       .for("update");
     const row = rows.at(0);
     if (!row) throw new NotFoundError("Not Found");
-    // Checked before the queue rule, the same reason `handleApproveVenueRequest` does: rejection
-    // stamps `assignedStaffId` to the rejecter, and the queue rule below would otherwise turn a
-    // second staff member's attempt into a bare Forbidden (PTR-34 AC5).
+    // Same order as approval: settled before queue rule, so a second staff member's stale form
+    // gets the settled sentence rather than a bare Forbidden (PTR-34 AC5).
     assertNotRejected(row.status);
-    if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
     if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
+    if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
 
     // The suggestion is optional, but a venue it names must exist; the same refusal a request for
     // a missing venue gets, and the name is what the email shows.

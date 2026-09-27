@@ -14,34 +14,44 @@ import {
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
 import { formatLocalDateTime, formatProposedWindow } from "#/features/event-requests/format";
-import { VENUE_REQUEST_DECIDED_MESSAGE } from "#/features/venue-requests/schema";
+import {
+  VENUE_REQUEST_DECIDED_MESSAGE,
+  VENUE_REQUEST_REJECTED_MESSAGE,
+} from "#/features/venue-requests/schema";
 import { approveVenueRequest } from "#/features/venue-requests/server-fns";
 import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 
 /**
  * Refusals that skip the reload, for opposite reasons. A request the client still shows as
- * `pending` but the server has already decided (or deleted) leaves the queue, so reloading would
- * 404 the detail route and silently drop the row, taking the alert with it — the alert stays as
- * the only trace. A "Forbidden" request is still `pending` but claimed by another staff member,
- * so it stays in the shared queue and a reload would just add nothing.
+ * `pending` but the server has already settled (rejected, approved or withdrawn) or deleted leaves
+ * the queue, so reloading would 404 the detail route and silently drop the row, taking the alert
+ * with it — the alert stays as the only trace. A "Forbidden" request is still `pending` but claimed
+ * by another staff member, so it stays in the shared queue and a reload would just add nothing.
  * `AuthorizationError`/`NotFoundError` carry fixed text because neither survives the
  * server-function boundary as a class the client can `instanceof`-check.
  */
 function requestIsGone(message: string): boolean {
   return (
-    message === VENUE_REQUEST_DECIDED_MESSAGE || message === "Forbidden" || message === "Not Found"
+    message === VENUE_REQUEST_DECIDED_MESSAGE ||
+    message === VENUE_REQUEST_REJECTED_MESSAGE ||
+    message === "Forbidden" ||
+    message === "Not Found"
   );
 }
 
 /**
- * Whether `message` is one of the two sentences worth showing verbatim: the request was already
- * decided, or the venue is already booked for an overlapping period (the named refusal or its
+ * Whether `message` is one of the sentences worth showing verbatim: the request was already
+ * settled, or the venue is already booked for an overlapping period (the named refusal or its
  * generic backstop). Anything else — a bare "Forbidden" or "Not Found" — is not this caller's to
  * explain, so it falls back to the mutation's generic text instead.
  */
 function isApprovalConflict(message: string): boolean {
-  return message === VENUE_REQUEST_DECIDED_MESSAGE || message.includes("is already booked");
+  return (
+    message === VENUE_REQUEST_DECIDED_MESSAGE ||
+    message === VENUE_REQUEST_REJECTED_MESSAGE ||
+    message.includes("is already booked")
+  );
 }
 
 /**

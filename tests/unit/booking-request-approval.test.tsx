@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "#/features/auth/session";
 import { BookingRequestDetailsPage } from "#/features/venue-requests/components/booking-request-details-page";
 import { BookingRequestQueuePage } from "#/features/venue-requests/components/booking-request-queue-page";
-import { VENUE_REQUEST_DECIDED_MESSAGE } from "#/features/venue-requests/schema";
+import {
+  VENUE_REQUEST_DECIDED_MESSAGE,
+  VENUE_REQUEST_REJECTED_MESSAGE,
+} from "#/features/venue-requests/schema";
 import type {
   PendingVenueRequest,
   PendingVenueRequestDetail,
@@ -181,6 +184,19 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     // Reloading here would either 404 the detail route or drop the row from the queue, taking the
     // alert down with it before it can be read.
     expect((await screen.findByRole("alert")).textContent).toBe(VENUE_REQUEST_DECIDED_MESSAGE);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the refusal on screen when the row was already rejected", async () => {
+    approveVenueRequest.mockRejectedValue(new Error(VENUE_REQUEST_REJECTED_MESSAGE));
+    render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
+
+    await confirmApproveDialog();
+
+    // A rejected row leaves the queue like a decided one, so the AC5 sentence stays on screen
+    // instead of a reload that would 404 the page out from under it.
+    expect((await screen.findByRole("alert")).textContent).toBe(VENUE_REQUEST_REJECTED_MESSAGE);
     expect(invalidate).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
   });
