@@ -776,6 +776,40 @@ describe("venue request handlers (PTR-31)", () => {
       expect(approved).toHaveLength(1);
     });
 
+    it("notifies the Coordinator who raised the request, and only them (PTR-33 AC2)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      sendEmail.mockClear();
+
+      await approve(request.id, users.venueStaffA);
+
+      expect(sendEmail).toHaveBeenCalledOnce();
+      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
+      expect(sendEmail.mock.calls[0][1]).toBe(`Venue booking approved: ${VENUE_NAME}`);
+      const html = await render(sendEmail.mock.calls[0][2]);
+      expect(html).toContain("PTR-31 Event");
+      expect(html).toContain("09:00–12:30");
+    });
+
+    it("keeps the approval when the notification fails (PTR-33 AC2)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      sendEmail.mockRejectedValue(new Error("smtp is down"));
+
+      const approved = await approve(request.id, users.venueStaffA);
+
+      expect(approved.status).toBe("approved");
+    });
+
+    it("sends nothing for a refused approval (PTR-33 AC2)", async () => {
+      const first = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(first.id, users.venueStaffA);
+      const second = await raiseRequest(await createEvent("PTR-33 Clash"), "10:00", "11:00");
+      sendEmail.mockClear();
+
+      await expect(approve(second.id, users.venueStaffB)).rejects.toMatchObject({ status: 409 });
+
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
     it("stops offering the venue once a booking is approved (PTR-33 AC3)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       await approve(request.id, users.venueStaffA);

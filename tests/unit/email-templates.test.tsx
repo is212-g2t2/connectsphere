@@ -5,6 +5,7 @@ import { ClarificationReplyEmail } from "#/features/emails/components/clarificat
 import { Layout } from "#/features/emails/components/layout";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
+import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
 
@@ -155,5 +156,21 @@ describe("Email templates rendering", () => {
     expect(html).not.toContain("Accessibility requirements:");
     expect(html).not.toContain("Required facilities:");
     expect(html).not.toContain("Expected attendance");
+  });
+
+  it("renders VenueBookingApprovedEmail with the event, venue and exact period (PTR-33 AC2)", async () => {
+    const html = await render(
+      <VenueBookingApprovedEmail
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-12 18:45:00"
+      />
+    );
+
+    expect(html).toContain("Venue booking approved");
+    expect(html).toContain("Community workshop");
+    expect(html).toContain("Harbour Hall");
+    expect(html).toContain("12 October 2026, 14:30–18:45");
   });
 });
