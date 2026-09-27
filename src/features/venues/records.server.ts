@@ -260,6 +260,21 @@ export async function handleListVenues(database: Database): Promise<Venue[]> {
   return database.select().from(venues).orderBy(asc(venues.name));
 }
 
+/**
+ * A picker's whole catalogue, not a record: the reject form's suggested-venue select needs only
+ * an id and a name, not every column `handleListVenues` selects (including `operatingHours`,
+ * a jsonb blob nobody reads for this). `defaultPreload: "intent"` runs this on every queue-row
+ * hover, so the slimmer select is the difference between one wasted column and every one of them.
+ */
+export async function handleListVenueOptions(
+  database: Database
+): Promise<{ id: number; name: string }[]> {
+  return database
+    .select({ id: venues.id, name: venues.name })
+    .from(venues)
+    .orderBy(asc(venues.name));
+}
+
 type VenueBlock = AvailabilityRecord & { venueId: number };
 
 async function loadVenueBlocks(

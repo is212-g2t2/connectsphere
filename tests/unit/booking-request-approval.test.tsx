@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "#/features/auth/session";
 import { BookingRequestDetailsPage } from "#/features/venue-requests/components/booking-request-details-page";
 import { BookingRequestQueuePage } from "#/features/venue-requests/components/booking-request-queue-page";
-import { VENUE_REQUEST_DECIDED_MESSAGE } from "#/features/venue-requests/schema";
+import {
+  VENUE_REQUEST_DECIDED_MESSAGE,
+  VENUE_REQUEST_REJECTED_MESSAGE,
+} from "#/features/venue-requests/schema";
 import type {
   PendingVenueRequest,
   PendingVenueRequestDetail,
@@ -17,7 +20,10 @@ const { approveVenueRequest, navigate, invalidate, success } = vi.hoisted(() => 
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
 }));
-vi.mock("#/features/venue-requests/server-fns", () => ({ approveVenueRequest }));
+vi.mock("#/features/venue-requests/server-fns", () => ({
+  approveVenueRequest,
+  rejectVenueRequest: vi.fn<() => Promise<unknown>>(),
+}));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     children,
@@ -49,6 +55,7 @@ const coordinator: SessionUser = { ...venueStaff, id: "coord-1", role: "event_co
 
 const queued: PendingVenueRequest = {
   id: "request-001",
+  venueId: 3,
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",
@@ -181,6 +188,19 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  it("keeps the refusal on screen when the row was already rejected", async () => {
+    approveVenueRequest.mockRejectedValue(new Error(VENUE_REQUEST_REJECTED_MESSAGE));
+    render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
+
+    await confirmApproveDialog();
+
+    // A rejected row leaves the queue like a decided one, so the AC5 sentence stays on screen
+    // instead of a reload that would 404 the page out from under it.
+    expect((await screen.findByRole("alert")).textContent).toBe(VENUE_REQUEST_REJECTED_MESSAGE);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("maps a bare refusal to the friendly fallback instead of the raw server text", async () => {
     approveVenueRequest.mockRejectedValue(new Error("Forbidden"));
     render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
@@ -209,7 +229,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
   });
 
   it("approves from the request's detail page and returns to the queue", async () => {
-    render(<BookingRequestDetailsPage user={venueStaff} request={detail} />);
+    render(<BookingRequestDetailsPage user={venueStaff} request={detail} venues={[]} />);
 
     await confirmApproveDialog();
 
@@ -228,9 +248,15 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
   });
 
   it("offers the approval only to a role that may decide, on the detail page", () => {
-    render(<BookingRequestDetailsPage user={coordinator} request={detail} />);
+    render(<BookingRequestDetailsPage user={coordinator} request={detail} venues={[]} />);
 
     expect(screen.queryByRole("button")).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Approve this request" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Record a decision" })).toBeNull();
+  });
+
+  it("no longer describes the detail page as read-only", () => {
+    render(<BookingRequestDetailsPage user={venueStaff} request={detail} venues={[]} />);
+
+    expect(screen.queryByText(/read-only/i)).toBeNull();
   });
 });

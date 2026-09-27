@@ -41,6 +41,14 @@ export const listVenues = createServerFn({ method: "GET" })
     return handleListVenues(db);
   });
 
+/** A picker's catalogue — `{ id, name }` only, not every venue column `listVenues` carries. */
+export const listVenueOptions = createServerFn({ method: "GET" })
+  .middleware([requireVenueRead])
+  .handler(async () => {
+    const [{ db }, { handleListVenueOptions }] = await loadServer();
+    return handleListVenueOptions(db);
+  });
+
 export const searchVenues = createServerFn({ method: "GET" })
   .validator(parseVenueSearchRequest)
   .middleware([requireVenueSearch])

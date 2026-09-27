@@ -298,6 +298,33 @@ describe("event list handler (PTR-8)", () => {
     fixtures = { main, closed, foreign, draft, review };
   });
 
+  function insertRejected(
+    id: string,
+    values: Partial<typeof schema.venueRequests.$inferInsert> = {}
+  ) {
+    return database.insert(schema.venueRequests).values({
+      id,
+      eventId: fixtures.closed.id,
+      venueId: fixtureVenueId,
+      requestedById: fixtureUsers.coordinator.id,
+      assignedStaffId: fixtureUsers.venueStaff.id,
+      startsAt: "2026-11-01 09:00:00",
+      endsAt: "2026-11-01 12:00:00",
+      status: "rejected",
+      rejectionReason: "Closed for floor resurfacing",
+      ...values,
+    });
+  }
+
+  async function coordinatorCard(eventId: number) {
+    const [projection] = await handleListEvents(
+      { eventId },
+      session("coordinator"),
+      database as never
+    );
+    return projection.event.venueRequest;
+  }
+
   describe("role scoping over the bare list", () => {
     it("shows an organiser every non-draft event of theirs and never their draft", async () => {
       const listed = await handleListEvents({}, session("organiser"), database as never);
@@ -459,6 +486,141 @@ describe("event list handler (PTR-8)", () => {
         database as never
       );
       expect(clear.event.venueRequest).toEqual({ status: "pending" });
+    });
+
+    describe("a rejected venue request (PTR-34 AC3)", () => {
+      it("shows the requesting Coordinator the rejection, its reason and the suggestion", async () => {
+        await insertRejected("el-venue-rejected-full", {
+          suggestedVenueId: fixtureVenueId,
+          suggestedDate: "2026-11-02",
+          suggestedStartTime: "10:00",
+          suggestedEndTime: "13:30",
+        });
+
+        expect(await coordinatorCard(fixtures.closed.id)).toEqual({
+          status: "rejected",
+          rejection: {
+            venueName: FIXTURE_VENUE_NAME,
+            date: "2026-11-01",
+            startTime: "09:00",
+            endTime: "12:00",
+            reason: "Closed for floor resurfacing",
+            suggestion: {
+              venueName: FIXTURE_VENUE_NAME,
+              date: "2026-11-02",
+              startTime: "10:00",
+              endTime: "13:30",
+            },
+          },
+        });
+      });
+
+      it("reports no suggestion when Venue Staff gave none, and only the parts they gave", async () => {
+        await insertRejected("el-venue-rejected-bare");
+        expect(await coordinatorCard(fixtures.closed.id)).toEqual({
+          status: "rejected",
+          rejection: {
+            venueName: FIXTURE_VENUE_NAME,
+            date: "2026-11-01",
+            startTime: "09:00",
+            endTime: "12:00",
+            reason: "Closed for floor resurfacing",
+            suggestion: null,
+          },
+        });
+
+        await database
+          .update(schema.venueRequests)
+          .set({ suggestedDate: "2026-11-02" })
+          .where(eq(schema.venueRequests.id, "el-venue-rejected-bare"));
+        expect(await coordinatorCard(fixtures.closed.id)).toMatchObject({
+          rejection: {
+            suggestion: { venueName: null, date: "2026-11-02", startTime: null, endTime: null },
+          },
+        });
+      });
+
+      it("prefers a pending request to a rejection", async () => {
+        await insertRejected("el-venue-rejected-old", { eventId: fixtures.main.id });
+
+        expect(await coordinatorCard(fixtures.main.id)).toEqual({ status: "pending" });
+      });
+
+      it("shows the most recently decided rejection", async () => {
+        await insertRejected("el-venue-rejected-a", {
+          rejectionReason: "First reason",
+          updatedAt: new Date("2026-10-01T00:00:00Z"),
+        });
+        await insertRejected("el-venue-rejected-b", {
+          rejectionReason: "Latest reason",
+          updatedAt: new Date("2026-10-03T00:00:00Z"),
+        });
+        await insertRejected("el-venue-rejected-c", {
+          rejectionReason: "Middle reason",
+          updatedAt: new Date("2026-10-02T00:00:00Z"),
+        });
+
+        expect(await coordinatorCard(fixtures.closed.id)).toMatchObject({
+          rejection: { reason: "Latest reason" },
+        });
+      });
+
+      it("does not show a stale rejection once a newer request has settled differently", async () => {
+        await insertRejected("el-venue-rejected-superseded", {
+          updatedAt: new Date("2026-10-01T00:00:00Z"),
+        });
+        await database.insert(schema.venueRequests).values({
+          id: "el-venue-approved-after-rejection",
+          eventId: fixtures.closed.id,
+          venueId: fixtureVenueId,
+          requestedById: fixtureUsers.coordinator.id,
+          assignedStaffId: fixtureUsers.venueStaff.id,
+          startsAt: "2026-11-05 09:00:00",
+          endsAt: "2026-11-05 12:00:00",
+          status: "approved",
+          updatedAt: new Date("2026-10-05T00:00:00Z"),
+        });
+
+        // The event's newest venue request is now the approval, not the earlier rejection, so the
+        // rejection must not still render as the event's live state (PTR-34 review: a rejected then
+        // raised-and-approved request must not resurrect its old reason).
+        expect(await coordinatorCard(fixtures.closed.id)).toBeNull();
+      });
+
+      it("keeps the rejection when the replacement request is withdrawn", async () => {
+        await insertRejected("el-venue-rejected-then-withdrawn", {
+          updatedAt: new Date("2026-10-01T00:00:00Z"),
+        });
+        await database.insert(schema.venueRequests).values({
+          id: "el-venue-withdrawn-after-rejection",
+          eventId: fixtures.closed.id,
+          venueId: fixtureVenueId,
+          requestedById: fixtureUsers.coordinator.id,
+          startsAt: "2026-11-06 09:00:00",
+          endsAt: "2026-11-06 12:00:00",
+          status: "withdrawn",
+          updatedAt: new Date("2026-10-05T00:00:00Z"),
+        });
+
+        // A withdrawal carries no decision, so the Coordinator is back to planning and the last
+        // rejection is still the event's live state (PTR-34 review).
+        expect(await coordinatorCard(fixtures.closed.id)).toMatchObject({
+          status: "rejected",
+          rejection: { reason: "Closed for floor resurfacing" },
+        });
+      });
+
+      it("leaves the organiser's view as it was, with no rejection and no reason", async () => {
+        await insertRejected("el-venue-rejected-org");
+
+        const [projection] = await handleListEvents(
+          { eventId: fixtures.closed.id },
+          session("organiser"),
+          database as never
+        );
+
+        expect(projection.event.venueRequest).toBeNull();
+      });
     });
 
     it("gives Technical Support every equipment line of the event, not only their own", async () => {

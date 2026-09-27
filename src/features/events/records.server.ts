@@ -13,9 +13,14 @@ import {
   isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
-import type { EventProjection } from "#/features/events/access";
+import type {
+  EventProjection,
+  EventVenueRequest,
+  VenueRequestRejection,
+} from "#/features/events/access";
 import { parseEventListInput } from "#/features/events/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import { loadRejectionsForEvents } from "#/features/venue-requests/records.server";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -179,6 +184,14 @@ export async function handleListEvents(
       ),
   ]);
 
+  // PTR-34 criterion 3: a rejection is shown only to the assigned Coordinator, so no other role
+  // pays for the lookup. `venue-requests` owns the rejection's shape (PTR-35 prefill needs the
+  // same reader), including which row is still the event's live state.
+  const rejectionsByEvent: ReadonlyMap<number, VenueRequestRejection> =
+    role === "event_coordinator"
+      ? await loadRejectionsForEvents(database, requestIds)
+      : new Map<number, VenueRequestRejection>();
+
   // PTR-36 criterion 4: which pending requests overlap an approved booking for the same venue.
   // A self-join rather than a per-request read, and deliberately not scoped to `venueRows`: the
   // approved booking can belong to an event the caller cannot see. Only a boolean reaches the
@@ -246,13 +259,25 @@ export async function handleListEvents(
         notes: row.notes,
       }));
     // PTR-31 criterion 5: a withdrawn request leaves the card, so only a pending row is reported; no fallback to an older withdrawn request — an event with none shows no venue request. A Venue Staff caller sees only the rows the queue rule grants them.
-    const venueRequest =
+    const pendingRequest =
       venueRows.find(
         row =>
           row.eventId === record.id &&
           row.status === "pending" &&
           (access !== "venue_staff" || isVenueQueueRow(row, user.id))
       ) ?? null;
+    // PTR-34 criterion 3: with none pending, the assigned Coordinator is shown the most recent
+    // rejection — but only when `loadRejectionsForEvents` found it still the event's live state.
+    // Every other caller keeps what PTR-31 shows.
+    const rejection = access === "coordinator" ? (rejectionsByEvent.get(record.id) ?? null) : null;
+    const venueRequest: EventVenueRequest | null = pendingRequest
+      ? {
+          status: pendingRequest.status,
+          ...(conflictingRequestIds.has(pendingRequest.id) ? { conflict: true } : {}),
+        }
+      : rejection
+        ? { status: "rejected", rejection }
+        : null;
 
     return [
       projectEvent(
@@ -268,11 +293,6 @@ export async function handleListEvents(
           : null,
         equipment,
         venueRequest
-          ? {
-              status: venueRequest.status,
-              ...(conflictingRequestIds.has(venueRequest.id) ? { conflict: true } : {}),
-            }
-          : null
       ),
     ];
   });

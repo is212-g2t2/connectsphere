@@ -1,5 +1,5 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@react-email/render";
 import type { ReactElement } from "react";
 import { and, eq, inArray } from "drizzle-orm";
@@ -10,14 +10,18 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
 import {
+  VENUE_REJECTION_REASON_REQUIRED,
   VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
+  VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
 } from "#/features/venue-requests/schema";
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
   handleGetVenueRequestContext,
+  handleListPendingVenueRequests,
+  handleRejectVenueRequest,
   handleWithdrawVenueRequest,
 } from "#/features/venue-requests/requests.server";
 import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venues/records.server";
@@ -181,6 +185,57 @@ describe("venue request handlers (PTR-31)", () => {
       .returning({ id: schema.eventRequests.id });
     underReviewEventId = underReviewEvent.id;
   });
+
+  /** A second submitted event assigned to the same Coordinator, for the other side of a clash. */
+  async function createEvent(name: string) {
+    const [event] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: users.organiser.id,
+        status: "submitted",
+        submittedAt: new Date(),
+        assignedCoordinatorId: users.coordinator.id,
+        assignedAt: new Date(),
+        eventName: name,
+      })
+      .returning({ id: schema.eventRequests.id });
+    return event.id;
+  }
+
+  function raiseRequest(requestEventId: number, startTime: string, endTime: string) {
+    return handleCreateVenueRequest(
+      { ...WINDOW, startTime, endTime, eventId: requestEventId, venueId },
+      session(users.coordinator),
+      database as never
+    );
+  }
+
+  function approve(id: string, staff: (typeof users)["venueStaffA"]) {
+    return handleApproveVenueRequest({ id }, session(staff), database as never);
+  }
+
+  async function readRow(id: string) {
+    const [row] = await database
+      .select()
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.id, id));
+    return row;
+  }
+
+  function insertRequest(values: {
+    id: string;
+    eventId: number;
+    venueId?: number;
+    startsAt: string;
+    endsAt: string;
+    status: "pending" | "withdrawn" | "approved";
+  }) {
+    return database.insert(schema.venueRequests).values({
+      requestedById: users.coordinator.id,
+      venueId,
+      ...values,
+    });
+  }
 
   describe("raising a request", () => {
     it("records a pending, unassigned request and notifies every Venue Staff member (AC1, AC3, AC4)", async () => {
@@ -625,34 +680,6 @@ describe("venue request handlers (PTR-31)", () => {
   });
 
   describe("approving a booking (PTR-36)", () => {
-    /** A second submitted event assigned to the same Coordinator, for the other side of a clash. */
-    async function createEvent(name: string) {
-      const [event] = await database
-        .insert(schema.eventRequests)
-        .values({
-          organiserId: users.organiser.id,
-          status: "submitted",
-          submittedAt: new Date(),
-          assignedCoordinatorId: users.coordinator.id,
-          assignedAt: new Date(),
-          eventName: name,
-        })
-        .returning({ id: schema.eventRequests.id });
-      return event.id;
-    }
-
-    function raiseRequest(requestEventId: number, startTime: string, endTime: string) {
-      return handleCreateVenueRequest(
-        { ...WINDOW, startTime, endTime, eventId: requestEventId, venueId },
-        session(users.coordinator),
-        database as never
-      );
-    }
-
-    function approve(id: string, staff: (typeof users)["venueStaffA"]) {
-      return handleApproveVenueRequest({ id }, session(staff), database as never);
-    }
-
     it("approves a pending request, records who settled it, and holds the venue (AC1, AC2)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       const approved = await approve(request.id, users.venueStaffA);
@@ -742,10 +769,14 @@ describe("venue request handlers (PTR-31)", () => {
       ]);
 
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
-      // The settled row now belongs to the winner, so the loser is refused by the queue rule —
-      // never handed a self-conflict sentence about the request it just approved.
+      // The settled row now belongs to the winner, so the loser sees the settled sentence — never a
+      // self-conflict sentence about the request it just approved, and never a bare Forbidden.
       expect(results.find(result => result.status === "rejected")).toMatchObject({
-        reason: { name: "AuthorizationError", status: 403 },
+        reason: {
+          name: "ConflictError",
+          status: 409,
+          message: VENUE_REQUEST_DECIDED_MESSAGE,
+        },
       });
     });
 
@@ -829,21 +860,6 @@ describe("venue request handlers (PTR-31)", () => {
   });
 
   describe("the overlap constraint itself (PTR-36 AC1, AC3)", () => {
-    function insertRequest(values: {
-      id: string;
-      eventId: number;
-      venueId?: number;
-      startsAt: string;
-      endsAt: string;
-      status: "pending" | "withdrawn" | "approved";
-    }) {
-      return database.insert(schema.venueRequests).values({
-        requestedById: users.coordinator.id,
-        venueId,
-        ...values,
-      });
-    }
-
     it("refuses a second overlapping approved booking at the database", async () => {
       await insertRequest({
         id: "ptr-36-direct-1",
@@ -942,6 +958,350 @@ describe("venue request handlers (PTR-31)", () => {
           "ptr-36-direct-8",
         ].toSorted()
       );
+    });
+  });
+
+  describe("rejecting a booking (PTR-34)", () => {
+    const ALTERNATIVE_VENUE_NAME = "PTR-34 Alternative Room";
+    const REASON = "Closed for floor resurfacing";
+
+    afterEach(async () => {
+      await database.delete(schema.venues).where(eq(schema.venues.name, ALTERNATIVE_VENUE_NAME));
+    });
+
+    async function createAlternativeVenue() {
+      const [alternative] = await database
+        .insert(schema.venues)
+        .values({
+          name: ALTERNATIVE_VENUE_NAME,
+          location: "Request Wing",
+          maxCapacity: 120,
+          operatingHours: DEFAULT_OPERATING_HOURS,
+        })
+        .returning({ id: schema.venues.id });
+      return alternative.id;
+    }
+
+    function reject(
+      id: string,
+      staff: (typeof users)["venueStaffA"],
+      extra: Record<string, unknown> = {}
+    ) {
+      return handleRejectVenueRequest(
+        { id, reason: REASON, ...extra },
+        session(staff),
+        database as never
+      );
+    }
+
+    it("records the rejection with its reason and who made it, and leaves the pending queue (AC1)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      const rejected = await reject(request.id, users.venueStaffA);
+
+      expect(rejected).toMatchObject({
+        status: "rejected",
+        rejectionReason: REASON,
+        assignedStaffId: users.venueStaffA.id,
+        suggestedVenueId: null,
+        suggestedDate: null,
+        suggestedStartTime: null,
+        suggestedEndTime: null,
+      });
+      const queue = await handleListPendingVenueRequests(database as never);
+      expect(queue.map(queued => queued.id)).not.toContain(request.id);
+    });
+
+    it("trims the reason it stores (AC1)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      const rejected = await reject(request.id, users.venueStaffA, { reason: "  Too small  " });
+
+      expect(rejected.rejectionReason).toBe("Too small");
+    });
+
+    it("refuses a rejection without a reason and leaves the request pending (AC1)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      sendEmail.mockClear();
+
+      await Promise.all(
+        [undefined, "", "   "].map(reason =>
+          expect(
+            handleRejectVenueRequest(
+              { id: request.id, reason },
+              session(users.venueStaffA),
+              database as never
+            )
+          ).rejects.toThrow(VENUE_REJECTION_REASON_REQUIRED)
+        )
+      );
+
+      expect(await readRow(request.id)).toMatchObject({ status: "pending", rejectionReason: null });
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("stores a suggested venue, date and time with the rejection (AC2)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      const alternativeId = await createAlternativeVenue();
+
+      const rejected = await reject(request.id, users.venueStaffA, {
+        suggestedVenueId: alternativeId,
+        suggestedDate: "2027-04-21",
+        suggestedStartTime: "10:00",
+        suggestedEndTime: "13:30",
+      });
+
+      expect(rejected).toMatchObject({
+        suggestedVenueId: alternativeId,
+        suggestedDate: "2027-04-21",
+        suggestedStartTime: "10:00:00",
+        suggestedEndTime: "13:30:00",
+      });
+    });
+
+    it("accepts any part of a suggestion alone (AC2)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      const rejected = await reject(request.id, users.venueStaffA, { suggestedDate: "2027-04-22" });
+
+      expect(rejected).toMatchObject({
+        suggestedVenueId: null,
+        suggestedDate: "2027-04-22",
+        suggestedStartTime: null,
+        suggestedEndTime: null,
+      });
+    });
+
+    it("refuses a suggested venue that does not exist and leaves the request pending (AC2)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      await expect(
+        reject(request.id, users.venueStaffA, { suggestedVenueId: 2147483647 })
+      ).rejects.toMatchObject({ name: "NotFoundError", status: 404 });
+
+      expect(await readRow(request.id)).toMatchObject({ status: "pending" });
+    });
+
+    it("refuses a request assigned to another staff member (AC1)", async () => {
+      await database.insert(schema.venueRequests).values({
+        id: "ptr-34-assigned-other",
+        eventId,
+        venueId,
+        requestedById: users.coordinator.id,
+        assignedStaffId: users.venueStaffB.id,
+        startsAt: "2027-04-20 09:00:00",
+        endsAt: "2027-04-20 12:30:00",
+      });
+
+      await expect(reject("ptr-34-assigned-other", users.venueStaffA)).rejects.toMatchObject({
+        name: "AuthorizationError",
+        status: 403,
+      });
+    });
+
+    it("notifies the Coordinator who raised the request, with the reason and suggestion (AC4)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      const alternativeId = await createAlternativeVenue();
+      sendEmail.mockClear();
+
+      await reject(request.id, users.venueStaffA, {
+        suggestedVenueId: alternativeId,
+        suggestedDate: "2027-04-21",
+        suggestedStartTime: "10:00",
+        suggestedEndTime: "13:30",
+      });
+
+      expect(sendEmail).toHaveBeenCalledOnce();
+      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
+      expect(sendEmail.mock.calls[0][1]).toBe(`Venue booking rejected: ${VENUE_NAME}`);
+      const html = await render(sendEmail.mock.calls[0][2]);
+      expect(html).toContain("PTR-31 Event");
+      expect(html).toContain(REASON);
+      expect(html).toContain(ALTERNATIVE_VENUE_NAME);
+      expect(html).toContain("21 April 2027, 10:00–13:30");
+    });
+
+    it("keeps the rejection when the notification fails (AC4)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      sendEmail.mockRejectedValue(new Error("smtp is down"));
+
+      const rejected = await reject(request.id, users.venueStaffA);
+
+      expect(rejected.status).toBe("rejected");
+    });
+
+    it("keeps the rejection when the raiser's account is gone, and sends nothing (AC4)", async () => {
+      // `requested_by_id` is `set null` on account deletion, not cascade: the row survives
+      // unattributable, and `notifyRaiser` has no address to send to.
+      const [orphan] = await database
+        .insert(schema.venueRequests)
+        .values({
+          id: "ptr-34-orphan-raiser",
+          eventId,
+          venueId,
+          requestedById: null,
+          startsAt: "2027-04-20 09:00:00",
+          endsAt: "2027-04-20 12:30:00",
+        })
+        .returning({ id: schema.venueRequests.id });
+      sendEmail.mockClear();
+
+      const rejected = await reject(orphan.id, users.venueStaffA);
+
+      expect(rejected.status).toBe("rejected");
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("refuses to approve a rejected request, and the venue stays free (AC5)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await reject(request.id, users.venueStaffA);
+
+      await expect(approve(request.id, users.venueStaffA)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_REJECTED_MESSAGE,
+      });
+      // Rejection stamps `assignedStaffId` to the rejecter, so a second staff member who never
+      // touched this request must still see the AC5 sentence rather than a bare Forbidden — the
+      // rejected check runs before the queue rule for exactly this reason (review of PTR-34).
+      await expect(approve(request.id, users.venueStaffB)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_REJECTED_MESSAGE,
+      });
+
+      expect(await readRow(request.id)).toMatchObject({ status: "rejected" });
+      const availability = await handleGetVenueAvailability(
+        { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        database as never
+      );
+      expect(availability?.occupied ?? []).toEqual([]);
+    });
+
+    it("tells any staff member a settled request is settled, not forbidden", async () => {
+      // Approved by one staff member: another staff member's attempt gets the settled sentence
+      // rather than a bare Forbidden, so a stale form can toast it instead of reloading into 404.
+      const approved = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(approved.id, users.venueStaffA);
+      await expect(approve(approved.id, users.venueStaffB)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+      await expect(reject(approved.id, users.venueStaffB)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+
+      // Withdrawn by the raiser: the same sentence for either attempt on the stale row.
+      const withdrawn = await raiseRequest(eventId, "13:00", "15:00");
+      await handleWithdrawVenueRequest(
+        { id: withdrawn.id },
+        session(users.coordinator),
+        database as never
+      );
+      await expect(reject(withdrawn.id, users.venueStaffB)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+      await expect(approve(withdrawn.id, users.venueStaffA)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+    });
+
+    it("refuses to withdraw or reject a rejected request again (AC5)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await reject(request.id, users.venueStaffA);
+
+      await expect(
+        handleWithdrawVenueRequest(
+          { id: request.id },
+          session(users.coordinator),
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
+      await expect(
+        reject(request.id, users.venueStaffA, { reason: "Changed my mind" })
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
+      // Same AC5 sentence for a second staff member trying to reject it again.
+      await expect(
+        reject(request.id, users.venueStaffB, { reason: "Changed my mind" })
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
+
+      expect(await readRow(request.id)).toMatchObject({
+        status: "rejected",
+        rejectionReason: REASON,
+      });
+    });
+
+    it("frees the event and venue to be requested again after a rejection (AC5)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await reject(request.id, users.venueStaffA);
+
+      const replacement = await raiseRequest(eventId, "13:00", "15:00");
+
+      expect(replacement.status).toBe("pending");
+      const queue = await handleListPendingVenueRequests(database as never);
+      expect(queue.map(queued => queued.id)).toContain(replacement.id);
+    });
+
+    it("does not hold the venue for a rejected request (AC5)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await reject(request.id, users.venueStaffA);
+
+      const search = await handleSearchVenues(
+        { date: WINDOW.date, startTime: "09:00", endTime: "12:30" },
+        session(users.coordinator),
+        database as never
+      );
+      expect(search.venues.map(venue => venue.id)).toContain(venueId);
+
+      const other = await raiseRequest(await createEvent("PTR-34 Other Event"), "10:00", "11:00");
+      expect((await approve(other.id, users.venueStaffB)).status).toBe("approved");
+    });
+
+    it("settles a request once when an approval and a rejection race", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      const results = await Promise.allSettled([
+        approve(request.id, users.venueStaffA),
+        reject(request.id, users.venueStaffB),
+      ]);
+
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const row = await readRow(request.id);
+      expect(row.status === "approved" ? row.rejectionReason : row.status).toBe(
+        row.status === "approved" ? null : "rejected"
+      );
+    });
+
+    it("refuses a rejected row without a reason at the database (AC1)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+
+      // A tab/newline-only reason is the review's gap: `btrim` alone strips plain spaces, not
+      // every whitespace character, so the CHECK now matches on any non-space character instead.
+      await Promise.all(
+        [null, "   ", "\t\n"].map(rejectionReason =>
+          expect(
+            database
+              .update(schema.venueRequests)
+              .set({ status: "rejected", rejectionReason })
+              .where(eq(schema.venueRequests.id, request.id))
+          ).rejects.toMatchObject({
+            cause: { code: "23514", constraint: "venue_requests_rejection_has_reason" },
+          })
+        )
+      );
+
+      await database
+        .update(schema.venueRequests)
+        .set({ status: "rejected", rejectionReason: REASON })
+        .where(eq(schema.venueRequests.id, request.id));
+      expect((await readRow(request.id)).status).toBe("rejected");
     });
   });
 });

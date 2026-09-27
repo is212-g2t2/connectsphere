@@ -36,6 +36,7 @@ import {
 } from "#/features/event-requests/server-fns";
 import { listEvents } from "#/features/events/server-fns";
 import {
+  VENUE_REJECTION_REASON_REQUIRED,
   VENUE_REQUEST_DATE_MESSAGE,
   VENUE_REQUEST_ID_MESSAGE,
 } from "#/features/venue-requests/schema";
@@ -44,6 +45,7 @@ import {
   getPendingVenueRequest,
   getVenueRequestContext,
   listPendingVenueRequests,
+  rejectVenueRequest,
   requestVenue,
   withdrawVenueRequest,
 } from "#/features/venue-requests/server-fns";
@@ -57,6 +59,7 @@ import {
 import {
   getVenue,
   getVenueAvailability,
+  listVenueOptions,
   listVenues,
   saveVenue,
   searchVenues,
@@ -137,6 +140,21 @@ async function refusalFrom(
   expect(setResponseStatus).toHaveBeenCalledWith(status);
 
   return { status, body };
+}
+
+/** The validator's own refusal message, reduced from the pipeline's Error. */
+async function messageFrom(
+  serverFn: ServerFunction,
+  data: unknown,
+  method: "GET" | "POST" = "POST"
+) {
+  const { error } = await call(serverFn, data, method);
+  if (!(error instanceof Error)) {
+    throw new Error(
+      "expected the validator to refuse with an Error, but the pipeline returned none"
+    );
+  }
+  return error.message;
 }
 
 function signIn(role: string) {
@@ -238,6 +256,10 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
+      expect(await refusalFrom(listVenueOptions, undefined, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
       expect(await refusalFrom(searchVenues, {}, "GET")).toEqual({
         status: 401,
         body: "Unauthorized",
@@ -248,6 +270,10 @@ describe("server-function authorization (PTR-69)", () => {
       signIn("event_organiser");
 
       expect(await refusalFrom(listVenues, undefined, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+      expect(await refusalFrom(listVenueOptions, undefined, "GET")).toEqual({
         status: 403,
         body: "Forbidden",
       });
@@ -263,6 +289,7 @@ describe("server-function authorization (PTR-69)", () => {
         signIn(role);
 
         expect((await call(listVenues, undefined, "GET")).error).toBeUndefined();
+        expect((await call(listVenueOptions, undefined, "GET")).error).toBeUndefined();
       }
     );
 
@@ -376,6 +403,10 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
+      expect(await refusalFrom(rejectVenueRequest, { id: "req-1", reason: "Too small" })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
       expect(await refusalFrom(listPendingVenueRequests, undefined, "GET")).toEqual({
         status: 401,
         body: "Unauthorized",
@@ -443,6 +474,23 @@ describe("server-function authorization (PTR-69)", () => {
       signIn("venue_staff");
 
       expect((await call(approveVenueRequest, { id: "req-1" })).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "event_coordinator", "technical_support_staff"])(
+      "refuses %s the rejection verb (PTR-34)",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(rejectVenueRequest, {})).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("lets a Venue Staff member through the rejection chain (PTR-34)", async () => {
+      signIn("venue_staff");
+
+      expect(
+        (await call(rejectVenueRequest, { id: "req-1", reason: "Too small" })).error
+      ).toBeUndefined();
     });
   });
 
@@ -779,24 +827,13 @@ describe("server-function authorization (PTR-69)", () => {
    * signs in a role the guard admits so the failure comes from validation, not permission.
    */
   describe("validation at the server-function boundary (PTR-98)", () => {
-    async function messageFrom(
-      serverFn: ServerFunction,
-      data: unknown,
-      method: "GET" | "POST" = "POST"
-    ) {
-      const { error } = await call(serverFn, data, method);
-      if (!(error instanceof Error)) {
-        throw new Error(
-          "expected the validator to refuse with an Error, but the pipeline returned none"
-        );
-      }
-      return error.message;
-    }
-
     it("surfaces each function's own schema message instead of reaching the handler", async () => {
       signIn("venue_staff");
       expect(await messageFrom(saveVenue, { name: "" })).toBe(NAME_REQUIRED_MESSAGE);
       expect(await messageFrom(approveVenueRequest, { id: "  " })).toBe(VENUE_REQUEST_ID_MESSAGE);
+      expect(await messageFrom(rejectVenueRequest, { id: "req-1" })).toBe(
+        VENUE_REJECTION_REASON_REQUIRED
+      );
 
       signIn("event_coordinator");
       expect(await messageFrom(getVenue, { id: "seven" }, "GET")).toBe(VENUE_ID_MESSAGE);

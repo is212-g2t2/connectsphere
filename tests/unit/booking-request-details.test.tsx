@@ -6,6 +6,7 @@ import type { PendingVenueRequestDetail } from "#/features/venue-requests/server
 
 const request: PendingVenueRequestDetail = {
   id: "request-001",
+  venueId: 3,
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",

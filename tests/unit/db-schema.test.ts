@@ -59,8 +59,32 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(venueRequests).createdAt.name).toBe("created_at");
   });
 
-  it("keeps the venue request status list identical to the Postgres enum (PTR-31, PTR-36)", () => {
-    expect([...schema.venueRequestStatus.enumValues]).toEqual(["pending", "withdrawn", "approved"]);
+  it("keeps the venue request status list identical to the Postgres enum (PTR-31, PTR-36, PTR-34)", () => {
+    expect([...schema.venueRequestStatus.enumValues]).toEqual([
+      "pending",
+      "withdrawn",
+      "approved",
+      "rejected",
+    ]);
+  });
+
+  it("records a rejection's reason and optional suggestion on the venue request (PTR-34)", () => {
+    const columns = getTableColumns(venueRequests);
+    expect(columns.rejectionReason.name).toBe("rejection_reason");
+    expect(columns.suggestedVenueId.name).toBe("suggested_venue_id");
+    expect(columns.suggestedDate.name).toBe("suggested_date");
+    expect(columns.suggestedStartTime.name).toBe("suggested_start_time");
+    expect(columns.suggestedEndTime.name).toBe("suggested_end_time");
+    // Only a rejection carries them, so every one is nullable.
+    for (const column of [
+      columns.rejectionReason,
+      columns.suggestedVenueId,
+      columns.suggestedDate,
+      columns.suggestedStartTime,
+      columns.suggestedEndTime,
+    ]) {
+      expect(column.notNull).toBe(false);
+    }
   });
 
   it("defines the event request assignment columns (PTR-15)", () => {

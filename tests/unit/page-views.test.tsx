@@ -154,6 +154,72 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Conflicting booking")).toBeTruthy();
   });
 
+  it.each([
+    {
+      name: "the reason and the suggested alternative",
+      rejection: {
+        venueName: "Main Hall",
+        date: "2026-10-05",
+        startTime: "09:00",
+        endTime: "12:00",
+        reason: "Closed for floor resurfacing",
+        suggestion: {
+          venueName: "Harbour Hall",
+          date: "2027-04-21",
+          startTime: "10:00",
+          endTime: "13:30",
+        },
+      },
+      shown: [
+        "Main Hall, 5 Oct 2026, 09:00–12:00",
+        "Closed for floor resurfacing",
+        "Harbour Hall, 21 Apr 2027, 10:00–13:30",
+      ],
+      suggested: true,
+    },
+    {
+      name: "only the reason when no suggestion was given",
+      rejection: {
+        venueName: "Small Room",
+        date: "2026-11-02",
+        startTime: "14:00",
+        endTime: "15:00",
+        reason: "Fully booked",
+        suggestion: null,
+      },
+      shown: ["Small Room, 2 Nov 2026, 14:00–15:00", "Fully booked"],
+      suggested: false,
+    },
+  ])(
+    "shows a Coordinator the rejection with $name (PTR-34 AC3)",
+    ({ rejection, shown, suggested }) => {
+      render(
+        <DashboardPage
+          user={userWithRole("event_coordinator")}
+          events={[
+            {
+              access: "coordinator",
+              event: {
+                id: 7,
+                name: "Annual dinner",
+                status: "submitted",
+                eventDate: "2026-10-01",
+                startTime: "09:00",
+                endTime: "17:00",
+                venueRequest: { status: "rejected", rejection },
+              },
+            },
+          ]}
+        />
+      );
+
+      expect(screen.getByText("Rejected")).toBeTruthy();
+      expect(screen.queryByText("Pending")).toBeNull();
+      for (const text of shown) expect(screen.getByText(text)).toBeTruthy();
+      expect(screen.queryByText("Suggested alternative") !== null).toBe(suggested);
+    }
+  );
+
   it("lets a Coordinator start venue search from an assigned event", () => {
     render(
       <DashboardPage
