@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-28
+
+### Added
+
+- **Event review queue**: Coordinators take up a submitted request from its coordination page, and it stays on the internal dashboards while attendees who already registered keep their view of the event. Take-up is one guarded update that answers 403 or 409 without a partial change.
+- **Event status set**: `planning`, `confirmed`, `completed`, and `cancelled` join the status enum. One client-safe label map and the `EventRequestStatusBadge` pill cover every list and detail page, and each status carries whether a decision stands on it and how that decision went.
+- **Recorded decisions**: a Coordinator approves, or rejects with a required reason, and the row records who decided and when. The Organiser is emailed after the decision commits, a failed send is logged without undoing the decision, and the outcome is durable in the request views.
+- **Clarification requests and replies**: a Coordinator asks the Organiser for clarification or an amendment, and the Organiser answers from the request detail page. Both emails send after commit, a failed send is logged without recipient data, and a reply records the request it answers.
+- **Venue search from an event**: a Coordinator opens search prefilled from any event they still work in, composes requirement filters, and sees live availability. A search returns the venues that meet every requirement.
+- **Named unsuitability**: a venue that falls short stays on the page under "Not suitable", with each failing criterion named in a sentence (capacity, location, layout, accessibility, facilities, availability, or an approved booking). Search and suitability read one function, so a venue cannot pass the filter yet fail a rule.
+- **Venue booking requests**: a Coordinator raises a request for a venue and period and can withdraw it. Venue Staff get a shared queue of unassigned pending requests with a detail page that reads the event's live requirements, and a notification.
+- **Booking decisions**: Venue Staff approve a request after a confirmation naming the venue and window, or reject it with a required reason and an optional alternative venue and period. Both paths hold the same row lock and queue rule, so a race settles the request once, and the Coordinator who raised it is emailed either way. A rejection stays on the assigned Coordinator's event card until a newer request supersedes it.
+- **No double-booking**: a Postgres exclusion constraint refuses an approval that overlaps a booking already approved for the venue, with a refusal that reads as a wall-clock period. Approved bookings feed the venue search, the availability calendar, and a "Conflicting booking" flag on the queue, while pending requests stack and touching periods stay free.
+
+### Changed
+
+- **Form handling**: the calendar, decision, clarification, and search forms run on TanStack Form with one Standard Schema validation path. Submitting the Coordinator assignment form empty shows the field error instead of failing silently.
+- **Server errors**: the shared session middleware sets the wire status with `setResponseStatus`, and server functions throw typed errors, so callers and SSR reject naturally; the `unwrapRefusal` helper is gone from every loader and component.
+
 ## [0.1.0] - 2026-09-20
 
 ### Added
