@@ -7,18 +7,19 @@ import { BookingRequestDetailsPage } from "#/features/venue-requests/components/
 import {
   VENUE_REJECTION_REASON_REQUIRED,
   VENUE_REJECTION_TIME_PAIR_MESSAGE,
+  VENUE_REQUEST_DECIDED_MESSAGE,
 } from "#/features/venue-requests/schema";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
-const { approveVenueRequest, rejectVenueRequest, navigate, invalidate, success } = vi.hoisted(
-  () => ({
+const { approveVenueRequest, rejectVenueRequest, navigate, invalidate, success, toastError } =
+  vi.hoisted(() => ({
     approveVenueRequest: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
     rejectVenueRequest: vi.fn<(input: { data: Record<string, unknown> }) => Promise<unknown>>(),
     navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
     invalidate: vi.fn<() => Promise<void>>(),
     success: vi.fn<(message: string) => void>(),
-  })
-);
+    toastError: vi.fn<(message: string) => void>(),
+  }));
 vi.mock("#/features/venue-requests/server-fns", () => ({
   approveVenueRequest,
   rejectVenueRequest,
@@ -29,7 +30,7 @@ vi.mock("@tanstack/react-router", () => ({
   ),
   useRouter: () => ({ navigate, invalidate }),
 }));
-vi.mock("sonner", () => ({ toast: { success } }));
+vi.mock("sonner", () => ({ toast: { success, error: toastError } }));
 
 const venueStaff: SessionUser = {
   id: "staff-1",
@@ -41,6 +42,7 @@ const coordinator: SessionUser = { ...venueStaff, id: "coord-1", role: "event_co
 
 const detail: PendingVenueRequestDetail = {
   id: "request-001",
+  venueId: 3,
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",
@@ -73,6 +75,7 @@ beforeEach(() => {
   navigate.mockReset().mockResolvedValue();
   invalidate.mockReset().mockResolvedValue();
   success.mockReset();
+  toastError.mockReset();
 });
 
 describe("rejecting a booking from the request's detail page (PTR-34)", () => {
@@ -92,7 +95,15 @@ describe("rejecting a booking from the request's detail page (PTR-34)", () => {
     expect(screen.getByLabelText("Suggested start time")).toBeTruthy();
     expect(screen.getByLabelText("Suggested end time")).toBeTruthy();
     const options = screen.getAllByRole("option").map(option => option.textContent);
-    expect(options).toEqual(["No suggested venue", "Orchid Room", "Harbour Hall"]);
+    expect(options).toEqual(["No suggested venue", "Harbour Hall"]);
+  });
+
+  it("excludes the request's own venue from the suggestion picker", () => {
+    renderPage();
+
+    // Orchid Room (id 3) is the venue being rejected; suggesting it back makes no sense.
+    expect(screen.queryByRole("option", { name: "Orchid Room" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Harbour Hall" })).toBeTruthy();
   });
 
   it("refuses a rejection without a reason and does not call the server (AC1)", async () => {
@@ -161,18 +172,34 @@ describe("rejecting a booking from the request's detail page (PTR-34)", () => {
     expect(rejectVenueRequest).not.toHaveBeenCalled();
   });
 
-  it("shows the server's refusal, stays put and reloads the queue's data", async () => {
-    rejectVenueRequest.mockRejectedValue(new Error("This request has already been decided."));
+  it("shows an ordinary refusal, stays put and reloads the queue's data", async () => {
+    rejectVenueRequest.mockRejectedValue(new Error("Forbidden"));
     renderPage();
 
     await userEvent.type(reasonBox(), "Closed");
     await userEvent.click(rejectButton());
 
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "This request has already been decided."
-    );
+    expect((await screen.findByRole("alert")).textContent).toBe("Forbidden");
     expect(success).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     expect(invalidate).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * A conflict means someone else already settled the row: reloading this page's loader would
+   * 404 it out from under the form (PTR-34 review), so the refusal is toasted from the queue
+   * instead of flashed on a page the router is about to replace.
+   */
+  it("toasts and returns to the queue when someone else already decided the request", async () => {
+    rejectVenueRequest.mockRejectedValue(new Error(VENUE_REQUEST_DECIDED_MESSAGE));
+    renderPage();
+
+    await userEvent.type(reasonBox(), "Closed");
+    await userEvent.click(rejectButton());
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(VENUE_REQUEST_DECIDED_MESSAGE));
+    expect(navigate).toHaveBeenCalledWith({ to: "/venue-requests" });
+    expect(success).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

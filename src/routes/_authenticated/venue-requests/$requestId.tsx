@@ -5,7 +5,7 @@ import { BookingRequestDetailsPage } from "#/features/venue-requests/components/
 import { BookingRequestDetailsSkeleton } from "#/features/venue-requests/components/booking-request-details-skeleton";
 import { VenueRequestIdInput } from "#/features/venue-requests/schema";
 import { getPendingVenueRequest } from "#/features/venue-requests/server-fns";
-import { listVenues } from "#/features/venues/server-fns";
+import { listVenueOptions } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/venue-requests/$requestId")({
@@ -21,11 +21,11 @@ export const Route = createFileRoute("/_authenticated/venue-requests/$requestId"
     const [request, venues] = await Promise.all([
       getPendingVenueRequest({ data: parsed.data }),
       // Only a role that may reject offers a suggested venue, and it picks from the catalogue.
-      can(context.user.role, { venue_request: ["decide"] }) ? listVenues() : [],
+      can(context.user.role, { venue_request: ["decide"] }) ? listVenueOptions() : [],
     ]);
     // A missing row, or one that already left `pending`, comes back `null`: both are this 404.
     if (!request) throw notFound();
-    return { request, venues: venues.map(({ id, name }) => ({ id, name })) };
+    return { request, venues };
   },
   component: () => {
     const { request, venues } = Route.useLoaderData();

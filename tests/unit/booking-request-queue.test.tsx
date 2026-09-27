@@ -32,6 +32,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 const firstRequest: PendingVenueRequest = {
   id: "request-001",
+  venueId: 3,
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",
@@ -41,6 +42,7 @@ const firstRequest: PendingVenueRequest = {
 
 const secondRequest: PendingVenueRequest = {
   id: "request-002",
+  venueId: 4,
   venueName: "Harbour Hall",
   startsAt: "2030-11-18T13:00",
   endsAt: "2030-11-18T15:30",

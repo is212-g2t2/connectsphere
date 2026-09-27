@@ -6,25 +6,17 @@ import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
-import type { EventProjection, VenueRequestRejection } from "#/features/events/access";
+import type { EventProjection } from "#/features/events/access";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
+import { formatVenueSuggestion } from "#/features/venue-requests/schema";
+
+// Rebuilding an `Intl.DateTimeFormat` per call is wasted work on a list of cards; one instance is
+// reused for every date this component formats.
+const dateFormatter = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(
-    new Date(`${value}T00:00:00`)
-  );
-}
-
-/** PTR-34: whichever parts of the suggestion Venue Staff gave, as one line. */
-function formatSuggestion(suggestion: NonNullable<VenueRequestRejection["suggestion"]>) {
-  return [
-    suggestion.venueName,
-    suggestion.date && formatDate(suggestion.date),
-    suggestion.startTime && suggestion.endTime && `${suggestion.startTime}–${suggestion.endTime}`,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  return dateFormatter.format(new Date(`${value}T00:00:00`));
 }
 
 /**
@@ -118,6 +110,14 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                         {event.venueRequest.rejection && (
                           <>
                             <Detail
+                              label="Rejected booking"
+                              value={`${event.venueRequest.rejection.venueName}, ${formatDate(
+                                event.venueRequest.rejection.date
+                              )}, ${event.venueRequest.rejection.startTime}–${
+                                event.venueRequest.rejection.endTime
+                              }`}
+                            />
+                            <Detail
                               label="Rejection reason"
                               value={
                                 <span className="whitespace-pre-line">
@@ -128,7 +128,10 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                             {event.venueRequest.rejection.suggestion && (
                               <Detail
                                 label="Suggested alternative"
-                                value={formatSuggestion(event.venueRequest.rejection.suggestion)}
+                                value={formatVenueSuggestion(
+                                  event.venueRequest.rejection.suggestion,
+                                  formatDate
+                                )}
                               />
                             )}
                           </>

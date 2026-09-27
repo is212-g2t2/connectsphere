@@ -221,4 +221,19 @@ describe("Email templates rendering", () => {
     expect(none).toContain("Fully booked");
     expect(none).not.toContain("Suggested instead");
   });
+
+  /** A bare `10:00–13:30` reads as an unlabelled fragment; a times-only suggestion is called out. */
+  it("labels a suggestion that is only a new time, rather than a bare time range", async () => {
+    const html = await render(
+      <VenueBookingRejectedEmail
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-12 18:45:00"
+        reason="Fully booked"
+        suggestion={{ venueName: null, date: null, startTime: "10:00", endTime: "13:30" }}
+      />
+    );
+    expect(html).toContain("Suggested instead: New time: 10:00–13:30.");
+  });
 });

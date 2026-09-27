@@ -179,6 +179,27 @@ export interface VenueSuggestion {
   endTime: string | null;
 }
 
+/**
+ * PTR-34: whichever parts of a suggestion were given, joined into one line — shared by the
+ * Coordinator's event card and the rejection email, which previously each wrote this join
+ * themselves. `formatDate` is the caller's own date display, since the card and the email format
+ * dates differently. A suggestion that is only a time range is labelled ("New time: …") rather
+ * than left as a bare `10:00–13:30`, which reads as a fragment with nothing to attach it to.
+ */
+export function formatVenueSuggestion(
+  suggestion: VenueSuggestion,
+  formatDate: (date: string) => string
+): string {
+  const parts = [suggestion.venueName, suggestion.date && formatDate(suggestion.date)].filter(
+    (part): part is string => Boolean(part)
+  );
+  if (suggestion.startTime && suggestion.endTime) {
+    const time = `${suggestion.startTime}–${suggestion.endTime}`;
+    parts.push(parts.length === 0 ? `New time: ${time}` : time);
+  }
+  return parts.join(", ");
+}
+
 export function parseVenueRejectionInput(data: unknown): VenueRejectionValues {
   const parsed = VenueRejectionInput.safeParse(data);
   if (!parsed.success) {

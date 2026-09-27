@@ -129,6 +129,10 @@ describe("projectEvent with a rejected venue request (PTR-34 AC3)", () => {
   const rejected = {
     status: "rejected",
     rejection: {
+      venueName: "Main Hall",
+      date: "2026-10-10",
+      startTime: "09:00",
+      endTime: "12:00",
       reason: "Closed for floor resurfacing",
       suggestion: {
         venueName: "Harbour Hall",

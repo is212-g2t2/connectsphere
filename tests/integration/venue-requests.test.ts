@@ -186,6 +186,57 @@ describe("venue request handlers (PTR-31)", () => {
     underReviewEventId = underReviewEvent.id;
   });
 
+  /** A second submitted event assigned to the same Coordinator, for the other side of a clash. */
+  async function createEvent(name: string) {
+    const [event] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: users.organiser.id,
+        status: "submitted",
+        submittedAt: new Date(),
+        assignedCoordinatorId: users.coordinator.id,
+        assignedAt: new Date(),
+        eventName: name,
+      })
+      .returning({ id: schema.eventRequests.id });
+    return event.id;
+  }
+
+  function raiseRequest(requestEventId: number, startTime: string, endTime: string) {
+    return handleCreateVenueRequest(
+      { ...WINDOW, startTime, endTime, eventId: requestEventId, venueId },
+      session(users.coordinator),
+      database as never
+    );
+  }
+
+  function approve(id: string, staff: (typeof users)["venueStaffA"]) {
+    return handleApproveVenueRequest({ id }, session(staff), database as never);
+  }
+
+  async function readRow(id: string) {
+    const [row] = await database
+      .select()
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.id, id));
+    return row;
+  }
+
+  function insertRequest(values: {
+    id: string;
+    eventId: number;
+    venueId?: number;
+    startsAt: string;
+    endsAt: string;
+    status: "pending" | "withdrawn" | "approved";
+  }) {
+    return database.insert(schema.venueRequests).values({
+      requestedById: users.coordinator.id,
+      venueId,
+      ...values,
+    });
+  }
+
   describe("raising a request", () => {
     it("records a pending, unassigned request and notifies every Venue Staff member (AC1, AC3, AC4)", async () => {
       const request = await handleCreateVenueRequest(
@@ -629,34 +680,6 @@ describe("venue request handlers (PTR-31)", () => {
   });
 
   describe("approving a booking (PTR-36)", () => {
-    /** A second submitted event assigned to the same Coordinator, for the other side of a clash. */
-    async function createEvent(name: string) {
-      const [event] = await database
-        .insert(schema.eventRequests)
-        .values({
-          organiserId: users.organiser.id,
-          status: "submitted",
-          submittedAt: new Date(),
-          assignedCoordinatorId: users.coordinator.id,
-          assignedAt: new Date(),
-          eventName: name,
-        })
-        .returning({ id: schema.eventRequests.id });
-      return event.id;
-    }
-
-    function raiseRequest(requestEventId: number, startTime: string, endTime: string) {
-      return handleCreateVenueRequest(
-        { ...WINDOW, startTime, endTime, eventId: requestEventId, venueId },
-        session(users.coordinator),
-        database as never
-      );
-    }
-
-    function approve(id: string, staff: (typeof users)["venueStaffA"]) {
-      return handleApproveVenueRequest({ id }, session(staff), database as never);
-    }
-
     it("approves a pending request, records who settled it, and holds the venue (AC1, AC2)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       const approved = await approve(request.id, users.venueStaffA);
@@ -833,21 +856,6 @@ describe("venue request handlers (PTR-31)", () => {
   });
 
   describe("the overlap constraint itself (PTR-36 AC1, AC3)", () => {
-    function insertRequest(values: {
-      id: string;
-      eventId: number;
-      venueId?: number;
-      startsAt: string;
-      endsAt: string;
-      status: "pending" | "withdrawn" | "approved";
-    }) {
-      return database.insert(schema.venueRequests).values({
-        requestedById: users.coordinator.id,
-        venueId,
-        ...values,
-      });
-    }
-
     it("refuses a second overlapping approved booking at the database", async () => {
       await insertRequest({
         id: "ptr-36-direct-1",
@@ -957,21 +965,6 @@ describe("venue request handlers (PTR-31)", () => {
       await database.delete(schema.venues).where(eq(schema.venues.name, ALTERNATIVE_VENUE_NAME));
     });
 
-    async function createEvent(name: string) {
-      const [event] = await database
-        .insert(schema.eventRequests)
-        .values({
-          organiserId: users.organiser.id,
-          status: "submitted",
-          submittedAt: new Date(),
-          assignedCoordinatorId: users.coordinator.id,
-          assignedAt: new Date(),
-          eventName: name,
-        })
-        .returning({ id: schema.eventRequests.id });
-      return event.id;
-    }
-
     async function createAlternativeVenue() {
       const [alternative] = await database
         .insert(schema.venues)
@@ -985,14 +978,6 @@ describe("venue request handlers (PTR-31)", () => {
       return alternative.id;
     }
 
-    function raiseRequest(requestEventId: number, startTime: string, endTime: string) {
-      return handleCreateVenueRequest(
-        { ...WINDOW, startTime, endTime, eventId: requestEventId, venueId },
-        session(users.coordinator),
-        database as never
-      );
-    }
-
     function reject(
       id: string,
       staff: (typeof users)["venueStaffA"],
@@ -1003,18 +988,6 @@ describe("venue request handlers (PTR-31)", () => {
         session(staff),
         database as never
       );
-    }
-
-    function approve(id: string, staff: (typeof users)["venueStaffA"]) {
-      return handleApproveVenueRequest({ id }, session(staff), database as never);
-    }
-
-    async function readRow(id: string) {
-      const [row] = await database
-        .select()
-        .from(schema.venueRequests)
-        .where(eq(schema.venueRequests.id, id));
-      return row;
     }
 
     it("records the rejection with its reason and who made it, and leaves the pending queue (AC1)", async () => {
@@ -1153,6 +1126,28 @@ describe("venue request handlers (PTR-31)", () => {
       expect(rejected.status).toBe("rejected");
     });
 
+    it("keeps the rejection when the raiser's account is gone, and sends nothing (AC4)", async () => {
+      // `requested_by_id` is `set null` on account deletion, not cascade: the row survives
+      // unattributable, and `notifyRaiser` has no address to send to.
+      const [orphan] = await database
+        .insert(schema.venueRequests)
+        .values({
+          id: "ptr-34-orphan-raiser",
+          eventId,
+          venueId,
+          requestedById: null,
+          startsAt: "2027-04-20 09:00:00",
+          endsAt: "2027-04-20 12:30:00",
+        })
+        .returning({ id: schema.venueRequests.id });
+      sendEmail.mockClear();
+
+      const rejected = await reject(orphan.id, users.venueStaffA);
+
+      expect(rejected.status).toBe("rejected");
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
     it("refuses to approve a rejected request, and the venue stays free (AC5)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       await reject(request.id, users.venueStaffA);
@@ -1162,7 +1157,14 @@ describe("venue request handlers (PTR-31)", () => {
         status: 409,
         message: VENUE_REQUEST_REJECTED_MESSAGE,
       });
-      await expect(approve(request.id, users.venueStaffB)).rejects.toMatchObject({ status: 403 });
+      // Rejection stamps `assignedStaffId` to the rejecter, so a second staff member who never
+      // touched this request must still see the AC5 sentence rather than a bare Forbidden — the
+      // rejected check runs before the queue rule for exactly this reason (review of PTR-34).
+      await expect(approve(request.id, users.venueStaffB)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_REJECTED_MESSAGE,
+      });
 
       expect(await readRow(request.id)).toMatchObject({ status: "rejected" });
       const availability = await handleGetVenueAvailability(
@@ -1185,6 +1187,10 @@ describe("venue request handlers (PTR-31)", () => {
       ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
       await expect(
         reject(request.id, users.venueStaffA, { reason: "Changed my mind" })
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
+      // Same AC5 sentence for a second staff member trying to reject it again.
+      await expect(
+        reject(request.id, users.venueStaffB, { reason: "Changed my mind" })
       ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
 
       expect(await readRow(request.id)).toMatchObject({
@@ -1237,8 +1243,10 @@ describe("venue request handlers (PTR-31)", () => {
     it("refuses a rejected row without a reason at the database (AC1)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
 
+      // A tab/newline-only reason is the review's gap: `btrim` alone strips plain spaces, not
+      // every whitespace character, so the CHECK now matches on any non-space character instead.
       await Promise.all(
-        [null, "   "].map(rejectionReason =>
+        [null, "   ", "\t\n"].map(rejectionReason =>
           expect(
             database
               .update(schema.venueRequests)

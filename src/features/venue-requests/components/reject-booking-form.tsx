@@ -9,6 +9,8 @@ import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select"
 import { Textarea } from "#/components/ui/textarea";
 import {
   VENUE_REJECTION_REASON_MAX_LENGTH,
+  VENUE_REQUEST_DECIDED_MESSAGE,
+  VENUE_REQUEST_REJECTED_MESSAGE,
   VenueRejectionInput,
 } from "#/features/venue-requests/schema";
 import { rejectVenueRequest } from "#/features/venue-requests/server-fns";
@@ -59,15 +61,20 @@ const SUGGESTION_INPUTS = [
  * PTR-34 criteria 1 and 2: Venue Staff reject a pending request with a reason, and may suggest a
  * venue, date or time instead. The server's schema is the gate, so the reason, the suggestion and
  * the paired times are checked once and each issue marks its own field. Like the approval, success
- * lands on a reloaded queue and a refusal reloads the loader in case someone else decided the row.
+ * lands on a reloaded queue. A refusal because someone else already decided the row also lands on
+ * the queue, toasted, since reloading this page's loader would otherwise 404 it out from under the
+ * form; any other refusal reloads the loader and stays on the page beside its message.
  */
 export function RejectBookingForm({
   request,
   venues,
 }: {
-  request: Pick<PendingVenueRequest, "id" | "venueName">;
+  request: Pick<PendingVenueRequest, "id" | "venueId" | "venueName">;
   venues: readonly { id: number; name: string }[];
 }) {
+  // The venue being rejected is never a sensible suggestion in its own place — at a minimum a
+  // "fully booked" rejection must not offer the same room back as the alternative.
+  const suggestableVenues = venues.filter(venue => venue.id !== request.venueId);
   const router = useRouter();
   const form = useForm({
     defaultValues: EMPTY,
@@ -86,14 +93,27 @@ export function RejectBookingForm({
       try {
         await rejectVenueRequest({ data: toRejectionInput(request.id, value) });
       } catch (error) {
-        await router.invalidate();
+        const message =
+          error instanceof Error ? error.message : "Could not reject this request. Try again.";
+
+        // Someone else already settled this row: reloading the loader turns it into `notFound()`,
+        // which would unmount this form before it could show why the submit failed. Toast instead
+        // and return to the queue rather than flashing an error the router immediately replaces.
+        const alreadySettled =
+          message === VENUE_REQUEST_REJECTED_MESSAGE || message === VENUE_REQUEST_DECIDED_MESSAGE;
+        if (alreadySettled) {
+          toast.error(message);
+          await router.navigate({ to: "/venue-requests" });
+          await router.invalidate();
+          return;
+        }
+
         // `fields` is what makes the library read this as a global error and store `form` verbatim.
-        formApi.setErrorMap({
-          onSubmit: {
-            fields: {},
-            form:
-              error instanceof Error ? error.message : "Could not reject this request. Try again.",
-          },
+        // Set before invalidating: a transport failure reloading the loader must not cost the
+        // message that is already on screen.
+        formApi.setErrorMap({ onSubmit: { fields: {}, form: message } });
+        await router.invalidate().catch(() => {
+          // Best effort, like the send above: the refusal is already shown.
         });
         return;
       }
@@ -143,11 +163,12 @@ export function RejectBookingForm({
                   id="rejection-venue"
                   className="w-full"
                   value={field.state.value}
+                  aria-invalid={field.state.meta.errors.length > 0}
                   onChange={event => field.handleChange(event.target.value)}
                   onBlur={field.handleBlur}
                 >
                   <NativeSelectOption value="">No suggested venue</NativeSelectOption>
-                  {venues.map(venue => (
+                  {suggestableVenues.map(venue => (
                     <NativeSelectOption key={venue.id} value={String(venue.id)}>
                       {venue.name}
                     </NativeSelectOption>

@@ -1,6 +1,7 @@
 import { Section, Text } from "@react-email/components";
 
 import { formatDate, formatTime } from "#/features/emails/format";
+import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 import type { VenueSuggestion } from "#/features/venue-requests/schema";
 import { emailHeading, emailText } from "./email-styles";
 import { Layout } from "./layout";
@@ -27,11 +28,7 @@ export const VenueBookingRejectedEmail = ({
 }: VenueBookingRejectedEmailProps) => {
   // One string: adjacent JSX interpolations render as separate text nodes.
   const period = `${formatDate(startsAt)}, ${formatTime(startsAt)}–${formatTime(endsAt)}`;
-  const alternative = [
-    suggestion?.venueName,
-    suggestion?.date && formatDate(suggestion.date),
-    suggestion?.startTime && suggestion.endTime && `${suggestion.startTime}–${suggestion.endTime}`,
-  ].filter(Boolean);
+  const alternative = suggestion ? formatVenueSuggestion(suggestion, formatDate) : "";
 
   return (
     <Layout previewText={`Booking rejected for ${venueName}`}>
@@ -42,9 +39,7 @@ export const VenueBookingRejectedEmail = ({
           .
         </Text>
         <Text style={emailText}>{`Reason: ${reason}`}</Text>
-        {alternative.length > 0 && (
-          <Text style={emailText}>{`Suggested instead: ${alternative.join(", ")}.`}</Text>
-        )}
+        {alternative && <Text style={emailText}>{`Suggested instead: ${alternative}.`}</Text>}
         <Text style={emailText}>Raise a new request when you are ready.</Text>
       </Section>
     </Layout>

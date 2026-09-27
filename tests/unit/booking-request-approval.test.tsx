@@ -52,6 +52,7 @@ const coordinator: SessionUser = { ...venueStaff, id: "coord-1", role: "event_co
 
 const queued: PendingVenueRequest = {
   id: "request-001",
+  venueId: 3,
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",

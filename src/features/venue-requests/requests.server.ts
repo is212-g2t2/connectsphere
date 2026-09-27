@@ -190,6 +190,7 @@ async function hasApprovedConflict(
 function summarizePendingVenueRequest(
   row: {
     id: string;
+    venueId: number;
     venueName: string;
     startsAt: string;
     endsAt: string;
@@ -199,6 +200,8 @@ function summarizePendingVenueRequest(
 ) {
   return {
     id: row.id,
+    // The reject form's suggestion picker needs this to exclude the venue being rejected.
+    venueId: row.venueId,
     venueName: row.venueName,
     startsAt: toLocalMinuteValue(row.startsAt),
     endsAt: toLocalMinuteValue(row.endsAt),
@@ -504,6 +507,15 @@ export async function handleCreateVenueRequest(
 }
 
 /**
+ * PTR-34: a rejected request is final on every decision path (withdraw, approve, reject), so one
+ * place states the refusal rather than three copies of the same `if`. Each caller still checks its
+ * own "not pending, not rejected" case afterwards, since that message differs by verb.
+ */
+function assertNotRejected(status: string): void {
+  if (status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
+}
+
+/**
  * PTR-31 criterion 5: the Coordinator takes back a pending request *they raised*, which leaves the
  * queue. The row is kept as `withdrawn` rather than deleted, so the record of what was asked
  * survives, and the partial unique index frees the event and venue to be requested again. A
@@ -532,7 +544,7 @@ export async function handleWithdrawVenueRequest(
     const row = rows.at(0);
     if (!row) throw new NotFoundError("Not Found");
     if (row.requestedById !== actor.id) throw new AuthorizationError("Forbidden");
-    if (row.status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
+    assertNotRejected(row.status);
     if (row.status !== "pending") {
       throw new ConflictError(VENUE_REQUEST_SETTLED_MESSAGE);
     }
@@ -578,18 +590,21 @@ export async function handleApproveVenueRequest(
         .where(eq(venueRequests.id, id))
         .limit(1)
         // The row lock makes the reads below current: a second approval of the same request waits
-        // here and then sees the settled row — refused by the queue rule or as decided, never
-        // handed a self-conflict sentence about the request it just approved.
+        // here and then sees the settled row — refused as rejected or decided, never handed a
+        // self-conflict sentence about the request it just approved.
         .for("update");
       const row = rows.at(0);
       if (!row) throw new NotFoundError("Not Found");
+      // Checked before the queue rule: rejection stamps `assignedStaffId` to the rejecter, and the
+      // queue rule below would otherwise turn a second staff member's attempt into a bare Forbidden
+      // instead of the sentence that tells them to raise a new request (PTR-34 AC5).
+      assertNotRejected(row.status);
       if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
 
       // Serialise per venue before touching the exclusion index: two concurrent approvals can
       // otherwise deadlock on it (Postgres documents the race) and the loser would be a fault.
       await tx.execute(sql`select pg_advisory_xact_lock(${row.venueId})`);
 
-      if (row.status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
       if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
 
       // Under the lock this pre-check cannot race another approval; the constraint below is the
@@ -671,8 +686,11 @@ export async function handleRejectVenueRequest(
       .for("update");
     const row = rows.at(0);
     if (!row) throw new NotFoundError("Not Found");
+    // Checked before the queue rule, the same reason `handleApproveVenueRequest` does: rejection
+    // stamps `assignedStaffId` to the rejecter, and the queue rule below would otherwise turn a
+    // second staff member's attempt into a bare Forbidden (PTR-34 AC5).
+    assertNotRejected(row.status);
     if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
-    if (row.status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
     if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
 
     // The suggestion is optional, but a venue it names must exist; the same refusal a request for

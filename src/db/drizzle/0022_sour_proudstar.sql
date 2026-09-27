@@ -1,0 +1,2 @@
+ALTER TABLE "venue_requests" DROP CONSTRAINT "venue_requests_rejection_has_reason";--> statement-breakpoint
+ALTER TABLE "venue_requests" ADD CONSTRAINT "venue_requests_rejection_has_reason" CHECK ("venue_requests"."status"::text <> 'rejected' or coalesce("venue_requests"."rejection_reason", '') ~ '[^[:space:]]');

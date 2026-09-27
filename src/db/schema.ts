@@ -377,9 +377,12 @@ export const venueRequests = pgTable(
     check("venue_requests_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
     // PTR-34 criterion 1, held for whichever path writes the row. Compared as text: Postgres
     // refuses a value added to an enum in the same transaction, which is where this migration runs.
+    // `[:space:]` catches every whitespace character (tabs and newlines included), not only the
+    // plain spaces `btrim` alone would strip; the app's own Zod schema already trims and caps the
+    // reason, so this is the backstop for a writer outside it.
     check(
       "venue_requests_rejection_has_reason",
-      sql`${table.status}::text <> 'rejected' or btrim(coalesce(${table.rejectionReason}, '')) <> ''`
+      sql`${table.status}::text <> 'rejected' or coalesce(${table.rejectionReason}, '') ~ '[^[:space:]]'`
     ),
     // Criterion 1 again: a double-submit cannot leave two live requests for one venue on one
     // event. Partial, so withdrawing frees the pair to be requested again.

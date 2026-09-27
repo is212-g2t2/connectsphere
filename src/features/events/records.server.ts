@@ -3,13 +3,7 @@ import type { SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
-import {
-  equipmentRequests,
-  eventRegistrations,
-  eventRequests,
-  venueRequests,
-  venues,
-} from "#/db/schema";
+import { equipmentRequests, eventRegistrations, eventRequests, venueRequests } from "#/db/schema";
 import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
@@ -19,9 +13,14 @@ import {
   isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
-import type { EventProjection, VenueRequestRejection } from "#/features/events/access";
+import type {
+  EventProjection,
+  EventVenueRequest,
+  VenueRequestRejection,
+} from "#/features/events/access";
 import { parseEventListInput } from "#/features/events/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import { loadRejectionsForEvents } from "#/features/venue-requests/records.server";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -69,39 +68,6 @@ export async function loadAssignedEvent(
     )
     .limit(1);
   return rows.at(0) ?? null;
-}
-
-type VenueRequestRow = typeof venueRequests.$inferSelect;
-
-/** The most recently decided rejection; a tie falls to the higher id so the choice is stable. */
-function latestRejection(rows: readonly VenueRequestRow[]) {
-  return (
-    rows
-      .filter(row => row.status === "rejected")
-      .toSorted((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id.localeCompare(a.id))
-      .at(0) ?? null
-  );
-}
-
-/** PTR-34 criterion 3: the reason, and whichever parts of a suggestion Venue Staff gave. */
-function toRejection(
-  row: VenueRequestRow,
-  suggestedVenueNames: ReadonlyMap<number, string>
-): VenueRequestRejection {
-  const suggestion = {
-    venueName:
-      row.suggestedVenueId === null
-        ? null
-        : (suggestedVenueNames.get(row.suggestedVenueId) ?? null),
-    date: row.suggestedDate,
-    startTime: row.suggestedStartTime?.slice(0, 5) ?? null,
-    endTime: row.suggestedEndTime?.slice(0, 5) ?? null,
-  };
-  return {
-    // The CHECK on `venue_requests` guarantees a rejected row has a reason.
-    reason: row.rejectionReason ?? "",
-    suggestion: Object.values(suggestion).every(part => part === null) ? null : suggestion,
-  };
 }
 
 export async function handleListEvents(
@@ -218,30 +184,13 @@ export async function handleListEvents(
       ),
   ]);
 
-  // PTR-34 criterion 3: a rejection names the venue it suggests. Only the assigned Coordinator is
-  // shown a rejection, so no other role pays for the lookup.
-  const suggestedVenueIds =
+  // PTR-34 criterion 3: a rejection is shown only to the assigned Coordinator, so no other role
+  // pays for the lookup. `venue-requests` owns the rejection's shape (PTR-35 prefill needs the
+  // same reader), including which row is still the event's live state.
+  const rejectionsByEvent: ReadonlyMap<number, VenueRequestRejection> =
     role === "event_coordinator"
-      ? [
-          ...new Set(
-            venueRows.flatMap(row =>
-              row.status === "rejected" && row.suggestedVenueId !== null
-                ? [row.suggestedVenueId]
-                : []
-            )
-          ),
-        ]
-      : [];
-  const suggestedVenueNames = new Map<number, string>(
-    suggestedVenueIds.length === 0
-      ? []
-      : (
-          await database
-            .select({ id: venues.id, name: venues.name })
-            .from(venues)
-            .where(inArray(venues.id, suggestedVenueIds))
-        ).map(venue => [venue.id, venue.name])
-  );
+      ? await loadRejectionsForEvents(database, requestIds)
+      : new Map<number, VenueRequestRejection>();
 
   // PTR-36 criterion 4: which pending requests overlap an approved booking for the same venue.
   // A self-join rather than a per-request read, and deliberately not scoped to `venueRows`: the
@@ -318,13 +267,17 @@ export async function handleListEvents(
           (access !== "venue_staff" || isVenueQueueRow(row, user.id))
       ) ?? null;
     // PTR-34 criterion 3: with none pending, the assigned Coordinator is shown the most recent
-    // rejection, so the reason and any suggestion are there when they view the event. Every other
-    // caller keeps what PTR-31 shows.
-    const venueRequest =
-      pendingRequest ??
-      (access === "coordinator"
-        ? latestRejection(venueRows.filter(row => row.eventId === record.id))
-        : null);
+    // rejection — but only when `loadRejectionsForEvents` found it still the event's live state.
+    // Every other caller keeps what PTR-31 shows.
+    const rejection = access === "coordinator" ? (rejectionsByEvent.get(record.id) ?? null) : null;
+    const venueRequest: EventVenueRequest | null = pendingRequest
+      ? {
+          status: pendingRequest.status,
+          ...(conflictingRequestIds.has(pendingRequest.id) ? { conflict: true } : {}),
+        }
+      : rejection
+        ? { status: "rejected", rejection }
+        : null;
 
     return [
       projectEvent(
@@ -340,14 +293,6 @@ export async function handleListEvents(
           : null,
         equipment,
         venueRequest
-          ? {
-              status: venueRequest.status,
-              ...(conflictingRequestIds.has(venueRequest.id) ? { conflict: true } : {}),
-              ...(venueRequest.status === "rejected"
-                ? { rejection: toRejection(venueRequest, suggestedVenueNames) }
-                : {}),
-            }
-          : null
       ),
     ];
   });

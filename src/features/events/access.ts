@@ -108,10 +108,16 @@ interface EventRecord {
 
 /**
  * PTR-34 criterion 3: what the requesting Coordinator sees of a rejected venue request, so
- * planning continues rather than restarting. `suggestion` is null when Venue Staff gave none;
- * otherwise each part they did give, with the rest null. Times are `HH:MM`.
+ * planning continues rather than restarting. `venueName`/`date`/`startTime`/`endTime` are the
+ * rejected booking's own venue and period, not the suggestion — the Coordinator otherwise has no
+ * way to tell which booking a bare reason like "Fully booked" refers to. `suggestion` is null when
+ * Venue Staff gave none; otherwise each part they did give, with the rest null. Times are `HH:MM`.
  */
 export interface VenueRequestRejection {
+  venueName: string;
+  date: string;
+  startTime: string;
+  endTime: string;
   reason: string;
   suggestion: VenueSuggestion | null;
 }
