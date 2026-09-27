@@ -1,5 +1,5 @@
 {
-  "id": "ac7765bc-8be0-44f5-abc5-13953c9342f3",
+  "id": "7f44f24c-e0c9-463b-9af3-aa04a54596eb",
   "prevId": "2c7ff75e-4a30-488b-9b4d-cb458c84b655",
   "version": "7",
   "dialect": "postgresql",
@@ -835,7 +835,7 @@
         },
         "venue_requests_rejection_has_reason": {
           "name": "venue_requests_rejection_has_reason",
-          "value": "\"venue_requests\".\"status\"::text <> 'rejected' or btrim(coalesce(\"venue_requests\".\"rejection_reason\", '')) <> ''"
+          "value": "\"venue_requests\".\"status\"::text <> 'rejected' or coalesce(\"venue_requests\".\"rejection_reason\", '') ~ '[^[:space:]]'"
         }
       },
       "isRLSEnabled": false
