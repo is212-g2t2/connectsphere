@@ -99,7 +99,8 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
 
     // AC2: a reason plus a suggested venue, date and times.
     await page.getByLabel("Reason for rejection (required)").fill(reason);
-    await page.getByLabel("Suggested venue").selectOption({ label: alternativeName });
+    await page.getByLabel("Suggested venue").click();
+    await page.getByRole("option", { name: alternativeName }).click();
     await page.getByLabel("Suggested date").fill("2037-10-14");
     await page.getByLabel("Suggested start time").fill("10:00");
     await page.getByLabel("Suggested end time").fill("13:30");

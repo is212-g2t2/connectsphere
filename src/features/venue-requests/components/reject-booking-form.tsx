@@ -5,7 +5,13 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Field, FieldError, FieldLabel, FieldLegend, FieldSet } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
-import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
 import { Textarea } from "#/components/ui/textarea";
 import {
   VENUE_REJECTION_REASON_MAX_LENGTH,
@@ -159,21 +165,31 @@ export function RejectBookingForm({
             {field => (
               <Field data-invalid={field.state.meta.errors.length > 0}>
                 <FieldLabel htmlFor="rejection-venue">Suggested venue</FieldLabel>
-                <NativeSelect
-                  id="rejection-venue"
-                  className="w-full"
-                  value={field.state.value}
-                  aria-invalid={field.state.meta.errors.length > 0}
-                  onChange={event => field.handleChange(event.target.value)}
-                  onBlur={field.handleBlur}
+                <Select
+                  value={field.state.value === "" ? null : field.state.value}
+                  onValueChange={value => field.handleChange(value ?? "")}
                 >
-                  <NativeSelectOption value="">No suggested venue</NativeSelectOption>
-                  {suggestableVenues.map(venue => (
-                    <NativeSelectOption key={venue.id} value={String(venue.id)}>
-                      {venue.name}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
+                  <SelectTrigger
+                    id="rejection-venue"
+                    className="w-full"
+                    aria-invalid={field.state.meta.errors.length > 0}
+                    onBlur={field.handleBlur}
+                  >
+                    <SelectValue>
+                      {(value: string | null) =>
+                        suggestableVenues.find(venue => String(venue.id) === value)?.name ??
+                        "No suggested venue"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suggestableVenues.map(venue => (
+                      <SelectItem key={venue.id} value={String(venue.id)}>
+                        {venue.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FieldError errors={field.state.meta.errors} />
               </Field>
             )}

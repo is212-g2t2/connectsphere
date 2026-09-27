@@ -87,24 +87,28 @@ describe("rejecting a booking from the request's detail page (PTR-34)", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("asks for a reason, and offers an optional suggested venue, date and times (AC1, AC2)", () => {
+  it("asks for a reason, and offers an optional suggested venue, date and times (AC1, AC2)", async () => {
     renderPage();
 
     expect(reasonBox()).toBeTruthy();
-    expect(screen.getByLabelText("Suggested venue")).toBeTruthy();
+    expect(screen.getByLabelText("Suggested venue").textContent).toContain("No suggested venue");
     expect(screen.getByLabelText("Suggested date")).toBeTruthy();
     expect(screen.getByLabelText("Suggested start time")).toBeTruthy();
     expect(screen.getByLabelText("Suggested end time")).toBeTruthy();
+
+    await userEvent.click(screen.getByLabelText("Suggested venue"));
     const options = screen.getAllByRole("option").map(option => option.textContent);
-    expect(options).toEqual(["No suggested venue", "Harbour Hall"]);
+    expect(options).toEqual(["Harbour Hall"]);
   });
 
-  it("excludes the request's own venue from the suggestion picker", () => {
+  it("excludes the request's own venue from the suggestion picker", async () => {
     renderPage();
+
+    await userEvent.click(screen.getByLabelText("Suggested venue"));
 
     // Orchid Room (id 3) is the venue being rejected; suggesting it back makes no sense.
     expect(screen.queryByRole("option", { name: "Orchid Room" })).toBeNull();
-    expect(screen.getByRole("option", { name: "Harbour Hall" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Harbour Hall" })).toBeTruthy();
   });
 
   it("refuses a rejection without a reason and does not call the server (AC1)", async () => {
@@ -143,7 +147,8 @@ describe("rejecting a booking from the request's detail page (PTR-34)", () => {
     renderPage();
 
     await userEvent.type(reasonBox(), "Closed for floor resurfacing");
-    await userEvent.selectOptions(screen.getByLabelText("Suggested venue"), "4");
+    await userEvent.click(screen.getByLabelText("Suggested venue"));
+    await userEvent.click(await screen.findByRole("option", { name: "Harbour Hall" }));
     fireEvent.change(screen.getByLabelText("Suggested date"), { target: { value: "2030-11-19" } });
     fireEvent.change(screen.getByLabelText("Suggested start time"), { target: { value: "10:00" } });
     fireEvent.change(screen.getByLabelText("Suggested end time"), { target: { value: "13:30" } });
