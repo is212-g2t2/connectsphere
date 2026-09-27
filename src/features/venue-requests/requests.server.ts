@@ -493,24 +493,6 @@ export async function handleWithdrawVenueRequest(
   });
 }
 
-const APPROVAL_EMAIL_TIMEOUT_MS = 5_000;
-
-/**
- * `sendEmail`'s SMTP branch sets no connection timeout, so a stalled server would otherwise hold
- * the approval response open long after the venue is held. `Promise.race` still attaches a handler
- * to the losing promise, so a `sendEmail` that rejects after the timeout wins is not left unhandled.
- */
-function sendApprovalEmail(...args: Parameters<typeof sendEmail>): ReturnType<typeof sendEmail> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`Sending "${args[1]}" timed out`)),
-      APPROVAL_EMAIL_TIMEOUT_MS
-    );
-  });
-  return Promise.race([sendEmail(...args), timeout]).finally(() => clearTimeout(timer));
-}
-
 /**
  * PTR-36: an approval settles a pending request *and* holds the venue for its exact period. The
  * exclusion constraint (`venue_requests_no_overlap`) is the guarantee; the advisory lock makes
@@ -603,24 +585,23 @@ export async function handleApproveVenueRequest(
   const { approved, notice } = decided;
   if (notice.requesterEmail) {
     // Best effort, like the request notification: the booking is committed, and a mail outage
-    // must not turn a held venue into a failed approval.
-    try {
-      await sendApprovalEmail(
-        notice.requesterEmail,
-        `Venue booking approved: ${notice.venueName}`,
-        createElement(VenueBookingApprovedEmail, {
-          eventName: notice.eventName,
-          venueName: notice.venueName,
-          startsAt: approved.startsAt,
-          endsAt: approved.endsAt,
-        })
-      );
-    } catch (error) {
+    // must not turn a held venue into a failed approval. Deliberately not awaited — nodemailer's
+    // default connect timeout is two minutes, and the response must not wait on a stalled server.
+    void sendEmail(
+      notice.requesterEmail,
+      `Venue booking approved: ${notice.venueName}`,
+      createElement(VenueBookingApprovedEmail, {
+        eventName: notice.eventName,
+        venueName: notice.venueName,
+        startsAt: approved.startsAt,
+        endsAt: approved.endsAt,
+      })
+    ).catch(error => {
       log.warn("Venue approval notification failed", {
         requestId: approved.id,
         errorName: error instanceof Error ? error.name : "unknown",
       });
-    }
+    });
   } else {
     log.warn("No Coordinator to notify of the venue approval", { requestId: approved.id });
   }

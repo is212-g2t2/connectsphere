@@ -74,6 +74,13 @@ beforeEach(() => {
   success.mockReset();
 });
 
+// Opening the dialog is not the decision: nothing may run until Confirm is clicked.
+async function confirmApproveDialog() {
+  await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
+  expect(approveVenueRequest).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+}
+
 describe("approving a booking from the queue (PTR-33 AC1)", () => {
   it("offers an approval on each queue row, named by venue and start", () => {
     render(
@@ -94,10 +101,24 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     ).toBeTruthy();
   });
 
+  it("confirms the row that was clicked, not the first row", async () => {
+    render(
+      <BookingRequestQueuePage
+        user={venueStaff}
+        requests={[queued, { ...queued, id: "request-002", venueName: "Harbour Hall" }]}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /Approve request for Harbour Hall/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(approveVenueRequest).toHaveBeenCalledWith({ data: { id: "request-002" } });
+  });
+
   it("approves the row's request, confirms it naming the start, and returns to the queue", async () => {
     render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
+    await confirmApproveDialog();
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/venue-requests" }));
     expect(approveVenueRequest).toHaveBeenCalledWith({ data: { id: "request-001" } });
@@ -108,6 +129,25 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     expect(invalidate).not.toHaveBeenCalled();
   });
 
+  it("asks for confirmation naming the venue and window before approving", async () => {
+    render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
+
+    const dialog = screen.getByRole("alertdialog");
+    expect(dialog.textContent).toContain("Orchid Room on 18 Nov 2030, 09:30 – 12:00");
+    expect(dialog.textContent).toContain(
+      "Approving holds the venue for that period and notifies the requesting Coordinator."
+    );
+    expect(approveVenueRequest).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(approveVenueRequest).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
   it("shows the server's refusal, naming the conflicting period, stays put and reloads the queue", async () => {
     approveVenueRequest.mockRejectedValue(
       new Error("Orchid Room is already booked 18 Nov 2030, 09:00 – 10:00")
@@ -116,7 +156,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
       <BookingRequestQueuePage user={venueStaff} requests={[{ ...queued, conflict: true }]} />
     );
 
-    await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
+    await confirmApproveDialog();
 
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Orchid Room is already booked 18 Nov 2030, 09:00 – 10:00"
@@ -132,7 +172,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     approveVenueRequest.mockRejectedValue(new Error(VENUE_REQUEST_DECIDED_MESSAGE));
     render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
+    await confirmApproveDialog();
 
     // Reloading here would either 404 the detail route or drop the row from the queue, taking the
     // alert down with it before it can be read.
@@ -145,7 +185,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     approveVenueRequest.mockRejectedValue(new Error("Forbidden"));
     render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
+    await confirmApproveDialog();
 
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Could not approve this request. Try again."
@@ -171,7 +211,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
   it("approves from the request's detail page and returns to the queue", async () => {
     render(<BookingRequestDetailsPage user={venueStaff} request={detail} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
+    await confirmApproveDialog();
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/venue-requests" }));
     expect(approveVenueRequest).toHaveBeenCalledWith({ data: { id: "request-001" } });

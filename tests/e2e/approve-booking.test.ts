@@ -8,6 +8,7 @@ import { Pool } from "pg";
 import * as schema from "../../src/db/schema";
 import { DEFAULT_OPERATING_HOURS } from "../../src/features/venues/schema";
 import { waitForHydration } from "./hydration";
+import { waitForEmail } from "./mailpit";
 import { signInAsStaff } from "./staff-auth";
 
 let pool: Pool;
@@ -91,10 +92,19 @@ test("[PTR-33] Venue Staff approve from the queue, and an overlapping approval i
     await page
       .getByRole("button", { name: `Approve request for ${venueName}, 10 Jun 2037, 09:00` })
       .click();
+    await page.getByRole("button", { name: "Confirm" }).click();
 
     await expect(
       page.getByText(`Booking approved for ${venueName} from 10 Jun 2037, 09:00.`)
     ).toBeVisible();
+
+    // The requesting Coordinator is told by real mail, naming the venue and the event.
+    const approvalEmail = await waitForEmail(
+      `${coordinatorId}@example.invalid`,
+      `Venue booking approved: ${venueName}`
+    );
+    expect(approvalEmail).toContain(venueName);
+    expect(approvalEmail).toContain("PTR-33 First");
     await expect(
       page.getByRole("link", { name: `Open request for ${venueName}, 10 Jun 2037, 09:00` })
     ).toHaveCount(0);
@@ -116,6 +126,7 @@ test("[PTR-33] Venue Staff approve from the queue, and an overlapping approval i
     await page
       .getByRole("button", { name: `Approve request for ${venueName}, 10 Jun 2037, 11:00` })
       .click();
+    await page.getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByRole("alert").filter({ hasText: venueName })).toHaveText(
       `${venueName} is already booked 10 Jun 2037, 09:00 – 12:00`
     );

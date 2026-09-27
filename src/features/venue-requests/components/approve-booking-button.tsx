@@ -1,19 +1,32 @@
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
-import { formatLocalDateTime } from "#/features/event-requests/format";
+import { formatLocalDateTime, formatProposedWindow } from "#/features/event-requests/format";
 import { VENUE_REQUEST_DECIDED_MESSAGE } from "#/features/venue-requests/schema";
 import { approveVenueRequest } from "#/features/venue-requests/server-fns";
 import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 
 /**
- * A refusal that means the row will not be found again: settled by another decision, or claimed by
- * another staff member first — `AuthorizationError`/`NotFoundError`'s fixed text, since neither
- * survives the server-function boundary as a class the client can `instanceof`-check. Reloading for
- * one of these 404s the detail route and silently drops the row from the queue, taking the alert
- * with it, so the mutation skips the invalidate here and leaves the alert as the only trace.
+ * Refusals that skip the reload, for opposite reasons. A request the client still shows as
+ * `pending` but the server has already decided (or deleted) leaves the queue, so reloading would
+ * 404 the detail route and silently drop the row, taking the alert with it — the alert stays as
+ * the only trace. A "Forbidden" request is still `pending` but claimed by another staff member,
+ * so it stays in the shared queue and a reload would just add nothing.
+ * `AuthorizationError`/`NotFoundError` carry fixed text because neither survives the
+ * server-function boundary as a class the client can `instanceof`-check.
  */
 function requestIsGone(message: string): boolean {
   return (
@@ -41,7 +54,7 @@ function isApprovalConflict(message: string): boolean {
 export function ApproveBookingButton({
   request,
 }: {
-  request: Pick<PendingVenueRequest, "id" | "venueName" | "startsAt" | "conflict">;
+  request: Pick<PendingVenueRequest, "id" | "venueName" | "startsAt" | "endsAt" | "conflict">;
 }) {
   const router = useRouter();
   const [state, approve, approving] = useMutation(async () => {
@@ -60,15 +73,42 @@ export function ApproveBookingButton({
 
   return (
     <div className="flex flex-col items-start gap-2">
-      <Button
-        size="sm"
-        variant={request.conflict ? "outline" : "default"}
-        disabled={approving}
-        aria-label={`Approve request for ${request.venueName}, ${formatLocalDateTime(request.startsAt)}`}
-        onClick={() => void approve()}
-      >
-        {approving ? "Approving…" : "Approve"}
-      </Button>
+      <AlertDialog>
+        <AlertDialogTrigger
+          render={
+            <Button
+              size="sm"
+              variant={request.conflict ? "outline" : "default"}
+              disabled={approving}
+              aria-label={`Approve request for ${request.venueName}, ${formatLocalDateTime(request.startsAt)}`}
+            />
+          }
+        >
+          {approving ? "Approving…" : "Approve"}
+        </AlertDialogTrigger>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Approve request</AlertDialogTitle>
+            <AlertDialogDescription>
+              This approves the booking for {request.venueName} on{" "}
+              {formatProposedWindow({ start: request.startsAt, end: request.endsAt })}. Approving
+              holds the venue for that period and notifies the requesting Coordinator.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* Escape already closes mid-flight, so disabling Cancel would only trap pointer users. */}
+            <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
+            <AlertDialogAction size="sm" disabled={approving} onClick={() => void approve()}>
+              {approving ? "Approving…" : "Confirm"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+          {state.status === "error" && (
+            <p role="alert" className="body-sm text-destructive">
+              {state.error}
+            </p>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
       {state.status === "error" && (
         <p role="alert" className="body-sm text-destructive">
           {state.error}
