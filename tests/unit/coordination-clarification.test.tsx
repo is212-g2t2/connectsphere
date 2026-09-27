@@ -80,6 +80,7 @@ const underReviewRequest: CoordinationRequest = {
   organiser: { name: "Organiser", email: "org@example.com" },
   coordinator: { name: "Alex", email: "a@example.com" },
   clarifications: [],
+  pendingHandover: null,
 };
 
 describe("Clarification requests (PTR-18)", () => {

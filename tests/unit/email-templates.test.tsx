@@ -4,6 +4,9 @@ import { ClarificationRequestEmail } from "#/features/emails/components/clarific
 import { ClarificationReplyEmail } from "#/features/emails/components/clarification-reply-email";
 import { Layout } from "#/features/emails/components/layout";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
+import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
+import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
+import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
@@ -78,6 +81,53 @@ describe("Email templates rendering", () => {
     expect(html).toContain("rejected");
     expect(html).toContain("The requested room is unavailable.");
     expect(html).toContain(eventRequestUrl);
+  });
+
+  it("renders the handover request with the event, who offered it, and the coordination link (PTR-110 AC1)", async () => {
+    const html = await render(
+      <HandoverRequestEmail
+        eventName="Community workshop"
+        fromName="Alex"
+        coordinationUrl="http://localhost:3000/coordination"
+      />
+    );
+
+    expect(html).toContain("Handover requested");
+    expect(html).toContain("Community workshop");
+    expect(html).toContain("Alex");
+    expect(html).toContain("http://localhost:3000/coordination");
+    expect(html).toContain("Review the handover");
+  });
+
+  it("renders the accepted handover with the new Coordinator and the organiser's request (PTR-110 AC3)", async () => {
+    const html = await render(
+      <HandoverAcceptedEmail
+        eventName="Community workshop"
+        coordinatorName="Bailey"
+        eventRequestUrl="http://localhost:3000/event-requests/42"
+      />
+    );
+
+    expect(html).toContain("A new Coordinator for your event");
+    expect(html).toContain("Bailey");
+    expect(html).toContain("Community workshop");
+    expect(html).toContain("http://localhost:3000/event-requests/42");
+  });
+
+  it("renders the declined handover with the incoming Coordinator and the outgoing one's request (PTR-110 AC4)", async () => {
+    const html = await render(
+      <HandoverDeclinedEmail
+        eventName="Community workshop"
+        coordinatorName="Bailey"
+        eventRequestUrl="http://localhost:3000/coordination/42"
+      />
+    );
+
+    expect(html).toContain("Handover declined");
+    expect(html).toContain("Bailey");
+    expect(html).toContain("Community workshop");
+    expect(html).toContain("You remain its Event Coordinator.");
+    expect(html).toContain("http://localhost:3000/coordination/42");
   });
 
   it("renders ClarificationRequestEmail with the event name, clarification body, and action button", async () => {

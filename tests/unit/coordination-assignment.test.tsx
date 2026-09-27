@@ -11,22 +11,32 @@ import {
 import type { AssignmentValues } from "#/features/coordination/schema";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 
-const { assignEventRequest, decideEventRequest, takeUpEventRequestForReview, navigate, success } =
-  vi.hoisted(() => ({
-    assignEventRequest: vi.fn<(input: { data: AssignmentValues }) => Promise<unknown>>(),
-    decideEventRequest:
-      vi.fn<
-        (input: {
-          data: { id: number; decision: "approved" | "rejected"; reason?: string };
-        }) => Promise<unknown>
-      >(),
-    takeUpEventRequestForReview: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
-    navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
-    success: vi.fn<(message: string) => void>(),
-  }));
+const {
+  assignEventRequest,
+  decideEventRequest,
+  requestEventHandover,
+  takeUpEventRequestForReview,
+  navigate,
+  invalidate,
+  success,
+} = vi.hoisted(() => ({
+  assignEventRequest: vi.fn<(input: { data: AssignmentValues }) => Promise<unknown>>(),
+  decideEventRequest:
+    vi.fn<
+      (input: {
+        data: { id: number; decision: "approved" | "rejected"; reason?: string };
+      }) => Promise<unknown>
+    >(),
+  requestEventHandover: vi.fn<(input: { data: AssignmentValues }) => Promise<unknown>>(),
+  takeUpEventRequestForReview: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
+  navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
+  invalidate: vi.fn<() => Promise<void>>(),
+  success: vi.fn<(message: string) => void>(),
+}));
 vi.mock("#/features/coordination/server-fns", () => ({
   assignEventRequest,
   decideEventRequest,
+  requestEventHandover,
   takeUpEventRequestForReview,
 }));
 vi.mock("@tanstack/react-router", () => ({
@@ -42,7 +52,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navigate,
   useRouter: () => ({
     navigate: vi.fn<() => void>(),
-    invalidate: vi.fn<() => Promise<void>>(),
+    invalidate,
   }),
 }));
 vi.mock("sonner", () => ({ toast: { success } }));
@@ -83,6 +93,7 @@ const request: CoordinationRequest = {
   organiser: { name: "Organiser", email: "org@example.com" },
   coordinator: null,
   clarifications: [],
+  pendingHandover: null,
 };
 
 beforeEach(() => {
@@ -157,7 +168,7 @@ describe("Coordinator handover and pickup", () => {
     expect(assignEventRequest).not.toHaveBeenCalled();
   });
 
-  it("hands an owned event to the selected Coordinator and leaves its detail", async () => {
+  it("offers an owned event to the selected Coordinator and waits for their answer (AC1, AC2)", async () => {
     render(
       <CoordinationRequestPage
         request={{
@@ -174,17 +185,52 @@ describe("Coordinator handover and pickup", () => {
     expect(screen.queryByRole("option", { name: /Alex/ })).toBeNull();
     await userEvent.click(screen.getByLabelText("Event Coordinator"));
     await userEvent.click(await screen.findByRole("option", { name: /Bailey/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Reassign Coordinator" }));
+    await userEvent.click(screen.getByRole("button", { name: "Hand over" }));
     await waitFor(() =>
-      expect(assignEventRequest).toHaveBeenCalledWith({
+      expect(requestEventHandover).toHaveBeenCalledWith({
         data: { id: 7, coordinatorId: "coord-b", expectedCoordinatorId: actor.id },
       })
     );
-    expect(navigate).toHaveBeenCalledWith({ to: "/coordination" });
-    expect(success).toHaveBeenCalled();
+    expect(success).toHaveBeenCalledWith("Handover requested.");
+    // The outgoing Coordinator keeps the request, so the page stays and re-reads it.
+    expect(invalidate).toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
-  it("still offers reassignment while awaiting the Organiser, but not after a decision", () => {
+  it("shows the pending handover and offers a replacement while it waits", async () => {
+    render(
+      <CoordinationRequestPage
+        request={{
+          ...request,
+          assignedCoordinatorId: actor.id,
+          assignedAt: new Date(),
+          coordinator: actor,
+          pendingHandover: {
+            requestedAt: new Date("2026-09-20T02:00:00Z"),
+            toName: "Bailey",
+          },
+        }}
+        coordinators={coordinators}
+        user={actor}
+      />
+    );
+
+    expect(screen.getByText(/Offered to Bailey/)).toBeTruthy();
+    expect(screen.getByText(/You remain the assigned Coordinator/)).toBeTruthy();
+
+    // The incoming Coordinator may never answer, so the outgoing one can offer it to someone
+    // else; the server replaces the live offer.
+    await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    await userEvent.click(await screen.findByRole("option", { name: /Bailey/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Offer to someone else" }));
+    await waitFor(() =>
+      expect(requestEventHandover).toHaveBeenCalledWith({
+        data: { id: 7, coordinatorId: "coord-b", expectedCoordinatorId: actor.id },
+      })
+    );
+  });
+
+  it("still offers a handover while awaiting the Organiser, but not after a decision", () => {
     const owned = {
       ...request,
       status: "awaiting_organiser" as const,
@@ -196,8 +242,8 @@ describe("Coordinator handover and pickup", () => {
       <CoordinationRequestPage request={owned} coordinators={coordinators} user={actor} />
     );
 
-    expect(screen.getByRole("heading", { name: "Reassign this request" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Reassign Coordinator" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Hand over this request" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Hand over" })).toBeTruthy();
 
     for (const status of ["approved", "rejected"] as const) {
       rerender(
@@ -207,9 +253,35 @@ describe("Coordinator handover and pickup", () => {
           user={actor}
         />
       );
-      expect(screen.queryByRole("heading", { name: "Reassign this request" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Reassign Coordinator" })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Hand over this request" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Hand over" })).toBeNull();
     }
+  });
+
+  it("shows a handover refusal without claiming success or leaving the page", async () => {
+    requestEventHandover.mockRejectedValue(new Error("This assignment has changed."));
+    render(
+      <CoordinationRequestPage
+        request={{
+          ...request,
+          assignedCoordinatorId: actor.id,
+          assignedAt: new Date(),
+          coordinator: actor,
+        }}
+        coordinators={coordinators}
+        user={actor}
+      />
+    );
+    await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    await userEvent.click(await screen.findByRole("option", { name: /Bailey/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Hand over" }));
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "This assignment has changed."
+    );
+    expect(success).not.toHaveBeenCalled();
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("shows a server refusal without claiming success or navigating away", async () => {

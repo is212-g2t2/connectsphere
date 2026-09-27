@@ -1,9 +1,25 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoordinationPage } from "#/features/coordination/components/coordination-page";
-import type { AssignedEventRequest } from "#/features/coordination/server-fns";
+import type {
+  AssignedEventRequest,
+  PendingEventHandover,
+} from "#/features/coordination/server-fns";
 import type { UnassignedEventRequest } from "#/features/event-requests/server-fns";
+
+const { acceptEventHandover, declineEventHandover, invalidate, success } = vi.hoisted(() => ({
+  acceptEventHandover: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
+  declineEventHandover: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
+  invalidate: vi.fn<() => Promise<void>>(),
+  success: vi.fn<(message: string) => void>(),
+}));
+
+vi.mock("#/features/coordination/server-fns", () => ({
+  acceptEventHandover,
+  declineEventHandover,
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -15,7 +31,13 @@ vi.mock("@tanstack/react-router", () => ({
     to: string;
     params?: { requestId: string };
   }) => <a href={params ? to.replace("$requestId", params.requestId) : to}>{children}</a>,
+  useRouter: () => ({
+    navigate: vi.fn<() => void>(),
+    invalidate,
+  }),
 }));
+
+vi.mock("sonner", () => ({ toast: { success } }));
 
 const waiting: UnassignedEventRequest = {
   id: 7,
@@ -48,9 +70,22 @@ const waiting: UnassignedEventRequest = {
   organiser: { name: "Jane Doe", email: "jane.doe@example.com" },
 };
 
+const handover: PendingEventHandover = {
+  id: 11,
+  requestedAt: new Date("2026-09-25T02:00:00Z"),
+  eventName: "Annual dinner",
+  status: "submitted",
+  organiser: { name: "Jane Doe" },
+  from: { name: "Alex" },
+};
+
+beforeEach(() => {
+  vi.resetAllMocks();
+});
+
 describe("CoordinationPage (PTR-15 criterion 5)", () => {
   it("lists each unassigned request with its organiser, proposed date and submission time", () => {
-    render(<CoordinationPage unassigned={[waiting]} assigned={[]} />);
+    render(<CoordinationPage unassigned={[waiting]} assigned={[]} handovers={[]} />);
 
     const row = screen.getAllByRole("row")[1];
     expect(within(row).getByText("Annual dinner")).toBeTruthy();
@@ -64,7 +99,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
   });
 
   it("says so when every submitted request already has a Coordinator", () => {
-    render(<CoordinationPage unassigned={[]} assigned={[]} />);
+    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[]} />);
 
     expect(screen.getByText("Every submitted request has a Coordinator.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
@@ -75,15 +110,18 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       ...waiting,
       assignedCoordinatorId: "usr_coord",
       assignedAt: new Date("2026-09-15T03:00:00Z"),
+      handoverTo: null,
     };
-    const { rerender } = render(<CoordinationPage unassigned={[]} assigned={[assignedRow]} />);
+    const { rerender } = render(
+      <CoordinationPage unassigned={[]} assigned={[assignedRow]} handovers={[]} />
+    );
 
     expect(screen.getByRole("link", { name: "Annual dinner" }).getAttribute("href")).toBe(
       "/coordination/7"
     );
     expect(screen.getByText("Jane Doe")).toBeTruthy();
 
-    rerender(<CoordinationPage unassigned={[]} assigned={[]} />);
+    rerender(<CoordinationPage unassigned={[]} assigned={[]} handovers={[]} />);
     expect(screen.getByText("No requests are assigned to you.")).toBeTruthy();
   });
 
@@ -93,9 +131,73 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       status: "rejected",
       assignedCoordinatorId: "usr_coord",
       assignedAt: new Date("2026-09-15T03:00:00Z"),
+      handoverTo: null,
     };
-    render(<CoordinationPage unassigned={[]} assigned={[decided]} />);
+    render(<CoordinationPage unassigned={[]} assigned={[decided]} handovers={[]} />);
 
     expect(screen.getByText("Rejected")).toBeTruthy();
+  });
+
+  it("notes a pending handover on the assigned list", () => {
+    const assignedRow: AssignedEventRequest = {
+      ...waiting,
+      assignedCoordinatorId: "usr_coord",
+      assignedAt: new Date("2026-09-15T03:00:00Z"),
+      handoverTo: "Bailey",
+    };
+    render(<CoordinationPage unassigned={[]} assigned={[assignedRow]} handovers={[]} />);
+
+    expect(screen.getByText("Jane Doe — handover to Bailey pending")).toBeTruthy();
+  });
+});
+
+describe("Handovers awaiting a response (PTR-110)", () => {
+  it("lists the handover with who offered it, when, and the organiser", () => {
+    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+
+    expect(screen.getByRole("heading", { name: "Handovers awaiting your response" })).toBeTruthy();
+    expect(screen.getByText("Annual dinner")).toBeTruthy();
+    expect(screen.getByText(/Alex offered this request to you/)).toBeTruthy();
+    expect(screen.getByText(/25 Sept 2026, 10:00/)).toBeTruthy();
+    expect(screen.getByText(/Organiser: Jane Doe/)).toBeTruthy();
+  });
+
+  it("accepts a handover and re-reads the page", async () => {
+    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+    await userEvent.click(screen.getByRole("button", { name: "Accept handover" }));
+
+    await waitFor(() => expect(acceptEventHandover).toHaveBeenCalledWith({ data: { id: 11 } }));
+    expect(declineEventHandover).not.toHaveBeenCalled();
+    expect(success).toHaveBeenCalledWith("Handover accepted.");
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("declines a handover and re-reads the page", async () => {
+    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+    await userEvent.click(screen.getByRole("button", { name: "Decline handover" }));
+
+    await waitFor(() => expect(declineEventHandover).toHaveBeenCalledWith({ data: { id: 11 } }));
+    expect(acceptEventHandover).not.toHaveBeenCalled();
+    expect(success).toHaveBeenCalledWith("Handover declined.");
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("shows a refusal without pretending the handover was answered", async () => {
+    acceptEventHandover.mockRejectedValue(new Error("This handover has already been answered."));
+    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+    await userEvent.click(screen.getByRole("button", { name: "Accept handover" }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "This handover has already been answered."
+    );
+    expect(success).not.toHaveBeenCalled();
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("hides the section when no handover waits", () => {
+    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[]} />);
+
+    expect(screen.queryByRole("heading", { name: "Handovers awaiting your response" })).toBeNull();
   });
 });
