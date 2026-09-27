@@ -220,6 +220,43 @@ describe("DashboardPage", () => {
     }
   );
 
+  it("shows a Coordinator why and by whom a booking was released (PTR-37)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("event_coordinator")}
+        events={[
+          {
+            access: "coordinator",
+            event: {
+              id: 8,
+              name: "Annual dinner",
+              status: "submitted",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+              venueRequest: {
+                status: "released",
+                release: {
+                  venueName: "Main Hall",
+                  date: "2026-10-05",
+                  startTime: "09:00",
+                  endTime: "12:00",
+                  reason: "Air-conditioning failure",
+                  changedByName: "Venue Staff A",
+                },
+              },
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Released")).toBeTruthy();
+    expect(screen.getByText("Main Hall, 5 Oct 2026, 09:00–12:00")).toBeTruthy();
+    expect(screen.getByText("Air-conditioning failure")).toBeTruthy();
+    expect(screen.getByText("Venue Staff A")).toBeTruthy();
+  });
+
   it("lets a Coordinator start venue search from an assigned event", () => {
     render(
       <DashboardPage

@@ -587,6 +587,39 @@ describe("event list handler (PTR-8)", () => {
         expect(await coordinatorCard(fixtures.closed.id)).toBeNull();
       });
 
+      it("shows a released booking instead of resurfacing an older rejection", async () => {
+        await insertRejected("el-venue-rejected-before-release", {
+          updatedAt: new Date("2026-10-01T00:00:00Z"),
+        });
+        await database.insert(schema.venueRequests).values({
+          id: "el-venue-released-after-rejection",
+          eventId: fixtures.closed.id,
+          venueId: fixtureVenueId,
+          requestedById: fixtureUsers.coordinator.id,
+          assignedStaffId: fixtureUsers.venueStaff.id,
+          startsAt: "2026-11-05 09:00:00",
+          endsAt: "2026-11-05 12:00:00",
+          status: "released",
+          releaseReason: "Air-conditioning failure",
+          lastChangedByStaffId: fixtureUsers.venueStaff.id,
+          lastChangedByStaffName: fixtureUsers.venueStaff.name,
+          lastChangedAt: new Date("2026-10-05T00:00:00Z"),
+          updatedAt: new Date("2026-10-05T00:00:00Z"),
+        });
+
+        expect(await coordinatorCard(fixtures.closed.id)).toEqual({
+          status: "released",
+          release: {
+            venueName: FIXTURE_VENUE_NAME,
+            date: "2026-11-05",
+            startTime: "09:00",
+            endTime: "12:00",
+            reason: "Air-conditioning failure",
+            changedByName: fixtureUsers.venueStaff.name,
+          },
+        });
+      });
+
       it("keeps the rejection when the replacement request is withdrawn", async () => {
         await insertRejected("el-venue-rejected-then-withdrawn", {
           updatedAt: new Date("2026-10-01T00:00:00Z"),

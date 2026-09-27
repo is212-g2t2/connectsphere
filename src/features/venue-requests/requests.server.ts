@@ -170,10 +170,6 @@ async function notifyRaiser(
   }
 }
 
-/**
- * The client speaks `datetime-local` (`YYYY-MM-DDTHH:MM`), the spelling `proposedDates`
- * and `formatProposedWindow` already use; the stored seconds are display noise.
- */
 function toLocalMinuteValue(value: string): string {
   return normalizeDatabaseTimestamp(value).slice(0, 16);
 }

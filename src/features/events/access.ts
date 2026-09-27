@@ -122,6 +122,16 @@ export interface VenueRequestRejection {
   suggestion: VenueSuggestion | null;
 }
 
+/** A released booking remains visible to the Coordinator as an operational audit record. */
+export interface VenueRequestRelease {
+  venueName: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  reason: string;
+  changedByName: string | null;
+}
+
 /**
  * The card's one venue request. PTR-36: `conflict` is present only when a pending request overlaps
  * an approved booking. PTR-34: `rejection` is present only on a rejected request, which only the
@@ -131,6 +141,7 @@ export interface EventVenueRequest {
   status: string;
   conflict?: boolean;
   rejection?: VenueRequestRejection;
+  release?: VenueRequestRelease;
 }
 
 /**

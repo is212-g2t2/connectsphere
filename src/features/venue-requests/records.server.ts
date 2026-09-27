@@ -3,7 +3,7 @@ import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import { venueRequests, venues } from "#/db/schema";
-import type { VenueRequestRejection } from "#/features/events/access";
+import type { VenueRequestRejection, VenueRequestRelease } from "#/features/events/access";
 
 /**
  * Server-only on purpose: `#/db/schema` is a value import here, which would ship the whole
@@ -16,19 +16,18 @@ import type { VenueRequestRejection } from "#/features/events/access";
 type Database = typeof Db;
 
 /**
- * PTR-34 criterion 3, owned here rather than re-derived by the events feature (which would
- * otherwise read `venue_requests` and `venues` directly, and PTR-35 prefill would need to do it
- * again): the most recent rejection for each of the given events, shaped for a Coordinator's card
- * or a prefill. Only an event whose newest non-withdrawn row is that rejection is included — a
- * rejection followed by a fresh pending or approved row is no longer the event's live state. A
- * withdrawal carries no decision, so it does not erase the last rejection: the Coordinator is back
- * to planning and the reason still applies. One join carries the suggested venue's name, so a
- * caller never reads `venues` for this itself.
+ * The latest operational outcome for each event. Withdrawals remain invisible because they carry
+ * no staff decision, while a release supersedes an older rejection and remains visible with its
+ * reason and durable actor label. One join carries the suggested venue's name for rejection cards.
  */
-export async function loadRejectionsForEvents(
+export type VenueRequestOutcome =
+  | { status: "rejected"; rejection: VenueRequestRejection }
+  | { status: "released"; release: VenueRequestRelease };
+
+export async function loadVenueRequestOutcomesForEvents(
   database: Pick<Database, "select">,
   eventIds: readonly number[]
-): Promise<Map<number, VenueRequestRejection>> {
+): Promise<Map<number, VenueRequestOutcome>> {
   if (eventIds.length === 0) return new Map();
 
   const suggestedVenue = alias(venues, "suggested_venue");
@@ -42,6 +41,8 @@ export async function loadRejectionsForEvents(
       startsAt: venueRequests.startsAt,
       endsAt: venueRequests.endsAt,
       rejectionReason: venueRequests.rejectionReason,
+      releaseReason: venueRequests.releaseReason,
+      lastChangedByStaffName: venueRequests.lastChangedByStaffName,
       suggestedVenueName: suggestedVenue.name,
       suggestedDate: venueRequests.suggestedDate,
       suggestedStartTime: venueRequests.suggestedStartTime,
@@ -56,8 +57,7 @@ export async function loadRejectionsForEvents(
   // the same stable rule the single-event reader used before this moved.
   const newestByEvent = new Map<number, (typeof rows)[number]>();
   for (const row of rows) {
-    // A withdrawal is not a decision: it must not erase the last rejection (PTR-34 review). The
-    // newest pending, approved or rejected row is the event's live state.
+    // A withdrawal is not a decision and does not erase the last staff outcome.
     if (row.status === "withdrawn") continue;
     const current = newestByEvent.get(row.eventId);
     if (
@@ -69,8 +69,25 @@ export async function loadRejectionsForEvents(
     }
   }
 
-  const rejections = new Map<number, VenueRequestRejection>();
+  const outcomes = new Map<number, VenueRequestOutcome>();
   for (const [eventId, row] of newestByEvent) {
+    if (row.status === "released") {
+      if (row.releaseReason === null) {
+        throw new Error(`Released venue request ${row.id} has no reason recorded`);
+      }
+      outcomes.set(eventId, {
+        status: "released",
+        release: {
+          venueName: row.venueName,
+          date: row.startsAt.slice(0, 10),
+          startTime: row.startsAt.slice(11, 16),
+          endTime: row.endsAt.slice(11, 16),
+          reason: row.releaseReason,
+          changedByName: row.lastChangedByStaffName,
+        },
+      });
+      continue;
+    }
     if (row.status !== "rejected") continue;
     // The CHECK on `venue_requests` guarantees a rejected row has a reason; null here is data
     // corruption to surface loudly, not a blank card to render quietly.
@@ -83,14 +100,17 @@ export async function loadRejectionsForEvents(
       startTime: row.suggestedStartTime?.slice(0, 5) ?? null,
       endTime: row.suggestedEndTime?.slice(0, 5) ?? null,
     };
-    rejections.set(eventId, {
-      venueName: row.venueName,
-      date: row.startsAt.slice(0, 10),
-      startTime: row.startsAt.slice(11, 16),
-      endTime: row.endsAt.slice(11, 16),
-      reason: row.rejectionReason,
-      suggestion: Object.values(suggestion).every(part => part === null) ? null : suggestion,
+    outcomes.set(eventId, {
+      status: "rejected",
+      rejection: {
+        venueName: row.venueName,
+        date: row.startsAt.slice(0, 10),
+        startTime: row.startsAt.slice(11, 16),
+        endTime: row.endsAt.slice(11, 16),
+        reason: row.rejectionReason,
+        suggestion: Object.values(suggestion).every(part => part === null) ? null : suggestion,
+      },
     });
   }
-  return rejections;
+  return outcomes;
 }

@@ -65,6 +65,7 @@ describe("Database Schema Definitions", () => {
       "withdrawn",
       "approved",
       "rejected",
+      "released",
     ]);
   });
 
@@ -85,6 +86,14 @@ describe("Database Schema Definitions", () => {
     ]) {
       expect(column.notNull).toBe(false);
     }
+  });
+
+  it("records a release reason and durable actor label (PTR-37)", () => {
+    const columns = getTableColumns(venueRequests);
+    expect(columns.releaseReason.name).toBe("release_reason");
+    expect(columns.lastChangedByStaffId.name).toBe("last_changed_by_staff_id");
+    expect(columns.lastChangedByStaffName.name).toBe("last_changed_by_staff_name");
+    expect(columns.lastChangedAt.name).toBe("last_changed_at");
   });
 
   it("defines the event request assignment columns (PTR-15)", () => {

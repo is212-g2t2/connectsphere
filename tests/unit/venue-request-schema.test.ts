@@ -4,12 +4,16 @@ import { VENUE_ID_MESSAGE } from "#/features/venues/schema";
 import {
   VENUE_REJECTION_REASON_MAX_LENGTH,
   VENUE_REJECTION_REASON_REQUIRED,
+  VENUE_RELEASE_REASON_MAX_LENGTH,
+  VENUE_RELEASE_REASON_REQUIRED,
   VENUE_REJECTION_TIME_PAIR_MESSAGE,
   VENUE_REQUEST_DATE_MESSAGE,
   VENUE_REQUEST_ID_MESSAGE,
   VENUE_REQUEST_TIME_MESSAGE,
   VENUE_REQUEST_TIME_ORDER_MESSAGE,
   VenueRejectionInput,
+  VenueAmendmentInput,
+  VenueReleaseInput,
   VenueRequestInput,
   parseVenueRejectionInput,
   parseVenueRequestContext,
@@ -212,5 +216,45 @@ describe("VenueRejectionInput (PTR-34 criteria 1 and 2)", () => {
       VENUE_REJECTION_REASON_REQUIRED
     );
     expect(parseVenueRejectionInput(REJECT)).toEqual(REJECT);
+  });
+});
+
+describe("PTR-37 booking mutation inputs", () => {
+  const release = { id: "approved-1", reason: "Air-conditioning failure" };
+  const amendment = {
+    id: "approved-1",
+    venueId: 3,
+    date: "2027-04-21",
+    startTime: "10:00",
+    endTime: "13:30",
+  };
+
+  it("accepts and trims a release reason", () => {
+    expect(VenueReleaseInput.parse({ ...release, reason: "  Air-conditioning failure  " })).toEqual(
+      {
+        ...release,
+        reason: "Air-conditioning failure",
+      }
+    );
+  });
+
+  it("requires a non-blank release reason and caps its length", () => {
+    for (const reason of [undefined, "", "   "]) {
+      expect(firstIssue(VenueReleaseInput.safeParse({ id: release.id, reason }))).toBe(
+        VENUE_RELEASE_REASON_REQUIRED
+      );
+    }
+    const at = "a".repeat(VENUE_RELEASE_REASON_MAX_LENGTH);
+    expect(VenueReleaseInput.safeParse({ ...release, reason: at }).success).toBe(true);
+    expect(firstIssue(VenueReleaseInput.safeParse({ ...release, reason: `${at}a` }))).toBe(
+      `Release reason must be ${VENUE_RELEASE_REASON_MAX_LENGTH} characters or fewer`
+    );
+  });
+
+  it("accepts an ordered amendment and rejects an invalid window", () => {
+    expect(VenueAmendmentInput.parse(amendment)).toEqual(amendment);
+    expect(firstIssue(VenueAmendmentInput.safeParse({ ...amendment, endTime: "10:00" }))).toBe(
+      VENUE_REQUEST_TIME_ORDER_MESSAGE
+    );
   });
 });

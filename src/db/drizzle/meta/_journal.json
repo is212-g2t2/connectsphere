@@ -162,6 +162,13 @@
       "when": 1790528817362,
       "tag": "0022_overconfident_gwen_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790573153722,
+      "tag": "0023_nebulous_lizard",
+      "breakpoints": true
     }
   ]
 }
