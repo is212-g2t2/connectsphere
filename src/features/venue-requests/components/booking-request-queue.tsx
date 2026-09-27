@@ -47,7 +47,7 @@ export function BookingRequestQueue({
                 <TableHead>Ends at</TableHead>
                 <TableHead>Submitted</TableHead>
                 <TableHead>Status</TableHead>
-                {RowAction && <TableHead>Action</TableHead>}
+                {RowAction && <TableHead sticky>Action</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -78,7 +78,7 @@ export function BookingRequestQueue({
                     )}
                   </TableCell>
                   {RowAction && (
-                    <TableCell>
+                    <TableCell sticky>
                       <RowAction request={request} />
                     </TableCell>
                   )}

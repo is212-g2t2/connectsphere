@@ -19,7 +19,8 @@ export const VenueBookingApprovedEmail = ({
   startsAt,
   endsAt,
 }: VenueBookingApprovedEmailProps) => {
-  // One string: adjacent JSX interpolations render as separate text nodes.
+  // One string, not three interpolations: adjacent JSX interpolations are separated by markup
+  // comments, which splits the period across text nodes in the rendered HTML.
   const period = `${formatDate(startsAt)}, ${formatTime(startsAt)}–${formatTime(endsAt)}`;
 
   return (

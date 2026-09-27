@@ -6,12 +6,13 @@ import { BookingRequestQueueSkeleton } from "#/features/venue-requests/component
 
 /**
  * The pending components mirror the pages they stand in for: the queue's wide shell with its
- * five-column rows, and the detail's page-width record and requirement grids. These assertions pin
- * the structure — and the absence of the interactive controls the loaded pages render — so a
- * skeleton that stops drawing a section is caught even though nothing has text.
+ * six-column rows (the sixth standing in for the Action column), and the detail's page-width
+ * record and requirement grids. These assertions pin the structure — and the absence of the
+ * interactive controls the loaded pages render — so a skeleton that stops drawing a section is
+ * caught even though nothing has text.
  */
 describe("BookingRequestQueueSkeleton", () => {
-  it("draws the wide loading shell with the five-column row placeholders", () => {
+  it("draws the wide loading shell with the six-column row placeholders", () => {
     const { container } = render(<BookingRequestQueueSkeleton />);
 
     const main = container.querySelector("main");
@@ -21,7 +22,7 @@ describe("BookingRequestQueueSkeleton", () => {
 
     const rows = container.querySelectorAll("div.divide-y > div");
     expect(rows).toHaveLength(4);
-    expect(rows.item(0).children).toHaveLength(5);
+    expect(rows.item(0).children).toHaveLength(6);
 
     expect(screen.queryByRole("link")).toBeNull();
   });

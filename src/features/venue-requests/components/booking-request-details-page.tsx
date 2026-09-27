@@ -30,7 +30,7 @@ export function BookingRequestDetailsPage({
       {canDecide && (
         <section className="mt-8" aria-labelledby="booking-decision-heading">
           <h2 id="booking-decision-heading" className="display-h3">
-            Record a decision
+            Approve this request
           </h2>
           <p className="mt-2 body-sm text-muted-foreground">
             Approving holds the venue for this exact period and notifies the requesting Coordinator.

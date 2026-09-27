@@ -52,12 +52,21 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   );
 }
 
-function TableHead({ className, ...props }: React.ComponentProps<"th">) {
+/** `sticky` pins a trailing action column to the viewport's right edge on a horizontally
+ * scrolling table, with the opaque fill a sticky cell needs to occlude the content scrolling
+ * underneath it — the one case the design system names for restyling this primitive from here
+ * rather than a call site. */
+function TableHead({
+  className,
+  sticky,
+  ...props
+}: React.ComponentProps<"th"> & { sticky?: boolean }) {
   return (
     <th
       data-slot="table-head"
       className={cn(
         "h-10 px-2 text-left align-middle whitespace-nowrap eyebrow text-muted-foreground [&:has([role=checkbox])]:pr-0",
+        sticky && "sticky right-0 bg-background",
         className
       )}
       {...props}
@@ -65,11 +74,19 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   );
 }
 
-function TableCell({ className, ...props }: React.ComponentProps<"td">) {
+function TableCell({
+  className,
+  sticky,
+  ...props
+}: React.ComponentProps<"td"> & { sticky?: boolean }) {
   return (
     <td
       data-slot="table-cell"
-      className={cn("p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0", className)}
+      className={cn(
+        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        sticky && "sticky right-0 bg-background",
+        className
+      )}
       {...props}
     />
   );

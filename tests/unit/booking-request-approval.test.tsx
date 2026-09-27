@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "#/features/auth/session";
 import { BookingRequestDetailsPage } from "#/features/venue-requests/components/booking-request-details-page";
 import { BookingRequestQueuePage } from "#/features/venue-requests/components/booking-request-queue-page";
+import { VENUE_REQUEST_DECIDED_MESSAGE } from "#/features/venue-requests/schema";
 import type {
   PendingVenueRequest,
   PendingVenueRequestDetail,
@@ -93,15 +94,18 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     ).toBeTruthy();
   });
 
-  it("approves the row's request, confirms it and reloads the queue", async () => {
+  it("approves the row's request, confirms it naming the start, and returns to the queue", async () => {
     render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
 
     await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
 
-    await waitFor(() => expect(invalidate).toHaveBeenCalledOnce());
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/venue-requests" }));
     expect(approveVenueRequest).toHaveBeenCalledWith({ data: { id: "request-001" } });
-    expect(success).toHaveBeenCalledWith("Booking approved for Orchid Room.");
-    expect(navigate).toHaveBeenCalledWith({ to: "/venue-requests" });
+    expect(success).toHaveBeenCalledWith(
+      "Booking approved for Orchid Room from 18 Nov 2030, 09:30."
+    );
+    // navigate already reruns the destination loaders; a trailing invalidate would reload it twice.
+    expect(invalidate).not.toHaveBeenCalled();
   });
 
   it("shows the server's refusal, naming the conflicting period, stays put and reloads the queue", async () => {
@@ -119,8 +123,43 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     );
     expect(success).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
-    // Another member of staff may have decided the row, so the loader reruns.
+    // The request is still pending after this refusal, so reloading is safe and lets the
+    // "Conflicting booking" badge catch up.
     expect(invalidate).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the refusal on screen instead of reloading when the row was already decided elsewhere", async () => {
+    approveVenueRequest.mockRejectedValue(new Error(VENUE_REQUEST_DECIDED_MESSAGE));
+    render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
+
+    // Reloading here would either 404 the detail route or drop the row from the queue, taking the
+    // alert down with it before it can be read.
+    expect((await screen.findByRole("alert")).textContent).toBe(VENUE_REQUEST_DECIDED_MESSAGE);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("maps a bare refusal to the friendly fallback instead of the raw server text", async () => {
+    approveVenueRequest.mockRejectedValue(new Error("Forbidden"));
+    render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Approve request for Orchid Room/ }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Could not approve this request. Try again."
+    );
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("demotes the approve control on a row already flagged conflicting", () => {
+    render(
+      <BookingRequestQueuePage user={venueStaff} requests={[{ ...queued, conflict: true }]} />
+    );
+
+    const button = screen.getByRole("button", { name: /Approve request for Orchid Room/ });
+    expect(button.className).toContain("border-input");
   });
 
   it("offers no approval on an empty queue", () => {
@@ -136,7 +175,9 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/venue-requests" }));
     expect(approveVenueRequest).toHaveBeenCalledWith({ data: { id: "request-001" } });
-    expect(success).toHaveBeenCalledWith("Booking approved for Orchid Room.");
+    expect(success).toHaveBeenCalledWith(
+      "Booking approved for Orchid Room from 18 Nov 2030, 09:30."
+    );
   });
 
   it("offers the approval only to a role that may decide, on the queue", () => {
@@ -150,12 +191,6 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     render(<BookingRequestDetailsPage user={coordinator} request={detail} />);
 
     expect(screen.queryByRole("button")).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Record a decision" })).toBeNull();
-  });
-
-  it("no longer describes the detail page as read-only", () => {
-    render(<BookingRequestDetailsPage user={venueStaff} request={detail} />);
-
-    expect(screen.queryByText(/read-only/i)).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Approve this request" })).toBeNull();
   });
 });

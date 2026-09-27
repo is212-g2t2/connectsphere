@@ -85,23 +85,37 @@ async function sendVenueRequestNotification(
 }
 
 /**
- * The partial unique index is the guarantee; a racing double-submit meets it as a driver error,
- * which `isConstraintViolation` reads. The sentence is the one the panel is built to show.
+ * The shared shape behind both write paths' `.catch`: a constraint violation becomes the readable
+ * refusal it stands for, and anything else keeps travelling as the original error.
  */
-function rethrowDuplicate(error: unknown): never {
-  if (isConstraintViolation(error, "venue_requests_pending_event_venue_idx")) {
-    throw new ConflictError(VENUE_REQUEST_DUPLICATE_MESSAGE);
+function rethrowConstraintViolation(error: unknown, constraint: string, message: string): never {
+  if (isConstraintViolation(error, constraint)) {
+    throw new ConflictError(message);
   }
   throw error;
 }
 
 /**
+ * The partial unique index is the guarantee; a racing double-submit meets it as a driver error,
+ * which `isConstraintViolation` reads. The sentence is the one the panel is built to show.
+ */
+function rethrowDuplicate(error: unknown): never {
+  rethrowConstraintViolation(
+    error,
+    "venue_requests_pending_event_venue_idx",
+    VENUE_REQUEST_DUPLICATE_MESSAGE
+  );
+}
+
+/**
  * Defence in depth for a writer outside `handleApproveVenueRequest`: the locked pre-check cannot
- * see a booking another connection commits between it and the update, and the constraint can.
+ * see a booking another connection commits between it and the update, and the constraint can. Its
+ * message is the generic `VENUE_REQUEST_CONFLICT_MESSAGE`, not the named `venueRequestConflictMessage`
+ * — fine while this backstop stays unreachable for callers going through this handler, where the
+ * locked pre-check above already produces the named refusal.
  */
 function rethrowOverlap(error: unknown): never {
-  if (!isConstraintViolation(error, "venue_requests_no_overlap")) throw error;
-  throw new ConflictError(VENUE_REQUEST_CONFLICT_MESSAGE);
+  rethrowConstraintViolation(error, "venue_requests_no_overlap", VENUE_REQUEST_CONFLICT_MESSAGE);
 }
 
 /**
@@ -479,6 +493,24 @@ export async function handleWithdrawVenueRequest(
   });
 }
 
+const APPROVAL_EMAIL_TIMEOUT_MS = 5_000;
+
+/**
+ * `sendEmail`'s SMTP branch sets no connection timeout, so a stalled server would otherwise hold
+ * the approval response open long after the venue is held. `Promise.race` still attaches a handler
+ * to the losing promise, so a `sendEmail` that rejects after the timeout wins is not left unhandled.
+ */
+function sendApprovalEmail(...args: Parameters<typeof sendEmail>): ReturnType<typeof sendEmail> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Sending "${args[1]}" timed out`)),
+      APPROVAL_EMAIL_TIMEOUT_MS
+    );
+  });
+  return Promise.race([sendEmail(...args), timeout]).finally(() => clearTimeout(timer));
+}
+
 /**
  * PTR-36: an approval settles a pending request *and* holds the venue for its exact period. The
  * exclusion constraint (`venue_requests_no_overlap`) is the guarantee; the advisory lock makes
@@ -573,7 +605,7 @@ export async function handleApproveVenueRequest(
     // Best effort, like the request notification: the booking is committed, and a mail outage
     // must not turn a held venue into a failed approval.
     try {
-      await sendEmail(
+      await sendApprovalEmail(
         notice.requesterEmail,
         `Venue booking approved: ${notice.venueName}`,
         createElement(VenueBookingApprovedEmail, {

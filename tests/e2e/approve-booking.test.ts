@@ -92,10 +92,25 @@ test("[PTR-33] Venue Staff approve from the queue, and an overlapping approval i
       .getByRole("button", { name: `Approve request for ${venueName}, 10 Jun 2037, 09:00` })
       .click();
 
-    await expect(page.getByText(`Booking approved for ${venueName}.`)).toBeVisible();
+    await expect(
+      page.getByText(`Booking approved for ${venueName} from 10 Jun 2037, 09:00.`)
+    ).toBeVisible();
     await expect(
       page.getByRole("link", { name: `Open request for ${venueName}, 10 Jun 2037, 09:00` })
     ).toHaveCount(0);
+
+    // AC3, browser-proven: the approved window shows as a confirmed booking on the venue
+    // calendar, pinned to the exact period just approved, not merely "not pending" anymore.
+    await page.goto(
+      `/venues/availability?venueId=${venueId}&startDate=2037-06-10&endDate=2037-06-10`
+    );
+    await waitForHydration(page);
+    const calendarResults = page.getByRole("region", { name: "Availability results" });
+    await expect(calendarResults.getByText("Confirmed booking", { exact: true })).toBeVisible();
+    await expect(calendarResults.getByText(/09:00 – 12:00/)).toBeVisible();
+
+    await page.goto("/venue-requests");
+    await waitForHydration(page);
 
     // AC3: the second, overlapping request is now flagged, and approving it is refused by name.
     await page
