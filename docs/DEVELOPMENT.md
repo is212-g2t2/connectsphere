@@ -78,6 +78,8 @@ These credentials are non-production (shared password, `example.com` addresses, 
 
 The seed also creates three demo venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion) with capacity, facilities, accessibility features, supported layouts and operating hours, plus two future periods of unavailability. Re-running `bun run db:seed` is safe: existing accounts and venues are left untouched.
 
+The fictional equipment inventory contains eight Portable Projectors, twelve Wireless Microphones and four Portable PA Systems. One projector is marked unavailable for demo maintenance, leaving seven available before reservations. Re-running the seed does not duplicate equipment types or unavailable units.
+
 ## Environment Variables
 
 | Variable              | Required | Description                                                                                                                                              |
@@ -139,7 +141,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 
 ### Schema Locations
 
-- `src/db/schema.ts`: Application domain schemas. Re-exports the auth tables; holds `eventRequests`, its handover history (`eventAssignments`) and clarifications (`clarificationRequests`), the venue catalogue (`venues`, `venueUnavailability`), the venue and equipment requests (`venueRequests`, `equipmentRequests`), and event registrations (`eventRegistrations`).
+- `src/db/schema.ts`: Application domain schemas. Re-exports the auth tables; holds `eventRequests`, its handover history (`eventAssignments`) and clarifications (`clarificationRequests`), the venue catalogue (`venues`, `venueUnavailability`), the equipment inventory (`equipmentTypes`, `equipmentUnavailability`), the venue and equipment requests (`venueRequests`, `equipmentRequests`), and event registrations (`eventRegistrations`).
 - `src/db/auth-schema.ts`: Better Auth schemas (`user` with `role`, `session`, `account`, `verification`).
 - `src/db/drizzle/`: Generated SQL migration files and metadata.
 

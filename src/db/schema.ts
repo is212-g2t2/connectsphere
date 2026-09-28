@@ -275,6 +275,42 @@ export const venueUnavailability = pgTable(
   ]
 );
 
+/**
+ * Equipment catalogue with aggregate held quantities rather than individually tracked assets.
+ * Catalogue management is deferred, so the initial rows come from the demo seed.
+ */
+export const equipmentTypes = pgTable(
+  "equipment_types",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull().unique(),
+    quantityHeld: integer("quantity_held").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [check("equipment_types_quantity_held_positive", sql`${table.quantityHeld} > 0`)]
+);
+
+/**
+ * Aggregate units that cannot be reserved because they are damaged, under maintenance or
+ * otherwise out of service.
+ */
+export const equipmentUnavailability = pgTable(
+  "equipment_unavailability",
+  {
+    id: serial("id").primaryKey(),
+    equipmentTypeId: integer("equipment_type_id")
+      .notNull()
+      .references(() => equipmentTypes.id, { onDelete: "cascade" }),
+    quantityUnavailable: integer("quantity_unavailable").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    check("equipment_unavailability_quantity_positive", sql`${table.quantityUnavailable} > 0`),
+    uniqueIndex("equipment_unavailability_type_reason_idx").on(table.equipmentTypeId, table.reason),
+  ]
+);
+
 export * from "./auth-schema";
 
 /**

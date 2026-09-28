@@ -16,6 +16,8 @@ import {
   accountRelations,
   venues,
   venueUnavailability,
+  equipmentTypes,
+  equipmentUnavailability,
   venueRequests,
   eventRequests,
 } from "#/db/schema";
@@ -39,6 +41,14 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(venues).supportedLayouts.name).toBe("supported_layouts");
     expect(getTableColumns(venueUnavailability).venueId.name).toBe("venue_id");
     expect(getTableColumns(venueUnavailability).startsAt.name).toBe("starts_at");
+  });
+
+  it("defines the equipment inventory tables (PTR-115)", () => {
+    expect(getTableColumns(equipmentTypes).quantityHeld.name).toBe("quantity_held");
+    expect(getTableColumns(equipmentUnavailability).equipmentTypeId.name).toBe("equipment_type_id");
+    expect(getTableColumns(equipmentUnavailability).quantityUnavailable.name).toBe(
+      "quantity_unavailable"
+    );
   });
 
   it("defines the event request registration columns (PTR-11)", () => {
@@ -127,6 +137,8 @@ describe("Database Schema Definitions", () => {
     expect(tables.session.relations.user).toBeDefined();
     expect(tables.account.relations.user).toBeDefined();
     expect(tables.venueRequests).toBeDefined();
+    expect(tables.equipmentTypes).toBeDefined();
+    expect(tables.equipmentUnavailability).toBeDefined();
     expect(tables.equipmentRequests).toBeDefined();
     expect(tables.eventRegistrations).toBeDefined();
   });
