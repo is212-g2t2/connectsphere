@@ -1271,6 +1271,75 @@ describe("venue request handlers (PTR-31)", () => {
         lastChangedByStaffId: null,
       });
     });
+
+    it("keeps a released booking terminal and the venue period free", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+      await handleReleaseVenueBooking(
+        { id: request.id, reason: "Emergency maintenance" },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      await expect(approve(request.id, users.venueStaffA)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+      await expect(
+        handleRejectVenueRequest(
+          { id: request.id, reason: "Changed my mind" },
+          session(users.venueStaffB),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+      await expect(
+        handleWithdrawVenueRequest(
+          { id: request.id },
+          session(users.coordinator),
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_SETTLED_MESSAGE });
+      await expect(
+        handleReleaseVenueBooking(
+          { id: request.id, reason: "Still broken" },
+          session(users.venueStaffA),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_BOOKING_NOT_APPROVED_MESSAGE,
+      });
+      await expect(
+        handleAmendVenueBooking(
+          {
+            id: request.id,
+            venueId,
+            date: WINDOW.date,
+            startTime: "13:00",
+            endTime: "15:00",
+          },
+          session(users.venueStaffA),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_BOOKING_NOT_APPROVED_MESSAGE,
+      });
+
+      expect(await readRow(request.id)).toMatchObject({ status: "released" });
+      const availability = await handleGetVenueAvailability(
+        { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        database as never
+      );
+      expect(availability?.occupied ?? []).toEqual([]);
+    });
   });
 
   describe("the overlap constraint itself (PTR-36 AC1, AC3)", () => {

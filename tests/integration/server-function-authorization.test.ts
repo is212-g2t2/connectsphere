@@ -45,10 +45,13 @@ import {
   VENUE_REQUEST_ID_MESSAGE,
 } from "#/features/venue-requests/schema";
 import {
+  amendVenueBooking,
   approveVenueRequest,
   getPendingVenueRequest,
   getVenueRequestContext,
   listPendingVenueRequests,
+  listVenueBookings,
+  releaseVenueBooking,
   rejectVenueRequest,
   requestVenue,
   withdrawVenueRequest,
@@ -427,6 +430,26 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
+      expect(await refusalFrom(listVenueBookings, undefined, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(releaseVenueBooking, { id: "req-1", reason: "Roof leak" })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(
+        await refusalFrom(amendVenueBooking, {
+          id: "req-1",
+          venueId: 1,
+          date: "2027-04-20",
+          startTime: "09:00",
+          endTime: "12:30",
+        })
+      ).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
     });
 
     it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
@@ -502,6 +525,39 @@ describe("server-function authorization (PTR-69)", () => {
 
       expect(
         (await call(rejectVenueRequest, { id: "req-1", reason: "Too small" })).error
+      ).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "event_coordinator", "technical_support_staff"])(
+      "refuses %s the booking change verbs before payload validation (PTR-37)",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(listVenueBookings, undefined, "GET")).toMatchObject({
+          status: 403,
+        });
+        expect(await refusalFrom(releaseVenueBooking, {})).toMatchObject({ status: 403 });
+        expect(await refusalFrom(amendVenueBooking, {})).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("lets a Venue Staff member through the booking change chain (PTR-37)", async () => {
+      signIn("venue_staff");
+
+      expect((await call(listVenueBookings, undefined, "GET")).error).toBeUndefined();
+      expect(
+        (await call(releaseVenueBooking, { id: "req-1", reason: "Roof leak" })).error
+      ).toBeUndefined();
+      expect(
+        (
+          await call(amendVenueBooking, {
+            id: "req-1",
+            venueId: 1,
+            date: "2027-04-20",
+            startTime: "09:00",
+            endTime: "12:30",
+          })
+        ).error
       ).toBeUndefined();
     });
   });
