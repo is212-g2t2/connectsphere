@@ -73,7 +73,7 @@ export function CoordinationPage({
 
       <PageHeader
         title="Coordination"
-        description="Submitted requests are assigned to the least-loaded Coordinator as they arrive. Any that could not be assigned wait here for someone to pick up."
+        description="Submitted requests are assigned to the least-loaded Coordinator as they arrive. Handovers awaiting your answer, and requests that could not be assigned, wait here."
       />
 
       {handovers.length > 0 && (
@@ -132,12 +132,15 @@ export function CoordinationPage({
               </li>
             ))}
           </ul>
-          {answer.status === "error" && (
-            <p role="alert" className="mt-4 body-sm text-destructive">
-              {answer.error}
-            </p>
-          )}
         </section>
+      )}
+
+      {/* Outside the section: a refusal usually empties the list, and the reason must outlive the
+          re-read that removes the dead offer. */}
+      {answer.status === "error" && (
+        <p role="alert" className="mt-4 body-sm text-destructive">
+          {answer.error}
+        </p>
       )}
 
       <section

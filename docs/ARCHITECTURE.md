@@ -43,7 +43,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   │                 # components/, Zod schemas, server functions, and
 │   │   │                 # feature-local *.server.ts modules
 │   │   ├── auth/         # Sessions, permissions, login/signup/reset/settings
-│   │   ├── coordination/ # Coordinator assignments and pickups
+│   │   ├── coordination/ # Coordinator assignments, pickups, and handovers
 │   │   ├── dashboard/    # Signed-in home view
 │   │   ├── emails/       # Email templates and shared date formatting
 │   │   ├── event-requests/ # Requirement capture, drafts, submission

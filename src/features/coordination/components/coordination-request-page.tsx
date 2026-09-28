@@ -188,6 +188,12 @@ export function CoordinationRequestPage({
   const closed =
     request.status === "draft" || request.status === "approved" || request.status === "rejected";
 
+  // One label per state, in precedence order, so the submit button's truth table is readable.
+  let submitLabel = "Hand over";
+  if (unassigned) submitLabel = assigning ? "Assigning…" : "Assign Coordinator";
+  else if (requestingHandover) submitLabel = "Requesting…";
+  else if (pendingHandover) submitLabel = "Offer to someone else";
+
   const canRequestClarification =
     (request.status === "under_review" || request.status === "awaiting_organiser") &&
     request.assignedCoordinatorId === user.id;
@@ -400,8 +406,8 @@ export function CoordinationRequestPage({
               {pendingHandover ? (
                 <p className="mt-2 body-sm text-muted-foreground">
                   Offered to {pendingHandoverLabel} on {formatInstant(pendingHandover.requestedAt)}.
-                  You remain the assigned Coordinator with access to this request until they accept,
-                  and offering it to another Coordinator replaces this offer.
+                  You remain the assigned Coordinator until they accept; offering it to someone else
+                  replaces this offer.
                 </p>
               ) : null}
               {!unassigned && !pendingHandover ? (
@@ -460,15 +466,7 @@ export function CoordinationRequestPage({
                 </form.Field>
                 <div className="flex flex-wrap gap-3">
                   <Button type="submit" disabled={assigning || requestingHandover}>
-                    {unassigned
-                      ? assigning
-                        ? "Assigning…"
-                        : "Assign Coordinator"
-                      : requestingHandover
-                        ? "Requesting…"
-                        : pendingHandover
-                          ? "Offer to someone else"
-                          : "Hand over"}
+                    {submitLabel}
                   </Button>
                   {unassigned && (
                     <Button

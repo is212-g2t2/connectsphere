@@ -143,27 +143,32 @@ export async function handleGetCoordinationRequest(
   // Coordinator sees it and cannot raise a second one. A row the current assignment has moved
   // past (account deletion, a direct move), one on a decided request, or one whose incoming
   // account no longer exists (the inner join) is not shown as if it still waited.
-  const pendingHandover =
-    request.assignedCoordinatorId === null ||
-    request.status === "approved" ||
-    request.status === "rejected"
-      ? null
-      : ((
-          await database
-            .select({
-              requestedAt: eventHandovers.requestedAt,
-              toName: handoverTargets.name,
-            })
-            .from(eventHandovers)
-            .innerJoin(handoverTargets, eq(handoverTargets.id, eventHandovers.toCoordinatorId))
-            .where(
-              and(
-                eq(eventHandovers.eventRequestId, id),
-                isNull(eventHandovers.decision),
-                eq(eventHandovers.fromCoordinatorId, request.assignedCoordinatorId)
-              )
+  const assignedCoordinatorId = request.assignedCoordinatorId;
+
+  let pendingHandover: { requestedAt: Date; toName: string } | null = null;
+  if (
+    assignedCoordinatorId !== null &&
+    request.status !== "approved" &&
+    request.status !== "rejected"
+  ) {
+    pendingHandover =
+      (
+        await database
+          .select({
+            requestedAt: eventHandovers.requestedAt,
+            toName: handoverTargets.name,
+          })
+          .from(eventHandovers)
+          .innerJoin(handoverTargets, eq(handoverTargets.id, eventHandovers.toCoordinatorId))
+          .where(
+            and(
+              eq(eventHandovers.eventRequestId, id),
+              isNull(eventHandovers.decision),
+              eq(eventHandovers.fromCoordinatorId, assignedCoordinatorId)
             )
-        ).at(0) ?? null);
+          )
+      ).at(0) ?? null;
+  }
 
   return {
     ...request,

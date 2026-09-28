@@ -37,6 +37,7 @@ const {
 vi.mock("#/features/coordination/server-fns", () => ({
   assignEventRequest,
   decideEventRequest,
+  raiseClarificationRequest: vi.fn<() => Promise<never>>(),
   requestEventHandover,
   takeUpEventRequestForReview,
 }));
