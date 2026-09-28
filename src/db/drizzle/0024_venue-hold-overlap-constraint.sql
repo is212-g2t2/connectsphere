@@ -18,7 +18,7 @@ ALTER TABLE "venue_holds" ADD CONSTRAINT "venue_holds_venue_id_venues_id_fk" FOR
 ALTER TABLE "venue_holds" ADD CONSTRAINT "venue_holds_held_by_id_user_id_fk" FOREIGN KEY ("held_by_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "venue_holds" ADD CONSTRAINT "venue_holds_released_by_id_user_id_fk" FOREIGN KEY ("released_by_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "venue_holds_event_id_idx" ON "venue_holds" USING btree ("event_id");--> statement-breakpoint
-CREATE INDEX "venue_holds_venue_id_idx" ON "venue_holds" USING btree ("venue_id");--> statement-breakpoint
+CREATE INDEX "venue_holds_venue_id_starts_at_idx" ON "venue_holds" USING btree ("venue_id","starts_at");--> statement-breakpoint
 CREATE INDEX "venue_holds_held_by_id_idx" ON "venue_holds" USING btree ("held_by_id");--> statement-breakpoint
 CREATE INDEX "venue_holds_released_by_id_idx" ON "venue_holds" USING btree ("released_by_id");--> statement-breakpoint
 -- PTR-109: no two active tentative holds may overlap for one venue. Drizzle Kit cannot express an

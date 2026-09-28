@@ -1,5 +1,5 @@
 {
-  "id": "8b890172-1ab0-4ac1-8d28-1b85c8059674",
+  "id": "756dae41-6da3-4474-a089-81f487319134",
   "prevId": "18e80fd9-b54c-4eb5-a985-72c5ad242f53",
   "version": "7",
   "dialect": "postgresql",
@@ -820,11 +820,17 @@
           "method": "btree",
           "with": {}
         },
-        "venue_holds_venue_id_idx": {
-          "name": "venue_holds_venue_id_idx",
+        "venue_holds_venue_id_starts_at_idx": {
+          "name": "venue_holds_venue_id_starts_at_idx",
           "columns": [
             {
               "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
