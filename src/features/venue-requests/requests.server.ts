@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt } from "drizzle-orm";
 import { createElement } from "react";
 import type { ReactElement } from "react";
 
@@ -22,10 +22,12 @@ import {
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
+  venueHoldConflictMessage,
   venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
+import { lockVenue } from "#/features/venue-requests/venue-lock.server";
 import { normalizeDatabaseTimestamp } from "#/features/venues/availability";
-import { loadVenueBookings } from "#/features/venues/records.server";
+import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 import { sendEmail } from "#/lib/mailer.server";
@@ -44,7 +46,7 @@ type Database = typeof Db;
 
 const log = logger.getChild("venue-requests");
 
-interface VenueRequestNotification {
+export interface VenueRequestNotification {
   venueName: string;
   startsAt: string;
   endsAt: string;
@@ -60,7 +62,7 @@ interface VenueRequestNotification {
  * and swallowed, because the request is already committed and losing a notification must not undo
  * it — the best-effort shape the decision emails use.
  */
-async function sendVenueRequestNotification(
+export async function sendVenueRequestNotification(
   notification: VenueRequestNotification,
   recipients: string[]
 ) {
@@ -103,7 +105,7 @@ function rethrowConstraintViolation(error: unknown, constraint: string, message:
  * The partial unique index is the guarantee; a racing double-submit meets it as a driver error,
  * which `isConstraintViolation` reads. The sentence is the one the panel is built to show.
  */
-function rethrowDuplicate(error: unknown): never {
+export function rethrowDuplicate(error: unknown): never {
   rethrowConstraintViolation(
     error,
     "venue_requests_pending_event_venue_idx",
@@ -174,13 +176,23 @@ function toLocalMinuteValue(value: string): string {
   return normalizeDatabaseTimestamp(value).slice(0, 16);
 }
 
-async function hasApprovedConflict(
+/**
+ * What kind of overlap a single request has, for the detail read: an approved booking outranks an
+ * active hold (a booking is the answer the Coordinator most needs), and neither is `null`.
+ */
+async function loadConflictKind(
   database: Database,
   venueId: number,
   startsAt: string,
   endsAt: string
-): Promise<boolean> {
-  return (await loadVenueBookings(database, [venueId], startsAt, endsAt)).length > 0;
+): Promise<"booking" | "hold" | null> {
+  const [bookings, holds] = await Promise.all([
+    loadVenueBookings(database, [venueId], startsAt, endsAt),
+    loadVenueHolds(database, [venueId], startsAt, endsAt),
+  ]);
+  if (bookings.length > 0) return "booking";
+  if (holds.length > 0) return "hold";
+  return null;
 }
 
 function summarizePendingVenueRequest(
@@ -192,7 +204,7 @@ function summarizePendingVenueRequest(
     endsAt: string;
     submittedAt: Date;
   },
-  conflict: boolean
+  conflict: "booking" | "hold" | null
 ) {
   return {
     id: row.id,
@@ -206,13 +218,13 @@ function summarizePendingVenueRequest(
   };
 }
 
-// ponytail: single batched read replaces N+1 loadVenueBookings per row; re-batch per venue if the
+// ponytail: single batched read replaces N+1 conflict lookups per row; re-batch per venue if the
 // pending queue grows large.
-async function pendingConflictIds(
+async function pendingConflictKinds(
   database: Database,
   rows: readonly { id: string; venueId: number; startsAt: string; endsAt: string }[]
-): Promise<Set<string>> {
-  if (rows.length === 0) return new Set();
+): Promise<Map<string, "booking" | "hold">> {
+  if (rows.length === 0) return new Map();
 
   const venueIds = [...new Set(rows.map(row => row.venueId))];
   const minStart = rows.reduce(
@@ -221,24 +233,29 @@ async function pendingConflictIds(
   );
   const maxEnd = rows.reduce((max, row) => (row.endsAt > max ? row.endsAt : max), rows[0].endsAt);
 
-  const bookings = await database
-    .select({
-      venueId: venueRequests.venueId,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-    })
-    .from(venueRequests)
-    .where(
-      and(
-        eq(venueRequests.status, "approved"),
-        inArray(venueRequests.venueId, venueIds),
-        lt(venueRequests.startsAt, maxEnd),
-        gt(venueRequests.endsAt, minStart)
-      )
-    );
+  const [bookings, holds] = await Promise.all([
+    database
+      .select({
+        venueId: venueRequests.venueId,
+        startsAt: venueRequests.startsAt,
+        endsAt: venueRequests.endsAt,
+      })
+      .from(venueRequests)
+      .where(
+        and(
+          eq(venueRequests.status, "approved"),
+          inArray(venueRequests.venueId, venueIds),
+          lt(venueRequests.startsAt, maxEnd),
+          gt(venueRequests.endsAt, minStart)
+        )
+      ),
+    loadVenueHolds(database, venueIds, minStart, maxEnd),
+  ]);
 
-  const conflicts = new Set<string>();
+  const conflicts = new Map<string, "booking" | "hold">();
   for (const row of rows) {
+    // The raw booking read keeps the database's `"YYYY-MM-DD HH:MM:SS"` spelling, matching the
+    // row; `loadVenueHolds` normalises to the `T` spelling, so the row is normalised for it too.
     if (
       bookings.some(
         booking =>
@@ -247,7 +264,17 @@ async function pendingConflictIds(
           booking.endsAt > row.startsAt
       )
     ) {
-      conflicts.add(row.id);
+      conflicts.set(row.id, "booking");
+      continue;
+    }
+    const startsAt = row.startsAt.replace(" ", "T");
+    const endsAt = row.endsAt.replace(" ", "T");
+    if (
+      holds.some(
+        hold => hold.venueId === row.venueId && hold.startsAt < endsAt && hold.endsAt > startsAt
+      )
+    ) {
+      conflicts.set(row.id, "hold");
     }
   }
   return conflicts;
@@ -257,8 +284,8 @@ async function pendingConflictIds(
  * PTR-32 AC1–AC2 and AC5: the shared Venue Staff queue. The status filter and submission ordering
  * live in the reader rather than in the table component, so every caller receives all pending rows
  * (including multiple rows for one event) in one stable order. Conflict detection batches every
- * pending row through `pendingConflictIds`, one approved-only read for the whole queue rather than
- * the per-row `loadVenueBookings` from PTR-36; pending and withdrawn rows never become bookings and
+ * pending row through `pendingConflictKinds`, one approved-only read plus one active-hold read for
+ * the whole queue rather than per-row loaders; pending and withdrawn rows never become bookings and
  * a touching boundary remains available.
  */
 export async function handleListPendingVenueRequests(database: Database) {
@@ -276,8 +303,8 @@ export async function handleListPendingVenueRequests(database: Database) {
     .where(eq(venueRequests.status, "pending"))
     .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id));
 
-  const conflicts = await pendingConflictIds(database, rows);
-  return rows.map(row => summarizePendingVenueRequest(row, conflicts.has(row.id)));
+  const conflicts = await pendingConflictKinds(database, rows);
+  return rows.map(row => summarizePendingVenueRequest(row, conflicts.get(row.id) ?? null));
 }
 
 /**
@@ -312,7 +339,7 @@ export async function handleGetPendingVenueRequest(data: unknown, database: Data
   // its 404, matching `handleGetVenue` and `handleGetEventRequest`.
   if (!row) return null;
 
-  const conflict = await hasApprovedConflict(database, row.venueId, row.startsAt, row.endsAt);
+  const conflict = await loadConflictKind(database, row.venueId, row.startsAt, row.endsAt);
 
   return {
     ...summarizePendingVenueRequest(row, conflict),
@@ -575,6 +602,20 @@ export async function handleApproveVenueRequest(
 
   const decided = await database
     .transaction(async tx => {
+      // One lock order for every venue writer: advisory lock first, then the row lock. A plain
+      // read of the venue to learn which advisory lock to take, then the lock, then the row lock
+      // on the request. Taking the row lock first (as this used to) lets this path and a hold
+      // writer grab the two locks in opposite orders and deadlock (40P01).
+      const previewRows = await tx
+        .select({ venueId: venueRequests.venueId })
+        .from(venueRequests)
+        .where(eq(venueRequests.id, id))
+        .limit(1);
+      const preview = previewRows.at(0);
+      if (!preview) throw new NotFoundError("Not Found");
+
+      await lockVenue(tx, preview.venueId);
+
       const rows = await tx
         .select({
           status: venueRequests.status,
@@ -600,25 +641,30 @@ export async function handleApproveVenueRequest(
       if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
       if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
 
-      // Serialise per venue before touching the exclusion index: two concurrent approvals can
-      // otherwise deadlock on it (Postgres documents the race) and the loser would be a fault.
-      await tx.execute(sql`select pg_advisory_xact_lock(${row.venueId})`);
-
       // Under the lock this pre-check cannot race another approval; the constraint below is the
       // backstop for a writer that does not come through this function.
-      const conflicts = await loadVenueBookings(tx, [row.venueId], row.startsAt, row.endsAt);
+      const [conflicts, holdConflicts] = await Promise.all([
+        loadVenueBookings(tx, [row.venueId], row.startsAt, row.endsAt),
+        loadVenueHolds(tx, [row.venueId], row.startsAt, row.endsAt),
+      ]);
       const conflict = conflicts.at(0);
-      if (conflict) {
+      const holdConflict = holdConflicts.at(0);
+      const activeConflict = conflict
+        ? { message: venueRequestConflictMessage, record: conflict }
+        : holdConflict
+          ? { message: venueHoldConflictMessage, record: holdConflict }
+          : null;
+      if (activeConflict) {
         const venueRows = await tx
           .select({ name: venues.name })
           .from(venues)
           .where(eq(venues.id, row.venueId))
           .limit(1);
         throw new ConflictError(
-          venueRequestConflictMessage({
+          activeConflict.message({
             venueName: venueRows.at(0)?.name ?? "This venue",
-            startsAt: conflict.startsAt,
-            endsAt: conflict.endsAt,
+            startsAt: activeConflict.record.startsAt,
+            endsAt: activeConflict.record.endsAt,
           })
         );
       }

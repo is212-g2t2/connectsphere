@@ -71,7 +71,9 @@ export function BookingRequestQueue({
                     </time>
                   </TableCell>
                   <TableCell>
-                    {request.conflict ? (
+                    {request.conflict === "hold" ? (
+                      <Badge variant="progress">Conflicting hold</Badge>
+                    ) : request.conflict ? (
                       <Badge variant="progress">Conflicting booking</Badge>
                     ) : (
                       "No conflict"

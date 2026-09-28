@@ -20,7 +20,7 @@ export function BookingRequestDetails({ request }: { request: PendingVenueReques
 
       {request.conflict ? (
         <Badge className="mt-4" variant="progress">
-          Conflicting booking
+          {request.conflict === "hold" ? "Conflicting hold" : "Conflicting booking"}
         </Badge>
       ) : null}
 

@@ -405,7 +405,7 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Yes, delete my account" }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Deletion is disabled"));
-    const confirm = screen.getByRole("button", { name: "Yes, delete my account" });
+    const confirm = await screen.findByRole("button", { name: "Yes, delete my account" });
     expect(confirm.hasAttribute("disabled")).toBe(false);
   });
 });

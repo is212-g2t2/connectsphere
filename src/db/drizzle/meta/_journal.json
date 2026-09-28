@@ -169,6 +169,13 @@
       "when": 1790573153722,
       "tag": "0023_nebulous_lizard",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790585705550,
+      "tag": "0024_venue-hold-overlap-constraint",
+      "breakpoints": true
     }
   ]
 }

@@ -11,7 +11,7 @@ const request: PendingVenueRequestDetail = {
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",
   submittedAt: new Date("2030-11-01T01:00:00Z"),
-  conflict: true,
+  conflict: "booking",
   requirements: {
     eventTiming: "Doors open at 09:00; event starts at 09:30.",
     expectedAttendance: 85,
@@ -48,6 +48,20 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     // The canonical requirements treatment labels this pair "Facilities".
     expect(detailValue("Facilities").textContent).toBe("Projector\nTwo wireless microphones");
     expect(screen.getByText("Conflicting booking")).toBeTruthy();
+  });
+
+  it("labels a hold-kind conflict as a conflicting hold, not a booking", () => {
+    render(<BookingRequestDetails request={{ ...request, conflict: "hold" }} />);
+
+    expect(screen.getByText("Conflicting hold")).toBeTruthy();
+    expect(screen.queryByText("Conflicting booking")).toBeNull();
+  });
+
+  it("draws no conflict badge when the request has no conflict", () => {
+    render(<BookingRequestDetails request={{ ...request, conflict: null }} />);
+
+    expect(screen.queryByText("Conflicting hold")).toBeNull();
+    expect(screen.queryByText("Conflicting booking")).toBeNull();
   });
 
   it("refreshes venue, start, and requirements when rendered with a different selected request (TC06)", () => {

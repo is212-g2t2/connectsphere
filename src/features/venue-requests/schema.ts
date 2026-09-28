@@ -46,19 +46,24 @@ export const VENUE_REJECTION_TIME_PAIR_MESSAGE = "Enter both a start and end tim
  * arrive in the loader's normalized `YYYY-MM-DDTHH:MM:SS` spelling and are read the way the rest
  * of the app reads wall-clock values (`formatLocalDateTime`), not as the stored string.
  */
-export function venueRequestConflictMessage(conflict: {
-  venueName: string;
-  startsAt: string;
-  endsAt: string;
-}) {
+export function venueRequestConflictMessage(
+  conflict: {
+    venueName: string;
+    startsAt: string;
+    endsAt: string;
+  },
+  phrase = "already booked"
+) {
   // A period that crosses midnight names its end date too; within one civil day the shared date
   // reads once.
-  const start = formatLocalDateTime(conflict.startsAt.slice(0, 16));
+  const startsAt = conflict.startsAt.replace(" ", "T");
+  const endsAt = conflict.endsAt.replace(" ", "T");
+  const start = formatLocalDateTime(startsAt.slice(0, 16));
   const end =
-    conflict.endsAt.slice(0, 10) === conflict.startsAt.slice(0, 10)
-      ? conflict.endsAt.slice(11, 16)
-      : formatLocalDateTime(conflict.endsAt.slice(0, 16));
-  return `${conflict.venueName} is already booked ${start} – ${end}`;
+    endsAt.slice(0, 10) === startsAt.slice(0, 10)
+      ? endsAt.slice(11, 16)
+      : formatLocalDateTime(endsAt.slice(0, 16));
+  return `${conflict.venueName} is ${phrase} ${start} – ${end}`;
 }
 
 const Time = z.string().regex(TIME_SHAPE, VENUE_REQUEST_TIME_MESSAGE);
@@ -259,3 +264,39 @@ export function parseVenueAmendmentInput(data: unknown): VenueAmendmentValues {
   }
   return parsed.data;
 }
+
+/**
+ * PTR-109 AC2: the refusal when a tentative hold or approval conflicts with an active tentative hold.
+ * Explicitly names the conflicting venue and period.
+ */
+export function venueHoldConflictMessage(conflict: {
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+}) {
+  return venueRequestConflictMessage(conflict, "tentatively held");
+}
+
+/**
+ * PTR-109: the generic backstop when the `venue_holds_no_overlap` exclusion constraint refuses a
+ * write the locked pre-check did not see — a writer outside `handleCreateVenueHold`. Under the
+ * advisory lock this is unreachable for callers through the handler, where the named refusal above
+ * is what the Coordinator reads.
+ */
+export const VENUE_HOLD_OVERLAP_MESSAGE =
+  "This venue is tentatively held for an overlapping period.";
+
+/**
+ * The phrases a venue conflict refusal can carry, so the client can tell a genuine conflict (the
+ * named booking or hold sentence, or either generic backstop) from an unrelated failure without
+ * matching the whole formatted message. `venueRequestConflictMessage` says "already booked";
+ * `venueHoldConflictMessage` says "tentatively held".
+ */
+export const VENUE_CONFLICT_PHRASES = ["already booked", "tentatively held"] as const;
+
+export function isVenueConflictMessage(message: string): boolean {
+  return VENUE_CONFLICT_PHRASES.some(phrase => message.includes(phrase));
+}
+
+export const parseVenueHoldInput = parseVenueRequestInput;
+export const parseVenueHoldId = parseVenueRequestId;

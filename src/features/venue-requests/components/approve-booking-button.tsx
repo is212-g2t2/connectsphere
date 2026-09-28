@@ -17,6 +17,7 @@ import { formatLocalDateTime, formatProposedWindow } from "#/features/event-requ
 import {
   VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
+  isVenueConflictMessage,
 } from "#/features/venue-requests/schema";
 import { approveVenueRequest } from "#/features/venue-requests/server-fns";
 import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
@@ -42,15 +43,15 @@ function requestIsGone(message: string): boolean {
 
 /**
  * Whether `message` is one of the sentences worth showing verbatim: the request was already
- * settled, or the venue is already booked for an overlapping period (the named refusal or its
- * generic backstop). Anything else — a bare "Forbidden" or "Not Found" — is not this caller's to
+ * settled, or the venue conflicts with an approved booking or an active hold (the named refusal or
+ * its generic backstop). Anything else — a bare "Forbidden" or "Not Found" — is not this caller's to
  * explain, so it falls back to the mutation's generic text instead.
  */
 function isApprovalConflict(message: string): boolean {
   return (
     message === VENUE_REQUEST_DECIDED_MESSAGE ||
     message === VENUE_REQUEST_REJECTED_MESSAGE ||
-    message.includes("is already booked")
+    isVenueConflictMessage(message)
   );
 }
 
@@ -58,8 +59,8 @@ function isApprovalConflict(message: string): boolean {
  * PTR-33 criterion 1: approve a pending request from its queue row or detail page. Success lands
  * on a reloaded queue, since the detail route 404s once the request leaves `pending`; a refusal
  * stays beside the button, and only reloads the loader when the row can still be found there —
- * an overlap conflict leaves it pending, so reloading still lets the "Conflicting booking" badge
- * catch up.
+ * an overlap conflict leaves it pending, so reloading still lets the "Conflicting booking" or
+ * "Conflicting hold" badge catch up.
  */
 export function ApproveBookingButton({
   request,

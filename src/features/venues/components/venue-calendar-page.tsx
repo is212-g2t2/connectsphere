@@ -17,6 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
+import { can } from "#/features/auth/permissions";
+import type { SessionUser } from "#/features/auth/session";
+import {
+  ConvertVenueHoldButton,
+  PlaceVenueHoldDialog,
+  ReleaseVenueHoldButton,
+} from "#/features/venue-requests/components/venue-hold-actions";
+import type { CoordinatorEventOption } from "#/features/venue-requests/components/venue-hold-actions";
 import {
   compareTimestamps,
   timestampDay,
@@ -27,6 +35,31 @@ import { AvailabilitySelectionFormInput } from "#/features/venues/schema";
 import type { AvailabilitySearch } from "#/features/venues/schema";
 import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
 import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
+
+const OCCUPIED_STATES = {
+  confirmed: {
+    variant: "confirmed",
+    label: "Confirmed booking",
+    dotColor: "bg-harbor",
+  },
+  tentative_hold: {
+    variant: "progress",
+    label: "Tentative hold",
+    dotColor: "bg-amber",
+  },
+  blocked: {
+    variant: "stopped",
+    label: "Unavailable / blocked",
+    dotColor: "bg-coral",
+  },
+} as const satisfies Record<
+  "confirmed" | "blocked" | "tentative_hold",
+  {
+    variant: React.ComponentProps<typeof Badge>["variant"];
+    label: string;
+    dotColor: string;
+  }
+>;
 
 /**
  * The venue calendar (PTR-28): a venue and an inclusive date range in, its free, confirmed and
@@ -39,10 +72,14 @@ export function VenueCalendarPage({
   venues,
   schedule,
   search,
+  user,
+  coordinatorEvents,
 }: {
   venues: Venue[];
   schedule: VenueAvailability | null;
   search: AvailabilitySearch;
+  user?: SessionUser | null;
+  coordinatorEvents?: readonly CoordinatorEventOption[];
 }) {
   const navigate = useNavigate();
   const form = useForm({
@@ -78,7 +115,7 @@ export function VenueCalendarPage({
     search.startDate ? civilDate(search.startDate) : new Date()
   );
 
-  const occupiedDays = new Map<string, "confirmed" | "blocked">();
+  const occupiedDays = new Map<string, "confirmed" | "blocked" | "tentative_hold">();
   for (const period of schedule?.occupied ?? []) {
     for (
       let day = timestampDay(period.visibleStart);
@@ -88,6 +125,8 @@ export function VenueCalendarPage({
       if (!occupiedDays.has(day)) occupiedDays.set(day, period.state);
     }
   }
+
+  const canHold = user ? can(user.role, { venue_request: ["request"] }) : false;
 
   const periods = schedule
     ? [
@@ -100,10 +139,14 @@ export function VenueCalendarPage({
         })),
         ...schedule.occupied.map(period => ({
           key: `${period.state}:${period.id}`,
+          id: period.id,
           label: period.label,
           state: period.state,
           startsAt: period.visibleStart,
           endsAt: period.visibleEnd,
+          canManage: period.canManage,
+          canRelease: period.canRelease,
+          canConvert: period.canConvert,
         })),
       ].toSorted((left, right) => compareTimestamps(left.startsAt, right.startsAt))
     : [];
@@ -136,6 +179,9 @@ export function VenueCalendarPage({
                         confirmed: [...occupiedDays]
                           .filter(([, state]) => state === "confirmed")
                           .map(([day]) => civilDate(day)),
+                        tentative_hold: [...occupiedDays]
+                          .filter(([, state]) => state === "tentative_hold")
+                          .map(([day]) => civilDate(day)),
                       }}
                       onSelect={range => {
                         form.setFieldValue("startDate", range?.from ? civilDay(range.from) : "");
@@ -157,6 +203,10 @@ export function VenueCalendarPage({
                 <li className="flex items-center gap-2">
                   <span aria-hidden="true" className="size-2 rounded-full bg-harbor" />
                   Confirmed booking
+                </li>
+                <li className="flex items-center gap-2">
+                  <span aria-hidden="true" className="size-2 rounded-full bg-amber" />
+                  Tentative hold
                 </li>
                 <li className="flex items-center gap-2">
                   <span aria-hidden="true" className="size-2 rounded-full bg-coral" />
@@ -288,15 +338,25 @@ export function VenueCalendarPage({
         <section aria-label="Availability results" className="mt-8">
           <Card>
             <CardContent>
-              <div className="border-b border-border pb-5">
-                <h2 className="display-h2">{schedule.venue.name}</h2>
-                <p className="mt-2 body-sm text-muted-foreground">
-                  {dateLabel(schedule.startDate)}
-                  {schedule.endDate !== schedule.startDate && ` – ${dateLabel(schedule.endDate)}`}
-                </p>
-                <p className="mt-1 body-sm text-muted-foreground">
-                  Times shown in venue local time
-                </p>
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-5">
+                <div>
+                  <h2 className="display-h2">{schedule.venue.name}</h2>
+                  <p className="mt-2 body-sm text-muted-foreground">
+                    {dateLabel(schedule.startDate)}
+                    {schedule.endDate !== schedule.startDate && ` – ${dateLabel(schedule.endDate)}`}
+                  </p>
+                  <p className="mt-1 body-sm text-muted-foreground">
+                    Times shown in venue local time
+                  </p>
+                </div>
+                {canHold && (
+                  <PlaceVenueHoldDialog
+                    venueId={schedule.venue.id}
+                    venueName={schedule.venue.name}
+                    defaultDate={schedule.startDate}
+                    coordinatorEvents={coordinatorEvents}
+                  />
+                )}
               </div>
               {periods.length === 0 ? (
                 <p className="py-6 body-sm text-muted-foreground">
@@ -314,11 +374,33 @@ export function VenueCalendarPage({
                         </p>
                       </div>
                       {period.state !== "available" && (
-                        <Badge variant={period.state === "blocked" ? "stopped" : "confirmed"}>
-                          {period.state === "blocked"
-                            ? "Unavailable / blocked"
-                            : "Confirmed booking"}
+                        <Badge variant={OCCUPIED_STATES[period.state].variant}>
+                          {OCCUPIED_STATES[period.state].label}
                         </Badge>
+                      )}
+                      {period.state === "tentative_hold" &&
+                        period.id &&
+                        canHold &&
+                        period.canManage && (
+                          <div className="flex items-center gap-2">
+                            {period.canConvert && <ConvertVenueHoldButton holdId={period.id} />}
+                            {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
+                          </div>
+                        )}
+                      {period.state === "available" && canHold && (
+                        <PlaceVenueHoldDialog
+                          venueId={schedule.venue.id}
+                          venueName={schedule.venue.name}
+                          defaultDate={timestampDay(period.startsAt)}
+                          defaultStartTime={timestampTime(period.startsAt).slice(0, 5)}
+                          defaultEndTime={timestampTime(period.endsAt).slice(0, 5)}
+                          coordinatorEvents={coordinatorEvents}
+                          trigger={
+                            <Button size="sm" variant="ghost">
+                              Hold slot
+                            </Button>
+                          }
+                        />
                       )}
                     </li>
                   ))}
@@ -343,7 +425,13 @@ export function VenueCalendarPage({
  * a component defined during render is a new type on every pass, which React remounts.
  */
 function OccupiedDayButton(props: React.ComponentProps<typeof CalendarDayButton>) {
-  const dot = props.modifiers.blocked ? "bg-coral" : props.modifiers.confirmed ? "bg-harbor" : null;
+  const dot = props.modifiers.blocked
+    ? OCCUPIED_STATES.blocked.dotColor
+    : props.modifiers.tentative_hold
+      ? OCCUPIED_STATES.tentative_hold.dotColor
+      : props.modifiers.confirmed
+        ? OCCUPIED_STATES.confirmed.dotColor
+        : null;
   return (
     <CalendarDayButton {...props}>
       {props.children}

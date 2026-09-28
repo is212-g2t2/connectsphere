@@ -215,7 +215,7 @@ describe("pending booking request reader (PTR-32)", () => {
 
     const ours = requests.filter(request => request.id.startsWith("ptr32-"));
     expect(ours.map(request => request.id)).toEqual(pendingIds);
-    expect(ours.map(request => request.conflict)).toEqual([true, false, false, false]);
+    expect(ours.map(request => request.conflict)).toEqual(["booking", null, null, null]);
 
     // Identical `createdAt`, so only the ascending-id tie-break can order these two.
     const tied = ours.filter(
@@ -244,7 +244,7 @@ describe("pending booking request reader (PTR-32)", () => {
       venueName: VENUE_NAMES[0],
       startsAt: "2037-05-10T10:00",
       endsAt: "2037-05-10T11:00",
-      conflict: true,
+      conflict: "booking",
       requirements: {
         eventTiming: "10 May 2037, 09:00 – 12:00",
         expectedAttendance: null,
