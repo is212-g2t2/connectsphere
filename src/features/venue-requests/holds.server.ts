@@ -16,7 +16,13 @@ import {
   venueHoldConflictMessage,
   venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
-import { lockVenue } from "#/features/venue-requests/venue-lock.server";
+import { canReleaseHold } from "#/features/venue-requests/holds";
+import {
+  assertSameVenue,
+  lockVenue,
+  lockVenueForHold,
+} from "#/features/venue-requests/venue-lock.server";
+import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
@@ -29,7 +35,9 @@ const log = logger.getChild("venue-holds");
  * PTR-109: tentative venue holds at the handler boundary.
  *
  * AC1: Coordinator places a tentative hold naming venue and period -> recorded against event as "held".
- * AC2: Overlapping hold attempts refused (ConflictError 409) naming venue and period.
+ * AC2: Overlapping hold attempts refused (ConflictError 409) naming venue and period. The
+ * locked pre-check produces the named refusal; the exclusion-constraint backstop maps to the
+ * generic overlap sentence.
  * AC4: Hold refused when approved booking exists (ConflictError 409) naming venue and period.
  * AC7: Stores acting user ID (heldById) and timestamp.
  */
@@ -101,7 +109,7 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
 }
 
 async function releaseActiveHold(
-  tx: Parameters<Parameters<Database["transaction"]>[0]>[0],
+  tx: VenueTx,
   id: string,
   actorId: string,
   conflictMessage = "This hold has already been released."
@@ -109,15 +117,7 @@ async function releaseActiveHold(
   // The advisory lock must come first: a plain read of the venue, then the lock, then the row
   // lock. Taking the row lock before the advisory lock (as this used to) lets a convert and an
   // approval for the same venue grab them in opposite orders and deadlock (40P01).
-  const previewRows = await tx
-    .select({ venueId: venueHolds.venueId })
-    .from(venueHolds)
-    .where(eq(venueHolds.id, id))
-    .limit(1);
-  const preview = previewRows.at(0);
-  if (!preview) throw new NotFoundError("Not Found");
-
-  await lockVenue(tx, preview.venueId);
+  const lockedVenueId = await lockVenueForHold(tx, id);
 
   // Re-read under the venue lock, locking only the hold row: `of: venueHolds` leaves the joined
   // event_requests row unlocked, so a concurrent event writer cannot deadlock against us.
@@ -138,11 +138,11 @@ async function releaseActiveHold(
     .for("update", { of: venueHolds });
   const hold = rows.at(0);
   if (!hold) throw new NotFoundError("Not Found");
+  assertSameVenue(lockedVenueId, hold.venueId);
   // An orphaned hold (both actor columns null) has no owner left to release it, so anyone who can
   // reach the hold may. Conversion still runs the assignee+submitted gate below, so an orphan is
   // releasable but not convertible by a stranger.
-  const orphaned = hold.heldById === null && hold.assignedCoordinatorId === null;
-  if (!orphaned && hold.heldById !== actorId && hold.assignedCoordinatorId !== actorId) {
+  if (!canReleaseHold(hold, actorId)) {
     throw new AuthorizationError("Forbidden");
   }
   if (hold.status !== "held") {
@@ -203,10 +203,22 @@ export async function handleConvertVenueHold(
     );
 
     // Conversion creates a pending request, so it applies the same gate as raising one: the event
-    // must still be `submitted` and assigned to the caller. Throwing rolls the release back, so the
-    // hold stays `held` rather than leaking a freed slot for a request that was never made.
+    // must still be `submitted` and assigned to the caller. `loadAssignedEvent` re-checks that in
+    // this transaction, but a handover landing between the calendar read and here still shows a
+    // stale Convert; the gate refuses it and the release rolls back with the hold left `held`.
+    // Throwing rolls the release back, so the hold stays `held` rather than leaking a freed slot
+    // for a request that was never made.
     const assignedEvent = await loadAssignedEvent(tx, hold.eventId, actor.id, ["submitted"]);
     if (!assignedEvent) throw new AuthorizationError("Forbidden");
+
+    // Read before the insert like `handleCreateVenueHold` does; the FK guarantees the row exists.
+    const venueRows = await tx
+      .select({ id: venues.id, name: venues.name })
+      .from(venues)
+      .where(eq(venues.id, hold.venueId))
+      .limit(1);
+    const venue = venueRows.at(0);
+    if (!venue) throw new NotFoundError("Not Found");
 
     const [createdRequest] = await tx
       .insert(venueRequests)
@@ -221,13 +233,6 @@ export async function handleConvertVenueHold(
       })
       .returning()
       .catch(rethrowDuplicate);
-
-    const venueRows = await tx
-      .select({ id: venues.id, name: venues.name })
-      .from(venues)
-      .where(eq(venues.id, hold.venueId))
-      .limit(1);
-    const venue = venueRows.at(0);
 
     const eventRows = await tx
       .select({
@@ -257,7 +262,7 @@ export async function handleConvertVenueHold(
 
   if (result.recipientEmails.length === 0) {
     log.warn("No Venue Staff to notify of the venue request", { requestId: result.request.id });
-  } else if (result.venue) {
+  } else {
     await sendVenueRequestNotification(
       {
         venueName: result.venue.name,
@@ -270,11 +275,6 @@ export async function handleConvertVenueHold(
       },
       result.recipientEmails
     );
-  } else {
-    log.warn("Venue missing when notifying Venue Staff of converted hold", {
-      requestId: result.request.id,
-      venueId: result.request.venueId,
-    });
   }
 
   return {

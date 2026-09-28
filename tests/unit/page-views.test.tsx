@@ -128,6 +128,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Pending")).toBeTruthy();
     // PTR-36 criterion 4: no overlap, no conflict badge.
     expect(screen.queryByText("Conflicting booking")).toBeNull();
+    expect(screen.queryByText("Conflicting hold")).toBeNull();
   });
 
   it("flags a venue request that overlaps an approved booking (PTR-36 AC4)", () => {
@@ -143,7 +144,7 @@ describe("DashboardPage", () => {
               eventDate: "2026-10-01",
               startTime: "09:00",
               endTime: "17:00",
-              venueRequest: { status: "pending", conflict: true },
+              venueRequest: { status: "pending", conflict: "booking" },
             },
           },
         ]}

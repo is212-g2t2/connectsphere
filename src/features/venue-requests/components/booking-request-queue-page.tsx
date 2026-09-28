@@ -26,7 +26,7 @@ export function BookingRequestQueuePage({
       <PageHeader
         eyebrow="Venue operations"
         title="Pending booking requests"
-        description="Review every pending request, oldest first. Conflict flags identify periods that overlap an approved booking before you open the request."
+        description="Review every pending request, oldest first. Conflict flags identify periods that overlap an approved booking or an active hold before you open the request."
       />
       <BookingRequestQueue
         requests={requests}

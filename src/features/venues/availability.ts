@@ -104,7 +104,6 @@ export interface AvailabilityRecord extends AvailabilityPeriod {
   id: string;
   label: string;
   /** Whether the viewer may act on this record (PTR-109 hold release/convert). */
-  canManage?: boolean;
   canRelease?: boolean;
   canConvert?: boolean;
 }
@@ -117,7 +116,6 @@ export interface OccupiedPeriod extends AvailabilityPeriod {
   visibleStart: string;
   visibleEnd: string;
   /** Copied from the source record; absent for bookings and blocks. */
-  canManage?: boolean;
   canRelease?: boolean;
   canConvert?: boolean;
 }
@@ -181,7 +179,6 @@ export function projectAvailability(
       endsAt: record.endsAt,
       visibleStart: visible.startsAt,
       visibleEnd: visible.endsAt,
-      canManage: record.canManage,
       canRelease: record.canRelease,
       canConvert: record.canConvert,
     });

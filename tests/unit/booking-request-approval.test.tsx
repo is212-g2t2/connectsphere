@@ -144,7 +144,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     const dialog = screen.getByRole("alertdialog");
     expect(dialog.textContent).toContain("Orchid Room on 18 Nov 2030, 09:30 – 12:00");
     expect(dialog.textContent).toContain(
-      "Approving holds the venue for that period and notifies the requesting Coordinator."
+      "Approving books the venue for that period and notifies the requesting Coordinator."
     );
     expect(approveVenueRequest).not.toHaveBeenCalled();
 

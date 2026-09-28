@@ -15,7 +15,12 @@ import {
   venueHoldConflictMessage,
   venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
-import { lockVenue } from "#/features/venue-requests/venue-lock.server";
+import {
+  assertSameVenue,
+  lockVenue,
+  lockVenueForRequest,
+  previewVenueForRequest,
+} from "#/features/venue-requests/venue-lock.server";
 import { normalizeDatabaseTimestamp } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
@@ -191,26 +196,21 @@ export async function handleReleaseVenueBooking(
 ) {
   const input = parseVenueReleaseInput(data);
   const released = await database.transaction(async tx => {
-    const previewRows = await tx
-      .select({ venueId: venueRequests.venueId })
-      .from(venueRequests)
-      .where(eq(venueRequests.id, input.id))
-      .limit(1);
-    const preview = previewRows.at(0);
-    if (!preview) throw new NotFoundError("Not Found");
-
-    await lockVenue(tx, preview.venueId);
+    const lockedVenueId = await lockVenueForRequest(tx, input.id);
 
     const rows = await tx
       .select({
         status: venueRequests.status,
         assignedStaffId: venueRequests.assignedStaffId,
+        venueId: venueRequests.venueId,
       })
       .from(venueRequests)
       .where(eq(venueRequests.id, input.id))
       .limit(1)
       .for("update");
-    assertActionableApprovedBooking(rows.at(0), actor);
+    const row = rows.at(0);
+    assertActionableApprovedBooking(row, actor);
+    assertSameVenue(lockedVenueId, row.venueId);
 
     const [updated] = await tx
       .update(venueRequests)
@@ -245,15 +245,7 @@ export async function handleAmendVenueBooking(
 
   const amended = await database
     .transaction(async tx => {
-      const previewRows = await tx
-        .select({
-          venueId: venueRequests.venueId,
-        })
-        .from(venueRequests)
-        .where(eq(venueRequests.id, input.id))
-        .limit(1);
-      const preview = previewRows.at(0);
-      if (!preview) throw new NotFoundError("Not Found");
+      const currentVenueId = await previewVenueForRequest(tx, input.id);
 
       const venueRows = await tx
         .select({ name: venues.name })
@@ -263,7 +255,9 @@ export async function handleAmendVenueBooking(
       const venue = venueRows.at(0);
       if (!venue) throw new NotFoundError("Not Found");
 
-      const venueIds = [...new Set([preview.venueId, input.venueId])].toSorted((a, b) => a - b);
+      // The preview took no lock, so the sorted pair below is the only lock order; two
+      // crossed amendments queue the same way instead of deadlocking on each other's second lock.
+      const venueIds = [...new Set([currentVenueId, input.venueId])].toSorted((a, b) => a - b);
       for (const venueId of venueIds) {
         // oxlint-disable-next-line eslint/no-await-in-loop -- every transaction takes locks in this order
         await lockVenue(tx, venueId);
@@ -285,6 +279,7 @@ export async function handleAmendVenueBooking(
         .for("update", { of: venueRequests });
       const row = rows.at(0);
       assertActionableApprovedBooking(row, actor);
+      assertSameVenue(currentVenueId, row.venueId);
 
       const conflict = (await loadVenueBookings(tx, [input.venueId], startsAt, endsAt)).find(
         booking => booking.id !== input.id

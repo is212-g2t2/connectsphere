@@ -11,6 +11,7 @@ import {
   handleCreateVenueHold,
   handleReleaseVenueHold,
 } from "#/features/venue-requests/holds.server";
+import { handleAmendVenueBooking } from "#/features/venue-requests/bookings.server";
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
@@ -18,6 +19,8 @@ import {
   handleListPendingVenueRequests,
 } from "#/features/venue-requests/requests.server";
 import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venues/records.server";
+import { handleListEvents } from "#/features/events/records.server";
+import { VENUE_REQUEST_DUPLICATE_MESSAGE } from "#/features/venue-requests/schema";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
 /**
@@ -77,6 +80,7 @@ const users = {
 } satisfies Record<string, typeof schema.user.$inferInsert>;
 
 const VENUE_NAME = "PTR-109 Auditorium";
+const VENUE_NAME_B = "PTR-109 Annex";
 const userIds = Object.values(users).map(user => user.id);
 
 function session(user: (typeof users)[keyof typeof users]): SessionUser {
@@ -109,6 +113,7 @@ describe("tentative venue holds (PTR-109)", () => {
       .delete(schema.eventRequests)
       .where(inArray(schema.eventRequests.organiserId, [users.organiser.id]));
     await database.delete(schema.venues).where(eq(schema.venues.name, VENUE_NAME));
+    await database.delete(schema.venues).where(eq(schema.venues.name, VENUE_NAME_B));
     await database.delete(schema.user).where(inArray(schema.user.id, userIds));
     await pool.end();
   });
@@ -123,6 +128,7 @@ describe("tentative venue holds (PTR-109)", () => {
       .delete(schema.eventRequests)
       .where(inArray(schema.eventRequests.organiserId, [users.organiser.id]));
     await database.delete(schema.venues).where(eq(schema.venues.name, VENUE_NAME));
+    await database.delete(schema.venues).where(eq(schema.venues.name, VENUE_NAME_B));
 
     const [insertedVenue] = await database
       .insert(schema.venues)
@@ -447,6 +453,65 @@ describe("tentative venue holds (PTR-109)", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Amendment onto an active hold — the booking writer's half of the guarantee
+  // ---------------------------------------------------------------------------
+  describe("amending a booking onto an active hold", () => {
+    it("refuses the amendment, naming the held venue and period, and keeps the booking", async () => {
+      const request = await handleCreateVenueRequest(
+        { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+      await handleApproveVenueRequest(
+        { id: request.id },
+        session(users.venueStaff),
+        database as never
+      );
+      await handleCreateVenueHold(
+        { ...HOLD_WINDOW, startTime: "13:00", endTime: "15:00", eventId: eventIdB, venueId },
+        session(users.coordinatorB),
+        database as never
+      );
+
+      const promise = handleAmendVenueBooking(
+        {
+          id: request.id,
+          venueId,
+          date: HOLD_WINDOW.date,
+          startTime: "13:00",
+          endTime: "15:00",
+        },
+        session(users.venueStaff),
+        database as never
+      );
+
+      await expect(promise).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: expect.stringContaining(VENUE_NAME),
+      });
+      await expect(promise).rejects.toSatisfy((err: Error) => {
+        return (
+          err.message.includes(VENUE_NAME) &&
+          err.message.includes("13:00") &&
+          err.message.includes("15:00")
+        );
+      });
+
+      const [row] = await database
+        .select()
+        .from(schema.venueRequests)
+        .where(eq(schema.venueRequests.id, request.id));
+      expect(row).toMatchObject({
+        status: "approved",
+        venueId,
+        startsAt: `${HOLD_WINDOW.date} 09:00:00`,
+        endsAt: `${HOLD_WINDOW.date} 12:00:00`,
+      });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // AC5 — releasing a tentative hold
   // ---------------------------------------------------------------------------
   describe("releasing a tentative hold (AC5)", () => {
@@ -505,6 +570,34 @@ describe("tentative venue holds (PTR-109)", () => {
         .from(schema.venueHolds)
         .where(eq(schema.venueHolds.id, hold.id));
       expect(persisted.releasedById).toBe(users.coordinatorB.id);
+    });
+
+    it("lets the original holder release after the event is reassigned", async () => {
+      const hold = await handleCreateVenueHold(
+        { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+
+      // Reassign event to Coordinator B: the creator is no longer the assignee, but release
+      // authorizes on the hold's holder as well as the current assignee.
+      await database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: users.coordinatorB.id })
+        .where(eq(schema.eventRequests.id, eventIdA));
+
+      const released = await handleReleaseVenueHold(
+        { id: hold.id },
+        session(users.coordinatorA),
+        database as never
+      );
+      expect(released.status).toBe("released");
+
+      const [persisted] = await database
+        .select()
+        .from(schema.venueHolds)
+        .where(eq(schema.venueHolds.id, hold.id));
+      expect(persisted.releasedById).toBe(users.coordinatorA.id);
     });
 
     it("refuses release by a Coordinator who is neither creator nor assigned to event (TC15)", async () => {
@@ -705,6 +798,43 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(persisted.status).toBe("held");
     });
 
+    it("refuses conversion when the event+venue already has a pending request, leaving the hold held and releasable", async () => {
+      // The pending request comes first: hold creation never checks pending rows, so the hold
+      // still lands and the duplicate surfaces only at conversion.
+      await handleCreateVenueRequest(
+        { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+      const hold = await handleCreateVenueHold(
+        { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+
+      await expect(
+        handleConvertVenueHold({ id: hold.id }, session(users.coordinatorA), database as never)
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DUPLICATE_MESSAGE,
+      });
+
+      // The refusal rolled the release back: the hold stays held and can still be released.
+      const [persisted] = await database
+        .select()
+        .from(schema.venueHolds)
+        .where(eq(schema.venueHolds.id, hold.id));
+      expect(persisted.status).toBe("held");
+
+      const released = await handleReleaseVenueHold(
+        { id: hold.id },
+        session(users.coordinatorA),
+        database as never
+      );
+      expect(released.status).toBe("released");
+    });
+
     it("refuses converting an already released or converted hold (TC20)", async () => {
       const hold = await handleCreateVenueHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
@@ -770,11 +900,12 @@ describe("tentative venue holds (PTR-109)", () => {
         users.coordinatorA.id,
         database as never
       );
+      if (!availability) throw new Error("expected venue availability after hold release");
 
-      const holdEntries = availability?.occupied?.filter(
+      const holdEntries = availability.occupied.filter(
         (entry: { state: string }) => entry.state === "tentative_hold"
       );
-      expect(holdEntries ?? []).toHaveLength(0);
+      expect(holdEntries).toHaveLength(0);
     });
 
     it("shows venue as tentatively held in venue search / suitability check (TC22)", async () => {
@@ -861,6 +992,54 @@ describe("tentative venue holds (PTR-109)", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Coordinator event card and convert suppression
+  // ---------------------------------------------------------------------------
+  describe("coordinator event card and convert suppression", () => {
+    it("flags the Coordinator's pending request as conflicting when it overlaps an active hold", async () => {
+      await handleCreateVenueHold(
+        { ...HOLD_WINDOW, eventId: eventIdB, venueId },
+        session(users.coordinatorB),
+        database as never
+      );
+      await handleCreateVenueRequest(
+        { ...HOLD_WINDOW, startTime: "10:00", endTime: "14:00", eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+
+      const [projection] = await handleListEvents(
+        { eventId: eventIdA },
+        session(users.coordinatorA),
+        database as never
+      );
+      expect(projection.event.venueRequest).toEqual({ status: "pending", conflict: "hold" });
+    });
+
+    it("suppresses canConvert once the event+venue already has a pending request", async () => {
+      const hold = await handleCreateVenueHold(
+        { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+      await handleCreateVenueRequest(
+        { ...HOLD_WINDOW, startTime: "14:00", endTime: "16:00", eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+
+      const availability = await handleGetVenueAvailability(
+        { venueId, startDate: HOLD_WINDOW.date, endDate: HOLD_WINDOW.date },
+        users.coordinatorA.id,
+        database as never
+      );
+      const entry = availability?.occupied.find(period => period.id === hold.id);
+      // Release stays offered, but Convert would land straight in the pending-request refusal.
+      expect(entry?.canRelease).toBe(true);
+      expect(entry?.canConvert).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Conflict-kind projection (PTR-32) — hold vs booking vs clear
   // ---------------------------------------------------------------------------
   describe("pending-request conflict kinds", () => {
@@ -914,6 +1093,45 @@ describe("tentative venue holds (PTR-109)", () => {
   // Concurrent hold write vs approval — the advisory-lock guarantee
   // ---------------------------------------------------------------------------
   describe("concurrent hold write and approval", () => {
+    /**
+     * Genuine-concurrency barrier: a session-level advisory lock on the venue is held while both
+     * writers start, so neither can finish before the other begins. Both block on the venue lock
+     * inside their transactions; releasing the gate lets them contend for real. Without this, one
+     * writer could commit before the other starts and the "race" would prove nothing. Callers
+     * assert the post-race invariant, never which writer won.
+     */
+    async function raceForVenue<A, B>(
+      contenderA: () => Promise<A>,
+      contenderB: () => Promise<B>
+    ): Promise<[PromiseSettledResult<A>, PromiseSettledResult<B>]> {
+      const gate = new Pool({ connectionString: process.env.DATABASE_URL });
+      const gateClient = await gate.connect();
+      try {
+        await gateClient.query("SELECT pg_advisory_lock($1::integer)", [venueId]);
+        const pending = Promise.allSettled([contenderA(), contenderB()]);
+        try {
+          await vi.waitFor(
+            async () => {
+              // This venue's key only: writers take single-bigint xact locks (classid 0, objid
+              // the venue id, objsubid 1 — verified against pg_locks), so other suites' venues
+              // sharing the cluster never satisfy the barrier early.
+              const waiting = await database.execute<{ count: string }>(
+                sql`SELECT count(*)::text AS count FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND classid = 0 AND objid = ${venueId} AND objsubid = 1`
+              );
+              expect(Number(waiting.rows[0].count)).toBeGreaterThanOrEqual(2);
+            },
+            { timeout: 10_000, interval: 25 }
+          );
+        } finally {
+          await gateClient.query("SELECT pg_advisory_unlock($1::integer)", [venueId]);
+        }
+        return pending;
+      } finally {
+        gateClient.release();
+        await gate.end();
+      }
+    }
+
     it("never leaves a held hold and an approved booking for the same venue and period", async () => {
       const request = await handleCreateVenueRequest(
         { ...HOLD_WINDOW, eventId: eventIdB, venueId },
@@ -921,14 +1139,20 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      const results = await Promise.allSettled([
-        handleCreateVenueHold(
-          { ...HOLD_WINDOW, eventId: eventIdA, venueId },
-          session(users.coordinatorA),
-          database as never
-        ),
-        handleApproveVenueRequest({ id: request.id }, session(users.venueStaff), database as never),
-      ]);
+      const results = await raceForVenue(
+        () =>
+          handleCreateVenueHold(
+            { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+            session(users.coordinatorA),
+            database as never
+          ),
+        () =>
+          handleApproveVenueRequest(
+            { id: request.id },
+            session(users.venueStaff),
+            database as never
+          )
+      );
 
       // The advisory lock serialises the two writers: one wins, the other is refused.
       const fulfilled = results.filter(result => result.status === "fulfilled");
@@ -962,6 +1186,182 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(held && approved).toBe(false);
       // And exactly one of the two writes survived.
       expect(held !== approved).toBe(true);
+    });
+
+    it("never leaves a held hold and an approved booking when converting races an approval", async () => {
+      const hold = await handleCreateVenueHold(
+        { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+      const request = await handleCreateVenueRequest(
+        { ...HOLD_WINDOW, eventId: eventIdB, venueId },
+        session(users.coordinatorB),
+        database as never
+      );
+
+      const [convertOutcome, approveOutcome] = await raceForVenue(
+        () =>
+          handleConvertVenueHold({ id: hold.id }, session(users.coordinatorA), database as never),
+        () =>
+          handleApproveVenueRequest(
+            { id: request.id },
+            session(users.venueStaff),
+            database as never
+          )
+      );
+
+      // The convert only needs its own hold, so it always lands; the approval lands only when its
+      // pre-check runs after the release. Either order is valid — pending requests stack — but a
+      // held hold and an approved booking must never coexist for the slot.
+      expect(convertOutcome.status).toBe("fulfilled");
+      // The approval either lands (its pre-check ran after the release) or is refused as
+      // conflicting (it ran before); both are valid, so only a non-conflict outcome fails.
+      const approveError = approveOutcome.status === "rejected" ? approveOutcome.reason : null;
+      expect(
+        approveError === null ||
+          (approveError instanceof Error &&
+            approveError.name === "ConflictError" &&
+            (approveError as { status?: number }).status === 409)
+      ).toBe(true);
+
+      const windowStart = `${HOLD_WINDOW.date} ${HOLD_WINDOW.startTime}:00`;
+      const windowEnd = `${HOLD_WINDOW.date} ${HOLD_WINDOW.endTime}:00`;
+      const [heldRows, approvedRows] = await Promise.all([
+        database
+          .select({ startsAt: schema.venueHolds.startsAt, endsAt: schema.venueHolds.endsAt })
+          .from(schema.venueHolds)
+          .where(and(eq(schema.venueHolds.venueId, venueId), eq(schema.venueHolds.status, "held"))),
+        database
+          .select({ startsAt: schema.venueRequests.startsAt, endsAt: schema.venueRequests.endsAt })
+          .from(schema.venueRequests)
+          .where(
+            and(
+              eq(schema.venueRequests.venueId, venueId),
+              eq(schema.venueRequests.status, "approved")
+            )
+          ),
+      ]);
+      const overlaps = (row: { startsAt: string; endsAt: string }) =>
+        row.startsAt < windowEnd && row.endsAt > windowStart;
+      expect(heldRows.some(overlaps) && approvedRows.some(overlaps)).toBe(false);
+    });
+
+    it("races two opposite-direction amendments without deadlocking (40P01)", async () => {
+      // A second venue, created after the suite venue so its id sorts after it: both amendments
+      // lock the pair in the same sorted order and queue instead of deadlocking.
+      const [venueB] = await database
+        .insert(schema.venues)
+        .values({
+          name: VENUE_NAME_B,
+          location: "PTR-109 Annex Wing",
+          maxCapacity: 150,
+          operatingHours: DEFAULT_OPERATING_HOURS,
+        })
+        .returning({ id: schema.venues.id });
+      const venueIdB = venueB.id;
+
+      // Disjoint windows, so either amendment's target pre-check passes whichever order wins: both
+      // succeed and the bookings swap venues.
+      const requestA = await handleCreateVenueRequest(
+        { ...HOLD_WINDOW, startTime: "09:00", endTime: "10:00", eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+      await handleApproveVenueRequest(
+        { id: requestA.id },
+        session(users.venueStaff),
+        database as never
+      );
+      const requestB = await handleCreateVenueRequest(
+        {
+          ...HOLD_WINDOW,
+          startTime: "14:00",
+          endTime: "15:00",
+          eventId: eventIdB,
+          venueId: venueIdB,
+        },
+        session(users.coordinatorB),
+        database as never
+      );
+      await handleApproveVenueRequest(
+        { id: requestB.id },
+        session(users.venueStaff),
+        database as never
+      );
+
+      const results = await raceForVenue(
+        () =>
+          handleAmendVenueBooking(
+            {
+              id: requestA.id,
+              venueId: venueIdB,
+              date: HOLD_WINDOW.date,
+              startTime: "09:00",
+              endTime: "10:00",
+            },
+            session(users.venueStaff),
+            database as never
+          ),
+        () =>
+          handleAmendVenueBooking(
+            {
+              id: requestB.id,
+              venueId,
+              date: HOLD_WINDOW.date,
+              startTime: "14:00",
+              endTime: "15:00",
+            },
+            session(users.venueStaff),
+            database as never
+          )
+      );
+
+      // Either both succeed or the loser carries a mapped refusal: a deadlock (40P01) or an
+      // unmapped 500 fails here.
+      for (const result of results) {
+        if (result.status === "fulfilled") continue;
+        const reason = result.reason as Error & { status?: number; cause?: { code?: string } };
+        expect([409, 403, 404]).toContain(reason?.status);
+        expect(reason?.cause?.code).not.toBe("40P01");
+        expect(reason?.message ?? "").not.toMatch(/40P01|deadlock/i);
+      }
+      expect(results.some(result => result.status === "fulfilled")).toBe(true);
+
+      const [bookingA] = await database
+        .select()
+        .from(schema.venueRequests)
+        .where(eq(schema.venueRequests.id, requestA.id));
+      const [bookingB] = await database
+        .select()
+        .from(schema.venueRequests)
+        .where(eq(schema.venueRequests.id, requestB.id));
+      for (const booking of [bookingA, bookingB]) {
+        expect(booking.status).toBe("approved");
+        expect([venueId, venueIdB]).toContain(booking.venueId);
+      }
+      // One venue ends with each booking's own disjoint window: swap or no-op, never stacked.
+      const approved = await database
+        .select({
+          venueId: schema.venueRequests.venueId,
+          startsAt: schema.venueRequests.startsAt,
+          endsAt: schema.venueRequests.endsAt,
+        })
+        .from(schema.venueRequests)
+        .where(
+          and(
+            inArray(schema.venueRequests.venueId, [venueId, venueIdB]),
+            eq(schema.venueRequests.status, "approved")
+          )
+        );
+      for (let i = 0; i < approved.length; i++) {
+        for (let j = i + 1; j < approved.length; j++) {
+          const a = approved[i];
+          const b = approved[j];
+          const stacked = a.venueId === b.venueId && a.startsAt < b.endsAt && b.startsAt < a.endsAt;
+          expect(stacked).toBe(false);
+        }
+      }
     });
   });
 

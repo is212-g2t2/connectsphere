@@ -139,7 +139,7 @@ export interface VenueRequestRelease {
  */
 export interface EventVenueRequest {
   status: string;
-  conflict?: boolean;
+  conflict?: "booking" | "hold";
   rejection?: VenueRequestRejection;
   release?: VenueRequestRelease;
 }

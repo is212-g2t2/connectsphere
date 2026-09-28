@@ -103,7 +103,7 @@ export function ApproveBookingButton({
             <AlertDialogDescription>
               This approves the booking for {request.venueName} on{" "}
               {formatProposedWindow({ start: request.startsAt, end: request.endsAt })}. Approving
-              holds the venue for that period and notifies the requesting Coordinator.
+              books the venue for that period and notifies the requesting Coordinator.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

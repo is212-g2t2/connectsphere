@@ -478,7 +478,7 @@ describe("event list handler (PTR-8)", () => {
         session("venueStaff"),
         database as never
       );
-      expect(flagged.event.venueRequest).toEqual({ status: "pending", conflict: true });
+      expect(flagged.event.venueRequest).toEqual({ status: "pending", conflict: "booking" });
 
       const [clear] = await handleListEvents(
         { eventId: fixtures.review.id },

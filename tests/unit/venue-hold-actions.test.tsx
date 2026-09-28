@@ -102,7 +102,6 @@ const scheduleWithHold: VenueAvailability = {
       endsAt: "2026-10-05T15:00:00",
       visibleStart: "2026-10-05T13:00:00",
       visibleEnd: "2026-10-05T15:00:00",
-      canManage: true,
       canRelease: true,
       canConvert: true,
     },
@@ -115,7 +114,6 @@ const scheduleWithUnownedHold: VenueAvailability = {
   occupied: [
     {
       ...scheduleWithHold.occupied[0],
-      canManage: false,
       canRelease: false,
       canConvert: false,
     },
@@ -176,7 +174,7 @@ describe("venue hold action components and calendar write-path", () => {
       expect(trigger).toBeTruthy();
       await user.click(trigger);
 
-      const confirmBtn = await screen.findByRole("button", { name: "Confirm convert" });
+      const confirmBtn = await screen.findByRole("button", { name: "Confirm conversion" });
       await user.click(confirmBtn);
 
       await waitFor(() => {
@@ -193,7 +191,7 @@ describe("venue hold action components and calendar write-path", () => {
       await user.click(
         screen.getByRole("button", { name: "Convert tentative hold to booking request" })
       );
-      await user.click(await screen.findByRole("button", { name: "Confirm convert" }));
+      await user.click(await screen.findByRole("button", { name: "Confirm conversion" }));
 
       await waitFor(() => {
         expect(screen.getByRole("alert").textContent).toContain("already been converted");
@@ -365,7 +363,6 @@ describe("venue hold action components and calendar write-path", () => {
         occupied: [
           {
             ...scheduleWithHold.occupied[0],
-            canManage: true,
             canRelease: true,
             canConvert: false,
           },
@@ -393,7 +390,6 @@ describe("venue hold action components and calendar write-path", () => {
         occupied: [
           {
             ...scheduleWithHold.occupied[0],
-            canManage: true,
             canRelease: true,
             canConvert: false,
           },

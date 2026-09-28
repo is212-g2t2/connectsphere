@@ -6,17 +6,14 @@ import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import { eventTiming } from "#/features/events/access";
 import { loadAssignedEvent } from "#/features/events/records.server";
+import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
 import {
   nextCivilDate,
   normalizeDatabaseTimestamp,
   openingPeriods,
   projectAvailability,
 } from "#/features/venues/availability";
-import type {
-  AvailabilityProjection,
-  AvailabilityRecord,
-  OccupiedPeriod,
-} from "#/features/venues/availability";
+import type { AvailabilityRecord, OccupiedPeriod } from "#/features/venues/availability";
 import {
   DUPLICATE_NAME_MESSAGE,
   LAYOUT_LABELS,
@@ -141,7 +138,7 @@ function availabilityFailure(
   filters: VenueSearch,
   blocks: readonly AvailabilityRecord[],
   bookings: readonly AvailabilityRecord[],
-  holds: readonly AvailabilityRecord[] = []
+  holds: readonly AvailabilityRecord[]
 ): SuitabilityFailure | null {
   if (!filters.date) return null;
 
@@ -389,6 +386,7 @@ export const loadVenueBookings: VenueBookingLoader = async (
 
 export type VenueHold = AvailabilityRecord & {
   venueId: number;
+  eventId: number;
   heldById: string | null;
   assignedCoordinatorId: string | null;
   eventStatus: string;
@@ -398,7 +396,7 @@ export type VenueHold = AvailabilityRecord & {
  * PTR-109: the active tentative holds overlapping a range, per venue.
  * Calendar and search project holds so internal users see held slots as occupied. The event join
  * carries the two ids ownership is decided from; the projection never returns them, only the
- * derived `canManage`.
+ * derived `canRelease`/`canConvert` booleans.
  */
 export async function loadVenueHolds(
   database: Pick<Database, "select">,
@@ -412,6 +410,7 @@ export async function loadVenueHolds(
     .select({
       id: venueHolds.id,
       venueId: venueHolds.venueId,
+      eventId: venueHolds.eventId,
       startsAt: venueHolds.startsAt,
       endsAt: venueHolds.endsAt,
       heldById: venueHolds.heldById,
@@ -433,6 +432,7 @@ export async function loadVenueHolds(
   return rows.map(row => ({
     id: row.id,
     venueId: row.venueId,
+    eventId: row.eventId,
     startsAt: normalizeDatabaseTimestamp(row.startsAt),
     endsAt: normalizeDatabaseTimestamp(row.endsAt),
     label: "tentative hold",
@@ -533,17 +533,11 @@ export async function handleGetVenue(data: unknown, database: Database): Promise
  * floating venue-local timestamps. PTR-36 filled the booking seam, so an approved booking now
  * renders as a "confirmed" period. PTR-109 includes active tentative holds.
  */
-export type VenueSchedule = {
-  venue: { id: number; name: string };
-  startDate: string;
-  endDate: string;
-} & AvailabilityProjection;
-
 export async function handleGetVenueAvailability(
   data: unknown,
   viewerId: string,
   database: Database
-): Promise<VenueSchedule | null> {
+) {
   const selection = parseAvailabilityRequest(data);
 
   const venueRows = await database
@@ -560,31 +554,34 @@ export async function handleGetVenueAvailability(
   const endsAt = `${nextCivilDate(selection.endDate)}T00:00:00`;
   const databaseStartsAt = startsAt.replace("T", " ");
   const databaseEndsAt = endsAt.replace("T", " ");
-  const [blocks, bookings, holds] = await Promise.all([
+  const [blocks, bookings, holds, pendingEventIds] = await Promise.all([
     loadVenueBlocks(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueBookings(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueHolds(database, [venue.id], databaseStartsAt, databaseEndsAt),
+    // Converting a hold creates the event+venue pending request, so a hold whose event already
+    // has one would convert straight into the unique-index refusal; offer release only.
+    database
+      .select({ eventId: venueRequests.eventId })
+      .from(venueRequests)
+      .where(and(eq(venueRequests.venueId, venue.id), eq(venueRequests.status, "pending")))
+      .then(rows => new Set(rows.map(row => row.eventId))),
   ]);
 
   // Ownership decides whether the calendar offers Release or Convert. The ids stay server-side;
   // only the booleans cross into the projection, so a Venue Staff viewer never learns who else's
   // hold it is. An orphan hold (both creator and assignee are gone) is releasable by coordinators
   // to recover the slot, but not convertible. Convert also requires the event to be in submitted status.
+  // Copy-on-write on purpose: the rows are the loader's, and mutating them would leak the
+  // viewer's flags into other callers' reads.
+  // oxlint-disable-next-line oxc/no-map-spread
   const manageableHolds = holds.map(hold => {
-    const isOrphan = hold.heldById === null && hold.assignedCoordinatorId === null;
-    const canRelease =
-      (viewerId !== "" &&
-        (hold.heldById === viewerId || hold.assignedCoordinatorId === viewerId)) ||
-      isOrphan;
-    const canConvert =
-      viewerId !== "" &&
-      hold.assignedCoordinatorId === viewerId &&
-      hold.eventStatus === "submitted";
-    return Object.assign(hold, {
+    const canRelease = canReleaseHold(hold, viewerId);
+    const canConvert = canConvertHold(hold, viewerId) && !pendingEventIds.has(hold.eventId);
+    return {
+      ...hold,
       canRelease,
       canConvert,
-      canManage: canRelease || canConvert,
-    });
+    };
   });
 
   return {

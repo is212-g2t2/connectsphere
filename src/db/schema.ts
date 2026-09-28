@@ -486,7 +486,7 @@ export const venueHolds = pgTable(
   table => [
     check("venue_holds_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
     index("venue_holds_event_id_idx").on(table.eventId),
-    index("venue_holds_venue_id_idx").on(table.venueId),
+    index("venue_holds_venue_id_starts_at_idx").on(table.venueId, table.startsAt),
     index("venue_holds_held_by_id_idx").on(table.heldById),
     index("venue_holds_released_by_id_idx").on(table.releasedById),
   ]

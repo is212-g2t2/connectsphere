@@ -49,98 +49,92 @@ export interface CoordinatorEventOption {
  * PTR-109: Coordinator releases an active tentative hold.
  */
 export function ReleaseVenueHoldButton({ holdId }: { holdId: string }) {
-  const router = useRouter();
-  const [state, release, releasing] = useMutation(async () => {
-    try {
-      await releaseVenueHold({ data: { id: holdId } });
-    } catch (error) {
-      await router.invalidate();
-      throw error;
-    }
-    toast.success("Tentative hold released.");
-    await router.invalidate();
-  }, "Could not release this hold. Try again.");
-
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger
-        render={
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={releasing}
-            aria-label="Release tentative hold"
-          />
-        }
-      >
-        {releasing ? "Releasing…" : "Release hold"}
-      </AlertDialogTrigger>
-      <AlertDialogContent size="sm">
-        <AlertDialogHeader>
-          <AlertDialogTitle>Release tentative hold</AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to release this tentative hold? The reserved period will become
-            available for other events.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
-          <AlertDialogAction size="sm" disabled={releasing} onClick={() => void release()}>
-            {releasing ? "Releasing…" : "Confirm release"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-        {state.status === "error" && (
-          <p role="alert" className="body-sm text-destructive">
-            {state.error}
-          </p>
-        )}
-      </AlertDialogContent>
-    </AlertDialog>
-  );
+  return <ConfirmHoldAction holdId={holdId} kind="release" />;
 }
 
 /**
  * PTR-109: Coordinator converts an active tentative hold to a booking request.
  */
 export function ConvertVenueHoldButton({ holdId }: { holdId: string }) {
+  return <ConfirmHoldAction holdId={holdId} kind="convert" />;
+}
+
+type HoldActionKind = "release" | "convert";
+
+const HOLD_ACTIONS: Record<
+  HoldActionKind,
+  {
+    title: string;
+    description: string;
+    triggerLabel: string;
+    pendingLabel: string;
+    confirmLabel: string;
+    ariaLabel: string;
+    variant: "outline" | "default";
+    successMessage: string;
+    errorMessage: string;
+    run: (holdId: string) => Promise<unknown>;
+  }
+> = {
+  release: {
+    title: "Release tentative hold",
+    description: "This releases the tentative hold. The period becomes available for other events.",
+    triggerLabel: "Release hold",
+    pendingLabel: "Releasing…",
+    confirmLabel: "Confirm release",
+    ariaLabel: "Release tentative hold",
+    variant: "outline",
+    successMessage: "Tentative hold released.",
+    errorMessage: "Could not release this hold. Try again.",
+    run: holdId => releaseVenueHold({ data: { id: holdId } }),
+  },
+  convert: {
+    title: "Convert hold to booking request",
+    description:
+      "This will convert the tentative hold into a pending booking request and notify Venue Staff for approval.",
+    triggerLabel: "Convert to request",
+    pendingLabel: "Converting…",
+    confirmLabel: "Confirm conversion",
+    ariaLabel: "Convert tentative hold to booking request",
+    variant: "default",
+    successMessage: "Hold converted to booking request.",
+    errorMessage: "Could not convert this hold. Try again.",
+    run: holdId => convertVenueHold({ data: { id: holdId } }),
+  },
+};
+
+function ConfirmHoldAction({ holdId, kind }: { holdId: string; kind: HoldActionKind }) {
+  const copy = HOLD_ACTIONS[kind];
   const router = useRouter();
-  const [state, convert, converting] = useMutation(async () => {
+  const [state, run, pending] = useMutation(async () => {
     try {
-      await convertVenueHold({ data: { id: holdId } });
+      await copy.run(holdId);
     } catch (error) {
       await router.invalidate();
       throw error;
     }
-    toast.success("Hold converted to booking request.");
+    toast.success(copy.successMessage);
     await router.invalidate();
-  }, "Could not convert this hold. Try again.");
+  }, copy.errorMessage);
 
   return (
     <AlertDialog>
       <AlertDialogTrigger
         render={
-          <Button
-            size="sm"
-            variant="default"
-            disabled={converting}
-            aria-label="Convert tentative hold to booking request"
-          />
+          <Button size="sm" variant={copy.variant} disabled={pending} aria-label={copy.ariaLabel} />
         }
       >
-        {converting ? "Converting…" : "Convert to request"}
+        {pending ? copy.pendingLabel : copy.triggerLabel}
       </AlertDialogTrigger>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
-          <AlertDialogTitle>Convert hold to booking request</AlertDialogTitle>
-          <AlertDialogDescription>
-            This will convert the tentative hold into a pending booking request and notify Venue
-            Staff for approval.
-          </AlertDialogDescription>
+          <AlertDialogTitle>{copy.title}</AlertDialogTitle>
+          <AlertDialogDescription>{copy.description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
-          <AlertDialogAction size="sm" disabled={converting} onClick={() => void convert()}>
-            {converting ? "Converting…" : "Confirm convert"}
+          <AlertDialogAction size="sm" disabled={pending} onClick={() => void run()}>
+            {pending ? copy.pendingLabel : copy.confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
         {state.status === "error" && (
@@ -154,6 +148,20 @@ export function ConvertVenueHoldButton({ holdId }: { holdId: string }) {
 }
 
 const EMPTY_COORDINATOR_EVENTS: readonly CoordinatorEventOption[] = [];
+
+/** The event select holds its id as text; the schema (and the server) wants numbers. */
+function toHoldInput(
+  venueId: number,
+  value: { eventId: string; date: string; startTime: string; endTime: string }
+) {
+  return {
+    eventId: Number(value.eventId),
+    venueId,
+    date: value.date,
+    startTime: value.startTime,
+    endTime: value.endTime,
+  };
+}
 
 /**
  * PTR-109: Coordinator places a tentative hold naming venue, event, date and period.
@@ -188,32 +196,23 @@ export function PlaceVenueHoldDialog({
       startTime: defaultStartTime,
       endTime: defaultEndTime,
     },
-    onSubmit: async ({ value, formApi }) => {
-      const parsed = VenueRequestInput.safeParse({
-        eventId: Number(value.eventId),
-        venueId,
-        date: value.date,
-        startTime: value.startTime,
-        endTime: value.endTime,
-      });
-
-      if (!parsed.success) {
-        const fields: Record<string, string> = {};
+    // `VenueRequestInput` is the same gate the server uses, so the date and the times are
+    // checked once and every issue marks its own field, the pattern `reject-booking-form.tsx`
+    // follows. The select holds the event id as text, so it is adapted to the schema's number.
+    validators: {
+      onSubmit: ({ value }) => {
+        const parsed = VenueRequestInput.safeParse(toHoldInput(venueId, value));
+        if (parsed.success) return undefined;
+        const fields: Record<string, { message: string }> = {};
         for (const issue of parsed.error.issues) {
-          const key = String(issue.path[0] ?? "");
-          if (key && !fields[key]) fields[key] = issue.message;
+          fields[String(issue.path[0])] ??= { message: issue.message };
         }
-        formApi.setErrorMap({
-          onSubmit: {
-            fields,
-            form: parsed.error.issues[0]?.message ?? "Invalid input",
-          },
-        });
-        return;
-      }
-
+        return { fields };
+      },
+    },
+    onSubmit: async ({ value, formApi }) => {
       try {
-        await createVenueHold({ data: parsed.data });
+        await createVenueHold({ data: toHoldInput(venueId, value) });
         toast.success("Tentative hold placed.");
         setOpen(false);
         await router.invalidate();

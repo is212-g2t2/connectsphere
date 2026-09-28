@@ -31,6 +31,7 @@ import {
   timestampEndDay,
   timestampTime,
 } from "#/features/venues/availability";
+import type { OccupiedPeriod } from "#/features/venues/availability";
 import { AvailabilitySelectionFormInput } from "#/features/venues/schema";
 import type { AvailabilitySearch } from "#/features/venues/schema";
 import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
@@ -53,7 +54,7 @@ const OCCUPIED_STATES = {
     dotColor: "bg-coral",
   },
 } as const satisfies Record<
-  "confirmed" | "blocked" | "tentative_hold",
+  OccupiedPeriod["state"],
   {
     variant: React.ComponentProps<typeof Badge>["variant"];
     label: string;
@@ -115,7 +116,7 @@ export function VenueCalendarPage({
     search.startDate ? civilDate(search.startDate) : new Date()
   );
 
-  const occupiedDays = new Map<string, "confirmed" | "blocked" | "tentative_hold">();
+  const occupiedDays = new Map<string, OccupiedPeriod["state"]>();
   for (const period of schedule?.occupied ?? []) {
     for (
       let day = timestampDay(period.visibleStart);
@@ -125,6 +126,13 @@ export function VenueCalendarPage({
       if (!occupiedDays.has(day)) occupiedDays.set(day, period.state);
     }
   }
+
+  const occupiedModifiers: Record<OccupiedPeriod["state"], Date[]> = {
+    confirmed: [],
+    tentative_hold: [],
+    blocked: [],
+  };
+  for (const [day, state] of occupiedDays) occupiedModifiers[state].push(civilDate(day));
 
   const canHold = user ? can(user.role, { venue_request: ["request"] }) : false;
 
@@ -144,7 +152,6 @@ export function VenueCalendarPage({
           state: period.state,
           startsAt: period.visibleStart,
           endsAt: period.visibleEnd,
-          canManage: period.canManage,
           canRelease: period.canRelease,
           canConvert: period.canConvert,
         })),
@@ -172,17 +179,7 @@ export function VenueCalendarPage({
                       selected={selected}
                       month={month}
                       onMonthChange={setMonth}
-                      modifiers={{
-                        blocked: [...occupiedDays]
-                          .filter(([, state]) => state === "blocked")
-                          .map(([day]) => civilDate(day)),
-                        confirmed: [...occupiedDays]
-                          .filter(([, state]) => state === "confirmed")
-                          .map(([day]) => civilDate(day)),
-                        tentative_hold: [...occupiedDays]
-                          .filter(([, state]) => state === "tentative_hold")
-                          .map(([day]) => civilDate(day)),
-                      }}
+                      modifiers={occupiedModifiers}
                       onSelect={range => {
                         form.setFieldValue("startDate", range?.from ? civilDay(range.from) : "");
                         form.setFieldValue("endDate", range?.to ? civilDay(range.to) : "");
@@ -200,18 +197,15 @@ export function VenueCalendarPage({
                   <span aria-hidden="true" className="size-2 rounded-full border border-border" />
                   Available
                 </li>
-                <li className="flex items-center gap-2">
-                  <span aria-hidden="true" className="size-2 rounded-full bg-harbor" />
-                  Confirmed booking
-                </li>
-                <li className="flex items-center gap-2">
-                  <span aria-hidden="true" className="size-2 rounded-full bg-amber" />
-                  Tentative hold
-                </li>
-                <li className="flex items-center gap-2">
-                  <span aria-hidden="true" className="size-2 rounded-full bg-coral" />
-                  Unavailable / blocked
-                </li>
+                {Object.values(OCCUPIED_STATES).map(entry => (
+                  <li key={entry.label} className="flex items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className={cn("size-2 rounded-full", entry.dotColor)}
+                    />
+                    {entry.label}
+                  </li>
+                ))}
               </ul>
             </CardContent>
           </Card>
@@ -225,7 +219,7 @@ export function VenueCalendarPage({
       <PageHeader
         eyebrow="Venues"
         title="Venue calendar"
-        description="Pick a venue and a date range to see when it can be requested — its free periods, confirmed bookings and recorded unavailability."
+        description="Pick a venue and a date range to see when it can be requested — its free periods, confirmed bookings, tentative holds and recorded unavailability."
       />
 
       <section aria-label="Availability filters">
@@ -381,7 +375,7 @@ export function VenueCalendarPage({
                       {period.state === "tentative_hold" &&
                         period.id &&
                         canHold &&
-                        period.canManage && (
+                        (period.canRelease || period.canConvert) && (
                           <div className="flex items-center gap-2">
                             {period.canConvert && <ConvertVenueHoldButton holdId={period.id} />}
                             {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
@@ -425,13 +419,12 @@ export function VenueCalendarPage({
  * a component defined during render is a new type on every pass, which React remounts.
  */
 function OccupiedDayButton(props: React.ComponentProps<typeof CalendarDayButton>) {
-  const dot = props.modifiers.blocked
-    ? OCCUPIED_STATES.blocked.dotColor
-    : props.modifiers.tentative_hold
-      ? OCCUPIED_STATES.tentative_hold.dotColor
-      : props.modifiers.confirmed
-        ? OCCUPIED_STATES.confirmed.dotColor
-        : null;
+  // The day map holds one state per day, so at most one of these matches; blocked is checked
+  // first to keep the previous precedence if that ever changes.
+  const dotState = (["blocked", "tentative_hold", "confirmed"] as const).find(
+    state => props.modifiers[state]
+  );
+  const dot = dotState ? OCCUPIED_STATES[dotState].dotColor : null;
   return (
     <CalendarDayButton {...props}>
       {props.children}

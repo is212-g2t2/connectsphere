@@ -25,7 +25,7 @@ import {
   venueHoldConflictMessage,
   venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
-import { lockVenue } from "#/features/venue-requests/venue-lock.server";
+import { assertSameVenue, lockVenueForRequest } from "#/features/venue-requests/venue-lock.server";
 import { normalizeDatabaseTimestamp } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
@@ -602,19 +602,9 @@ export async function handleApproveVenueRequest(
 
   const decided = await database
     .transaction(async tx => {
-      // One lock order for every venue writer: advisory lock first, then the row lock. A plain
-      // read of the venue to learn which advisory lock to take, then the lock, then the row lock
-      // on the request. Taking the row lock first (as this used to) lets this path and a hold
-      // writer grab the two locks in opposite orders and deadlock (40P01).
-      const previewRows = await tx
-        .select({ venueId: venueRequests.venueId })
-        .from(venueRequests)
-        .where(eq(venueRequests.id, id))
-        .limit(1);
-      const preview = previewRows.at(0);
-      if (!preview) throw new NotFoundError("Not Found");
-
-      await lockVenue(tx, preview.venueId);
+      // One lock order for every venue writer: advisory lock first, then the row lock. The
+      // preview read learns which venue to lock; the post-lock re-read must still belong to it.
+      const lockedVenueId = await lockVenueForRequest(tx, id);
 
       const rows = await tx
         .select({
@@ -633,6 +623,7 @@ export async function handleApproveVenueRequest(
         .for("update");
       const row = rows.at(0);
       if (!row) throw new NotFoundError("Not Found");
+      assertSameVenue(lockedVenueId, row.venueId);
       // Settled checks run before the queue rule: a decision can change who owns the row, and the
       // queue rule would otherwise answer a second staff member with a bare Forbidden instead of
       // the sentence that says the request is settled (PTR-34 AC5). `assertNotRejected` carries the

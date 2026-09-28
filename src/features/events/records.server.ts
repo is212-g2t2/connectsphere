@@ -3,7 +3,13 @@ import type { SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
-import { equipmentRequests, eventRegistrations, eventRequests, venueRequests } from "#/db/schema";
+import {
+  equipmentRequests,
+  eventRegistrations,
+  eventRequests,
+  venueHolds,
+  venueRequests,
+} from "#/db/schema";
 import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
@@ -190,36 +196,54 @@ export async function handleListEvents(
 
   // PTR-36 criterion 4: which pending requests overlap an approved booking for the same venue.
   // A self-join rather than a per-request read, and deliberately not scoped to `venueRows`: the
-  // approved booking can belong to an event the caller cannot see. Only a boolean reaches the
-  // client, never the other event.
+  // approved booking can belong to an event the caller cannot see. Only the conflict kind reaches
+  // the client, never the other event. An active hold conflicts the same way (the staff queue's
+  // "Conflicting hold"), so a second join flags those too.
   const pendingRows = venueRows.filter(row => row.status === "pending");
-  let conflictingRequestIds = new Set<string>();
+  const conflictKinds = new Map<string, "booking" | "hold">();
   if (pendingRows.length > 0) {
     const approved = alias(venueRequests, "approved_booking");
-    const conflicts = await database
-      .select({ id: venueRequests.id })
-      .from(venueRequests)
-      .innerJoin(
-        approved,
-        and(
-          eq(approved.venueId, venueRequests.venueId),
-          eq(approved.status, "approved"),
-          lt(venueRequests.startsAt, approved.endsAt),
-          gt(venueRequests.endsAt, approved.startsAt)
+    const pendingIds = pendingRows.map(row => row.id);
+    const [bookingConflicts, holdConflicts] = await Promise.all([
+      database
+        .select({ id: venueRequests.id })
+        .from(venueRequests)
+        .innerJoin(
+          approved,
+          and(
+            eq(approved.venueId, venueRequests.venueId),
+            eq(approved.status, "approved"),
+            lt(venueRequests.startsAt, approved.endsAt),
+            gt(venueRequests.endsAt, approved.startsAt)
+          )
         )
-      )
-      .where(
-        and(
-          inArray(
-            venueRequests.id,
-            pendingRows.map(row => row.id)
-          ),
-          // The id list was captured in an earlier statement; a row approved since then would
-          // otherwise self-join (a period always overlaps itself) and flag as conflicting.
-          eq(venueRequests.status, "pending")
+        .where(
+          and(
+            inArray(venueRequests.id, pendingIds),
+            // The id list was captured in an earlier statement; a row approved since then would
+            // otherwise self-join (a period always overlaps itself) and flag as conflicting.
+            eq(venueRequests.status, "pending")
+          )
+        ),
+      database
+        .select({ id: venueRequests.id })
+        .from(venueRequests)
+        .innerJoin(
+          venueHolds,
+          and(
+            eq(venueHolds.venueId, venueRequests.venueId),
+            eq(venueHolds.status, "held"),
+            lt(venueRequests.startsAt, venueHolds.endsAt),
+            gt(venueRequests.endsAt, venueHolds.startsAt)
+          )
         )
-      );
-    conflictingRequestIds = new Set(conflicts.map(row => row.id));
+        .where(and(inArray(venueRequests.id, pendingIds), eq(venueRequests.status, "pending"))),
+    ]);
+    for (const row of bookingConflicts) conflictKinds.set(row.id, "booking");
+    for (const row of holdConflicts) {
+      // A booking outranks a hold for the same row, matching the staff queue's precedence.
+      if (!conflictKinds.has(row.id)) conflictKinds.set(row.id, "hold");
+    }
   }
 
   return requestRows.flatMap(record => {
@@ -264,10 +288,11 @@ export async function handleListEvents(
       ) ?? null;
     // With none pending, the assigned Coordinator sees the current rejection or release outcome.
     const outcome = access === "coordinator" ? (venueRequestOutcomes.get(record.id) ?? null) : null;
+    const conflictKind = pendingRequest ? conflictKinds.get(pendingRequest.id) : undefined;
     const venueRequest: EventVenueRequest | null = pendingRequest
       ? {
           status: pendingRequest.status,
-          ...(conflictingRequestIds.has(pendingRequest.id) ? { conflict: true } : {}),
+          ...(conflictKind ? { conflict: conflictKind } : {}),
         }
       : outcome
         ? outcome
