@@ -75,7 +75,11 @@ test("answers not found for a junk request id instead of the error boundary", as
   }
 });
 
-test("hands over an event and transfers access", async ({ page, browser, baseURL }) => {
+test("hands an event over only once the incoming Coordinator accepts", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
   const incomingContext = await browser.newContext({ baseURL });
   const organiserContext = await browser.newContext({ baseURL });
   const incomingPage = await incomingContext.newPage();
@@ -103,34 +107,120 @@ test("hands over an event and transfers access", async ({ page, browser, baseURL
       })
       .returning();
 
-    await organiserPage.goto(`/coordination/${request.id}`);
-    await expect(organiserPage).toHaveURL(/\/dashboard$/);
+    // The outgoing Coordinator offers the event; the offer waits and the request stays theirs.
     await page.goto("/coordination");
     await page.getByRole("link", { name: eventName }).click();
     await waitForHydration(page);
     await page.locator("#coordinatorId").click();
-    await page.getByRole("option", { name: incoming.name }).click();
-    await page.getByRole("button", { name: "Reassign Coordinator" }).click();
-    await expect(page).toHaveURL(/\/coordination\/?$/);
-    await expect(page.getByRole("link", { name: eventName })).toHaveCount(0);
+    // The email is unique and part of the option's label, so a substring match cannot pick a
+    // concurrently registered Coordinator whose name contains this one.
+    await page.getByRole("option", { name: incoming.email }).click();
+    await page.getByRole("button", { name: "Hand over" }).click();
+    await expect(page.getByText(/You remain the assigned Coordinator/)).toBeVisible();
+    await expect(page.getByText(/Offered to Incoming Coordinator/)).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Hand over" })).toHaveCount(0);
 
+    const [pending] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(pending.assignedCoordinatorId).toBe(outgoing.id);
+
+    // The incoming Coordinator answers from the coordination page.
+    await incomingPage.goto("/coordination");
+    await waitForHydration(incomingPage);
+    await expect(
+      incomingPage.getByRole("heading", { name: "Handovers awaiting your response" })
+    ).toBeVisible();
+    const offer = incomingPage.locator("li", { hasText: eventName });
+    await offer.getByRole("button", { name: "Accept handover" }).click();
+    await expect(incomingPage.getByRole("link", { name: eventName })).toBeVisible();
+
+    const [stored] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(stored.assignedCoordinatorId).toBe(incoming.id);
+
+    // Access moves on both sides.
     await page.goto(`/coordination/${request.id}`);
     await expect(
       page.getByText(
         "You no longer have coordination access to this request, or it is unavailable."
       )
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reassign Coordinator" })).toHaveCount(0);
     await incomingPage.goto(`/coordination/${request.id}`);
     await expect(incomingPage.getByRole("heading", { name: eventName })).toBeVisible();
-    await expect(incomingPage.getByRole("button", { name: "Reassign Coordinator" })).toBeVisible();
 
+    // The Organiser reads the new Coordinator and both notifications are delivered.
     await organiserPage.goto(`/event-requests/${request.id}`);
     await expect(organiserPage.getByRole("link", { name: incoming.email })).toBeVisible();
+    const requestEmail = await waitForEmail(incoming.email, `Handover requested: ${eventName}`);
+    expect(requestEmail).toContain(outgoing.name);
+    expect(requestEmail).toContain(eventName);
+    const acceptedEmail = await waitForEmail(
+      organiser.email,
+      `Your event request has a new Coordinator: ${eventName}`
+    );
+    expect(acceptedEmail).toContain(incoming.name);
+    expect(acceptedEmail).toContain(eventName);
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
     await incomingContext.close();
     await organiserContext.close();
+  }
+});
+
+test("declines a handover and leaves the event with the outgoing Coordinator", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const incomingContext = await browser.newContext({ baseURL });
+  const incomingPage = await incomingContext.newPage();
+  const ids: string[] = [];
+  try {
+    const outgoing = await register(page, "event_coordinator", "Decline Outgoing Coordinator");
+    ids.push(outgoing.id);
+    const incoming = await register(
+      incomingPage,
+      "event_coordinator",
+      "Decline Incoming Coordinator"
+    );
+    ids.push(incoming.id);
+    const request = await seedAssignedRequest(ids, outgoing.id, {
+      eventName: `Decline ${randomUUID()}`,
+    });
+    const eventName = request.eventName;
+
+    await page.goto(`/coordination/${request.id}`);
+    await waitForHydration(page);
+    await page.locator("#coordinatorId").click();
+    await page.getByRole("option", { name: incoming.email }).click();
+    await page.getByRole("button", { name: "Hand over" }).click();
+    await expect(page.getByText(/Offered to Decline Incoming Coordinator/)).toBeVisible();
+
+    await incomingPage.goto("/coordination");
+    await waitForHydration(incomingPage);
+    const offer = incomingPage.locator("li", { hasText: eventName });
+    await offer.getByRole("button", { name: "Decline handover" }).click();
+    await expect(
+      incomingPage.getByRole("heading", { name: "Handovers awaiting your response" })
+    ).toHaveCount(0);
+
+    const [stored] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, request.id));
+    expect(stored.assignedCoordinatorId).toBe(outgoing.id);
+    const declinedEmail = await waitForEmail(outgoing.email, `Handover declined: ${eventName}`);
+    expect(declinedEmail).toContain(incoming.name);
+    expect(declinedEmail).toContain("You remain its Event Coordinator.");
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await incomingContext.close();
   }
 });
 

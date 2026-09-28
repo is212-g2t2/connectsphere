@@ -32,6 +32,7 @@ import {
   assignEventRequest,
   decideEventRequest,
   raiseClarificationRequest,
+  requestEventHandover,
   takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
@@ -71,6 +72,40 @@ export function CoordinationRequestPage({
     // Leave the old detail immediately: the actor may have just relinquished access to it.
     await navigate({ to: "/coordination" });
   }, "Could not assign this request. Try again.");
+
+  // PTR-110: an assigned request is offered, not moved. The outgoing Coordinator keeps the
+  // request and its access until the incoming one accepts, so the page stays and re-reads itself
+  // to show the waiting offer rather than navigating away.
+  const [handover, requestHandover, requestingHandover] = useMutation(
+    async (incomingId: string) => {
+      await requestEventHandover({
+        data: {
+          id: request.id,
+          coordinatorId: incomingId,
+          expectedCoordinatorId: request.assignedCoordinatorId,
+        },
+      });
+      toast.success("Handover requested.");
+      await router.invalidate();
+    },
+    "Could not request this handover. Try again."
+  );
+
+  // The coordinator selection, shared by pickup (immediate assignment) and handover (an offer).
+  const form = useForm({
+    defaultValues: { coordinatorId: "" },
+    validators: { onSubmit: CoordinatorSelection },
+    onSubmit: async ({ value, formApi }) => {
+      if (unassigned) {
+        await assign(value.coordinatorId);
+        return;
+      }
+      const result = await requestHandover(value.coordinatorId);
+      // Clear the selection only once the offer is recorded: an offer already waits on that
+      // Coordinator, and re-submitting the same choice would replace it and email them again.
+      if (result.status === "success") formApi.reset();
+    },
+  });
 
   // AC3: the assigned Coordinator moves a submitted request into review. Re-enter through the
   // list, same as `assign` above, so the page never has to reconcile a stale `request` prop
@@ -140,23 +175,24 @@ export function CoordinationRequestPage({
     },
   });
 
-  const form = useForm({
-    defaultValues: { coordinatorId: "" },
-    validators: { onSubmit: CoordinatorSelection },
-    onSubmit: async ({ value }) => {
-      await assign(value.coordinatorId);
-    },
-  });
-
   const availableCoordinators = coordinators.filter(
     coordinator => coordinator.id !== request.assignedCoordinatorId
   );
 
+  const pendingHandover = request.pendingHandover;
+  const pendingHandoverLabel = pendingHandover?.toName ?? null;
+
   const canTakeUpForReview =
     request.status === "submitted" && request.assignedCoordinatorId === user.id;
   const canDecide = request.status === "under_review" && request.assignedCoordinatorId === user.id;
-  const canAssign =
-    request.status !== "draft" && request.status !== "approved" && request.status !== "rejected";
+  const closed =
+    request.status === "draft" || request.status === "approved" || request.status === "rejected";
+
+  // One label per state, in precedence order, so the submit button's truth table is readable.
+  let submitLabel = "Hand over";
+  if (unassigned) submitLabel = assigning ? "Assigning…" : "Assign Coordinator";
+  else if (requestingHandover) submitLabel = "Requesting…";
+  else if (pendingHandover) submitLabel = "Offer to someone else";
 
   const canRequestClarification =
     (request.status === "under_review" || request.status === "awaiting_organiser") &&
@@ -354,12 +390,12 @@ export function CoordinationRequestPage({
         </section>
       )}
 
-      {canAssign && (
+      {!closed && (
         <section className="mt-8" aria-labelledby="assignment-heading">
           <Card>
             <CardContent>
               <h2 id="assignment-heading" className="display-h3">
-                {unassigned ? "Assign this request" : "Reassign this request"}
+                {unassigned ? "Assign this request" : "Hand over this request"}
               </h2>
               <p className="mt-2 body-sm text-muted-foreground">
                 Organiser: {request.organiser.name} —{" "}
@@ -367,18 +403,25 @@ export function CoordinationRequestPage({
                   {request.organiser.email}
                 </a>
               </p>
-              {!unassigned && (
+              {pendingHandover ? (
                 <p className="mt-2 body-sm text-muted-foreground">
-                  Assigned on {formatInstant(request.assignedAt)}. Handing this request over removes
-                  your coordination access.
+                  Offered to {pendingHandoverLabel} on {formatInstant(pendingHandover.requestedAt)}.
+                  You remain the assigned Coordinator until they accept; offering it to someone else
+                  replaces this offer.
                 </p>
-              )}
+              ) : null}
+              {!unassigned && !pendingHandover ? (
+                <p className="mt-2 body-sm text-muted-foreground">
+                  Assigned on {formatInstant(request.assignedAt)}. The request stays yours until the
+                  incoming Coordinator accepts; a declined handover leaves it with you.
+                </p>
+              ) : null}
               <form
                 noValidate
                 className="mt-5 space-y-3"
                 onSubmit={event => {
                   event.preventDefault();
-                  if (assigning) return;
+                  if (assigning || requestingHandover) return;
                   void form.handleSubmit();
                 }}
               >
@@ -389,7 +432,7 @@ export function CoordinationRequestPage({
                       <Select
                         value={field.state.value === "" ? null : field.state.value}
                         onValueChange={value => field.handleChange(value ?? "")}
-                        disabled={assigning}
+                        disabled={assigning || requestingHandover}
                         required
                       >
                         <SelectTrigger
@@ -422,18 +465,14 @@ export function CoordinationRequestPage({
                   )}
                 </form.Field>
                 <div className="flex flex-wrap gap-3">
-                  <Button type="submit" disabled={assigning}>
-                    {assigning
-                      ? "Assigning…"
-                      : unassigned
-                        ? "Assign Coordinator"
-                        : "Reassign Coordinator"}
+                  <Button type="submit" disabled={assigning || requestingHandover}>
+                    {submitLabel}
                   </Button>
                   {unassigned && (
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={assigning}
+                      disabled={assigning || requestingHandover}
                       onClick={() => {
                         void assign(user.id);
                       }}
@@ -443,11 +482,17 @@ export function CoordinationRequestPage({
                   )}
                 </div>
               </form>
-              {assignment.status === "error" && (
-                <p role="alert" className="mt-4 body-sm text-destructive">
-                  {assignment.error}
-                </p>
-              )}
+              {unassigned
+                ? assignment.status === "error" && (
+                    <p role="alert" className="mt-4 body-sm text-destructive">
+                      {assignment.error}
+                    </p>
+                  )
+                : handover.status === "error" && (
+                    <p role="alert" className="mt-4 body-sm text-destructive">
+                      {handover.error}
+                    </p>
+                  )}
             </CardContent>
           </Card>
         </section>

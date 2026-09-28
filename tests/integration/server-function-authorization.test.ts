@@ -10,11 +10,15 @@ import * as schema from "#/db/schema";
 import { getCurrentUser, listAccounts, requireSession } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
+  acceptEventHandover,
   assignEventRequest,
   decideEventRequest,
+  declineEventHandover,
   getCoordinationRequest,
   listAssignedEventRequests,
   listCoordinators,
+  listPendingEventHandovers,
+  requestEventHandover,
   takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
 import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
@@ -219,6 +223,14 @@ describe("server-function authorization (PTR-69)", () => {
       { fn: takeUpEventRequestForReview, data: { id: 1 }, method: "POST" as const },
       { fn: listAssignedEventRequests, data: undefined, method: "GET" as const },
       { fn: listCoordinators, data: undefined, method: "GET" as const },
+      { fn: listPendingEventHandovers, data: undefined, method: "GET" as const },
+      {
+        fn: requestEventHandover,
+        data: { id: 1, coordinatorId: "coord-b", expectedCoordinatorId: "coord-a" },
+        method: "POST" as const,
+      },
+      { fn: acceptEventHandover, data: { id: 1 }, method: "POST" as const },
+      { fn: declineEventHandover, data: { id: 1 }, method: "POST" as const },
     ];
     it("requires a session for every coordination endpoint", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);

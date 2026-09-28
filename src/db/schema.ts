@@ -181,6 +181,44 @@ export const eventAssignments = pgTable("event_assignments", {
 });
 
 /**
+ * PTR-110: the decision the incoming Coordinator makes on a pending handover. The row itself is
+ * the pending state — `decision` is null until answered, and the CHECK below keeps the decision
+ * attribution all-or-nothing. The partial unique index allows one live handover per event, so a
+ * replacement (raise again) has to resolve the previous one first.
+ */
+export const eventHandoverDecision = pgEnum("event_handover_decision", ["accepted", "declined"]);
+
+export const eventHandovers = pgTable(
+  "event_handovers",
+  {
+    id: serial("id").primaryKey(),
+    eventRequestId: integer("event_request_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    /** Snapshots, like `eventAssignments`: account deletion keeps the record attributable. */
+    fromCoordinatorId: text("from_coordinator_id").notNull(),
+    toCoordinatorId: text("to_coordinator_id").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    decision: eventHandoverDecision("decision"),
+    decidedById: text("decided_by_id"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  table => [
+    check(
+      "event_handovers_decision_complete",
+      sql`(${table.decision} is null and ${table.decidedById} is null and ${table.decidedAt} is null) or (${table.decision} is not null and ${table.decidedById} is not null and ${table.decidedAt} is not null)`
+    ),
+    // PTR-110: one handover waits at a time; a raise replaces the previous live row in the same
+    // transaction, and the index is the backstop for a writer that does not come through it.
+    uniqueIndex("event_handovers_pending_event_idx")
+      .on(table.eventRequestId)
+      .where(sql`${table.decision} is null`),
+    // The incoming Coordinator's list reads by recipient.
+    index("event_handovers_to_coordinator_id_idx").on(table.toCoordinatorId),
+  ]
+);
+
+/**
  * PTR-18: clarification requests raised by the assigned Coordinator. User ids are snapshots so
  * account deletion keeps attribution. The question body is immutable once recorded — the
  * Coordinator must raise a new one to add to it — while the reply columns are written once when

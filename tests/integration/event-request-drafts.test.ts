@@ -1,18 +1,23 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
-import { eq, inArray } from "drizzle-orm";
+import { render } from "@react-email/render";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
+  handleAcceptEventHandover,
   handleAssignEventRequest,
   handleDecideEventRequest,
+  handleDeclineEventHandover,
   handleGetCoordinationRequest,
   handleListAssignedEventRequests,
   handleListCoordinators,
+  handleListPendingEventHandovers,
   handleRaiseClarificationRequest,
+  handleRequestEventHandover,
   handleTakeUpForReview,
 } from "#/features/coordination/assignments.server";
 import {
@@ -1097,6 +1102,600 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       );
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
       expect(await database.select().from(schema.eventAssignments)).toHaveLength(1);
+    });
+  });
+
+  describe("accepting or declining a handover (PTR-110)", () => {
+    const outgoing = extraCoordinators[0];
+    const incoming = extraCoordinators[1];
+
+    /** A freshly submitted request, assigned to `outgoing` by the least-loaded rule. */
+    async function assignedRequest() {
+      return submitNew(fullRequest, organiser, database);
+    }
+
+    async function pendingHandover() {
+      const request = await assignedRequest();
+      const handover = await handleRequestEventHandover(
+        { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: outgoing.id },
+        outgoing,
+        database as never
+      );
+      return { request, handover };
+    }
+
+    it("records a pending offer, keeps the outgoing Coordinator assigned, and notifies the incoming one (AC1, AC2)", async () => {
+      sendEmail.mockClear();
+      const request = await assignedRequest();
+      const handover = await handleRequestEventHandover(
+        {
+          id: request.id,
+          coordinatorId: incoming.id,
+          expectedCoordinatorId: outgoing.id,
+          actorId: "forged",
+        },
+        outgoing,
+        database as never
+      );
+
+      expect(handover).toMatchObject({
+        eventRequestId: request.id,
+        fromCoordinatorId: outgoing.id,
+        toCoordinatorId: incoming.id,
+        decision: null,
+        decidedById: null,
+        decidedAt: null,
+      });
+      expect(handover.requestedAt).toBeInstanceOf(Date);
+
+      // The assignment has not moved, and only the outgoing Coordinator still has access. The
+      // outgoing page shows the live offer; the assigned list labels it.
+      const [stored] = await database
+        .select()
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, request.id));
+      expect(stored.assignedCoordinatorId).toBe(outgoing.id);
+      expect(stored.assignedAt).toEqual(request.assignedAt);
+      const outgoingView = await handleGetCoordinationRequest(
+        { id: request.id },
+        outgoing,
+        database as never
+      );
+      expect(outgoingView).toMatchObject({
+        assignedCoordinatorId: outgoing.id,
+        pendingHandover: { requestedAt: handover.requestedAt, toName: incoming.name },
+      });
+      const [outgoingRow] = await handleListAssignedEventRequests(outgoing, database as never);
+      expect(outgoingRow.handoverTo).toBe(incoming.name);
+      await expect(
+        handleGetCoordinationRequest({ id: request.id }, incoming, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
+
+      // The incoming Coordinator sees the offer with everything the page renders, and is emailed
+      // the coordination link.
+      const pending = await handleListPendingEventHandovers(incoming, database as never);
+      expect(pending).toHaveLength(1);
+      expect(pending[0]).toMatchObject({
+        id: handover.id,
+        requestedAt: handover.requestedAt,
+        eventName: request.eventName,
+        organiser: { name: "Drafts Organiser" },
+        from: { name: outgoing.name },
+      });
+      expect(await handleListPendingEventHandovers(outgoing, database as never)).toEqual([]);
+      expect(sendEmail).toHaveBeenCalledWith(
+        incoming.email,
+        expect.stringContaining(request.eventName.trim()),
+        expect.anything()
+      );
+      expect(await render(sendEmail.mock.calls[0][2])).toContain("/coordination");
+    });
+
+    it("accepts a handover: moves the assignment, records it, and notifies the Organiser (AC3)", async () => {
+      sendEmail.mockClear();
+      const { request, handover } = await pendingHandover();
+      const accepted = await handleAcceptEventHandover(
+        { id: handover.id },
+        incoming,
+        database as never
+      );
+
+      expect(accepted).toMatchObject({ decision: "accepted", decidedById: incoming.id });
+      expect(accepted.decidedAt).toBeInstanceOf(Date);
+
+      const assignments = await database.select().from(schema.eventAssignments);
+      expect(assignments).toHaveLength(1);
+      expect(assignments[0]).toMatchObject({
+        eventRequestId: request.id,
+        fromCoordinatorId: outgoing.id,
+        toCoordinatorId: incoming.id,
+        actorId: incoming.id,
+      });
+      const [stored] = await database
+        .select()
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, request.id));
+      expect(stored.assignedCoordinatorId).toBe(incoming.id);
+      // The move stamps its own time, not the submission's: it matches the audit entry.
+      expect(stored.assignedAt).toEqual(assignments[0].createdAt);
+
+      // Access changes on both sides, and the Organiser reads the new Coordinator.
+      await expect(
+        handleGetCoordinationRequest({ id: request.id }, outgoing, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+      expect(
+        await handleGetCoordinationRequest({ id: request.id }, incoming, database as never)
+      ).toMatchObject({ assignedCoordinatorId: incoming.id });
+      expect(await handleListAssignedEventRequests(outgoing, database as never)).toEqual([]);
+      expect(
+        await handleGetEventRequest({ id: request.id }, organiser, database as never)
+      ).toMatchObject({ coordinator: { name: incoming.name, email: incoming.email } });
+      expect(sendEmail).toHaveBeenCalledWith(
+        organiser.email,
+        expect.stringContaining("new Coordinator"),
+        expect.anything()
+      );
+      const acceptanceEmail = sendEmail.mock.calls.at(-1);
+      if (!acceptanceEmail) throw new Error("Expected an acceptance notification");
+      expect(await render(acceptanceEmail[2])).toContain(`/event-requests/${request.id}`);
+    });
+
+    it("declines a handover: the event stays with the outgoing Coordinator and the answer is recorded (AC4)", async () => {
+      sendEmail.mockClear();
+      const { request, handover } = await pendingHandover();
+      const declined = await handleDeclineEventHandover(
+        { id: handover.id },
+        incoming,
+        database as never
+      );
+
+      expect(declined).toMatchObject({ decision: "declined", decidedById: incoming.id });
+      expect(declined.decidedAt).toBeInstanceOf(Date);
+      const [stored] = await database
+        .select()
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, request.id));
+      expect(stored.assignedCoordinatorId).toBe(outgoing.id);
+      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
+      expect(
+        await handleGetCoordinationRequest({ id: request.id }, outgoing, database as never)
+      ).toMatchObject({ assignedCoordinatorId: outgoing.id });
+      expect(sendEmail).toHaveBeenCalledWith(
+        outgoing.email,
+        expect.stringContaining("Handover declined"),
+        expect.anything()
+      );
+      const declinedEmail = sendEmail.mock.calls.at(-1);
+      if (!declinedEmail) throw new Error("Expected a decline notification");
+      expect(await render(declinedEmail[2])).toContain(`/coordination/${request.id}`);
+      await expect(
+        handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
+      ).rejects.toMatchObject({ status: 409 });
+    });
+
+    it("replaces the live offer when the outgoing Coordinator chooses someone else", async () => {
+      const { request, handover } = await pendingHandover();
+      const replacement = await handleRequestEventHandover(
+        {
+          id: request.id,
+          coordinatorId: tieBreakCoordinator.id,
+          expectedCoordinatorId: outgoing.id,
+        },
+        outgoing,
+        database as never
+      );
+
+      expect(replacement.id).not.toBe(handover.id);
+      const live = await database
+        .select()
+        .from(schema.eventHandovers)
+        .where(eq(schema.eventHandovers.eventRequestId, request.id));
+      expect(live).toHaveLength(1);
+      expect(live[0].toCoordinatorId).toBe(tieBreakCoordinator.id);
+      expect(await handleListPendingEventHandovers(incoming, database as never)).toEqual([]);
+    });
+
+    it("refuses a raise from another Coordinator, to a non-Coordinator, to the assignee, on a decision, and on a stale observation", async () => {
+      const request = await assignedRequest();
+      await expect(
+        handleRequestEventHandover(
+          {
+            id: request.id,
+            coordinatorId: tieBreakCoordinator.id,
+            expectedCoordinatorId: outgoing.id,
+          },
+          incoming,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 403 });
+
+      await Promise.all(
+        [organiser.id, "deleted-account", outgoing.id].map(async coordinatorId => {
+          await expect(
+            handleRequestEventHandover(
+              { id: request.id, coordinatorId, expectedCoordinatorId: outgoing.id },
+              outgoing,
+              database as never
+            )
+          ).rejects.toMatchObject({ status: 409 });
+        })
+      );
+      await expect(
+        handleRequestEventHandover(
+          { id: request.id, coordinatorId: tieBreakCoordinator.id, expectedCoordinatorId: null },
+          outgoing,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409 });
+
+      await handleTakeUpForReview({ id: request.id }, outgoing, database as never);
+      await handleDecideEventRequest(
+        { id: request.id, decision: "approved" },
+        outgoing,
+        database as never
+      );
+      await expect(
+        handleRequestEventHandover(
+          {
+            id: request.id,
+            coordinatorId: tieBreakCoordinator.id,
+            expectedCoordinatorId: outgoing.id,
+          },
+          outgoing,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409 });
+      expect(await database.select().from(schema.eventHandovers)).toEqual([]);
+    });
+
+    it("refuses an answer from anyone but the addressed Coordinator, and answers once", async () => {
+      const { handover } = await pendingHandover();
+      await expect(
+        handleAcceptEventHandover({ id: handover.id }, outgoing, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        handleDeclineEventHandover({ id: handover.id }, tieBreakCoordinator, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+      // A missing id gets the same refusal, so the serial id space reveals nothing.
+      await expect(
+        handleAcceptEventHandover({ id: 999_999 }, incoming, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        handleDeclineEventHandover({ id: 999_999 }, incoming, database as never)
+      ).rejects.toMatchObject({ status: 403 });
+
+      await handleDeclineEventHandover({ id: handover.id }, incoming, database as never);
+      await expect(
+        handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
+      ).rejects.toMatchObject({ status: 409 });
+      await expect(
+        handleDeclineEventHandover({ id: handover.id }, incoming, database as never)
+      ).rejects.toMatchObject({ status: 409 });
+    });
+
+    it("allows only one of a simultaneous accept and decline", async () => {
+      const { request, handover } = await pendingHandover();
+      const results = await Promise.allSettled([
+        handleAcceptEventHandover({ id: handover.id }, incoming, database as never),
+        handleDeclineEventHandover({ id: handover.id }, incoming, database as never),
+      ]);
+
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const [answered] = await database
+        .select()
+        .from(schema.eventHandovers)
+        .where(eq(schema.eventHandovers.id, handover.id));
+      const [stored] = await database
+        .select()
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, request.id));
+      expect(answered.decision).not.toBeNull();
+      expect(stored.assignedCoordinatorId).toBe(
+        answered.decision === "accepted" ? incoming.id : outgoing.id
+      );
+    });
+
+    it("resolves an offer the request has moved past, rather than leaving it pending", async () => {
+      const { request, handover } = await pendingHandover();
+      // The direct reassignment path PTR-116 removes; the offer must not survive it as live.
+      await handleAssignEventRequest(
+        {
+          id: request.id,
+          coordinatorId: tieBreakCoordinator.id,
+          expectedCoordinatorId: outgoing.id,
+        },
+        outgoing,
+        database as never
+      );
+
+      // The new assignee's page does not show the previous assignment's offer as pending.
+      const newAssigneeView = await handleGetCoordinationRequest(
+        { id: request.id },
+        tieBreakCoordinator,
+        database as never
+      );
+      expect(newAssigneeView.pendingHandover).toBeNull();
+      const [newAssigneeRow] = await handleListAssignedEventRequests(
+        tieBreakCoordinator,
+        database as never
+      );
+      expect(newAssigneeRow.handoverTo).toBeNull();
+      expect(await handleListPendingEventHandovers(incoming, database as never)).toEqual([]);
+
+      // Accepting it anyway still records who and when, and sends no false "you remain" notice.
+      sendEmail.mockClear();
+      await expect(
+        handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
+      ).rejects.toMatchObject({ status: 409 });
+      const [resolved] = await database
+        .select()
+        .from(schema.eventHandovers)
+        .where(eq(schema.eventHandovers.id, handover.id));
+      expect(resolved).toMatchObject({ decision: "declined", decidedById: incoming.id });
+      expect(resolved.decidedAt).toBeInstanceOf(Date);
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("does not list an offer for a decided request, and voids it on accept", async () => {
+      const { request, handover } = await pendingHandover();
+      await handleTakeUpForReview({ id: request.id }, outgoing, database as never);
+      await handleDecideEventRequest(
+        { id: request.id, decision: "approved" },
+        outgoing,
+        database as never
+      );
+
+      expect(await handleListPendingEventHandovers(incoming, database as never)).toEqual([]);
+      const outgoingView = await handleGetCoordinationRequest(
+        { id: request.id },
+        outgoing,
+        database as never
+      );
+      expect(outgoingView.pendingHandover).toBeNull();
+      const [decidedRow] = await handleListAssignedEventRequests(outgoing, database as never);
+      expect(decidedRow.handoverTo).toBeNull();
+
+      await expect(
+        handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
+      ).rejects.toMatchObject({ status: 409 });
+      const [voided] = await database
+        .select()
+        .from(schema.eventHandovers)
+        .where(eq(schema.eventHandovers.id, handover.id));
+      expect(voided).toMatchObject({ decision: "declined", decidedById: incoming.id });
+    });
+
+    it("keeps the recorded offer when the notification fails", async () => {
+      sendEmail.mockClear();
+      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
+      const request = await assignedRequest();
+      const handover = await handleRequestEventHandover(
+        { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: outgoing.id },
+        outgoing,
+        database as never
+      );
+
+      expect(handover.decision).toBeNull();
+      expect(await database.select().from(schema.eventHandovers)).toHaveLength(1);
+      // The failure was observed: the send was attempted and its rejection swallowed.
+      expect(sendEmail).toHaveBeenCalledWith(
+        incoming.email,
+        expect.stringContaining("Handover requested"),
+        expect.anything()
+      );
+    });
+
+    it("refuses a partial decision and a second live offer at the database", async () => {
+      const { request } = await pendingHandover();
+
+      // The CHECK keeps decision attribution all-or-nothing.
+      await expect(
+        database.insert(schema.eventHandovers).values({
+          eventRequestId: request.id,
+          fromCoordinatorId: outgoing.id,
+          toCoordinatorId: tieBreakCoordinator.id,
+          decision: "accepted",
+        })
+      ).rejects.toMatchObject({
+        cause: { constraint: "event_handovers_decision_complete" },
+      });
+      // The partial unique index keeps one live offer per event.
+      await expect(
+        database.insert(schema.eventHandovers).values({
+          eventRequestId: request.id,
+          fromCoordinatorId: outgoing.id,
+          toCoordinatorId: tieBreakCoordinator.id,
+        })
+      ).rejects.toMatchObject({
+        cause: { constraint: "event_handovers_pending_event_idx" },
+      });
+    });
+
+    it("declines an offer the request has moved past without a false notice", async () => {
+      const { request, handover } = await pendingHandover();
+      await handleAssignEventRequest(
+        {
+          id: request.id,
+          coordinatorId: tieBreakCoordinator.id,
+          expectedCoordinatorId: outgoing.id,
+        },
+        outgoing,
+        database as never
+      );
+
+      sendEmail.mockClear();
+      const declined = await handleDeclineEventHandover(
+        { id: handover.id },
+        incoming,
+        database as never
+      );
+      expect(declined).toMatchObject({ decision: "declined", decidedById: incoming.id });
+      expect(declined.decidedAt).toBeInstanceOf(Date);
+      // The outgoing Coordinator is not told they remain the Coordinator: they do not.
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("commits an accept and a decline even when the notification fails", async () => {
+      const accepted = await pendingHandover();
+      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
+      await handleAcceptEventHandover({ id: accepted.handover.id }, incoming, database as never);
+      const [acceptedRow] = await database
+        .select()
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, accepted.request.id));
+      expect(acceptedRow.assignedCoordinatorId).toBe(incoming.id);
+
+      const declined = await pendingHandover();
+      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
+      await handleDeclineEventHandover({ id: declined.handover.id }, incoming, database as never);
+      const [declinedRow] = await database
+        .select()
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, declined.request.id));
+      expect(declinedRow.assignedCoordinatorId).toBe(outgoing.id);
+      const [declinedHandover] = await database
+        .select()
+        .from(schema.eventHandovers)
+        .where(eq(schema.eventHandovers.id, declined.handover.id));
+      expect(declinedHandover.decision).toBe("declined");
+    });
+
+    it("allows only one of a simultaneous replacement and accept", async () => {
+      const { request, handover } = await pendingHandover();
+      const results = await Promise.allSettled([
+        handleRequestEventHandover(
+          {
+            id: request.id,
+            coordinatorId: tieBreakCoordinator.id,
+            expectedCoordinatorId: outgoing.id,
+          },
+          outgoing,
+          database as never
+        ),
+        handleAcceptEventHandover({ id: handover.id }, incoming, database as never),
+      ]);
+
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const [stored] = await database
+        .select()
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, request.id));
+      const live = await database
+        .select()
+        .from(schema.eventHandovers)
+        .where(
+          and(
+            eq(schema.eventHandovers.eventRequestId, request.id),
+            isNull(schema.eventHandovers.decision)
+          )
+        );
+      // Either accept won (the event moved, no offer waits) or the replacement won (the event
+      // stayed, one fresh offer waits): assert the whole outcome in one unconditional check.
+      const outcome = {
+        assignedCoordinatorId: stored.assignedCoordinatorId,
+        liveCount: live.length,
+        liveTo: live.at(0)?.toCoordinatorId ?? null,
+      };
+      expect(outcome).toEqual(
+        stored.assignedCoordinatorId === incoming.id
+          ? { assignedCoordinatorId: incoming.id, liveCount: 0, liveTo: null }
+          : {
+              assignedCoordinatorId: outgoing.id,
+              liveCount: 1,
+              liveTo: tieBreakCoordinator.id,
+            }
+      );
+    });
+
+    it("settles a simultaneous replacement and decline without losing the new offer", async () => {
+      const { request, handover } = await pendingHandover();
+      const results = await Promise.allSettled([
+        handleRequestEventHandover(
+          {
+            id: request.id,
+            coordinatorId: tieBreakCoordinator.id,
+            expectedCoordinatorId: outgoing.id,
+          },
+          outgoing,
+          database as never
+        ),
+        handleDeclineEventHandover({ id: handover.id }, incoming, database as never),
+      ]);
+
+      // The raise is always valid; the decline either beats the replacement or finds it gone.
+      expect(results[0].status).toBe("fulfilled");
+      const live = await database
+        .select()
+        .from(schema.eventHandovers)
+        .where(
+          and(
+            eq(schema.eventHandovers.eventRequestId, request.id),
+            isNull(schema.eventHandovers.decision)
+          )
+        );
+      expect(live).toHaveLength(1);
+      expect(live[0].toCoordinatorId).toBe(tieBreakCoordinator.id);
+    });
+
+    it("hides an offer whose incoming account no longer exists", async () => {
+      const { request } = await pendingHandover();
+      await database.delete(schema.user).where(eq(schema.user.id, incoming.id));
+      try {
+        const outgoingView = await handleGetCoordinationRequest(
+          { id: request.id },
+          outgoing,
+          database as never
+        );
+        expect(outgoingView.pendingHandover).toBeNull();
+        const [outgoingRow] = await handleListAssignedEventRequests(outgoing, database as never);
+        expect(outgoingRow.handoverTo).toBeNull();
+
+        // The outgoing Coordinator can offer it anew; the dead row is replaced.
+        const replacement = await handleRequestEventHandover(
+          {
+            id: request.id,
+            coordinatorId: tieBreakCoordinator.id,
+            expectedCoordinatorId: outgoing.id,
+          },
+          outgoing,
+          database as never
+        );
+        expect(replacement.toCoordinatorId).toBe(tieBreakCoordinator.id);
+        expect(
+          await database
+            .select()
+            .from(schema.eventHandovers)
+            .where(eq(schema.eventHandovers.eventRequestId, request.id))
+        ).toHaveLength(1);
+      } finally {
+        // Restore the file-owned fixture the other tests share.
+        await database.insert(schema.user).values(extraCoordinators[1]).onConflictDoNothing();
+      }
+    });
+
+    it("refuses an accept whose account was deleted before it lands", async () => {
+      const { request, handover } = await pendingHandover();
+      await database.delete(schema.user).where(eq(schema.user.id, incoming.id));
+      try {
+        // Without the share lock this is the FK's raw 23503; with it, a typed refusal.
+        await expect(
+          handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
+        ).rejects.toMatchObject({ status: 409 });
+
+        const [stored] = await database
+          .select()
+          .from(schema.eventRequests)
+          .where(eq(schema.eventRequests.id, request.id));
+        expect(stored.assignedCoordinatorId).toBe(outgoing.id);
+        const [stillPending] = await database
+          .select()
+          .from(schema.eventHandovers)
+          .where(eq(schema.eventHandovers.id, handover.id));
+        expect(stillPending.decision).toBeNull();
+      } finally {
+        await database.insert(schema.user).values(extraCoordinators[1]).onConflictDoNothing();
+      }
     });
   });
 

@@ -25,6 +25,25 @@ export function parseAssignmentInput(input: unknown): AssignmentValues {
   return parsed.data;
 }
 
+/**
+ * PTR-110: the incoming Coordinator answers one handover by its own id, never by event id — two
+ * Coordinators can hold offers for two different events, and the answer must name its row.
+ */
+const EVENT_HANDOVER_ID_MESSAGE = "Choose a handover";
+
+const EventHandoverIdInput = z.object(
+  {
+    id: z.int32({ error: EVENT_HANDOVER_ID_MESSAGE }).positive(EVENT_HANDOVER_ID_MESSAGE),
+  },
+  { error: EVENT_HANDOVER_ID_MESSAGE }
+);
+
+export function parseEventHandoverId(input: unknown): { id: number } {
+  const parsed = EventHandoverIdInput.safeParse(input);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+
 export const DECISION_REASON_REQUIRED = "Enter a reason to reject this request";
 export const DECISION_REASON_MAX_LENGTH = 2000;
 
