@@ -16,15 +16,26 @@ describe("equipment seed data (PTR-115)", () => {
     const heldByName = new Map(
       seedEquipmentTypes.map(type => [type.name, type.quantityHeld] as const)
     );
+    const unavailableByName = new Map<string, number>();
 
     expect(seedEquipmentUnavailability.length).toBeGreaterThanOrEqual(1);
     for (const record of seedEquipmentUnavailability) {
-      const quantityHeld = heldByName.get(record.equipmentTypeName);
-      if (quantityHeld === undefined) {
+      if (!heldByName.has(record.equipmentTypeName)) {
         throw new Error(`Unknown seed equipment type "${record.equipmentTypeName}"`);
       }
       expect(record.quantityUnavailable).toBeGreaterThan(0);
-      expect(record.quantityUnavailable).toBeLessThan(quantityHeld);
+      unavailableByName.set(
+        record.equipmentTypeName,
+        (unavailableByName.get(record.equipmentTypeName) ?? 0) + record.quantityUnavailable
+      );
+    }
+
+    for (const [equipmentTypeName, quantityUnavailable] of unavailableByName) {
+      const quantityHeld = heldByName.get(equipmentTypeName);
+      if (quantityHeld === undefined) {
+        throw new Error(`Unknown seed equipment type "${equipmentTypeName}"`);
+      }
+      expect(quantityUnavailable).toBeLessThan(quantityHeld);
     }
   });
 });
