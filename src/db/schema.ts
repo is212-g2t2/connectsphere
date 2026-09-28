@@ -321,14 +321,15 @@ export * from "./auth-schema";
  * migration when PTR-34/37/39/44 start moving it. PTR-31 added `withdrawn`: a request the
  * Coordinator took back is kept rather than deleted, so the record of it survives. PTR-36
  * added `approved`: an approved request is the booking that holds the venue, and the exclusion
- * constraint in migration 0019 is label-based, not order-based. PTR-34 added `rejected`, which
- * holds nothing: the exclusion constraint only looks at `approved`.
+ * constraint in migration 0019 is label-based, not order-based. PTR-34 added `rejected`, and
+ * PTR-37 added `released`; both hold nothing because the constraint only looks at `approved`.
  */
 export const venueRequestStatus = pgEnum("venue_request_status", [
   "pending",
   "withdrawn",
   "approved",
   "rejected",
+  "released",
 ]);
 
 export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status", [
@@ -375,6 +376,14 @@ export const venueRequests = pgTable(
      * is not routed to a person — the approval records the Venue Staff member who settled it (PTR-36).
      */
     assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
+    /** PTR-37: last Venue Staff actor to release or amend this booking. */
+    lastChangedByStaffId: text("last_changed_by_staff_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /** Durable PTR-37 actor label, retained if the staff account is later deleted. */
+    lastChangedByStaffName: text("last_changed_by_staff_name"),
+    /** PTR-37: when the release or amendment was committed. */
+    lastChangedAt: timestamp("last_changed_at", { withTimezone: true }),
     /**
      * PTR-31 criterion 5: the Coordinator who raised the request, snapshotted at creation. Withdraw
      * authorizes on this rather than the event's current assignee, so reassigning an event does not
@@ -390,6 +399,8 @@ export const venueRequests = pgTable(
      * whenever they view the event. The CHECK below refuses a rejected row without one.
      */
     rejectionReason: text("rejection_reason"),
+    /** PTR-37: the required operational reason when an approved booking is released. */
+    releaseReason: text("release_reason"),
     /**
      * PTR-34 criterion 2: the alternative Venue Staff may suggest, each part optional and
      * independent. PTR-35 pre-fills a new request from these. `set null` so a removed venue leaves
@@ -422,6 +433,10 @@ export const venueRequests = pgTable(
       "venue_requests_rejection_has_reason",
       sql`${table.status}::text <> 'rejected' or coalesce(${table.rejectionReason}, '') ~ '[^[:space:]]'`
     ),
+    check(
+      "venue_requests_release_has_reason",
+      sql`${table.status}::text <> 'released' or coalesce(${table.releaseReason}, '') ~ '[^[:space:]]'`
+    ),
     // Criterion 1 again: a double-submit cannot leave two live requests for one venue on one
     // event. Partial, so withdrawing frees the pair to be requested again.
     uniqueIndex("venue_requests_pending_event_venue_idx")
@@ -431,6 +446,12 @@ export const venueRequests = pgTable(
     // the events a caller can already see.
     index("venue_requests_event_id_idx").on(table.eventId),
     index("venue_requests_assigned_staff_id_idx").on(table.assignedStaffId),
+    // PTR-37's shared approved-booking queue filters by status and sorts by its start time.
+    index("venue_requests_approved_starts_at_idx")
+      .on(table.startsAt)
+      // The wrapper is IMMUTABLE and already exists for ADR-5. It also avoids PostgreSQL 15's
+      // refusal to use an enum value added earlier in the same migration transaction.
+      .where(sql`venue_request_occupies_venue(${table.status})`),
   ]
 );
 

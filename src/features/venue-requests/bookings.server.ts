@@ -1,0 +1,311 @@
+import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { createElement } from "react";
+
+import type { db as Db } from "#/db";
+import { eventRequests, user, venueRequests, venues } from "#/db/schema";
+import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
+import type { SessionUser } from "#/features/auth/session";
+import { VenueBookingChangedEmail } from "#/features/emails/components/venue-booking-changed-email";
+import {
+  VENUE_BOOKING_NOT_APPROVED_MESSAGE,
+  VENUE_REQUEST_CONFLICT_MESSAGE,
+  parseVenueAmendmentInput,
+  parseVenueReleaseInput,
+  venueRequestConflictMessage,
+} from "#/features/venue-requests/schema";
+import { normalizeDatabaseTimestamp } from "#/features/venues/availability";
+import { loadVenueBookings } from "#/features/venues/records.server";
+import { isConstraintViolation } from "#/lib/db-errors";
+import { logger } from "#/lib/logger";
+import { sendEmail } from "#/lib/mailer.server";
+
+type Database = typeof Db;
+
+const log = logger.getChild("venue-bookings");
+const assignedCoordinator = alias(user, "assigned_coordinator");
+const requestingCoordinator = alias(user, "requesting_coordinator");
+
+const singaporeClock = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Singapore",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function venueLocalTimestamp(now: Date): string {
+  const parts = Object.fromEntries(
+    singaporeClock
+      .formatToParts(now)
+      .filter(part => part.type !== "literal")
+      .map(part => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
+function toLocalMinuteValue(value: string): string {
+  return normalizeDatabaseTimestamp(value).slice(0, 16);
+}
+
+function rethrowOverlap(error: unknown): never {
+  if (isConstraintViolation(error, "venue_requests_no_overlap")) {
+    throw new ConflictError(VENUE_REQUEST_CONFLICT_MESSAGE);
+  }
+  throw error;
+}
+
+interface BookingChangeNotice {
+  eventName: string;
+  requesterEmail: string | null;
+  coordinatorEmail: string | null;
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+  previousVenueName?: string;
+  previousStartsAt?: string;
+  previousEndsAt?: string;
+}
+
+async function loadBookingChangeNotice(
+  database: Pick<Database, "select">,
+  id: string
+): Promise<BookingChangeNotice | undefined> {
+  const [notice] = await database
+    .select({
+      eventName: eventRequests.eventName,
+      requesterEmail: requestingCoordinator.email,
+      coordinatorEmail: assignedCoordinator.email,
+      venueName: venues.name,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+    })
+    .from(venueRequests)
+    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .leftJoin(requestingCoordinator, eq(requestingCoordinator.id, venueRequests.requestedById))
+    .leftJoin(assignedCoordinator, eq(assignedCoordinator.id, eventRequests.assignedCoordinatorId))
+    .where(eq(venueRequests.id, id))
+    .limit(1);
+  return notice;
+}
+
+async function notifyBookingChange(
+  requestId: string,
+  notice: BookingChangeNotice,
+  action: "released" | "amended",
+  reason?: string
+) {
+  // Booking changes go to the event's current assignee. The request raiser is the fallback when
+  // the event has no current Coordinator, so a change notice is not silently dropped.
+  const recipient = notice.coordinatorEmail ?? notice.requesterEmail;
+  if (!recipient) {
+    log.warn("No Coordinator to notify of venue booking change", { requestId, action });
+    return;
+  }
+  try {
+    await sendEmail(
+      recipient,
+      `Venue booking ${action}: ${notice.venueName}`,
+      createElement(VenueBookingChangedEmail, {
+        eventName: notice.eventName,
+        action,
+        venueName: notice.venueName,
+        startsAt: notice.startsAt,
+        endsAt: notice.endsAt,
+        reason,
+        previousVenueName: notice.previousVenueName,
+        previousStartsAt: notice.previousStartsAt,
+        previousEndsAt: notice.previousEndsAt,
+      })
+    );
+  } catch (error) {
+    log.warn("Venue booking change notification failed", {
+      requestId,
+      action,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
+}
+
+/** The shared Venue Staff queue of upcoming approved bookings, ordered by venue-local time. */
+export async function handleListVenueBookings(database: Database, now = new Date()) {
+  const rows = await database
+    .select({
+      id: venueRequests.id,
+      eventId: venueRequests.eventId,
+      eventName: eventRequests.eventName,
+      venueId: venueRequests.venueId,
+      venueName: venues.name,
+      assignedStaffId: venueRequests.assignedStaffId,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+    })
+    .from(venueRequests)
+    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .where(
+      and(
+        sql`venue_request_occupies_venue(${venueRequests.status})`,
+        gt(venueRequests.startsAt, venueLocalTimestamp(now))
+      )
+    )
+    .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
+
+  return rows.map(row => ({
+    id: row.id,
+    eventId: row.eventId,
+    eventName: row.eventName,
+    venueId: row.venueId,
+    venueName: row.venueName,
+    assignedStaffId: row.assignedStaffId,
+    startsAt: toLocalMinuteValue(row.startsAt),
+    endsAt: toLocalMinuteValue(row.endsAt),
+  }));
+}
+
+function assertActionableApprovedBooking<
+  T extends { status: string; assignedStaffId: string | null },
+>(row: T | undefined, actor: SessionUser): asserts row is T & { status: "approved" } {
+  if (!row) throw new NotFoundError("Not Found");
+  if (row.status !== "approved") throw new ConflictError(VENUE_BOOKING_NOT_APPROVED_MESSAGE);
+  if (row.assignedStaffId !== null && row.assignedStaffId !== actor.id) {
+    throw new AuthorizationError("Forbidden");
+  }
+}
+
+function actorLabel(actor: SessionUser): string {
+  return actor.name?.trim() || actor.email;
+}
+
+/** Release an approved booking, retain its history, and notify its requesting Coordinator. */
+export async function handleReleaseVenueBooking(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseVenueReleaseInput(data);
+  const released = await database.transaction(async tx => {
+    const rows = await tx
+      .select({
+        status: venueRequests.status,
+        assignedStaffId: venueRequests.assignedStaffId,
+      })
+      .from(venueRequests)
+      .where(eq(venueRequests.id, input.id))
+      .limit(1)
+      .for("update");
+    assertActionableApprovedBooking(rows.at(0), actor);
+
+    const [updated] = await tx
+      .update(venueRequests)
+      .set({
+        status: "released",
+        releaseReason: input.reason,
+        lastChangedByStaffId: actor.id,
+        lastChangedByStaffName: actorLabel(actor),
+        lastChangedAt: new Date(),
+      })
+      .where(eq(venueRequests.id, input.id))
+      .returning();
+    const notice = await loadBookingChangeNotice(tx, input.id);
+    return { booking: updated, notice };
+  });
+
+  if (released.notice) {
+    void notifyBookingChange(input.id, released.notice, "released", input.reason);
+  }
+  return released.booking;
+}
+
+/** Amend an approved booking without bypassing the overlap guarantee. */
+export async function handleAmendVenueBooking(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseVenueAmendmentInput(data);
+  const startsAt = `${input.date} ${input.startTime}:00`;
+  const endsAt = `${input.date} ${input.endTime}:00`;
+
+  const amended = await database
+    .transaction(async tx => {
+      const rows = await tx
+        .select({
+          status: venueRequests.status,
+          assignedStaffId: venueRequests.assignedStaffId,
+          venueId: venueRequests.venueId,
+          venueName: venues.name,
+          startsAt: venueRequests.startsAt,
+          endsAt: venueRequests.endsAt,
+        })
+        .from(venueRequests)
+        .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+        .where(eq(venueRequests.id, input.id))
+        .limit(1)
+        .for("update", { of: venueRequests });
+      const row = rows.at(0);
+      assertActionableApprovedBooking(row, actor);
+
+      const venueRows = await tx
+        .select({ name: venues.name })
+        .from(venues)
+        .where(eq(venues.id, input.venueId))
+        .limit(1);
+      const venue = venueRows.at(0);
+      if (!venue) throw new NotFoundError("Not Found");
+
+      const venueIds = [...new Set([row.venueId, input.venueId])].toSorted((a, b) => a - b);
+      for (const venueId of venueIds) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- every transaction takes locks in this order
+        await tx.execute(sql`select pg_advisory_xact_lock(${venueId})`);
+      }
+
+      const conflict = (await loadVenueBookings(tx, [input.venueId], startsAt, endsAt)).find(
+        booking => booking.id !== input.id
+      );
+      if (conflict) {
+        throw new ConflictError(
+          venueRequestConflictMessage({
+            venueName: venue.name,
+            startsAt: conflict.startsAt,
+            endsAt: conflict.endsAt,
+          })
+        );
+      }
+
+      const [updated] = await tx
+        .update(venueRequests)
+        .set({
+          venueId: input.venueId,
+          startsAt,
+          endsAt,
+          lastChangedByStaffId: actor.id,
+          lastChangedByStaffName: actorLabel(actor),
+          lastChangedAt: new Date(),
+        })
+        .where(eq(venueRequests.id, input.id))
+        .returning();
+      const notice = await loadBookingChangeNotice(tx, input.id);
+      return {
+        booking: updated,
+        notice: notice
+          ? {
+              ...notice,
+              previousVenueName: row.venueName,
+              previousStartsAt: row.startsAt,
+              previousEndsAt: row.endsAt,
+            }
+          : undefined,
+      };
+    })
+    .catch(rethrowOverlap);
+
+  if (amended.notice) {
+    void notifyBookingChange(input.id, amended.notice, "amended");
+  }
+  return amended.booking;
+}

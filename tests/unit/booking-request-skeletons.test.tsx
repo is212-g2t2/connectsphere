@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { BookingRequestDetailsSkeleton } from "#/features/venue-requests/components/booking-request-details-skeleton";
 import { BookingRequestQueueSkeleton } from "#/features/venue-requests/components/booking-request-queue-skeleton";
+import { VenueBookingsSkeleton } from "#/features/venue-requests/components/venue-bookings-skeleton";
 
 /**
  * The pending components mirror the pages they stand in for: the queue's wide shell with its
@@ -48,6 +49,17 @@ describe("BookingRequestDetailsSkeleton", () => {
     expect(container.querySelectorAll("dl + div > div")).toHaveLength(4);
 
     expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+});
+
+describe("VenueBookingsSkeleton", () => {
+  it("announces loading and mirrors the booking-card layout", () => {
+    const { container } = render(<VenueBookingsSkeleton />);
+
+    expect(screen.getByText("Loading approved bookings…")).toBeTruthy();
+    expect(container.querySelector('[aria-busy="true"]')).toBeTruthy();
+    expect(container.querySelectorAll('[data-slot="card"]')).toHaveLength(3);
     expect(screen.queryByRole("button")).toBeNull();
   });
 });

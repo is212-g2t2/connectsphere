@@ -3,6 +3,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission } from "#/features/auth/session";
 import {
   parseVenueRejectionInput,
+  parseVenueAmendmentInput,
+  parseVenueReleaseInput,
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
@@ -18,6 +20,10 @@ const log = logger.getChild("venue-requests");
  */
 async function loadServer() {
   return Promise.all([import("#/db"), import("#/features/venue-requests/requests.server")]);
+}
+
+async function loadBookingServer() {
+  return Promise.all([import("#/db"), import("#/features/venue-requests/bookings.server")]);
 }
 
 /**
@@ -141,4 +147,32 @@ export const rejectVenueRequest = createServerFn({ method: "POST" })
     });
 
     return request;
+  });
+
+/** PTR-37: Venue Staff share the approved bookings their venues hold, upcoming first. */
+export const listVenueBookings = createServerFn({ method: "GET" })
+  .middleware([requireVenueDecision])
+  .handler(async () => {
+    const [{ db }, { handleListVenueBookings }] = await loadBookingServer();
+    return handleListVenueBookings(db);
+  });
+
+export type VenueBooking = Awaited<ReturnType<typeof listVenueBookings>>[number];
+
+/** PTR-37: release an approved booking and free its venue period. */
+export const releaseVenueBooking = createServerFn({ method: "POST" })
+  .validator(parseVenueReleaseInput)
+  .middleware([requireVenueDecision])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleReleaseVenueBooking }] = await loadBookingServer();
+    return handleReleaseVenueBooking(data, context.user, db);
+  });
+
+/** PTR-37: amend an approved booking using PTR-36's strict overlap rule. */
+export const amendVenueBooking = createServerFn({ method: "POST" })
+  .validator(parseVenueAmendmentInput)
+  .middleware([requireVenueDecision])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleAmendVenueBooking }] = await loadBookingServer();
+    return handleAmendVenueBooking(data, context.user, db);
   });

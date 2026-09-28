@@ -10,7 +10,14 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
 import {
+  handleAmendVenueBooking,
+  handleListVenueBookings,
+  handleReleaseVenueBooking,
+} from "#/features/venue-requests/bookings.server";
+import {
   VENUE_REJECTION_REASON_REQUIRED,
+  VENUE_BOOKING_NOT_APPROVED_MESSAGE,
+  VENUE_RELEASE_REASON_REQUIRED,
   VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
@@ -86,6 +93,7 @@ const users = {
 } satisfies Record<string, typeof schema.user.$inferInsert>;
 
 const VENUE_NAME = "PTR-31 Request Hall";
+const PTR37_ALTERNATIVE_VENUE_NAME = "PTR-37 Alternative Hall";
 const userIds = Object.values(users).map(user => user.id);
 
 function session(user: (typeof users)[keyof typeof users]): SessionUser {
@@ -116,7 +124,9 @@ describe("venue request handlers (PTR-31)", () => {
     await database
       .delete(schema.eventRequests)
       .where(inArray(schema.eventRequests.organiserId, [users.organiser.id]));
-    await database.delete(schema.venues).where(eq(schema.venues.name, VENUE_NAME));
+    await database
+      .delete(schema.venues)
+      .where(inArray(schema.venues.name, [VENUE_NAME, PTR37_ALTERNATIVE_VENUE_NAME]));
     await database.delete(schema.user).where(inArray(schema.user.id, userIds));
     await pool.end();
   });
@@ -128,7 +138,9 @@ describe("venue request handlers (PTR-31)", () => {
     await database
       .delete(schema.eventRequests)
       .where(inArray(schema.eventRequests.organiserId, [users.organiser.id]));
-    await database.delete(schema.venues).where(eq(schema.venues.name, VENUE_NAME));
+    await database
+      .delete(schema.venues)
+      .where(inArray(schema.venues.name, [VENUE_NAME, PTR37_ALTERNATIVE_VENUE_NAME]));
 
     const [insertedVenue] = await database
       .insert(schema.venues)
@@ -228,7 +240,7 @@ describe("venue request handlers (PTR-31)", () => {
     venueId?: number;
     startsAt: string;
     endsAt: string;
-    status: "pending" | "withdrawn" | "approved";
+    status: "pending" | "withdrawn" | "approved" | "released";
   }) {
     return database.insert(schema.venueRequests).values({
       requestedById: users.coordinator.id,
@@ -856,6 +868,477 @@ describe("venue request handlers (PTR-31)", () => {
         criterion: "booking",
         message: `Booked for another event on ${WINDOW.date}`,
       });
+    });
+  });
+
+  describe("releasing and amending approved bookings (PTR-37)", () => {
+    async function createAlternativeVenue() {
+      const [venue] = await database
+        .insert(schema.venues)
+        .values({
+          name: PTR37_ALTERNATIVE_VENUE_NAME,
+          location: "Request Wing",
+          maxCapacity: 200,
+          operatingHours: DEFAULT_OPERATING_HOURS,
+        })
+        .returning({ id: schema.venues.id });
+      return venue.id;
+    }
+
+    async function loadVenueBookingsForTest(bookingVenueId: number) {
+      return database
+        .select({
+          id: schema.venueRequests.id,
+          startsAt: schema.venueRequests.startsAt,
+        })
+        .from(schema.venueRequests)
+        .where(
+          and(
+            eq(schema.venueRequests.venueId, bookingVenueId),
+            eq(schema.venueRequests.status, "approved")
+          )
+        );
+    }
+
+    it("lists the shared upcoming approved bookings with event, venue and period (AC1)", async () => {
+      const owned = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(owned.id, users.venueStaffA);
+      const otherEventId = await createEvent("PTR-37 Other Event");
+      const other = await raiseRequest(otherEventId, "13:00", "15:00");
+      await approve(other.id, users.venueStaffB);
+      const pending = await raiseRequest(
+        await createEvent("PTR-37 Pending Event"),
+        "16:00",
+        "17:00"
+      );
+
+      const listed = await handleListVenueBookings(
+        database as never,
+        new Date("2027-01-01T00:00:00Z")
+      );
+
+      expect(listed).toEqual([
+        expect.objectContaining({
+          id: owned.id,
+          eventId,
+          eventName: "PTR-31 Event",
+          venueName: VENUE_NAME,
+          assignedStaffId: users.venueStaffA.id,
+          startsAt: "2027-04-20T09:00",
+          endsAt: "2027-04-20T12:30",
+        }),
+        expect.objectContaining({
+          id: other.id,
+          eventId: otherEventId,
+          eventName: "PTR-37 Other Event",
+          assignedStaffId: users.venueStaffB.id,
+          startsAt: "2027-04-20T13:00",
+          endsAt: "2027-04-20T15:00",
+        }),
+      ]);
+      expect(listed.map(row => row.id)).not.toContain(pending.id);
+    });
+
+    it("compares upcoming bookings against Singapore venue-local time", async () => {
+      const ended = await raiseRequest(eventId, "15:00", "16:00");
+      await approve(ended.id, users.venueStaffA);
+      const upcoming = await raiseRequest(
+        await createEvent("PTR-37 Evening Event"),
+        "19:00",
+        "20:00"
+      );
+      await approve(upcoming.id, users.venueStaffB);
+
+      // 10:00 UTC is 18:00 in Singapore. A UTC string comparison would incorrectly retain 15:00.
+      const listed = await handleListVenueBookings(
+        database as never,
+        new Date("2027-04-20T10:00:00Z")
+      );
+
+      expect(listed.map(row => row.id)).toContain(upcoming.id);
+      expect(listed.map(row => row.id)).not.toContain(ended.id);
+    });
+
+    it("keeps a booking manageable after its approving staff account is deleted", async () => {
+      const approver = {
+        id: "ptr-37-deleted-approver",
+        name: "Deleted Venue Approver",
+        email: "ptr-37-deleted-approver@example.invalid",
+        role: "venue_staff",
+      } as const;
+      await database.insert(schema.user).values(approver);
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await handleApproveVenueRequest({ id: request.id }, approver, database as never);
+      await database.delete(schema.user).where(eq(schema.user.id, approver.id));
+
+      expect(await handleListVenueBookings(database as never)).toContainEqual(
+        expect.objectContaining({ id: request.id, assignedStaffId: null })
+      );
+      await expect(
+        handleReleaseVenueBooking(
+          { id: request.id, reason: "Operational handover" },
+          session(users.venueStaffA),
+          database as never
+        )
+      ).resolves.toMatchObject({ status: "released" });
+    });
+
+    it("releases an owned booking, frees the period and notifies the assigned Coordinator (AC2, AC4, AC5)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+      sendEmail.mockClear();
+
+      const released = await handleReleaseVenueBooking(
+        { id: request.id, reason: "  Air-conditioning failure  " },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      expect(released).toMatchObject({
+        status: "released",
+        releaseReason: "Air-conditioning failure",
+        lastChangedByStaffId: users.venueStaffA.id,
+        lastChangedByStaffName: users.venueStaffA.name,
+      });
+      expect(released.lastChangedAt).toBeInstanceOf(Date);
+      const [event] = await database
+        .select({ status: schema.eventRequests.status })
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, eventId));
+      expect(event?.status).toBe("submitted");
+      expect((await handleListVenueBookings(database as never)).map(row => row.id)).not.toContain(
+        request.id
+      );
+      const availability = await handleGetVenueAvailability(
+        { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        database as never
+      );
+      expect(availability?.occupied ?? []).toEqual([]);
+      await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledOnce());
+      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
+      expect(sendEmail.mock.calls[0][1]).toBe(`Venue booking released: ${VENUE_NAME}`);
+      const html = await render(sendEmail.mock.calls[0][2]);
+      expect(html).toContain("Air-conditioning failure");
+    });
+
+    it("refuses a blank release reason without changing the booking (AC2)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+      sendEmail.mockClear();
+
+      await expect(
+        handleReleaseVenueBooking(
+          { id: request.id, reason: "   " },
+          session(users.venueStaffA),
+          database as never
+        )
+      ).rejects.toThrow(VENUE_RELEASE_REASON_REQUIRED);
+
+      expect(await readRow(request.id)).toMatchObject({ status: "approved", releaseReason: null });
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("retains the actor label after the staff account is deleted", async () => {
+      const transientStaff = {
+        id: "ptr-37-transient-staff",
+        name: "Former Venue Staff",
+        email: "ptr-37-transient-staff@example.invalid",
+        role: "venue_staff",
+      } as const;
+      await database.insert(schema.user).values(transientStaff);
+
+      try {
+        const request = await raiseRequest(eventId, "09:00", "12:30");
+        await handleApproveVenueRequest({ id: request.id }, transientStaff, database as never);
+        await handleReleaseVenueBooking(
+          { id: request.id, reason: "Emergency maintenance" },
+          transientStaff,
+          database as never
+        );
+
+        await database.delete(schema.user).where(eq(schema.user.id, transientStaff.id));
+        expect(await readRow(request.id)).toMatchObject({
+          lastChangedByStaffId: null,
+          lastChangedByStaffName: transientStaff.name,
+        });
+      } finally {
+        await database.delete(schema.user).where(eq(schema.user.id, transientStaff.id));
+      }
+    });
+
+    it("notifies the current assignee instead of the original requester", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+      await database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: users.otherCoordinator.id })
+        .where(eq(schema.eventRequests.id, eventId));
+      sendEmail.mockClear();
+
+      await handleReleaseVenueBooking(
+        { id: request.id, reason: "Emergency maintenance" },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledOnce());
+      expect(sendEmail.mock.calls[0][0]).toBe(users.otherCoordinator.email);
+    });
+
+    it("falls back to the request raiser when the event has no assigned Coordinator", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+      await database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: null })
+        .where(eq(schema.eventRequests.id, eventId));
+      sendEmail.mockClear();
+
+      await handleReleaseVenueBooking(
+        { id: request.id, reason: "Emergency maintenance" },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledOnce());
+      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
+    });
+
+    it("amends an owned booking and moves the venue hold (AC3, AC4, AC5)", async () => {
+      const alternativeVenueId = await createAlternativeVenue();
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+      sendEmail.mockClear();
+
+      const amended = await handleAmendVenueBooking(
+        {
+          id: request.id,
+          venueId: alternativeVenueId,
+          date: WINDOW.date,
+          startTime: "12:30",
+          endTime: "15:00",
+        },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      expect(amended).toMatchObject({
+        id: request.id,
+        status: "approved",
+        venueId: alternativeVenueId,
+        startsAt: `${WINDOW.date} 12:30:00`,
+        endsAt: `${WINDOW.date} 15:00:00`,
+        lastChangedByStaffId: users.venueStaffA.id,
+        lastChangedByStaffName: users.venueStaffA.name,
+        releaseReason: null,
+      });
+      expect(amended.lastChangedAt).toBeInstanceOf(Date);
+      await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledOnce());
+      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
+      expect(sendEmail.mock.calls[0][1]).toBe(
+        `Venue booking amended: ${PTR37_ALTERNATIVE_VENUE_NAME}`
+      );
+      const oldAvailability = await handleGetVenueAvailability(
+        { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        database as never
+      );
+      expect(oldAvailability?.occupied ?? []).toEqual([]);
+    });
+
+    it("refuses an overlapping amendment and retains the original hold (AC3)", async () => {
+      const first = await raiseRequest(eventId, "09:00", "12:00");
+      await approve(first.id, users.venueStaffA);
+      const second = await raiseRequest(
+        await createEvent("PTR-37 Overlap Event"),
+        "13:00",
+        "15:00"
+      );
+      await approve(second.id, users.venueStaffB);
+
+      await expect(
+        handleAmendVenueBooking(
+          {
+            id: second.id,
+            venueId,
+            date: WINDOW.date,
+            startTime: "11:00",
+            endTime: "14:00",
+          },
+          session(users.venueStaffB),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: `${VENUE_NAME} is already booked 20 Apr 2027, 09:00 \u2013 12:00`,
+      });
+
+      expect(await readRow(second.id)).toMatchObject({
+        status: "approved",
+        venueId,
+        startsAt: `${WINDOW.date} 13:00:00`,
+        endsAt: `${WINDOW.date} 15:00:00`,
+      });
+    });
+
+    it("serializes concurrent amendments to the same target window (AC3)", async () => {
+      const alternativeVenueId = await createAlternativeVenue();
+      const first = await raiseRequest(eventId, "09:00", "10:00");
+      await approve(first.id, users.venueStaffA);
+      const second = await raiseRequest(
+        await createEvent("PTR-37 Concurrent Event"),
+        "11:00",
+        "12:00"
+      );
+      await database
+        .update(schema.venueRequests)
+        .set({ venueId: alternativeVenueId })
+        .where(eq(schema.venueRequests.id, second.id));
+      await approve(second.id, users.venueStaffB);
+
+      const results = await Promise.allSettled([
+        handleAmendVenueBooking(
+          {
+            id: first.id,
+            venueId: alternativeVenueId,
+            date: WINDOW.date,
+            startTime: "14:00",
+            endTime: "16:00",
+          },
+          session(users.venueStaffA),
+          database as never
+        ),
+        handleAmendVenueBooking(
+          {
+            id: second.id,
+            venueId: alternativeVenueId,
+            date: WINDOW.date,
+            startTime: "14:00",
+            endTime: "16:00",
+          },
+          session(users.venueStaffB),
+          database as never
+        ),
+      ]);
+
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+      const rejected = results.find(result => result.status === "rejected");
+      expect(rejected).toMatchObject({
+        reason: { name: "ConflictError", status: 409 },
+      });
+      const bookings = await loadVenueBookingsForTest(alternativeVenueId);
+      expect(
+        bookings.filter(booking => booking.startsAt === `${WINDOW.date} 14:00:00`)
+      ).toHaveLength(1);
+    });
+
+    it("refuses non-approved mutations and restricts assigned bookings to their approver (AC1, AC5)", async () => {
+      const pending = await raiseRequest(eventId, "09:00", "12:30");
+      await expect(
+        handleReleaseVenueBooking(
+          { id: pending.id, reason: "No longer needed" },
+          session(users.venueStaffA),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_BOOKING_NOT_APPROVED_MESSAGE,
+      });
+
+      await approve(pending.id, users.venueStaffB);
+      await expect(
+        handleAmendVenueBooking(
+          {
+            id: pending.id,
+            venueId,
+            date: WINDOW.date,
+            startTime: "13:00",
+            endTime: "15:00",
+          },
+          session(users.venueStaffA),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "AuthorizationError",
+        status: 403,
+        message: "Forbidden",
+      });
+      expect(await readRow(pending.id)).toMatchObject({
+        status: "approved",
+        assignedStaffId: users.venueStaffB.id,
+        lastChangedByStaffId: null,
+      });
+    });
+
+    it("keeps a released booking terminal and the venue period free", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+      await handleReleaseVenueBooking(
+        { id: request.id, reason: "Emergency maintenance" },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      await expect(approve(request.id, users.venueStaffA)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+      await expect(
+        handleRejectVenueRequest(
+          { id: request.id, reason: "Changed my mind" },
+          session(users.venueStaffB),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_REQUEST_DECIDED_MESSAGE,
+      });
+      await expect(
+        handleWithdrawVenueRequest(
+          { id: request.id },
+          session(users.coordinator),
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_SETTLED_MESSAGE });
+      await expect(
+        handleReleaseVenueBooking(
+          { id: request.id, reason: "Still broken" },
+          session(users.venueStaffA),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_BOOKING_NOT_APPROVED_MESSAGE,
+      });
+      await expect(
+        handleAmendVenueBooking(
+          {
+            id: request.id,
+            venueId,
+            date: WINDOW.date,
+            startTime: "13:00",
+            endTime: "15:00",
+          },
+          session(users.venueStaffA),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: VENUE_BOOKING_NOT_APPROVED_MESSAGE,
+      });
+
+      expect(await readRow(request.id)).toMatchObject({ status: "released" });
+      const availability = await handleGetVenueAvailability(
+        { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        database as never
+      );
+      expect(availability?.occupied ?? []).toEqual([]);
     });
   });
 

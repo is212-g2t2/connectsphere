@@ -98,6 +98,8 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                             <span className="flex flex-wrap items-center gap-2">
                               {event.venueRequest.status === "rejected" ? (
                                 <Badge variant="stopped">Rejected</Badge>
+                              ) : event.venueRequest.status === "released" ? (
+                                <Badge variant="stopped">Released</Badge>
                               ) : (
                                 <Badge variant="progress">Pending</Badge>
                               )}
@@ -132,6 +134,32 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                                   event.venueRequest.rejection.suggestion,
                                   formatDate
                                 )}
+                              />
+                            )}
+                          </>
+                        )}
+                        {event.venueRequest.release && (
+                          <>
+                            <Detail
+                              label="Released booking"
+                              value={`${event.venueRequest.release.venueName}, ${formatDate(
+                                event.venueRequest.release.date
+                              )}, ${event.venueRequest.release.startTime}–${
+                                event.venueRequest.release.endTime
+                              }`}
+                            />
+                            <Detail
+                              label="Release reason"
+                              value={
+                                <span className="whitespace-pre-line">
+                                  {event.venueRequest.release.reason}
+                                </span>
+                              }
+                            />
+                            {event.venueRequest.release.changedByName && (
+                              <Detail
+                                label="Released by"
+                                value={event.venueRequest.release.changedByName}
                               />
                             )}
                           </>

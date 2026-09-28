@@ -19,6 +19,8 @@ export const VENUE_REQUEST_SETTLED_MESSAGE =
   "This request has already been settled and can no longer be withdrawn.";
 /** PTR-36: a request that is no longer pending cannot be approved again. */
 export const VENUE_REQUEST_DECIDED_MESSAGE = "This request has already been decided.";
+export const VENUE_BOOKING_NOT_APPROVED_MESSAGE =
+  "Only an approved booking can be released or amended.";
 /**
  * PTR-36: the backstop sentence when the exclusion constraint refuses a write the locked
  * pre-check did not see — a writer outside `handleApproveVenueRequest`.
@@ -32,6 +34,9 @@ export const VENUE_REQUEST_REJECTED_MESSAGE =
 /** PTR-34 criterion 1: Venue Staff owe the Coordinator a reason, mirroring PTR-20's rule. */
 export const VENUE_REJECTION_REASON_REQUIRED = "Enter a reason to reject this request";
 export const VENUE_REJECTION_REASON_MAX_LENGTH = 2000;
+/** PTR-37: releasing an approved booking requires a concise operational reason. */
+export const VENUE_RELEASE_REASON_REQUIRED = "Enter a reason to release this booking";
+export const VENUE_RELEASE_REASON_MAX_LENGTH = 2000;
 /** PTR-34 criterion 2: a suggested window needs both ends, or neither. */
 export const VENUE_REJECTION_TIME_PAIR_MESSAGE = "Enter both a start and end time";
 
@@ -168,6 +173,37 @@ export const VenueRejectionInput = z
 
 export type VenueRejectionValues = z.infer<typeof VenueRejectionInput>;
 
+/** PTR-37: a release is a state transition on an approved booking, not a withdrawal of a pending request. */
+export const VenueReleaseInput = z.object({
+  id: VenueRequestIdInput.shape.id,
+  reason: z
+    .string({ error: VENUE_RELEASE_REASON_REQUIRED })
+    .trim()
+    .min(1, VENUE_RELEASE_REASON_REQUIRED)
+    .max(
+      VENUE_RELEASE_REASON_MAX_LENGTH,
+      `Release reason must be ${VENUE_RELEASE_REASON_MAX_LENGTH} characters or fewer`
+    ),
+});
+
+export type VenueReleaseValues = z.infer<typeof VenueReleaseInput>;
+
+/** PTR-37: an amendment keeps the booking row and applies the same strict overlap rule as approval. */
+export const VenueAmendmentInput = z
+  .object({
+    id: VenueRequestIdInput.shape.id,
+    venueId: VenueId,
+    date: z.iso.date({ error: VENUE_REQUEST_DATE_MESSAGE }),
+    startTime: Time,
+    endTime: Time,
+  })
+  .refine(value => `${value.date}T${value.endTime}` > `${value.date}T${value.startTime}`, {
+    path: ["endTime"],
+    message: VENUE_REQUEST_TIME_ORDER_MESSAGE,
+  });
+
+export type VenueAmendmentValues = z.infer<typeof VenueAmendmentInput>;
+
 /**
  * PTR-34 criterion 2 as it is shown back: whichever parts of a suggestion Venue Staff gave, and
  * null for the rest. The email and the Coordinator's event card share it. Times are `HH:MM`.
@@ -202,6 +238,22 @@ export function formatVenueSuggestion(
 
 export function parseVenueRejectionInput(data: unknown): VenueRejectionValues {
   const parsed = VenueRejectionInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+export function parseVenueReleaseInput(data: unknown): VenueReleaseValues {
+  const parsed = VenueReleaseInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+export function parseVenueAmendmentInput(data: unknown): VenueAmendmentValues {
+  const parsed = VenueAmendmentInput.safeParse(data);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0].message);
   }

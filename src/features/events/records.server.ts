@@ -13,14 +13,11 @@ import {
   isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
-import type {
-  EventProjection,
-  EventVenueRequest,
-  VenueRequestRejection,
-} from "#/features/events/access";
+import type { EventProjection, EventVenueRequest } from "#/features/events/access";
+import type { VenueRequestOutcome } from "#/features/venue-requests/records.server";
 import { parseEventListInput } from "#/features/events/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import { loadRejectionsForEvents } from "#/features/venue-requests/records.server";
+import { loadVenueRequestOutcomesForEvents } from "#/features/venue-requests/records.server";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -184,13 +181,12 @@ export async function handleListEvents(
       ),
   ]);
 
-  // PTR-34 criterion 3: a rejection is shown only to the assigned Coordinator, so no other role
-  // pays for the lookup. `venue-requests` owns the rejection's shape (PTR-35 prefill needs the
-  // same reader), including which row is still the event's live state.
-  const rejectionsByEvent: ReadonlyMap<number, VenueRequestRejection> =
+  // Rejections and releases are shown only to the assigned Coordinator, so no other role pays for
+  // the lookup. `venue-requests` owns which row is the event's live operational outcome.
+  const venueRequestOutcomes: ReadonlyMap<number, VenueRequestOutcome> =
     role === "event_coordinator"
-      ? await loadRejectionsForEvents(database, requestIds)
-      : new Map<number, VenueRequestRejection>();
+      ? await loadVenueRequestOutcomesForEvents(database, requestIds)
+      : new Map<number, VenueRequestOutcome>();
 
   // PTR-36 criterion 4: which pending requests overlap an approved booking for the same venue.
   // A self-join rather than a per-request read, and deliberately not scoped to `venueRows`: the
@@ -266,17 +262,15 @@ export async function handleListEvents(
           row.status === "pending" &&
           (access !== "venue_staff" || isVenueQueueRow(row, user.id))
       ) ?? null;
-    // PTR-34 criterion 3: with none pending, the assigned Coordinator is shown the most recent
-    // rejection — but only when `loadRejectionsForEvents` found it still the event's live state.
-    // Every other caller keeps what PTR-31 shows.
-    const rejection = access === "coordinator" ? (rejectionsByEvent.get(record.id) ?? null) : null;
+    // With none pending, the assigned Coordinator sees the current rejection or release outcome.
+    const outcome = access === "coordinator" ? (venueRequestOutcomes.get(record.id) ?? null) : null;
     const venueRequest: EventVenueRequest | null = pendingRequest
       ? {
           status: pendingRequest.status,
           ...(conflictingRequestIds.has(pendingRequest.id) ? { conflict: true } : {}),
         }
-      : rejection
-        ? { status: "rejected", rejection }
+      : outcome
+        ? outcome
         : null;
 
     return [
