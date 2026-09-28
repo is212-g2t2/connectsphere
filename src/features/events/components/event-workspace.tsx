@@ -104,7 +104,11 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                                 <Badge variant="progress">Pending</Badge>
                               )}
                               {event.venueRequest.conflict && (
-                                <Badge variant="stopped">Conflicting booking</Badge>
+                                <Badge variant="stopped">
+                                  {event.venueRequest.conflict === "hold"
+                                    ? "Conflicting hold"
+                                    : "Conflicting booking"}
+                                </Badge>
                               )}
                             </span>
                           }

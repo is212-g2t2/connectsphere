@@ -19,6 +19,7 @@ import {
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
+  venueHoldConflictMessage,
   venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
 
@@ -106,6 +107,38 @@ describe("venueRequestConflictMessage (PTR-36 criterion 2)", () => {
         endsAt: "2027-06-02T01:00:00",
       })
     ).toBe("Harbour Hall is already booked 1 Jun 2027, 22:00 – 2 Jun 2027, 01:00");
+  });
+});
+
+describe("venueHoldConflictMessage (PTR-109 AC2)", () => {
+  it("names the venue and the conflicting period as tentatively held", () => {
+    expect(
+      venueHoldConflictMessage({
+        venueName: "Harbour Hall",
+        startsAt: "2027-06-01T09:00:00",
+        endsAt: "2027-06-01T12:30:00",
+      })
+    ).toBe("Harbour Hall is tentatively held 1 Jun 2027, 09:00 – 12:30");
+  });
+
+  it("handles space-separated database timestamps", () => {
+    expect(
+      venueHoldConflictMessage({
+        venueName: "Harbour Hall",
+        startsAt: "2027-06-01 09:00:00",
+        endsAt: "2027-06-01 12:30:00",
+      })
+    ).toBe("Harbour Hall is tentatively held 1 Jun 2027, 09:00 – 12:30");
+  });
+
+  it("names the end date too when the hold crosses midnight", () => {
+    expect(
+      venueHoldConflictMessage({
+        venueName: "Harbour Hall",
+        startsAt: "2027-06-01T22:00:00",
+        endsAt: "2027-06-02T01:00:00",
+      })
+    ).toBe("Harbour Hall is tentatively held 1 Jun 2027, 22:00 – 2 Jun 2027, 01:00");
   });
 });
 

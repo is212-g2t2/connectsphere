@@ -75,6 +75,21 @@ describe("PTR-28 availability projection", () => {
     });
   });
 
+  it("renders a tentative hold as a tentative_hold period (PTR-109)", () => {
+    const projection = projectAvailability(
+      range,
+      source({
+        holds: [record("10", day(5, "10:00:00"), day(5, "12:00:00"), "Tentatively held")],
+      })
+    );
+
+    expect(projection.occupied).toHaveLength(1);
+    expect(projection.occupied[0]).toMatchObject({
+      state: "tentative_hold",
+      label: "Tentatively held",
+    });
+  });
+
   it("clips records to the range and drops the ones that only touch it", () => {
     const projection = projectAvailability(
       range,

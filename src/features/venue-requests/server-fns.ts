@@ -2,6 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
 import {
+  parseVenueHoldId,
+  parseVenueHoldInput,
   parseVenueRejectionInput,
   parseVenueAmendmentInput,
   parseVenueReleaseInput,
@@ -175,4 +177,65 @@ export const amendVenueBooking = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const [{ db }, { handleAmendVenueBooking }] = await loadBookingServer();
     return handleAmendVenueBooking(data, context.user, db);
+  });
+
+async function loadHoldsServer() {
+  return Promise.all([import("#/db"), import("#/features/venue-requests/holds.server")]);
+}
+
+/**
+ * PTR-109: Coordinator places a tentative hold naming venue and period.
+ */
+export const createVenueHold = createServerFn({ method: "POST" })
+  .validator(parseVenueHoldInput)
+  .middleware([requireVenueRequest])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleCreateVenueHold }] = await loadHoldsServer();
+    const hold = await handleCreateVenueHold(data, context.user, db);
+
+    log.info("Venue hold created", {
+      holdId: hold.id,
+      eventId: hold.eventId,
+      venueId: hold.venueId,
+      actorId: context.user.id,
+    });
+
+    return hold;
+  });
+
+/**
+ * PTR-109: Coordinator releases an active tentative hold.
+ */
+export const releaseVenueHold = createServerFn({ method: "POST" })
+  .validator(parseVenueHoldId)
+  .middleware([requireVenueRequest])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleReleaseVenueHold }] = await loadHoldsServer();
+    const hold = await handleReleaseVenueHold(data, context.user, db);
+
+    log.info("Venue hold released", {
+      holdId: hold.id,
+      actorId: context.user.id,
+    });
+
+    return hold;
+  });
+
+/**
+ * PTR-109: Coordinator converts a tentative hold to a pending venue booking request.
+ */
+export const convertVenueHold = createServerFn({ method: "POST" })
+  .validator(parseVenueHoldId)
+  .middleware([requireVenueRequest])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleConvertVenueHold }] = await loadHoldsServer();
+    const result = await handleConvertVenueHold(data, context.user, db);
+
+    log.info("Venue hold converted", {
+      holdId: result.hold.id,
+      requestId: result.request.id,
+      actorId: context.user.id,
+    });
+
+    return result;
   });

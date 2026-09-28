@@ -703,6 +703,7 @@ describe("venue request handlers (PTR-31)", () => {
 
       const availability = await handleGetVenueAvailability(
         { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        "",
         database as never
       );
       expect(availability?.occupied).toContainEqual(
@@ -1011,6 +1012,7 @@ describe("venue request handlers (PTR-31)", () => {
       );
       const availability = await handleGetVenueAvailability(
         { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        "",
         database as never
       );
       expect(availability?.occupied ?? []).toEqual([]);
@@ -1140,6 +1142,7 @@ describe("venue request handlers (PTR-31)", () => {
       );
       const oldAvailability = await handleGetVenueAvailability(
         { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        "",
         database as never
       );
       expect(oldAvailability?.occupied ?? []).toEqual([]);
@@ -1336,6 +1339,7 @@ describe("venue request handlers (PTR-31)", () => {
       expect(await readRow(request.id)).toMatchObject({ status: "released" });
       const availability = await handleGetVenueAvailability(
         { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        "",
         database as never
       );
       expect(availability?.occupied ?? []).toEqual([]);
@@ -1656,6 +1660,7 @@ describe("venue request handlers (PTR-31)", () => {
       expect(await readRow(request.id)).toMatchObject({ status: "rejected" });
       const availability = await handleGetVenueAvailability(
         { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
+        "",
         database as never
       );
       expect(availability?.occupied ?? []).toEqual([]);

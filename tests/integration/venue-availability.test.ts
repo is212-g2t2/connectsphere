@@ -56,6 +56,7 @@ describe("Venue availability (PTR-28)", () => {
 
     const schedule = await handleGetVenueAvailability(
       { venueId: venue.id, startDate: "2027-03-15", endDate: "2027-03-15" },
+      "",
       database as never
     );
 
@@ -82,6 +83,7 @@ describe("Venue availability (PTR-28)", () => {
     expect(
       await handleGetVenueAvailability(
         { venueId: 999_999, startDate: "2027-03-15", endDate: "2027-03-15" },
+        "",
         database as never
       )
     ).toBeNull();

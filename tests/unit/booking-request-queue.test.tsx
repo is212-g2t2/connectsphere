@@ -37,7 +37,7 @@ const firstRequest: PendingVenueRequest = {
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",
   submittedAt: new Date("2030-11-01T01:00:00Z"),
-  conflict: true,
+  conflict: "booking",
 };
 
 const secondRequest: PendingVenueRequest = {
@@ -47,7 +47,17 @@ const secondRequest: PendingVenueRequest = {
   startsAt: "2030-11-18T13:00",
   endsAt: "2030-11-18T15:30",
   submittedAt: new Date("2030-11-01T02:00:00Z"),
-  conflict: false,
+  conflict: null,
+};
+
+const holdRequest: PendingVenueRequest = {
+  id: "request-003",
+  venueId: 5,
+  venueName: "Garden Suite",
+  startsAt: "2030-11-18T16:00",
+  endsAt: "2030-11-18T18:00",
+  submittedAt: new Date("2030-11-01T03:00:00Z"),
+  conflict: "hold",
 };
 
 describe("BookingRequestQueue component slice (PTR-32)", () => {
@@ -126,14 +136,22 @@ describe("BookingRequestQueue component slice (PTR-32)", () => {
     expect(submission.getAttribute("dateTime")).toBe("2030-11-01T01:00:00.000Z");
   });
 
-  it("flags only rows whose server result reports an approved-booking conflict and states a clear row (TC21)", () => {
-    render(<BookingRequestQueue requests={[firstRequest, secondRequest]} />);
+  it("labels each row by conflict kind and states a clear row (TC21)", () => {
+    render(<BookingRequestQueue requests={[firstRequest, secondRequest, holdRequest]} />);
 
     const rows = screen.getAllByRole("row");
+    // Kind "booking": an approved booking overlaps the requested window.
     expect(within(rows[1]).getByText("Conflicting booking")).toBeTruthy();
     expect(within(rows[1]).queryByText("No conflict")).toBeNull();
+    expect(within(rows[1]).queryByText("Conflicting hold")).toBeNull();
+    // Kind null: nothing overlaps.
     expect(within(rows[2]).queryByText("Conflicting booking")).toBeNull();
+    expect(within(rows[2]).queryByText("Conflicting hold")).toBeNull();
     expect(within(rows[2]).getByText("No conflict")).toBeTruthy();
+    // Kind "hold": an active tentative hold overlaps, not a booking.
+    expect(within(rows[3]).getByText("Conflicting hold")).toBeTruthy();
+    expect(within(rows[3]).queryByText("Conflicting booking")).toBeNull();
+    expect(within(rows[3]).queryByText("No conflict")).toBeNull();
     expect(screen.queryByText(/another event|event name/i)).toBeNull();
   });
 });

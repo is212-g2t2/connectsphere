@@ -1,18 +1,19 @@
 import { and, asc, eq, gt, inArray, lt } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { venueRequests, venueUnavailability, venues } from "#/db/schema";
+import { eventRequests, venueHolds, venueRequests, venueUnavailability, venues } from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import { eventTiming } from "#/features/events/access";
 import { loadAssignedEvent } from "#/features/events/records.server";
+import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
 import {
   nextCivilDate,
   normalizeDatabaseTimestamp,
   openingPeriods,
   projectAvailability,
 } from "#/features/venues/availability";
-import type { AvailabilityRecord } from "#/features/venues/availability";
+import type { AvailabilityRecord, OccupiedPeriod } from "#/features/venues/availability";
 import {
   DUPLICATE_NAME_MESSAGE,
   LAYOUT_LABELS,
@@ -90,7 +91,8 @@ export type SuitabilityCriterion =
   | "accessibility"
   | "facilities"
   | "availability"
-  | "booking";
+  | "booking"
+  | "hold";
 
 export interface SuitabilityFailure {
   criterion: SuitabilityCriterion;
@@ -111,6 +113,21 @@ function overlaps(
   return period.visibleStart < end && period.visibleEnd > start;
 }
 
+function clashingFailure(
+  clashes: readonly OccupiedPeriod[],
+  day: string
+): SuitabilityFailure | null {
+  const booked = clashes.find(period => period.state === "confirmed");
+  if (booked) {
+    return { criterion: "booking", message: `Booked for ${booked.label} on ${day}` };
+  }
+  const held = clashes.find(period => period.state === "tentative_hold");
+  if (held) {
+    return { criterion: "hold", message: `Tentatively held on ${day}` };
+  }
+  return null;
+}
+
 /**
  * Whether the venue can host the requested window, and if not, why: closed, blocked by recorded
  * unavailability, or — criterion 4 — holding an approved booking that overlaps it. A booking is
@@ -120,7 +137,8 @@ function availabilityFailure(
   venue: VenueSuitabilityCandidate,
   filters: VenueSearch,
   blocks: readonly AvailabilityRecord[],
-  bookings: readonly AvailabilityRecord[]
+  bookings: readonly AvailabilityRecord[],
+  holds: readonly AvailabilityRecord[]
 ): SuitabilityFailure | null {
   if (!filters.date) return null;
 
@@ -132,8 +150,10 @@ function availabilityFailure(
   const projection = projectAvailability(range, {
     bookings,
     blocks,
+    holds,
     openPeriods: openingPeriods(filters.date, endDate, venue.operatingHours),
   });
+
   // Without times the event needs some open time on each requested day, so a day that is closed,
   // blocked or booked right through fails the range however free the other days are.
   if (!filters.startTime || !filters.endTime) {
@@ -147,14 +167,12 @@ function availabilityFailure(
       // Name a booking only when it takes some of the day's opening time; a booking outside the
       // hours, or on a closed day, is not what removed the day.
       const opening = openingPeriods(day, day, venue.operatingHours);
-      const booked = projection.occupied.find(
-        period =>
-          period.state === "confirmed" &&
-          opening.some(open => overlaps(period, open.startsAt, open.endsAt))
+      const openClashes = projection.occupied.filter(period =>
+        opening.some(open => overlaps(period, open.startsAt, open.endsAt))
       );
-      return booked
-        ? { criterion: "booking", message: `Booked for ${booked.label} on ${day}` }
-        : { criterion: "availability", message: `Closed or unavailable on ${day}` };
+      const failure = clashingFailure(openClashes, day);
+      if (failure) return failure;
+      return { criterion: "availability", message: `Closed or unavailable on ${day}` };
     }
     return null;
   }
@@ -178,10 +196,8 @@ function availabilityFailure(
     const clashes = projection.occupied.filter(period =>
       overlaps(period, requestedStart, requestedEnd)
     );
-    const booked = clashes.find(period => period.state === "confirmed");
-    if (booked) {
-      return { criterion: "booking", message: `Booked for ${booked.label} on ${day}` };
-    }
+    const failure = clashingFailure(clashes, day);
+    if (failure) return failure;
     if (clashes[0]) {
       return { criterion: "availability", message: `Unavailable on ${day}: ${clashes[0].label}` };
     }
@@ -203,7 +219,8 @@ export function evaluateVenueSuitability(
   venue: VenueSuitabilityCandidate,
   filters: VenueSearch,
   blocks: readonly AvailabilityRecord[],
-  bookings: readonly AvailabilityRecord[]
+  bookings: readonly AvailabilityRecord[],
+  holds: readonly AvailabilityRecord[] = []
 ): SuitabilityVerdict {
   const failures: SuitabilityFailure[] = [];
 
@@ -250,7 +267,7 @@ export function evaluateVenueSuitability(
       message: `Missing facilities: ${missingFacilities.join(", ")}`,
     });
   }
-  const availability = availabilityFailure(venue, filters, blocks, bookings);
+  const availability = availabilityFailure(venue, filters, blocks, bookings, holds);
   if (availability) failures.push(availability);
 
   return { suitable: failures.length === 0, failures };
@@ -367,6 +384,64 @@ export const loadVenueBookings: VenueBookingLoader = async (
   }));
 };
 
+export type VenueHold = AvailabilityRecord & {
+  venueId: number;
+  eventId: number;
+  heldById: string | null;
+  assignedCoordinatorId: string | null;
+  eventStatus: string;
+};
+
+/**
+ * PTR-109: the active tentative holds overlapping a range, per venue.
+ * Calendar and search project holds so internal users see held slots as occupied. The event join
+ * carries the two ids ownership is decided from; the projection never returns them, only the
+ * derived `canRelease`/`canConvert` booleans.
+ */
+export async function loadVenueHolds(
+  database: Pick<Database, "select">,
+  venueIds: readonly number[],
+  startsAt: string,
+  endsAt: string
+): Promise<VenueHold[]> {
+  if (venueIds.length === 0) return [];
+
+  const rows = await database
+    .select({
+      id: venueHolds.id,
+      venueId: venueHolds.venueId,
+      eventId: venueHolds.eventId,
+      startsAt: venueHolds.startsAt,
+      endsAt: venueHolds.endsAt,
+      heldById: venueHolds.heldById,
+      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+      eventStatus: eventRequests.status,
+    })
+    .from(venueHolds)
+    .innerJoin(eventRequests, eq(venueHolds.eventId, eventRequests.id))
+    .where(
+      and(
+        inArray(venueHolds.venueId, venueIds),
+        eq(venueHolds.status, "held"),
+        lt(venueHolds.startsAt, endsAt),
+        gt(venueHolds.endsAt, startsAt)
+      )
+    )
+    .orderBy(asc(venueHolds.startsAt));
+
+  return rows.map(row => ({
+    id: row.id,
+    venueId: row.venueId,
+    eventId: row.eventId,
+    startsAt: normalizeDatabaseTimestamp(row.startsAt),
+    endsAt: normalizeDatabaseTimestamp(row.endsAt),
+    label: "tentative hold",
+    heldById: row.heldById,
+    assignedCoordinatorId: row.assignedCoordinatorId,
+    eventStatus: row.eventStatus,
+  }));
+}
+
 /**
  * PTR-29's venue search and PTR-30's verdicts. An optional event id belongs to the assigned
  * Coordinator or is refused without revealing whether the event exists. The event's first
@@ -413,17 +488,20 @@ export async function handleSearchVenues(
   const venueRows = await handleListVenues(database);
   let blocksByVenue = new Map<number, VenueBlock[]>();
   let bookingsByVenue = new Map<number, VenueBooking[]>();
+  let holdsByVenue = new Map<number, VenueHold[]>();
 
   if (filters.date && venueRows.length > 0) {
     const startsAt = `${filters.date} 00:00:00`;
     const endsAt = `${nextCivilDate(filters.endDate ?? filters.date)} 00:00:00`;
     const venueIds = venueRows.map(venue => venue.id);
-    const [blocks, bookings] = await Promise.all([
+    const [blocks, bookings, holds] = await Promise.all([
       loadVenueBlocks(database, venueIds, startsAt, endsAt),
       loadBookings(database, venueIds, startsAt, endsAt),
+      loadVenueHolds(database, venueIds, startsAt, endsAt),
     ]);
     blocksByVenue = Map.groupBy(blocks, block => block.venueId);
     bookingsByVenue = Map.groupBy(bookings, booking => booking.venueId);
+    holdsByVenue = Map.groupBy(holds, hold => hold.venueId);
   }
 
   const suitable: Venue[] = [];
@@ -433,7 +511,8 @@ export async function handleSearchVenues(
       venue,
       filters,
       blocksByVenue.get(venue.id) ?? [],
-      bookingsByVenue.get(venue.id) ?? []
+      bookingsByVenue.get(venue.id) ?? [],
+      holdsByVenue.get(venue.id) ?? []
     );
     if (verdict.suitable) suitable.push(venue);
     else unsuitable.push({ venue, failures: verdict.failures });
@@ -452,9 +531,13 @@ export async function handleGetVenue(data: unknown, database: Database): Promise
  * A venue's availability across an inclusive civil-date range (PTR-28): its opening periods,
  * minus the recorded unavailability and the approved bookings that overlap the range, as
  * floating venue-local timestamps. PTR-36 filled the booking seam, so an approved booking now
- * renders as a "confirmed" period.
+ * renders as a "confirmed" period. PTR-109 includes active tentative holds.
  */
-export async function handleGetVenueAvailability(data: unknown, database: Database) {
+export async function handleGetVenueAvailability(
+  data: unknown,
+  viewerId: string,
+  database: Database
+) {
   const selection = parseAvailabilityRequest(data);
 
   const venueRows = await database
@@ -471,10 +554,35 @@ export async function handleGetVenueAvailability(data: unknown, database: Databa
   const endsAt = `${nextCivilDate(selection.endDate)}T00:00:00`;
   const databaseStartsAt = startsAt.replace("T", " ");
   const databaseEndsAt = endsAt.replace("T", " ");
-  const [blocks, bookings] = await Promise.all([
+  const [blocks, bookings, holds, pendingEventIds] = await Promise.all([
     loadVenueBlocks(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueBookings(database, [venue.id], databaseStartsAt, databaseEndsAt),
+    loadVenueHolds(database, [venue.id], databaseStartsAt, databaseEndsAt),
+    // Converting a hold creates the event+venue pending request, so a hold whose event already
+    // has one would convert straight into the unique-index refusal; offer release only.
+    database
+      .select({ eventId: venueRequests.eventId })
+      .from(venueRequests)
+      .where(and(eq(venueRequests.venueId, venue.id), eq(venueRequests.status, "pending")))
+      .then(rows => new Set(rows.map(row => row.eventId))),
   ]);
+
+  // Ownership decides whether the calendar offers Release or Convert. The ids stay server-side;
+  // only the booleans cross into the projection, so a Venue Staff viewer never learns who else's
+  // hold it is. An orphan hold (both creator and assignee are gone) is releasable by coordinators
+  // to recover the slot, but not convertible. Convert also requires the event to be in submitted status.
+  // Copy-on-write on purpose: the rows are the loader's, and mutating them would leak the
+  // viewer's flags into other callers' reads.
+  // oxlint-disable-next-line oxc/no-map-spread
+  const manageableHolds = holds.map(hold => {
+    const canRelease = canReleaseHold(hold, viewerId);
+    const canConvert = canConvertHold(hold, viewerId) && !pendingEventIds.has(hold.eventId);
+    return {
+      ...hold,
+      canRelease,
+      canConvert,
+    };
+  });
 
   return {
     venue: { id: venue.id, name: venue.name },
@@ -483,9 +591,10 @@ export async function handleGetVenueAvailability(data: unknown, database: Databa
     ...projectAvailability(
       { startsAt, endsAt },
       {
-        // The same approved bookings the search reads (PTR-36).
+        // The same approved bookings and tentative holds the search reads (PTR-36, PTR-109).
         bookings,
         blocks,
+        holds: manageableHolds,
         openPeriods: openingPeriods(selection.startDate, selection.endDate, venue.operatingHours),
       }
     ),

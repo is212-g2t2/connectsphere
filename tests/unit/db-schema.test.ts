@@ -59,6 +59,20 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(venueRequests).createdAt.name).toBe("created_at");
   });
 
+  it("defines the venue hold columns and status enum (PTR-109)", () => {
+    expect([...schema.venueHoldStatus.enumValues]).toEqual(["held", "released"]);
+    const columns = getTableColumns(schema.venueHolds);
+    expect(columns.eventId.name).toBe("event_id");
+    expect(columns.venueId.name).toBe("venue_id");
+    expect(columns.startsAt.name).toBe("starts_at");
+    expect(columns.endsAt.name).toBe("ends_at");
+    expect(columns.status.name).toBe("status");
+    expect(columns.heldById.name).toBe("held_by_id");
+    expect(columns.heldById.notNull).toBe(false);
+    expect(columns.releasedById.name).toBe("released_by_id");
+    expect(columns.releasedById.notNull).toBe(false);
+  });
+
   it("keeps the venue request status list identical to the Postgres enum (PTR-31, PTR-36, PTR-34)", () => {
     expect([...schema.venueRequestStatus.enumValues]).toEqual([
       "pending",

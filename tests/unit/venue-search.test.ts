@@ -103,9 +103,10 @@ function suits(
   candidate: Evaluate[0],
   search: Evaluate[1],
   blocks: Evaluate[2],
-  bookings: Evaluate[3] = []
+  bookings: Evaluate[3] = [],
+  holds: Evaluate[4] = []
 ) {
-  return evaluateVenueSuitability(candidate, search, blocks, bookings).suitable;
+  return evaluateVenueSuitability(candidate, search, blocks, bookings, holds).suitable;
 }
 
 describe("PTR-29 suitability rules", () => {
@@ -273,9 +274,10 @@ function failures(
   candidate: Evaluate[0],
   search: Evaluate[1],
   blocks: Evaluate[2],
-  bookings: Evaluate[3] = []
+  bookings: Evaluate[3] = [],
+  holds: Evaluate[4] = []
 ) {
-  return evaluateVenueSuitability(candidate, search, blocks, bookings).failures;
+  return evaluateVenueSuitability(candidate, search, blocks, bookings, holds).failures;
 }
 function criteria(...args: Parameters<typeof failures>): SuitabilityCriterion[] {
   return failures(...args).map(failure => failure.criterion);
@@ -450,5 +452,36 @@ describe("PTR-30 suitability reasons", () => {
         []
       )
     ).toEqual([{ criterion: "availability", message: "The requested window crosses midnight" }]);
+  });
+
+  it("names the tentative hold as an unsuitable reason (PTR-109 AC6)", () => {
+    const hold = {
+      id: "hold-1",
+      label: "Tentatively held",
+      startsAt: "2026-10-05T10:00:00",
+      endsAt: "2026-10-05T12:00:00",
+    };
+    expect(failures(venue, filters, [], [], [hold])).toEqual([
+      { criterion: "hold", message: "Tentatively held on 2026-10-05" },
+    ]);
+    expect(suits(venue, filters, [], [], [hold])).toBe(false);
+  });
+
+  it("names the booking ahead of a tentative hold for the same window", () => {
+    const booking = {
+      id: "booking-1",
+      label: "Annual dinner",
+      startsAt: "2026-10-05T10:00:00",
+      endsAt: "2026-10-05T12:00:00",
+    };
+    const hold = {
+      id: "hold-1",
+      label: "Tentatively held",
+      startsAt: "2026-10-05T10:00:00",
+      endsAt: "2026-10-05T12:00:00",
+    };
+    expect(failures(venue, filters, [], [booking], [hold])).toEqual([
+      { criterion: "booking", message: "Booked for Annual dinner on 2026-10-05" },
+    ]);
   });
 });

@@ -103,15 +103,21 @@ export interface AvailabilityPeriod {
 export interface AvailabilityRecord extends AvailabilityPeriod {
   id: string;
   label: string;
+  /** Whether the viewer may act on this record (PTR-109 hold release/convert). */
+  canRelease?: boolean;
+  canConvert?: boolean;
 }
 
 export interface OccupiedPeriod extends AvailabilityPeriod {
   id: string;
-  state: "confirmed" | "blocked";
+  state: "confirmed" | "blocked" | "tentative_hold";
   label: string;
   /** The part of the record that lies inside the requested range. */
   visibleStart: string;
   visibleEnd: string;
+  /** Copied from the source record; absent for bookings and blocks. */
+  canRelease?: boolean;
+  canConvert?: boolean;
 }
 
 export interface AvailabilityProjection {
@@ -125,8 +131,8 @@ export interface AvailabilityProjection {
  * policy, which no story owns yet.
  *
  * `bookings` carries the approved bookings `loadVenueBookings` reads (PTR-36); `blocks` are the
- * recorded unavailability. Both are positive-duration `[start, end)` extents, never permission
- * to create adjacent bookings.
+ * recorded unavailability; `holds` are the tentative holds (PTR-109). Both are positive-duration
+ * `[start, end)` extents, never permission to create adjacent bookings.
  */
 export function projectAvailability(
   range: AvailabilityPeriod,
@@ -134,6 +140,7 @@ export function projectAvailability(
     bookings: readonly AvailabilityRecord[];
     blocks: readonly AvailabilityRecord[];
     openPeriods: readonly AvailabilityPeriod[];
+    holds?: readonly AvailabilityRecord[];
   }
 ): AvailabilityProjection {
   if (compareTimestamps(range.endsAt, range.startsAt) <= 0) {
@@ -172,10 +179,13 @@ export function projectAvailability(
       endsAt: record.endsAt,
       visibleStart: visible.startsAt,
       visibleEnd: visible.endsAt,
+      canRelease: record.canRelease,
+      canConvert: record.canConvert,
     });
   }
   for (const booking of source.bookings) addOccupied(booking, "confirmed");
   for (const block of source.blocks) addOccupied(block, "blocked");
+  for (const hold of source.holds ?? []) addOccupied(hold, "tentative_hold");
   occupied.sort(
     (left, right) =>
       compareTimestamps(left.visibleStart, right.visibleStart) || left.id.localeCompare(right.id)

@@ -60,7 +60,7 @@ const queued: PendingVenueRequest = {
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",
   submittedAt: new Date("2030-11-01T01:00:00Z"),
-  conflict: false,
+  conflict: null,
 };
 
 const detail: PendingVenueRequestDetail = {
@@ -144,7 +144,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     const dialog = screen.getByRole("alertdialog");
     expect(dialog.textContent).toContain("Orchid Room on 18 Nov 2030, 09:30 – 12:00");
     expect(dialog.textContent).toContain(
-      "Approving holds the venue for that period and notifies the requesting Coordinator."
+      "Approving books the venue for that period and notifies the requesting Coordinator."
     );
     expect(approveVenueRequest).not.toHaveBeenCalled();
 
@@ -160,7 +160,7 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
       new Error("Orchid Room is already booked 18 Nov 2030, 09:00 – 10:00")
     );
     render(
-      <BookingRequestQueuePage user={venueStaff} requests={[{ ...queued, conflict: true }]} />
+      <BookingRequestQueuePage user={venueStaff} requests={[{ ...queued, conflict: "booking" }]} />
     );
 
     await confirmApproveDialog();
@@ -213,13 +213,20 @@ describe("approving a booking from the queue (PTR-33 AC1)", () => {
     expect(invalidate).not.toHaveBeenCalled();
   });
 
-  it("demotes the approve control on a row already flagged conflicting", () => {
+  it.each(["booking", "hold"] as const)("demotes the approve control on a row flagged %s", kind => {
     render(
-      <BookingRequestQueuePage user={venueStaff} requests={[{ ...queued, conflict: true }]} />
+      <BookingRequestQueuePage user={venueStaff} requests={[{ ...queued, conflict: kind }]} />
     );
 
     const button = screen.getByRole("button", { name: /Approve request for Orchid Room/ });
     expect(button.className).toContain("border-input");
+  });
+
+  it("leaves the approve control primary on a clear row", () => {
+    render(<BookingRequestQueuePage user={venueStaff} requests={[queued]} />);
+
+    const button = screen.getByRole("button", { name: /Approve request for Orchid Room/ });
+    expect(button.className).not.toContain("border-input");
   });
 
   it("offers no approval on an empty queue", () => {

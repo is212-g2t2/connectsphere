@@ -332,6 +332,8 @@ export const venueRequestStatus = pgEnum("venue_request_status", [
   "released",
 ]);
 
+export const venueHoldStatus = pgEnum("venue_hold_status", ["held", "released"]);
+
 export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status", [
   "requested",
   "reserved",
@@ -452,6 +454,41 @@ export const venueRequests = pgTable(
       // The wrapper is IMMUTABLE and already exists for ADR-5. It also avoids PostgreSQL 15's
       // refusal to use an enum value added earlier in the same migration transaction.
       .where(sql`venue_request_occupies_venue(${table.status})`),
+  ]
+);
+
+/**
+ * PTR-109: tentative venue holds placed by an event's assigned Coordinator.
+ * Holds reserve a venue for an event before final booking confirmation.
+ * Exactly one active hold or approved booking may exist for a venue/time slot.
+ */
+export const venueHolds = pgTable(
+  "venue_holds",
+  {
+    id: text("id").primaryKey(),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    venueId: integer("venue_id")
+      .notNull()
+      .references(() => venues.id),
+    startsAt: timestamp("starts_at", { mode: "string" }).notNull(),
+    endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
+    status: venueHoldStatus("status").default("held").notNull(),
+    heldById: text("held_by_id").references(() => user.id, { onDelete: "set null" }),
+    releasedById: text("released_by_id").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date()),
+  },
+  table => [
+    check("venue_holds_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
+    index("venue_holds_event_id_idx").on(table.eventId),
+    index("venue_holds_venue_id_starts_at_idx").on(table.venueId, table.startsAt),
+    index("venue_holds_held_by_id_idx").on(table.heldById),
+    index("venue_holds_released_by_id_idx").on(table.releasedById),
   ]
 );
 

@@ -12,10 +12,17 @@ import {
   VENUE_REQUEST_CONFLICT_MESSAGE,
   parseVenueAmendmentInput,
   parseVenueReleaseInput,
+  venueHoldConflictMessage,
   venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
+import {
+  assertSameVenue,
+  lockVenue,
+  lockVenueForRequest,
+  previewVenueForRequest,
+} from "#/features/venue-requests/venue-lock.server";
 import { normalizeDatabaseTimestamp } from "#/features/venues/availability";
-import { loadVenueBookings } from "#/features/venues/records.server";
+import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 import { sendEmail } from "#/lib/mailer.server";
@@ -189,16 +196,21 @@ export async function handleReleaseVenueBooking(
 ) {
   const input = parseVenueReleaseInput(data);
   const released = await database.transaction(async tx => {
+    const lockedVenueId = await lockVenueForRequest(tx, input.id);
+
     const rows = await tx
       .select({
         status: venueRequests.status,
         assignedStaffId: venueRequests.assignedStaffId,
+        venueId: venueRequests.venueId,
       })
       .from(venueRequests)
       .where(eq(venueRequests.id, input.id))
       .limit(1)
       .for("update");
-    assertActionableApprovedBooking(rows.at(0), actor);
+    const row = rows.at(0);
+    assertActionableApprovedBooking(row, actor);
+    assertSameVenue(lockedVenueId, row.venueId);
 
     const [updated] = await tx
       .update(venueRequests)
@@ -233,6 +245,24 @@ export async function handleAmendVenueBooking(
 
   const amended = await database
     .transaction(async tx => {
+      const currentVenueId = await previewVenueForRequest(tx, input.id);
+
+      const venueRows = await tx
+        .select({ name: venues.name })
+        .from(venues)
+        .where(eq(venues.id, input.venueId))
+        .limit(1);
+      const venue = venueRows.at(0);
+      if (!venue) throw new NotFoundError("Not Found");
+
+      // The preview took no lock, so the sorted pair below is the only lock order; two
+      // crossed amendments queue the same way instead of deadlocking on each other's second lock.
+      const venueIds = [...new Set([currentVenueId, input.venueId])].toSorted((a, b) => a - b);
+      for (const venueId of venueIds) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- every transaction takes locks in this order
+        await lockVenue(tx, venueId);
+      }
+
       const rows = await tx
         .select({
           status: venueRequests.status,
@@ -249,20 +279,7 @@ export async function handleAmendVenueBooking(
         .for("update", { of: venueRequests });
       const row = rows.at(0);
       assertActionableApprovedBooking(row, actor);
-
-      const venueRows = await tx
-        .select({ name: venues.name })
-        .from(venues)
-        .where(eq(venues.id, input.venueId))
-        .limit(1);
-      const venue = venueRows.at(0);
-      if (!venue) throw new NotFoundError("Not Found");
-
-      const venueIds = [...new Set([row.venueId, input.venueId])].toSorted((a, b) => a - b);
-      for (const venueId of venueIds) {
-        // oxlint-disable-next-line eslint/no-await-in-loop -- every transaction takes locks in this order
-        await tx.execute(sql`select pg_advisory_xact_lock(${venueId})`);
-      }
+      assertSameVenue(currentVenueId, row.venueId);
 
       const conflict = (await loadVenueBookings(tx, [input.venueId], startsAt, endsAt)).find(
         booking => booking.id !== input.id
@@ -273,6 +290,18 @@ export async function handleAmendVenueBooking(
             venueName: venue.name,
             startsAt: conflict.startsAt,
             endsAt: conflict.endsAt,
+          })
+        );
+      }
+
+      const holds = await loadVenueHolds(tx, [input.venueId], startsAt, endsAt);
+      const holdConflict = holds.at(0);
+      if (holdConflict) {
+        throw new ConflictError(
+          venueHoldConflictMessage({
+            venueName: venue.name,
+            startsAt: holdConflict.startsAt,
+            endsAt: holdConflict.endsAt,
           })
         );
       }

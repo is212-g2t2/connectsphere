@@ -98,9 +98,9 @@ export const saveVenue = createServerFn({ method: "POST" })
 export const getVenueAvailability = createServerFn({ method: "GET" })
   .validator(parseAvailabilityRequest)
   .middleware([requireVenueRead])
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const [{ db }, { handleGetVenueAvailability }] = await loadServer();
-    return { availability: await handleGetVenueAvailability(data, db) };
+    return { availability: await handleGetVenueAvailability(data, context.user.id, db) };
   });
 
 /** The calendar schedule as the client sees it — derived here, like `Venue` above. */

@@ -48,7 +48,7 @@ const detail: PendingVenueRequestDetail = {
   startsAt: "2030-11-18T09:30",
   endsAt: "2030-11-18T12:00",
   submittedAt: new Date("2030-11-01T01:00:00Z"),
-  conflict: false,
+  conflict: null,
   requirements: {
     eventTiming: "18 Nov 2030, 09:30 – 12:00",
     expectedAttendance: 85,
