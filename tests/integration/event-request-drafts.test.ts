@@ -1673,6 +1673,30 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         await database.insert(schema.user).values(extraCoordinators[1]).onConflictDoNothing();
       }
     });
+
+    it("refuses an accept whose account was deleted before it lands", async () => {
+      const { request, handover } = await pendingHandover();
+      await database.delete(schema.user).where(eq(schema.user.id, incoming.id));
+      try {
+        // Without the share lock this is the FK's raw 23503; with it, a typed refusal.
+        await expect(
+          handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
+        ).rejects.toMatchObject({ status: 409 });
+
+        const [stored] = await database
+          .select()
+          .from(schema.eventRequests)
+          .where(eq(schema.eventRequests.id, request.id));
+        expect(stored.assignedCoordinatorId).toBe(outgoing.id);
+        const [stillPending] = await database
+          .select()
+          .from(schema.eventHandovers)
+          .where(eq(schema.eventHandovers.id, handover.id));
+        expect(stillPending.decision).toBeNull();
+      } finally {
+        await database.insert(schema.user).values(extraCoordinators[1]).onConflictDoNothing();
+      }
+    });
   });
 
   describe("taking up a request for review (PTR-17)", () => {

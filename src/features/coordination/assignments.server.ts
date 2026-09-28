@@ -364,6 +364,14 @@ export async function handleAcceptEventHandover(
     ).at(0);
     if (!request) throw new NotFoundError("Not Found");
 
+    // Hold the accepting account while the assignment references it: a deletion racing this
+    // accept would otherwise surface a raw FK violation instead of a refusal. User before
+    // handover keeps the request → user → handover order the raise path uses.
+    const accepting = (
+      await tx.select({ id: user.id }).from(user).where(eq(user.id, actor.id)).for("share")
+    ).at(0);
+    if (!accepting) throw new ConflictError("Your account is no longer available.");
+
     const handover = (
       await tx.select().from(eventHandovers).where(eq(eventHandovers.id, id)).for("update")
     ).at(0);
@@ -461,6 +469,18 @@ export async function handleDeclineEventHandover(
   const { id } = parseEventHandoverId(data);
 
   const answered = await database.transaction(async tx => {
+    // Refuse a wrong actor before taking the row lock, matching accept: a guessed live id must
+    // not let any Coordinator lock another Coordinator's offer.
+    const offer = (
+      await tx
+        .select({ toCoordinatorId: eventHandovers.toCoordinatorId })
+        .from(eventHandovers)
+        .where(eq(eventHandovers.id, id))
+    ).at(0);
+    if (!offer || offer.toCoordinatorId !== actor.id) {
+      throw new AuthorizationError(HANDOVER_NOT_ANSWERABLE);
+    }
+
     const handover = (
       await tx.select().from(eventHandovers).where(eq(eventHandovers.id, id)).for("update")
     ).at(0);
