@@ -1,7 +1,10 @@
+import { useState } from "react";
+
 import { Link, useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { Page, PageHeader } from "#/components/layout/page";
+import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
   Table,
@@ -38,17 +41,26 @@ export function CoordinationPage({
   handovers: PendingEventHandover[];
 }) {
   const router = useRouter();
+  const [inFlight, setInFlight] = useState<{
+    id: number;
+    decision: "accepted" | "declined";
+  } | null>(null);
 
   const [answer, answerHandover, answering] = useMutation(
     async (input: { id: number; decision: "accepted" | "declined" }) => {
-      if (input.decision === "accepted") {
-        await acceptEventHandover({ data: { id: input.id } });
-        toast.success("Handover accepted.");
-      } else {
-        await declineEventHandover({ data: { id: input.id } });
-        toast.success("Handover declined.");
+      try {
+        if (input.decision === "accepted") {
+          await acceptEventHandover({ data: { id: input.id } });
+          toast.success("Handover accepted.");
+        } else {
+          await declineEventHandover({ data: { id: input.id } });
+          toast.success("Handover declined.");
+        }
+      } finally {
+        // A refusal usually means the offer was answered or replaced elsewhere; re-read either
+        // way so a dead offer does not stay on screen actionable. The reason still surfaces.
+        await router.invalidate();
       }
-      await router.invalidate();
     },
     "Could not answer this handover. Try again."
   );
@@ -65,7 +77,7 @@ export function CoordinationPage({
       />
 
       {handovers.length > 0 && (
-        <section aria-labelledby="handovers-heading">
+        <section className="mt-10" aria-labelledby="handovers-heading">
           <h2 id="handovers-heading" className="display-h2">
             Handovers awaiting your response
           </h2>
@@ -79,7 +91,6 @@ export function CoordinationPage({
                   <span className="font-medium">
                     {handover.eventName.trim() || UNTITLED_REQUEST}
                   </span>
-                  <EventRequestStatusBadge status={handover.status} />
                 </div>
                 <p className="mt-1 body-sm text-muted-foreground">
                   {handover.from?.name ?? "Another Coordinator"} offered this request to you on{" "}
@@ -89,17 +100,33 @@ export function CoordinationPage({
                   <Button
                     type="button"
                     disabled={answering}
-                    onClick={() => void answerHandover({ id: handover.id, decision: "accepted" })}
+                    aria-label={`Accept handover for ${handover.eventName.trim() || UNTITLED_REQUEST}`}
+                    onClick={() => {
+                      setInFlight({ id: handover.id, decision: "accepted" });
+                      void answerHandover({ id: handover.id, decision: "accepted" }).finally(() =>
+                        setInFlight(null)
+                      );
+                    }}
                   >
-                    Accept handover
+                    {inFlight?.id === handover.id && inFlight.decision === "accepted"
+                      ? "Accepting…"
+                      : "Accept handover"}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
                     disabled={answering}
-                    onClick={() => void answerHandover({ id: handover.id, decision: "declined" })}
+                    aria-label={`Decline handover for ${handover.eventName.trim() || UNTITLED_REQUEST}`}
+                    onClick={() => {
+                      setInFlight({ id: handover.id, decision: "declined" });
+                      void answerHandover({ id: handover.id, decision: "declined" }).finally(() =>
+                        setInFlight(null)
+                      );
+                    }}
                   >
-                    Decline handover
+                    {inFlight?.id === handover.id && inFlight.decision === "declined"
+                      ? "Declining…"
+                      : "Decline handover"}
                   </Button>
                 </div>
               </li>
@@ -113,7 +140,10 @@ export function CoordinationPage({
         </section>
       )}
 
-      <section aria-labelledby="assigned-heading">
+      <section
+        className={handovers.length > 0 ? "mt-10" : undefined}
+        aria-labelledby="assigned-heading"
+      >
         <h2 id="assigned-heading" className="display-h2">
           Assigned to you
         </h2>
@@ -135,11 +165,11 @@ export function CoordinationPage({
                     {request.eventName.trim() || UNTITLED_REQUEST}
                   </Link>
                   <EventRequestStatusBadge status={request.status} />
+                  {request.handoverTo ? (
+                    <Badge variant="progress">Handover to {request.handoverTo} pending</Badge>
+                  ) : null}
                 </div>
-                <p className="mt-1 body-sm text-muted-foreground">
-                  {request.organiser.name}
-                  {request.handoverTo ? ` — handover to ${request.handoverTo} pending` : ""}
-                </p>
+                <p className="mt-1 body-sm text-muted-foreground">{request.organiser.name}</p>
               </li>
             ))}
           </ul>

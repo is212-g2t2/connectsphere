@@ -91,6 +91,22 @@ export function CoordinationRequestPage({
     "Could not request this handover. Try again."
   );
 
+  // The coordinator selection, shared by pickup (immediate assignment) and handover (an offer).
+  const form = useForm({
+    defaultValues: { coordinatorId: "" },
+    validators: { onSubmit: CoordinatorSelection },
+    onSubmit: async ({ value, formApi }) => {
+      if (unassigned) {
+        await assign(value.coordinatorId);
+        return;
+      }
+      const result = await requestHandover(value.coordinatorId);
+      // Clear the selection only once the offer is recorded: an offer already waits on that
+      // Coordinator, and re-submitting the same choice would replace it and email them again.
+      if (result.status === "success") formApi.reset();
+    },
+  });
+
   // AC3: the assigned Coordinator moves a submitted request into review. Re-enter through the
   // list, same as `assign` above, so the page never has to reconcile a stale `request` prop
   // against the new status itself.
@@ -159,22 +175,12 @@ export function CoordinationRequestPage({
     },
   });
 
-  const form = useForm({
-    defaultValues: { coordinatorId: "" },
-    validators: { onSubmit: CoordinatorSelection },
-    onSubmit: async ({ value }) => {
-      await (unassigned ? assign(value.coordinatorId) : requestHandover(value.coordinatorId));
-    },
-  });
-
   const availableCoordinators = coordinators.filter(
     coordinator => coordinator.id !== request.assignedCoordinatorId
   );
 
   const pendingHandover = request.pendingHandover;
-  const pendingHandoverLabel = pendingHandover
-    ? (pendingHandover.toName ?? "the selected Coordinator")
-    : null;
+  const pendingHandoverLabel = pendingHandover?.toName ?? null;
 
   const canTakeUpForReview =
     request.status === "submitted" && request.assignedCoordinatorId === user.id;

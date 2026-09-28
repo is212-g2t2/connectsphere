@@ -112,7 +112,9 @@ test("hands an event over only once the incoming Coordinator accepts", async ({
     await page.getByRole("link", { name: eventName }).click();
     await waitForHydration(page);
     await page.locator("#coordinatorId").click();
-    await page.getByRole("option", { name: incoming.name }).click();
+    // The email is unique and part of the option's label, so a substring match cannot pick a
+    // concurrently registered Coordinator whose name contains this one.
+    await page.getByRole("option", { name: incoming.email }).click();
     await page.getByRole("button", { name: "Hand over" }).click();
     await expect(page.getByText(/You remain the assigned Coordinator/)).toBeVisible();
     await expect(page.getByText(/Offered to Incoming Coordinator/)).toBeVisible();
@@ -196,7 +198,7 @@ test("declines a handover and leaves the event with the outgoing Coordinator", a
     await page.goto(`/coordination/${request.id}`);
     await waitForHydration(page);
     await page.locator("#coordinatorId").click();
-    await page.getByRole("option", { name: incoming.name }).click();
+    await page.getByRole("option", { name: incoming.email }).click();
     await page.getByRole("button", { name: "Hand over" }).click();
     await expect(page.getByText(/Offered to Decline Incoming Coordinator/)).toBeVisible();
 

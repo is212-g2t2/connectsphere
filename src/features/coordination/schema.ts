@@ -31,9 +31,12 @@ export function parseAssignmentInput(input: unknown): AssignmentValues {
  */
 const EVENT_HANDOVER_ID_MESSAGE = "Choose a handover";
 
-const EventHandoverIdInput = z.object({
-  id: z.int32({ error: EVENT_HANDOVER_ID_MESSAGE }).positive(EVENT_HANDOVER_ID_MESSAGE),
-});
+const EventHandoverIdInput = z.object(
+  {
+    id: z.int32({ error: EVENT_HANDOVER_ID_MESSAGE }).positive(EVENT_HANDOVER_ID_MESSAGE),
+  },
+  { error: EVENT_HANDOVER_ID_MESSAGE }
+);
 
 export function parseEventHandoverId(input: unknown): { id: number } {
   const parsed = EventHandoverIdInput.safeParse(input);

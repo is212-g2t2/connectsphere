@@ -74,7 +74,6 @@ const handover: PendingEventHandover = {
   id: 11,
   requestedAt: new Date("2026-09-25T02:00:00Z"),
   eventName: "Annual dinner",
-  status: "submitted",
   organiser: { name: "Jane Doe" },
   from: { name: "Alex" },
 };
@@ -147,7 +146,8 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
     };
     render(<CoordinationPage unassigned={[]} assigned={[assignedRow]} handovers={[]} />);
 
-    expect(screen.getByText("Jane Doe — handover to Bailey pending")).toBeTruthy();
+    expect(screen.getByText("Jane Doe")).toBeTruthy();
+    expect(screen.getByText("Handover to Bailey pending")).toBeTruthy();
   });
 });
 
@@ -164,7 +164,7 @@ describe("Handovers awaiting a response (PTR-110)", () => {
 
   it("accepts a handover and re-reads the page", async () => {
     render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
-    await userEvent.click(screen.getByRole("button", { name: "Accept handover" }));
+    await userEvent.click(screen.getByRole("button", { name: /Accept handover/ }));
 
     await waitFor(() => expect(acceptEventHandover).toHaveBeenCalledWith({ data: { id: 11 } }));
     expect(declineEventHandover).not.toHaveBeenCalled();
@@ -174,7 +174,7 @@ describe("Handovers awaiting a response (PTR-110)", () => {
 
   it("declines a handover and re-reads the page", async () => {
     render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
-    await userEvent.click(screen.getByRole("button", { name: "Decline handover" }));
+    await userEvent.click(screen.getByRole("button", { name: /Decline handover/ }));
 
     await waitFor(() => expect(declineEventHandover).toHaveBeenCalledWith({ data: { id: 11 } }));
     expect(acceptEventHandover).not.toHaveBeenCalled();
@@ -182,17 +182,36 @@ describe("Handovers awaiting a response (PTR-110)", () => {
     expect(invalidate).toHaveBeenCalled();
   });
 
-  it("shows a refusal without pretending the handover was answered", async () => {
+  it("shows a refusal without pretending the handover was answered, and re-reads the list", async () => {
     acceptEventHandover.mockRejectedValue(new Error("This handover has already been answered."));
     render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
-    await userEvent.click(screen.getByRole("button", { name: "Accept handover" }));
+    await userEvent.click(screen.getByRole("button", { name: /Accept handover/ }));
 
     expect(await screen.findByRole("alert")).toHaveProperty(
       "textContent",
       "This handover has already been answered."
     );
     expect(success).not.toHaveBeenCalled();
-    expect(invalidate).not.toHaveBeenCalled();
+    // The offer is dead server-side; re-read so it does not stay actionable.
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("labels the answer in flight with the event for assistive tech", async () => {
+    const { promise, resolve } = Promise.withResolvers<unknown>();
+    acceptEventHandover.mockReturnValue(promise);
+    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+
+    const accept = screen.getByRole("button", { name: "Accept handover for Annual dinner" });
+    await userEvent.click(accept);
+    expect(accept.textContent).toBe("Accepting…");
+    expect(accept).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: /Decline handover/ })).toHaveProperty(
+      "disabled",
+      true
+    );
+
+    resolve({});
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
   it("hides the section when no handover waits", () => {

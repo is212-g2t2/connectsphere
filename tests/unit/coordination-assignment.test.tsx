@@ -7,6 +7,7 @@ import {
   DECISION_REASON_REQUIRED,
   parseAssignmentInput,
   parseDecisionInput,
+  parseEventHandoverId,
 } from "#/features/coordination/schema";
 import type { AssignmentValues } from "#/features/coordination/schema";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
@@ -127,6 +128,17 @@ describe("assignment validation", () => {
       })
     ).toEqual({ id: 7, coordinatorId: "coord-b", expectedCoordinatorId: null });
   });
+
+  it("requires a handover id that could identify a row", () => {
+    expect(() => parseEventHandoverId(undefined)).toThrow("Choose a handover");
+    expect(() => parseEventHandoverId({})).toThrow("Choose a handover");
+    expect(() => parseEventHandoverId({ id: "3" })).toThrow("Choose a handover");
+    expect(() => parseEventHandoverId({ id: 0 })).toThrow("Choose a handover");
+    expect(() => parseEventHandoverId({ id: -4 })).toThrow("Choose a handover");
+    expect(() => parseEventHandoverId({ id: 2.5 })).toThrow("Choose a handover");
+    expect(() => parseEventHandoverId({ id: 3_000_000_000 })).toThrow("Choose a handover");
+    expect(parseEventHandoverId({ id: 4 })).toEqual({ id: 4 });
+  });
 });
 
 describe("decision validation", () => {
@@ -182,8 +194,10 @@ describe("Coordinator handover and pickup", () => {
       />
     );
     expect(screen.queryByRole("button", { name: "Assign to me" })).toBeNull();
-    expect(screen.queryByRole("option", { name: /Alex/ })).toBeNull();
     await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    // The options are only in the DOM once the select is open, so the current assignee's
+    // exclusion is asserted here and not on an empty listbox.
+    expect(screen.queryByRole("option", { name: /Alex/ })).toBeNull();
     await userEvent.click(await screen.findByRole("option", { name: /Bailey/ }));
     await userEvent.click(screen.getByRole("button", { name: "Hand over" }));
     await waitFor(() =>
@@ -195,6 +209,13 @@ describe("Coordinator handover and pickup", () => {
     // The outgoing Coordinator keeps the request, so the page stays and re-reads it.
     expect(invalidate).toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+    // The selection clears, so a second raise does not silently replace the offer with the same
+    // Coordinator and email them again.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Event Coordinator").textContent).toContain(
+        "Choose an Event Coordinator"
+      )
+    );
   });
 
   it("shows the pending handover and offers a replacement while it waits", async () => {

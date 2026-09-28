@@ -141,8 +141,8 @@ export async function handleGetCoordinationRequest(
 
   // PTR-110: the live offer, but only while it is still this assignment's offer — the outgoing
   // Coordinator sees it and cannot raise a second one. A row the current assignment has moved
-  // past (account deletion, a direct move), or one on a decided request, is not shown as if it
-  // still waited.
+  // past (account deletion, a direct move), one on a decided request, or one whose incoming
+  // account no longer exists (the inner join) is not shown as if it still waited.
   const pendingHandover =
     request.assignedCoordinatorId === null ||
     request.status === "approved" ||
@@ -155,7 +155,7 @@ export async function handleGetCoordinationRequest(
               toName: handoverTargets.name,
             })
             .from(eventHandovers)
-            .leftJoin(handoverTargets, eq(handoverTargets.id, eventHandovers.toCoordinatorId))
+            .innerJoin(handoverTargets, eq(handoverTargets.id, eventHandovers.toCoordinatorId))
             .where(
               and(
                 eq(eventHandovers.eventRequestId, id),
@@ -318,10 +318,12 @@ export async function handleRequestEventHandover(
  * exactly one assigned Coordinator. The handover row lock settles accept-versus-decline exactly
  * once; the request row lock makes the move and its audit entry atomic with the decision.
  *
- * Locks are taken in the same order as a raise (request, then handover): the unlocked read only
- * learns which request to lock first, so a concurrent raise cannot deadlock against an accept.
- * An offer whose request moved on (the account was deleted, or a direct reassignment slipped in)
- * is resolved as declined — that still records who answered and when — and refused with 409.
+ * Locks are taken in the same order as a raise (request, then handover): the unlocked read learns
+ * which request to lock first and refuses anyone but the addressee before a lock is taken, so a
+ * concurrent raise cannot deadlock against an accept and a wrong actor cannot lock another
+ * assignment. An offer whose request moved on (the account was deleted, or a direct reassignment
+ * slipped in) is resolved as declined — that still records who answered and when — and refused
+ * with 409.
  *
  * The Organiser is emailed after the commit, best effort.
  */
@@ -335,11 +337,18 @@ export async function handleAcceptEventHandover(
   const outcome = await database.transaction(async tx => {
     const offer = (
       await tx
-        .select({ eventRequestId: eventHandovers.eventRequestId })
+        .select({
+          eventRequestId: eventHandovers.eventRequestId,
+          toCoordinatorId: eventHandovers.toCoordinatorId,
+        })
         .from(eventHandovers)
         .where(eq(eventHandovers.id, id))
     ).at(0);
-    if (!offer) throw new AuthorizationError(HANDOVER_NOT_ANSWERABLE);
+    // Refuse a wrong actor before taking any lock: an addressee check only under the locks would
+    // let any Coordinator briefly lock another assignment by presenting a guessed live id.
+    if (!offer || offer.toCoordinatorId !== actor.id) {
+      throw new AuthorizationError(HANDOVER_NOT_ANSWERABLE);
+    }
 
     const request = (
       await tx
@@ -520,7 +529,6 @@ export async function handleListPendingEventHandovers(actor: SessionUser, databa
       id: eventHandovers.id,
       requestedAt: eventHandovers.requestedAt,
       eventName: eventRequests.eventName,
-      status: eventRequests.status,
       organiser: { name: organisers.name },
       from: { name: handoverSenders.name },
     })
