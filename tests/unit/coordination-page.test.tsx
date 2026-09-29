@@ -65,6 +65,7 @@ const waiting: UnassignedEventRequest = {
   registrationCapacity: null,
   registrationOpensAt: null,
   registrationClosesAt: null,
+  equipmentSubmittedAt: null,
   createdAt: new Date("2026-09-14T00:00:00Z"),
   updatedAt: new Date("2026-09-15T02:00:00Z"),
   organiser: { name: "Jane Doe", email: "jane.doe@example.com" },

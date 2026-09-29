@@ -60,6 +60,7 @@ const base: EventRequestDetail = {
   proposedDates: [],
   expectedAttendance: null,
   description: "",
+  equipmentSubmittedAt: null,
   eventType: "",
   venueRequirements: "",
   roomLayoutPreference: "",

@@ -18,6 +18,7 @@ import {
   clarificationRequests,
   eventAssignments,
   eventHandovers,
+  equipmentRequests,
   eventRequests,
   user,
 } from "#/db/schema";
@@ -672,6 +673,28 @@ export async function handleDecideEventRequest(
       })
       .where(eq(eventRequests.id, request.id))
       .returning();
+
+    // PTR-38 AC2: an approval seeds the Coordinator's equipment panel from the organiser's
+    // original draft lines. Only lines that are fully specified (type + quantity) are carried
+    // over; blank or half-typed lines the draft kept while editing are skipped. This runs inside
+    // the same transaction so the rows are visible the moment the event becomes `approved`.
+    if (input.decision === "approved") {
+      const draftLines = request.equipmentRequirements.filter(
+        (line): line is { type: string; quantity: number } =>
+          line.type.trim() !== "" && line.quantity !== undefined
+      );
+      if (draftLines.length > 0) {
+        await tx.insert(equipmentRequests).values(
+          draftLines.map(line => ({
+            id: crypto.randomUUID(),
+            eventId: request.id,
+            item: line.type,
+            quantity: line.quantity,
+            notes: null,
+          }))
+        );
+      }
+    }
 
     return {
       recorded: updated,

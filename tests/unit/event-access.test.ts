@@ -55,7 +55,15 @@ describe("event access", () => {
       request,
       "venue_staff",
       null,
-      [{ id: "line-1", item: "Projector", arrangementStatus: "reserved", notes: "Private note" }],
+      [
+        {
+          id: "line-1",
+          item: "Projector",
+          quantity: 1,
+          arrangementStatus: "reserved",
+          notes: "Private note",
+        },
+      ],
       { status: "pending" }
     );
     expect(result.event).toMatchObject({
@@ -78,7 +86,15 @@ describe("event access", () => {
       request,
       "technical_support",
       null,
-      [{ id: "line-1", item: "Projector", arrangementStatus: "reserved", notes: "Private note" }],
+      [
+        {
+          id: "line-1",
+          item: "Projector",
+          quantity: 1,
+          arrangementStatus: "reserved",
+          notes: "Private note",
+        },
+      ],
       null
     );
     expect(result.event.equipment).toHaveLength(1);

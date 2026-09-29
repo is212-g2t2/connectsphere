@@ -15,6 +15,7 @@ import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   getEventAccess,
+  isEquipmentQueueRow,
   isRegistrationWindowOpen,
   isVenueQueueRow,
   projectEvent,
@@ -122,7 +123,15 @@ export async function handleListEvents(
           database
             .select({ id: equipmentRequests.eventId })
             .from(equipmentRequests)
-            .where(eq(equipmentRequests.assignedStaffId, user.id))
+            .where(
+              or(
+                eq(equipmentRequests.assignedStaffId, user.id),
+                and(
+                  eq(equipmentRequests.arrangementStatus, "requested"),
+                  isNull(equipmentRequests.assignedStaffId)
+                )
+              )
+            )
         )
       );
       break;
@@ -260,7 +269,7 @@ export async function handleListEvents(
         row.eventId === record.id && isVenueQueueRow(row, user.id) ? [user.id] : []
       ),
       technicalSupportIds: equipmentRows.flatMap(row =>
-        row.eventId === record.id && row.assignedStaffId ? [row.assignedStaffId] : []
+        row.eventId === record.id && isEquipmentQueueRow(row, user.id) ? [user.id] : []
       ),
       isRegistrationWindowOpen: isRegistrationWindowOpen(record, now),
       hasOwnRegistration: ownRegistration !== null,
@@ -275,6 +284,7 @@ export async function handleListEvents(
       .map(row => ({
         id: row.id,
         item: row.item,
+        quantity: row.quantity,
         arrangementStatus: row.arrangementStatus,
         notes: row.notes,
       }));

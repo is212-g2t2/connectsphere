@@ -1,0 +1,16 @@
+ scripts/seed.ts                                    |   1 [32m+[m
+ src/db/drizzle/meta/_journal.json                  |   9 [32m+[m[31m-[m
+ src/db/schema.ts                                   |  11 [32m++[m
+ src/features/auth/permissions.ts                   |   7 [32m++[m
+ src/features/coordination/assignments.server.ts    |  24 [32m++++[m[31m-[m
+ src/features/events/access.ts                      |  25 [32m++++[m[31m-[m
+ src/features/events/components/event-workspace.tsx |  93 [32m+++++++++++[m[31m------[m
+ src/features/events/records.server.ts              | 111 [32m+++++++++++++[m[31m--------[m
+ tests/integration/event-list.test.ts               |   5 [32m+[m
+ tests/unit/coordination-assignment.test.tsx        |   1 [32m+[m
+ tests/unit/coordination-clarification.test.tsx     |   1 [32m+[m
+ tests/unit/coordination-page.test.tsx              |   1 [32m+[m
+ tests/unit/event-access.test.ts                    |   4 [32m+[m[31m-[m
+ tests/unit/event-request-list-page.test.tsx        |   1 [32m+[m
+ tests/unit/event-request-page.test.tsx             |   1 [32m+[m
+ 15 files changed, 223 insertions(+), 72 deletions(-)

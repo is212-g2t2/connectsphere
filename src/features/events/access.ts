@@ -98,6 +98,7 @@ interface EventRecord {
   description: string;
   status: EventRequestStatus;
   proposedDates: Array<{ start?: string; end?: string }>;
+  equipmentSubmittedAt?: Date | null;
   expectedAttendance: number | null;
   roomLayoutPreference: string;
   accessibilityRequirements: string;
@@ -159,6 +160,7 @@ export interface EventProjection {
     endDate?: string | null;
     startTime: string | null;
     endTime: string | null;
+    equipmentSubmittedAt?: string | null;
     status: EventRequestStatus;
     registrationOpensAt?: string | null;
     registrationClosesAt?: string | null;
@@ -171,6 +173,7 @@ export interface EventProjection {
     equipment?: Array<{
       id: string;
       item: string;
+      quantity: number;
       arrangementStatus: string;
       notes: string | null;
     }>;
@@ -185,7 +188,13 @@ export function projectEvent(
   record: EventRecord,
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
-  equipment: Array<{ id: string; item: string; arrangementStatus: string; notes: string | null }>,
+  equipment: Array<{
+    id: string;
+    item: string;
+    quantity: number;
+    arrangementStatus: string;
+    notes: string | null;
+  }>,
   venueRequest: EventVenueRequest | null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
@@ -254,6 +263,7 @@ export function projectEvent(
           requiredFacilities: record.venueRequirements,
           equipment,
           venueRequest,
+          equipmentSubmittedAt: record.equipmentSubmittedAt?.toISOString() ?? null,
         },
       };
 
@@ -264,4 +274,17 @@ export function projectEvent(
       throw new Error(`No event projection for access "${String(unhandled)}"`);
     }
   }
+}
+/**
+ * The shared equipment queue (PTR-39 AC1), mirroring isVenueQueueRow: an unassigned,
+ * newly-requested line is visible to every Technical Support Staff member; once a line is
+ * picked up (assignedStaffId set), only that staff member sees it through this row.
+ */
+export function isEquipmentQueueRow(
+  row: { assignedStaffId: string | null; arrangementStatus: string },
+  userId: string
+): boolean {
+  return row.assignedStaffId === null
+    ? row.arrangementStatus === "requested"
+    : row.assignedStaffId === userId;
 }
