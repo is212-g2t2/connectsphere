@@ -4,6 +4,8 @@ import {
   EQUIPMENT_QUANTITY_MESSAGE,
   EQUIPMENT_TYPE_MAX_LENGTH,
   EQUIPMENT_TYPE_MESSAGE,
+  parseWholeNumber,
+  PositiveWholeNumber,
 } from "#/features/event-requests/schema";
 
 /**
@@ -16,8 +18,27 @@ export const EQUIPMENT_NOTES_MESSAGE = `Notes must be ${EQUIPMENT_NOTES_MAX} cha
 export const EQUIPMENT_NO_LINES_MESSAGE =
   "No equipment lines recorded. Add at least one line before submitting.";
 
+/** One equipment line as the panel, the email and the server pass it around. */
+export interface EquipmentLine {
+  id: string;
+  item: string;
+  quantity: number;
+  notes: string | null;
+}
+
+/**
+ * The statuses a Coordinator may edit equipment on: approved (AC1) and planning (AC4 says "not
+ * yet confirmed", which is the `planning` stage before `confirmed`).
+ */
+const EQUIPMENT_EDITABLE_STATUSES = ["approved", "planning"] as const;
+
+/** Whether the coordinator panel is editable at this event status. */
+export function isEquipmentEditableStatus(status: string): boolean {
+  return (EQUIPMENT_EDITABLE_STATUSES as readonly string[]).includes(status);
+}
+
 // Shared id shape: text primary key, same rule as `VenueRequestIdInput`.
-const EquipmentRequestId = z
+const EquipmentLineId = z
   .string({ error: "Choose an equipment line" })
   .trim()
   .min(1, "Choose an equipment line")
@@ -31,40 +52,41 @@ const EquipmentRequestId = z
 export const EquipmentLineInput = z.object({
   eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
   /** Present on edit, absent on add. */
-  id: EquipmentRequestId.optional(),
+  id: EquipmentLineId.optional(),
   item: z
     .string()
     .trim()
     .min(1, "Enter an equipment type")
     .max(EQUIPMENT_TYPE_MAX_LENGTH, EQUIPMENT_TYPE_MESSAGE),
-  quantity: z
-    .number({ error: EQUIPMENT_QUANTITY_MESSAGE })
-    .int(EQUIPMENT_QUANTITY_MESSAGE)
-    .positive(EQUIPMENT_QUANTITY_MESSAGE)
-    .max(2_147_483_647, "Equipment quantity is larger than this record can store"),
-  notes: z.string().max(EQUIPMENT_NOTES_MAX, EQUIPMENT_NOTES_MESSAGE).optional(),
+  quantity: PositiveWholeNumber(
+    EQUIPMENT_QUANTITY_MESSAGE,
+    "Equipment quantity is larger than this record can store"
+  ),
+  notes: z.string().trim().max(EQUIPMENT_NOTES_MAX, EQUIPMENT_NOTES_MESSAGE).optional(),
 });
 
 export type EquipmentLineValues = z.infer<typeof EquipmentLineInput>;
 
-export function parseEquipmentLineInput(data: unknown): EquipmentLineValues {
-  const parsed = EquipmentLineInput.safeParse(data);
+function parseOrThrow<T>(schema: z.ZodType<T>, data: unknown): T {
+  const parsed = schema.safeParse(data);
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;
+}
+
+export function parseEquipmentLineInput(data: unknown): EquipmentLineValues {
+  return parseOrThrow(EquipmentLineInput, data);
 }
 
 /** PTR-38 AC4: remove one line. */
 export const RemoveEquipmentLineInput = z.object({
   eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
-  id: EquipmentRequestId,
+  id: EquipmentLineId,
 });
 
 export type RemoveEquipmentLineValues = z.infer<typeof RemoveEquipmentLineInput>;
 
 export function parseRemoveEquipmentLineInput(data: unknown): RemoveEquipmentLineValues {
-  const parsed = RemoveEquipmentLineInput.safeParse(data);
-  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
-  return parsed.data;
+  return parseOrThrow(RemoveEquipmentLineInput, data);
 }
 
 /** PTR-38 AC5: submit the full set to Technical Support. Only the event id is needed. */
@@ -75,9 +97,7 @@ export const SubmitEquipmentInput = z.object({
 export type SubmitEquipmentValues = z.infer<typeof SubmitEquipmentInput>;
 
 export function parseSubmitEquipmentInput(data: unknown): SubmitEquipmentValues {
-  const parsed = SubmitEquipmentInput.safeParse(data);
-  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
-  return parsed.data;
+  return parseOrThrow(SubmitEquipmentInput, data);
 }
 
 // ── Form shapes (string-leaf values for React inputs) ─────────────────────────────────────────
@@ -91,12 +111,6 @@ export const EquipmentLineFormShape = z.object({
   quantity: z.string(),
   notes: z.string(),
 });
-
-export type EquipmentLineFormValues = z.infer<typeof EquipmentLineFormShape>;
-
-function parseWholeNumber(value: string) {
-  return /^\d+$/.test(value) ? Number(value) : Number.NaN;
-}
 
 /**
  * Form validator: the same gate the server uses, so every field is checked once and each message

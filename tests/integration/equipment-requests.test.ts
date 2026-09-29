@@ -1,5 +1,3 @@
-// tests/integration/equipment.server.test.ts
-//
 // Mirrors event-list.test.ts: a local node-postgres drizzle instance, not the app's `#/db`
 // (which is configured with the bun-sql driver and does not accept this codebase's query shapes
 // in a test context — see the "client.unsafe is not a function" failure this replaces).
@@ -20,6 +18,7 @@ import {
 } from "#/features/equipment-requests/equipment.server";
 import { handleDecideEventRequest } from "#/features/coordination/assignments.server";
 import { handleListEvents } from "#/features/events/records.server";
+import { EQUIPMENT_MAX_LINES } from "#/features/event-requests/schema";
 import { EQUIPMENT_NO_LINES_MESSAGE } from "#/features/equipment-requests/schema";
 
 const sendEmail = vi.hoisted(() =>
@@ -28,6 +27,8 @@ const sendEmail = vi.hoisted(() =>
 vi.mock("#/lib/mailer.server", () => ({ sendEmail }));
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const actor = (id: string, role: string): SessionUser => ({
   id,
@@ -39,6 +40,7 @@ const actor = (id: string, role: string): SessionUser => ({
 const coordinator = actor("seed-coordinator-1", "event_coordinator");
 const stranger = actor("some-other-coordinator", "event_coordinator");
 const techSupport = actor("seed-tech-support-1", "technical_support_staff");
+const otherTechSupport = actor("other-tech-support", "technical_support_staff");
 
 describe("equipment handlers (PTR-38 / PTR-39)", () => {
   let pool: Pool;
@@ -54,18 +56,29 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
     // handleAssignEventRequest-style lookups (and this file's own checks) have a real row.
     await database
       .insert(schema.user)
-      .values({
-        id: stranger.id,
-        name: "Some Other Coordinator",
-        email: "stranger.coordinator@example.com",
-        emailVerified: true,
-        role: "event_coordinator",
-      })
+      .values([
+        {
+          id: stranger.id,
+          name: "Some Other Coordinator",
+          email: "stranger.coordinator@example.com",
+          emailVerified: true,
+          role: "event_coordinator",
+        },
+        {
+          id: otherTechSupport.id,
+          name: "Other Tech Support",
+          email: "other.tech.support@example.com",
+          emailVerified: true,
+          role: "technical_support_staff",
+        },
+      ])
       .onConflictDoNothing();
   });
 
   afterAll(async () => {
-    await database.delete(schema.user).where(eq(schema.user.id, stranger.id));
+    await database
+      .delete(schema.user)
+      .where(inArray(schema.user.id, [stranger.id, otherTechSupport.id]));
     await pool.end();
   });
 
@@ -278,6 +291,40 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       const message = cause instanceof Error ? cause.message : String(caught);
       expect(message).toMatch(/equipment_requests_quantity_positive|check constraint/i);
     });
+
+    const seedLines = (eventId: number, n: number) =>
+      database.insert(schema.equipmentRequests).values(
+        Array.from({ length: n }, (_, i) => ({
+          id: crypto.randomUUID(),
+          eventId,
+          item: `Line ${i}`,
+          quantity: 1,
+        }))
+      );
+
+    test(`a full event (${EQUIPMENT_MAX_LINES} lines) refuses another add`, async () => {
+      const id = await createEvent("approved");
+      await seedLines(id, EQUIPMENT_MAX_LINES);
+      await expect(
+        handleSaveEquipmentLine(
+          { eventId: id, item: "Overflow", quantity: 1 },
+          coordinator,
+          database as never
+        )
+      ).rejects.toBeInstanceOf(ConflictError);
+      expect(await linesOf(id)).toHaveLength(EQUIPMENT_MAX_LINES);
+    });
+
+    test("one below the cap still accepts an add", async () => {
+      const id = await createEvent("approved");
+      await seedLines(id, EQUIPMENT_MAX_LINES - 1);
+      await handleSaveEquipmentLine(
+        { eventId: id, item: "Last slot", quantity: 1 },
+        coordinator,
+        database as never
+      );
+      expect(await linesOf(id)).toHaveLength(EQUIPMENT_MAX_LINES);
+    });
   });
 
   describe("handleRemoveEquipmentLine", () => {
@@ -399,16 +446,139 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       expect(await linesOf(id)).toHaveLength(1);
     });
 
-    test("a draft line with quantity 0 rolls the approval back", async () => {
+    test("a draft line with quantity 0 is skipped while valid lines are seeded", async () => {
       const id = await createEvent("under_review", {
-        equipmentRequirements: [{ type: "Bad", quantity: 0 }] as never,
+        equipmentRequirements: [
+          { type: "Good", quantity: 2 },
+          { type: "Bad", quantity: 0 },
+        ] as never,
       });
-      await expect(decide(id, "approved")).rejects.toThrow(/invalid|quantity|check/i);
+      await decide(id, "approved");
+
+      const rows = await linesOf(id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ item: "Good", quantity: 2 });
       const [row] = await database
         .select({ status: schema.eventRequests.status })
         .from(schema.eventRequests)
         .where(eq(schema.eventRequests.id, id));
-      expect(row.status).toBe("under_review");
+      expect(row.status).toBe("approved");
+    });
+
+    // A row saved before the draft cap could carry more lines than the panel allows. The seed
+    // slices to the cap so the panel's invariant holds whatever a legacy draft holds.
+    test("AC2: a legacy draft over the cap seeds only EQUIPMENT_MAX_LINES", async () => {
+      const legacy = Array.from({ length: EQUIPMENT_MAX_LINES + 20 }, (_, i) => ({
+        type: `Legacy ${i}`,
+        quantity: 1,
+      }));
+      const id = await createEvent("under_review", {
+        equipmentRequirements: legacy,
+      });
+      await decide(id, "approved");
+
+      const rows = await linesOf(id);
+      expect(rows).toHaveLength(EQUIPMENT_MAX_LINES);
+      expect(rows.every(row => row.item.startsWith("Legacy "))).toBe(true);
+    });
+  });
+
+  // ── Row locks & concurrency ───────────────────────────────────────────────────────────────
+  describe("row locks serialize submit against edits", () => {
+    const seedLines = (eventId: number, n: number) =>
+      database.insert(schema.equipmentRequests).values(
+        Array.from({ length: n }, (_, i) => ({
+          id: crypto.randomUUID(),
+          eventId,
+          item: `Line ${i}`,
+          quantity: 1,
+        }))
+      );
+
+    // Each test drives a second raw connection holding the event row lock, while the handler
+    // under test runs on the pooled drizzle connection. The handler's `FOR UPDATE` must block
+    // on that lock; if `loadEditableEvent` drops `.for("update")`, the handler reads the row
+    // before the submit commits and its write succeeds, so the assertion flips.
+    test("a save racing a submit commit is refused and inserts nothing", async () => {
+      const id = await createEvent("approved");
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        await client.query("select id from event_requests where id = $1 for update", [id]);
+
+        const saving = handleSaveEquipmentLine(
+          { eventId: id, item: "Projector", quantity: 1 },
+          coordinator,
+          database as never
+        );
+        // Give the save time to reach its locked read before the submit commits.
+        await sleep(150);
+        await client.query(
+          "update event_requests set equipment_submitted_at = now() where id = $1",
+          [id]
+        );
+        await client.query("commit");
+
+        await expect(saving).rejects.toBeInstanceOf(ConflictError);
+      } finally {
+        client.release();
+      }
+      expect(await linesOf(id)).toHaveLength(0);
+    });
+
+    test("a remove racing a submit commit is refused and the line survives", async () => {
+      const id = await createEvent("approved");
+      const line = await handleSaveEquipmentLine(
+        { eventId: id, item: "X", quantity: 1 },
+        coordinator,
+        database as never
+      );
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        await client.query("select id from event_requests where id = $1 for update", [id]);
+
+        const removing = handleRemoveEquipmentLine(
+          { eventId: id, id: line.id },
+          coordinator,
+          database as never
+        );
+        await sleep(150);
+        await client.query(
+          "update event_requests set equipment_submitted_at = now() where id = $1",
+          [id]
+        );
+        await client.query("commit");
+
+        await expect(removing).rejects.toBeInstanceOf(ConflictError);
+      } finally {
+        client.release();
+      }
+      expect(await linesOf(id)).toHaveLength(1);
+    });
+
+    test("two adds racing for the last slot: exactly one wins and the cap holds", async () => {
+      const id = await createEvent("approved");
+      await seedLines(id, EQUIPMENT_MAX_LINES - 1);
+
+      const results = await Promise.allSettled([
+        handleSaveEquipmentLine(
+          { eventId: id, item: "First", quantity: 1 },
+          coordinator,
+          database as never
+        ),
+        handleSaveEquipmentLine(
+          { eventId: id, item: "Second", quantity: 1 },
+          coordinator,
+          database as never
+        ),
+      ]);
+
+      expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+      const rejected = results.filter(r => r.status === "rejected");
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0].reason).toBeInstanceOf(ConflictError);
+      expect(await linesOf(id)).toHaveLength(EQUIPMENT_MAX_LINES);
     });
   });
 
@@ -427,7 +597,7 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       expect(sendEmail).not.toHaveBeenCalled();
     });
 
-    test("AC5: with lines -> stamps the event, returns lines and only tech-support emails", async () => {
+    test("AC5: with lines -> stamps the event, returns counts, and emails every technical-support user", async () => {
       const id = await createEvent("approved");
       await handleSaveEquipmentLine(
         { eventId: id, item: "Projector", quantity: 1 },
@@ -441,10 +611,57 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
         database as never
       );
 
-      expect(result.lines).toHaveLength(1);
-      expect(result.recipientEmails).toContain("tech.support.seed@example.com");
-      expect(result.recipientEmails).not.toContain("coordinator.seed@example.com");
-      expect(result.recipientEmails).not.toContain("jane.doe@example.com");
+      const techRows = await database
+        .select({ email: schema.user.email })
+        .from(schema.user)
+        .where(eq(schema.user.role, "technical_support_staff"));
+      expect(techRows.length).toBeGreaterThan(0);
+      expect(result).toEqual({ lineCount: 1, recipientCount: techRows.length, failedCount: 0 });
+      expect(sendEmail).toHaveBeenCalledTimes(techRows.length);
+      for (const { email } of techRows) {
+        expect(sendEmail).toHaveBeenCalledWith(
+          email,
+          `Equipment request for event ${id}`,
+          expect.anything()
+        );
+      }
+      const [row] = await database
+        .select()
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, id));
+      expect(row.equipmentSubmittedAt).not.toBeNull();
+    });
+
+    test("AC5: every notification rejected still commits the submission and reports the failures", async () => {
+      const id = await createEvent("approved");
+      await handleSaveEquipmentLine(
+        { eventId: id, item: "Projector", quantity: 1 },
+        coordinator,
+        database as never
+      );
+      const techRows = await database
+        .select({ email: schema.user.email })
+        .from(schema.user)
+        .where(eq(schema.user.role, "technical_support_staff"));
+      expect(techRows.length).toBeGreaterThan(0);
+
+      // One rejection per recipient, consumed by the call, so no global mock state leaks.
+      for (let i = 0; i < techRows.length; i++) {
+        sendEmail.mockRejectedValueOnce(new Error("smtp down"));
+      }
+      const result = await handleSubmitEquipmentRequest(
+        { eventId: id },
+        coordinator,
+        database as never
+      );
+
+      expect(result).toEqual({
+        lineCount: 1,
+        recipientCount: techRows.length,
+        failedCount: techRows.length,
+      });
+      expect(sendEmail).toHaveBeenCalledTimes(techRows.length);
+
       const [row] = await database
         .select()
         .from(schema.eventRequests)
@@ -463,6 +680,45 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       await expect(
         handleSubmitEquipmentRequest({ eventId: id }, coordinator, database as never)
       ).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    test("post-submit freeze: saving a line throws ConflictError", async () => {
+      const id = await createEvent("approved");
+      const line = await handleSaveEquipmentLine(
+        { eventId: id, item: "X", quantity: 1 },
+        coordinator,
+        database as never
+      );
+      await handleSubmitEquipmentRequest({ eventId: id }, coordinator, database as never);
+      await expect(
+        handleSaveEquipmentLine(
+          { eventId: id, id: line.id, item: "X", quantity: 2 },
+          coordinator,
+          database as never
+        )
+      ).rejects.toThrow(/already been submitted/i);
+      await expect(
+        handleSaveEquipmentLine(
+          { eventId: id, item: "Y", quantity: 1 },
+          coordinator,
+          database as never
+        )
+      ).rejects.toBeInstanceOf(ConflictError);
+      expect(await linesOf(id)).toHaveLength(1);
+    });
+
+    test("post-submit freeze: removing a line throws ConflictError", async () => {
+      const id = await createEvent("approved");
+      const line = await handleSaveEquipmentLine(
+        { eventId: id, item: "X", quantity: 1 },
+        coordinator,
+        database as never
+      );
+      await handleSubmitEquipmentRequest({ eventId: id }, coordinator, database as never);
+      await expect(
+        handleRemoveEquipmentLine({ eventId: id, id: line.id }, coordinator, database as never)
+      ).rejects.toThrow(/already been submitted/i);
+      expect(await linesOf(id)).toHaveLength(1);
     });
 
     test("two concurrent submits: exactly one wins", async () => {
@@ -519,9 +775,9 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       ).rejects.toBeInstanceOf(AuthorizationError);
     });
 
-    // GAP: nothing assigns equipment_requests.assigned_staff_id on submit, so this is expected
-    // to fail today. `test.fails` passes while the feature is broken and goes red once it is
-    // fixed — then switch it to a plain `test`.
+    // AC5 queue gate: an unassigned `requested` line joins the shared Technical Support work
+    // list only once the event is submitted — before that the draft belongs to the Coordinator
+    // alone, while a line assigned to a staffer connects them regardless.
     test("AC5: after submit, technical support can see the event (work list)", async () => {
       const id = await createEvent("approved");
       await handleSaveEquipmentLine(
@@ -532,6 +788,56 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       await handleSubmitEquipmentRequest({ eventId: id }, coordinator, database as never);
 
       const events = await handleListEvents({ eventId: id }, techSupport, database as never);
+      expect(events.map(e => e.event.id)).toContain(id);
+    });
+
+    test("AC5: before submit, an unassigned requested line connects no technical-support user", async () => {
+      const id = await createEvent("approved");
+      await handleSaveEquipmentLine(
+        { eventId: id, item: "Projector", quantity: 1 },
+        coordinator,
+        database as never
+      );
+
+      await expect(
+        handleListEvents({ eventId: id }, techSupport, database as never)
+      ).rejects.toBeInstanceOf(AuthorizationError);
+    });
+
+    test("AC5: a reserved (non-requested) unassigned line on a submitted event connects no technical-support user", async () => {
+      const id = await createEvent("approved");
+      const line = await handleSaveEquipmentLine(
+        { eventId: id, item: "Projector", quantity: 1 },
+        coordinator,
+        database as never
+      );
+      await handleSubmitEquipmentRequest({ eventId: id }, coordinator, database as never);
+      await database
+        .update(schema.equipmentRequests)
+        .set({ arrangementStatus: "reserved" })
+        .where(eq(schema.equipmentRequests.id, line.id));
+
+      await expect(
+        handleListEvents({ eventId: id }, techSupport, database as never)
+      ).rejects.toBeInstanceOf(AuthorizationError);
+    });
+
+    test("AC5: a line assigned to another staffer connects only that staffer", async () => {
+      const id = await createEvent("approved");
+      const line = await handleSaveEquipmentLine(
+        { eventId: id, item: "Projector", quantity: 1 },
+        coordinator,
+        database as never
+      );
+      await database
+        .update(schema.equipmentRequests)
+        .set({ assignedStaffId: otherTechSupport.id })
+        .where(eq(schema.equipmentRequests.id, line.id));
+
+      await expect(
+        handleListEvents({ eventId: id }, techSupport, database as never)
+      ).rejects.toBeInstanceOf(AuthorizationError);
+      const events = await handleListEvents({ eventId: id }, otherTechSupport, database as never);
       expect(events.map(e => e.event.id)).toContain(id);
     });
   });

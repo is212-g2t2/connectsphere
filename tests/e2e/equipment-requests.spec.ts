@@ -1,35 +1,33 @@
-// e2e/equipment-requests.spec.ts
 // oxlint-disable node/no-process-env
 //
-// Runs against a dev server with a seeded DB (bun run seed). Direct SQL resets state befores each
-// test so the specs don't depend on clicking through the whole approval flow (that flow is covered
-// by the last test). Adjust LOGIN_PATH, DASHBOARD_PATH and the login labels to your app.
-//
-// Requirements:
-//   - DATABASE_URL must be visible to the Playwright process. Playwright does NOT load .env itself,
-//     so add `import "dotenv/config"` (or dotenv.config({ path: ".env.test" })) to playwright.config.ts.
-//   - Migrations applied and `bun run seed` run before the tests.
-//   - This file mutates one shared demo event, so it must not run in parallel with other specs that
-//     touch the same row. Use `workers: 1` in playwright.config.ts (or a project with dependencies).
+// Coordinator equipment panel and the Technical Support work list, against a seeded DB.
+// Mutates the shared "ConnectSphere Demo Summit" row: per-test setup runs through
+// resetDemoEvent, while beforeAll/afterAll snapshot and restore the row so specs that run
+// after this file (e.g. events.test.ts) keep seeing the seed state.
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 import { Pool } from "pg";
 
-const LOGIN_PATH = "/login";
+import { signInAsStaff, signInWithSeedPassword } from "./staff-auth";
+
 const DASHBOARD_PATH = "/dashboard";
-const PASSWORD = process.env.SEED_STAFF_PASSWORD ?? "Seed-Pass123!";
 const DEMO_EVENT = "ConnectSphere Demo Summit";
+const SUBMITTED_CAPTION = "Submitted to Technical Support.";
+const EMPTY_STATE_MESSAGE = "No equipment lines recorded. Add at least one line before submitting.";
+// A local E2E run has no mailer (no SMTP_URL/RESEND_API_KEY), so every notification is rejected
+// and the honest submit toast reports it. CI wires Mailpit, so the success message is expected.
+const MAIL_CONFIGURED = Boolean(process.env.SMTP_URL || process.env.RESEND_API_KEY);
+const SUBMIT_TOAST = MAIL_CONFIGURED
+  ? "Equipment requirements sent to Technical Support."
+  : "Equipment requirements submitted, but no notifications were delivered.";
 
 const USERS = {
   coordinator: "coordinator.seed@example.com",
   organiser: "jane.doe@example.com",
-  techSupport: "tech.support.seed@example.com",
-  venueStaff: "venue.staff.seed@example.com",
 } as const;
 
-// Force tests in this file to run in order in a single worker, even if fullyParallel is on.
-// (Unlike "serial", "default" does not skip the remaining tests after one failure.)
-test.describe.configure({ mode: "default" });
+// This file mutates one shared demo row, so its own tests run one at a time.
+test.describe.configure({ mode: "serial" });
 
 // ---------------------------------------------------------------------------
 // Database helpers
@@ -37,12 +35,29 @@ test.describe.configure({ mode: "default" });
 
 let pool: Pool;
 
+interface DemoSnapshot {
+  status: string;
+  equipmentSubmittedAt: Date | null;
+  decisionReason: string | null;
+  decidedByCoordinatorId: string | null;
+  decidedByCoordinatorName: string | null;
+  decidedAt: Date | null;
+  lines: Array<{
+    id: string;
+    eventId: number;
+    assignedStaffId: string | null;
+    item: string;
+    quantity: number;
+    arrangementStatus: string;
+    notes: string | null;
+  }>;
+}
+
+let snapshot: DemoSnapshot | undefined;
+
 test.beforeAll(async () => {
   if (!process.env.DATABASE_URL) {
-    throw new Error(
-      "DATABASE_URL is not set in the Playwright process. Load it in playwright.config.ts " +
-        '(e.g. `import "dotenv/config"`) or pass it via the environment / CI secrets.'
-    );
+    throw new Error("DATABASE_URL is not set in the Playwright process.");
   }
 
   pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -69,10 +84,107 @@ test.beforeAll(async () => {
   } catch (err) {
     throw new Error(`DB schema/seed check failed: ${(err as Error).message}`, { cause: err });
   }
+
+  // Snapshot the shared row so afterAll can put it back for the specs that run after this file.
+  const { rows: eventRows } = await pool.query(
+    `select status, equipment_submitted_at, decision_reason, decided_by_coordinator_id,
+            decided_by_coordinator_name, decided_at
+       from event_requests where event_name = $1`,
+    [DEMO_EVENT]
+  );
+  const { rows: lineRows } = await pool.query(
+    `select id, event_id as "eventId", assigned_staff_id as "assignedStaffId", item, quantity,
+            arrangement_status as "arrangementStatus", notes
+       from equipment_requests
+      where event_id in (select id from event_requests where event_name = $1)
+      order by id`,
+    [DEMO_EVENT]
+  );
+  const event = eventRows[0];
+  if (!event) {
+    throw new Error(
+      `Seed event "${DEMO_EVENT}" disappeared between the schema check and snapshot.`
+    );
+  }
+  snapshot = {
+    status: event.status as string,
+    equipmentSubmittedAt: event.equipment_submitted_at as Date | null,
+    decisionReason: event.decision_reason as string | null,
+    decidedByCoordinatorId: event.decided_by_coordinator_id as string | null,
+    decidedByCoordinatorName: event.decided_by_coordinator_name as string | null,
+    decidedAt: event.decided_at as Date | null,
+    lines: (lineRows as DemoSnapshot["lines"]) ?? [],
+  };
 });
 
 test.afterAll(async () => {
-  await pool?.end();
+  // The snapshot is taken in beforeAll; a failure there leaves this undefined, and there is
+  // nothing safe to restore. `pool.end()` must still run, otherwise the guard leaks the pool.
+  try {
+    if (!snapshot) return;
+    const client = await pool.connect();
+    try {
+      // Restore the shared row exactly, so events.test.ts still sees the seeded `submitted`
+      // event with its assigned `Projector` line.
+      await client.query("begin");
+      await client.query(
+        `delete from equipment_requests
+          where event_id in (select id from event_requests where event_name = $1)`,
+        [DEMO_EVENT]
+      );
+      // oxlint-disable no-await-in-loop
+      for (const line of snapshot.lines ?? []) {
+        await client.query(
+          `insert into equipment_requests
+             (id, event_id, assigned_staff_id, item, quantity, arrangement_status, notes)
+           values ($1, (select id from event_requests where event_name = $2), $3, $4, $5, $6, $7)
+           on conflict (id) do nothing`,
+          [
+            line.id,
+            DEMO_EVENT,
+            line.assignedStaffId,
+            line.item,
+            line.quantity,
+            line.arrangementStatus,
+            line.notes,
+          ]
+        );
+      }
+      // oxlint-enable no-await-in-loop
+      const { rowCount } = await client.query(
+        `update event_requests
+            set status = $1,
+                equipment_submitted_at = $2,
+                decision_reason = $3,
+                decided_by_coordinator_id = $4,
+                decided_by_coordinator_name = $5,
+                decided_at = $6
+          where event_name = $7`,
+        [
+          snapshot.status,
+          snapshot.equipmentSubmittedAt,
+          snapshot.decisionReason,
+          snapshot.decidedByCoordinatorId,
+          snapshot.decidedByCoordinatorName,
+          snapshot.decidedAt,
+          DEMO_EVENT,
+        ]
+      );
+      if (rowCount !== 1) {
+        throw new Error(
+          `restore expected to update 1 row for "${DEMO_EVENT}", updated ${rowCount}`
+        );
+      }
+      await client.query("commit");
+    } catch (err) {
+      await client.query("rollback");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool?.end();
+  }
 });
 
 // Statuses that the DB constraint event_requests_decision_matches_status treats as "decided":
@@ -146,18 +258,8 @@ async function countLines(item: string) {
 // UI helpers
 // ---------------------------------------------------------------------------
 
-async function login(page: Page, email: string) {
-  await page.goto(LOGIN_PATH);
-  await page.getByLabel(/email/i).fill(email);
-  await page.getByLabel(/password/i).fill(PASSWORD);
-  await page.getByRole("button", { name: /sign in|log in/i }).click();
-  await page.waitForURL(url => !url.pathname.startsWith(LOGIN_PATH), {
-    timeout: 10_000,
-  });
-}
-
 async function openDashboardAs(page: Page, email: string) {
-  await login(page, email);
+  await signInWithSeedPassword(page, email);
   await page.goto(DASHBOARD_PATH);
 }
 
@@ -169,6 +271,9 @@ const card = (page: Page) => page.locator("[data-slot=card]").filter({ hasText: 
 const lineItem = (page: Page, item: string) =>
   card(page).getByRole("listitem").getByText(item, { exact: true });
 
+const submitButton = (page: Page) =>
+  card(page).getByRole("button", { name: "Submit to Technical Support" });
+
 async function addLine(page: Page, item: string, quantity: string, notes = "") {
   const c = card(page);
   await c.getByRole("button", { name: "Add line" }).first().click();
@@ -176,6 +281,13 @@ async function addLine(page: Page, item: string, quantity: string, notes = "") {
   await c.getByLabel("Quantity (required)").fill(quantity);
   if (notes) await c.getByLabel("Technical notes").fill(notes);
   await c.getByRole("button", { name: "Add line" }).last().click();
+}
+
+async function submitThroughDialog(page: Page) {
+  await submitButton(page).click();
+  await expect(page.getByRole("alertdialog")).toContainText("equipment line");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +324,7 @@ test.describe("Coordinator equipment panel", () => {
       // Form stays open and nothing was added.
       await expect(c.getByLabel("Quantity (required)")).toBeVisible();
       await expect(c.getByText("Projector ×")).toHaveCount(0);
-      await expect(c.getByText("No equipment lines recorded yet.")).toHaveCount(0); // form open, empty-state hidden
+      await expect(c.getByText(EMPTY_STATE_MESSAGE)).toHaveCount(0); // form open, empty-state hidden
     }
     // oxlint-enable no-await-in-loop
     expect(await countLines("Projector")).toBe(0);
@@ -238,18 +350,16 @@ test.describe("Coordinator equipment panel", () => {
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(lineItem(page, "Projector")).toBeVisible();
 
-    // Confirm removes it.
+    // Confirm removes it, leaving exactly one empty-state message.
     await page.getByRole("button", { name: "Remove Projector" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
-    await expect(card(page).getByText("No equipment lines recorded yet.")).toBeVisible();
+    await expect(card(page).getByText(EMPTY_STATE_MESSAGE)).toHaveCount(1);
   });
 
   test("AC5: submit is disabled with no lines", async ({ page }) => {
-    const submit = card(page).getByRole("button", {
-      name: "Submit to Technical Support",
-    });
+    const submit = submitButton(page);
     await expect(submit).toBeDisabled();
-    await expect(card(page).getByText(/Add at least one line before submitting/)).toBeVisible();
+    await expect(card(page).getByText(EMPTY_STATE_MESSAGE)).toBeVisible();
 
     await addLine(page, "Projector", "1");
     await expect(submit).toBeEnabled();
@@ -257,10 +367,8 @@ test.describe("Coordinator equipment panel", () => {
 
   test("AC5: submit confirms, toasts, and stamps the event", async ({ page }) => {
     await addLine(page, "Projector", "1");
-    await card(page).getByRole("button", { name: "Submit to Technical Support" }).click();
-    await expect(page.getByRole("alertdialog")).toContainText("1 equipment line");
-    await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
-    await expect(page.getByText("Equipment requirements sent to Technical Support.")).toBeVisible();
+    await submitThroughDialog(page);
+    await expect(page.getByText(SUBMIT_TOAST)).toBeVisible();
 
     const { rows } = await pool.query(
       `select equipment_submitted_at from event_requests where event_name = $1`,
@@ -269,14 +377,25 @@ test.describe("Coordinator equipment panel", () => {
     expect(rows[0].equipment_submitted_at).not.toBeNull();
   });
 
-  // Fails until EquipmentPanel actually receives/uses `submittedAt`.
-  test.fixme("AC5: submit is disabled after submission", async ({ page }) => {
+  test("AC5: submit is disabled after submission, and the panel goes read-only", async ({
+    page,
+  }) => {
     await addLine(page, "Projector", "1");
-    await card(page).getByRole("button", { name: "Submit to Technical Support" }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
-    await expect(
-      card(page).getByRole("button", { name: /Submit to Technical Support/ })
-    ).toBeDisabled();
+    await submitThroughDialog(page);
+
+    await expect(submitButton(page)).toBeDisabled();
+    await expect(card(page).getByText(SUBMITTED_CAPTION)).toBeVisible();
+    // Post-submit freeze: no add, edit or remove controls, but the disabled Submit stays.
+    await expect(card(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
+    await expect(card(page).getByRole("button", { name: /Edit / })).toHaveCount(0);
+    await expect(card(page).getByRole("button", { name: /Remove / })).toHaveCount(0);
+
+    await page.reload();
+    await expect(card(page)).toBeVisible();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(submitButton(page)).toBeDisabled();
+    await expect(card(page).getByText(SUBMITTED_CAPTION)).toBeVisible();
+    await expect(card(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
   });
 
   test("double-clicking Save creates one line", async ({ page }) => {
@@ -323,40 +442,67 @@ test.describe("Read-only states and other roles", () => {
     await resetDemoEvent("approved");
     // The demo row is assigned to seed-tech-support-1, so it is connected. Re-create one line.
     await pool.query(
-      `insert into equipment_requests (id, event_id, assigned_staff_id, item, quantity)
-       select 'e2e-line-1', id, 'seed-tech-support-1', 'Projector', 1
+      `insert into equipment_requests (id, event_id, assigned_staff_id, item, quantity, notes)
+       select 'e2e-line-1', id, 'seed-tech-support-1', 'Projector', 1, 'HDMI adapter included'
          from event_requests where event_name = $1`,
       [DEMO_EVENT]
     );
-    await openDashboardAs(page, USERS.techSupport);
+    await signInAsStaff(page, "technical_support_staff");
+    await page.goto(DASHBOARD_PATH);
 
     await expect(card(page).getByText("Equipment arrangements")).toBeVisible();
+    await expect(lineItem(page, "Projector")).toBeVisible();
+    await expect(card(page).getByText("× 1")).toBeVisible();
+    await expect(card(page).getByText("HDMI adapter included")).toBeVisible();
+    await expect(card(page).getByText("Requested")).toBeVisible();
     await expect(card(page).getByRole("button", { name: /Add line|Submit/ })).toHaveCount(0);
   });
 
   test("venue staff see no equipment", async ({ page }) => {
     await resetDemoEvent("approved");
-    await openDashboardAs(page, USERS.venueStaff);
+    await signInAsStaff(page, "venue_staff");
+    await page.goto(DASHBOARD_PATH);
 
     // Wait for the dashboard to finish rendering before asserting that something is absent.
     await expect(page.getByRole("main")).toBeVisible();
+    // Positive proof the venue workspace rendered, so the absence below is meaningful.
+    await expect(page.getByText("venue staff access").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
     await expect(page.getByText(/Equipment (requirements|arrangements)/)).toHaveCount(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Known gap
+// Submitted queue across roles
 // ---------------------------------------------------------------------------
 
-// Main-gap check: after a real submit, does Technical Support get the event? With
-// `assigned_staff_id` never set, this is expected to fail today.
-test.fixme("AC5: a submitted event appears for a Technical Support user with no prior assignment", async ({
+// End-to-end AC5: a line submitted by the Coordinator with no assignee reaches the shared
+// Technical Support queue, so a staffer with no prior assignment sees the event.
+test("AC5: a submitted event appears for a Technical Support user with no prior assignment", async ({
   page,
+  browser,
+}: {
+  page: Page;
+  browser: Browser;
 }) => {
   await resetDemoEvent("approved");
-  // 1. Coordinator adds a line and submits (assigned_staff_id stays null).
-  // 2. Log in as tech.support.seed@example.com.
-  // 3. expect(card(page)).toBeVisible()
-  await openDashboardAs(page, USERS.techSupport);
-  await expect(card(page)).toBeVisible();
+  await openDashboardAs(page, USERS.coordinator);
+  await addLine(page, "Speaker", "2", "Wall mounts");
+  await submitThroughDialog(page);
+  await expect(page.getByText(SUBMIT_TOAST)).toBeVisible();
+
+  const techContext = await browser.newContext();
+  const techPage = await techContext.newPage();
+  try {
+    await signInAsStaff(techPage, "technical_support_staff");
+    await techPage.goto(DASHBOARD_PATH);
+
+    await expect(card(techPage)).toBeVisible();
+    await expect(card(techPage).getByText("Equipment arrangements")).toBeVisible();
+    await expect(lineItem(techPage, "Speaker")).toBeVisible();
+    await expect(card(techPage).getByText("× 2")).toBeVisible();
+    await expect(card(techPage).getByText("Wall mounts")).toBeVisible();
+  } finally {
+    await techContext.close();
+  }
 });

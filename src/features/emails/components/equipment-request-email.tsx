@@ -2,13 +2,7 @@ import { Section, Text } from "@react-email/components";
 
 import { Layout } from "./layout";
 import { emailHeading, emailText } from "./email-styles";
-
-interface EquipmentLine {
-  id: string;
-  item: string;
-  quantity: number;
-  notes: string | null;
-}
+import type { EquipmentLine } from "#/features/equipment-requests/schema";
 
 interface EquipmentRequestEmailProps {
   eventId: number;

@@ -174,7 +174,7 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                   </EventRequirements>
                 )}
 
-                {/* PTR-38: coordinator gets the editable panel; technical_support keeps the read-only list. */}
+                {/* PTR-38: coordinator gets the editable panel; technical_support and organiser keep the read-only list. */}
                 {access === "coordinator" && event.equipment !== undefined && (
                   <div className="mt-5 border-t border-border pt-4">
                     <EquipmentPanel
@@ -186,16 +186,25 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                   </div>
                 )}
 
-                {access === "technical_support" &&
+                {(access === "technical_support" || access === "organiser") &&
                   event.equipment &&
                   event.equipment.length > 0 && (
                     <div className="mt-5 border-t border-border pt-4">
                       <p className="body-sm font-medium">Equipment arrangements</p>
-                      <ul className="mt-3 space-y-2 body-sm text-muted-foreground">
+                      <ul className="mt-3 space-y-3">
                         {event.equipment.map(item => (
-                          <li key={item.id} className="flex justify-between gap-4">
-                            <span>{item.item}</span>
-                            <span className="capitalize">{item.arrangementStatus}</span>
+                          <li
+                            key={item.id}
+                            className="flex items-start justify-between gap-4 body-sm"
+                          >
+                            <div>
+                              <span className="font-medium">{item.item}</span>
+                              <span className="text-muted-foreground"> × {item.quantity}</span>
+                              {item.notes && (
+                                <p className="mt-0.5 text-muted-foreground">{item.notes}</p>
+                              )}
+                            </div>
+                            <span className="shrink-0 capitalize">{item.arrangementStatus}</span>
                           </li>
                         ))}
                       </ul>
@@ -207,10 +216,7 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                     <Link
                       to="/venues"
                       search={{ eventId: event.id }}
-                      className={buttonVariants({
-                        variant: "outline",
-                        size: "sm",
-                      })}
+                      className={buttonVariants({ variant: "outline", size: "sm" })}
                     >
                       Find venues for this event
                     </Link>

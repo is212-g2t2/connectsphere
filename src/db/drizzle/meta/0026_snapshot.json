@@ -1,6 +1,6 @@
 {
-  "id": "1fb63d33-eb14-492b-ab87-1a6d9f3999f4",
-  "prevId": "756dae41-6da3-4474-a089-81f487319134",
+  "id": "aaedc126-98cb-45f8-8fe9-14295c5a5de5",
+  "prevId": "1fb63d33-eb14-492b-ab87-1a6d9f3999f4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -143,8 +143,7 @@
           "name": "quantity",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "default": 1
+          "notNull": true
         },
         "arrangement_status": {
           "name": "arrangement_status",

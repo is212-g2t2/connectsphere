@@ -1,4 +1,3 @@
-// src/features/auth/permissions.test.ts + src/features/events/access.test.ts (split if you prefer)
 import { describe, expect, test } from "vitest";
 
 import { can } from "#/features/auth/permissions";

@@ -35,7 +35,11 @@ import { HandoverAcceptedEmail } from "#/features/emails/components/handover-acc
 import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
 import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
 import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
-import { parseClarificationBody, parseEventRequestId } from "#/features/event-requests/schema";
+import {
+  EQUIPMENT_MAX_LINES,
+  parseClarificationBody,
+  parseEventRequestId,
+} from "#/features/event-requests/schema";
 import { logger } from "#/lib/logger";
 import { sendEmail } from "#/lib/mailer.server";
 
@@ -675,20 +679,30 @@ export async function handleDecideEventRequest(
       .returning();
 
     // PTR-38 AC2: an approval seeds the Coordinator's equipment panel from the organiser's
-    // original draft lines. Only lines that are fully specified (type + quantity) are carried
-    // over; blank or half-typed lines the draft kept while editing are skipped. This runs inside
-    // the same transaction so the rows are visible the moment the event becomes `approved`.
+    // original draft lines. Only lines with a type and a positive integer quantity are carried
+    // over; blank, half-typed or otherwise invalid rows the draft kept while editing are skipped,
+    // so a bad draft row never aborts the approval. This runs inside the same transaction so the
+    // rows are visible the moment the event becomes `approved`.
     if (input.decision === "approved") {
-      const draftLines = request.equipmentRequirements.filter(
-        (line): line is { type: string; quantity: number } =>
-          line.type.trim() !== "" && line.quantity !== undefined
-      );
+      const draftLines = request.equipmentRequirements
+        .filter(
+          (line): line is { type: string; quantity: number } =>
+            typeof line.type === "string" &&
+            line.type.trim() !== "" &&
+            typeof line.quantity === "number" &&
+            Number.isInteger(line.quantity) &&
+            line.quantity > 0 &&
+            line.quantity <= 2_147_483_647
+        )
+        // A legacy row saved before the draft cap could carry more lines than the panel allows;
+        // seed only the first window so the panel's invariant holds.
+        .slice(0, EQUIPMENT_MAX_LINES);
       if (draftLines.length > 0) {
         await tx.insert(equipmentRequests).values(
           draftLines.map(line => ({
             id: crypto.randomUUID(),
             eventId: request.id,
-            item: line.type,
+            item: line.type.trim(),
             quantity: line.quantity,
             notes: null,
           }))

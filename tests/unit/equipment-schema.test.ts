@@ -1,10 +1,10 @@
-// src/features/equipment-requests/schema.test.ts
 import { describe, expect, test } from "vitest";
 
 import {
   EQUIPMENT_NOTES_MAX,
   EquipmentLineFormInput,
   EquipmentLineInput,
+  isEquipmentEditableStatus,
   parseEquipmentLineInput,
   parseRemoveEquipmentLineInput,
   parseSubmitEquipmentInput,
@@ -127,4 +127,17 @@ describe("EquipmentLineFormInput (string leaves)", () => {
     const r = form("0");
     expect(r.error?.issues[0].path).toEqual(["quantity"]);
   });
+});
+
+describe("isEquipmentEditableStatus", () => {
+  test.each(["approved", "planning"])("editable on %s", status => {
+    expect(isEquipmentEditableStatus(status)).toBe(true);
+  });
+
+  test.each(["submitted", "under_review", "rejected", "confirmed", "draft", ""])(
+    "not editable on %s",
+    status => {
+      expect(isEquipmentEditableStatus(status)).toBe(false);
+    }
+  );
 });

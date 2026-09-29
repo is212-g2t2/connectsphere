@@ -1,0 +1,1 @@
+ALTER TABLE "equipment_requests" ALTER COLUMN "quantity" DROP DEFAULT;

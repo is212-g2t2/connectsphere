@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
-import { Pencil, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { Pencil, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -22,20 +22,16 @@ import { Textarea } from "#/components/ui/textarea";
 import {
   EQUIPMENT_NO_LINES_MESSAGE,
   EquipmentLineFormInput,
+  isEquipmentEditableStatus,
 } from "#/features/equipment-requests/schema";
+import type { EquipmentLine } from "#/features/equipment-requests/schema";
 import {
   removeEquipmentLine,
   saveEquipmentLine,
   submitEquipmentRequest,
 } from "#/features/equipment-requests/server-fns";
+import { parseWholeNumber } from "#/features/event-requests/schema";
 import { useMutation } from "#/hooks/use-mutation";
-
-interface EquipmentLine {
-  id: string;
-  item: string;
-  quantity: number;
-  notes: string | null;
-}
 
 interface EquipmentPanelProps {
   eventId: number;
@@ -45,13 +41,28 @@ interface EquipmentPanelProps {
   submittedAt: string | null;
 }
 
-const EDITABLE_STATUSES = ["approved", "planning"] as const;
-
-type EditingId =
-  /** An existing line is being edited. */
-  string | null;
-
 const EMPTY_FORM = { item: "", quantity: "", notes: "" };
+
+/**
+ * The toast text for a settled submit. The counts are all the panel needs: no recipients is a
+ * different message from every recipient failing, which is different again from some failing.
+ * Exported pure so the four branches are unit-testable without a browser.
+ */
+export function submitToastMessage(result: {
+  recipientCount: number;
+  failedCount: number;
+}): string {
+  if (result.recipientCount === 0) {
+    return "Equipment requirements submitted. No Technical Support Staff to notify.";
+  }
+  if (result.failedCount === result.recipientCount) {
+    return "Equipment requirements submitted, but no notifications were delivered.";
+  }
+  if (result.failedCount > 0) {
+    return "Equipment requirements sent to Technical Support; some notifications failed.";
+  }
+  return "Equipment requirements sent to Technical Support.";
+}
 
 /**
  * PTR-38: the Coordinator's equipment management surface on the event card. Renders the current
@@ -60,9 +71,25 @@ const EMPTY_FORM = { item: "", quantity: "", notes: "" };
  */
 export function EquipmentPanel({ eventId, lines, status, submittedAt }: EquipmentPanelProps) {
   const router = useRouter();
-  const editable = (EDITABLE_STATUSES as readonly string[]).includes(status);
+  const editable = isEquipmentEditableStatus(status);
   const alreadySubmitted = submittedAt !== null;
-  const [editing, setEditing] = useState<EditingId>(null);
+  const canEditLines = editable && !alreadySubmitted;
+  const submittedCaptionId = `equipment-submitted-${eventId}`;
+  const emptyStateId = `equipment-empty-${eventId}`;
+  const [editing, setEditing] = useState<string | null>(null);
+  const [submitOpen, setSubmitOpen] = useState(false);
+  // Which line the remove mutation last ran for, so a failure shows only in that line's dialog.
+  const [removeErrorId, setRemoveErrorId] = useState<string | null>(null);
+  // Whether the current dialog sitting has been confirmed, so a stale error is not shown on reopen.
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const submitInFlight = useRef(false);
+
+  const closeFormAndRefresh = () => {
+    setEditing(null);
+    void router.invalidate();
+  };
+
+  const cancelForm = () => setEditing(null);
 
   const [removeState, remove, removing] = useMutation(async (id: string) => {
     await removeEquipmentLine({ data: { eventId, id } });
@@ -71,16 +98,44 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
   }, "Could not remove this line. Try again.");
 
   const [submitState, submit, submitting] = useMutation(async () => {
-    await submitEquipmentRequest({ data: { eventId } });
-    toast.success("Equipment requirements sent to Technical Support.");
+    const result = await submitEquipmentRequest({ data: { eventId } });
+    toast.success(submitToastMessage(result));
     await router.invalidate();
+    return result;
   }, "Could not submit the equipment request. Try again.");
+
+  // A same-tick double dispatch never reaches the mutation twice: `disabled` only drops the second
+  // click after a re-render, which two dispatches in one tick can both beat.
+  const handleConfirmSubmit = async () => {
+    if (submitInFlight.current) return;
+    submitInFlight.current = true;
+    setSubmitAttempted(true);
+    try {
+      const result = await submit();
+      if (result.status === "success") {
+        setSubmitOpen(false);
+      } else {
+        // Losing a cross-tab race leaves this view stale; refresh so the panel catches up.
+        void router.invalidate();
+      }
+    } finally {
+      submitInFlight.current = false;
+    }
+  };
+
+  const submitDescribedBy =
+    [
+      lines.length === 0 && editing === null ? emptyStateId : null,
+      alreadySubmitted ? submittedCaptionId : null,
+    ]
+      .filter(id => id !== null)
+      .join(" ") || undefined;
 
   return (
     <div>
       <div className="flex items-center justify-between gap-4">
         <p className="body-sm font-medium">Equipment requirements</p>
-        {editable && editing === null && (
+        {canEditLines && editing === null && (
           <Button variant="outline" size="sm" onClick={() => setEditing("new")}>
             Add line
           </Button>
@@ -88,7 +143,9 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
       </div>
 
       {lines.length === 0 && editing === null && (
-        <p className="mt-3 body-sm text-muted-foreground">No equipment lines recorded yet.</p>
+        <p id={emptyStateId} className="mt-3 body-sm text-muted-foreground">
+          {canEditLines ? EQUIPMENT_NO_LINES_MESSAGE : "No equipment lines recorded."}
+        </p>
       )}
 
       {lines.length > 0 && (
@@ -105,11 +162,8 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
                     notes: line.notes ?? "",
                   }}
                   lineId={line.id}
-                  onDone={() => {
-                    setEditing(null);
-                    void router.invalidate();
-                  }}
-                  onCancel={() => setEditing(null)}
+                  onDone={closeFormAndRefresh}
+                  onCancel={cancelForm}
                 />
               ) : (
                 <div className="flex items-start justify-between gap-4 body-sm">
@@ -118,11 +172,11 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
                     <span className="text-muted-foreground"> × {line.quantity}</span>
                     {line.notes && <p className="mt-0.5 text-muted-foreground">{line.notes}</p>}
                   </div>
-                  {editable && (
+                  {canEditLines && (
                     <div className="flex shrink-0 items-center gap-2">
                       <Button
                         variant="ghost"
-                        size="icon-sm"
+                        size="icon"
                         aria-label={`Edit ${line.item}`}
                         onClick={() => setEditing(line.id)}
                         disabled={removing}
@@ -134,7 +188,7 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
                           render={
                             <Button
                               variant="ghost"
-                              size="icon-sm"
+                              size="icon"
                               aria-label={`Remove ${line.item}`}
                               disabled={removing}
                             />
@@ -158,12 +212,15 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
                               variant="destructive"
                               size="sm"
                               disabled={removing}
-                              onClick={() => void remove(line.id)}
+                              onClick={() => {
+                                setRemoveErrorId(line.id);
+                                void remove(line.id);
+                              }}
                             >
                               {removing ? "Removing…" : "Remove"}
                             </AlertDialogAction>
                           </AlertDialogFooter>
-                          {removeState.status === "error" && (
+                          {removeState.status === "error" && removeErrorId === line.id && (
                             <p role="alert" className="body-sm text-destructive">
                               {removeState.error}
                             </p>
@@ -179,24 +236,27 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
         </ul>
       )}
 
-      {editing === "new" && (
+      {canEditLines && editing === "new" && (
         <div className="mt-3">
           <LineForm
             eventId={eventId}
             defaults={EMPTY_FORM}
             lineId={undefined}
-            onDone={() => {
-              setEditing(null);
-              void router.invalidate();
-            }}
-            onCancel={() => setEditing(null)}
+            onDone={closeFormAndRefresh}
+            onCancel={cancelForm}
           />
         </div>
       )}
 
       {editable && (
         <div className="mt-5 border-t border-border pt-4">
-          <AlertDialog>
+          <AlertDialog
+            open={submitOpen}
+            onOpenChange={open => {
+              setSubmitOpen(open);
+              if (open) setSubmitAttempted(false);
+            }}
+          >
             <AlertDialogTrigger
               render={
                 <Button
@@ -204,6 +264,7 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
                   size="sm"
                   className="w-fit"
                   disabled={lines.length === 0 || submitting || alreadySubmitted}
+                  aria-describedby={submitDescribedBy}
                 />
               }
             >
@@ -221,19 +282,24 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
                 <AlertDialogCancel size="sm" disabled={submitting}>
                   Cancel
                 </AlertDialogCancel>
-                <AlertDialogAction size="sm" disabled={submitting} onClick={() => void submit()}>
+                <AlertDialogAction
+                  size="sm"
+                  disabled={submitting}
+                  onClick={() => void handleConfirmSubmit()}
+                >
                   {submitting ? "Submitting…" : "Confirm"}
                 </AlertDialogAction>
               </AlertDialogFooter>
+              {submitAttempted && submitState.status === "error" && (
+                <p role="alert" className="body-sm text-destructive">
+                  {submitState.error}
+                </p>
+              )}
             </AlertDialogContent>
           </AlertDialog>
-          <p className="mt-2 body-sm text-muted-foreground">Submitted to Technical Support.</p>
-          {lines.length === 0 && (
-            <p className="mt-2 body-sm text-muted-foreground">{EQUIPMENT_NO_LINES_MESSAGE}</p>
-          )}
-          {submitState.status === "error" && (
-            <p role="alert" className="mt-2 body-sm text-destructive">
-              {submitState.error}
+          {alreadySubmitted && (
+            <p id={submittedCaptionId} className="mt-2 body-sm text-muted-foreground">
+              Submitted to Technical Support. Contact them to change these lines.
             </p>
           )}
         </div>
@@ -263,8 +329,7 @@ function LineForm({ eventId, defaults, lineId, onDone, onCancel }: LineFormProps
             eventId,
             id: lineId,
             item: value.item,
-            // The form validator has already checked this is a positive integer.
-            quantity: Number(value.quantity),
+            quantity: parseWholeNumber(value.quantity),
             notes: value.notes === "" ? undefined : value.notes,
           },
         });
@@ -306,6 +371,8 @@ function LineForm({ eventId, defaults, lineId, onDone, onCancel }: LineFormProps
                 aria-invalid={field.state.meta.errors.length > 0}
                 required
                 placeholder="e.g. Projector"
+                // oxlint-disable-next-line jsx-a11y/no-autofocus -- the add form opens on demand; focus lands on its first field
+                autoFocus={lineId === undefined}
               />
               <FieldError errors={field.state.meta.errors} />
             </Field>
@@ -367,8 +434,8 @@ function LineForm({ eventId, defaults, lineId, onDone, onCancel }: LineFormProps
             </Button>
           )}
         </form.Subscribe>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label="Cancel" onClick={onCancel}>
-          <X className="size-4" />
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
         </Button>
       </div>
     </form>

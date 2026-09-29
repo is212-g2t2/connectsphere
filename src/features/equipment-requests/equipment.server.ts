@@ -1,4 +1,5 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNull } from "drizzle-orm";
+import { createElement } from "react";
 
 import type { db as Db } from "#/db";
 import { equipmentRequests, eventRequests, user } from "#/db/schema";
@@ -6,10 +7,15 @@ import { AuthorizationError, ConflictError, NotFoundError } from "#/features/aut
 import type { SessionUser } from "#/features/auth/session";
 import {
   EQUIPMENT_NO_LINES_MESSAGE,
+  isEquipmentEditableStatus,
   parseEquipmentLineInput,
   parseRemoveEquipmentLineInput,
   parseSubmitEquipmentInput,
 } from "#/features/equipment-requests/schema";
+import { EQUIPMENT_MAX_LINES } from "#/features/event-requests/schema";
+import { logger } from "#/lib/logger";
+
+const log = logger.getChild("equipment-requests");
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -23,14 +29,10 @@ import {
 type Database = typeof Db;
 
 /**
- * The statuses a Coordinator may edit equipment on: approved (AC1) and planning (AC4 says "not
- * yet confirmed", which is the `planning` stage before `confirmed`).
- */
-const EDITABLE_STATUSES = ["approved", "planning"] as const;
-
-/**
  * Verifies the event is in an editable status and is assigned to the actor. Returns the event row
- * or throws 403. Every mutating handler calls this so the rule has exactly one home.
+ * or throws 403. Every mutating handler calls this so the rule has exactly one home, and every one
+ * calls it inside a transaction: the `FOR UPDATE` lock stops a concurrent submit committing
+ * between this check and the caller's write.
  */
 async function loadEditableEvent(
   database: Pick<Database, "select">,
@@ -38,22 +40,36 @@ async function loadEditableEvent(
   coordinatorId: string
 ) {
   const rows = await database
-    .select({ id: eventRequests.id, status: eventRequests.status })
+    .select({
+      id: eventRequests.id,
+      status: eventRequests.status,
+      equipmentSubmittedAt: eventRequests.equipmentSubmittedAt,
+    })
     .from(eventRequests)
     .where(
       and(eq(eventRequests.id, eventId), eq(eventRequests.assignedCoordinatorId, coordinatorId))
     )
-    .limit(1);
+    .limit(1)
+    .for("update");
   const event = rows.at(0);
   if (!event) throw new AuthorizationError("Forbidden");
   // The status check is post-query so the coordinator gets 403 for a missing event and a
   // conflict message for a settled one, matching the pattern established by venue requests.
-  if (!(EDITABLE_STATUSES as readonly string[]).includes(event.status)) {
+  if (!isEquipmentEditableStatus(event.status)) {
     throw new ConflictError(
       "Equipment can only be edited on an approved event that is not yet confirmed."
     );
   }
   return event;
+}
+
+/** A submitted request is frozen: the submit handler's own one-shot guard aside, no line may change. */
+function assertNotSubmitted(event: { equipmentSubmittedAt: Date | null }) {
+  if (event.equipmentSubmittedAt !== null) {
+    throw new ConflictError(
+      "This equipment request has already been submitted to Technical Support."
+    );
+  }
 }
 
 /**
@@ -67,35 +83,51 @@ export async function handleSaveEquipmentLine(
   database: Database
 ) {
   const input = parseEquipmentLineInput(data);
-  await loadEditableEvent(database, input.eventId, actor.id);
+  return database.transaction(async tx => {
+    const event = await loadEditableEvent(tx, input.eventId, actor.id);
+    assertNotSubmitted(event);
 
-  if (input.id) {
-    // Edit path: the line must belong to this event, not someone else's.
-    const rows = await database
-      .update(equipmentRequests)
-      .set({
+    if (input.id) {
+      // Edit path: the line must belong to this event, not someone else's.
+      const rows = await tx
+        .update(equipmentRequests)
+        .set({
+          item: input.item,
+          quantity: input.quantity,
+          notes: input.notes ? input.notes : null,
+        })
+        .where(
+          and(eq(equipmentRequests.id, input.id), eq(equipmentRequests.eventId, input.eventId))
+        )
+        .returning();
+      if (rows.length === 0) throw new NotFoundError("Not Found");
+      return rows[0];
+    }
+
+    // Add path: a new line with no Technical Support assignment yet. The cap is a row count inside
+    // the same transaction as the insert, so two adds racing for the last slot cannot both pass.
+    const [{ value: lineCount }] = await tx
+      .select({ value: count() })
+      .from(equipmentRequests)
+      .where(eq(equipmentRequests.eventId, input.eventId));
+    if (lineCount >= EQUIPMENT_MAX_LINES) {
+      throw new ConflictError(
+        `This event already has the maximum of ${EQUIPMENT_MAX_LINES} equipment lines.`
+      );
+    }
+
+    const [inserted] = await tx
+      .insert(equipmentRequests)
+      .values({
+        id: crypto.randomUUID(),
+        eventId: input.eventId,
         item: input.item,
         quantity: input.quantity,
-        notes: input.notes ?? null,
+        notes: input.notes ? input.notes : null,
       })
-      .where(and(eq(equipmentRequests.id, input.id), eq(equipmentRequests.eventId, input.eventId)))
       .returning();
-    if (rows.length === 0) throw new NotFoundError("Not Found");
-    return rows[0];
-  }
-
-  // Add path: a new line with no Technical Support assignment yet.
-  const [inserted] = await database
-    .insert(equipmentRequests)
-    .values({
-      id: crypto.randomUUID(),
-      eventId: input.eventId,
-      item: input.item,
-      quantity: input.quantity,
-      notes: input.notes ?? null,
-    })
-    .returning();
-  return inserted;
+    return inserted;
+  });
 }
 
 /**
@@ -108,21 +140,24 @@ export async function handleRemoveEquipmentLine(
   database: Database
 ) {
   const input = parseRemoveEquipmentLineInput(data);
-  await loadEditableEvent(database, input.eventId, actor.id);
+  return database.transaction(async tx => {
+    const event = await loadEditableEvent(tx, input.eventId, actor.id);
+    assertNotSubmitted(event);
 
-  const rows = await database
-    .delete(equipmentRequests)
-    .where(and(eq(equipmentRequests.id, input.id), eq(equipmentRequests.eventId, input.eventId)))
-    .returning();
-  if (rows.length === 0) throw new NotFoundError("Not Found");
-  return rows[0];
+    const rows = await tx
+      .delete(equipmentRequests)
+      .where(and(eq(equipmentRequests.id, input.id), eq(equipmentRequests.eventId, input.eventId)))
+      .returning();
+    if (rows.length === 0) throw new NotFoundError("Not Found");
+    return rows[0];
+  });
 }
 
 /**
  * PTR-38 AC5: submit the full equipment list to Technical Support. Refuses when no lines are
- * recorded — there is nothing to submit. Returns the lines and the recipient emails; the server
- * function sends the notification after this resolves, matching the best-effort pattern venue
- * requests use (the send runs after the commit, so a mail outage cannot undo the submission).
+ * recorded — there is nothing to submit. The notification sends after the commit, matching the
+ * best-effort pattern venue requests use (the send runs after the commit, so a mail outage
+ * cannot undo the submission).
  */
 export async function handleSubmitEquipmentRequest(
   data: unknown,
@@ -130,7 +165,7 @@ export async function handleSubmitEquipmentRequest(
   database: Database
 ) {
   const input = parseSubmitEquipmentInput(data);
-  return database.transaction(async tx => {
+  const submitted = await database.transaction(async tx => {
     await loadEditableEvent(tx, input.eventId, actor.id);
 
     const lines = await tx
@@ -156,4 +191,44 @@ export async function handleSubmitEquipmentRequest(
 
     return { lines, recipientEmails: recipients.map(r => r.email) };
   });
+
+  if (submitted.recipientEmails.length === 0) {
+    log.warn("No Technical Support Staff to notify of equipment request", {
+      eventId: input.eventId,
+    });
+    return {
+      lineCount: submitted.lines.length,
+      recipientCount: 0,
+      failedCount: 0,
+    };
+  }
+
+  // Reached only when there is someone to email, so save/remove never pay the mailer import.
+  const [{ sendEmail }, { EquipmentRequestEmail }] = await Promise.all([
+    import("#/lib/mailer.server"),
+    import("#/features/emails/components/equipment-request-email"),
+  ]);
+  const results = await Promise.allSettled(
+    submitted.recipientEmails.map(recipient =>
+      sendEmail(
+        recipient,
+        `Equipment request for event ${input.eventId}`,
+        createElement(EquipmentRequestEmail, { lines: submitted.lines, eventId: input.eventId })
+      )
+    )
+  );
+  const failed = results.filter(r => r.status === "rejected").length;
+  if (failed > 0) {
+    log.warn("Equipment request notification failed", {
+      failed,
+      total: submitted.recipientEmails.length,
+      eventId: input.eventId,
+    });
+  }
+
+  return {
+    lineCount: submitted.lines.length,
+    recipientCount: submitted.recipientEmails.length,
+    failedCount: failed,
+  };
 }
