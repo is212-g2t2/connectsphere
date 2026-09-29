@@ -68,6 +68,10 @@ export function submitToastMessage(result: {
  * PTR-38: the Coordinator's equipment management surface on the event card. Renders the current
  * lines with edit/remove controls, an inline add form, and a submit button that notifies
  * Technical Support Staff. The panel is read-only when the event is confirmed or past.
+ *
+ * Each line's remove dialog owns its own mutation, so a failure can only show inside that line's
+ * dialog; the submit section owns its dialog state the same way. The panel itself only tracks
+ * which inline form is open.
  */
 export function EquipmentPanel({ eventId, lines, status, submittedAt }: EquipmentPanelProps) {
   const router = useRouter();
@@ -77,12 +81,6 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
   const submittedCaptionId = `equipment-submitted-${eventId}`;
   const emptyStateId = `equipment-empty-${eventId}`;
   const [editing, setEditing] = useState<string | null>(null);
-  const [submitOpen, setSubmitOpen] = useState(false);
-  // Which line the remove mutation last ran for, so a failure shows only in that line's dialog.
-  const [removeErrorId, setRemoveErrorId] = useState<string | null>(null);
-  // Whether the current dialog sitting has been confirmed, so a stale error is not shown on reopen.
-  const [submitAttempted, setSubmitAttempted] = useState(false);
-  const submitInFlight = useRef(false);
 
   const closeFormAndRefresh = () => {
     setEditing(null);
@@ -90,46 +88,6 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
   };
 
   const cancelForm = () => setEditing(null);
-
-  const [removeState, remove, removing] = useMutation(async (id: string) => {
-    await removeEquipmentLine({ data: { eventId, id } });
-    toast.success("Equipment line removed.");
-    await router.invalidate();
-  }, "Could not remove this line. Try again.");
-
-  const [submitState, submit, submitting] = useMutation(async () => {
-    const result = await submitEquipmentRequest({ data: { eventId } });
-    toast.success(submitToastMessage(result));
-    await router.invalidate();
-    return result;
-  }, "Could not submit the equipment request. Try again.");
-
-  // A same-tick double dispatch never reaches the mutation twice: `disabled` only drops the second
-  // click after a re-render, which two dispatches in one tick can both beat.
-  const handleConfirmSubmit = async () => {
-    if (submitInFlight.current) return;
-    submitInFlight.current = true;
-    setSubmitAttempted(true);
-    try {
-      const result = await submit();
-      if (result.status === "success") {
-        setSubmitOpen(false);
-      } else {
-        // Losing a cross-tab race leaves this view stale; refresh so the panel catches up.
-        void router.invalidate();
-      }
-    } finally {
-      submitInFlight.current = false;
-    }
-  };
-
-  const submitDescribedBy =
-    [
-      lines.length === 0 && editing === null ? emptyStateId : null,
-      alreadySubmitted ? submittedCaptionId : null,
-    ]
-      .filter(id => id !== null)
-      .join(" ") || undefined;
 
   return (
     <div>
@@ -179,54 +137,10 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
                         size="icon"
                         aria-label={`Edit ${line.item}`}
                         onClick={() => setEditing(line.id)}
-                        disabled={removing}
                       >
                         <Pencil className="size-4" />
                       </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label={`Remove ${line.item}`}
-                              disabled={removing}
-                            />
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                        </AlertDialogTrigger>
-                        <AlertDialogContent size="sm">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Remove equipment line</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Remove <strong>{line.item}</strong> × {line.quantity} from the
-                              equipment list?
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel size="sm" disabled={removing}>
-                              Cancel
-                            </AlertDialogCancel>
-                            <AlertDialogAction
-                              variant="destructive"
-                              size="sm"
-                              disabled={removing}
-                              onClick={() => {
-                                setRemoveErrorId(line.id);
-                                void remove(line.id);
-                              }}
-                            >
-                              {removing ? "Removing…" : "Remove"}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                          {removeState.status === "error" && removeErrorId === line.id && (
-                            <p role="alert" className="body-sm text-destructive">
-                              {removeState.error}
-                            </p>
-                          )}
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <RemoveLineDialog eventId={eventId} line={line} />
                     </div>
                   )}
                 </div>
@@ -249,60 +163,192 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
       )}
 
       {editable && (
-        <div className="mt-5 border-t border-border pt-4">
-          <AlertDialog
-            open={submitOpen}
-            onOpenChange={open => {
-              setSubmitOpen(open);
-              if (open) setSubmitAttempted(false);
-            }}
+        <SubmitSection
+          eventId={eventId}
+          lineCount={lines.length}
+          alreadySubmitted={alreadySubmitted}
+          emptyStateId={lines.length === 0 && editing === null ? emptyStateId : undefined}
+          submittedCaptionId={submittedCaptionId}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Per-line remove dialog ────────────────────────────────────────────────────────────────────
+
+interface RemoveLineDialogProps {
+  eventId: number;
+  line: EquipmentLine;
+}
+
+/**
+ * One line's remove confirmation. Owning the mutation here is what scopes a failure to the
+ * dialog that caused it, instead of a panel-wide error that follows the user between lines.
+ */
+function RemoveLineDialog({ eventId, line }: RemoveLineDialogProps) {
+  const router = useRouter();
+  const [state, remove, removing] = useMutation(async () => {
+    await removeEquipmentLine({ data: { eventId, id: line.id } });
+    toast.success("Equipment line removed.");
+    await router.invalidate();
+  }, "Could not remove this line. Try again.");
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Remove ${line.item}`}
+            disabled={removing}
+          />
+        }
+      >
+        <Trash2 className="size-4" />
+      </AlertDialogTrigger>
+      <AlertDialogContent size="sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove equipment line</AlertDialogTitle>
+          <AlertDialogDescription>
+            Remove <strong>{line.item}</strong> × {line.quantity} from the equipment list?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel size="sm" disabled={removing}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            size="sm"
+            disabled={removing}
+            onClick={() => void remove()}
           >
-            <AlertDialogTrigger
-              render={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-fit"
-                  disabled={lines.length === 0 || submitting || alreadySubmitted}
-                  aria-describedby={submitDescribedBy}
-                />
-              }
+            {removing ? "Removing…" : "Remove"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+        {state.status === "error" && (
+          <p role="alert" className="body-sm text-destructive">
+            {state.error}
+          </p>
+        )}
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+// ── Submit-to-Technical-Support section ───────────────────────────────────────────────────────
+
+interface SubmitSectionProps {
+  eventId: number;
+  lineCount: number;
+  alreadySubmitted: boolean;
+  /** Present only while the empty-state paragraph is rendered, so the trigger never dangles. */
+  emptyStateId: string | undefined;
+  submittedCaptionId: string;
+}
+
+/**
+ * The submit control, its confirmation dialog and its own dialog-scoped state. A same-tick
+ * double dispatch never reaches the mutation twice: `disabled` only drops the second click after
+ * a re-render, which two dispatches in one tick can both beat.
+ */
+function SubmitSection({
+  eventId,
+  lineCount,
+  alreadySubmitted,
+  emptyStateId,
+  submittedCaptionId,
+}: SubmitSectionProps) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  // Whether the current dialog sitting has been confirmed, so a stale error is not shown on reopen.
+  const [attempted, setAttempted] = useState(false);
+  const inFlight = useRef(false);
+
+  const [state, submit, submitting] = useMutation(async () => {
+    const result = await submitEquipmentRequest({ data: { eventId } });
+    toast.success(submitToastMessage(result));
+    await router.invalidate();
+    return result;
+  }, "Could not submit the equipment request. Try again.");
+
+  const handleConfirmSubmit = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setAttempted(true);
+    try {
+      const result = await submit();
+      if (result.status === "success") {
+        setOpen(false);
+      } else {
+        // Losing a cross-tab race leaves this view stale; refresh so the panel catches up.
+        void router.invalidate();
+      }
+    } finally {
+      inFlight.current = false;
+    }
+  };
+
+  const describedBy =
+    [emptyStateId ?? null, alreadySubmitted ? submittedCaptionId : null]
+      .filter((id): id is string => id !== null)
+      .join(" ") || undefined;
+
+  return (
+    <div className="mt-5 border-t border-border pt-4">
+      <AlertDialog
+        open={open}
+        onOpenChange={nextOpen => {
+          setOpen(nextOpen);
+          if (nextOpen) setAttempted(false);
+        }}
+      >
+        <AlertDialogTrigger
+          render={
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              disabled={lineCount === 0 || submitting || alreadySubmitted}
+              aria-describedby={describedBy}
+            />
+          }
+        >
+          {submitting ? "Submitting…" : "Submit to Technical Support"}
+        </AlertDialogTrigger>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Submit equipment requirements</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will notify all Technical Support Staff of the {lineCount} equipment{" "}
+              {lineCount === 1 ? "line" : "lines"} recorded for this event.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel size="sm" disabled={submitting}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              size="sm"
+              disabled={submitting}
+              onClick={() => void handleConfirmSubmit()}
             >
-              {submitting ? "Submitting…" : "Submit to Technical Support"}
-            </AlertDialogTrigger>
-            <AlertDialogContent size="sm">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Submit equipment requirements</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will notify all Technical Support Staff of the {lines.length} equipment{" "}
-                  {lines.length === 1 ? "line" : "lines"} recorded for this event.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel size="sm" disabled={submitting}>
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  size="sm"
-                  disabled={submitting}
-                  onClick={() => void handleConfirmSubmit()}
-                >
-                  {submitting ? "Submitting…" : "Confirm"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-              {submitAttempted && submitState.status === "error" && (
-                <p role="alert" className="body-sm text-destructive">
-                  {submitState.error}
-                </p>
-              )}
-            </AlertDialogContent>
-          </AlertDialog>
-          {alreadySubmitted && (
-            <p id={submittedCaptionId} className="mt-2 body-sm text-muted-foreground">
-              Submitted to Technical Support. Contact them to change these lines.
+              {submitting ? "Submitting…" : "Confirm"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+          {attempted && state.status === "error" && (
+            <p role="alert" className="body-sm text-destructive">
+              {state.error}
             </p>
           )}
-        </div>
+        </AlertDialogContent>
+      </AlertDialog>
+      {alreadySubmitted && (
+        <p id={submittedCaptionId} className="mt-2 body-sm text-muted-foreground">
+          Submitted to Technical Support. Contact them to change these lines.
+        </p>
       )}
     </div>
   );
