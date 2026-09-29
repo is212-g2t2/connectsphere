@@ -90,3 +90,37 @@ describe("EquipmentPanel error paths (PTR-38)", () => {
     expect(success).toHaveBeenCalled();
   });
 });
+
+describe("EquipmentPanel arrangement position (PTR-39 AC4)", () => {
+  it("shows each line's arrangement state, Technical Support note and unavailable reason", () => {
+    const lines: EquipmentLine[] = [
+      {
+        ...projector,
+        arrangementStatus: "unavailable",
+        arrangementNotes: "Adapter in store B",
+        unavailableReason: "Loaned out",
+      },
+      { ...microphone, arrangementStatus: "not_required" },
+    ];
+    render(
+      <EquipmentPanel
+        eventId={7}
+        lines={lines}
+        status="approved"
+        submittedAt="2030-01-01T00:00:00.000Z"
+      />
+    );
+
+    expect(screen.getByText("Unavailable")).toBeTruthy();
+    expect(screen.getByText("Reason: Loaned out")).toBeTruthy();
+    expect(screen.getByText("Technical Support note: Adapter in store B")).toBeTruthy();
+    expect(screen.getByText("Not required")).toBeTruthy();
+  });
+
+  it("shows no arrangement position on a line that carries none", () => {
+    renderPanel();
+
+    expect(screen.queryByText("Requested")).toBeNull();
+    expect(screen.queryByText(/Technical Support note:/)).toBeNull();
+  });
+});

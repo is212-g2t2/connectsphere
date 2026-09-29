@@ -165,6 +165,27 @@ export interface EventVenueRequest {
 }
 
 /**
+ * One equipment line as a client receives it. `arrangementNotes` and `unavailableReason` are
+ * Technical Support's annotations (PTR-39); only the Coordinator and Technical Support are given
+ * them, so the Organiser's copy of a line carries the state alone.
+ */
+export interface EquipmentLineProjection {
+  id: string;
+  item: string;
+  quantity: number;
+  arrangementStatus: string;
+  notes: string | null;
+  arrangementNotes?: string | null;
+  unavailableReason?: string | null;
+  /**
+   * Technical Support only: whether this member may update the line (`isEquipmentQueueRow`), so
+   * a line a colleague is arranging is shown to them read-only rather than as a form that would
+   * be refused.
+   */
+  arrangeable?: boolean | undefined;
+}
+
+/**
  * What a client receives: the caller's access plus the fields their story names, and nothing
  * else. The branches below are the whole contract — a field added to `EventRecord` reaches a
  * client only when its branch is changed to carry it.
@@ -189,13 +210,7 @@ export interface EventProjection {
     requiredFacilities?: string | null;
     registration?: { status: string; registeredAt: string } | null;
     venueRequest?: EventVenueRequest | null;
-    equipment?: Array<{
-      id: string;
-      item: string;
-      quantity: number;
-      arrangementStatus: string;
-      notes: string | null;
-    }>;
+    equipment?: EquipmentLineProjection[];
   };
 }
 
@@ -207,13 +222,7 @@ export function projectEvent(
   record: EventRecord,
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
-  equipment: Array<{
-    id: string;
-    item: string;
-    quantity: number;
-    arrangementStatus: string;
-    notes: string | null;
-  }>,
+  equipment: EquipmentLineProjection[],
   venueRequest: EventVenueRequest | null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
@@ -280,7 +289,18 @@ export function projectEvent(
           layout: record.roomLayoutPreference,
           accessibilityRequirements: record.accessibilityRequirements,
           requiredFacilities: record.venueRequirements,
-          equipment,
+          // PTR-39 AC4: the Coordinator sees Technical Support's notes and reasons, the Organiser
+          // sees the state alone.
+          equipment:
+            access === "coordinator"
+              ? equipment
+              : equipment.map(line => ({
+                  id: line.id,
+                  item: line.item,
+                  quantity: line.quantity,
+                  arrangementStatus: line.arrangementStatus,
+                  notes: line.notes,
+                })),
           venueRequest,
           equipmentSubmittedAt: record.equipmentSubmittedAt?.toISOString() ?? null,
         },

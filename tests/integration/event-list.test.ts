@@ -679,6 +679,9 @@ describe("event list handler (PTR-8)", () => {
             arrangementStatus: "reserved",
             notes: "HDMI adapter included",
             quantity: 1,
+            arrangementNotes: null,
+            unavailableReason: null,
+            arrangeable: true,
           },
           {
             id: "el-equipment-other",
@@ -686,6 +689,10 @@ describe("event list handler (PTR-8)", () => {
             arrangementStatus: "requested",
             notes: null,
             quantity: 1,
+            arrangementNotes: null,
+            unavailableReason: null,
+            // Unassigned, on an event not yet submitted: shown, but not open to this member.
+            arrangeable: false,
           },
         ])
       );

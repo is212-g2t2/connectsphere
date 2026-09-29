@@ -339,9 +339,15 @@ export const venueRequestStatus = pgEnum("venue_request_status", [
 
 export const venueHoldStatus = pgEnum("venue_hold_status", ["held", "released"]);
 
+/**
+ * PTR-39 added `not_required` and `unavailable`, the two states Technical Support sets by hand;
+ * `reserved` stays with the reservation action (PTR-41).
+ */
 export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status", [
   "requested",
   "reserved",
+  "not_required",
+  "unavailable",
 ]);
 
 export const eventRegistrationStatus = pgEnum("event_registration_status", ["registered"]);
@@ -515,11 +521,25 @@ export const equipmentRequests = pgTable(
       .default("requested")
       .notNull(),
     notes: text("notes"),
+    /**
+     * PTR-39: Technical Support's own note on the line, kept apart from the Coordinator's `notes`
+     * so neither overwrites the other. Null when there is none.
+     */
+    arrangementNotes: text("arrangement_notes"),
+    /** PTR-39 AC3: why the line is `unavailable`; null in every other state. */
+    unavailableReason: text("unavailable_reason"),
   },
   table => [
     index("equipment_requests_event_id_idx").on(table.eventId),
     index("equipment_requests_assigned_staff_id_idx").on(table.assignedStaffId),
     check("equipment_requests_quantity_positive", sql`${table.quantity} > 0`),
+    // PTR-39 AC3, held for whichever path writes the row. Compared as text: Postgres refuses to
+    // use an enum value added in the same transaction, which is where this migration runs.
+    // `[:space:]` catches tabs and newlines as well as plain spaces.
+    check(
+      "equipment_requests_unavailable_has_reason",
+      sql`${table.arrangementStatus}::text <> 'unavailable' or coalesce(${table.unavailableReason}, '') ~ '[^[:space:]]'`
+    ),
   ]
 );
 

@@ -9,6 +9,7 @@ import { EventRequestStatusBadge } from "#/features/event-requests/components/st
 import type { EventProjection } from "#/features/events/access";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
+import { ARRANGEMENT_STATE_LABELS } from "#/features/equipment-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 
@@ -204,7 +205,10 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                                 <p className="mt-0.5 text-muted-foreground">{item.notes}</p>
                               )}
                             </div>
-                            <span className="shrink-0 capitalize">{item.arrangementStatus}</span>
+                            <span className="shrink-0">
+                              {ARRANGEMENT_STATE_LABELS[item.arrangementStatus] ??
+                                item.arrangementStatus}
+                            </span>
                           </li>
                         ))}
                       </ul>

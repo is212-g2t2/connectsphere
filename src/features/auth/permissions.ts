@@ -21,10 +21,12 @@ const statement = {
   venue_request: ["request", "read", "decide"],
   /**
    * PTR-38: `manage` is the Coordinator's add/edit/remove verb (AC1/AC4); `submit` is the
-   * one-shot send to Technical Support Staff (AC5). Both are on the coordinator only — Technical
-   * Support Staff reach their work through the event relationship, not through this permission.
+   * one-shot send to Technical Support Staff (AC5). Both are on the coordinator only.
+   * PTR-39: `read` opens Technical Support's work list and `arrange` updates a line's state and
+   * notes. Both are on Technical Support only, and neither widens which events or lines a member
+   * reaches: that stays the event relationship, re-read by the handler.
    */
-  equipment_request: ["manage", "submit"],
+  equipment_request: ["manage", "submit", "read", "arrange"],
 } as const;
 
 const ac = createAccessControl(statement);
@@ -65,7 +67,11 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
     venue: ["create", "update", "read"],
     venue_request: ["read", "decide"],
   }),
-  technical_support_staff: ac.newRole({ upload: ["create"], venue: ["read"] }),
+  technical_support_staff: ac.newRole({
+    upload: ["create"],
+    venue: ["read"],
+    equipment_request: ["read", "arrange"],
+  }),
 };
 
 export type PermissionRequest = RoleAuthorizeRequest<typeof statement>;

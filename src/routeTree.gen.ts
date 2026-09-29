@@ -23,6 +23,8 @@ import { Route as ApiSmokeRouteImport } from './routes/api/smoke'
 import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
 import { Route as AuthenticatedCoordinationIndexRouteImport } from './routes/_authenticated/coordination/index'
 import { Route as AuthenticatedCoordinationRequestIdRouteImport } from './routes/_authenticated/coordination/$requestId'
+import { Route as AuthenticatedEquipmentRequestsIndexRouteImport } from './routes/_authenticated/equipment-requests/index'
+import { Route as AuthenticatedEquipmentRequestsEventIdRouteImport } from './routes/_authenticated/equipment-requests/$eventId'
 import { Route as AuthenticatedEventRequestsIndexRouteImport } from './routes/_authenticated/event-requests/index'
 import { Route as AuthenticatedEventRequestsRequestIdRouteImport } from './routes/_authenticated/event-requests/$requestId'
 import { Route as AuthenticatedEventRequestsNewRouteImport } from './routes/_authenticated/event-requests/new'
@@ -105,6 +107,18 @@ const AuthenticatedCoordinationRequestIdRoute =
   AuthenticatedCoordinationRequestIdRouteImport.update({
     id: '/coordination/$requestId',
     path: '/coordination/$requestId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedEquipmentRequestsIndexRoute =
+  AuthenticatedEquipmentRequestsIndexRouteImport.update({
+    id: '/equipment-requests/',
+    path: '/equipment-requests/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedEquipmentRequestsEventIdRoute =
+  AuthenticatedEquipmentRequestsEventIdRouteImport.update({
+    id: '/equipment-requests/$eventId',
+    path: '/equipment-requests/$eventId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedEventRequestsIndexRoute =
@@ -191,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/api/smoke': typeof ApiSmokeRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
+  '/equipment-requests/$eventId': typeof AuthenticatedEquipmentRequestsEventIdRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
   '/venue-requests/$requestId': typeof AuthenticatedVenueRequestsRequestIdRoute
@@ -199,6 +214,7 @@ export interface FileRoutesByFullPath {
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/coordination/': typeof AuthenticatedCoordinationIndexRoute
+  '/equipment-requests/': typeof AuthenticatedEquipmentRequestsIndexRoute
   '/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/venue-bookings/': typeof AuthenticatedVenueBookingsIndexRoute
   '/venue-requests/': typeof AuthenticatedVenueRequestsIndexRoute
@@ -218,6 +234,7 @@ export interface FileRoutesByTo {
   '/api/smoke': typeof ApiSmokeRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
+  '/equipment-requests/$eventId': typeof AuthenticatedEquipmentRequestsEventIdRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
   '/venue-requests/$requestId': typeof AuthenticatedVenueRequestsRequestIdRoute
@@ -226,6 +243,7 @@ export interface FileRoutesByTo {
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/coordination': typeof AuthenticatedCoordinationIndexRoute
+  '/equipment-requests': typeof AuthenticatedEquipmentRequestsIndexRoute
   '/event-requests': typeof AuthenticatedEventRequestsIndexRoute
   '/venue-bookings': typeof AuthenticatedVenueBookingsIndexRoute
   '/venue-requests': typeof AuthenticatedVenueRequestsIndexRoute
@@ -247,6 +265,7 @@ export interface FileRoutesById {
   '/api/smoke': typeof ApiSmokeRoute
   '/api/upload-url': typeof ApiUploadUrlRoute
   '/_authenticated/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
+  '/_authenticated/equipment-requests/$eventId': typeof AuthenticatedEquipmentRequestsEventIdRoute
   '/_authenticated/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/_authenticated/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
   '/_authenticated/venue-requests/$requestId': typeof AuthenticatedVenueRequestsRequestIdRoute
@@ -255,6 +274,7 @@ export interface FileRoutesById {
   '/_authenticated/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_authenticated/coordination/': typeof AuthenticatedCoordinationIndexRoute
+  '/_authenticated/equipment-requests/': typeof AuthenticatedEquipmentRequestsIndexRoute
   '/_authenticated/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/_authenticated/venue-bookings/': typeof AuthenticatedVenueBookingsIndexRoute
   '/_authenticated/venue-requests/': typeof AuthenticatedVenueRequestsIndexRoute
@@ -276,6 +296,7 @@ export interface FileRouteTypes {
     | '/api/smoke'
     | '/api/upload-url'
     | '/coordination/$requestId'
+    | '/equipment-requests/$eventId'
     | '/event-requests/$requestId'
     | '/event-requests/new'
     | '/venue-requests/$requestId'
@@ -284,6 +305,7 @@ export interface FileRouteTypes {
     | '/venues/new'
     | '/api/auth/$'
     | '/coordination/'
+    | '/equipment-requests/'
     | '/event-requests/'
     | '/venue-bookings/'
     | '/venue-requests/'
@@ -303,6 +325,7 @@ export interface FileRouteTypes {
     | '/api/smoke'
     | '/api/upload-url'
     | '/coordination/$requestId'
+    | '/equipment-requests/$eventId'
     | '/event-requests/$requestId'
     | '/event-requests/new'
     | '/venue-requests/$requestId'
@@ -311,6 +334,7 @@ export interface FileRouteTypes {
     | '/venues/new'
     | '/api/auth/$'
     | '/coordination'
+    | '/equipment-requests'
     | '/event-requests'
     | '/venue-bookings'
     | '/venue-requests'
@@ -331,6 +355,7 @@ export interface FileRouteTypes {
     | '/api/smoke'
     | '/api/upload-url'
     | '/_authenticated/coordination/$requestId'
+    | '/_authenticated/equipment-requests/$eventId'
     | '/_authenticated/event-requests/$requestId'
     | '/_authenticated/event-requests/new'
     | '/_authenticated/venue-requests/$requestId'
@@ -339,6 +364,7 @@ export interface FileRouteTypes {
     | '/_authenticated/venues/new'
     | '/api/auth/$'
     | '/_authenticated/coordination/'
+    | '/_authenticated/equipment-requests/'
     | '/_authenticated/event-requests/'
     | '/_authenticated/venue-bookings/'
     | '/_authenticated/venue-requests/'
@@ -460,6 +486,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCoordinationRequestIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/equipment-requests/': {
+      id: '/_authenticated/equipment-requests/'
+      path: '/equipment-requests'
+      fullPath: '/equipment-requests/'
+      preLoaderRoute: typeof AuthenticatedEquipmentRequestsIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/equipment-requests/$eventId': {
+      id: '/_authenticated/equipment-requests/$eventId'
+      path: '/equipment-requests/$eventId'
+      fullPath: '/equipment-requests/$eventId'
+      preLoaderRoute: typeof AuthenticatedEquipmentRequestsEventIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/event-requests/': {
       id: '/_authenticated/event-requests/'
       path: '/event-requests'
@@ -551,6 +591,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedCoordinationRequestIdRoute: typeof AuthenticatedCoordinationRequestIdRoute
+  AuthenticatedEquipmentRequestsEventIdRoute: typeof AuthenticatedEquipmentRequestsEventIdRoute
   AuthenticatedEventRequestsRequestIdRoute: typeof AuthenticatedEventRequestsRequestIdRoute
   AuthenticatedEventRequestsNewRoute: typeof AuthenticatedEventRequestsNewRoute
   AuthenticatedVenueRequestsRequestIdRoute: typeof AuthenticatedVenueRequestsRequestIdRoute
@@ -558,6 +599,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedVenuesAvailabilityRoute: typeof AuthenticatedVenuesAvailabilityRoute
   AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
   AuthenticatedCoordinationIndexRoute: typeof AuthenticatedCoordinationIndexRoute
+  AuthenticatedEquipmentRequestsIndexRoute: typeof AuthenticatedEquipmentRequestsIndexRoute
   AuthenticatedEventRequestsIndexRoute: typeof AuthenticatedEventRequestsIndexRoute
   AuthenticatedVenueBookingsIndexRoute: typeof AuthenticatedVenueBookingsIndexRoute
   AuthenticatedVenueRequestsIndexRoute: typeof AuthenticatedVenueRequestsIndexRoute
@@ -570,6 +612,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedCoordinationRequestIdRoute:
     AuthenticatedCoordinationRequestIdRoute,
+  AuthenticatedEquipmentRequestsEventIdRoute:
+    AuthenticatedEquipmentRequestsEventIdRoute,
   AuthenticatedEventRequestsRequestIdRoute:
     AuthenticatedEventRequestsRequestIdRoute,
   AuthenticatedEventRequestsNewRoute: AuthenticatedEventRequestsNewRoute,
@@ -579,6 +623,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedVenuesAvailabilityRoute: AuthenticatedVenuesAvailabilityRoute,
   AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
   AuthenticatedCoordinationIndexRoute: AuthenticatedCoordinationIndexRoute,
+  AuthenticatedEquipmentRequestsIndexRoute:
+    AuthenticatedEquipmentRequestsIndexRoute,
   AuthenticatedEventRequestsIndexRoute: AuthenticatedEventRequestsIndexRoute,
   AuthenticatedVenueBookingsIndexRoute: AuthenticatedVenueBookingsIndexRoute,
   AuthenticatedVenueRequestsIndexRoute: AuthenticatedVenueRequestsIndexRoute,

@@ -15,6 +15,19 @@ export function formatLocalDateTime(value: string): string {
   return `${Number(day)} ${MONTHS[monthIndex]} ${year}, ${time}`;
 }
 
+/**
+ * A stored calendar date (`2030-11-18`) as a reader sees it: `18 Nov 2030`. String arithmetic for
+ * the same reason as `formatLocalDateTime`; anything not in that shape is returned untouched.
+ */
+export function formatLocalDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const [, year, month, day] = match;
+  const monthIndex = Number(month) - 1;
+  if (monthIndex < 0 || monthIndex >= MONTHS.length) return value;
+  return `${Number(day)} ${MONTHS[monthIndex]} ${year}`;
+}
+
 /** The first proposed window's start, which is what "proposed date" means on a one-line row. */
 export function formatFirstProposedDate(windows: { start?: string }[]): string {
   const start = windows.find(window => window.start !== undefined)?.start;

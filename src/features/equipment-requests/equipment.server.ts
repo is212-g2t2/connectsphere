@@ -6,13 +6,16 @@ import { equipmentRequests, eventRequests, user } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
+  ARRANGEMENT_RESERVED_MESSAGE,
   EQUIPMENT_NO_LINES_MESSAGE,
   isEquipmentEditableStatus,
+  parseArrangementUpdateInput,
   parseEquipmentLineInput,
   parseRemoveEquipmentLineInput,
   parseSubmitEquipmentInput,
 } from "#/features/equipment-requests/schema";
 import { EQUIPMENT_MAX_LINES } from "#/features/event-requests/schema";
+import { isEquipmentQueueRow } from "#/features/events/access";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("equipment-requests");
@@ -150,6 +153,66 @@ export async function handleRemoveEquipmentLine(
       .returning();
     if (rows.length === 0) throw new NotFoundError("Not Found");
     return rows[0];
+  });
+}
+
+/**
+ * PTR-39 AC3: Technical Support sets a line's arrangement state, adds notes, or both.
+ *
+ * Every line of the event is read under a row lock, so a reservation committing at the same
+ * moment is seen rather than overwritten. Who may touch what is the queue rule the work list uses
+ * (`isEquipmentQueueRow`): a member with no line on the event is refused outright, so probing line
+ * ids says nothing about the event, and a colleague's line is refused even when the event is
+ * theirs to work. The update records the acting member on the line, which keeps the event on their
+ * list once no line is left in `requested`.
+ */
+export async function handleUpdateArrangement(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseArrangementUpdateInput(data);
+  return database.transaction(async tx => {
+    const lines = await tx
+      .select()
+      .from(equipmentRequests)
+      .where(eq(equipmentRequests.eventId, input.eventId))
+      .for("update");
+    const events = await tx
+      .select({ submittedAt: eventRequests.equipmentSubmittedAt })
+      .from(eventRequests)
+      .where(eq(eventRequests.id, input.eventId))
+      .limit(1);
+    const submitted = (events.at(0)?.submittedAt ?? null) !== null;
+
+    if (!lines.some(row => isEquipmentQueueRow(row, actor.id, submitted))) {
+      throw new AuthorizationError("Forbidden");
+    }
+    const line = lines.find(row => row.id === input.id);
+    if (!line) throw new NotFoundError("Not Found");
+    if (!isEquipmentQueueRow(line, actor.id, submitted)) throw new AuthorizationError("Forbidden");
+    // The reservation action (PTR-41) owns `reserved`, and its release (PTR-42) is the only way
+    // out. Notes are not a state change, so they still go through.
+    if (input.arrangementStatus !== undefined && line.arrangementStatus === "reserved") {
+      throw new ConflictError(ARRANGEMENT_RESERVED_MESSAGE);
+    }
+
+    const changes: Partial<typeof equipmentRequests.$inferInsert> = { assignedStaffId: actor.id };
+    if (input.arrangementStatus !== undefined) {
+      changes.arrangementStatus = input.arrangementStatus;
+      changes.unavailableReason =
+        input.arrangementStatus === "unavailable" ? (input.unavailableReason ?? null) : null;
+    }
+    if (input.arrangementNotes !== undefined) {
+      changes.arrangementNotes = input.arrangementNotes === "" ? null : input.arrangementNotes;
+    }
+
+    const [updated] = await tx
+      .update(equipmentRequests)
+      .set(changes)
+      .where(eq(equipmentRequests.id, line.id))
+      .returning();
+    return updated;
   });
 }
 

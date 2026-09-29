@@ -29,6 +29,23 @@ describe("can(): equipment_request", () => {
   );
 });
 
+describe("can(): equipment_request read and arrange (PTR-39)", () => {
+  test("grants the equipment read and arrange functions to Technical Support only", () => {
+    expect(can("technical_support_staff", { equipment_request: ["read"] })).toBe(true);
+    expect(can("technical_support_staff", { equipment_request: ["arrange"] })).toBe(true);
+
+    for (const role of ["attendee", "event_organiser", "event_coordinator", "venue_staff"]) {
+      expect(can(role, { equipment_request: ["read"] })).toBe(false);
+      expect(can(role, { equipment_request: ["arrange"] })).toBe(false);
+    }
+  });
+
+  test("Technical Support still cannot manage or submit a Coordinator's lines", () => {
+    expect(can("technical_support_staff", { equipment_request: ["manage"] })).toBe(false);
+    expect(can("technical_support_staff", { equipment_request: ["submit"] })).toBe(false);
+  });
+});
+
 const record: Parameters<typeof projectEvent>[0] = {
   id: 7,
   name: "Summit",

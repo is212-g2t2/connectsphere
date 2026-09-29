@@ -306,6 +306,13 @@ export async function handleListEvents(
         quantity: row.quantity,
         arrangementStatus: row.arrangementStatus,
         notes: row.notes,
+        arrangementNotes: row.arrangementNotes,
+        unavailableReason: row.unavailableReason,
+        // Only Technical Support acts on a line, so only their copy says whether they may.
+        arrangeable:
+          access === "technical_support"
+            ? isEquipmentQueueRow(row, user.id, record.equipmentSubmittedAt !== null)
+            : undefined,
       }));
     // PTR-31 criterion 5: a withdrawn request leaves the card, so only a pending row is reported; no fallback to an older withdrawn request — an event with none shows no venue request. A Venue Staff caller sees only the rows the queue rule grants them.
     const pendingRequest =
