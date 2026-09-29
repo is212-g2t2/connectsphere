@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, lt, ne, or } from "drizzle-orm";
+import { and, eq, exists, gt, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -15,6 +15,7 @@ import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   getEventAccess,
+  isEquipmentQueueRow,
   isRegistrationWindowOpen,
   isVenueQueueRow,
   projectEvent,
@@ -115,6 +116,10 @@ export async function handleListEvents(
       );
       break;
     case "technical_support_staff":
+      // PTR-38 AC5: an unassigned `requested` line is the shared queue, but only once the event
+      // has been submitted — before that the draft belongs to the Coordinator alone. An assigned
+      // row connects only the staff it names. `isEquipmentQueueRow` in `access.ts` states the
+      // same rule for the in-memory readers below.
       relationship = and(
         visible,
         inArray(
@@ -122,7 +127,27 @@ export async function handleListEvents(
           database
             .select({ id: equipmentRequests.eventId })
             .from(equipmentRequests)
-            .where(eq(equipmentRequests.assignedStaffId, user.id))
+            .where(
+              or(
+                eq(equipmentRequests.assignedStaffId, user.id),
+                and(
+                  eq(equipmentRequests.arrangementStatus, "requested"),
+                  isNull(equipmentRequests.assignedStaffId),
+                  // Correlated semi-join: the line's event must have been submitted.
+                  exists(
+                    database
+                      .select({ one: eventRequests.id })
+                      .from(eventRequests)
+                      .where(
+                        and(
+                          eq(eventRequests.id, equipmentRequests.eventId),
+                          isNotNull(eventRequests.equipmentSubmittedAt)
+                        )
+                      )
+                  )
+                )
+              )
+            )
         )
       );
       break;
@@ -260,7 +285,10 @@ export async function handleListEvents(
         row.eventId === record.id && isVenueQueueRow(row, user.id) ? [user.id] : []
       ),
       technicalSupportIds: equipmentRows.flatMap(row =>
-        row.eventId === record.id && row.assignedStaffId ? [row.assignedStaffId] : []
+        row.eventId === record.id &&
+        isEquipmentQueueRow(row, user.id, record.equipmentSubmittedAt !== null)
+          ? [user.id]
+          : []
       ),
       isRegistrationWindowOpen: isRegistrationWindowOpen(record, now),
       hasOwnRegistration: ownRegistration !== null,
@@ -275,6 +303,7 @@ export async function handleListEvents(
       .map(row => ({
         id: row.id,
         item: row.item,
+        quantity: row.quantity,
         arrangementStatus: row.arrangementStatus,
         notes: row.notes,
       }));

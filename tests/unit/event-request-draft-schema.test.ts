@@ -12,6 +12,7 @@ import {
   DESCRIPTION_MAX_LENGTH,
   DESCRIPTION_MESSAGE,
   END_BEFORE_START_MESSAGE,
+  EQUIPMENT_MAX_LINES,
   EQUIPMENT_QUANTITY_MESSAGE,
   EQUIPMENT_TYPE_MAX_LENGTH,
   EQUIPMENT_TYPE_MESSAGE,
@@ -75,6 +76,9 @@ const BLANK_FORM = {
   registrationOpensAt: "",
   registrationClosesAt: "",
 };
+
+const equipmentLines = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({ type: `Item ${i}`, quantity: 1 }));
 
 describe("EventRequestDraftInput", () => {
   it("saves an entirely blank draft", () => {
@@ -307,6 +311,21 @@ describe("EventRequestDraftInput", () => {
   it("carries the id of a draft already saved this sitting", () => {
     expect(EventRequestDraftInput.parse({ id: 7 })).toMatchObject({ id: 7 });
     expect(EventRequestDraftInput.parse({})).not.toHaveProperty("id");
+  });
+
+  // AC2 seeds the panel from the organiser's draft, so the draft array itself must carry the
+  // panel's ceiling; otherwise a direct save could seed more lines than the panel allows.
+  it("caps equipment requirements at EQUIPMENT_MAX_LINES", () => {
+    expect(
+      EventRequestDraftInput.safeParse({
+        equipmentRequirements: equipmentLines(EQUIPMENT_MAX_LINES),
+      }).success
+    ).toBe(true);
+    const over = EventRequestDraftInput.safeParse({
+      equipmentRequirements: equipmentLines(EQUIPMENT_MAX_LINES + 1),
+    });
+    expect(over.success).toBe(false);
+    expect(over.error?.issues[0].message).toContain(String(EQUIPMENT_MAX_LINES));
   });
 
   it.each([0, -1, 1.5])("refuses the id %s", value => {

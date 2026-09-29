@@ -98,6 +98,11 @@ export const eventRequests = pgTable(
       .$type<EventRequestDraftValues["equipmentRequirements"]>()
       .notNull()
       .default([]),
+    /**
+     * PTR-38 AC5: when the Coordinator submitted the equipment list to Technical Support. Null
+     * until then; the submit handler sets it once, and the PTR-39 work list reads it.
+     */
+    equipmentSubmittedAt: timestamp("equipment_submitted_at", { withTimezone: true }),
     specialArrangements: text("special_arrangements").notNull().default(""),
     /**
      * PTR-11: whether attendees may register, and the terms when they may. The two window columns
@@ -501,6 +506,11 @@ export const equipmentRequests = pgTable(
       .references(() => eventRequests.id, { onDelete: "cascade" }),
     assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
     item: text("item").notNull(),
+    /**
+     * PTR-38 criterion 1: a positive whole number, enforced by the CHECK below so any writer
+     * outside the application schema also meets the constraint.
+     */
+    quantity: integer("quantity").notNull(),
     arrangementStatus: equipmentArrangementStatus("arrangement_status")
       .default("requested")
       .notNull(),
@@ -509,6 +519,7 @@ export const equipmentRequests = pgTable(
   table => [
     index("equipment_requests_event_id_idx").on(table.eventId),
     index("equipment_requests_assigned_staff_id_idx").on(table.assignedStaffId),
+    check("equipment_requests_quantity_positive", sql`${table.quantity} > 0`),
   ]
 );
 

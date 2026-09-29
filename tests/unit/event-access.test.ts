@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   eventTiming,
   getEventAccess,
+  isEquipmentQueueRow,
   isRegistrationWindowOpen,
   isVenueQueueRow,
   projectEvent,
@@ -55,7 +56,15 @@ describe("event access", () => {
       request,
       "venue_staff",
       null,
-      [{ id: "line-1", item: "Projector", arrangementStatus: "reserved", notes: "Private note" }],
+      [
+        {
+          id: "line-1",
+          item: "Projector",
+          quantity: 1,
+          arrangementStatus: "reserved",
+          notes: "Private note",
+        },
+      ],
       { status: "pending" }
     );
     expect(result.event).toMatchObject({
@@ -78,7 +87,15 @@ describe("event access", () => {
       request,
       "technical_support",
       null,
-      [{ id: "line-1", item: "Projector", arrangementStatus: "reserved", notes: "Private note" }],
+      [
+        {
+          id: "line-1",
+          item: "Projector",
+          quantity: 1,
+          arrangementStatus: "reserved",
+          notes: "Private note",
+        },
+      ],
       null
     );
     expect(result.event.equipment).toHaveLength(1);
@@ -163,6 +180,44 @@ describe("isVenueQueueRow", () => {
       false
     );
     expect(isVenueQueueRow({ assignedStaffId: null, status: "withdrawn" }, "venue-1")).toBe(false);
+  });
+});
+
+describe("isEquipmentQueueRow", () => {
+  const cases: Array<{
+    name: string;
+    row: { assignedStaffId: string | null; arrangementStatus: string };
+    submitted: boolean;
+    expected: boolean;
+  }> = [
+    {
+      name: "assigned to this staff member",
+      row: { assignedStaffId: "tech-1", arrangementStatus: "requested" },
+      submitted: false,
+      expected: true,
+    },
+    {
+      name: "assigned to another staff member",
+      row: { assignedStaffId: "tech-2", arrangementStatus: "requested" },
+      submitted: true,
+      expected: false,
+    },
+    {
+      name: "unassigned requested on a submitted event",
+      row: { assignedStaffId: null, arrangementStatus: "requested" },
+      submitted: true,
+      expected: true,
+    },
+    {
+      name: "unassigned requested before submit",
+      row: { assignedStaffId: null, arrangementStatus: "requested" },
+      submitted: false,
+      expected: false,
+    },
+  ];
+
+  it.each(cases)("$name -> $expected", ({ row, submitted, expected }) => {
+    expect(isEquipmentQueueRow(row, "tech-1", submitted)).toBe(expected);
   });
 });
 

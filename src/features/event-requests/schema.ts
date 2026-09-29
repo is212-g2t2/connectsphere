@@ -42,6 +42,9 @@ export const ROOM_LAYOUT_PREFERENCE_MAX_LENGTH = 2000;
 export const ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH = 2000;
 export const SPECIAL_ARRANGEMENTS_MAX_LENGTH = 2000;
 export const EQUIPMENT_TYPE_MAX_LENGTH = 200;
+/** PTR-38: one event's Coordinator panel holds at most this many lines. */
+export const EQUIPMENT_MAX_LINES = 100;
+export const EQUIPMENT_MAX_LINES_MESSAGE = `Equipment requirements cannot exceed ${EQUIPMENT_MAX_LINES} lines`;
 
 export const EVENT_NAME_MESSAGE = `Event name must be ${EVENT_NAME_MAX_LENGTH} characters or fewer`;
 export const PURPOSE_MESSAGE = `Purpose must be ${PURPOSE_MAX_LENGTH} characters or fewer`;
@@ -85,7 +88,7 @@ const ProposedDate = z
     { message: END_BEFORE_START_MESSAGE, path: ["end"] }
   );
 
-const PositiveWholeNumber = (message: string, tooLargeMessage = message) =>
+export const PositiveWholeNumber = (message: string, tooLargeMessage = message) =>
   z.number({ error: message }).int(message).positive(message).max(MAX_INTEGER, tooLargeMessage);
 
 /**
@@ -129,7 +132,10 @@ export const EventRequestDraftInput = z
       .string()
       .max(ACCESSIBILITY_REQUIREMENTS_MAX_LENGTH, ACCESSIBILITY_REQUIREMENTS_MESSAGE)
       .default(""),
-    equipmentRequirements: z.array(EquipmentRequirement).default([]),
+    equipmentRequirements: z
+      .array(EquipmentRequirement)
+      .max(EQUIPMENT_MAX_LINES, EQUIPMENT_MAX_LINES_MESSAGE)
+      .default([]),
     specialArrangements: z
       .string()
       .max(SPECIAL_ARRANGEMENTS_MAX_LENGTH, SPECIAL_ARRANGEMENTS_MESSAGE)
@@ -195,7 +201,7 @@ export const EVENT_REQUEST_DELETE_REFUSAL =
 
 export type EventRequestDraftValues = z.infer<typeof EventRequestDraftInput>;
 
-function parseWholeNumber(value: string) {
+export function parseWholeNumber(value: string) {
   // Validate the entered text before Number can round a fractional value to an integer.
   return /^\d+$/.test(value) ? Number(value) : Number.NaN;
 }

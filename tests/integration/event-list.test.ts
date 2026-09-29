@@ -265,6 +265,7 @@ describe("event list handler (PTR-8)", () => {
         eventId: main.id,
         assignedStaffId: fixtureUsers.tech.id,
         item: "Projector",
+        quantity: 1,
         arrangementStatus: "reserved",
         notes: "HDMI adapter included",
       },
@@ -273,12 +274,14 @@ describe("event list handler (PTR-8)", () => {
         id: "el-equipment-other",
         eventId: main.id,
         item: "Microphone",
+        quantity: 1,
       },
       {
         id: "el-equipment-review",
         eventId: review.id,
         assignedStaffId: fixtureUsers.tech.id,
         item: "Projector",
+        quantity: 1,
       },
     ]);
 
@@ -675,12 +678,14 @@ describe("event list handler (PTR-8)", () => {
             item: "Projector",
             arrangementStatus: "reserved",
             notes: "HDMI adapter included",
+            quantity: 1,
           },
           {
             id: "el-equipment-other",
             item: "Microphone",
             arrangementStatus: "requested",
             notes: null,
+            quantity: 1,
           },
         ])
       );

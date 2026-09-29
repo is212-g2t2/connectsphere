@@ -19,6 +19,12 @@ const statement = {
   event_request: ["create", "coordinate"],
   venue: ["create", "update", "read", "search"],
   venue_request: ["request", "read", "decide"],
+  /**
+   * PTR-38: `manage` is the Coordinator's add/edit/remove verb (AC1/AC4); `submit` is the
+   * one-shot send to Technical Support Staff (AC5). Both are on the coordinator only — Technical
+   * Support Staff reach their work through the event relationship, not through this permission.
+   */
+  equipment_request: ["manage", "submit"],
 } as const;
 
 const ac = createAccessControl(statement);
@@ -52,6 +58,7 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
     event_request: ["coordinate"],
     venue: ["read", "search"],
     venue_request: ["request"],
+    equipment_request: ["manage", "submit"],
   }),
   venue_staff: ac.newRole({
     upload: ["create"],

@@ -370,6 +370,7 @@ export async function runSeed(database: Database): Promise<void> {
         eventId: demoRequestId,
         assignedStaffId: "seed-tech-support-1",
         item: "Projector",
+        quantity: 1,
         arrangementStatus: "reserved",
         notes: "HDMI adapter included",
       })

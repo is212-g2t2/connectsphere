@@ -38,16 +38,35 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
 }
 
 /**
+ * The one queue rule both staff queues share: a staff member works the rows assigned to them,
+ * plus every unassigned one still in the pending status. `isVenueQueueRow` and
+ * `isEquipmentQueueRow` are thin wrappers over this so the rule has one home. This module is
+ * client-reachable, so it carries no `#/db` import.
+ */
+function isQueueRow(
+  row: { assignedStaffId: string | null; queueStatus: string },
+  userId: string,
+  pendingStatus: string
+): boolean {
+  return row.assignedStaffId === null
+    ? row.queueStatus === pendingStatus
+    : row.assignedStaffId === userId;
+}
+
+/**
  * The shared venue queue (PTR-31): a Venue Staff member works the rows assigned to them, plus
  * every unassigned `pending` one. `records.server.ts` scopes its event-list query with the same
- * rule in SQL and calls this for its in-memory readers, so the rule has one home. It carries no
- * `#/db` import — this module is client-reachable.
+ * rule in SQL and calls this for its in-memory readers, so the rule has one home.
  */
 export function isVenueQueueRow(
   row: { assignedStaffId: string | null; status: string },
   userId: string
 ): boolean {
-  return row.assignedStaffId === null ? row.status === "pending" : row.assignedStaffId === userId;
+  return isQueueRow(
+    { assignedStaffId: row.assignedStaffId, queueStatus: row.status },
+    userId,
+    "pending"
+  );
 }
 
 /**
@@ -98,6 +117,7 @@ interface EventRecord {
   description: string;
   status: EventRequestStatus;
   proposedDates: Array<{ start?: string; end?: string }>;
+  equipmentSubmittedAt?: Date | null;
   expectedAttendance: number | null;
   roomLayoutPreference: string;
   accessibilityRequirements: string;
@@ -159,6 +179,7 @@ export interface EventProjection {
     endDate?: string | null;
     startTime: string | null;
     endTime: string | null;
+    equipmentSubmittedAt?: string | null;
     status: EventRequestStatus;
     registrationOpensAt?: string | null;
     registrationClosesAt?: string | null;
@@ -171,6 +192,7 @@ export interface EventProjection {
     equipment?: Array<{
       id: string;
       item: string;
+      quantity: number;
       arrangementStatus: string;
       notes: string | null;
     }>;
@@ -185,7 +207,13 @@ export function projectEvent(
   record: EventRecord,
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
-  equipment: Array<{ id: string; item: string; arrangementStatus: string; notes: string | null }>,
+  equipment: Array<{
+    id: string;
+    item: string;
+    quantity: number;
+    arrangementStatus: string;
+    notes: string | null;
+  }>,
   venueRequest: EventVenueRequest | null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
@@ -254,6 +282,7 @@ export function projectEvent(
           requiredFacilities: record.venueRequirements,
           equipment,
           venueRequest,
+          equipmentSubmittedAt: record.equipmentSubmittedAt?.toISOString() ?? null,
         },
       };
 
@@ -264,4 +293,27 @@ export function projectEvent(
       throw new Error(`No event projection for access "${String(unhandled)}"`);
     }
   }
+}
+
+/**
+ * The shared equipment queue (PTR-38 AC5: submitted events reach the shared queue; assignment
+ * still grants its own staff access), mirroring isVenueQueueRow: an unassigned, newly-requested
+ * line of a submitted event is visible to every Technical Support Staff member; once a line is
+ * picked up (assignedStaffId set), only that staff member sees it through this row.
+ */
+export function isEquipmentQueueRow(
+  row: { assignedStaffId: string | null; arrangementStatus: string },
+  userId: string,
+  eventSubmitted: boolean
+): boolean {
+  // The same shared rule, with the eventSubmitted gate applied only on the unassigned leg: an
+  // unassigned `requested` line reaches the queue only once the Coordinator has submitted.
+  return (
+    isQueueRow(
+      { assignedStaffId: row.assignedStaffId, queueStatus: row.arrangementStatus },
+      userId,
+      "requested"
+    ) &&
+    (row.assignedStaffId !== null || eventSubmitted)
+  );
 }
