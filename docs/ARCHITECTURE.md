@@ -46,7 +46,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── coordination/ # Coordinator assignments, pickups, and handovers
 │   │   ├── dashboard/    # Signed-in home view
 │   │   ├── emails/       # Email templates and shared date formatting
-│   │   ├── equipment-requests/ # Equipment lines, submission to Technical Support, and its arrangement work list
+│   │   ├── equipment-requests/ # Equipment lines, submission to Technical Support, its arrangement work list, and availability checks
 │   │   ├── event-requests/ # Requirement capture, drafts, submission
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view

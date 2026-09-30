@@ -151,6 +151,9 @@ describe("Database Schema Definitions", () => {
     expect(tables.account.relations.user).toBeDefined();
     expect(tables.venueRequests).toBeDefined();
     expect(tables.equipmentRequests).toBeDefined();
+    expect(tables.equipmentTypes).toBeDefined();
+    expect(tables.equipmentUnavailability).toBeDefined();
+    expect(tables.equipmentReservations).toBeDefined();
     expect(tables.eventRegistrations).toBeDefined();
   });
 });

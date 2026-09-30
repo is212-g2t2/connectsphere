@@ -190,6 +190,13 @@
       "when": 1790694114964,
       "tag": "0026_magical_reavers",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790748638915,
+      "tag": "0027_acoustic_speed_demon",
+      "breakpoints": true
     }
   ]
 }

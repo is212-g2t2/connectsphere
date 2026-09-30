@@ -21,7 +21,11 @@ import {
   requestEventHandover,
   takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
-import { updateEquipmentArrangement } from "#/features/equipment-requests/server-fns";
+import {
+  checkEquipmentAvailability,
+  listEquipmentTypes,
+  updateEquipmentArrangement,
+} from "#/features/equipment-requests/server-fns";
 import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
 import {
   ATTENDANCE_MESSAGE,
@@ -589,6 +593,42 @@ describe("server-function authorization (PTR-69)", () => {
         expect(await refusalFrom(updateEquipmentArrangement, arrangementInput)).toMatchObject({
           status: 403,
         });
+      }
+    );
+  });
+
+  describe("PTR-40 equipment availability", () => {
+    const availabilityInput = { eventId: 1, equipmentTypeId: 1 };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(checkEquipmentAvailability, availabilityInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(listEquipmentTypes, {}, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits Technical Support", async () => {
+      signIn("technical_support_staff");
+
+      expect((await call(checkEquipmentAvailability, availabilityInput)).error).toBeUndefined();
+      expect((await call(listEquipmentTypes, {}, "GET")).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "event_coordinator", "venue_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(checkEquipmentAvailability, availabilityInput)).toMatchObject({
+          status: 403,
+        });
+        expect(await refusalFrom(listEquipmentTypes, {}, "GET")).toMatchObject({ status: 403 });
       }
     );
   });

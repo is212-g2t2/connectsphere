@@ -157,6 +157,34 @@ export async function handleRemoveEquipmentLine(
 }
 
 /**
+ * The event-level gate for Technical Support: every line of the event (locked when `lock`), and
+ * whether the event is submitted. Throws 403 unless the actor may work at least one line, so a
+ * probe of an event they have no line on says nothing about it.
+ */
+export async function loadWorkableLines(
+  database: Pick<Database, "select">,
+  eventId: number,
+  actor: SessionUser,
+  lock = false
+) {
+  const query = database
+    .select()
+    .from(equipmentRequests)
+    .where(eq(equipmentRequests.eventId, eventId));
+  const lines = await (lock ? query.for("update") : query);
+  const events = await database
+    .select({ submittedAt: eventRequests.equipmentSubmittedAt })
+    .from(eventRequests)
+    .where(eq(eventRequests.id, eventId))
+    .limit(1);
+  const submitted = Boolean(events.at(0)?.submittedAt);
+  if (!lines.some(row => isEquipmentQueueRow(row, actor.id, submitted))) {
+    throw new AuthorizationError("Forbidden");
+  }
+  return { lines, submitted };
+}
+
+/**
  * PTR-39 AC3: Technical Support sets a line's arrangement state, adds notes, or both.
  *
  * Every line of the event is read under a row lock, so a reservation committing at the same
@@ -173,21 +201,7 @@ export async function handleUpdateArrangement(
 ) {
   const input = parseArrangementUpdateInput(data);
   return database.transaction(async tx => {
-    const lines = await tx
-      .select()
-      .from(equipmentRequests)
-      .where(eq(equipmentRequests.eventId, input.eventId))
-      .for("update");
-    const events = await tx
-      .select({ submittedAt: eventRequests.equipmentSubmittedAt })
-      .from(eventRequests)
-      .where(eq(eventRequests.id, input.eventId))
-      .limit(1);
-    const submitted = (events.at(0)?.submittedAt ?? null) !== null;
-
-    if (!lines.some(row => isEquipmentQueueRow(row, actor.id, submitted))) {
-      throw new AuthorizationError("Forbidden");
-    }
+    const { lines, submitted } = await loadWorkableLines(tx, input.eventId, actor, true);
     const line = lines.find(row => row.id === input.id);
     if (!line) throw new NotFoundError("Not Found");
     if (!isEquipmentQueueRow(line, actor.id, submitted)) throw new AuthorizationError("Forbidden");

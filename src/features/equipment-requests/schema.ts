@@ -184,6 +184,24 @@ export function parseArrangementUpdateInput(data: unknown): ArrangementUpdateVal
   return parseOrThrow(ArrangementUpdateInput, data);
 }
 
+/** PTR-40: how much of one equipment type is free for an event's approved booking period. */
+export const AvailabilityCheckInput = z.object({
+  eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
+  equipmentTypeId: z
+    .int32({ error: "Choose an equipment type" })
+    .positive("Choose an equipment type"),
+  requestedQuantity: PositiveWholeNumber(
+    EQUIPMENT_QUANTITY_MESSAGE,
+    "Equipment quantity is larger than this record can store"
+  ).optional(),
+});
+
+export type AvailabilityCheckValues = z.infer<typeof AvailabilityCheckInput>;
+
+export function parseAvailabilityCheckInput(data: unknown): AvailabilityCheckValues {
+  return parseOrThrow(AvailabilityCheckInput, data);
+}
+
 // ── Form shapes (string-leaf values for React inputs) ─────────────────────────────────────────
 
 /**
@@ -208,6 +226,20 @@ export const EquipmentLineFormInput = EquipmentLineFormShape.transform(
     notes: values.notes === "" ? undefined : values.notes,
   })
 ).pipe(EquipmentLineInput.omit({ eventId: true, id: true }));
+
+/**
+ * The availability check form: string leaves in, the same gate as `AvailabilityCheckInput`. An
+ * unchosen type becomes 0, which the gate refuses with its own message; a blank quantity is
+ * simply not asked about.
+ */
+export const AvailabilityCheckFormInput = z
+  .object({ equipmentTypeId: z.string(), requestedQuantity: z.string() })
+  .transform((values): { equipmentTypeId: number; requestedQuantity?: number | undefined } => ({
+    equipmentTypeId: Number(values.equipmentTypeId),
+    requestedQuantity:
+      values.requestedQuantity === "" ? undefined : parseWholeNumber(values.requestedQuantity),
+  }))
+  .pipe(AvailabilityCheckInput.omit({ eventId: true }));
 
 /**
  * The arrangement form: string leaves in, the same gate as `ArrangementUpdateInput`. A reserved

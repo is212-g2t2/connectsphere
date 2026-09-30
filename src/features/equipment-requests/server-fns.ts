@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission } from "#/features/auth/session";
 import {
   parseArrangementUpdateInput,
+  parseAvailabilityCheckInput,
   parseEquipmentLineInput,
   parseRemoveEquipmentLineInput,
   parseSubmitEquipmentInput,
@@ -109,4 +110,27 @@ export const submitEquipmentRequest = createServerFn({ method: "POST" })
     });
 
     return result;
+  });
+
+/** PTR-40: how much of an equipment type is free for the event's approved booking period. */
+export const checkEquipmentAvailability = createServerFn({ method: "POST" })
+  .validator(parseAvailabilityCheckInput)
+  .middleware([requireEquipmentArrange])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleCheckEquipmentAvailability }] = await Promise.all([
+      import("#/db"),
+      import("#/features/equipment-requests/availability.server"),
+    ]);
+    return handleCheckEquipmentAvailability(data, context.user, db);
+  });
+
+/** PTR-40: the equipment types Technical Support can check, for the availability picker. */
+export const listEquipmentTypes = createServerFn({ method: "GET" })
+  .middleware([requireEquipmentArrange])
+  .handler(async () => {
+    const [{ db }, { handleListEquipmentTypes }] = await Promise.all([
+      import("#/db"),
+      import("#/features/equipment-requests/availability.server"),
+    ]);
+    return handleListEquipmentTypes(db);
   });

@@ -38,6 +38,11 @@ export function normalizeDatabaseTimestamp(value: string) {
   return normalized;
 }
 
+/** The `T` spelling trimmed to the minute, as the forms and calendar expect. */
+export function toLocalMinuteValue(value: string) {
+  return normalizeDatabaseTimestamp(value).slice(0, 16);
+}
+
 /** Bad source data must not read as an available venue, so this throws rather than guesses. */
 export function isFloatingTimestamp(value: string) {
   return FLOATING_TIMESTAMP.test(value) && parseCivilDate(value.slice(0, 10)) !== null;

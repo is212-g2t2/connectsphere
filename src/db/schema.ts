@@ -545,6 +545,62 @@ export const equipmentRequests = pgTable(
   ]
 );
 
+/** PTR-40: the catalogue of equipment types and how many of each the venue holds in total. */
+export const equipmentTypes = pgTable(
+  "equipment_types",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull().unique(),
+    quantityHeld: integer("quantity_held").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  table => [check("equipment_types_quantity_held_positive", sql`${table.quantityHeld} > 0`)]
+);
+
+/**
+ * PTR-40 AC2: units of a type recorded damaged, under maintenance or otherwise out of service.
+ * One row per reason, so re-recording a reason updates it rather than double-counting.
+ */
+export const equipmentUnavailability = pgTable(
+  "equipment_unavailability",
+  {
+    id: serial("id").primaryKey(),
+    equipmentTypeId: integer("equipment_type_id")
+      .notNull()
+      .references(() => equipmentTypes.id, { onDelete: "cascade" }),
+    quantityUnavailable: integer("quantity_unavailable").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  table => [
+    check("equipment_unavailability_quantity_positive", sql`${table.quantityUnavailable} > 0`),
+    uniqueIndex("equipment_unavailability_type_reason_idx").on(table.equipmentTypeId, table.reason),
+  ]
+);
+
+/**
+ * PTR-40 read side of a reservation: units of a type committed to an event's equipment line. The
+ * period is not stored; it is the event's approved venue booking. PTR-41 owns the write path.
+ */
+export const equipmentReservations = pgTable(
+  "equipment_reservations",
+  {
+    id: text("id").primaryKey(),
+    equipmentRequestId: text("equipment_request_id")
+      .notNull()
+      .references(() => equipmentRequests.id, { onDelete: "cascade" }),
+    equipmentTypeId: integer("equipment_type_id")
+      .notNull()
+      .references(() => equipmentTypes.id, { onDelete: "restrict" }),
+    quantity: integer("quantity").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  table => [
+    index("equipment_reservations_equipment_type_id_idx").on(table.equipmentTypeId),
+    check("equipment_reservations_quantity_positive", sql`${table.quantity} > 0`),
+  ]
+);
+
 export const eventRegistrations = pgTable(
   "event_registrations",
   {
