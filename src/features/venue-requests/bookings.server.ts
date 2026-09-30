@@ -21,7 +21,7 @@ import {
   lockVenueForRequest,
   previewVenueForRequest,
 } from "#/features/venue-requests/venue-lock.server";
-import { normalizeDatabaseTimestamp } from "#/features/venues/availability";
+import { toLocalMinuteValue } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
@@ -52,10 +52,6 @@ function venueLocalTimestamp(now: Date): string {
       .map(part => [part.type, part.value])
   );
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
-}
-
-function toLocalMinuteValue(value: string): string {
-  return normalizeDatabaseTimestamp(value).slice(0, 16);
 }
 
 function rethrowOverlap(error: unknown): never {

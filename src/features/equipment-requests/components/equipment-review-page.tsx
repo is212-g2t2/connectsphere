@@ -1,11 +1,13 @@
 import { useForm } from "@tanstack/react-form";
 import { Link, useRouter } from "@tanstack/react-router";
 import { CalendarDays, Clock3 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Page, PageHeader } from "#/components/layout/page";
 import { Button } from "#/components/ui/button";
-import { Field, FieldError, FieldLabel } from "#/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldLabel } from "#/components/ui/field";
+import { Input } from "#/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -14,16 +16,22 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Textarea } from "#/components/ui/textarea";
+import { availabilityMessage } from "#/features/equipment-requests/availability";
 import { ArrangementPosition } from "#/features/equipment-requests/components/arrangement-position";
 import {
   ARRANGEMENT_EMPTY_UPDATE_MESSAGE,
   ARRANGEMENT_RESERVED_MESSAGE,
   ARRANGEMENT_STATES,
   ArrangementFormInput,
+  AvailabilityCheckFormInput,
   arrangementStateLabel,
 } from "#/features/equipment-requests/schema";
-import { updateEquipmentArrangement } from "#/features/equipment-requests/server-fns";
-import { formatLocalDate } from "#/features/event-requests/format";
+import {
+  checkEquipmentAvailability,
+  updateEquipmentArrangement,
+} from "#/features/equipment-requests/server-fns";
+import { formatLocalDate, formatLocalDateTime } from "#/features/event-requests/format";
+import { parseWholeNumber } from "#/features/event-requests/schema";
 import type { EquipmentLineProjection, EventProjection } from "#/features/events/access";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -33,7 +41,13 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
  * line has its own form, and the Coordinator sees what is saved here the next time they load
  * the event.
  */
-export function EquipmentReviewPage({ event }: { event: EventProjection["event"] }) {
+export function EquipmentReviewPage({
+  event,
+  equipmentTypes,
+}: {
+  event: EventProjection["event"];
+  equipmentTypes: { id: number; name: string }[];
+}) {
   const lines = event.equipment ?? [];
   return (
     <Page width="page">
@@ -75,7 +89,162 @@ export function EquipmentReviewPage({ event }: { event: EventProjection["event"]
           </ul>
         )}
       </section>
+
+      <AvailabilityCheck eventId={event.id} equipmentTypes={equipmentTypes} />
     </Page>
+  );
+}
+
+/**
+ * PTR-40: how much of an equipment type is free for the event's approved venue booking. The
+ * wording comes from `availabilityMessage`; the server refuses an event with no approved booking.
+ */
+function AvailabilityCheck({
+  eventId,
+  equipmentTypes,
+}: {
+  eventId: number;
+  equipmentTypes: { id: number; name: string }[];
+}) {
+  // The server's answer, which is not a form value; TanStack Form owns the inputs and errors.
+  const [outcome, setOutcome] = useState<{ message: string; shortfall: number } | null>(null);
+
+  const form = useForm({
+    defaultValues: { equipmentTypeId: "", requestedQuantity: "" },
+    validators: { onSubmit: AvailabilityCheckFormInput },
+    onSubmit: async ({ value, formApi }) => {
+      setOutcome(null);
+      try {
+        const result = await checkEquipmentAvailability({
+          data: {
+            eventId,
+            equipmentTypeId: Number(value.equipmentTypeId),
+            requestedQuantity:
+              value.requestedQuantity === ""
+                ? undefined
+                : parseWholeNumber(value.requestedQuantity),
+          },
+        });
+        const { startsAt, endsAt } = result.period;
+        setOutcome({
+          message: `${result.equipmentTypeName}: ${availabilityMessage(result)} (${formatLocalDateTime(startsAt)} to ${formatLocalDateTime(endsAt)})`,
+          shortfall: result.shortfall,
+        });
+      } catch (error) {
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form:
+              error instanceof Error ? error.message : "Could not check availability. Try again.",
+          },
+        });
+      }
+    },
+  });
+
+  if (equipmentTypes.length === 0) {
+    return (
+      <section aria-labelledby="availability-heading" className="mt-8">
+        <h2 id="availability-heading" className="display-h3">
+          Check availability
+        </h2>
+        <p className="body-sm text-muted-foreground">No equipment types are available.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section aria-labelledby="availability-heading" className="mt-8">
+      <h2 id="availability-heading" className="display-h3">
+        Check availability
+      </h2>
+      <form
+        noValidate
+        className="mt-3 space-y-3"
+        onSubmit={e => {
+          e.preventDefault();
+          if (form.state.isSubmitting) return;
+          void form.handleSubmit();
+        }}
+      >
+        <form.Field name="equipmentTypeId">
+          {field => (
+            <Field data-invalid={field.state.meta.errors.length > 0}>
+              <FieldLabel htmlFor="availability-type">Equipment type</FieldLabel>
+              <Select
+                value={field.state.value || null}
+                onValueChange={value => {
+                  setOutcome(null);
+                  field.handleChange(value ?? "");
+                }}
+              >
+                <SelectTrigger
+                  id="availability-type"
+                  className="w-full"
+                  aria-invalid={field.state.meta.errors.length > 0}
+                  onBlur={field.handleBlur}
+                >
+                  <SelectValue placeholder="Choose an equipment type">
+                    {field.state.value === ""
+                      ? null
+                      : (value: string) => equipmentTypes.find(t => String(t.id) === value)?.name}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {equipmentTypes.map(type => (
+                    <SelectItem key={type.id} value={String(type.id)}>
+                      {type.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldError errors={field.state.meta.errors} />
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Field name="requestedQuantity">
+          {field => (
+            <Field data-invalid={field.state.meta.errors.length > 0}>
+              <FieldLabel htmlFor="availability-quantity">Quantity (optional)</FieldLabel>
+              <Input
+                id="availability-quantity"
+                type="number"
+                min={1}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={e => {
+                  setOutcome(null);
+                  field.handleChange(e.target.value);
+                }}
+                aria-invalid={field.state.meta.errors.length > 0}
+              />
+              <FieldDescription>Leave blank to see total free.</FieldDescription>
+              <FieldError errors={field.state.meta.errors} />
+            </Field>
+          )}
+        </form.Field>
+
+        <form.Subscribe selector={state => state.errorMap.onSubmit}>
+          {onSubmitError =>
+            typeof onSubmitError === "string" ? <FieldError>{onSubmitError}</FieldError> : null
+          }
+        </form.Subscribe>
+        {outcome && (
+          <output className={outcome.shortfall > 0 ? "body-sm font-medium" : "body-sm"}>
+            {outcome.message}
+          </output>
+        )}
+
+        <form.Subscribe selector={state => state.isSubmitting}>
+          {isSubmitting => (
+            <Button type="submit" size="sm" disabled={isSubmitting}>
+              {isSubmitting ? "Checking…" : "Check availability"}
+            </Button>
+          )}
+        </form.Subscribe>
+      </form>
+    </section>
   );
 }
 

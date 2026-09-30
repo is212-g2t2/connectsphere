@@ -26,7 +26,7 @@ import {
   venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
 import { assertSameVenue, lockVenueForRequest } from "#/features/venue-requests/venue-lock.server";
-import { normalizeDatabaseTimestamp } from "#/features/venues/availability";
+import { toLocalMinuteValue } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
@@ -170,10 +170,6 @@ async function notifyRaiser(
       errorName: error instanceof Error ? error.name : "unknown",
     });
   }
-}
-
-function toLocalMinuteValue(value: string): string {
-  return normalizeDatabaseTimestamp(value).slice(0, 16);
 }
 
 /**
