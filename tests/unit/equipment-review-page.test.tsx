@@ -13,6 +13,7 @@ const {
   updateEquipmentArrangement,
   checkEquipmentAvailability,
   reserveEquipment,
+  releaseEquipment,
   checkLineAvailability,
   invalidate,
   success,
@@ -20,6 +21,7 @@ const {
   updateEquipmentArrangement: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
   checkEquipmentAvailability: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
   reserveEquipment: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  releaseEquipment: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
   checkLineAvailability: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
@@ -29,6 +31,7 @@ vi.mock("#/features/equipment-requests/server-fns", () => ({
   updateEquipmentArrangement,
   checkEquipmentAvailability,
   reserveEquipment,
+  releaseEquipment,
   checkLineAvailability,
 }));
 vi.mock("@tanstack/react-router", () => ({
@@ -512,5 +515,120 @@ describe("EquipmentReviewPage", () => {
       expect(screen.getByText("Could not load equipment types.")).toBeTruthy();
       expect(screen.queryByRole("combobox", { name: "Equipment type" })).toBeNull();
     });
+  });
+});
+
+const releaseButton = (item: string) =>
+  screen.queryByRole("button", { name: `Reduce or release equipment for ${item}` });
+
+describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
+  beforeEach(() => {
+    releaseEquipment.mockReset();
+    invalidate.mockReset();
+    success.mockReset();
+  });
+
+  it("offers the action only on a line holding units", () => {
+    renderReview([projector, { ...microphone, reservedQuantity: 4 }]);
+
+    expect(releaseButton("Projector")).toBeNull();
+    expect(releaseButton("Microphone")).toBeTruthy();
+  });
+
+  it("does not offer the action on a colleague's line", () => {
+    renderReview([
+      { ...microphone, reservedQuantity: 4, arrangeable: false, assignedStaffName: "Ana" },
+    ]);
+
+    expect(releaseButton("Microphone")).toBeNull();
+  });
+
+  it("releases everything by default and reports the state (AC1)", async () => {
+    releaseEquipment.mockResolvedValue({
+      released: true,
+      previousQuantity: 4,
+      quantity: 0,
+      arrangementStatus: "requested",
+    });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderReview([{ ...microphone, reservedQuantity: 4 }]);
+
+    await user.click(releaseButton("Microphone") as HTMLElement);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Currently reserved:").nextSibling?.textContent).toBe("4");
+    expect(within(dialog).getByLabelText("Units to keep reserved")).toHaveProperty("value", "0");
+    await user.click(within(dialog).getByRole("button", { name: "Confirm change" }));
+
+    await waitFor(() =>
+      expect(releaseEquipment).toHaveBeenCalledWith({
+        data: { equipmentRequestId: "line-b", quantity: 0, unavailableReason: "" },
+      })
+    );
+    expect(success).toHaveBeenCalledWith("Released all 4 × Microphone — the line is Requested.");
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("sends a reduction with its reason and names the Unavailable state", async () => {
+    releaseEquipment.mockResolvedValue({
+      released: false,
+      previousQuantity: 4,
+      quantity: 1,
+      arrangementStatus: "unavailable",
+    });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderReview([{ ...microphone, reservedQuantity: 4 }]);
+
+    await user.click(releaseButton("Microphone") as HTMLElement);
+    const dialog = await screen.findByRole("dialog");
+    const quantity = within(dialog).getByLabelText("Units to keep reserved");
+    await user.clear(quantity);
+    await user.type(quantity, "1");
+    await user.type(
+      within(dialog).getByLabelText("Mark unavailable instead, with a reason (optional)"),
+      "Three units recalled by the supplier"
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Confirm change" }));
+
+    await waitFor(() =>
+      expect(releaseEquipment).toHaveBeenCalledWith({
+        data: {
+          equipmentRequestId: "line-b",
+          quantity: 1,
+          unavailableReason: "Three units recalled by the supplier",
+        },
+      })
+    );
+    expect(success).toHaveBeenCalledWith(
+      "Reduced Microphone from 4 to 1 — the line is Unavailable."
+    );
+  });
+
+  it("marks the quantity before calling the server, and shows the server's refusal on it", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderReview([{ ...microphone, reservedQuantity: 4 }]);
+
+    await user.click(releaseButton("Microphone") as HTMLElement);
+    const dialog = await screen.findByRole("dialog");
+    const quantity = within(dialog).getByLabelText("Units to keep reserved");
+    await user.clear(quantity);
+    await user.type(quantity, "1.5");
+    await user.click(within(dialog).getByRole("button", { name: "Confirm change" }));
+    expect(
+      await within(dialog).findByText("Enter the units to keep as a whole number, 0 to release")
+    ).toBeTruthy();
+    expect(releaseEquipment).not.toHaveBeenCalled();
+
+    releaseEquipment.mockRejectedValue(
+      new Error("Enter fewer units than are currently reserved; use Reserve to hold more")
+    );
+    await user.clear(quantity);
+    await user.type(quantity, "4");
+    await user.click(within(dialog).getByRole("button", { name: "Confirm change" }));
+    expect(
+      await within(dialog).findByText(
+        "Enter fewer units than are currently reserved; use Reserve to hold more"
+      )
+    ).toBeTruthy();
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

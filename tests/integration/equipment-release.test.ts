@@ -1,0 +1,493 @@
+// oxlint-disable node/no-process-env
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { eq, inArray } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+
+import * as schema from "#/db/schema";
+import type { SessionUser } from "#/features/auth/session";
+import { handleCheckEquipmentAvailability } from "#/features/equipment-requests/availability.server";
+import { handleUpdateArrangement } from "#/features/equipment-requests/equipment.server";
+import {
+  handleReleaseEquipment,
+  handleReserveEquipment,
+} from "#/features/equipment-requests/reservations.server";
+import {
+  RELEASE_NO_RESERVATION_MESSAGE,
+  RELEASE_NOT_LOWER_MESSAGE,
+} from "#/features/equipment-requests/schema";
+import { handleListEvents } from "#/features/events/records.server";
+import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+
+const sendEmail = vi.hoisted(() =>
+  vi.fn<(to: string, subject: string, body: unknown) => Promise<void>>(async () => {})
+);
+vi.mock("#/lib/mailer.server", () => ({ sendEmail }));
+
+type Database = ReturnType<typeof drizzle<typeof schema>>;
+
+const fixtureUsers = {
+  tech1: {
+    id: "eq-rel-tech-1",
+    name: "Release Tech One",
+    email: "release-tech1@example.com",
+    emailVerified: true,
+    role: "technical_support_staff",
+  },
+  tech2: {
+    id: "eq-rel-tech-2",
+    name: "Release Tech Two",
+    email: "release-tech2@example.com",
+    emailVerified: true,
+    role: "technical_support_staff",
+  },
+  coordinator: {
+    id: "eq-rel-coord-1",
+    name: "Release Coordinator",
+    email: "release-coord@example.com",
+    emailVerified: true,
+    role: "event_coordinator",
+  },
+  organiser: {
+    id: "eq-rel-org-1",
+    name: "Release Organiser",
+    email: "release-org@example.com",
+    emailVerified: true,
+    role: "event_organiser",
+  },
+};
+
+const session = (userKey: keyof typeof fixtureUsers): SessionUser => fixtureUsers[userKey];
+
+const WINDOW = { startsAt: "2031-03-10 09:00:00", endsAt: "2031-03-10 17:00:00" };
+
+describe("Reduce or release a reservation (PTR-42)", () => {
+  let pool: Pool;
+  let database: Database;
+  let typeId: number;
+  let typeName: string;
+  let venueId: number;
+  let venueId2: number;
+
+  beforeAll(async () => {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    database = drizzle(pool, { schema });
+    await cleanup();
+    await Promise.all(
+      Object.values(fixtureUsers).map(u =>
+        database.insert(schema.user).values(u).onConflictDoNothing()
+      )
+    );
+    const [venue1, venue2] = await database
+      .insert(schema.venues)
+      .values([
+        {
+          name: `Release Test Hall 1 ${Date.now()}`,
+          location: "Building R",
+          maxCapacity: 200,
+          operatingHours: DEFAULT_OPERATING_HOURS,
+        },
+        {
+          name: `Release Test Hall 2 ${Date.now()}`,
+          location: "Building S",
+          maxCapacity: 100,
+          operatingHours: DEFAULT_OPERATING_HOURS,
+        },
+      ])
+      .returning({ id: schema.venues.id });
+    venueId = venue1.id;
+    venueId2 = venue2.id;
+    // 5 held, none unavailable: 5 serviceable.
+    typeName = `PTR42 Test Mixer ${Date.now()}`;
+    const [type] = await database
+      .insert(schema.equipmentTypes)
+      .values({ name: typeName, quantityHeld: 5 })
+      .returning({ id: schema.equipmentTypes.id });
+    typeId = type.id;
+  });
+
+  afterAll(async () => {
+    await cleanup();
+    if (typeId) {
+      await database.delete(schema.equipmentTypes).where(eq(schema.equipmentTypes.id, typeId));
+    }
+    await database.delete(schema.venues).where(inArray(schema.venues.id, [venueId, venueId2]));
+    await database.delete(schema.user).where(
+      inArray(
+        schema.user.id,
+        Object.values(fixtureUsers).map(u => u.id)
+      )
+    );
+    await pool.end();
+  });
+
+  async function cleanup() {
+    const events = await database
+      .select({ id: schema.eventRequests.id })
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.organiserId, fixtureUsers.organiser.id));
+    if (events.length === 0) return;
+    const eventIds = events.map(e => e.id);
+    // Events cascade to bookings, lines and reservations.
+    await database.delete(schema.eventRequests).where(inArray(schema.eventRequests.id, eventIds));
+  }
+
+  /** An approved, equipment-submitted event with one requested line on its own venue. */
+  async function createEvent(params: {
+    name: string;
+    requested?: number;
+    venue?: number;
+    assignedStaffId?: string | null;
+    coordinatorId?: string | null;
+  }) {
+    const [event] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: fixtureUsers.organiser.id,
+        eventName: params.name,
+        purpose: "PTR-42 Testing",
+        status: "approved",
+        assignedCoordinatorId:
+          params.coordinatorId === undefined ? fixtureUsers.coordinator.id : params.coordinatorId,
+        assignedAt: new Date(),
+        decidedByCoordinatorId: fixtureUsers.coordinator.id,
+        decidedByCoordinatorName: fixtureUsers.coordinator.name,
+        decidedAt: new Date(),
+        submittedAt: new Date(),
+        equipmentSubmittedAt: new Date(),
+        proposedDates: [
+          { start: WINDOW.startsAt.replace(" ", "T"), end: WINDOW.endsAt.replace(" ", "T") },
+        ],
+      })
+      .returning();
+    await database.insert(schema.venueRequests).values({
+      id: `vr-${crypto.randomUUID()}`,
+      eventId: event.id,
+      venueId: params.venue ?? venueId,
+      requestedById: fixtureUsers.coordinator.id,
+      assignedStaffId: fixtureUsers.coordinator.id,
+      startsAt: WINDOW.startsAt,
+      endsAt: WINDOW.endsAt,
+      status: "approved",
+    });
+    const lineId = `er-${crypto.randomUUID()}`;
+    await database.insert(schema.equipmentRequests).values({
+      id: lineId,
+      eventId: event.id,
+      equipmentTypeId: typeId,
+      quantity: params.requested ?? 3,
+      assignedStaffId: params.assignedStaffId ?? null,
+      item: typeName,
+      arrangementStatus: "requested",
+    });
+    return { eventId: event.id, lineId };
+  }
+
+  async function reserve(lineId: string, quantity: number, actor: SessionUser = session("tech1")) {
+    return handleReserveEquipment(
+      { equipmentRequestId: lineId, quantity },
+      actor,
+      database as never
+    );
+  }
+
+  async function readLine(lineId: string) {
+    const [line] = await database
+      .select()
+      .from(schema.equipmentRequests)
+      .where(eq(schema.equipmentRequests.id, lineId));
+    const [reservation] = await database
+      .select()
+      .from(schema.equipmentReservations)
+      .where(eq(schema.equipmentReservations.equipmentRequestId, lineId));
+    return { line, reservation };
+  }
+
+  beforeEach(async () => {
+    await cleanup();
+    sendEmail.mockClear();
+  });
+
+  it("reduces a reservation to a new total and returns the line to requested (AC1)", async () => {
+    const { lineId } = await createEvent({ name: "Reduce me", requested: 3 });
+    await reserve(lineId, 3);
+    expect((await readLine(lineId)).line.arrangementStatus).toBe("reserved");
+
+    const result = await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 1 },
+      session("tech1"),
+      database as never
+    );
+
+    expect(result).toMatchObject({
+      equipmentRequestId: lineId,
+      previousQuantity: 3,
+      quantity: 1,
+      released: false,
+      arrangementStatus: "requested",
+    });
+    const { line, reservation } = await readLine(lineId);
+    expect(reservation.quantity).toBe(1);
+    expect(line.arrangementStatus).toBe("requested");
+    expect(line.unavailableReason).toBeNull();
+  });
+
+  it("releases a reservation outright and removes the row (AC1)", async () => {
+    const { lineId } = await createEvent({ name: "Release me", requested: 2 });
+    await reserve(lineId, 2);
+
+    const result = await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 0 },
+      session("tech1"),
+      database as never
+    );
+
+    expect(result).toMatchObject({ previousQuantity: 2, quantity: 0, released: true });
+    const { line, reservation } = await readLine(lineId);
+    expect(reservation).toBeUndefined();
+    expect(line.arrangementStatus).toBe("requested");
+    // The line stays with the member who released it, so it keeps its place on their list.
+    expect(line.assignedStaffId).toBe(fixtureUsers.tech1.id);
+  });
+
+  it("marks the line unavailable with the reason given, and the DB keeps the pair (AC1)", async () => {
+    const { lineId } = await createEvent({ name: "Unmet", requested: 4 });
+    await reserve(lineId, 4);
+
+    const result = await handleReleaseEquipment(
+      {
+        equipmentRequestId: lineId,
+        quantity: 0,
+        unavailableReason: "  Recalled by the supplier  ",
+      },
+      session("tech1"),
+      database as never
+    );
+
+    expect(result.arrangementStatus).toBe("unavailable");
+    const { line } = await readLine(lineId);
+    expect(line.arrangementStatus).toBe("unavailable");
+    expect(line.unavailableReason).toBe("Recalled by the supplier");
+  });
+
+  it("treats a whitespace-only reason as none: the line returns to requested", async () => {
+    const { lineId } = await createEvent({ name: "Blank reason", requested: 2 });
+    await reserve(lineId, 2);
+
+    const result = await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 1, unavailableReason: " ​ " },
+      session("tech1"),
+      database as never
+    );
+
+    expect(result.arrangementStatus).toBe("requested");
+    expect((await readLine(lineId)).line.unavailableReason).toBeNull();
+  });
+
+  it("makes the released quantity available to an overlapping event (AC2)", async () => {
+    const holder = await createEvent({ name: "Holder", requested: 4 });
+    const other = await createEvent({ name: "Other", requested: 3, venue: venueId2 });
+    await reserve(holder.lineId, 4);
+    const before = await handleCheckEquipmentAvailability(
+      { eventId: other.eventId, equipmentTypeId: typeId, requestedQuantity: 3 },
+      session("tech1"),
+      database as never
+    );
+    expect(before.available).toBe(1);
+
+    await handleReleaseEquipment(
+      { equipmentRequestId: holder.lineId, quantity: 1 },
+      session("tech1"),
+      database as never
+    );
+    const afterReduce = await handleCheckEquipmentAvailability(
+      { eventId: other.eventId, equipmentTypeId: typeId, requestedQuantity: 3 },
+      session("tech1"),
+      database as never
+    );
+    expect(afterReduce.available).toBe(4);
+
+    await handleReleaseEquipment(
+      { equipmentRequestId: holder.lineId, quantity: 0 },
+      session("tech1"),
+      database as never
+    );
+    const afterRelease = await handleCheckEquipmentAvailability(
+      { eventId: other.eventId, equipmentTypeId: typeId, requestedQuantity: 3 },
+      session("tech1"),
+      database as never
+    );
+    expect(afterRelease.available).toBe(5);
+
+    // And the other event can now take what was freed.
+    const reserved = await reserve(other.lineId, 3);
+    expect(reserved.arrangementStatus).toBe("reserved");
+  });
+
+  it("notifies the assigned Coordinator after the commit (AC3)", async () => {
+    const { lineId } = await createEvent({ name: "Notify me", requested: 2 });
+    await reserve(lineId, 2);
+
+    const result = await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 0 },
+      session("tech1"),
+      database as never
+    );
+
+    expect(result.notified).toBe(true);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const [to, subject] = sendEmail.mock.calls[0];
+    expect(to).toBe(fixtureUsers.coordinator.email);
+    expect(subject).toBe(`Equipment released: ${typeName}`);
+  });
+
+  it("commits the release even when the notification fails, and says so", async () => {
+    const { lineId } = await createEvent({ name: "Mail down", requested: 2 });
+    await reserve(lineId, 2);
+    sendEmail.mockRejectedValueOnce(new Error("SMTP down"));
+
+    const result = await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 1 },
+      session("tech1"),
+      database as never
+    );
+
+    expect(result.notified).toBe(false);
+    expect((await readLine(lineId)).reservation.quantity).toBe(1);
+  });
+
+  it("sends nothing when the event has no assigned Coordinator", async () => {
+    const { lineId } = await createEvent({ name: "Nobody", requested: 2, coordinatorId: null });
+    await reserve(lineId, 2);
+
+    const result = await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 0 },
+      session("tech1"),
+      database as never
+    );
+
+    expect(result.notified).toBe(false);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("leaves the event's status untouched (AC4)", async () => {
+    const { eventId, lineId } = await createEvent({ name: "Still approved", requested: 2 });
+    await reserve(lineId, 2);
+
+    await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 0 },
+      session("tech1"),
+      database as never
+    );
+
+    const [event] = await database
+      .select({ status: schema.eventRequests.status })
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, eventId));
+    expect(event.status).toBe("approved");
+    const projected = await handleListEvents(
+      { eventId },
+      session("coordinator"),
+      database as never
+    );
+    expect(projected[0]?.event.status).toBe("approved");
+    expect(projected[0]?.event.equipment?.[0]).toMatchObject({
+      arrangementStatus: "requested",
+      reservedQuantity: null,
+    });
+  });
+
+  it("refuses a total at or above the current holding, leaving it untouched", async () => {
+    const { lineId } = await createEvent({ name: "Not lower", requested: 3 });
+    await reserve(lineId, 2);
+
+    await Promise.all(
+      [2, 3].map(quantity =>
+        expect(
+          handleReleaseEquipment(
+            { equipmentRequestId: lineId, quantity },
+            session("tech1"),
+            database as never
+          )
+        ).rejects.toMatchObject({ status: 409, message: RELEASE_NOT_LOWER_MESSAGE })
+      )
+    );
+    expect((await readLine(lineId)).reservation.quantity).toBe(2);
+  });
+
+  it("refuses a line holding no reservation", async () => {
+    const { lineId } = await createEvent({ name: "Nothing held", requested: 3 });
+
+    await expect(
+      handleReleaseEquipment(
+        { equipmentRequestId: lineId, quantity: 0 },
+        session("tech1"),
+        database as never
+      )
+    ).rejects.toMatchObject({ status: 409, message: RELEASE_NO_RESERVATION_MESSAGE });
+  });
+
+  it("refuses a colleague's line and a member with no line on the event", async () => {
+    const { lineId } = await createEvent({ name: "Held by one", requested: 3 });
+    await reserve(lineId, 3);
+
+    await expect(
+      handleReleaseEquipment(
+        { equipmentRequestId: lineId, quantity: 0 },
+        session("tech2"),
+        database as never
+      )
+    ).rejects.toMatchObject({ status: 403 });
+    expect((await readLine(lineId)).reservation.quantity).toBe(3);
+  });
+
+  it("treats a missing line as not found", async () => {
+    await expect(
+      handleReleaseEquipment(
+        { equipmentRequestId: "er-does-not-exist", quantity: 0 },
+        session("tech1"),
+        database as never
+      )
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("lets Technical Support move the line's state again once released", async () => {
+    const { eventId, lineId } = await createEvent({ name: "Unlocked", requested: 2 });
+    await reserve(lineId, 2);
+    await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 0 },
+      session("tech1"),
+      database as never
+    );
+
+    const updated = await handleUpdateArrangement(
+      { eventId, id: lineId, arrangementStatus: "not_required" },
+      session("tech1"),
+      database as never
+    );
+    expect(updated.arrangementStatus).toBe("not_required");
+  });
+
+  it("serialises a release against a reserve on the same type: the reserve sees the freed units", async () => {
+    const holder = await createEvent({ name: "Holder race", requested: 5 });
+    const other = await createEvent({ name: "Other race", requested: 3, venue: venueId2 });
+    await reserve(holder.lineId, 5);
+
+    // With all five held, the other event's reserve is refused; once the release lands it is not.
+    await expect(reserve(other.lineId, 3)).rejects.toMatchObject({ status: 409 });
+    const [released, reserved] = await Promise.all([
+      handleReleaseEquipment(
+        { equipmentRequestId: holder.lineId, quantity: 0 },
+        session("tech1"),
+        database as never
+      ),
+      (async () => {
+        // Let the release take its locks first, then the reserve queues behind them.
+        await new Promise(resolve => setTimeout(resolve, 50));
+        return reserve(other.lineId, 3);
+      })(),
+    ]);
+    expect(released.released).toBe(true);
+    expect(reserved.arrangementStatus).toBe("reserved");
+  });
+});

@@ -18,6 +18,7 @@ import {
 import { Textarea } from "#/components/ui/textarea";
 import { availabilityMessage } from "#/features/equipment-requests/availability";
 import { ArrangementPosition } from "#/features/equipment-requests/components/arrangement-position";
+import { ReleaseEquipmentAction } from "#/features/equipment-requests/components/release-equipment-action";
 import { ReserveEquipmentAction } from "#/features/equipment-requests/components/reserve-equipment-action";
 import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
 import {
@@ -263,6 +264,8 @@ function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLi
   const canReserve =
     line.arrangeable !== false &&
     (line.arrangementStatus === "requested" || line.arrangementStatus === "reserved");
+  // PTR-42: only units already held can be given back.
+  const canRelease = line.arrangeable !== false && (line.reservedQuantity ?? 0) > 0;
   return (
     <li aria-label={line.item} className="rounded-lg border border-border p-4">
       <h3 className="font-medium">
@@ -285,9 +288,10 @@ function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLi
           {line.assignedStaffName && (
             <p className="mt-4 body-sm text-muted-foreground">You are arranging this line.</p>
           )}
-          {canReserve && (
-            <div className="mt-3">
-              <ReserveEquipmentAction line={line} />
+          {(canReserve || canRelease) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {canReserve && <ReserveEquipmentAction line={line} />}
+              {canRelease && <ReleaseEquipmentAction line={line} />}
             </div>
           )}
           <ArrangementForm eventId={eventId} line={line} />

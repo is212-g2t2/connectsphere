@@ -156,7 +156,7 @@ const arrangementFields = {
 };
 
 /** Blank once whitespace, control and invisible format characters (U+200B, U+2060) are stripped. */
-function isBlank(text: string | undefined): boolean {
+export function isBlank(text: string | undefined): boolean {
   return (text ?? "").replace(/[\p{Cc}\p{Cf}\s]/gu, "") === "";
 }
 
@@ -240,6 +240,37 @@ export function parseCheckLineAvailabilityInput(data: unknown): CheckLineAvailab
   return parseOrThrow(CheckLineAvailabilityInput, data);
 }
 
+// ── Reduce or release a reservation (PTR-42) ──────────────────────────────────────────────────
+
+export const RELEASE_TOTAL_MESSAGE = "Enter the units to keep as a whole number, 0 to release";
+export const RELEASE_NO_RESERVATION_MESSAGE = "This line holds no reservation to reduce or release";
+export const RELEASE_NOT_LOWER_MESSAGE =
+  "Enter fewer units than are currently reserved; use Reserve to hold more";
+
+/**
+ * PTR-42: the new total the line keeps — `0` releases the reservation. A reason marks the line
+ * unavailable instead of requested (criterion 1), the same rule PTR-39's arrangement update
+ * applies: the choice is Technical Support's, never inferred.
+ */
+export const ReleaseEquipmentInput = z.object({
+  equipmentRequestId: EquipmentRequestId,
+  quantity: z
+    .number({ error: RELEASE_TOTAL_MESSAGE })
+    .int(RELEASE_TOTAL_MESSAGE)
+    .nonnegative(RELEASE_TOTAL_MESSAGE),
+  unavailableReason: z
+    .string()
+    .trim()
+    .max(EQUIPMENT_NOTES_MAX, ARRANGEMENT_REASON_LENGTH_MESSAGE)
+    .optional(),
+});
+
+export type ReleaseEquipmentValues = z.infer<typeof ReleaseEquipmentInput>;
+
+export function parseReleaseEquipmentInput(data: unknown): ReleaseEquipmentValues {
+  return parseOrThrow(ReleaseEquipmentInput, data);
+}
+
 // ── Form shapes (string-leaf values for React inputs) ─────────────────────────────────────────
 
 /**
@@ -276,6 +307,18 @@ export const ReserveEquipmentFormInput = z
     quantity: values.quantity === "" ? Number.NaN : parseWholeNumber(values.quantity),
   }))
   .pipe(ReserveEquipmentInput.omit({ equipmentRequestId: true }));
+
+/**
+ * The release dialog's form: the quantity is a string leaf until submit, then the same gate as
+ * `ReleaseEquipmentInput` checks it. The line id is injected by the caller before the server call.
+ */
+export const ReleaseEquipmentFormInput = z
+  .object({ quantity: z.string(), unavailableReason: z.string() })
+  .transform((values): { quantity: number; unavailableReason?: string | undefined } => ({
+    quantity: values.quantity === "" ? Number.NaN : parseWholeNumber(values.quantity),
+    unavailableReason: values.unavailableReason === "" ? undefined : values.unavailableReason,
+  }))
+  .pipe(ReleaseEquipmentInput.omit({ equipmentRequestId: true }));
 
 /**
  * The availability check form: string leaves in, the same gate as `AvailabilityCheckInput`. An

@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
+import { ReleaseEquipmentAction } from "#/features/equipment-requests/components/release-equipment-action";
 import { ReserveEquipmentAction } from "#/features/equipment-requests/components/reserve-equipment-action";
 import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
@@ -258,9 +259,10 @@ function EquipmentItemRow({
         )}
         {item.notes && <p className="mt-0.5 text-muted-foreground">{item.notes}</p>}
       </div>
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <span>{arrangementStateLabel(item.arrangementStatus)}</span>
         {canReserve && <ReserveEquipmentAction line={item} />}
+        {canReserve && (item.reservedQuantity ?? 0) > 0 && <ReleaseEquipmentAction line={item} />}
       </div>
     </li>
   );

@@ -94,6 +94,8 @@ The equipment catalogue stores each type's aggregate held quantity in `equipment
 
 A reservation records the equipment type, quantity, and the event's approved booking period as a snapshot in `equipment_reservations`; later booking amendments do not move it, so the event re-reserves to re-scope. Reserve requires exactly one approved booking. Available quantity comes from one shared peak-concurrency sweep over stored reservation periods (`held − unavailable` minus peak overlap), used by both the availability check and the reserve path.
 
+A reduce lowers a reservation's quantity and a release deletes the row, so freed units reach every overlapping event through the same sweep. The line returns to `requested`, or to `unavailable` with the reason Technical Support gives; the event's status is never written by either. Release takes the line lock then the type lock, the reserve path's order.
+
 ## Authentication
 
 Handled by **Better Auth**; rate limited to 20 requests per 60-second window.
@@ -132,6 +134,7 @@ Source of truth is `src/features/auth/permissions.ts`, held to this table by `te
 | `equipment_request:read`    |    —     |        —        |         —         |      —      |           ✅            |
 | `equipment_request:arrange` |    —     |        —        |         —         |      —      |           ✅            |
 | `equipment:reserve`         |    —     |        —        |         —         |      —      |           ✅            |
+| `equipment:release`         |    —     |        —        |         —         |      —      |           ✅            |
 
 ### Enforcing it
 

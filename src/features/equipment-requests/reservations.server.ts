@@ -1,10 +1,13 @@
 import { and, eq } from "drizzle-orm";
+import { createElement } from "react";
 
 import type { db as Db } from "#/db";
 import {
   equipmentRequests,
   equipmentReservations,
   equipmentTypes,
+  eventRequests,
+  user,
   venueRequests,
 } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
@@ -12,8 +15,12 @@ import type { SessionUser } from "#/features/auth/session";
 import { loadTypeAvailability } from "#/features/equipment-requests/availability.server";
 import { loadWorkableLines } from "#/features/equipment-requests/equipment.server";
 import {
+  RELEASE_NO_RESERVATION_MESSAGE,
+  RELEASE_NOT_LOWER_MESSAGE,
   arrangementStateLabel,
+  isBlank,
   parseCheckLineAvailabilityInput,
+  parseReleaseEquipmentInput,
   parseReserveEquipmentInput,
 } from "#/features/equipment-requests/schema";
 import { isEquipmentQueueRow } from "#/features/events/access";
@@ -287,4 +294,154 @@ export async function handleCheckLineAvailability(
       endsAt: toLocalMinuteValue(booking.endsAt),
     },
   };
+}
+
+/**
+ * Reduces a line's reservation to a new total, or releases it outright (PTR-42).
+ *
+ * A release only frees units, so no availability check runs; the freed units show in every
+ * overlapping event's availability at once because the sweep reads the reservation rows
+ * (criterion 2). Locks are taken in the reserve path's order — the line, then the
+ * `equipment_types` row — so a release and a concurrent reserve on the same type serialise rather
+ * than interleave. The line's state returns to `requested`, or to `unavailable` with the reason
+ * Technical Support gives (criterion 1); its event's status is never written (criterion 4). The
+ * assigned Coordinator is told after the commit, best-effort, the shape the submit notice uses
+ * (criterion 3).
+ */
+export async function handleReleaseEquipment(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseReleaseEquipmentInput(data);
+  const unavailableReason =
+    input.unavailableReason !== undefined && !isBlank(input.unavailableReason)
+      ? input.unavailableReason
+      : null;
+
+  const released = await database.transaction(async tx => {
+    const line = (
+      await tx
+        .select()
+        .from(equipmentRequests)
+        .where(eq(equipmentRequests.id, input.equipmentRequestId))
+        .limit(1)
+        .for("update")
+    ).at(0);
+    if (!line) throw new NotFoundError("Equipment request not found");
+
+    // The same queue gate as reserve: a refused probe learns nothing about the event.
+    const { submitted } = await loadWorkableLines(tx, line.eventId, actor);
+    if (line.assignedStaffId !== null && line.assignedStaffId !== actor.id) {
+      throw new AuthorizationError("Equipment request is assigned to another staff member");
+    }
+    if (!isEquipmentQueueRow(line, actor.id, submitted)) {
+      throw new AuthorizationError("Forbidden");
+    }
+
+    const reservation = (
+      await tx
+        .select()
+        .from(equipmentReservations)
+        .where(eq(equipmentReservations.equipmentRequestId, line.id))
+        .limit(1)
+    ).at(0);
+    if (!reservation) throw new ConflictError(RELEASE_NO_RESERVATION_MESSAGE);
+    if (input.quantity >= reservation.quantity) throw new ConflictError(RELEASE_NOT_LOWER_MESSAGE);
+
+    // Serialise with reserve on the type (its AC5 lock), taken after the line as reserve does.
+    await tx
+      .select({ id: equipmentTypes.id })
+      .from(equipmentTypes)
+      .where(eq(equipmentTypes.id, reservation.equipmentTypeId))
+      .for("update");
+
+    if (input.quantity === 0) {
+      await tx.delete(equipmentReservations).where(eq(equipmentReservations.id, reservation.id));
+    } else {
+      await tx
+        .update(equipmentReservations)
+        .set({ quantity: input.quantity })
+        .where(eq(equipmentReservations.id, reservation.id));
+    }
+
+    const arrangementStatus = unavailableReason ? "unavailable" : "requested";
+    await tx
+      .update(equipmentRequests)
+      .set({
+        arrangementStatus,
+        unavailableReason,
+        assignedStaffId: line.assignedStaffId ?? actor.id,
+      })
+      .where(eq(equipmentRequests.id, line.id));
+
+    const notice = (
+      await tx
+        .select({ eventName: eventRequests.eventName, coordinatorEmail: user.email })
+        .from(eventRequests)
+        .leftJoin(user, eq(user.id, eventRequests.assignedCoordinatorId))
+        .where(eq(eventRequests.id, line.eventId))
+        .limit(1)
+    ).at(0);
+
+    log.info("Equipment reservation reduced or released", {
+      reservationId: reservation.id,
+      eventId: line.eventId,
+      equipmentRequestId: line.id,
+      previousQuantity: reservation.quantity,
+      quantity: input.quantity,
+      arrangementStatus,
+    });
+
+    return {
+      line,
+      previousQuantity: reservation.quantity,
+      arrangementStatus,
+      notice,
+    };
+  });
+
+  const result = {
+    equipmentRequestId: released.line.id,
+    previousQuantity: released.previousQuantity,
+    quantity: input.quantity,
+    released: input.quantity === 0,
+    arrangementStatus: released.arrangementStatus,
+    notified: false,
+  };
+
+  if (!released.notice?.coordinatorEmail) {
+    log.warn("No Coordinator to notify of equipment release", { eventId: released.line.eventId });
+    return result;
+  }
+
+  // After the commit, so a mail outage cannot undo the release; reached only when there is
+  // someone to email, so the mailer import is never paid otherwise.
+  const [{ sendEmail }, { EquipmentReleasedEmail }] = await Promise.all([
+    import("#/lib/mailer.server"),
+    import("#/features/emails/components/equipment-released-email"),
+  ]);
+  try {
+    await sendEmail(
+      released.notice.coordinatorEmail,
+      `Equipment ${result.released ? "released" : "reduced"}: ${released.line.item}`,
+      createElement(EquipmentReleasedEmail, {
+        eventName: released.notice.eventName,
+        item: released.line.item,
+        requestedQuantity: released.line.quantity,
+        previousQuantity: released.previousQuantity,
+        quantity: input.quantity,
+        arrangementStatus: released.arrangementStatus,
+        unavailableReason,
+        actorName: actor.name ?? "Technical Support",
+      })
+    );
+    return { ...result, notified: true };
+  } catch (error) {
+    log.warn("Equipment release notification failed", {
+      eventId: released.line.eventId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return result;
+  }
 }
