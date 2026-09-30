@@ -78,6 +78,8 @@ These credentials are non-production (shared password, `example.com` addresses, 
 
 The seed also creates three demo venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion) with capacity, facilities, accessibility features, supported layouts and operating hours, plus two future periods of unavailability. Re-running `bun run db:seed` is safe: existing accounts and venues are left untouched.
 
+The fictional equipment inventory contains eight Portable Projectors, twelve Wireless Microphones and four Portable PA Systems. One projector is marked unavailable for demo maintenance, leaving seven available before reservations. Re-running the seed does not duplicate equipment types or unavailable units.
+
 ## Environment Variables
 
 | Variable              | Required | Description                                                                                                                                              |

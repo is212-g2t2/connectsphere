@@ -9,18 +9,27 @@ import {
 } from "#/features/equipment-requests/schema";
 import type { EventProjection } from "#/features/events/access";
 
-const { updateEquipmentArrangement, checkEquipmentAvailability, invalidate, success } = vi.hoisted(
-  () => ({
-    updateEquipmentArrangement: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
-    checkEquipmentAvailability: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
-    invalidate: vi.fn<() => Promise<void>>(),
-    success: vi.fn<(message: string) => void>(),
-  })
-);
+const {
+  updateEquipmentArrangement,
+  checkEquipmentAvailability,
+  reserveEquipment,
+  checkLineAvailability,
+  invalidate,
+  success,
+} = vi.hoisted(() => ({
+  updateEquipmentArrangement: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  checkEquipmentAvailability: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  reserveEquipment: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  checkLineAvailability: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  invalidate: vi.fn<() => Promise<void>>(),
+  success: vi.fn<(message: string) => void>(),
+}));
 
 vi.mock("#/features/equipment-requests/server-fns", () => ({
   updateEquipmentArrangement,
   checkEquipmentAvailability,
+  reserveEquipment,
+  checkLineAvailability,
 }));
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate }),
@@ -132,6 +141,14 @@ describe("EquipmentReviewPage", () => {
     expect(screen.getByRole("heading", { level: 3, name: /Projector/ })).toBeTruthy();
   });
 
+  it("shows the reserved count on a line holding a reservation", () => {
+    renderReview([{ ...projector, reservedQuantity: 2 }]);
+
+    expect(
+      within(screen.getByRole("listitem", { name: "Projector" })).getByText("· 2 reserved")
+    ).toBeTruthy();
+  });
+
   it("does not offer reserved as a choice", async () => {
     renderReview([projector]);
 
@@ -195,13 +212,30 @@ describe("EquipmentReviewPage", () => {
       trigger.hasAttribute("disabled") || trigger.getAttribute("aria-disabled") === "true"
     ).toBe(true);
     const message = screen.getByText(
-      "This line holds a reservation. Release the reservation before changing its state."
+      "This line holds a reservation and its state cannot be changed."
     );
     expect(message.id).not.toBe("");
     expect(trigger.getAttribute("aria-describedby")).toBe(message.id);
     // Notes stay editable: the rule locks the state, not the annotation.
     expect(
       screen.getByRole("textbox", { name: "Technical Support notes for Microphone" })
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("disables the state choice on a partially reserved line too", () => {
+    renderReview([{ ...projector, reservedQuantity: 1 }]);
+
+    const trigger = stateSelect("Projector");
+    expect(
+      trigger.hasAttribute("disabled") || trigger.getAttribute("aria-disabled") === "true"
+    ).toBe(true);
+    const message = screen.getByText(
+      "This line holds a reservation and its state cannot be changed."
+    );
+    expect(message.id).not.toBe("");
+    expect(trigger.getAttribute("aria-describedby")).toBe(message.id);
+    expect(
+      screen.getByRole("textbox", { name: "Technical Support notes for Projector" })
     ).toHaveProperty("disabled", false);
   });
 

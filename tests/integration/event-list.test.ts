@@ -697,6 +697,7 @@ describe("event list handler (PTR-8)", () => {
             quantity: 1,
             arrangementNotes: null,
             unavailableReason: null,
+            reservedQuantity: null,
             arrangeable: true,
             assignedStaffName: "Event List Tech Support",
           },
@@ -708,6 +709,7 @@ describe("event list handler (PTR-8)", () => {
             quantity: 1,
             arrangementNotes: null,
             unavailableReason: null,
+            reservedQuantity: null,
             // Unassigned, on an event not yet submitted: shown, but not open to this member.
             arrangeable: false,
             assignedStaffName: null,

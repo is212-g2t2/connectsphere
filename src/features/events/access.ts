@@ -185,6 +185,8 @@ export interface EquipmentLineProjection {
   arrangeable?: boolean | undefined;
   /** Technical Support only: the name of the member arranging the line, null when unclaimed. */
   assignedStaffName?: string | null | undefined;
+  /** PTR-41 AC4: the line's reserved units when a reservation exists, so the view can show it. */
+  reservedQuantity?: number | null | undefined;
 }
 
 /**
@@ -299,6 +301,7 @@ export function projectEvent(
             quantity: line.quantity,
             arrangementStatus: line.arrangementStatus,
             notes: line.notes,
+            reservedQuantity: line.reservedQuantity ?? null,
             ...(access === "coordinator"
               ? {
                   arrangementNotes: line.arrangementNotes,

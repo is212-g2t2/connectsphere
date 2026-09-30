@@ -23,7 +23,9 @@ import {
 } from "#/features/coordination/server-fns";
 import {
   checkEquipmentAvailability,
+  checkLineAvailability,
   listEquipmentTypes,
+  reserveEquipment,
   updateEquipmentArrangement,
 } from "#/features/equipment-requests/server-fns";
 import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
@@ -658,6 +660,50 @@ describe("server-function authorization (PTR-69)", () => {
     });
   });
 
+  describe("equipment (PTR-41)", () => {
+    const reserveInput = {
+      equipmentRequestId: "eq-1",
+      quantity: 1,
+    };
+    const lineInput = { equipmentRequestId: "eq-1" };
+
+    it("answers 401 to an unauthenticated reserve", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(reserveEquipment, reserveInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(checkLineAvailability, lineInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it.each(["attendee", "event_organiser", "event_coordinator", "venue_staff"])(
+      "refuses %s with 403 Forbidden",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(reserveEquipment, reserveInput)).toMatchObject({
+          status: 403,
+          body: "Forbidden",
+        });
+        expect(await refusalFrom(checkLineAvailability, lineInput)).toMatchObject({
+          status: 403,
+          body: "Forbidden",
+        });
+      }
+    );
+
+    it("permits technical support staff through the permission guard", async () => {
+      signIn("technical_support_staff");
+
+      expect((await call(reserveEquipment, reserveInput)).error).toBeUndefined();
+      expect((await call(checkLineAvailability, lineInput)).error).toBeUndefined();
+    });
+  });
+
   describe("event requests", () => {
     it("answers 401 to an unauthenticated save", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
@@ -1009,6 +1055,17 @@ describe("server-function authorization (PTR-69)", () => {
         ATTENDANCE_MESSAGE
       );
       expect(await messageFrom(getEventRequest, { id: "1" }, "GET")).toBe(EVENT_REQUEST_ID_MESSAGE);
+
+      signIn("technical_support_staff");
+      expect(await messageFrom(reserveEquipment, { equipmentRequestId: "", quantity: 1 })).toBe(
+        "Equipment request ID is required"
+      );
+      expect(await messageFrom(reserveEquipment, { equipmentRequestId: "eq-1", quantity: 0 })).toBe(
+        "Quantity must be greater than zero"
+      );
+      expect(await messageFrom(checkLineAvailability, { equipmentRequestId: "" })).toBe(
+        "Equipment request ID is required"
+      );
     });
 
     it("validates the session-guarded list before it can answer", async () => {

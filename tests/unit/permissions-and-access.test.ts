@@ -61,7 +61,14 @@ const record: Parameters<typeof projectEvent>[0] = {
   registrationClosesAt: null,
 };
 const equipment = [
-  { id: "l1", item: "Projector", quantity: 2, arrangementStatus: "pending", notes: null },
+  {
+    id: "l1",
+    item: "Projector",
+    quantity: 2,
+    arrangementStatus: "pending",
+    notes: null,
+    reservedQuantity: null,
+  },
 ];
 
 const project = (access: EventAccess, rec = record) =>

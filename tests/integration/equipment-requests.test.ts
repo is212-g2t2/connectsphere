@@ -374,6 +374,38 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       ).rejects.toBeInstanceOf(ConflictError);
       expect(await linesOf(id)).toHaveLength(1);
     });
+
+    test("refuses a line holding a reservation instead of cascading it away", async () => {
+      const id = await createEvent("approved");
+      const line = await handleSaveEquipmentLine(
+        { eventId: id, item: "X", quantity: 1 },
+        coordinator,
+        database as never
+      );
+      const [type] = await database
+        .insert(schema.equipmentTypes)
+        .values({ name: `Guard type ${crypto.randomUUID()}`, quantityHeld: 2 })
+        .returning();
+      try {
+        await database.insert(schema.equipmentReservations).values({
+          id: crypto.randomUUID(),
+          equipmentRequestId: line.id,
+          equipmentTypeId: type.id,
+          quantity: 1,
+          startsAt: "2030-01-01T10:00:00",
+          endsAt: "2030-01-01T12:00:00",
+        });
+        await expect(
+          handleRemoveEquipmentLine({ eventId: id, id: line.id }, coordinator, database as never)
+        ).rejects.toThrow("This line holds a reservation and cannot be removed.");
+        expect(await linesOf(id)).toHaveLength(1);
+      } finally {
+        await database
+          .delete(schema.equipmentReservations)
+          .where(eq(schema.equipmentReservations.equipmentRequestId, line.id));
+        await database.delete(schema.equipmentTypes).where(eq(schema.equipmentTypes.id, type.id));
+      }
+    });
   });
 
   // ── AC2 ────────────────────────────────────────────────────────────────────────────────────

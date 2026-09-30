@@ -1,7 +1,7 @@
 // Mirrors equipment-arrangement.test.ts: a local node-postgres drizzle instance.
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -145,10 +145,31 @@ describe("equipment availability (PTR-40)", () => {
     return { eventId: event.id, lineId: line.id };
   }
 
+  /** A reservation snapshots the line event's first approved booking window at insert time. */
   async function reserve(lineId: string, equipmentTypeId: number, quantity: number) {
-    await database
-      .insert(schema.equipmentReservations)
-      .values({ id: crypto.randomUUID(), equipmentRequestId: lineId, equipmentTypeId, quantity });
+    const [line] = await database
+      .select({ eventId: schema.equipmentRequests.eventId })
+      .from(schema.equipmentRequests)
+      .where(eq(schema.equipmentRequests.id, lineId));
+    const [booking] = await database
+      .select({ startsAt: schema.venueRequests.startsAt, endsAt: schema.venueRequests.endsAt })
+      .from(schema.venueRequests)
+      .where(
+        and(
+          eq(schema.venueRequests.eventId, line.eventId),
+          eq(schema.venueRequests.status, "approved")
+        )
+      )
+      .orderBy(schema.venueRequests.startsAt)
+      .limit(1);
+    await database.insert(schema.equipmentReservations).values({
+      id: crypto.randomUUID(),
+      equipmentRequestId: lineId,
+      equipmentTypeId,
+      quantity,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+    });
   }
 
   const check = (
@@ -206,38 +227,46 @@ describe("equipment availability (PTR-40)", () => {
     expect((await check(target.eventId, type.id)).available).toBe(10);
   });
 
-  test("ignores reservations of other types and the own event", async () => {
+  test("ignores reservations of other types", async () => {
     const type = await createType(10);
     const otherType = await createType(10);
     const target = await createEvent(["10:00", "12:00"]);
     const other = await createEvent(["10:00", "12:00"]);
     await reserve(other.lineId, otherType.id, 4);
-    await reserve(target.lineId, type.id, 6);
 
     expect((await check(target.eventId, type.id)).available).toBe(10);
   });
 
-  test("counts a reservation once however many approved bookings its event has", async () => {
+  test("counts the event's own reservations", async () => {
+    const type = await createType(10);
+    const target = await createEvent(["10:00", "12:00"]);
+    await reserve(target.lineId, type.id, 6);
+
+    expect(await check(target.eventId, type.id)).toMatchObject({ reserved: 6, available: 4 });
+  });
+
+  test("counts a reservation once however many bookings its event later has", async () => {
     const type = await createType(10);
     const target = await createEvent(["10:00", "12:00"]);
     const other = await createEvent(["10:00", "12:00"]);
-    await addBooking(other.eventId, ["11:00", "13:00"]);
     await reserve(other.lineId, type.id, 4);
+    // A second approved booking arrives after the reservation; the snapshot still counts once.
+    await addBooking(other.eventId, ["11:00", "13:00"]);
 
     expect((await check(target.eventId, type.id)).reserved).toBe(4);
   });
 
-  test("a reservation whose event booking is not approved does not reduce availability", async () => {
+  test("a released booking no longer moves a reservation: the stored period still counts", async () => {
     const type = await createType(10);
     const target = await createEvent(["10:00", "12:00"]);
-    const pending = await createEvent(null);
-    const released = await createEvent(null);
-    await addBooking(pending.eventId, ["10:00", "12:00"], { status: "pending" });
-    await addBooking(released.eventId, ["10:00", "12:00"], { status: "released" });
-    await reserve(pending.lineId, type.id, 4);
-    await reserve(released.lineId, type.id, 3);
+    const other = await createEvent(["10:00", "12:00"]);
+    await reserve(other.lineId, type.id, 4);
+    await database
+      .update(schema.venueRequests)
+      .set({ status: "released", releaseReason: "Test" })
+      .where(eq(schema.venueRequests.eventId, other.eventId));
 
-    expect((await check(target.eventId, type.id)).available).toBe(10);
+    expect((await check(target.eventId, type.id)).reserved).toBe(4);
   });
 
   test("with several approved bookings, reports the tightest one and its period", async () => {

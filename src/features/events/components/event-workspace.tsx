@@ -1,12 +1,14 @@
+import type { ReactNode } from "react";
 import { CalendarDays, Clock3 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
 
 import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
+import { ReserveEquipmentAction } from "#/features/equipment-requests/components/reserve-equipment-action";
+import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
-import type { EventProjection } from "#/features/events/access";
+import type { EquipmentLineProjection, EventProjection } from "#/features/events/access";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
@@ -194,21 +196,16 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                       <p className="body-sm font-medium">Equipment arrangements</p>
                       <ul className="mt-3 space-y-3">
                         {event.equipment.map(item => (
-                          <li
+                          <EquipmentItemRow
                             key={item.id}
-                            className="flex items-start justify-between gap-4 body-sm"
-                          >
-                            <div>
-                              <span className="font-medium">{item.item}</span>
-                              <span className="text-muted-foreground"> × {item.quantity}</span>
-                              {item.notes && (
-                                <p className="mt-0.5 text-muted-foreground">{item.notes}</p>
-                              )}
-                            </div>
-                            <span className="shrink-0">
-                              {arrangementStateLabel(item.arrangementStatus)}
-                            </span>
-                          </li>
+                            item={item}
+                            canReserve={
+                              access === "technical_support" &&
+                              item.arrangeable === true &&
+                              (item.arrangementStatus === "requested" ||
+                                item.arrangementStatus === "reserved")
+                            }
+                          />
                         ))}
                       </ul>
                     </div>
@@ -241,5 +238,30 @@ function Detail({ label, value }: { label: string; value: ReactNode }) {
       <dt className="eyebrow text-muted-foreground">{label}</dt>
       <dd className="mt-1 font-medium text-foreground">{value}</dd>
     </div>
+  );
+}
+
+function EquipmentItemRow({
+  item,
+  canReserve,
+}: {
+  item: EquipmentLineProjection;
+  canReserve: boolean;
+}) {
+  return (
+    <li className="flex items-start justify-between gap-4 body-sm">
+      <div>
+        <span className="font-medium">{item.item}</span>
+        <span className="text-muted-foreground"> × {item.quantity}</span>
+        {typeof item.reservedQuantity === "number" && (
+          <ReservedCount quantity={item.reservedQuantity} className="text-muted-foreground" />
+        )}
+        {item.notes && <p className="mt-0.5 text-muted-foreground">{item.notes}</p>}
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <span>{arrangementStateLabel(item.arrangementStatus)}</span>
+        {canReserve && <ReserveEquipmentAction line={item} />}
+      </div>
+    </li>
   );
 }

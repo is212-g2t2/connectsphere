@@ -18,6 +18,8 @@ import {
 import { Textarea } from "#/components/ui/textarea";
 import { availabilityMessage } from "#/features/equipment-requests/availability";
 import { ArrangementPosition } from "#/features/equipment-requests/components/arrangement-position";
+import { ReserveEquipmentAction } from "#/features/equipment-requests/components/reserve-equipment-action";
+import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
 import {
   ARRANGEMENT_EMPTY_UPDATE_MESSAGE,
   ARRANGEMENT_RESERVED_MESSAGE,
@@ -258,10 +260,16 @@ function AvailabilityCheck({
  * only an explicit `false` takes the form away.
  */
 function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLineProjection }) {
+  const canReserve =
+    line.arrangeable !== false &&
+    (line.arrangementStatus === "requested" || line.arrangementStatus === "reserved");
   return (
     <li aria-label={line.item} className="rounded-lg border border-border p-4">
       <h3 className="font-medium">
         {line.item} <span className="text-muted-foreground">× {line.quantity}</span>
+        {typeof line.reservedQuantity === "number" && (
+          <ReservedCount quantity={line.reservedQuantity} className="text-muted-foreground" />
+        )}
       </h3>
       {line.notes && <p className="mt-1 body-sm text-muted-foreground">{line.notes}</p>}
 
@@ -277,6 +285,11 @@ function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLi
           {line.assignedStaffName && (
             <p className="mt-4 body-sm text-muted-foreground">You are arranging this line.</p>
           )}
+          {canReserve && (
+            <div className="mt-3">
+              <ReserveEquipmentAction line={line} />
+            </div>
+          )}
           <ArrangementForm eventId={eventId} line={line} />
         </>
       )}
@@ -290,7 +303,7 @@ function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLi
  */
 function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLineProjection }) {
   const router = useRouter();
-  const locked = line.arrangementStatus === "reserved";
+  const locked = line.arrangementStatus === "reserved" || (line.reservedQuantity ?? 0) > 0;
   const fieldId = (name: string) => `arrangement-${name}-${line.id}`;
 
   const form = useForm({
@@ -371,7 +384,7 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
                 <SelectValue>{(value: string) => arrangementStateLabel(value)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {(locked ? ["reserved"] : ARRANGEMENT_STATES).map(state => (
+                {(locked ? [line.arrangementStatus] : ARRANGEMENT_STATES).map(state => (
                   <SelectItem key={state} value={state}>
                     {arrangementStateLabel(state)}
                   </SelectItem>

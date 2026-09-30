@@ -5,6 +5,7 @@ import { alias } from "drizzle-orm/pg-core";
 import type { db as Db } from "#/db";
 import {
   equipmentRequests,
+  equipmentReservations,
   eventRegistrations,
   eventRequests,
   venueHolds,
@@ -21,7 +22,11 @@ import {
   isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
-import type { EventProjection, EventVenueRequest } from "#/features/events/access";
+import type {
+  EquipmentLineProjection,
+  EventProjection,
+  EventVenueRequest,
+} from "#/features/events/access";
 import type { VenueRequestOutcome } from "#/features/venue-requests/records.server";
 import { parseEventListInput } from "#/features/events/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
@@ -198,8 +203,23 @@ export async function handleListEvents(
       .where(inArray(venueRequests.eventId, requestIds))
       .orderBy(venueRequests.id),
     database
-      .select()
+      .select({
+        id: equipmentRequests.id,
+        eventId: equipmentRequests.eventId,
+        assignedStaffId: equipmentRequests.assignedStaffId,
+        item: equipmentRequests.item,
+        quantity: equipmentRequests.quantity,
+        arrangementStatus: equipmentRequests.arrangementStatus,
+        notes: equipmentRequests.notes,
+        arrangementNotes: equipmentRequests.arrangementNotes,
+        unavailableReason: equipmentRequests.unavailableReason,
+        reservedQuantity: equipmentReservations.quantity,
+      })
       .from(equipmentRequests)
+      .leftJoin(
+        equipmentReservations,
+        eq(equipmentReservations.equipmentRequestId, equipmentRequests.id)
+      )
       .where(inArray(equipmentRequests.eventId, requestIds))
       .orderBy(equipmentRequests.id),
     database
@@ -318,8 +338,7 @@ export async function handleListEvents(
     if (!access) return [];
 
     // Every equipment line of an event the caller is connected to, not only the lines assigned
-    // to them: PTR-39 AC2 shows Technical Support the whole request.
-    const equipment = equipmentRows
+    const equipment: EquipmentLineProjection[] = equipmentRows
       .filter(row => row.eventId === record.id)
       .map(row => ({
         id: row.id,
@@ -329,6 +348,7 @@ export async function handleListEvents(
         notes: row.notes,
         arrangementNotes: row.arrangementNotes,
         unavailableReason: row.unavailableReason,
+        reservedQuantity: row.reservedQuantity,
         // Only Technical Support acts on a line, so only their copy says whether they may.
         arrangeable:
           access === "technical_support"

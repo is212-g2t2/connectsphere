@@ -117,6 +117,21 @@ describe("EquipmentPanel arrangement position (PTR-39 AC4)", () => {
     expect(screen.getByText("State: Not required")).toBeTruthy();
   });
 
+  it("shows the reserved count beside the state when a reservation exists", () => {
+    render(
+      <EquipmentPanel
+        eventId={7}
+        lines={[{ ...projector, arrangementStatus: "reserved", reservedQuantity: 2 }]}
+        status="approved"
+        submittedAt="2030-01-01T00:00:00.000Z"
+      />
+    );
+
+    expect(
+      screen.getByText((_, element) => element?.textContent === "State: Reserved · 2 reserved")
+    ).toBeTruthy();
+  });
+
   it("shows no arrangement position before the request is submitted", () => {
     const line: EquipmentLine = {
       ...projector,
