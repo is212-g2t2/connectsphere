@@ -461,5 +461,22 @@ describe("EquipmentReviewPage", () => {
       expect(screen.getByText("No equipment types are available.")).toBeTruthy();
       expect(screen.queryByRole("combobox", { name: "Equipment type" })).toBeNull();
     });
+
+    it("says the catalogue could not be loaded when it is unavailable", () => {
+      const event: EventProjection["event"] = {
+        id: 7,
+        name: "Summit",
+        eventDate: "2030-01-01",
+        endDate: "2030-01-01",
+        startTime: "09:00",
+        endTime: "17:00",
+        status: "approved",
+        equipment: [speaker],
+      };
+      render(<EquipmentReviewPage event={event} equipmentTypes={null} />);
+
+      expect(screen.getByText("Could not load equipment types.")).toBeTruthy();
+      expect(screen.queryByRole("combobox", { name: "Equipment type" })).toBeNull();
+    });
   });
 });

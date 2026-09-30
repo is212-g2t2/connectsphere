@@ -46,7 +46,7 @@ export function EquipmentReviewPage({
   equipmentTypes,
 }: {
   event: EventProjection["event"];
-  equipmentTypes: { id: number; name: string }[];
+  equipmentTypes: { id: number; name: string }[] | null;
 }) {
   const lines = event.equipment ?? [];
   return (
@@ -104,7 +104,7 @@ function AvailabilityCheck({
   equipmentTypes,
 }: {
   eventId: number;
-  equipmentTypes: { id: number; name: string }[];
+  equipmentTypes: { id: number; name: string }[] | null;
 }) {
   // The server's answer, which is not a form value; TanStack Form owns the inputs and errors.
   const [outcome, setOutcome] = useState<{ message: string; shortfall: number } | null>(null);
@@ -142,13 +142,17 @@ function AvailabilityCheck({
     },
   });
 
-  if (equipmentTypes.length === 0) {
+  if (equipmentTypes === null || equipmentTypes.length === 0) {
     return (
       <section aria-labelledby="availability-heading" className="mt-8">
         <h2 id="availability-heading" className="display-h3">
           Check availability
         </h2>
-        <p className="body-sm text-muted-foreground">No equipment types are available.</p>
+        <p className="body-sm text-muted-foreground">
+          {equipmentTypes === null
+            ? "Could not load equipment types."
+            : "No equipment types are available."}
+        </p>
       </section>
     );
   }

@@ -34,7 +34,9 @@ export const Route = createFileRoute("/_authenticated/equipment-requests/$eventI
         }
         throw error;
       }),
-      listEquipmentTypes().catch(() => []),
+      // A catalogue fault must not take the review page down; `null` lets the page say the list
+      // could not be loaded, which an empty catalogue ([]) does not.
+      listEquipmentTypes().catch(() => null),
     ]);
     const entry = entries.at(0);
     if (!entry) throw notFound();

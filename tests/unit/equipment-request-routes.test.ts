@@ -64,12 +64,12 @@ describe("review route loader", () => {
     await expect(loader({ params: { eventId: "7" } })).rejects.toThrow("connection refused");
   });
 
-  it("still resolves with an empty catalogue when listing types fails", async () => {
+  it("marks the catalogue unavailable when listing types fails", async () => {
     mockListEvents.mockResolvedValue([{ event: { id: 7 } }]);
     mockListEquipmentTypes.mockRejectedValue(new Error("catalogue down"));
     await expect(loader({ params: { eventId: "7" } })).resolves.toEqual({
       event: { id: 7 },
-      equipmentTypes: [],
+      equipmentTypes: null,
     });
   });
 });
