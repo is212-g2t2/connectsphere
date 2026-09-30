@@ -372,7 +372,11 @@ describe("event list handler (PTR-8)", () => {
     });
 
     it("answers an unrecognised role with nothing rather than everything", async () => {
-      const ghost: SessionUser = { id: "el-ghost", email: "ghost@example.com", role: "wizard" };
+      const ghost: SessionUser = {
+        id: "el-ghost",
+        email: "ghost@example.com",
+        role: "wizard",
+      };
 
       expect(await handleListEvents({}, ghost, database as never)).toEqual([]);
     });
@@ -481,7 +485,10 @@ describe("event list handler (PTR-8)", () => {
         session("venueStaff"),
         database as never
       );
-      expect(flagged.event.venueRequest).toEqual({ status: "pending", conflict: "booking" });
+      expect(flagged.event.venueRequest).toEqual({
+        status: "pending",
+        conflict: "booking",
+      });
 
       const [clear] = await handleListEvents(
         { eventId: fixtures.review.id },
@@ -538,15 +545,24 @@ describe("event list handler (PTR-8)", () => {
           .where(eq(schema.venueRequests.id, "el-venue-rejected-bare"));
         expect(await coordinatorCard(fixtures.closed.id)).toMatchObject({
           rejection: {
-            suggestion: { venueName: null, date: "2026-11-02", startTime: null, endTime: null },
+            suggestion: {
+              venueName: null,
+              date: "2026-11-02",
+              startTime: null,
+              endTime: null,
+            },
           },
         });
       });
 
       it("prefers a pending request to a rejection", async () => {
-        await insertRejected("el-venue-rejected-old", { eventId: fixtures.main.id });
+        await insertRejected("el-venue-rejected-old", {
+          eventId: fixtures.main.id,
+        });
 
-        expect(await coordinatorCard(fixtures.main.id)).toEqual({ status: "pending" });
+        expect(await coordinatorCard(fixtures.main.id)).toEqual({
+          status: "pending",
+        });
       });
 
       it("shows the most recently decided rejection", async () => {
@@ -682,6 +698,7 @@ describe("event list handler (PTR-8)", () => {
             arrangementNotes: null,
             unavailableReason: null,
             arrangeable: true,
+            assignedStaffName: "Event List Tech Support",
           },
           {
             id: "el-equipment-other",
@@ -693,6 +710,7 @@ describe("event list handler (PTR-8)", () => {
             unavailableReason: null,
             // Unassigned, on an event not yet submitted: shown, but not open to this member.
             arrangeable: false,
+            assignedStaffName: null,
           },
         ])
       );
@@ -756,7 +774,11 @@ describe("event list handler (PTR-8)", () => {
       expect(listed.map(row => row.event.id)).not.toContain(fixtures.review.id);
       await expect(
         handleListEvents({ eventId: fixtures.review.id }, session("attendee"), database as never)
-      ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+      ).rejects.toMatchObject({
+        name: "AuthorizationError",
+        status: 403,
+        message: "Forbidden",
+      });
     });
 
     it("keeps an under-review event visible to an attendee who already registered", async () => {
@@ -791,13 +813,21 @@ describe("event list handler (PTR-8)", () => {
     it("refuses a named event the caller is not connected to", async () => {
       await expect(
         handleListEvents({ eventId: fixtures.foreign.id }, session("organiser"), database as never)
-      ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+      ).rejects.toMatchObject({
+        name: "AuthorizationError",
+        status: 403,
+        message: "Forbidden",
+      });
     });
 
     it("refuses a named draft even in the caller's own account, like any unavailable event", async () => {
       await expect(
         handleListEvents({ eventId: fixtures.draft.id }, session("organiser"), database as never)
-      ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+      ).rejects.toMatchObject({
+        name: "AuthorizationError",
+        status: 403,
+        message: "Forbidden",
+      });
     });
 
     it("refuses an id that is not a positive whole number before any query", async () => {

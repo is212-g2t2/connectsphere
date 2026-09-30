@@ -139,6 +139,20 @@ describe("event access", () => {
       expect(projected).not.toHaveProperty("arrangementNotes");
       expect(projected).not.toHaveProperty("unavailableReason");
     });
+
+    it("keeps the holder's name and arrangeable flag to technical support alone", () => {
+      const held = [{ ...arranged[0], arrangeable: true, assignedStaffName: "Sam" }];
+      const project = (access: "coordinator" | "organiser" | "technical_support") =>
+        projectEvent(request, access, null, held, null).event.equipment?.[0];
+      expect(project("technical_support")).toMatchObject({
+        arrangeable: true,
+        assignedStaffName: "Sam",
+      });
+      for (const access of ["coordinator", "organiser"] as const) {
+        expect(project(access)).not.toHaveProperty("assignedStaffName");
+        expect(project(access)).not.toHaveProperty("arrangeable");
+      }
+    });
   });
 
   it("returns only an attendee's own registration and the PTR-44 fields", () => {

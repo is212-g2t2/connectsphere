@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ArrangementFormInput,
+  ARRANGEMENT_REASON_LENGTH_MESSAGE,
   ARRANGEMENT_EMPTY_UPDATE_MESSAGE,
   ARRANGEMENT_REASON_MESSAGE,
   ARRANGEMENT_STATE_MESSAGE,
@@ -78,5 +80,53 @@ describe("parseArrangementUpdateInput (PTR-39 AC3)", () => {
 
   it("refuses an update that changes neither state nor notes", () => {
     expect(() => parseArrangementUpdateInput(line)).toThrow(ARRANGEMENT_EMPTY_UPDATE_MESSAGE);
+  });
+});
+
+describe("reason length", () => {
+  it("names the reason, not the notes, when the reason is too long", () => {
+    expect(() =>
+      parseArrangementUpdateInput({
+        ...line,
+        arrangementStatus: "unavailable",
+        unavailableReason: "x".repeat(EQUIPMENT_NOTES_MAX + 1),
+      })
+    ).toThrow(ARRANGEMENT_REASON_LENGTH_MESSAGE);
+  });
+});
+
+describe("ArrangementFormInput", () => {
+  const blank = { arrangementStatus: "requested", unavailableReason: "", arrangementNotes: "" };
+
+  it("rejects unavailable with a blank reason on the reason field", () => {
+    const result = ArrangementFormInput.safeParse({
+      ...blank,
+      arrangementStatus: "unavailable",
+      unavailableReason: "​ ",
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ["unavailableReason"],
+      message: ARRANGEMENT_REASON_MESSAGE,
+    });
+  });
+
+  it("accepts unavailable with a reason, and requested with a blank one", () => {
+    expect(
+      ArrangementFormInput.safeParse({
+        ...blank,
+        arrangementStatus: "unavailable",
+        unavailableReason: "Loaned out",
+      }).success
+    ).toBe(true);
+    expect(ArrangementFormInput.safeParse(blank).success).toBe(true);
+  });
+
+  it("rejects over-long notes", () => {
+    const result = ArrangementFormInput.safeParse({
+      ...blank,
+      arrangementNotes: "x".repeat(EQUIPMENT_NOTES_MAX + 1),
+    });
+    expect(result.error?.issues[0].message).toBe(EQUIPMENT_NOTES_MESSAGE);
   });
 });

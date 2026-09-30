@@ -39,18 +39,24 @@ export interface EquipmentLine {
  */
 export const ARRANGEMENT_STATES = ["requested", "not_required", "unavailable"] as const;
 
-export type ArrangementState = (typeof ARRANGEMENT_STATES)[number];
+type ArrangementState = (typeof ARRANGEMENT_STATES)[number];
 
 /** Every state a line can hold, settable or not, as the words people read. */
-export const ARRANGEMENT_STATE_LABELS: Record<string, string> = {
+const ARRANGEMENT_STATE_LABELS: Record<ArrangementState | "reserved", string> = {
   requested: "Requested",
   reserved: "Reserved",
   not_required: "Not required",
   unavailable: "Unavailable",
 };
 
+/** The label for a stored status, or the raw value when it is not one we know. */
+export function arrangementStateLabel(status: string): string {
+  return (ARRANGEMENT_STATE_LABELS as Record<string, string | undefined>)[status] ?? status;
+}
+
 export const ARRANGEMENT_STATE_MESSAGE = "Choose requested, not required or unavailable";
 export const ARRANGEMENT_REASON_MESSAGE = "Give a reason for marking this line unavailable";
+export const ARRANGEMENT_REASON_LENGTH_MESSAGE = `Reason must be ${EQUIPMENT_NOTES_MAX} characters or fewer`;
 export const ARRANGEMENT_EMPTY_UPDATE_MESSAGE = "Choose a state or add a note";
 export const ARRANGEMENT_RESERVED_MESSAGE =
   "This line holds a reservation. Release the reservation before changing its state.";
@@ -136,15 +142,24 @@ export function parseSubmitEquipmentInput(data: unknown): SubmitEquipmentValues 
  */
 const arrangementFields = {
   arrangementStatus: z.enum(ARRANGEMENT_STATES, { error: ARRANGEMENT_STATE_MESSAGE }).optional(),
-  unavailableReason: z.string().trim().max(EQUIPMENT_NOTES_MAX, EQUIPMENT_NOTES_MESSAGE).optional(),
+  unavailableReason: z
+    .string()
+    .trim()
+    .max(EQUIPMENT_NOTES_MAX, ARRANGEMENT_REASON_LENGTH_MESSAGE)
+    .optional(),
   arrangementNotes: z.string().trim().max(EQUIPMENT_NOTES_MAX, EQUIPMENT_NOTES_MESSAGE).optional(),
 };
+
+/** Blank once whitespace, control and invisible format characters (U+200B, U+2060) are stripped. */
+function isBlank(text: string | undefined): boolean {
+  return (text ?? "").replace(/[\p{Cc}\p{Cf}\s]/gu, "") === "";
+}
 
 function requireReasonAndChange(
   value: { arrangementStatus?: string; unavailableReason?: string; arrangementNotes?: string },
   ctx: z.core.$RefinementCtx
 ) {
-  if (value.arrangementStatus === "unavailable" && !value.unavailableReason) {
+  if (value.arrangementStatus === "unavailable" && isBlank(value.unavailableReason)) {
     ctx.addIssue({
       code: "custom",
       message: ARRANGEMENT_REASON_MESSAGE,
@@ -195,29 +210,13 @@ export const EquipmentLineFormInput = EquipmentLineFormShape.transform(
 ).pipe(EquipmentLineInput.omit({ eventId: true, id: true }));
 
 /**
- * The arrangement form: string leaves in, the same gate as `ArrangementUpdateInput` out. A
- * reserved line shows its state but cannot set one, so `reserved` (and an untouched empty select)
- * reads as "no change" here, and a reason only travels with `unavailable`.
+ * The arrangement form: string leaves in, the same gate as `ArrangementUpdateInput`. A reserved
+ * line shows its state but cannot set one; the caller drops anything that is not a settable state.
  */
 export const ArrangementFormInput = z
   .object({
     arrangementStatus: z.string(),
-    unavailableReason: z.string(),
-    arrangementNotes: z.string(),
+    unavailableReason: arrangementFields.unavailableReason.unwrap(),
+    arrangementNotes: arrangementFields.arrangementNotes.unwrap(),
   })
-  .transform(
-    (
-      values
-    ): {
-      arrangementStatus?: ArrangementState | undefined;
-      unavailableReason?: string | undefined;
-      arrangementNotes?: string | undefined;
-    } => ({
-      // Anything that is not a settable state (`reserved`, or an untouched empty select) is no change.
-      arrangementStatus: ARRANGEMENT_STATES.find(state => state === values.arrangementStatus),
-      unavailableReason:
-        values.arrangementStatus === "unavailable" ? values.unavailableReason : undefined,
-      arrangementNotes: values.arrangementNotes,
-    })
-  )
-  .pipe(z.object(arrangementFields).superRefine(requireReasonAndChange));
+  .superRefine(requireReasonAndChange);

@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EquipmentReviewPage } from "#/features/equipment-requests/components/equipment-review-page";
-import { ARRANGEMENT_REASON_MESSAGE } from "#/features/equipment-requests/schema";
+import {
+  ARRANGEMENT_EMPTY_UPDATE_MESSAGE,
+  ARRANGEMENT_REASON_MESSAGE,
+} from "#/features/equipment-requests/schema";
 import type { EventProjection } from "#/features/events/access";
 
 const { updateEquipmentArrangement, invalidate, success } = vi.hoisted(() => ({
@@ -78,6 +81,11 @@ function renderReview(equipment: Line[] = [projector, microphone, speaker]) {
 const stateSelect = (item: string) =>
   screen.getByRole("combobox", { name: `Arrangement state for ${item}` });
 
+async function choose(user: ReturnType<typeof userEvent.setup>, item: string, label: string) {
+  await user.click(stateSelect(item));
+  await user.click(await screen.findByRole("option", { name: label }));
+}
+
 describe("EquipmentReviewPage", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -101,13 +109,15 @@ describe("EquipmentReviewPage", () => {
     }
     // The Coordinator's own note is context, shown but not editable here.
     expect(screen.getByText("Needs HDMI")).toBeTruthy();
-    expect((stateSelect("Speaker") as HTMLSelectElement).value).toBe("not_required");
+    expect(stateSelect("Speaker").textContent).toContain("Not required");
+    expect(screen.getByRole("heading", { level: 3, name: /Projector/ })).toBeTruthy();
   });
 
-  it("does not offer reserved as a choice", () => {
+  it("does not offer reserved as a choice", async () => {
     renderReview([projector]);
 
-    const options = within(stateSelect("Projector")).getAllByRole("option");
+    await userEvent.setup({ pointerEventsCheck: 0 }).click(stateSelect("Projector"));
+    const options = await screen.findAllByRole("option");
     expect(options.map(option => option.textContent)).toEqual([
       "Requested",
       "Not required",
@@ -130,9 +140,9 @@ describe("EquipmentReviewPage", () => {
 
     const held = screen.getByRole("listitem", { name: "Projector" });
     expect(
-      within(held).getByText("Being arranged by another member of Technical Support.")
+      within(held).getByText("Being arranged by another member of Technical Support")
     ).toBeTruthy();
-    expect(within(held).getByText("Unavailable")).toBeTruthy();
+    expect(within(held).getByText("State: Unavailable")).toBeTruthy();
     expect(within(held).getByText("Reason: Loaned out")).toBeTruthy();
     expect(within(held).getByText("Technical Support note: Adapter in store B")).toBeTruthy();
     expect(within(held).queryByRole("combobox")).toBeNull();
@@ -141,15 +151,35 @@ describe("EquipmentReviewPage", () => {
     expect(screen.getByRole("button", { name: "Save Speaker" })).toBeTruthy();
   });
 
+  it("names the colleague holding a line, and says when the member holds it", () => {
+    renderReview([
+      { ...projector, arrangeable: false, assignedStaffName: "Sam Tech" },
+      { ...speaker, assignedStaffName: "Me Myself" },
+      microphone,
+    ]);
+
+    expect(screen.getByText("Being arranged by Sam Tech")).toBeTruthy();
+    expect(
+      within(screen.getByRole("listitem", { name: "Speaker" })).getByText(
+        "You are arranging this line."
+      )
+    ).toBeTruthy();
+    // Shown on the claimed line only, not the unclaimed one nor the colleague's.
+    expect(screen.getAllByText("You are arranging this line.")).toHaveLength(1);
+  });
+
   it("disables the state choice on a reserved line and says why", () => {
     renderReview([microphone]);
 
-    expect((stateSelect("Microphone") as HTMLSelectElement).disabled).toBe(true);
+    const trigger = stateSelect("Microphone");
     expect(
-      screen.getByText(
-        "This line holds a reservation. Release the reservation before changing its state."
-      )
-    ).toBeTruthy();
+      trigger.hasAttribute("disabled") || trigger.getAttribute("aria-disabled") === "true"
+    ).toBe(true);
+    const message = screen.getByText(
+      "This line holds a reservation. Release the reservation before changing its state."
+    );
+    expect(message.id).not.toBe("");
+    expect(trigger.getAttribute("aria-describedby")).toBe(message.id);
     // Notes stay editable: the rule locks the state, not the annotation.
     expect(
       screen.getByRole("textbox", { name: "Technical Support notes for Microphone" })
@@ -157,12 +187,12 @@ describe("EquipmentReviewPage", () => {
   });
 
   it("asks for a reason when unavailable is chosen", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     updateEquipmentArrangement.mockResolvedValue({});
     renderReview([projector]);
 
     expect(screen.queryByRole("textbox", { name: /Reason unavailable/ })).toBeNull();
-    await user.selectOptions(stateSelect("Projector"), "unavailable");
+    await choose(user, "Projector", "Unavailable");
     const reason = screen.getByRole("textbox", {
       name: "Reason unavailable for Projector (required)",
     });
@@ -181,7 +211,6 @@ describe("EquipmentReviewPage", () => {
           id: "line-a",
           arrangementStatus: "unavailable",
           unavailableReason: "Loaned out",
-          arrangementNotes: "",
         },
       })
     );
@@ -190,7 +219,7 @@ describe("EquipmentReviewPage", () => {
   });
 
   it("leaves the state out of the update for a reserved line", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     updateEquipmentArrangement.mockResolvedValue({});
     renderReview([microphone]);
 
@@ -206,12 +235,79 @@ describe("EquipmentReviewPage", () => {
     );
   });
 
+  it("sends only the note when only the note changed", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    updateEquipmentArrangement.mockResolvedValue({});
+    renderReview([speaker]);
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Technical Support notes for Speaker" }),
+      "Stand included"
+    );
+    await user.click(screen.getByRole("button", { name: "Save Speaker" }));
+
+    await waitFor(() =>
+      expect(updateEquipmentArrangement).toHaveBeenCalledWith({
+        data: { eventId: 7, id: "line-c", arrangementNotes: "Stand included" },
+      })
+    );
+  });
+
+  it("sends the state with its reason when only the reason changed", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    updateEquipmentArrangement.mockResolvedValue({});
+    renderReview([{ ...projector, arrangementStatus: "unavailable", unavailableReason: "Loaned" }]);
+
+    const reason = screen.getByRole("textbox", {
+      name: "Reason unavailable for Projector (required)",
+    });
+    await user.clear(reason);
+    await user.type(reason, "Broken");
+    await user.click(screen.getByRole("button", { name: "Save Projector" }));
+
+    await waitFor(() =>
+      expect(updateEquipmentArrangement).toHaveBeenCalledWith({
+        data: {
+          eventId: 7,
+          id: "line-a",
+          arrangementStatus: "unavailable",
+          unavailableReason: "Broken",
+        },
+      })
+    );
+  });
+
+  it("sends only the state when only the state changed", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    updateEquipmentArrangement.mockResolvedValue({});
+    renderReview([{ ...projector, arrangementNotes: "Held" }]);
+
+    await choose(user, "Projector", "Not required");
+    await user.click(screen.getByRole("button", { name: "Save Projector" }));
+
+    await waitFor(() =>
+      expect(updateEquipmentArrangement).toHaveBeenCalledWith({
+        data: { eventId: 7, id: "line-a", arrangementStatus: "not_required" },
+      })
+    );
+  });
+
+  it("does not call the server when nothing changed", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderReview([projector]);
+
+    await user.click(screen.getByRole("button", { name: "Save Projector" }));
+
+    expect(await screen.findByText(ARRANGEMENT_EMPTY_UPDATE_MESSAGE)).toBeTruthy();
+    expect(updateEquipmentArrangement).not.toHaveBeenCalled();
+  });
+
   it("shows the server's refusal on the line that failed", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     updateEquipmentArrangement.mockRejectedValueOnce(new Error("This line holds a reservation."));
     renderReview([projector, speaker]);
 
-    await user.selectOptions(stateSelect("Projector"), "not_required");
+    await choose(user, "Projector", "Not required");
     await user.click(screen.getByRole("button", { name: "Save Projector" }));
 
     const line = screen.getByRole("listitem", { name: "Projector" });

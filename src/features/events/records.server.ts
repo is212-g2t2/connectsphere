@@ -10,6 +10,7 @@ import {
   venueHolds,
   venueRequests,
 } from "#/db/schema";
+import { user as userTable } from "#/db/auth-schema";
 import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
@@ -212,6 +213,26 @@ export async function handleListEvents(
       ),
   ]);
 
+  // Technical Support sees who holds each line: one batched name lookup, for that role only.
+  const holderIds =
+    role === "technical_support_staff"
+      ? [
+          ...new Set(
+            equipmentRows.flatMap(row => (row.assignedStaffId ? [row.assignedStaffId] : []))
+          ),
+        ]
+      : [];
+  const holderNames = new Map<string, string>(
+    holderIds.length === 0
+      ? []
+      : (
+          await database
+            .select({ id: userTable.id, name: userTable.name })
+            .from(userTable)
+            .where(inArray(userTable.id, holderIds))
+        ).map(row => [row.id, row.name])
+  );
+
   // Rejections and releases are shown only to the assigned Coordinator, so no other role pays for
   // the lookup. `venue-requests` owns which row is the event's live operational outcome.
   const venueRequestOutcomes: ReadonlyMap<number, VenueRequestOutcome> =
@@ -312,6 +333,10 @@ export async function handleListEvents(
         arrangeable:
           access === "technical_support"
             ? isEquipmentQueueRow(row, user.id, record.equipmentSubmittedAt !== null)
+            : undefined,
+        assignedStaffName:
+          access === "technical_support"
+            ? (holderNames.get(row.assignedStaffId ?? "") ?? null)
             : undefined,
       }));
     // PTR-31 criterion 5: a withdrawn request leaves the card, so only a pending row is reported; no fallback to an older withdrawn request — an event with none shows no venue request. A Venue Staff caller sees only the rows the queue rule grants them.

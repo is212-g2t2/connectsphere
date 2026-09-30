@@ -6,13 +6,21 @@ import { toast } from "sonner";
 import { Page, PageHeader } from "#/components/layout/page";
 import { Button } from "#/components/ui/button";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
-import { NativeSelect, NativeSelectOption } from "#/components/ui/native-select";
-import { Textarea } from "#/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
+import { Textarea } from "#/components/ui/textarea";
+import { ArrangementPosition } from "#/features/equipment-requests/components/arrangement-position";
+import {
+  ARRANGEMENT_EMPTY_UPDATE_MESSAGE,
   ARRANGEMENT_RESERVED_MESSAGE,
-  ARRANGEMENT_STATE_LABELS,
   ARRANGEMENT_STATES,
   ArrangementFormInput,
+  arrangementStateLabel,
 } from "#/features/equipment-requests/schema";
 import { updateEquipmentArrangement } from "#/features/equipment-requests/server-fns";
 import { formatLocalDate } from "#/features/event-requests/format";
@@ -79,30 +87,25 @@ export function EquipmentReviewPage({ event }: { event: EventProjection["event"]
 function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLineProjection }) {
   return (
     <li aria-label={line.item} className="rounded-lg border border-border p-4">
-      <p className="font-medium">
+      <h3 className="font-medium">
         {line.item} <span className="text-muted-foreground">× {line.quantity}</span>
-      </p>
+      </h3>
       {line.notes && <p className="mt-1 body-sm text-muted-foreground">{line.notes}</p>}
 
       {line.arrangeable === false ? (
-        <div className="mt-4 space-y-1 body-sm">
+        <div className="mt-4 body-sm">
           <p className="text-muted-foreground">
-            Being arranged by another member of Technical Support.
+            {`Being arranged by ${line.assignedStaffName ?? "another member of Technical Support"}`}
           </p>
-          <p className="font-medium">
-            {ARRANGEMENT_STATE_LABELS[line.arrangementStatus] ?? line.arrangementStatus}
-          </p>
-          {line.unavailableReason && (
-            <p className="text-muted-foreground">{`Reason: ${line.unavailableReason}`}</p>
-          )}
-          {line.arrangementNotes && (
-            <p className="text-muted-foreground">
-              {`Technical Support note: ${line.arrangementNotes}`}
-            </p>
-          )}
+          <ArrangementPosition line={line} />
         </div>
       ) : (
-        <ArrangementForm eventId={eventId} line={line} />
+        <>
+          {line.assignedStaffName && (
+            <p className="mt-4 body-sm text-muted-foreground">You are arranging this line.</p>
+          )}
+          <ArrangementForm eventId={eventId} line={line} />
+        </>
       )}
     </li>
   );
@@ -125,16 +128,31 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
     },
     validators: { onSubmit: ArrangementFormInput },
     onSubmit: async ({ value, formApi }) => {
+      // Send only what the member changed: another tab may have moved the rest since this loaded.
+      // A reason travels with its status (the server writes it only alongside one), so a reason
+      // edit on an `unavailable` line resends its status.
+      const stateChanged =
+        !locked &&
+        (value.arrangementStatus !== line.arrangementStatus ||
+          (value.arrangementStatus === "unavailable" &&
+            value.unavailableReason !== (line.unavailableReason ?? "")));
+      const notesChanged = value.arrangementNotes !== (line.arrangementNotes ?? "");
+      if (!stateChanged && !notesChanged) {
+        formApi.setErrorMap({
+          onSubmit: { fields: {}, form: ARRANGEMENT_EMPTY_UPDATE_MESSAGE },
+        });
+        return;
+      }
       try {
         await updateEquipmentArrangement({
           data: {
             eventId,
             id: line.id,
-            ...(locked ? {} : { arrangementStatus: value.arrangementStatus }),
-            ...(!locked && value.arrangementStatus === "unavailable"
+            ...(stateChanged ? { arrangementStatus: value.arrangementStatus } : {}),
+            ...(stateChanged && value.arrangementStatus === "unavailable"
               ? { unavailableReason: value.unavailableReason }
               : {}),
-            arrangementNotes: value.arrangementNotes,
+            ...(notesChanged ? { arrangementNotes: value.arrangementNotes } : {}),
           },
         });
         toast.success("Equipment line updated.");
@@ -166,26 +184,31 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
             <FieldLabel htmlFor={fieldId("state")}>
               {`Arrangement state for ${line.item}`}
             </FieldLabel>
-            <NativeSelect
-              id={fieldId("state")}
+            <Select
               value={field.state.value}
               disabled={locked}
-              onChange={e => field.handleChange(e.target.value)}
+              onValueChange={value => field.handleChange(value ?? line.arrangementStatus)}
             >
-              {locked ? (
-                <NativeSelectOption value="reserved">
-                  {ARRANGEMENT_STATE_LABELS.reserved}
-                </NativeSelectOption>
-              ) : (
-                ARRANGEMENT_STATES.map(state => (
-                  <NativeSelectOption key={state} value={state}>
-                    {ARRANGEMENT_STATE_LABELS[state]}
-                  </NativeSelectOption>
-                ))
-              )}
-            </NativeSelect>
+              <SelectTrigger
+                id={fieldId("state")}
+                className="w-full"
+                aria-describedby={locked ? fieldId("reserved") : undefined}
+                onBlur={field.handleBlur}
+              >
+                <SelectValue>{(value: string) => arrangementStateLabel(value)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {(locked ? ["reserved"] : ARRANGEMENT_STATES).map(state => (
+                  <SelectItem key={state} value={state}>
+                    {arrangementStateLabel(state)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {locked && (
-              <p className="body-sm text-muted-foreground">{ARRANGEMENT_RESERVED_MESSAGE}</p>
+              <p id={fieldId("reserved")} className="body-sm text-muted-foreground">
+                {ARRANGEMENT_RESERVED_MESSAGE}
+              </p>
             )}
           </Field>
         )}

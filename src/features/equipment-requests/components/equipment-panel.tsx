@@ -20,11 +20,11 @@ import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { Textarea } from "#/components/ui/textarea";
 import {
-  ARRANGEMENT_STATE_LABELS,
   EQUIPMENT_NO_LINES_MESSAGE,
   EquipmentLineFormInput,
   isEquipmentEditableStatus,
 } from "#/features/equipment-requests/schema";
+import { ArrangementPosition } from "#/features/equipment-requests/components/arrangement-position";
 import type { EquipmentLine } from "#/features/equipment-requests/schema";
 import {
   removeEquipmentLine,
@@ -131,19 +131,7 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
                     <span className="text-muted-foreground"> × {line.quantity}</span>
                     {line.notes && <p className="mt-0.5 text-muted-foreground">{line.notes}</p>}
                     {/* PTR-39 AC4: where Technical Support has got to. Nothing is arranged before the request is submitted, so nothing is shown until then. */}
-                    {alreadySubmitted && line.arrangementStatus && (
-                      <p className="mt-1 font-medium">
-                        {ARRANGEMENT_STATE_LABELS[line.arrangementStatus] ?? line.arrangementStatus}
-                      </p>
-                    )}
-                    {alreadySubmitted && line.unavailableReason && (
-                      <p className="mt-0.5 text-muted-foreground">{`Reason: ${line.unavailableReason}`}</p>
-                    )}
-                    {alreadySubmitted && line.arrangementNotes && (
-                      <p className="mt-0.5 text-muted-foreground">
-                        {`Technical Support note: ${line.arrangementNotes}`}
-                      </p>
-                    )}
+                    {alreadySubmitted && <ArrangementPosition line={line} />}
                   </div>
                   {canEditLines && (
                     <div className="flex shrink-0 items-center gap-2">

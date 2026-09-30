@@ -183,6 +183,8 @@ export interface EquipmentLineProjection {
    * be refused.
    */
   arrangeable?: boolean | undefined;
+  /** Technical Support only: the name of the member arranging the line, null when unclaimed. */
+  assignedStaffName?: string | null | undefined;
 }
 
 /**
@@ -291,16 +293,19 @@ export function projectEvent(
           requiredFacilities: record.venueRequirements,
           // PTR-39 AC4: the Coordinator sees Technical Support's notes and reasons, the Organiser
           // sees the state alone.
-          equipment:
-            access === "coordinator"
-              ? equipment
-              : equipment.map(line => ({
-                  id: line.id,
-                  item: line.item,
-                  quantity: line.quantity,
-                  arrangementStatus: line.arrangementStatus,
-                  notes: line.notes,
-                })),
+          equipment: equipment.map(line => ({
+            id: line.id,
+            item: line.item,
+            quantity: line.quantity,
+            arrangementStatus: line.arrangementStatus,
+            notes: line.notes,
+            ...(access === "coordinator"
+              ? {
+                  arrangementNotes: line.arrangementNotes,
+                  unavailableReason: line.unavailableReason,
+                }
+              : {}),
+          })),
           venueRequest,
           equipmentSubmittedAt: record.equipmentSubmittedAt?.toISOString() ?? null,
         },

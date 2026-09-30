@@ -533,7 +533,9 @@ export const equipmentRequests = pgTable(
     index("equipment_requests_event_id_idx").on(table.eventId),
     index("equipment_requests_assigned_staff_id_idx").on(table.assignedStaffId),
     check("equipment_requests_quantity_positive", sql`${table.quantity} > 0`),
-    // PTR-39 AC3, held for whichever path writes the row. Compared as text: Postgres refuses to
+    // PTR-39 AC3 backstop against a missing or whitespace-only reason. The Zod rule
+    // (`requireReasonAndChange`) also rejects format/control characters such as zero-width spaces,
+    // which pass this check. Compared as text: Postgres refuses to
     // use an enum value added in the same transaction, which is where this migration runs.
     // `[:space:]` catches tabs and newlines as well as plain spaces.
     check(

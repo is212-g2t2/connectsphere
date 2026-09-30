@@ -124,7 +124,13 @@ describe("equipment arrangement handler (PTR-39)", () => {
   ) {
     const [line] = await database
       .insert(schema.equipmentRequests)
-      .values({ id: crypto.randomUUID(), eventId, item: "Projector", quantity: 2, ...extra })
+      .values({
+        id: crypto.randomUUID(),
+        eventId,
+        item: "Projector",
+        quantity: 2,
+        ...extra,
+      })
       .returning();
     return line;
   }
@@ -217,7 +223,11 @@ describe("equipment arrangement handler (PTR-39)", () => {
         entry.event.equipment?.map(line => [line.item, line.arrangeable])
       );
 
-      expect(Object.fromEntries(arrangeable)).toEqual({ Open: true, Mine: true, Theirs: false });
+      expect(Object.fromEntries(arrangeable)).toEqual({
+        Open: true,
+        Mine: true,
+        Theirs: false,
+      });
     });
 
     test("does not mark lines for the Coordinator", async () => {
@@ -226,7 +236,38 @@ describe("equipment arrangement handler (PTR-39)", () => {
 
       const [entry] = await handleListEvents({ eventId }, coordinator, database as never);
 
-      expect(entry.event.equipment?.[0]?.arrangeable).toBeUndefined();
+      expect(entry.event.equipment?.[0]).not.toHaveProperty("arrangeable");
+      expect(entry.event.equipment?.[0]).not.toHaveProperty("assignedStaffName");
+    });
+
+    test("names who holds each line for Technical Support only", async () => {
+      const eventId = await createSubmittedEvent();
+      await createLine(eventId, { item: "Open" });
+      await createLine(eventId, {
+        item: "Theirs",
+        assignedStaffId: otherTechSupport.id,
+        arrangementStatus: "not_required",
+      });
+
+      const names = async (as: SessionUser) => {
+        const [entry] = await handleListEvents({ eventId }, as, database as never);
+        return entry.event.equipment?.map(line => [line.item, line.assignedStaffName]);
+      };
+
+      expect(Object.fromEntries((await names(techSupport)) ?? [])).toEqual({
+        Open: null,
+        Theirs: "Other Tech Support",
+      });
+      const others = await Promise.all(
+        [coordinator, organiser].map(viewer =>
+          handleListEvents({ eventId }, viewer, database as never)
+        )
+      );
+      for (const [entry] of others) {
+        for (const line of entry.event.equipment ?? []) {
+          expect(line).not.toHaveProperty("assignedStaffName");
+        }
+      }
     });
   });
 
@@ -278,7 +319,12 @@ describe("equipment arrangement handler (PTR-39)", () => {
       await Promise.all(
         [undefined, "", "   "].map(unavailableReason =>
           expect(
-            update({ eventId, id: line.id, arrangementStatus: "unavailable", unavailableReason })
+            update({
+              eventId,
+              id: line.id,
+              arrangementStatus: "unavailable",
+              unavailableReason,
+            })
           ).rejects.toThrow(ARRANGEMENT_REASON_MESSAGE)
         )
       );
@@ -312,7 +358,10 @@ describe("equipment arrangement handler (PTR-39)", () => {
       const eventId = await createSubmittedEvent();
       let caught: unknown;
       try {
-        await createLine(eventId, { arrangementStatus: "unavailable", unavailableReason: "  " });
+        await createLine(eventId, {
+          arrangementStatus: "unavailable",
+          unavailableReason: "  ",
+        });
       } catch (error) {
         caught = error;
       }
@@ -320,6 +369,42 @@ describe("equipment arrangement handler (PTR-39)", () => {
       const cause = (caught as { cause?: unknown }).cause;
       const message = cause instanceof Error ? cause.message : String(caught);
       expect(message).toMatch(/equipment_requests_unavailable_has_reason|check constraint/i);
+    });
+  });
+
+  describe("the DB CHECK on whitespace-only reasons", () => {
+    test.each(["\t", "\n"])("rejects unavailable with reason %j", async reason => {
+      const eventId = await createSubmittedEvent();
+      const line = await createLine(eventId);
+      const error = await database
+        .update(schema.equipmentRequests)
+        .set({ arrangementStatus: "unavailable", unavailableReason: reason })
+        .where(eq(schema.equipmentRequests.id, line.id))
+        .then(
+          () => null,
+          (caught: unknown) => caught
+        );
+      const cause = (error as { cause?: unknown } | null)?.cause;
+      expect(String(cause instanceof Error ? cause.message : error)).toMatch(
+        /equipment_requests_unavailable_has_reason|check constraint/i
+      );
+      expect((await lineRow(line.id)).arrangementStatus).toBe("requested");
+    });
+
+    test("the handler refuses a zero-width-space reason", async () => {
+      const eventId = await createSubmittedEvent();
+      const line = await createLine(eventId);
+
+      await expect(
+        update({
+          eventId,
+          id: line.id,
+          arrangementStatus: "unavailable",
+          unavailableReason: "\u200B",
+        })
+      ).rejects.toThrow(ARRANGEMENT_REASON_MESSAGE);
+
+      expect((await lineRow(line.id)).arrangementStatus).toBe("requested");
     });
   });
 
@@ -332,7 +417,11 @@ describe("equipment arrangement handler (PTR-39)", () => {
         assignedStaffId: techSupport.id,
       });
 
-      await update({ eventId, id: line.id, arrangementNotes: "  HDMI adapter from store B  " });
+      await update({
+        eventId,
+        id: line.id,
+        arrangementNotes: "  HDMI adapter from store B  ",
+      });
 
       expect(await lineRow(line.id)).toMatchObject({
         arrangementStatus: "not_required",
@@ -354,7 +443,11 @@ describe("equipment arrangement handler (PTR-39)", () => {
       const line = await createLine(eventId, { arrangementNotes: "Kept" });
 
       await expect(
-        update({ eventId, id: line.id, arrangementNotes: "x".repeat(EQUIPMENT_NOTES_MAX + 1) })
+        update({
+          eventId,
+          id: line.id,
+          arrangementNotes: "x".repeat(EQUIPMENT_NOTES_MAX + 1),
+        })
       ).rejects.toThrow(EQUIPMENT_NOTES_MESSAGE);
 
       expect((await lineRow(line.id)).arrangementNotes).toBe("Kept");
@@ -411,7 +504,11 @@ describe("equipment arrangement handler (PTR-39)", () => {
         assignedStaffId: techSupport.id,
       });
 
-      await update({ eventId, id: line.id, arrangementNotes: "Collect from store B" });
+      await update({
+        eventId,
+        id: line.id,
+        arrangementNotes: "Collect from store B",
+      });
 
       expect(await lineRow(line.id)).toMatchObject({
         arrangementStatus: "reserved",
@@ -441,13 +538,19 @@ describe("equipment arrangement handler (PTR-39)", () => {
     // a handler that read the row first would see `requested` and overwrite the reservation.
     test("an update racing a reservation commit is refused", async () => {
       const eventId = await createSubmittedEvent();
-      const line = await createLine(eventId, { assignedStaffId: techSupport.id });
+      const line = await createLine(eventId, {
+        assignedStaffId: techSupport.id,
+      });
       const client = await pool.connect();
       try {
         await client.query("begin");
         await client.query("select id from equipment_requests where id = $1 for update", [line.id]);
 
-        const updating = update({ eventId, id: line.id, arrangementStatus: "not_required" });
+        const updating = update({
+          eventId,
+          id: line.id,
+          arrangementStatus: "not_required",
+        });
         // Give the update time to reach its locked read before the reservation commits.
         await sleep(150);
         await client.query(
@@ -465,6 +568,24 @@ describe("equipment arrangement handler (PTR-39)", () => {
   });
 
   describe("who may update which line", () => {
+    test("two members claiming the same unclaimed line: one wins, the other is refused", async () => {
+      const eventId = await createSubmittedEvent();
+      const line = await createLine(eventId);
+
+      const results = await Promise.allSettled([
+        update({ eventId, id: line.id, arrangementStatus: "not_required" }, techSupport),
+        update({ eventId, id: line.id, arrangementStatus: "not_required" }, otherTechSupport),
+      ]);
+
+      const fulfilled = results.findIndex(result => result.status === "fulfilled");
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const rejected = results.find(result => result.status === "rejected");
+      expect(rejected?.status === "rejected" && rejected.reason).toBeInstanceOf(AuthorizationError);
+      expect((await lineRow(line.id)).assignedStaffId).toBe(
+        [techSupport, otherTechSupport][fulfilled].id
+      );
+    });
+
     test("refuses a line on an event that has not been submitted", async () => {
       const eventId = await createSubmittedEvent(false);
       const line = await createLine(eventId);
@@ -481,7 +602,9 @@ describe("equipment arrangement handler (PTR-39)", () => {
 
     test("refuses a line held by a colleague", async () => {
       const eventId = await createSubmittedEvent();
-      const held = await createLine(eventId, { assignedStaffId: otherTechSupport.id });
+      const held = await createLine(eventId, {
+        assignedStaffId: otherTechSupport.id,
+      });
       // A second, open line keeps the event connected to the actor, so the refusal is the line's.
       await createLine(eventId, { item: "Microphone" });
 
@@ -494,7 +617,9 @@ describe("equipment arrangement handler (PTR-39)", () => {
 
     test("refuses a member who is not connected to the event at all", async () => {
       const eventId = await createSubmittedEvent();
-      const line = await createLine(eventId, { assignedStaffId: otherTechSupport.id });
+      const line = await createLine(eventId, {
+        assignedStaffId: otherTechSupport.id,
+      });
 
       await expect(
         update({ eventId, id: line.id, arrangementNotes: "Sneaky" })
@@ -519,7 +644,11 @@ describe("equipment arrangement handler (PTR-39)", () => {
       await createLine(eventId);
 
       await expect(
-        update({ eventId, id: crypto.randomUUID(), arrangementStatus: "not_required" })
+        update({
+          eventId,
+          id: crypto.randomUUID(),
+          arrangementStatus: "not_required",
+        })
       ).rejects.toBeInstanceOf(NotFoundError);
     });
   });
@@ -536,7 +665,11 @@ describe("equipment arrangement handler (PTR-39)", () => {
         arrangementStatus: "unavailable",
         unavailableReason: "Loaned out",
       });
-      await update({ eventId, id: noted.id, arrangementNotes: "Battery pack included" });
+      await update({
+        eventId,
+        id: noted.id,
+        arrangementNotes: "Battery pack included",
+      });
       return eventId;
     }
 

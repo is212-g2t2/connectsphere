@@ -25,8 +25,8 @@ const log = logger.getChild("equipment-requests");
  * ship the whole database schema to the browser from any module a route can reach.
  * `server-fns.ts` reaches this through a dynamic `import()` inside `.handler()`.
  *
- * The middleware pipeline has already verified the session and `equipment_request:manage` (or
- * `submit`) before these handlers run.
+ * The middleware pipeline has already verified the session and the `equipment_request` permission
+ * for the action (`manage`, `submit` or `arrange`) before these handlers run.
  */
 
 type Database = typeof Db;

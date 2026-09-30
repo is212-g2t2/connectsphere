@@ -115,6 +115,11 @@ async function openRequest(page: Page, eventId: number) {
 
 const lineItem = (page: Page, item: string) => page.getByRole("listitem", { name: item });
 
+async function chooseState(page: Page, item: string, label: string) {
+  await lineItem(page, item).getByLabel(`Arrangement state for ${item}`).click();
+  await page.getByRole("option", { name: label }).click();
+}
+
 async function saveLine(page: Page, item: string) {
   await lineItem(page, item)
     .getByRole("button", { name: `Save ${item}` })
@@ -161,12 +166,12 @@ test.describe("AC2: the request detail", () => {
     await signInAsStaff(page, "technical_support_staff");
 
     await page.goto(`/equipment-requests/${id}`);
-    await expect(page.getByText("Forbidden")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
     await expect(page.getByText(name)).toHaveCount(0);
 
     // An id that does not exist is refused the same way, so neither confirms anything.
     await page.goto("/equipment-requests/2147483000");
-    await expect(page.getByText("Forbidden")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
   });
 });
 
@@ -175,16 +180,14 @@ test.describe("AC3: updating a line", () => {
     const { id } = await createEvent([{ item: "Projector" }]);
     await openRequest(page, id);
 
-    await lineItem(page, "Projector")
-      .getByLabel("Arrangement state for Projector")
-      .selectOption("not_required");
+    await chooseState(page, "Projector", "Not required");
     await saveLine(page, "Projector");
     await expect(page.getByText(SAVED_TOAST)).toBeVisible();
 
     await page.reload();
     await expect(
       lineItem(page, "Projector").getByLabel("Arrangement state for Projector")
-    ).toHaveValue("not_required");
+    ).toContainText("Not required");
     expect((await lineFor(id, "Projector"))?.arrangementStatus).toBe("not_required");
   });
 
@@ -192,9 +195,7 @@ test.describe("AC3: updating a line", () => {
     const { id } = await createEvent([{ item: "Projector" }]);
     await openRequest(page, id);
 
-    await lineItem(page, "Projector")
-      .getByLabel("Arrangement state for Projector")
-      .selectOption("unavailable");
+    await chooseState(page, "Projector", "Unavailable");
     await saveLine(page, "Projector");
 
     await expect(lineItem(page, "Projector")).toContainText(REASON_MESSAGE);
@@ -256,9 +257,7 @@ test.describe("AC4: what the Coordinator sees", () => {
   test("the Coordinator sees what Technical Support saved", async ({ page, browser }) => {
     const { id, name } = await createEvent([{ item: "Projector" }, { item: "Microphone" }]);
     await openRequest(page, id);
-    await lineItem(page, "Projector")
-      .getByLabel("Arrangement state for Projector")
-      .selectOption("unavailable");
+    await chooseState(page, "Projector", "Unavailable");
     await lineItem(page, "Projector")
       .getByLabel("Reason unavailable for Projector (required)")
       .fill("Loaned out");

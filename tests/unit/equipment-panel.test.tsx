@@ -111,16 +111,23 @@ describe("EquipmentPanel arrangement position (PTR-39 AC4)", () => {
       />
     );
 
-    expect(screen.getByText("Unavailable")).toBeTruthy();
+    expect(screen.getByText("State: Unavailable")).toBeTruthy();
     expect(screen.getByText("Reason: Loaned out")).toBeTruthy();
     expect(screen.getByText("Technical Support note: Adapter in store B")).toBeTruthy();
-    expect(screen.getByText("Not required")).toBeTruthy();
+    expect(screen.getByText("State: Not required")).toBeTruthy();
   });
 
-  it("shows no arrangement position on a line that carries none", () => {
-    renderPanel();
+  it("shows no arrangement position before the request is submitted", () => {
+    const line: EquipmentLine = {
+      ...projector,
+      arrangementStatus: "unavailable",
+      arrangementNotes: "Adapter in store B",
+      unavailableReason: "Loaned out",
+    };
+    renderPanel([line]);
 
-    expect(screen.queryByText("Requested")).toBeNull();
+    expect(screen.queryByText(/State:/)).toBeNull();
+    expect(screen.queryByText(/Reason:/)).toBeNull();
     expect(screen.queryByText(/Technical Support note:/)).toBeNull();
   });
 });
