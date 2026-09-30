@@ -139,7 +139,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 
 ### Schema Locations
 
-- `src/db/schema.ts`: Application domain schemas. Re-exports the auth tables; holds `eventRequests`, its assignment history (`eventAssignments`) and pending handovers (`eventHandovers`), clarifications (`clarificationRequests`), the venue catalogue (`venues`, `venueUnavailability`), the venue and equipment requests (`venueRequests`, `equipmentRequests`), and event registrations (`eventRegistrations`).
+- `src/db/schema.ts`: Application domain schemas. Re-exports the auth tables; holds `eventRequests`, its assignment history (`eventAssignments`) and pending handovers (`eventHandovers`), clarifications (`clarificationRequests`), the venue catalogue (`venues`, `venueUnavailability`), the venue and equipment requests (`venueRequests`, `equipmentRequests`), the equipment catalogue (`equipmentTypes`, `equipmentUnavailability`, `equipmentReservations`), and event registrations (`eventRegistrations`).
 - `src/db/auth-schema.ts`: Better Auth schemas (`user` with `role`, `session`, `account`, `verification`).
 - `src/db/drizzle/`: Generated SQL migration files and metadata.
 
