@@ -16,6 +16,10 @@ import {
   accountRelations,
   venues,
   venueUnavailability,
+  equipmentTypes,
+  equipmentUnavailability,
+  equipmentRequests,
+  equipmentReservations,
   venueRequests,
   eventRequests,
 } from "#/db/schema";
@@ -39,6 +43,29 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(venues).supportedLayouts.name).toBe("supported_layouts");
     expect(getTableColumns(venueUnavailability).venueId.name).toBe("venue_id");
     expect(getTableColumns(venueUnavailability).startsAt.name).toBe("starts_at");
+  });
+
+  it("defines the equipment inventory tables (PTR-115, PTR-41)", () => {
+    expect(getTableColumns(equipmentTypes).quantityHeld.name).toBe("quantity_held");
+    expect(getTableColumns(equipmentUnavailability).equipmentTypeId.name).toBe("equipment_type_id");
+    expect(getTableColumns(equipmentUnavailability).quantityUnavailable.name).toBe(
+      "quantity_unavailable"
+    );
+    expect(getTableColumns(equipmentRequests).quantity.name).toBe("quantity");
+    expect(getTableColumns(equipmentRequests).equipmentTypeId.name).toBe("equipment_type_id");
+    expect(getTableColumns(equipmentReservations).quantity.name).toBe("quantity");
+    expect(getTableColumns(equipmentReservations).equipmentRequestId.name).toBe(
+      "equipment_request_id"
+    );
+    expect(getTableColumns(equipmentReservations).equipmentTypeId.name).toBe("equipment_type_id");
+  });
+
+  it("snapshots the reservation period on the reservation (PTR-41)", () => {
+    const columns = getTableColumns(equipmentReservations);
+    expect(columns.startsAt.name).toBe("starts_at");
+    expect(columns.endsAt.name).toBe("ends_at");
+    expect(columns.startsAt.notNull).toBe(true);
+    expect(columns.endsAt.notNull).toBe(true);
   });
 
   it("defines the event request registration columns (PTR-11)", () => {
@@ -150,6 +177,8 @@ describe("Database Schema Definitions", () => {
     expect(tables.session.relations.user).toBeDefined();
     expect(tables.account.relations.user).toBeDefined();
     expect(tables.venueRequests).toBeDefined();
+    expect(tables.equipmentTypes).toBeDefined();
+    expect(tables.equipmentUnavailability).toBeDefined();
     expect(tables.equipmentRequests).toBeDefined();
     expect(tables.equipmentTypes).toBeDefined();
     expect(tables.equipmentUnavailability).toBeDefined();

@@ -245,7 +245,7 @@ test.describe("AC3: updating a line", () => {
       lineItem(page, "Projector").getByLabel("Arrangement state for Projector")
     ).toBeDisabled();
     await expect(lineItem(page, "Projector")).toContainText(
-      "This line holds a reservation. Release the reservation before changing its state."
+      "This line holds a reservation and its state cannot be changed."
     );
     await expect(
       lineItem(page, "Projector").getByLabel("Technical Support notes for Projector")

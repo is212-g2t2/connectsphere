@@ -39,7 +39,7 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
 
    ```bash
    bun run db:migrate   # apply migrations
-   bun run db:seed      # optional: demo accounts and venues
+   bun run db:seed      # optional: demo accounts, venues and equipment
    ```
 
    _(Or push schema directly during local prototyping: `bun run db:push`.)_

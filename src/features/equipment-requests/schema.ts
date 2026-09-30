@@ -31,6 +31,7 @@ export interface EquipmentLine {
   arrangementStatus?: string;
   arrangementNotes?: string | null;
   unavailableReason?: string | null;
+  reservedQuantity?: number | null;
 }
 
 /**
@@ -59,7 +60,11 @@ export const ARRANGEMENT_REASON_MESSAGE = "Give a reason for marking this line u
 export const ARRANGEMENT_REASON_LENGTH_MESSAGE = `Reason must be ${EQUIPMENT_NOTES_MAX} characters or fewer`;
 export const ARRANGEMENT_EMPTY_UPDATE_MESSAGE = "Choose a state or add a note";
 export const ARRANGEMENT_RESERVED_MESSAGE =
-  "This line holds a reservation. Release the reservation before changing its state.";
+  "This line holds a reservation and its state cannot be changed.";
+export const EQUIPMENT_RESERVED_EDIT_MESSAGE =
+  "This line holds a reservation and its details cannot be changed.";
+export const EQUIPMENT_RESERVED_REMOVE_MESSAGE =
+  "This line holds a reservation and cannot be removed.";
 
 /**
  * The statuses a Coordinator may edit equipment on: approved (AC1) and planning (AC4 says "not
@@ -202,6 +207,39 @@ export function parseAvailabilityCheckInput(data: unknown): AvailabilityCheckVal
   return parseOrThrow(AvailabilityCheckInput, data);
 }
 
+/** PTR-41: one line id for the reserve flow, under the same 64-char text-key rule. */
+const EquipmentRequestId = z
+  .string({ error: "Equipment request ID is required" })
+  .trim()
+  .min(1, "Equipment request ID is required")
+  .max(64, "Equipment request ID is required");
+
+/** PTR-41: commit units of the line's type for the event's approved booking period. */
+export const ReserveEquipmentInput = z.object({
+  equipmentRequestId: EquipmentRequestId,
+  quantity: z
+    .number({ error: "Quantity is required" })
+    .int("Quantity must be a whole number")
+    .positive("Quantity must be greater than zero"),
+});
+
+export type ReserveEquipmentValues = z.infer<typeof ReserveEquipmentInput>;
+
+export function parseReserveEquipmentInput(data: unknown): ReserveEquipmentValues {
+  return parseOrThrow(ReserveEquipmentInput, data);
+}
+
+/** PTR-41: how much of the line's type is free for its booking window. */
+export const CheckLineAvailabilityInput = z.object({
+  equipmentRequestId: EquipmentRequestId,
+});
+
+export type CheckLineAvailabilityValues = z.infer<typeof CheckLineAvailabilityInput>;
+
+export function parseCheckLineAvailabilityInput(data: unknown): CheckLineAvailabilityValues {
+  return parseOrThrow(CheckLineAvailabilityInput, data);
+}
+
 // ── Form shapes (string-leaf values for React inputs) ─────────────────────────────────────────
 
 /**
@@ -226,6 +264,18 @@ export const EquipmentLineFormInput = EquipmentLineFormShape.transform(
     notes: values.notes === "" ? undefined : values.notes,
   })
 ).pipe(EquipmentLineInput.omit({ eventId: true, id: true }));
+
+/**
+ * The reserve dialog's form: the quantity is a string leaf until submit, then the same gate as
+ * `ReserveEquipmentInput` checks it, so every issue marks its own input. The line id is injected
+ * by the caller before the server call, not part of the form shape.
+ */
+export const ReserveEquipmentFormInput = z
+  .object({ quantity: z.string() })
+  .transform((values): { quantity: number } => ({
+    quantity: values.quantity === "" ? Number.NaN : parseWholeNumber(values.quantity),
+  }))
+  .pipe(ReserveEquipmentInput.omit({ equipmentRequestId: true }));
 
 /**
  * The availability check form: string leaves in, the same gate as `AvailabilityCheckInput`. An

@@ -19,6 +19,7 @@ const statement = {
   event_request: ["create", "coordinate"],
   venue: ["create", "update", "read", "search"],
   venue_request: ["request", "read", "decide"],
+  equipment: ["reserve"],
   /**
    * PTR-38: `manage` is the Coordinator's add/edit/remove verb (AC1/AC4); `submit` is the
    * one-shot send to Technical Support Staff (AC5). Both are on the coordinator only.
@@ -71,6 +72,7 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
     upload: ["create"],
     venue: ["read"],
     equipment_request: ["read", "arrange"],
+    equipment: ["reserve"],
   }),
 };
 

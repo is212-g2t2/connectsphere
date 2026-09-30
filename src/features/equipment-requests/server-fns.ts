@@ -4,8 +4,10 @@ import { requirePermission } from "#/features/auth/session";
 import {
   parseArrangementUpdateInput,
   parseAvailabilityCheckInput,
+  parseCheckLineAvailabilityInput,
   parseEquipmentLineInput,
   parseRemoveEquipmentLineInput,
+  parseReserveEquipmentInput,
   parseSubmitEquipmentInput,
 } from "#/features/equipment-requests/schema";
 import { logger } from "#/lib/logger";
@@ -133,4 +135,30 @@ export const listEquipmentTypes = createServerFn({ method: "GET" })
       import("#/features/equipment-requests/availability.server"),
     ]);
     return handleListEquipmentTypes(db);
+  });
+
+/** PTR-41: Technical Support Staff reserve equipment for an event's approved venue booking period. */
+export const requireEquipmentReserve = requirePermission({ equipment: ["reserve"] });
+
+export const reserveEquipment = createServerFn({ method: "POST" })
+  .validator(parseReserveEquipmentInput)
+  .middleware([requireEquipmentReserve])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleReserveEquipment }] = await Promise.all([
+      import("#/db"),
+      import("#/features/equipment-requests/reservations.server"),
+    ]);
+    return handleReserveEquipment(data, context.user, db);
+  });
+
+/** PTR-41: how much of the line's own type is free for its booking window. */
+export const checkLineAvailability = createServerFn({ method: "POST" })
+  .validator(parseCheckLineAvailabilityInput)
+  .middleware([requireEquipmentReserve])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleCheckLineAvailability }] = await Promise.all([
+      import("#/db"),
+      import("#/features/equipment-requests/reservations.server"),
+    ]);
+    return handleCheckLineAvailability(data, context.user, db);
   });

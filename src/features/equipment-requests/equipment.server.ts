@@ -2,12 +2,14 @@ import { and, count, eq, isNull } from "drizzle-orm";
 import { createElement } from "react";
 
 import type { db as Db } from "#/db";
-import { equipmentRequests, eventRequests, user } from "#/db/schema";
+import { equipmentRequests, equipmentReservations, eventRequests, user } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   ARRANGEMENT_RESERVED_MESSAGE,
   EQUIPMENT_NO_LINES_MESSAGE,
+  EQUIPMENT_RESERVED_EDIT_MESSAGE,
+  EQUIPMENT_RESERVED_REMOVE_MESSAGE,
   isEquipmentEditableStatus,
   parseArrangementUpdateInput,
   parseEquipmentLineInput,
@@ -76,6 +78,39 @@ function assertNotSubmitted(event: { equipmentSubmittedAt: Date | null }) {
 }
 
 /**
+ * Whether the line commits capacity: a reservation row exists for it. A partial reservation keeps
+ * the line `requested`, so callers cannot rely on the status alone — every state/line guard below
+ * probes the row instead.
+ */
+async function lineHoldsReservation(
+  database: Pick<Database, "select">,
+  lineId: string
+): Promise<boolean> {
+  const reservation = (
+    await database
+      .select({ id: equipmentReservations.id })
+      .from(equipmentReservations)
+      .where(eq(equipmentReservations.equipmentRequestId, lineId))
+      .limit(1)
+  ).at(0);
+  return Boolean(reservation);
+}
+
+/**
+ * The line row `FOR UPDATE` scoped to the event, so a reservation cannot commit between the probe
+ * below and the caller's write. No row means the line is not this event's.
+ */
+async function lockEventLine(database: Pick<Database, "select">, lineId: string, eventId: number) {
+  const rows = await database
+    .select({ id: equipmentRequests.id })
+    .from(equipmentRequests)
+    .where(and(eq(equipmentRequests.id, lineId), eq(equipmentRequests.eventId, eventId)))
+    .limit(1)
+    .for("update");
+  if (rows.length === 0) throw new NotFoundError("Not Found");
+}
+
+/**
  * PTR-38 AC1/AC4: add a new equipment line or update an existing one on behalf of the assigned
  * Coordinator. Quantity must be a positive whole number (enforced by the Zod schema before this
  * runs, and by the DB CHECK as backstop).
@@ -92,6 +127,10 @@ export async function handleSaveEquipmentLine(
 
     if (input.id) {
       // Edit path: the line must belong to this event, not someone else's.
+      await lockEventLine(tx, input.id, input.eventId);
+      if (await lineHoldsReservation(tx, input.id)) {
+        throw new ConflictError(EQUIPMENT_RESERVED_EDIT_MESSAGE);
+      }
       const rows = await tx
         .update(equipmentRequests)
         .set({
@@ -146,6 +185,13 @@ export async function handleRemoveEquipmentLine(
   return database.transaction(async tx => {
     const event = await loadEditableEvent(tx, input.eventId, actor.id);
     assertNotSubmitted(event);
+
+    // The reservation FK cascades, so without this a delete would silently vanish committed
+    // capacity. Post-submit lines are frozen, which is why this is nearly unreachable.
+    await lockEventLine(tx, input.id, input.eventId);
+    if (await lineHoldsReservation(tx, input.id)) {
+      throw new ConflictError(EQUIPMENT_RESERVED_REMOVE_MESSAGE);
+    }
 
     const rows = await tx
       .delete(equipmentRequests)
@@ -206,8 +252,12 @@ export async function handleUpdateArrangement(
     if (!line) throw new NotFoundError("Not Found");
     if (!isEquipmentQueueRow(line, actor.id, submitted)) throw new AuthorizationError("Forbidden");
     // The reservation action (PTR-41) owns `reserved`, and its release (PTR-42) is the only way
-    // out. Notes are not a state change, so they still go through.
+    // out. A line holding a reservation row is frozen as well: partial reservations stay
+    // `requested`. Notes are not a state change, so they still go through.
     if (input.arrangementStatus !== undefined && line.arrangementStatus === "reserved") {
+      throw new ConflictError(ARRANGEMENT_RESERVED_MESSAGE);
+    }
+    if (input.arrangementStatus !== undefined && (await lineHoldsReservation(tx, line.id))) {
       throw new ConflictError(ARRANGEMENT_RESERVED_MESSAGE);
     }
 

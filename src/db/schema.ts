@@ -510,6 +510,9 @@ export const equipmentRequests = pgTable(
     eventId: integer("event_id")
       .notNull()
       .references(() => eventRequests.id, { onDelete: "cascade" }),
+    equipmentTypeId: integer("equipment_type_id").references(() => equipmentTypes.id, {
+      onDelete: "restrict",
+    }),
     assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
     item: text("item").notNull(),
     /**
@@ -530,9 +533,9 @@ export const equipmentRequests = pgTable(
     unavailableReason: text("unavailable_reason"),
   },
   table => [
+    check("equipment_requests_quantity_positive", sql`${table.quantity} > 0`),
     index("equipment_requests_event_id_idx").on(table.eventId),
     index("equipment_requests_assigned_staff_id_idx").on(table.assignedStaffId),
-    check("equipment_requests_quantity_positive", sql`${table.quantity} > 0`),
     // PTR-39 AC3 backstop against a missing or whitespace-only reason. The Zod rule
     // (`requireReasonAndChange`) also rejects format/control characters such as zero-width spaces,
     // which pass this check. Compared as text: Postgres refuses to
@@ -580,7 +583,8 @@ export const equipmentUnavailability = pgTable(
 
 /**
  * PTR-40 read side of a reservation: units of a type committed to an event's equipment line. The
- * period is not stored; it is the event's approved venue booking. PTR-41 owns the write path.
+ * period is recorded at reservation time, so later booking changes do not move it. PTR-41 owns
+ * the write path.
  */
 export const equipmentReservations = pgTable(
   "equipment_reservations",
@@ -593,11 +597,21 @@ export const equipmentReservations = pgTable(
       .notNull()
       .references(() => equipmentTypes.id, { onDelete: "restrict" }),
     quantity: integer("quantity").notNull(),
+    /** Snapshot of the approved booking window the reservation was made against. */
+    startsAt: timestamp("starts_at", { mode: "string" }).notNull(),
+    endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   table => [
-    index("equipment_reservations_equipment_type_id_idx").on(table.equipmentTypeId),
+    uniqueIndex("equipment_reservations_equipment_request_id_idx").on(table.equipmentRequestId),
     check("equipment_reservations_quantity_positive", sql`${table.quantity} > 0`),
+    // The overlap predicate filters by type and period, so the engine reads this path.
+    index("equipment_reservations_type_period_idx").on(
+      table.equipmentTypeId,
+      table.startsAt,
+      table.endsAt
+    ),
+    check("equipment_reservations_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
   ]
 );
 

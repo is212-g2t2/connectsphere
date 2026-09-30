@@ -25,6 +25,7 @@ const EXPECTED: Record<
     venueRequest: boolean;
     venueRequestRead: boolean;
     venueDecide: boolean;
+    equipmentReserve: boolean;
   }
 > = {
   attendee: {
@@ -38,6 +39,7 @@ const EXPECTED: Record<
     venueRequest: false,
     venueRequestRead: false,
     venueDecide: false,
+    equipmentReserve: false,
   },
   event_organiser: {
     upload: true,
@@ -50,6 +52,7 @@ const EXPECTED: Record<
     venueRequest: false,
     venueRequestRead: false,
     venueDecide: false,
+    equipmentReserve: false,
   },
   event_coordinator: {
     upload: true,
@@ -62,6 +65,7 @@ const EXPECTED: Record<
     venueRequest: true,
     venueRequestRead: false,
     venueDecide: false,
+    equipmentReserve: false,
   },
   venue_staff: {
     upload: true,
@@ -74,6 +78,7 @@ const EXPECTED: Record<
     venueRequest: false,
     venueRequestRead: true,
     venueDecide: true,
+    equipmentReserve: false,
   },
   technical_support_staff: {
     upload: true,
@@ -86,10 +91,11 @@ const EXPECTED: Record<
     venueRequest: false,
     venueRequestRead: false,
     venueDecide: false,
+    equipmentReserve: true,
   },
 };
 
-describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36)", () => {
+describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36, PTR-41)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
     expect(can(role, { upload: ["create"] })).toBe(EXPECTED[role].upload);
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
@@ -101,6 +107,7 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PT
     expect(can(role, { venue_request: ["request"] })).toBe(EXPECTED[role].venueRequest);
     expect(can(role, { venue_request: ["read"] })).toBe(EXPECTED[role].venueRequestRead);
     expect(can(role, { venue_request: ["decide"] })).toBe(EXPECTED[role].venueDecide);
+    expect(can(role, { equipment: ["reserve"] })).toBe(EXPECTED[role].equipmentReserve);
   });
 
   describe("fails closed", () => {

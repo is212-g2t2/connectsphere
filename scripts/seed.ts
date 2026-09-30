@@ -175,6 +175,32 @@ export const seedVenueUnavailability: {
     reason: "Internal staff training",
   },
 ];
+
+/**
+ * Small fictional catalogue for the equipment availability stories. Names are the idempotency
+ * key because `equipment_types.name` is unique.
+ */
+export const seedEquipmentTypes: Omit<typeof schema.equipmentTypes.$inferInsert, "id">[] = [
+  { name: "Portable Projector", quantityHeld: 8 },
+  { name: "Wireless Microphone", quantityHeld: 12 },
+  { name: "Portable PA System", quantityHeld: 4 },
+];
+
+/**
+ * One fictional out-of-service quantity leaves the same type with remaining held units without
+ * representing a real asset.
+ */
+export const seedEquipmentUnavailability: {
+  equipmentTypeName: string;
+  quantityUnavailable: number;
+  reason: string;
+}[] = [
+  {
+    equipmentTypeName: "Portable Projector",
+    quantityUnavailable: 1,
+    reason: "Demo unit under maintenance",
+  },
+];
 /**
  * PTR-8: the demo event is a submitted event request, because the event record does not exist
  * until PTR-21/24 and `event_requests` is what access is checked against. The name doubles as
@@ -218,6 +244,35 @@ export async function runSeed(database: Database): Promise<void> {
     .onConflictDoNothing();
 
   await database.insert(schema.venues).values(seedVenues).onConflictDoNothing();
+  await database.insert(schema.equipmentTypes).values(seedEquipmentTypes).onConflictDoNothing();
+
+  const equipmentTypeRows = await database
+    .select({ id: schema.equipmentTypes.id, name: schema.equipmentTypes.name })
+    .from(schema.equipmentTypes)
+    .where(
+      inArray(
+        schema.equipmentTypes.name,
+        seedEquipmentTypes.map(type => type.name)
+      )
+    );
+  const equipmentTypeIdByName = new Map(equipmentTypeRows.map(type => [type.name, type.id]));
+
+  await database
+    .insert(schema.equipmentUnavailability)
+    .values(
+      seedEquipmentUnavailability.map(record => {
+        const equipmentTypeId = equipmentTypeIdByName.get(record.equipmentTypeName);
+        if (equipmentTypeId === undefined) {
+          throw new Error(`Seed equipment type "${record.equipmentTypeName}" was not inserted`);
+        }
+        return {
+          equipmentTypeId,
+          quantityUnavailable: record.quantityUnavailable,
+          reason: record.reason,
+        };
+      })
+    )
+    .onConflictDoNothing();
 
   const venueRows = await database
     .select({ id: schema.venues.id, name: schema.venues.name })
@@ -363,6 +418,9 @@ export async function runSeed(database: Database): Promise<void> {
         .set({ ...demoVenueRequest, status: "pending" })
         .where(eq(schema.venueRequests.id, "demo-venue-request-1"));
     }
+
+    const projectorTypeId = equipmentTypeIdByName.get("Portable Projector");
+
     await tx
       .insert(schema.equipmentRequests)
       .values({
@@ -371,6 +429,7 @@ export async function runSeed(database: Database): Promise<void> {
         assignedStaffId: "seed-tech-support-1",
         item: "Projector",
         quantity: 1,
+        equipmentTypeId: projectorTypeId ?? null,
         arrangementStatus: "reserved",
         notes: "HDMI adapter included",
       })

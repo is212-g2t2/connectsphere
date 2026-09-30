@@ -1,8 +1,9 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-40: the availability check on the Technical Support equipment review page. Every test
-// creates its own type, venue, booking and event through its own pool and removes them again, so
-// it never touches the shared demo rows and can run in parallel.
+// PTR-41: Technical Support reserves equipment from the dashboard's "Your connected events"
+// workspace and from the equipment review page. Every test creates its own type, venue, booking
+// and event through its own pool and removes them again, so it never touches the shared demo rows
+// and can run in parallel.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -57,8 +58,8 @@ async function createType(quantityHeld: number) {
   return row;
 }
 
-/** An approved event on 1 Jan 2030 with one submitted line, ready for a booking. */
-async function createEvent() {
+/** An approved, equipment-submitted event on 1 Jan 2030 with one requested line. */
+async function createEvent(typeName: string, typeId: number, quantity: number) {
   const [row] = await database
     .insert(schema.eventRequests)
     .values({
@@ -71,7 +72,7 @@ async function createEvent() {
       decidedByCoordinatorName: "Seed Coordinator",
       decidedAt: new Date(),
       equipmentSubmittedAt: new Date(),
-      eventName: `PTR-40 E2E ${crypto.randomUUID().slice(0, 8)}`,
+      eventName: `PTR-41 E2E ${crypto.randomUUID().slice(0, 8)}`,
       purpose: "test",
       proposedDates: [{ start: "2030-01-01T09:00", end: "2030-01-01T17:00" }],
       registrationOpensAt: "2029-12-01T09:00",
@@ -87,14 +88,17 @@ async function createEvent() {
       registrationEnabled: true,
       registrationCapacity: 10,
     })
-    .returning({ id: schema.eventRequests.id });
+    .returning({ id: schema.eventRequests.id, name: schema.eventRequests.eventName });
   eventIds.push(row.id);
 
-  const [line] = await database
-    .insert(schema.equipmentRequests)
-    .values({ id: crypto.randomUUID(), eventId: row.id, item: "Projector", quantity: 2 })
-    .returning({ id: schema.equipmentRequests.id });
-  return { id: row.id, lineId: line.id };
+  await database.insert(schema.equipmentRequests).values({
+    id: crypto.randomUUID(),
+    eventId: row.id,
+    equipmentTypeId: typeId,
+    item: typeName,
+    quantity,
+  });
+  return { id: row.id, name: row.name, item: typeName };
 }
 
 /** An approved booking of `eventId` on its own venue (the overlap constraint is per venue). */
@@ -120,68 +124,75 @@ async function addBooking(eventId: number, [start, end]: [string, string]) {
   });
 }
 
-async function openRequest(page: Page, eventId: number) {
+async function openDashboard(page: Page) {
   await signInAsStaff(page, "technical_support_staff");
-  await page.goto(`/equipment-requests/${eventId}`);
+  await page.goto("/dashboard");
   await waitForHydration(page);
 }
 
-async function check(page: Page, typeName: string, quantity?: string) {
-  await page.getByRole("combobox", { name: "Equipment type" }).click();
-  await page.getByRole("option", { name: typeName }).click();
-  if (quantity) {
-    await page.getByRole("spinbutton", { name: "Quantity (optional)" }).fill(quantity);
-  }
-  await page.getByRole("button", { name: "Check availability" }).click();
+const cardFor = (page: Page, name: string) =>
+  page.locator("[data-slot=card]").filter({ hasText: name });
+
+async function reserve(page: Page, eventName: string, item: string, quantity: string) {
+  const card = cardFor(page, eventName);
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: `Reserve equipment for ${item}` }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(/available for/)).toBeVisible();
+  await dialog.getByLabel("Total units to reserve").fill(quantity);
+  await dialog.getByRole("button", { name: "Confirm reservation" }).click();
+  return { card, dialog };
 }
 
-test("states the shortfall for the event's approved booking period", async ({ page }) => {
-  const type = await createType(10);
-  await database
-    .insert(schema.equipmentUnavailability)
-    .values({ equipmentTypeId: type.id, quantityUnavailable: 2, reason: "Damaged" });
-  const target = await createEvent();
-  await addBooking(target.id, ["10:00", "12:00"]);
-  const other = await createEvent();
-  await addBooking(other.id, ["11:00", "13:00"]);
-  await database.insert(schema.equipmentReservations).values({
-    id: crypto.randomUUID(),
-    equipmentRequestId: other.lineId,
-    equipmentTypeId: type.id,
-    quantity: 3,
-    startsAt: "2030-01-01T11:00",
-    endsAt: "2030-01-01T13:00",
-  });
-
-  await openRequest(page, target.id);
-  await expect(page.getByText("Choose an equipment type")).toBeVisible();
-
-  await check(page, type.name, "8");
-
-  await expect(page.getByRole("status")).toHaveText(
-    `${type.name}: Short by 3: 5 available, 8 requested (1 Jan 2030, 10:00 to 1 Jan 2030, 12:00)`
-  );
-});
-
-test("states what is available when no quantity is asked", async ({ page }) => {
-  const type = await createType(4);
-  const target = await createEvent();
+test("reserving the full quantity marks the line reserved and shows the count", async ({
+  page,
+}) => {
+  const type = await createType(5);
+  const target = await createEvent(type.name, type.id, 2);
   await addBooking(target.id, ["10:00", "12:00"]);
 
-  await openRequest(page, target.id);
-  await check(page, type.name);
+  await openDashboard(page);
+  const { card, dialog } = await reserve(page, target.name, target.item, "2");
 
-  const outcome = page.getByRole("status");
-  await expect(outcome).toContainText("4 available");
-  await expect(outcome).not.toContainText("Short by");
+  await expect(dialog.getByText(/5 units available for/)).toBeVisible();
+  await expect(card.getByText("Reserved", { exact: true })).toBeVisible();
+  await expect(card.getByText("2 reserved")).toBeVisible();
+
+  await page.reload();
+  await waitForHydration(page);
+  const reloaded = cardFor(page, target.name);
+  await expect(reloaded.getByText("Reserved", { exact: true })).toBeVisible();
+  await expect(reloaded.getByText("2 reserved")).toBeVisible();
 });
 
-test("refuses an event with no approved venue booking", async ({ page }) => {
-  const type = await createType(4);
-  const target = await createEvent();
+test("reserving from the review page shows the reservation on the line", async ({ page }) => {
+  const type = await createType(5);
+  const target = await createEvent(type.name, type.id, 2);
+  await addBooking(target.id, ["10:00", "12:00"]);
 
-  await openRequest(page, target.id);
-  await check(page, type.name);
+  await signInAsStaff(page, "technical_support_staff");
+  await page.goto(`/equipment-requests/${target.id}`);
+  await waitForHydration(page);
 
-  await expect(page.getByText("The event has no approved venue booking yet")).toBeVisible();
+  const line = page.getByRole("listitem", { name: target.item });
+  await line.getByRole("button", { name: `Reserve equipment for ${target.item}` }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(/5 units available for/)).toBeVisible();
+  await dialog.getByLabel("Total units to reserve").fill("2");
+  await dialog.getByRole("button", { name: "Confirm reservation" }).click();
+
+  await expect(line.getByText("2 reserved")).toBeVisible();
+});
+
+test("refuses a request exceeding what is available, naming the shortfall", async ({ page }) => {
+  const type = await createType(1);
+  const target = await createEvent(type.name, type.id, 2);
+  await addBooking(target.id, ["10:00", "12:00"]);
+
+  await openDashboard(page);
+  const { dialog, card } = await reserve(page, target.name, target.item, "2");
+
+  await expect(dialog.getByRole("alert")).toContainText("shortfall of 1");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(card.getByText("Requested")).toBeVisible();
 });
