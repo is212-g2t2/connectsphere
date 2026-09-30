@@ -246,13 +246,16 @@ export const RELEASE_TOTAL_MESSAGE = "Enter the units to keep as a whole number,
 export const RELEASE_NO_RESERVATION_MESSAGE = "This line holds no reservation to reduce or release";
 export const RELEASE_NOT_LOWER_MESSAGE =
   "Enter fewer units than are currently reserved; use Reserve to hold more";
+export const RELEASE_REASON_NEEDS_RELEASE_MESSAGE =
+  "A reason marks the line unavailable, which goes with a full release: keep 0 units or leave the reason blank";
 
 /**
  * PTR-42: the new total the line keeps — `0` releases the reservation. A reason marks the line
  * unavailable instead of requested (criterion 1), the same rule PTR-39's arrangement update
- * applies: the choice is Technical Support's, never inferred.
+ * applies: the choice is Technical Support's, never inferred. A reason goes with a full release
+ * only: an unavailable line holding units could be neither reserved nor moved, a dead end.
  */
-export const ReleaseEquipmentInput = z.object({
+const ReleaseEquipmentFields = z.object({
   equipmentRequestId: EquipmentRequestId,
   quantity: z
     .number({ error: RELEASE_TOTAL_MESSAGE })
@@ -264,6 +267,23 @@ export const ReleaseEquipmentInput = z.object({
     .max(EQUIPMENT_NOTES_MAX, ARRANGEMENT_REASON_LENGTH_MESSAGE)
     .optional(),
 });
+
+function requireFullReleaseForReason(
+  value: { quantity: number; unavailableReason?: string | undefined },
+  ctx: z.core.$RefinementCtx
+) {
+  if (value.quantity > 0 && !isBlank(value.unavailableReason)) {
+    ctx.addIssue({
+      code: "custom",
+      message: RELEASE_REASON_NEEDS_RELEASE_MESSAGE,
+      path: ["unavailableReason"],
+    });
+  }
+}
+
+export const ReleaseEquipmentInput = ReleaseEquipmentFields.superRefine(
+  requireFullReleaseForReason
+);
 
 export type ReleaseEquipmentValues = z.infer<typeof ReleaseEquipmentInput>;
 
@@ -318,7 +338,11 @@ export const ReleaseEquipmentFormInput = z
     quantity: values.quantity === "" ? Number.NaN : parseWholeNumber(values.quantity),
     unavailableReason: values.unavailableReason === "" ? undefined : values.unavailableReason,
   }))
-  .pipe(ReleaseEquipmentInput.omit({ equipmentRequestId: true }));
+  .pipe(
+    ReleaseEquipmentFields.omit({ equipmentRequestId: true }).superRefine(
+      requireFullReleaseForReason
+    )
+  );
 
 /**
  * The availability check form: string leaves in, the same gate as `AvailabilityCheckInput`. An

@@ -30,10 +30,23 @@ export interface ReleaseEquipmentDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/** The submit button says what will happen, so a full release is never a neutral "confirm". */
+function submitLabel(quantity: string, currentReserved: number): string {
+  if (quantity === "0") {
+    return `Release all ${currentReserved} unit${currentReserved === 1 ? "" : "s"}`;
+  }
+  const kept = Number(quantity);
+  if (Number.isInteger(kept) && kept > 0 && kept < currentReserved) {
+    return `Keep ${kept} unit${kept === 1 ? "" : "s"}, release ${currentReserved - kept}`;
+  }
+  return "Confirm change";
+}
+
 /**
  * PTR-42: give back some or all of a line's reserved units. The total kept defaults to zero (a
- * full release); anything above zero and below the current holding is a reduction. A reason turns
- * the line unavailable instead of requested — Technical Support's call, never inferred.
+ * full release); anything above zero and below the current holding is a reduction. A reason marks
+ * the line unavailable instead of requested — Technical Support's call, never inferred — and
+ * goes with a full release only, so an unavailable line never sits on units nobody can touch.
  */
 export function ReleaseEquipmentDialog({
   equipmentRequest,
@@ -47,6 +60,8 @@ export function ReleaseEquipmentDialog({
   const reasonId = `release-reason-${equipmentRequest.id}`;
   const helpId = `${quantityId}-help`;
   const errorId = `${quantityId}-error`;
+  const reasonHelpId = `${reasonId}-help`;
+  const reasonErrorId = `${reasonId}-error`;
 
   const form = useForm({
     defaultValues: { quantity: "0", unavailableReason: "" },
@@ -63,11 +78,13 @@ export function ReleaseEquipmentDialog({
           },
         });
         const state = result.arrangementStatus === "unavailable" ? "Unavailable" : "Requested";
-        toast.success(
-          result.released
-            ? `Released all ${result.previousQuantity} × ${equipmentRequest.item} — the line is ${state}.`
-            : `Reduced ${equipmentRequest.item} from ${result.previousQuantity} to ${result.quantity} — the line is ${state}.`
-        );
+        const change = result.released
+          ? `Released all ${result.previousQuantity} × ${equipmentRequest.item} — the line is ${state}.`
+          : `Reduced ${equipmentRequest.item} from ${result.previousQuantity} to ${result.quantity} — the line is ${state}.`;
+        const notice = result.notified
+          ? "Coordinator notified."
+          : "The Coordinator could not be notified; tell them yourself.";
+        toast.success(`${change} ${notice}`);
         onOpenChange(false);
         await router.invalidate();
       } catch (error) {
@@ -143,8 +160,9 @@ export function ReleaseEquipmentDialog({
                             required
                           />
                           <p id={helpId} className="caption text-muted-foreground">
-                            0 releases the reservation. Anything up to {currentReserved - 1} reduces
-                            it. The line returns to Requested.
+                            {currentReserved > 1
+                              ? `0 releases the reservation. 1 to ${currentReserved - 1} keeps that many reserved and releases the rest.`
+                              : "This line holds one unit, so 0 releases it; there is nothing to reduce to."}
                           </p>
                           <FieldError id={errorId} errors={field.state.meta.errors} />
                         </Field>
@@ -157,7 +175,7 @@ export function ReleaseEquipmentDialog({
                       return (
                         <Field data-invalid={invalid}>
                           <FieldLabel htmlFor={reasonId}>
-                            Mark unavailable instead, with a reason (optional)
+                            Reason the line is unavailable (optional)
                           </FieldLabel>
                           <Textarea
                             id={reasonId}
@@ -167,9 +185,15 @@ export function ReleaseEquipmentDialog({
                             onBlur={field.handleBlur}
                             disabled={isSubmitting}
                             aria-invalid={invalid}
-                            placeholder="Leave blank to return the line to Requested"
+                            aria-describedby={
+                              invalid ? `${reasonHelpId} ${reasonErrorId}` : reasonHelpId
+                            }
                           />
-                          <FieldError errors={field.state.meta.errors} />
+                          <p id={reasonHelpId} className="caption text-muted-foreground">
+                            Leave blank and the line returns to Requested. A reason marks it
+                            Unavailable, which goes with a full release (0 units kept).
+                          </p>
+                          <FieldError id={reasonErrorId} errors={field.state.meta.errors} />
                         </Field>
                       );
                     }}
@@ -180,8 +204,13 @@ export function ReleaseEquipmentDialog({
           </div>
 
           <DialogFooter>
-            <form.Subscribe selector={state => state.isSubmitting}>
-              {isSubmitting => (
+            <form.Subscribe
+              selector={state => ({
+                isSubmitting: state.isSubmitting,
+                quantity: state.values.quantity,
+              })}
+            >
+              {({ isSubmitting, quantity }) => (
                 <>
                   <Button
                     type="button"
@@ -193,7 +222,7 @@ export function ReleaseEquipmentDialog({
                     Cancel
                   </Button>
                   <Button type="submit" size="sm" disabled={isSubmitting}>
-                    {isSubmitting ? "Saving…" : "Confirm change"}
+                    {isSubmitting ? "Saving…" : submitLabel(quantity, currentReserved)}
                   </Button>
                 </>
               )}

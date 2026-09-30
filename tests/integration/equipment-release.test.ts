@@ -15,6 +15,7 @@ import {
 import {
   RELEASE_NO_RESERVATION_MESSAGE,
   RELEASE_NOT_LOWER_MESSAGE,
+  RELEASE_REASON_NEEDS_RELEASE_MESSAGE,
 } from "#/features/equipment-requests/schema";
 import { handleListEvents } from "#/features/events/records.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
@@ -270,6 +271,22 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     expect(line.unavailableReason).toBe("Recalled by the supplier");
   });
 
+  it("refuses a reason on a reduction, so an unavailable line never holds units", async () => {
+    const { lineId } = await createEvent({ name: "No dead end", requested: 3 });
+    await reserve(lineId, 3);
+
+    await expect(
+      handleReleaseEquipment(
+        { equipmentRequestId: lineId, quantity: 1, unavailableReason: "Two recalled" },
+        session("tech1"),
+        database as never
+      )
+    ).rejects.toThrow(RELEASE_REASON_NEEDS_RELEASE_MESSAGE);
+    const { line, reservation } = await readLine(lineId);
+    expect(reservation.quantity).toBe(3);
+    expect(line.arrangementStatus).toBe("reserved");
+  });
+
   it("treats a whitespace-only reason as none: the line returns to requested", async () => {
     const { lineId } = await createEvent({ name: "Blank reason", requested: 2 });
     await reserve(lineId, 2);
@@ -427,17 +444,40 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     ).rejects.toMatchObject({ status: 409, message: RELEASE_NO_RESERVATION_MESSAGE });
   });
 
-  it("refuses a colleague's line and a member with no line on the event", async () => {
-    const { lineId } = await createEvent({ name: "Held by one", requested: 3 });
+  it("refuses a member with no line on the event, and a colleague who holds another line", async () => {
+    const { eventId, lineId } = await createEvent({ name: "Held by one", requested: 3 });
     await reserve(lineId, 3);
 
+    // No line on the event at all: refused at the event gate.
     await expect(
       handleReleaseEquipment(
         { equipmentRequestId: lineId, quantity: 0 },
         session("tech2"),
         database as never
       )
-    ).rejects.toMatchObject({ status: 403 });
+    ).rejects.toMatchObject({ status: 403, message: "Forbidden" });
+
+    // A colleague working a second line of the same event passes the event gate but not the
+    // line's: tech1's holding is not theirs to give back.
+    await database.insert(schema.equipmentRequests).values({
+      id: `er-${crypto.randomUUID()}`,
+      eventId,
+      equipmentTypeId: typeId,
+      quantity: 1,
+      assignedStaffId: fixtureUsers.tech2.id,
+      item: typeName,
+      arrangementStatus: "requested",
+    });
+    await expect(
+      handleReleaseEquipment(
+        { equipmentRequestId: lineId, quantity: 0 },
+        session("tech2"),
+        database as never
+      )
+    ).rejects.toMatchObject({
+      status: 403,
+      message: "Equipment request is assigned to another staff member",
+    });
     expect((await readLine(lineId)).reservation.quantity).toBe(3);
   });
 
@@ -468,26 +508,37 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     expect(updated.arrangementStatus).toBe("not_required");
   });
 
-  it("serialises a release against a reserve on the same type: the reserve sees the freed units", async () => {
+  it("waits for the equipment type lock the reserve path holds, then frees the units", async () => {
     const holder = await createEvent({ name: "Holder race", requested: 5 });
     const other = await createEvent({ name: "Other race", requested: 3, venue: venueId2 });
     await reserve(holder.lineId, 5);
-
-    // With all five held, the other event's reserve is refused; once the release lands it is not.
     await expect(reserve(other.lineId, 3)).rejects.toMatchObject({ status: 409 });
-    const [released, reserved] = await Promise.all([
-      handleReleaseEquipment(
+
+    // Hold the type row the way a reserve in flight does; the release must queue behind it.
+    const blocker = await pool.connect();
+    let released: { released: boolean } | undefined;
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT id FROM equipment_types WHERE id = $1 FOR UPDATE", [typeId]);
+      const pending = handleReleaseEquipment(
         { equipmentRequestId: holder.lineId, quantity: 0 },
         session("tech1"),
         database as never
-      ),
-      (async () => {
-        // Let the release take its locks first, then the reserve queues behind them.
-        await new Promise(resolve => setTimeout(resolve, 50));
-        return reserve(other.lineId, 3);
-      })(),
-    ]);
-    expect(released.released).toBe(true);
-    expect(reserved.arrangementStatus).toBe("reserved");
+      ).then(result => {
+        released = result;
+        return result;
+      });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      expect(released).toBeUndefined();
+      expect((await readLine(holder.lineId)).reservation.quantity).toBe(5);
+
+      await blocker.query("COMMIT");
+      expect((await pending).released).toBe(true);
+    } finally {
+      blocker.release();
+    }
+
+    // With the lock gone and the units freed, the other event's reserve now succeeds.
+    expect((await reserve(other.lineId, 3)).arrangementStatus).toBe("reserved");
   });
 });

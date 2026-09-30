@@ -14,6 +14,7 @@ import { waitForHydration } from "./hydration";
 import { signInAsStaff } from "./staff-auth";
 
 const COORDINATOR_ID = "seed-coordinator-1";
+const TECH_SUPPORT_ID = "seed-tech-support-1";
 
 let pool: Pool;
 let database: ReturnType<typeof drizzle<typeof schema>>;
@@ -107,18 +108,13 @@ async function createReservedEvent(requested: number, reserved: number) {
 
   const lineId = crypto.randomUUID();
   // The seeded Technical Support member signed in below is the one holding the line.
-  const [staff] = await database
-    .select({ id: schema.user.id })
-    .from(schema.user)
-    .where(eq(schema.user.role, "technical_support_staff"))
-    .limit(1);
   await database.insert(schema.equipmentRequests).values({
     id: lineId,
     eventId: event.id,
     equipmentTypeId: type.id,
     item: type.name,
     quantity: requested,
-    assignedStaffId: staff.id,
+    assignedStaffId: TECH_SUPPORT_ID,
     arrangementStatus: reserved >= requested ? "reserved" : "requested",
   });
   await database.insert(schema.equipmentReservations).values({
@@ -142,7 +138,7 @@ test("[PTR-42][AC1][AC4] reducing then releasing returns the line to Requested a
   await waitForHydration(page);
 
   const line = page.getByRole("listitem", { name: target.item });
-  await expect(line.getByText("3 reserved")).toBeVisible();
+  await expect(line.getByText("· 3 reserved")).toBeVisible();
 
   // Reduce to one.
   await line
@@ -151,20 +147,22 @@ test("[PTR-42][AC1][AC4] reducing then releasing returns the line to Requested a
   let dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Currently reserved:")).toBeVisible();
   await dialog.getByLabel("Units to keep reserved").fill("1");
-  await dialog.getByRole("button", { name: "Confirm change" }).click();
-  await expect(line.getByText("1 reserved")).toBeVisible();
+  await dialog.getByRole("button", { name: "Keep 1 unit, release 2" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(line.getByText("· 1 reserved")).toBeVisible();
 
-  // Release the rest.
+  // Release the rest: the reopened dialog shows the fresh holding.
   await line
     .getByRole("button", { name: `Reduce or release equipment for ${target.item}` })
     .click();
   dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Currently reserved:").locator("xpath=..")).toContainText("1");
   await expect(dialog.getByLabel("Units to keep reserved")).toHaveValue("0");
-  await dialog.getByRole("button", { name: "Confirm change" }).click();
+  await dialog.getByRole("button", { name: "Release all 1 unit" }).click();
   // While the dialog is open the list is aria-hidden, so wait for it to close before reading.
   await expect(dialog).toBeHidden();
   await expect(line).toBeVisible();
-  await expect(line.getByText(/reserved/)).toHaveCount(0);
+  await expect(line.getByText("· 1 reserved")).toHaveCount(0);
   await expect(
     line.getByRole("button", { name: `Reduce or release equipment for ${target.item}` })
   ).toHaveCount(0);
@@ -196,13 +194,13 @@ test("[PTR-42][AC1] releasing with a reason marks the line Unavailable and shows
     .click();
   const dialog = page.getByRole("dialog");
   await dialog
-    .getByLabel("Mark unavailable instead, with a reason (optional)")
+    .getByLabel("Reason the line is unavailable (optional)")
     .fill("Both units failed the safety check");
-  await dialog.getByRole("button", { name: "Confirm change" }).click();
+  await dialog.getByRole("button", { name: "Release all 2 units" }).click();
 
   await expect(dialog).toBeHidden();
   await expect(line).toBeVisible();
-  await expect(line.getByText(/reserved/)).toHaveCount(0);
+  await expect(line.getByText("· 2 reserved")).toHaveCount(0);
   await expect(
     line.getByRole("combobox", { name: `Arrangement state for ${target.item}` })
   ).toContainText("Unavailable");

@@ -206,6 +206,11 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                               (item.arrangementStatus === "requested" ||
                                 item.arrangementStatus === "reserved")
                             }
+                            canRelease={
+                              access === "technical_support" &&
+                              item.arrangeable === true &&
+                              (item.reservedQuantity ?? 0) > 0
+                            }
                           />
                         ))}
                       </ul>
@@ -245,9 +250,12 @@ function Detail({ label, value }: { label: string; value: ReactNode }) {
 function EquipmentItemRow({
   item,
   canReserve,
+  canRelease,
 }: {
   item: EquipmentLineProjection;
   canReserve: boolean;
+  /** The same rule as the review page: units held, and this member may arrange the line. */
+  canRelease: boolean;
 }) {
   return (
     <li className="flex items-start justify-between gap-4 body-sm">
@@ -262,7 +270,7 @@ function EquipmentItemRow({
       <div className="flex flex-wrap items-center justify-end gap-2">
         <span>{arrangementStateLabel(item.arrangementStatus)}</span>
         {canReserve && <ReserveEquipmentAction line={item} />}
-        {canReserve && (item.reservedQuantity ?? 0) > 0 && <ReleaseEquipmentAction line={item} />}
+        {canRelease && <ReleaseEquipmentAction line={item} />}
       </div>
     </li>
   );

@@ -549,6 +549,7 @@ describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
       previousQuantity: 4,
       quantity: 0,
       arrangementStatus: "requested",
+      notified: true,
     });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderReview([{ ...microphone, reservedQuantity: 4 }]);
@@ -556,24 +557,33 @@ describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
     await user.click(releaseButton("Microphone") as HTMLElement);
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Currently reserved:").nextSibling?.textContent).toBe("4");
+    expect(
+      within(dialog).getByText(
+        "0 releases the reservation. 1 to 3 keeps that many reserved and releases the rest."
+      )
+    ).toBeTruthy();
     expect(within(dialog).getByLabelText("Units to keep reserved")).toHaveProperty("value", "0");
-    await user.click(within(dialog).getByRole("button", { name: "Confirm change" }));
+    // The button names the outcome, so a full release is never a neutral confirm.
+    await user.click(within(dialog).getByRole("button", { name: "Release all 4 units" }));
 
     await waitFor(() =>
       expect(releaseEquipment).toHaveBeenCalledWith({
         data: { equipmentRequestId: "line-b", quantity: 0, unavailableReason: "" },
       })
     );
-    expect(success).toHaveBeenCalledWith("Released all 4 × Microphone — the line is Requested.");
+    expect(success).toHaveBeenCalledWith(
+      "Released all 4 × Microphone — the line is Requested. Coordinator notified."
+    );
     expect(invalidate).toHaveBeenCalled();
   });
 
-  it("sends a reduction with its reason and names the Unavailable state", async () => {
+  it("sends a reduction, naming what is kept, and says when the Coordinator could not be told", async () => {
     releaseEquipment.mockResolvedValue({
       released: false,
       previousQuantity: 4,
       quantity: 1,
-      arrangementStatus: "unavailable",
+      arrangementStatus: "requested",
+      notified: false,
     });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderReview([{ ...microphone, reservedQuantity: 4 }]);
@@ -583,24 +593,83 @@ describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
     const quantity = within(dialog).getByLabelText("Units to keep reserved");
     await user.clear(quantity);
     await user.type(quantity, "1");
-    await user.type(
-      within(dialog).getByLabelText("Mark unavailable instead, with a reason (optional)"),
-      "Three units recalled by the supplier"
+    await user.click(within(dialog).getByRole("button", { name: "Keep 1 unit, release 3" }));
+
+    await waitFor(() =>
+      expect(releaseEquipment).toHaveBeenCalledWith({
+        data: { equipmentRequestId: "line-b", quantity: 1, unavailableReason: "" },
+      })
     );
-    await user.click(within(dialog).getByRole("button", { name: "Confirm change" }));
+    expect(success).toHaveBeenCalledWith(
+      "Reduced Microphone from 4 to 1 — the line is Requested. The Coordinator could not be notified; tell them yourself."
+    );
+  });
+
+  it("sends a full release with its reason and names the Unavailable state", async () => {
+    releaseEquipment.mockResolvedValue({
+      released: true,
+      previousQuantity: 4,
+      quantity: 0,
+      arrangementStatus: "unavailable",
+      notified: true,
+    });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderReview([{ ...microphone, reservedQuantity: 4 }]);
+
+    await user.click(releaseButton("Microphone") as HTMLElement);
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("Reason the line is unavailable (optional)"),
+      "All four recalled by the supplier"
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Release all 4 units" }));
 
     await waitFor(() =>
       expect(releaseEquipment).toHaveBeenCalledWith({
         data: {
           equipmentRequestId: "line-b",
-          quantity: 1,
-          unavailableReason: "Three units recalled by the supplier",
+          quantity: 0,
+          unavailableReason: "All four recalled by the supplier",
         },
       })
     );
     expect(success).toHaveBeenCalledWith(
-      "Reduced Microphone from 4 to 1 — the line is Unavailable."
+      "Released all 4 × Microphone — the line is Unavailable. Coordinator notified."
     );
+  });
+
+  it("refuses a reason on a reduction before calling the server, on the reason field", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderReview([{ ...microphone, reservedQuantity: 4 }]);
+
+    await user.click(releaseButton("Microphone") as HTMLElement);
+    const dialog = await screen.findByRole("dialog");
+    const quantity = within(dialog).getByLabelText("Units to keep reserved");
+    await user.clear(quantity);
+    await user.type(quantity, "2");
+    const reason = within(dialog).getByLabelText("Reason the line is unavailable (optional)");
+    await user.type(reason, "Two recalled");
+    await user.click(within(dialog).getByRole("button", { name: "Keep 2 units, release 2" }));
+
+    const message = await within(dialog).findByText(
+      "A reason marks the line unavailable, which goes with a full release: keep 0 units or leave the reason blank"
+    );
+    expect(reason.getAttribute("aria-describedby")).toContain(message.id);
+    expect(releaseEquipment).not.toHaveBeenCalled();
+  });
+
+  it("tells a one-unit line there is nothing to reduce to", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderReview([{ ...projector, quantity: 1, reservedQuantity: 1 }]);
+
+    await user.click(releaseButton("Projector") as HTMLElement);
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(
+        "This line holds one unit, so 0 releases it; there is nothing to reduce to."
+      )
+    ).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Release all 1 unit" })).toBeTruthy();
   });
 
   it("marks the quantity before calling the server, and shows the server's refusal on it", async () => {

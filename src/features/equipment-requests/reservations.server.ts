@@ -348,6 +348,9 @@ export async function handleReleaseEquipment(
     ).at(0);
     if (!reservation) throw new ConflictError(RELEASE_NO_RESERVATION_MESSAGE);
     if (input.quantity >= reservation.quantity) throw new ConflictError(RELEASE_NOT_LOWER_MESSAGE);
+    // No state gate is needed: a line holding a reservation can only be `requested` or `reserved`
+    // (reserve refuses the hand-set states and the arrangement update freezes a held line), and
+    // both are rewritten below. A state that could coexist with a holding would need a gate here.
 
     // Serialise with reserve on the type (its AC5 lock), taken after the line as reserve does.
     await tx
@@ -417,11 +420,11 @@ export async function handleReleaseEquipment(
 
   // After the commit, so a mail outage cannot undo the release; reached only when there is
   // someone to email, so the mailer import is never paid otherwise.
-  const [{ sendEmail }, { EquipmentReleasedEmail }] = await Promise.all([
-    import("#/lib/mailer.server"),
-    import("#/features/emails/components/equipment-released-email"),
-  ]);
   try {
+    const [{ sendEmail }, { EquipmentReleasedEmail }] = await Promise.all([
+      import("#/lib/mailer.server"),
+      import("#/features/emails/components/equipment-released-email"),
+    ]);
     await sendEmail(
       released.notice.coordinatorEmail,
       `Equipment ${result.released ? "released" : "reduced"}: ${released.line.item}`,
