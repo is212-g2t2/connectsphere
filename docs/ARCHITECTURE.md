@@ -46,6 +46,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── coordination/ # Coordinator assignments, pickups, and handovers
 │   │   ├── dashboard/    # Signed-in home view
 │   │   ├── emails/       # Email templates and shared date formatting
+│   │   ├── equipment-requests/ # Equipment lines, submission to Technical Support, and its arrangement work list
 │   │   ├── event-requests/ # Requirement capture, drafts, submission
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view
@@ -57,6 +58,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
 │       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues
+│       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
 │       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection
 │       │   └── venue-bookings/ # Venue Staff's approved-booking release and amendment view
 │       ├── api/          # Better Auth handler, health, smoke, upload-url
@@ -109,18 +111,22 @@ Handled by **Better Auth**; rate limited to 20 requests per 60-second window.
 
 Source of truth is `src/features/auth/permissions.ts`, held to this table by `tests/unit/auth-permissions.test.ts`. Only role-varying functions appear.
 
-| Function                   | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
-| -------------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
-| `upload:create`            |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
-| `event_request:create`     |    —     |       ✅        |         —         |      —      |            —            |
-| `event_request:coordinate` |    —     |        —        |        ✅         |      —      |            —            |
-| `venue:read`               |    —     |        —        |        ✅         |     ✅      |           ✅            |
-| `venue:search`             |    —     |        —        |        ✅         |      —      |            —            |
-| `venue:create`             |    —     |        —        |         —         |     ✅      |            —            |
-| `venue:update`             |    —     |        —        |         —         |     ✅      |            —            |
-| `venue_request:request`    |    —     |        —        |        ✅         |      —      |            —            |
-| `venue_request:read`       |    —     |        —        |         —         |     ✅      |            —            |
-| `venue_request:decide`     |    —     |        —        |         —         |     ✅      |            —            |
+| Function                    | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
+| --------------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
+| `upload:create`             |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
+| `event_request:create`      |    —     |       ✅        |         —         |      —      |            —            |
+| `event_request:coordinate`  |    —     |        —        |        ✅         |      —      |            —            |
+| `venue:read`                |    —     |        —        |        ✅         |     ✅      |           ✅            |
+| `venue:search`              |    —     |        —        |        ✅         |      —      |            —            |
+| `venue:create`              |    —     |        —        |         —         |     ✅      |            —            |
+| `venue:update`              |    —     |        —        |         —         |     ✅      |            —            |
+| `venue_request:request`     |    —     |        —        |        ✅         |      —      |            —            |
+| `venue_request:read`        |    —     |        —        |         —         |     ✅      |            —            |
+| `venue_request:decide`      |    —     |        —        |         —         |     ✅      |            —            |
+| `equipment_request:manage`  |    —     |        —        |        ✅         |      —      |            —            |
+| `equipment_request:submit`  |    —     |        —        |        ✅         |      —      |            —            |
+| `equipment_request:read`    |    —     |        —        |         —         |      —      |           ✅            |
+| `equipment_request:arrange` |    —     |        —        |         —         |      —      |           ✅            |
 
 ### Enforcing it
 

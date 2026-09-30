@@ -21,6 +21,7 @@ import {
   requestEventHandover,
   takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
+import { updateEquipmentArrangement } from "#/features/equipment-requests/server-fns";
 import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
 import {
   ATTENDANCE_MESSAGE,
@@ -560,6 +561,36 @@ describe("server-function authorization (PTR-69)", () => {
         ).error
       ).toBeUndefined();
     });
+  });
+
+  describe("PTR-39 equipment arrangement", () => {
+    const arrangementInput = { eventId: 1, id: "line-1", arrangementStatus: "not_required" };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(updateEquipmentArrangement, arrangementInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits Technical Support", async () => {
+      signIn("technical_support_staff");
+
+      expect((await call(updateEquipmentArrangement, arrangementInput)).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "event_coordinator", "venue_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(updateEquipmentArrangement, arrangementInput)).toMatchObject({
+          status: 403,
+        });
+      }
+    );
   });
 
   describe("events", () => {

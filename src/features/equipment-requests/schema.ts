@@ -18,13 +18,48 @@ export const EQUIPMENT_NOTES_MESSAGE = `Notes must be ${EQUIPMENT_NOTES_MAX} cha
 export const EQUIPMENT_NO_LINES_MESSAGE =
   "No equipment lines recorded. Add at least one line before submitting.";
 
-/** One equipment line as the panel, the email and the server pass it around. */
+/**
+ * One equipment line as the panel, the email and the server pass it around. The arrangement
+ * fields are Technical Support's position (PTR-39); they are absent wherever a line is shown
+ * before Technical Support has seen it.
+ */
 export interface EquipmentLine {
   id: string;
   item: string;
   quantity: number;
   notes: string | null;
+  arrangementStatus?: string;
+  arrangementNotes?: string | null;
+  unavailableReason?: string | null;
 }
+
+/**
+ * The arrangement states Technical Support may set (PTR-39 AC3). `reserved` is deliberately not
+ * here: only the reservation action (PTR-41) writes it, so an update can never claim it.
+ */
+export const ARRANGEMENT_STATES = ["requested", "not_required", "unavailable"] as const;
+
+type ArrangementState = (typeof ARRANGEMENT_STATES)[number];
+
+/** Every state a line can hold, settable or not, as the words people read. */
+const ARRANGEMENT_STATE_LABELS: Record<ArrangementState | "reserved", string> = {
+  requested: "Requested",
+  reserved: "Reserved",
+  not_required: "Not required",
+  unavailable: "Unavailable",
+};
+
+/** The label for a stored status, or the raw value when it is not one we know. */
+export function arrangementStateLabel(status: string): string {
+  return (ARRANGEMENT_STATE_LABELS as Record<string, string | undefined>)[status] ?? status;
+}
+
+export const ARRANGEMENT_STATE_MESSAGE = "Choose requested, not required or unavailable";
+export const ARRANGEMENT_REASON_MESSAGE = "Give a reason for marking this line unavailable";
+export const ARRANGEMENT_REASON_LENGTH_MESSAGE = `Reason must be ${EQUIPMENT_NOTES_MAX} characters or fewer`;
+export const ARRANGEMENT_EMPTY_UPDATE_MESSAGE = "Choose a state or add a note";
+export const ARRANGEMENT_RESERVED_MESSAGE =
+  "This line holds a reservation. Release the reservation before changing its state.";
 
 /**
  * The statuses a Coordinator may edit equipment on: approved (AC1) and planning (AC4 says "not
@@ -100,6 +135,55 @@ export function parseSubmitEquipmentInput(data: unknown): SubmitEquipmentValues 
   return parseOrThrow(SubmitEquipmentInput, data);
 }
 
+/**
+ * PTR-39 AC3: Technical Support sets a line's arrangement state, adds notes, or both. Each part
+ * is optional so notes can be added to a line whose state may not move (a reserved one); an empty
+ * `arrangementNotes` clears the note, and `unavailableReason` only matters for `unavailable`.
+ */
+const arrangementFields = {
+  arrangementStatus: z.enum(ARRANGEMENT_STATES, { error: ARRANGEMENT_STATE_MESSAGE }).optional(),
+  unavailableReason: z
+    .string()
+    .trim()
+    .max(EQUIPMENT_NOTES_MAX, ARRANGEMENT_REASON_LENGTH_MESSAGE)
+    .optional(),
+  arrangementNotes: z.string().trim().max(EQUIPMENT_NOTES_MAX, EQUIPMENT_NOTES_MESSAGE).optional(),
+};
+
+/** Blank once whitespace, control and invisible format characters (U+200B, U+2060) are stripped. */
+function isBlank(text: string | undefined): boolean {
+  return (text ?? "").replace(/[\p{Cc}\p{Cf}\s]/gu, "") === "";
+}
+
+function requireReasonAndChange(
+  value: { arrangementStatus?: string; unavailableReason?: string; arrangementNotes?: string },
+  ctx: z.core.$RefinementCtx
+) {
+  if (value.arrangementStatus === "unavailable" && isBlank(value.unavailableReason)) {
+    ctx.addIssue({
+      code: "custom",
+      message: ARRANGEMENT_REASON_MESSAGE,
+      path: ["unavailableReason"],
+    });
+  } else if (value.arrangementStatus === undefined && value.arrangementNotes === undefined) {
+    ctx.addIssue({ code: "custom", message: ARRANGEMENT_EMPTY_UPDATE_MESSAGE });
+  }
+}
+
+export const ArrangementUpdateInput = z
+  .object({
+    eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
+    id: EquipmentLineId,
+    ...arrangementFields,
+  })
+  .superRefine(requireReasonAndChange);
+
+export type ArrangementUpdateValues = z.infer<typeof ArrangementUpdateInput>;
+
+export function parseArrangementUpdateInput(data: unknown): ArrangementUpdateValues {
+  return parseOrThrow(ArrangementUpdateInput, data);
+}
+
 // ── Form shapes (string-leaf values for React inputs) ─────────────────────────────────────────
 
 /**
@@ -124,3 +208,15 @@ export const EquipmentLineFormInput = EquipmentLineFormShape.transform(
     notes: values.notes === "" ? undefined : values.notes,
   })
 ).pipe(EquipmentLineInput.omit({ eventId: true, id: true }));
+
+/**
+ * The arrangement form: string leaves in, the same gate as `ArrangementUpdateInput`. A reserved
+ * line shows its state but cannot set one; the caller drops anything that is not a settable state.
+ */
+export const ArrangementFormInput = z
+  .object({
+    arrangementStatus: z.string(),
+    unavailableReason: arrangementFields.unavailableReason.unwrap(),
+    arrangementNotes: arrangementFields.arrangementNotes.unwrap(),
+  })
+  .superRefine(requireReasonAndChange);

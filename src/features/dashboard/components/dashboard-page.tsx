@@ -83,6 +83,12 @@ export function DashboardPage({ user, events }: { user: SessionUser; events: Eve
             Approved bookings
           </Link>
         )}
+
+        {can(user.role, { equipment_request: ["read"] }) && (
+          <Link to="/equipment-requests" className={NAV_LINK_CLASSNAME}>
+            Equipment requests
+          </Link>
+        )}
       </div>
 
       {can(user.role, { upload: ["create"] }) && <FileUploadCard />}

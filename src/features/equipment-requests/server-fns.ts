@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
 import {
+  parseArrangementUpdateInput,
   parseEquipmentLineInput,
   parseRemoveEquipmentLineInput,
   parseSubmitEquipmentInput,
@@ -26,6 +27,32 @@ export const requireEquipmentManage = requirePermission({
 export const requireEquipmentSubmit = requirePermission({
   equipment_request: ["submit"],
 });
+
+export const requireEquipmentArrange = requirePermission({
+  equipment_request: ["arrange"],
+});
+
+/**
+ * PTR-39 AC3: Technical Support sets a line's arrangement state, adds notes, or both. The work
+ * list and the request detail need no function of their own: they read the caller's events
+ * through `listEvents`, which already scopes and projects them.
+ */
+export const updateEquipmentArrangement = createServerFn({ method: "POST" })
+  .validator(parseArrangementUpdateInput)
+  .middleware([requireEquipmentArrange])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleUpdateArrangement }] = await loadServer();
+    const line = await handleUpdateArrangement(data, context.user, db);
+
+    log.info("Equipment arrangement updated", {
+      lineId: line.id,
+      eventId: line.eventId,
+      state: line.arrangementStatus,
+      actorId: context.user.id,
+    });
+
+    return line;
+  });
 
 /** PTR-38 AC1/AC4: add a new line or update an existing one. */
 export const saveEquipmentLine = createServerFn({ method: "POST" })

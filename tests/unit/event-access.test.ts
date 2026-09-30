@@ -103,6 +103,58 @@ describe("event access", () => {
     expect(result.event).not.toHaveProperty("description");
   });
 
+  describe("arrangement notes and reasons (PTR-39 AC4)", () => {
+    const arranged = [
+      {
+        id: "line-1",
+        item: "Projector",
+        quantity: 1,
+        arrangementStatus: "unavailable",
+        notes: "Coordinator note",
+        arrangementNotes: "Technical Support note",
+        unavailableReason: "Loaned out",
+      },
+    ];
+
+    it("projects arrangement notes and the unavailable reason for the coordinator and technical support", () => {
+      for (const access of ["coordinator", "technical_support"] as const) {
+        const [projected] =
+          projectEvent(request, access, null, arranged, null).event.equipment ?? [];
+        expect(projected).toMatchObject({
+          arrangementStatus: "unavailable",
+          notes: "Coordinator note",
+          arrangementNotes: "Technical Support note",
+          unavailableReason: "Loaned out",
+        });
+      }
+    });
+
+    it("withholds Technical Support notes and reasons from the organiser", () => {
+      const [projected] =
+        projectEvent(request, "organiser", null, arranged, null).event.equipment ?? [];
+      expect(projected).toMatchObject({
+        arrangementStatus: "unavailable",
+        notes: "Coordinator note",
+      });
+      expect(projected).not.toHaveProperty("arrangementNotes");
+      expect(projected).not.toHaveProperty("unavailableReason");
+    });
+
+    it("keeps the holder's name and arrangeable flag to technical support alone", () => {
+      const held = [{ ...arranged[0], arrangeable: true, assignedStaffName: "Sam" }];
+      const project = (access: "coordinator" | "organiser" | "technical_support") =>
+        projectEvent(request, access, null, held, null).event.equipment?.[0];
+      expect(project("technical_support")).toMatchObject({
+        arrangeable: true,
+        assignedStaffName: "Sam",
+      });
+      for (const access of ["coordinator", "organiser"] as const) {
+        expect(project(access)).not.toHaveProperty("assignedStaffName");
+        expect(project(access)).not.toHaveProperty("arrangeable");
+      }
+    });
+  });
+
   it("returns only an attendee's own registration and the PTR-44 fields", () => {
     const result = projectEvent(
       request,
