@@ -94,6 +94,8 @@ The equipment catalogue stores each type's aggregate held quantity in `equipment
 
 A reservation records the equipment type, quantity, and the event's approved booking period as a snapshot in `equipment_reservations`; later booking amendments do not move it, so the event re-reserves to re-scope. Reserve requires exactly one approved booking. Available quantity comes from one shared peak-concurrency sweep over stored reservation periods (`held − unavailable` minus peak overlap), used by both the availability check and the reserve path.
 
+The equipment side of an event is marked settled on `event_requests.equipment_arrangements_completed_at`, with the acting member in `equipment_arrangements_completed_by_id`. It is recorded only while every line is `reserved` or `not_required`; any line edit or reservation reduce/release clears it. The event projection exposes it to Technical Support and the Coordinator only while every line is still arranged, so a stale stamp reads as unset.
+
 A reduce lowers a reservation's quantity and a release deletes the row, so freed units reach every overlapping event through the same sweep. The line returns to `requested`, or to `unavailable` with the reason Technical Support gives; the event's status is never written by either. Release takes the line lock then the type lock, the reserve path's order, which also reads the approved booking `FOR SHARE` between the two while release skips that read because it never reads bookings.
 
 ## Authentication

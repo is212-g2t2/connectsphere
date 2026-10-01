@@ -1,4 +1,4 @@
-import { and, count, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNotNull, isNull } from "drizzle-orm";
 import { createElement } from "react";
 
 import type { db as Db } from "#/db";
@@ -19,7 +19,7 @@ import {
   parseSubmitEquipmentInput,
 } from "#/features/equipment-requests/schema";
 import { EQUIPMENT_MAX_LINES } from "#/features/event-requests/schema";
-import { isEquipmentQueueRow } from "#/features/events/access";
+import { isArrangedLine, isEquipmentQueueRow } from "#/features/events/access";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("equipment-requests");
@@ -208,9 +208,19 @@ export async function handleRemoveEquipmentLine(
 }
 
 /**
- * The event-level gate for Technical Support: every line of the event (locked when `lock`), and
- * whether the event is submitted. Throws 403 unless the actor may work at least one line, so a
- * probe of an event they have no line on says nothing about it.
+ * The event-level gate for Technical Support: every line of the event (locked when `lock`), the
+ * event's status and whether it is submitted. Throws 403 unless the actor may work at least one
+ * line, so a probe of an event they have no line on says nothing about it.
+ *
+ * Lock order is lines -> event: every writer that can run on a submitted event (these arrangement
+ * handlers, reserve, release) takes its line locks before touching the event row (the reservation
+ * paths do so through the completion clear), so they cannot form a cycle. save/remove take the
+ * event first but refuse once the request is submitted, and reservations only exist on submitted
+ * requests, so the two orders never overlap. When `lock`, the event row is locked after the
+ * lines, so the status the caller's gate reads cannot change under it.
+ *
+ * The status is returned so the arrangement handlers can apply PTR-43's confirmation gate;
+ * reserve and release deliberately stay open after confirmation.
  */
 export async function loadWorkableLines(
   database: Pick<Database, "select">,
@@ -218,21 +228,38 @@ export async function loadWorkableLines(
   actor: SessionUser,
   lock = false
 ) {
-  const query = database
+  const lineQuery = database
     .select()
     .from(equipmentRequests)
     .where(eq(equipmentRequests.eventId, eventId));
-  const lines = await (lock ? query.for("update") : query);
-  const events = await database
-    .select({ submittedAt: eventRequests.equipmentSubmittedAt })
+  const lines = await (lock ? lineQuery.for("update") : lineQuery);
+  const eventQuery = database
+    .select({
+      status: eventRequests.status,
+      submittedAt: eventRequests.equipmentSubmittedAt,
+    })
     .from(eventRequests)
     .where(eq(eventRequests.id, eventId))
     .limit(1);
-  const submitted = Boolean(events.at(0)?.submittedAt);
+  const event = (await (lock ? eventQuery.for("update") : eventQuery)).at(0);
+  const submitted = Boolean(event?.submittedAt);
   if (!lines.some(row => isEquipmentQueueRow(row, actor.id, submitted))) {
     throw new AuthorizationError("Forbidden");
   }
-  return { lines, submitted };
+  return { lines, submitted, status: event?.status };
+}
+
+/**
+ * PTR-43: arrangements are mutable only before the event is confirmed. Reserve and release stay
+ * open after confirmation (PTR-24 AC6 expects the Coordinator to handle those manually); the
+ * three arrangement handlers call this after the event-level gate.
+ */
+function assertArrangementsEditable(status: string | undefined) {
+  if (status === undefined || !isEquipmentEditableStatus(status)) {
+    throw new ConflictError(
+      "Technical arrangements can only be changed before the event is confirmed."
+    );
+  }
 }
 
 /**
@@ -252,7 +279,8 @@ export async function handleUpdateArrangement(
 ) {
   const input = parseArrangementUpdateInput(data);
   return database.transaction(async tx => {
-    const { lines, submitted } = await loadWorkableLines(tx, input.eventId, actor, true);
+    const { lines, submitted, status } = await loadWorkableLines(tx, input.eventId, actor, true);
+    assertArrangementsEditable(status);
     const line = lines.find(row => row.id === input.id);
     if (!line) throw new NotFoundError("Not Found");
     if (!isEquipmentQueueRow(line, actor.id, submitted)) throw new AuthorizationError("Forbidden");
@@ -282,8 +310,8 @@ export async function handleUpdateArrangement(
       .where(eq(equipmentRequests.id, line.id))
       .returning();
 
-    // A status change may invalidate a prior completion stamp.
-    if (input.arrangementStatus !== undefined) {
+    // A status or notes change may invalidate a prior completion stamp.
+    if (input.arrangementStatus !== undefined || input.arrangementNotes !== undefined) {
       await clearArrangementsCompletion(tx, input.eventId);
     }
 
@@ -373,13 +401,11 @@ export async function handleSubmitEquipmentRequest(
 
 // ── PTR-43: Technical arrangement completion / unavailability ──────────────────────────────────
 
-/** The line states that count as "arranged" for the completion gate. */
-const ARRANGED_STATES = new Set(["reserved", "not_required"]);
-
 /**
- * Clears a previously recorded completion stamp. Called inside the same transaction that mutates
+ * Clears a previously recorded completion stamp. Scoped to rows that have a stamp, so it is a
+ * no-op when nothing was recorded. Called inside the same transaction that mutates
  * a line (add, edit, remove) or reduces/releases a reservation, so the confirmation gate never
- * reads a stale completion. A no-op when nothing was recorded.
+ * reads a stale completion.
  */
 export async function clearArrangementsCompletion(tx: Pick<Database, "update">, eventId: number) {
   await tx
@@ -388,20 +414,21 @@ export async function clearArrangementsCompletion(tx: Pick<Database, "update">, 
       equipmentArrangementsCompletedAt: null,
       equipmentArrangementsCompletedById: null,
     })
-    .where(eq(eventRequests.id, eventId));
+    .where(
+      and(eq(eventRequests.id, eventId), isNotNull(eventRequests.equipmentArrangementsCompletedAt))
+    );
 }
 
 /**
  * Sends a best-effort email to the event's assigned Coordinator after a Technical Support outcome
- * (completion or unavailability). Returns the coordinator email for logging; null when no
- * coordinator is assigned.
+ * (completion or unavailability). Logs when no coordinator can be notified.
  */
 async function notifyCoordinator(
   eventId: number,
   subject: string,
   emailElement: React.ReactElement,
   database: Pick<Database, "select">
-) {
+): Promise<void> {
   const event = (
     await database
       .select({
@@ -414,7 +441,7 @@ async function notifyCoordinator(
 
   if (!event?.coordinatorId) {
     log.warn("No assigned Coordinator to notify", { eventId });
-    return null;
+    return;
   }
 
   const coordinator = (
@@ -430,16 +457,18 @@ async function notifyCoordinator(
       eventId,
       coordinatorId: event.coordinatorId,
     });
-    return null;
+    return;
   }
 
-  const { sendEmail } = await import("#/lib/mailer.server");
   try {
+    const { sendEmail } = await import("#/lib/mailer.server");
     await sendEmail(coordinator.email, subject, emailElement);
   } catch (error) {
-    log.warn("Coordinator notification failed", { eventId, error });
+    log.warn("Coordinator notification failed", {
+      eventId,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
   }
-  return coordinator.email;
 }
 
 /**
@@ -458,15 +487,10 @@ export async function handleCompleteArrangements(
   const input = parseCompleteArrangementsInput(data);
   const result = await database.transaction(async tx => {
     // Lock all lines so a concurrent reservation change cannot slip between the check and the stamp.
-    const { lines } = await loadWorkableLines(tx, input.eventId, actor, true);
+    const { lines, status } = await loadWorkableLines(tx, input.eventId, actor, true);
+    assertArrangementsEditable(status);
 
-    if (lines.length === 0) {
-      throw new ConflictError(
-        "This event has no equipment lines. No completion action is required."
-      );
-    }
-
-    const unarranged = lines.filter(line => !ARRANGED_STATES.has(line.arrangementStatus));
+    const unarranged = lines.filter(line => !isArrangedLine(line.arrangementStatus));
     if (unarranged.length > 0) {
       const items = unarranged.map(l => l.item).join(", ");
       throw new ConflictError(
@@ -519,7 +543,8 @@ export async function handleRecordUnavailable(
 ) {
   const input = parseRecordUnavailableInput(data);
   const updated = await database.transaction(async tx => {
-    const { lines, submitted } = await loadWorkableLines(tx, input.eventId, actor, true);
+    const { lines, submitted, status } = await loadWorkableLines(tx, input.eventId, actor, true);
+    assertArrangementsEditable(status);
     const line = lines.find(row => row.id === input.id);
     if (!line) throw new NotFoundError("Not Found");
     if (!isEquipmentQueueRow(line, actor.id, submitted)) {

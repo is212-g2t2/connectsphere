@@ -104,9 +104,10 @@ export const eventRequests = pgTable(
      */
     equipmentSubmittedAt: timestamp("equipment_submitted_at", { withTimezone: true }),
     /**
-     * PTR-43: when Technical Support Staff marked the equipment arrangements complete. Null until
-     * then, and cleared by any line mutation (add, edit, remove, reservation reduce/release)
-     * before the event is confirmed, so the confirmation gate always reads a current value.
+     * PTR-43: when Technical Support Staff marked the equipment arrangements complete, and who did
+     * it. Null until then, and cleared by any line mutation (add, edit, remove, notes, state
+     * change, reservation reduce/release) so a value only survives while the arrangements it
+     * describes are unchanged.
      */
     equipmentArrangementsCompletedAt: timestamp("equipment_arrangements_completed_at", {
       withTimezone: true,
@@ -182,6 +183,9 @@ export const eventRequests = pgTable(
     // per request, and Postgres indexes neither a foreign key nor a column on its own.
     index("event_requests_organiser_id_idx").on(table.organiserId),
     index("event_requests_assigned_coordinator_id_idx").on(table.assignedCoordinatorId),
+    index("event_requests_equipment_arrangements_completed_by_id_idx").on(
+      table.equipmentArrangementsCompletedById
+    ),
   ]
 );
 

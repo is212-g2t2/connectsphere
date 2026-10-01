@@ -212,6 +212,7 @@ export interface EventProjection {
     endTime: string | null;
     equipmentSubmittedAt?: string | null;
     equipmentArrangementsCompletedAt?: string | null;
+    equipmentArrangementsSatisfied?: boolean;
     status: EventRequestStatus;
     registrationOpensAt?: string | null;
     registrationClosesAt?: string | null;
@@ -226,7 +227,14 @@ export interface EventProjection {
 }
 
 /**
- * PTR-42 AC4: The recorded completion state is read only while every equipment line is still
+ * PTR-43: the states that count as arranged.
+ */
+export function isArrangedLine(arrangementStatus: string): boolean {
+  return arrangementStatus === "reserved" || arrangementStatus === "not_required";
+}
+
+/**
+ * PTR-43 AC4: The recorded completion state is read only while every equipment line is still
  * reserved or not required. If any line is in another state, or no completion was recorded,
  * null is returned.
  */
@@ -236,18 +244,15 @@ export function effectiveEquipmentArrangementsCompletedAt(
 ): string | null {
   if (!completedAt) return null;
   const allArranged =
-    equipment.length > 0 &&
-    equipment.every(
-      line => line.arrangementStatus === "reserved" || line.arrangementStatus === "not_required"
-    );
+    equipment.length > 0 && equipment.every(line => isArrangedLine(line.arrangementStatus));
   return allArranged ? completedAt.toISOString() : null;
 }
 
 /**
- * PTR-42 / PTR-24 AC5: Evaluates whether the equipment arrangements side of an event is satisfied.
- * - An event with no recorded equipment requirements is satisfied without any completion action required.
- * - An event with equipment lines is satisfied only if arrangements were marked complete AND every
- *   line is still in state 'reserved' or 'not_required'.
+ * PTR-43 AC4/AC6, PTR-24 AC5: whether the equipment side of an event is satisfied. An event with
+ * no recorded equipment requirements is satisfied without any completion action; an event with
+ * lines needs arrangements marked complete while every line is still `reserved` or
+ * `not_required`. This is the value PTR-24's confirmation gate reads.
  */
 export function isEquipmentArrangementsSatisfied(
   equipment: Array<{ arrangementStatus: string }>,
@@ -255,9 +260,7 @@ export function isEquipmentArrangementsSatisfied(
 ): boolean {
   if (equipment.length === 0) return true;
   if (!completedAt) return false;
-  return equipment.every(
-    line => line.arrangementStatus === "reserved" || line.arrangementStatus === "not_required"
-  );
+  return equipment.every(line => isArrangedLine(line.arrangementStatus));
 }
 
 /**
@@ -320,6 +323,10 @@ export function projectEvent(
             record.equipmentArrangementsCompletedAt,
             equipment
           ),
+          equipmentArrangementsSatisfied: isEquipmentArrangementsSatisfied(
+            equipment,
+            record.equipmentArrangementsCompletedAt
+          ),
         },
       };
 
@@ -363,6 +370,10 @@ export function projectEvent(
                 equipmentArrangementsCompletedAt: effectiveEquipmentArrangementsCompletedAt(
                   record.equipmentArrangementsCompletedAt,
                   equipment
+                ),
+                equipmentArrangementsSatisfied: isEquipmentArrangementsSatisfied(
+                  equipment,
+                  record.equipmentArrangementsCompletedAt
                 ),
               }
             : {}),

@@ -324,10 +324,6 @@ export function parseCompleteArrangementsInput(data: unknown): CompleteArrangeme
   return parseOrThrow(CompleteArrangementsInput, data);
 }
 
-export const UNAVAILABLE_REASON_REQUIRED_MESSAGE =
-  "Give a reason for marking this equipment unavailable";
-export const UNAVAILABLE_REASON_LENGTH_MESSAGE = `Reason must be ${EQUIPMENT_NOTES_MAX} characters or fewer`;
-
 /**
  * PTR-43 AC2: Technical Support Staff records that requested equipment cannot be provided. Takes
  * the line id and a mandatory reason so the Coordinator knows why.
@@ -336,10 +332,11 @@ export const RecordUnavailableInput = z.object({
   eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
   id: EquipmentLineId,
   reason: z
-    .string({ error: UNAVAILABLE_REASON_REQUIRED_MESSAGE })
+    .string({ error: ARRANGEMENT_REASON_MESSAGE })
     .trim()
-    .min(1, UNAVAILABLE_REASON_REQUIRED_MESSAGE)
-    .max(EQUIPMENT_NOTES_MAX, UNAVAILABLE_REASON_LENGTH_MESSAGE),
+    .min(1, ARRANGEMENT_REASON_MESSAGE)
+    .max(EQUIPMENT_NOTES_MAX, ARRANGEMENT_REASON_LENGTH_MESSAGE)
+    .refine(value => !isBlank(value), ARRANGEMENT_REASON_MESSAGE),
   arrangementNotes: arrangementFields.arrangementNotes.optional(),
 });
 

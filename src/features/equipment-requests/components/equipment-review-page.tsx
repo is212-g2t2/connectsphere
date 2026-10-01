@@ -126,10 +126,18 @@ export function EquipmentReviewPage({
             Technical arrangements
           </h2>
           {event.equipmentArrangementsCompletedAt ? (
-            <output className="mt-3 body-sm">Technical arrangements complete.</output>
+            <output className="mt-3 block body-sm">Technical arrangements complete.</output>
           ) : (
             <div className="mt-3 space-y-3">
-              {completionError && <p role="alert">{completionError}</p>}
+              <p className="body-sm text-muted-foreground">
+                Every line must be reserved or marked not required before arrangements can be
+                completed.
+              </p>
+              {completionError && (
+                <p role="alert" className="mt-3 body-sm text-destructive">
+                  {completionError}
+                </p>
+              )}
               <Button onClick={() => void markComplete()} disabled={completing}>
                 {completing ? "Marking complete…" : "Mark arrangements complete"}
               </Button>
@@ -399,9 +407,6 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
               eventId,
               id: line.id,
               ...(stateChanged ? { arrangementStatus: value.arrangementStatus } : {}),
-              ...(stateChanged && value.arrangementStatus === "unavailable"
-                ? { unavailableReason: value.unavailableReason }
-                : {}),
               ...(notesChanged ? { arrangementNotes: value.arrangementNotes } : {}),
             },
           });

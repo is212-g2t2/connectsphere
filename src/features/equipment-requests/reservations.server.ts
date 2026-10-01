@@ -13,7 +13,10 @@ import {
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { loadTypeAvailability } from "#/features/equipment-requests/availability.server";
-import { clearArrangementsCompletion, loadWorkableLines } from "#/features/equipment-requests/equipment.server";
+import {
+  clearArrangementsCompletion,
+  loadWorkableLines,
+} from "#/features/equipment-requests/equipment.server";
 import {
   RELEASE_NO_RESERVATION_MESSAGE,
   RELEASE_NOT_LOWER_MESSAGE,
@@ -22,7 +25,6 @@ import {
   parseCheckLineAvailabilityInput,
   parseReleaseEquipmentInput,
   parseReserveEquipmentInput,
-  isEquipmentEditableStatus,
 } from "#/features/equipment-requests/schema";
 import { isEquipmentQueueRow } from "#/features/events/access";
 import { logger } from "#/lib/logger";

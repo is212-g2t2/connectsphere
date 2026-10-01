@@ -1,9 +1,4 @@
-/**
- * PTR-43 unit tests: pure functions only, no DB, no mailer, no DOM.
- *
- * Suggested path: next to your other unit tests (or tests/unit/equipment-completion.test.ts).
- * If integration/event-access.test.ts already covers access.ts, these can be merged there.
- */
+/** PTR-43 unit tests: the arrangement-completion predicate and read-time guard (pure functions only). */
 import { describe, expect, it } from "vitest";
 
 import {
@@ -39,7 +34,7 @@ describe("effectiveEquipmentArrangementsCompletedAt (PTR-43 AC4)", () => {
   });
 });
 
-// ── AC4 / AC6: the confirmation gate ────────────────────────────────────────────────────────
+// ── AC4 / AC6: the confirmation gate value ──────────────────────────────────────────────────
 describe("isEquipmentArrangementsSatisfied (PTR-43 AC4/AC6, PTR-24 AC5)", () => {
   it.each([null, undefined])("no lines is satisfied without any completion (%s)", completedAt => {
     expect(isEquipmentArrangementsSatisfied([], completedAt)).toBe(true);
@@ -164,6 +159,19 @@ describe("projectEvent completion field (PTR-43 AC4)", () => {
   it("technical_support sees no completion for an event with no lines (AC6)", () => {
     const p = projectEvent(record(at), "technical_support", null, [], null);
     expect(p.event.equipmentArrangementsCompletedAt).toBeNull();
+    expect(p.event.equipmentArrangementsSatisfied).toBe(true);
+  });
+
+  it("coordinator sees the gate satisfied only after completion on arranged lines", () => {
+    const arranged = equipment("reserved");
+    expect(
+      projectEvent(record(null), "coordinator", null, arranged, null).event
+        .equipmentArrangementsSatisfied
+    ).toBe(false);
+    expect(
+      projectEvent(record(at), "coordinator", null, arranged, null).event
+        .equipmentArrangementsSatisfied
+    ).toBe(true);
   });
 });
 
@@ -199,11 +207,12 @@ describe("parseRecordUnavailableInput (PTR-43 AC2)", () => {
   it.each([
     ["empty", ""],
     ["whitespace only", "     "],
+    ["zero-width only", "\u200b\u200b"],
     ["missing", undefined],
     ["not a string", 42],
   ])("rejects a %s reason", (_name, reason) => {
     expect(() => parseRecordUnavailableInput({ ...ok, reason })).toThrow(
-      "Give a reason for marking this equipment unavailable"
+      "Give a reason for marking this line unavailable"
     );
   });
 

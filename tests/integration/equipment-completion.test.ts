@@ -7,7 +7,6 @@ import type { ReactElement } from "react";
 
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
-import { handleConfirmEventRequest } from "#/features/coordination/assignments.server";
 import {
   handleCompleteArrangements,
   handleRecordUnavailable,
@@ -16,7 +15,7 @@ import {
   handleUpdateArrangement,
 } from "#/features/equipment-requests/equipment.server";
 import {
-  handleReleaseEquipmentReservation,
+  handleReleaseEquipment,
   handleReserveEquipment,
 } from "#/features/equipment-requests/reservations.server";
 import { ARRANGEMENT_RESERVED_MESSAGE } from "#/features/equipment-requests/schema";
@@ -444,7 +443,10 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         lines: [{ state: "not_required", assignedStaffId: fixtureUsers.tech1.id }],
       });
 
-      await Promise.allSettled([
+      // Either order ends the same way: the revert takes the line back to `requested` and clears
+      // any stamp the completion managed to record, while a completion that loses the race is
+      // refused outright. The revert must always win its own write.
+      const [, revertResult] = await Promise.allSettled([
         handleCompleteArrangements({ eventId }, session("tech1"), database as never),
         handleUpdateArrangement(
           { eventId, id: lineIds[0], arrangementStatus: "requested" },
@@ -453,12 +455,41 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         ),
       ]);
 
-      const event = await readEvent(eventId);
-      const lines = await readLines(eventId);
-      expect(
-        event.equipmentArrangementsCompletedAt === null ||
-          lines.every(l => ["reserved", "not_required"].includes(l.arrangementStatus))
-      ).toBe(true);
+      expect(revertResult.status).toBe("fulfilled");
+      expect((await readEvent(eventId)).equipmentArrangementsCompletedAt).toBeNull();
+      expect((await readLines(eventId))[0].arrangementStatus).toBe("requested");
+    });
+
+    it("refuses arrangement mutations once the event is confirmed", async () => {
+      const { eventId, lineIds } = await createEvent({
+        name: "AC1 Confirmed Frozen",
+        lines: [{ state: "not_required", assignedStaffId: fixtureUsers.tech1.id }],
+      });
+      // The fixtures set decided_by/decided_at already; only the status moves.
+      await database
+        .update(schema.eventRequests)
+        .set({ status: "confirmed" })
+        .where(eq(schema.eventRequests.id, eventId));
+
+      const message = "Technical arrangements can only be changed before the event is confirmed.";
+      await expect(
+        handleCompleteArrangements({ eventId }, session("tech1"), database as never)
+      ).rejects.toMatchObject({ name: "ConflictError", status: 409, message });
+      await expect(
+        handleUpdateArrangement(
+          { eventId, id: lineIds[0], arrangementStatus: "requested" },
+          session("tech1"),
+          database as never
+        )
+      ).rejects.toMatchObject({ name: "ConflictError", status: 409, message });
+      await expect(
+        handleRecordUnavailable(
+          { eventId, id: lineIds[0], reason: "No stock" },
+          session("tech1"),
+          database as never
+        )
+      ).rejects.toMatchObject({ name: "ConflictError", status: 409, message });
+      await expectCompletionCleared(eventId);
     });
   });
 
@@ -517,7 +548,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
           session("tech1"),
           database as never
         )
-      ).rejects.toThrow("Give a reason for marking this equipment unavailable");
+      ).rejects.toThrow("Give a reason for marking this line unavailable");
       expect((await readLine(lineIds[0])).arrangementStatus).toBe("requested");
     });
 
@@ -848,7 +879,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         expect((await readEvent(eventId)).equipmentArrangementsCompletedAt).toBeNull();
       });
 
-      it("keeps the completion for a notes-only annotation", async () => {
+      it("clears the completion for a notes-only annotation", async () => {
         const { eventId, lineIds } = await createEvent({
           name: "AC4 Notes Only",
           lines: [{ state: "not_required", assignedStaffId: fixtureUsers.tech1.id }],
@@ -861,8 +892,8 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
           database as never
         );
 
-        await expectCompletionKept(eventId);
-        expect((await readEvent(eventId)).equipmentArrangementsCompletedAt).toBeInstanceOf(Date);
+        await expectCompletionCleared(eventId);
+        expect((await readEvent(eventId)).equipmentArrangementsCompletedAt).toBeNull();
       });
 
       it("is not restored when the line is re-arranged: Technical Support must complete again", async () => {
@@ -968,29 +999,43 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         expect((await readEvent(eventId)).equipmentArrangementsCompletedAt).toBeInstanceOf(Date);
       });
 
-      it("releases the reservation, returns the line to requested, and clears completion", async () => {
+      it("clears completion on reduce and on full release", async () => {
         const { eventId, lineIds } = await createEvent({
           name: "AC4 Release",
           lines: [
             {
-              state: "reserved",
-              quantity: 2,
+              state: "requested",
+              quantity: 4,
               assignedStaffId: fixtureUsers.tech1.id,
             },
           ],
         });
-        await database.insert(schema.equipmentReservations).values({
-          id: `eq-res-${crypto.randomUUID()}`,
-          equipmentRequestId: lineIds[0],
-          equipmentTypeId: testEquipmentTypeId,
-          quantity: 2,
-          startsAt: "2027-02-01 10:00:00",
-          endsAt: "2027-02-01 14:00:00",
-        });
+        await handleReserveEquipment(
+          { equipmentRequestId: lineIds[0], quantity: 4 },
+          session("tech1"),
+          database as never
+        );
+        expect((await readLine(lineIds[0])).arrangementStatus).toBe("reserved");
         await stampCompletion(eventId);
 
-        await handleReleaseEquipmentReservation(
-          { equipmentRequestId: lineIds[0] },
+        await handleReleaseEquipment(
+          { equipmentRequestId: lineIds[0], quantity: 2 },
+          session("tech1"),
+          database as never
+        );
+
+        expect((await readLine(lineIds[0])).arrangementStatus).toBe("requested");
+        await expectCompletionCleared(eventId);
+
+        await handleReserveEquipment(
+          { equipmentRequestId: lineIds[0], quantity: 4 },
+          session("tech1"),
+          database as never
+        );
+        await stampCompletion(eventId);
+
+        await handleReleaseEquipment(
+          { equipmentRequestId: lineIds[0], quantity: 0 },
           session("tech1"),
           database as never
         );
@@ -1004,6 +1049,37 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         ).toHaveLength(0);
         await expectCompletionCleared(eventId);
         expect((await readEvent(eventId)).status).toBe("planning");
+      });
+
+      it("still allows a release after the event is confirmed (PTR-24 keeps those open)", async () => {
+        const { eventId, lineIds } = await createEvent({
+          name: "AC4 Release After Confirmed",
+          lines: [
+            {
+              state: "requested",
+              quantity: 4,
+              assignedStaffId: fixtureUsers.tech1.id,
+            },
+          ],
+        });
+        await handleReserveEquipment(
+          { equipmentRequestId: lineIds[0], quantity: 4 },
+          session("tech1"),
+          database as never
+        );
+        await database
+          .update(schema.eventRequests)
+          .set({ status: "confirmed" })
+          .where(eq(schema.eventRequests.id, eventId));
+
+        await handleReleaseEquipment(
+          { equipmentRequestId: lineIds[0], quantity: 0 },
+          session("tech1"),
+          database as never
+        );
+
+        expect((await readLine(lineIds[0])).arrangementStatus).toBe("requested");
+        expect((await readEvent(eventId)).status).toBe("confirmed");
       });
     });
 
@@ -1108,76 +1184,6 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
   });
 
   // ── AC5 ───────────────────────────────────────────────────────────────────────────────────
-  describe("PTR-24: confirm equipment arrangements", () => {
-    it("confirms when there are no equipment lines", async () => {
-      const { eventId } = await createEvent({ name: "Confirm Without Equipment", lines: [] });
-
-      const confirmed = await handleConfirmEventRequest(
-        { id: eventId },
-        session("coordinator"),
-        database as never
-      );
-
-      expect(confirmed.status).toBe("confirmed");
-      expect((await readEvent(eventId)).status).toBe("confirmed");
-    });
-
-    it("refuses confirmation until all lines are arranged and completion is recorded", async () => {
-      const { eventId } = await createEvent({
-        name: "Confirm Requires Completion",
-        lines: [{ state: "reserved", assignedStaffId: fixtureUsers.tech1.id }],
-      });
-
-      await expect(
-        handleConfirmEventRequest({ id: eventId }, session("coordinator"), database as never)
-      ).rejects.toThrow("Technical arrangements must be marked complete");
-
-      await stampCompletion(eventId);
-      const [line] = await readLines(eventId);
-      await database
-        .update(schema.equipmentRequests)
-        .set({ arrangementStatus: "requested" })
-        .where(eq(schema.equipmentRequests.id, line.id));
-
-      await expect(
-        handleConfirmEventRequest({ id: eventId }, session("coordinator"), database as never)
-      ).rejects.toThrow(/Equipment arrangements are not ready.*PTR43 Item 1/);
-      expect((await readEvent(eventId)).status).toBe("planning");
-    });
-
-    it("confirms arranged and completed lines without changing other event fields", async () => {
-      const { eventId } = await createEvent({
-        name: "Confirm With Equipment",
-        lines: [
-          { state: "reserved", assignedStaffId: fixtureUsers.tech1.id },
-          { state: "not_required", assignedStaffId: fixtureUsers.tech1.id },
-        ],
-      });
-      await stampCompletion(eventId);
-
-      const confirmed = await handleConfirmEventRequest(
-        { id: eventId },
-        session("coordinator"),
-        database as never
-      );
-
-      expect(confirmed.status).toBe("confirmed");
-      expect(confirmed.equipmentArrangementsCompletedAt).toBeInstanceOf(Date);
-    });
-
-    it("refuses confirmation by anyone other than the assigned Coordinator", async () => {
-      const { eventId } = await createEvent({
-        name: "Confirm Wrong Coordinator",
-        lines: [],
-      });
-
-      await expect(
-        handleConfirmEventRequest({ id: eventId }, session("coordinator2"), database as never)
-      ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
-    });
-  });
-
-  // ── AC5 ───────────────────────────────────────────────────────────────────────────────────
   describe("AC5: the event status is unchanged", () => {
     it.each(["approved", "planning"] as const)(
       "completing leaves a %s event as it was",
@@ -1243,8 +1249,8 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
     });
   });
 
-  // ── Migration 0029 ────────────────────────────────────────────────────────────────────────
-  describe("migration 0029", () => {
+  // ── Migration 0030 ────────────────────────────────────────────────────────────────────────
+  describe("migration 0030", () => {
     it("new events start with no completion recorded", async () => {
       const { eventId } = await createEvent({
         name: "Migration Defaults",

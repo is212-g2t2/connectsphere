@@ -116,7 +116,7 @@ export function EquipmentPanel({
       )}
 
       {arrangementsCompletedAt && (
-        <output className="mt-3 body-sm">Technical arrangements complete.</output>
+        <output className="mt-3 block body-sm">Technical arrangements complete.</output>
       )}
 
       {lines.length > 0 && (

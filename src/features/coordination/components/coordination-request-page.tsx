@@ -30,7 +30,6 @@ import {
 } from "#/features/coordination/schema";
 import {
   assignEventRequest,
-  confirmEventRequest,
   decideEventRequest,
   raiseClarificationRequest,
   requestEventHandover,
@@ -117,12 +116,6 @@ export function CoordinationRequestPage({
     await navigate({ to: "/coordination" });
   }, "Could not take up this request for review. Try again.");
 
-  const [confirmation, confirm, confirming] = useMutation(async () => {
-    await confirmEventRequest({ data: { id: request.id } });
-    toast.success("Event confirmed.");
-    await router.invalidate();
-  }, "Could not confirm this event. Try again.");
-
   const decisionForm = useForm({
     defaultValues: { decision: "approved" as "approved" | "rejected", reason: "" },
     validators: { onSubmit: DecisionFormSchema },
@@ -192,16 +185,8 @@ export function CoordinationRequestPage({
   const canTakeUpForReview =
     request.status === "submitted" && request.assignedCoordinatorId === user.id;
   const canDecide = request.status === "under_review" && request.assignedCoordinatorId === user.id;
-  const canConfirm =
-    (request.status === "approved" || request.status === "planning") &&
-    request.assignedCoordinatorId === user.id;
   const closed =
-    request.status === "draft" ||
-    request.status === "approved" ||
-    request.status === "rejected" ||
-    request.status === "confirmed" ||
-    request.status === "completed" ||
-    request.status === "cancelled";
+    request.status === "draft" || request.status === "approved" || request.status === "rejected";
 
   // One label per state, in precedence order, so the submit button's truth table is readable.
   let submitLabel = "Hand over";
@@ -508,36 +493,6 @@ export function CoordinationRequestPage({
                       {handover.error}
                     </p>
                   )}
-            </CardContent>
-          </Card>
-        </section>
-      )}
-
-      {canConfirm && (
-        <section className="mt-8" aria-labelledby="confirmation-heading">
-          <Card>
-            <CardContent>
-              <h2 id="confirmation-heading" className="display-h3">
-                Confirm event
-              </h2>
-              <p className="mt-2 body-sm text-muted-foreground">
-                Every equipment line must be reserved or marked not required, and Technical Support
-                must mark the arrangements complete. Events without equipment requirements pass this
-                check automatically.
-              </p>
-              <Button
-                type="button"
-                className="mt-4"
-                disabled={confirming}
-                onClick={() => void confirm()}
-              >
-                {confirming ? "Confirming…" : "Confirm event"}
-              </Button>
-              {confirmation.status === "error" && (
-                <p role="alert" className="mt-4 body-sm text-destructive">
-                  {confirmation.error}
-                </p>
-              )}
             </CardContent>
           </Card>
         </section>

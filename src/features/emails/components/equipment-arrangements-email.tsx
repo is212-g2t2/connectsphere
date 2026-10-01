@@ -9,7 +9,7 @@ interface EquipmentArrangementsCompleteEmailProps {
 }
 
 /**
- * PTR-42 AC1: sent to the assigned Coordinator when Technical Support Staff marks
+ * PTR-43 AC1/AC3: sent to the assigned Coordinator when Technical Support Staff marks
  * technical arrangements complete.
  */
 export const EquipmentArrangementsCompleteEmail = ({
@@ -38,7 +38,7 @@ interface EquipmentUnavailableEmailProps {
 }
 
 /**
- * PTR-42 AC2: sent to the assigned Coordinator when Technical Support Staff records
+ * PTR-43 AC2/AC3: sent to the assigned Coordinator when Technical Support Staff records
  * that requested equipment cannot be provided.
  */
 export const EquipmentUnavailableEmail = ({

@@ -93,7 +93,7 @@ export const recordEquipmentUnavailable = createServerFn({ method: "POST" })
     log.info("Equipment recorded unavailable", {
       lineId: line.id,
       eventId: line.eventId,
-      reason: line.unavailableReason,
+      reasonLength: line.unavailableReason?.length ?? 0,
       actorId: context.user.id,
     });
 
