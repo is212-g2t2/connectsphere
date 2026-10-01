@@ -14,6 +14,7 @@ import type { CoordinationRequest } from "#/features/coordination/server-fns";
 
 const {
   assignEventRequest,
+  confirmEventRequest,
   decideEventRequest,
   requestEventHandover,
   takeUpEventRequestForReview,
@@ -22,6 +23,7 @@ const {
   success,
 } = vi.hoisted(() => ({
   assignEventRequest: vi.fn<(input: { data: AssignmentValues }) => Promise<unknown>>(),
+  confirmEventRequest: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
   decideEventRequest:
     vi.fn<
       (input: {
@@ -36,6 +38,7 @@ const {
 }));
 vi.mock("#/features/coordination/server-fns", () => ({
   assignEventRequest,
+  confirmEventRequest,
   decideEventRequest,
   raiseClarificationRequest: vi.fn<() => Promise<never>>(),
   requestEventHandover,
@@ -97,6 +100,8 @@ const request: CoordinationRequest = {
   clarifications: [],
   pendingHandover: null,
   equipmentSubmittedAt: null,
+  equipmentArrangementsCompletedAt: null,
+  equipmentArrangementsCompletedById: null,
 };
 
 beforeEach(() => {
@@ -410,6 +415,56 @@ describe("Approval and rejection", () => {
     );
     expect(screen.queryByRole("button", { name: "Approve request" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reject request" })).toBeNull();
+  });
+
+  describe("Event confirmation", () => {
+    const approved = {
+      ...request,
+      status: "approved" as const,
+      assignedCoordinatorId: actor.id,
+      assignedAt: new Date(),
+      coordinator: actor,
+    };
+
+    it("offers confirmation only to the assigned Coordinator for an approved or planning event", () => {
+      const { rerender } = render(
+        <CoordinationRequestPage request={approved} coordinators={coordinators} user={actor} />
+      );
+      expect(screen.getByRole("button", { name: "Confirm event" })).toBeTruthy();
+
+      rerender(
+        <CoordinationRequestPage
+          request={{ ...approved, status: "planning" }}
+          coordinators={coordinators}
+          user={actor}
+        />
+      );
+      expect(screen.getByRole("button", { name: "Confirm event" })).toBeTruthy();
+
+      rerender(
+        <CoordinationRequestPage
+          request={{ ...approved, assignedCoordinatorId: "coord-b" }}
+          coordinators={coordinators}
+          user={actor}
+        />
+      );
+      expect(screen.queryByRole("button", { name: "Confirm event" })).toBeNull();
+    });
+
+    it("confirms the event and refreshes the coordinator page", async () => {
+      confirmEventRequest.mockResolvedValue({ id: request.id, status: "confirmed" });
+      render(
+        <CoordinationRequestPage request={approved} coordinators={coordinators} user={actor} />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: "Confirm event" }));
+
+      await waitFor(() =>
+        expect(confirmEventRequest).toHaveBeenCalledWith({ data: { id: request.id } })
+      );
+      expect(success).toHaveBeenCalledWith("Event confirmed.");
+      expect(invalidate).toHaveBeenCalled();
+    });
   });
 
   it("approves without a reason and returns to the coordination list", async () => {

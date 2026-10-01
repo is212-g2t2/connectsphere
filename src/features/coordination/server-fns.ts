@@ -169,6 +169,22 @@ export const decideEventRequest = createServerFn({ method: "POST" })
     return request;
   });
 
+/** PTR-24: the assigned Coordinator confirms an event after its arrangements pass the live gate. */
+export const confirmEventRequest = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleConfirmEventRequest }] = await loadServer();
+    const request = await handleConfirmEventRequest(data, context.user, db);
+
+    log.info("Event request confirmed", {
+      requestId: request.id,
+      actorId: context.user.id,
+    });
+
+    return request;
+  });
+
 /**
  * PTR-18: the assigned Coordinator raises a clarification request for an event under review.
  */

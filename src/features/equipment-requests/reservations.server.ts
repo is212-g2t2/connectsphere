@@ -13,7 +13,7 @@ import {
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { loadTypeAvailability } from "#/features/equipment-requests/availability.server";
-import { loadWorkableLines } from "#/features/equipment-requests/equipment.server";
+import { clearArrangementsCompletion, loadWorkableLines } from "#/features/equipment-requests/equipment.server";
 import {
   RELEASE_NO_RESERVATION_MESSAGE,
   RELEASE_NOT_LOWER_MESSAGE,
@@ -22,6 +22,7 @@ import {
   parseCheckLineAvailabilityInput,
   parseReleaseEquipmentInput,
   parseReserveEquipmentInput,
+  isEquipmentEditableStatus,
 } from "#/features/equipment-requests/schema";
 import { isEquipmentQueueRow } from "#/features/events/access";
 import { logger } from "#/lib/logger";
@@ -254,6 +255,11 @@ export async function handleReserveEquipment(
       })
       .where(eq(equipmentRequests.id, line.id));
 
+    // A reservation change may move a line out of `reserved`, invalidating a prior completion.
+    if (arrangementStatus !== line.arrangementStatus) {
+      await clearArrangementsCompletion(tx, line.eventId);
+    }
+
     log.info("Equipment reserved for event", {
       reservationId,
       eventId: line.eventId,
@@ -388,6 +394,9 @@ export async function handleReleaseEquipment(
         lastReleasedQuantity: reservation.quantity - input.quantity,
       })
       .where(eq(equipmentRequests.id, line.id));
+
+    // PTR-43 AC4: reducing or releasing a reservation invalidates a prior completion stamp.
+    await clearArrangementsCompletion(tx, line.eventId);
 
     log.info("Equipment reservation reduced or released", {
       reservationId: reservation.id,

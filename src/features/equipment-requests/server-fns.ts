@@ -5,7 +5,9 @@ import {
   parseArrangementUpdateInput,
   parseAvailabilityCheckInput,
   parseCheckLineAvailabilityInput,
+  parseCompleteArrangementsInput,
   parseEquipmentLineInput,
+  parseRecordUnavailableInput,
   parseReleaseEquipmentInput,
   parseRemoveEquipmentLineInput,
   parseReserveEquipmentInput,
@@ -52,6 +54,46 @@ export const updateEquipmentArrangement = createServerFn({ method: "POST" })
       lineId: line.id,
       eventId: line.eventId,
       state: line.arrangementStatus,
+      actorId: context.user.id,
+    });
+
+    return line;
+  });
+
+/**
+ * PTR-43 AC1: Technical Support Staff marks an event's technical arrangements complete.
+ * Refused if any line is not in 'reserved' or 'not_required'.
+ */
+export const completeEquipmentArrangements = createServerFn({ method: "POST" })
+  .validator(parseCompleteArrangementsInput)
+  .middleware([requireEquipmentArrange])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleCompleteArrangements }] = await loadServer();
+    const event = await handleCompleteArrangements(data, context.user, db);
+
+    log.info("Equipment arrangements marked complete", {
+      eventId: event.id,
+      actorId: context.user.id,
+    });
+
+    return event;
+  });
+
+/**
+ * PTR-43 AC2: Technical Support Staff records that requested equipment cannot be provided.
+ * Stores the reason and notifies the assigned Coordinator.
+ */
+export const recordEquipmentUnavailable = createServerFn({ method: "POST" })
+  .validator(parseRecordUnavailableInput)
+  .middleware([requireEquipmentArrange])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRecordUnavailable }] = await loadServer();
+    const line = await handleRecordUnavailable(data, context.user, db);
+
+    log.info("Equipment recorded unavailable", {
+      lineId: line.id,
+      eventId: line.eventId,
+      reason: line.unavailableReason,
       actorId: context.user.id,
     });
 

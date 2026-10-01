@@ -12,7 +12,9 @@ import {
   EQUIPMENT_RESERVED_REMOVE_MESSAGE,
   isEquipmentEditableStatus,
   parseArrangementUpdateInput,
+  parseCompleteArrangementsInput,
   parseEquipmentLineInput,
+  parseRecordUnavailableInput,
   parseRemoveEquipmentLineInput,
   parseSubmitEquipmentInput,
 } from "#/features/equipment-requests/schema";
@@ -143,6 +145,7 @@ export async function handleSaveEquipmentLine(
         )
         .returning();
       if (rows.length === 0) throw new NotFoundError("Not Found");
+      await clearArrangementsCompletion(tx, input.eventId);
       return rows[0];
     }
 
@@ -168,6 +171,7 @@ export async function handleSaveEquipmentLine(
         notes: input.notes ? input.notes : null,
       })
       .returning();
+    await clearArrangementsCompletion(tx, input.eventId);
     return inserted;
   });
 }
@@ -198,6 +202,7 @@ export async function handleRemoveEquipmentLine(
       .where(and(eq(equipmentRequests.id, input.id), eq(equipmentRequests.eventId, input.eventId)))
       .returning();
     if (rows.length === 0) throw new NotFoundError("Not Found");
+    await clearArrangementsCompletion(tx, input.eventId);
     return rows[0];
   });
 }
@@ -276,6 +281,12 @@ export async function handleUpdateArrangement(
       .set(changes)
       .where(eq(equipmentRequests.id, line.id))
       .returning();
+
+    // A status change may invalidate a prior completion stamp.
+    if (input.arrangementStatus !== undefined) {
+      await clearArrangementsCompletion(tx, input.eventId);
+    }
+
     return updated;
   });
 }
@@ -358,4 +369,201 @@ export async function handleSubmitEquipmentRequest(
     recipientCount: submitted.recipientEmails.length,
     failedCount: failed,
   };
+}
+
+// ── PTR-43: Technical arrangement completion / unavailability ──────────────────────────────────
+
+/** The line states that count as "arranged" for the completion gate. */
+const ARRANGED_STATES = new Set(["reserved", "not_required"]);
+
+/**
+ * Clears a previously recorded completion stamp. Called inside the same transaction that mutates
+ * a line (add, edit, remove) or reduces/releases a reservation, so the confirmation gate never
+ * reads a stale completion. A no-op when nothing was recorded.
+ */
+export async function clearArrangementsCompletion(tx: Pick<Database, "update">, eventId: number) {
+  await tx
+    .update(eventRequests)
+    .set({
+      equipmentArrangementsCompletedAt: null,
+      equipmentArrangementsCompletedById: null,
+    })
+    .where(eq(eventRequests.id, eventId));
+}
+
+/**
+ * Sends a best-effort email to the event's assigned Coordinator after a Technical Support outcome
+ * (completion or unavailability). Returns the coordinator email for logging; null when no
+ * coordinator is assigned.
+ */
+async function notifyCoordinator(
+  eventId: number,
+  subject: string,
+  emailElement: React.ReactElement,
+  database: Pick<Database, "select">
+) {
+  const event = (
+    await database
+      .select({
+        coordinatorId: eventRequests.assignedCoordinatorId,
+      })
+      .from(eventRequests)
+      .where(eq(eventRequests.id, eventId))
+      .limit(1)
+  ).at(0);
+
+  if (!event?.coordinatorId) {
+    log.warn("No assigned Coordinator to notify", { eventId });
+    return null;
+  }
+
+  const coordinator = (
+    await database
+      .select({ email: user.email })
+      .from(user)
+      .where(eq(user.id, event.coordinatorId))
+      .limit(1)
+  ).at(0);
+
+  if (!coordinator) {
+    log.warn("Assigned Coordinator account not found", {
+      eventId,
+      coordinatorId: event.coordinatorId,
+    });
+    return null;
+  }
+
+  const { sendEmail } = await import("#/lib/mailer.server");
+  try {
+    await sendEmail(coordinator.email, subject, emailElement);
+  } catch (error) {
+    log.warn("Coordinator notification failed", { eventId, error });
+  }
+  return coordinator.email;
+}
+
+/**
+ * PTR-43 AC1: Technical Support Staff marks all equipment arrangements for the event as complete.
+ *
+ * Every line must be in state `reserved` or `not_required`; if any line is in another state the
+ * action is refused. The completion is stamped on the event row; the event's status is unchanged.
+ * An event with no equipment lines needs no completion action (the confirmation gate treats the
+ * equipment side as satisfied).
+ */
+export async function handleCompleteArrangements(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseCompleteArrangementsInput(data);
+  const result = await database.transaction(async tx => {
+    // Lock all lines so a concurrent reservation change cannot slip between the check and the stamp.
+    const { lines } = await loadWorkableLines(tx, input.eventId, actor, true);
+
+    if (lines.length === 0) {
+      throw new ConflictError(
+        "This event has no equipment lines. No completion action is required."
+      );
+    }
+
+    const unarranged = lines.filter(line => !ARRANGED_STATES.has(line.arrangementStatus));
+    if (unarranged.length > 0) {
+      const items = unarranged.map(l => l.item).join(", ");
+      throw new ConflictError(
+        `Cannot mark arrangements complete: the following lines are not yet reserved or marked not required: ${items}`
+      );
+    }
+
+    const now = new Date();
+    const [updated] = await tx
+      .update(eventRequests)
+      .set({
+        equipmentArrangementsCompletedAt: now,
+        equipmentArrangementsCompletedById: actor.id,
+      })
+      .where(eq(eventRequests.id, input.eventId))
+      .returning({
+        id: eventRequests.id,
+        equipmentArrangementsCompletedAt: eventRequests.equipmentArrangementsCompletedAt,
+      });
+
+    return { event: updated, lineCount: lines.length };
+  });
+
+  // Best-effort notification after the transaction commits.
+  const { EquipmentArrangementsCompleteEmail } =
+    await import("#/features/emails/components/equipment-arrangements-email");
+  await notifyCoordinator(
+    input.eventId,
+    `Equipment arrangements complete for event ${input.eventId}`,
+    createElement(EquipmentArrangementsCompleteEmail, {
+      eventId: input.eventId,
+      lineCount: result.lineCount,
+    }),
+    database
+  );
+
+  return result.event;
+}
+
+/**
+ * PTR-43 AC2: Technical Support Staff records that a requested equipment line cannot be provided.
+ *
+ * Sets the line's arrangement status to `unavailable` and stores the reason. The assigned
+ * Coordinator is notified so they can adjust the event plan.
+ */
+export async function handleRecordUnavailable(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseRecordUnavailableInput(data);
+  const updated = await database.transaction(async tx => {
+    const { lines, submitted } = await loadWorkableLines(tx, input.eventId, actor, true);
+    const line = lines.find(row => row.id === input.id);
+    if (!line) throw new NotFoundError("Not Found");
+    if (!isEquipmentQueueRow(line, actor.id, submitted)) {
+      throw new AuthorizationError("Forbidden");
+    }
+
+    // A reserved line commits capacity; it cannot be marked unavailable without releasing first.
+    if (line.arrangementStatus === "reserved" || (await lineHoldsReservation(tx, line.id))) {
+      throw new ConflictError(ARRANGEMENT_RESERVED_MESSAGE);
+    }
+
+    const [updatedLine] = await tx
+      .update(equipmentRequests)
+      .set({
+        arrangementStatus: "unavailable",
+        unavailableReason: input.reason,
+        assignedStaffId: actor.id,
+        ...(input.arrangementNotes !== undefined
+          ? { arrangementNotes: input.arrangementNotes === "" ? null : input.arrangementNotes }
+          : {}),
+      })
+      .where(eq(equipmentRequests.id, line.id))
+      .returning();
+
+    // Recording unavailability invalidates any prior completion stamp.
+    await clearArrangementsCompletion(tx, input.eventId);
+
+    return updatedLine;
+  });
+
+  // Best-effort notification after the transaction commits.
+  const { EquipmentUnavailableEmail } =
+    await import("#/features/emails/components/equipment-arrangements-email");
+  await notifyCoordinator(
+    input.eventId,
+    `Equipment unavailable for event ${input.eventId}`,
+    createElement(EquipmentUnavailableEmail, {
+      eventId: input.eventId,
+      item: updated.item,
+      quantity: updated.quantity,
+      reason: input.reason,
+    }),
+    database
+  );
+
+  return updated;
 }

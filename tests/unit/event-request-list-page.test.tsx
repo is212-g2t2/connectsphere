@@ -61,6 +61,8 @@ const base: EventRequestDetail = {
   expectedAttendance: null,
   description: "",
   equipmentSubmittedAt: null,
+  equipmentArrangementsCompletedAt: null,
+  equipmentArrangementsCompletedById: null,
   eventType: "",
   venueRequirements: "",
   roomLayoutPreference: "",

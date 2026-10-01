@@ -25,6 +25,7 @@ import {
 import { env } from "#/env";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { isEquipmentArrangementsSatisfied } from "#/features/events/access";
 import {
   parseAssignmentInput,
   parseDecisionInput,
@@ -735,6 +736,65 @@ export async function handleDecideEventRequest(
     });
   }
   return recorded;
+}
+
+/**
+ * PTR-24: the assigned Coordinator confirms an approved event once its equipment arrangements
+ * are still complete. The event and its lines are locked together so a concurrent edit cannot
+ * pass the gate using an obsolete completion stamp.
+ */
+export async function handleConfirmEventRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const { id } = parseEventRequestId(data);
+
+  return database.transaction(async tx => {
+    const request = (
+      await tx.select().from(eventRequests).where(eq(eventRequests.id, id)).for("update")
+    ).at(0);
+
+    if (!request || request.assignedCoordinatorId !== actor.id) {
+      throw new AuthorizationError("Only the assigned Coordinator can confirm this event.");
+    }
+    if (request.status !== "approved" && request.status !== "planning") {
+      throw new ConflictError("Only an approved event can be confirmed.");
+    }
+
+    const lines = await tx
+      .select({
+        item: equipmentRequests.item,
+        arrangementStatus: equipmentRequests.arrangementStatus,
+      })
+      .from(equipmentRequests)
+      .where(eq(equipmentRequests.eventId, id))
+      .for("update");
+
+    if (!isEquipmentArrangementsSatisfied(lines, request.equipmentArrangementsCompletedAt)) {
+      const unarranged = lines
+        .filter(
+          line => line.arrangementStatus !== "reserved" && line.arrangementStatus !== "not_required"
+        )
+        .map(line => line.item);
+      if (unarranged.length > 0) {
+        throw new ConflictError(
+          `Equipment arrangements are not ready for confirmation: ${unarranged.join(", ")}.`
+        );
+      }
+      throw new ConflictError(
+        "Technical arrangements must be marked complete before confirming this event."
+      );
+    }
+
+    const [confirmed] = await tx
+      .update(eventRequests)
+      .set({ status: "confirmed" })
+      .where(eq(eventRequests.id, id))
+      .returning();
+
+    return confirmed;
+  });
 }
 
 /**

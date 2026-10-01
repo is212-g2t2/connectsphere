@@ -33,6 +33,8 @@ import {
 } from "#/features/equipment-requests/schema";
 import {
   checkEquipmentAvailability,
+  completeEquipmentArrangements,
+  recordEquipmentUnavailable,
   updateEquipmentArrangement,
 } from "#/features/equipment-requests/server-fns";
 import { formatLocalDate, formatLocalDateTime } from "#/features/event-requests/format";
@@ -48,12 +50,35 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
  */
 export function EquipmentReviewPage({
   event,
+  access,
   equipmentTypes,
 }: {
   event: EventProjection["event"];
+  access: EventProjection["access"];
   equipmentTypes: { id: number; name: string }[] | null;
 }) {
   const lines = event.equipment ?? [];
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const [completing, setCompleting] = useState(false);
+  const router = useRouter();
+
+  const markComplete = async () => {
+    if (completing) return;
+    setCompletionError(null);
+    setCompleting(true);
+    try {
+      await completeEquipmentArrangements({ data: { eventId: event.id } });
+      toast.success("Technical arrangements marked complete.");
+      await router.invalidate();
+    } catch (error) {
+      setCompletionError(
+        error instanceof Error ? error.message : "Could not mark arrangements complete. Try again."
+      );
+    } finally {
+      setCompleting(false);
+    }
+  };
+
   return (
     <Page width="page">
       <Link to="/equipment-requests" className={NAV_LINK_CLASSNAME}>
@@ -94,6 +119,24 @@ export function EquipmentReviewPage({
           </ul>
         )}
       </section>
+
+      {access === "technical_support" && lines.length > 0 && (
+        <section aria-labelledby="arrangements-completion-heading" className="mt-8">
+          <h2 id="arrangements-completion-heading" className="display-h3">
+            Technical arrangements
+          </h2>
+          {event.equipmentArrangementsCompletedAt ? (
+            <output className="mt-3 body-sm">Technical arrangements complete.</output>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {completionError && <p role="alert">{completionError}</p>}
+              <Button onClick={() => void markComplete()} disabled={completing}>
+                {completing ? "Marking complete…" : "Mark arrangements complete"}
+              </Button>
+            </div>
+          )}
+        </section>
+      )}
 
       <AvailabilityCheck eventId={event.id} equipmentTypes={equipmentTypes} />
     </Page>
@@ -341,17 +384,28 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
         return;
       }
       try {
-        await updateEquipmentArrangement({
-          data: {
-            eventId,
-            id: line.id,
-            ...(stateChanged ? { arrangementStatus: value.arrangementStatus } : {}),
-            ...(stateChanged && value.arrangementStatus === "unavailable"
-              ? { unavailableReason: value.unavailableReason }
-              : {}),
-            ...(notesChanged ? { arrangementNotes: value.arrangementNotes } : {}),
-          },
-        });
+        if (stateChanged && value.arrangementStatus === "unavailable") {
+          await recordEquipmentUnavailable({
+            data: {
+              eventId,
+              id: line.id,
+              reason: value.unavailableReason,
+              ...(notesChanged ? { arrangementNotes: value.arrangementNotes } : {}),
+            },
+          });
+        } else {
+          await updateEquipmentArrangement({
+            data: {
+              eventId,
+              id: line.id,
+              ...(stateChanged ? { arrangementStatus: value.arrangementStatus } : {}),
+              ...(stateChanged && value.arrangementStatus === "unavailable"
+                ? { unavailableReason: value.unavailableReason }
+                : {}),
+              ...(notesChanged ? { arrangementNotes: value.arrangementNotes } : {}),
+            },
+          });
+        }
         toast.success("Equipment line updated.");
         await router.invalidate();
       } catch (error) {

@@ -103,6 +103,18 @@ export const eventRequests = pgTable(
      * until then; the submit handler sets it once, and the PTR-39 work list reads it.
      */
     equipmentSubmittedAt: timestamp("equipment_submitted_at", { withTimezone: true }),
+    /**
+     * PTR-43: when Technical Support Staff marked the equipment arrangements complete. Null until
+     * then, and cleared by any line mutation (add, edit, remove, reservation reduce/release)
+     * before the event is confirmed, so the confirmation gate always reads a current value.
+     */
+    equipmentArrangementsCompletedAt: timestamp("equipment_arrangements_completed_at", {
+      withTimezone: true,
+    }),
+    equipmentArrangementsCompletedById: text("equipment_arrangements_completed_by_id").references(
+      () => user.id,
+      { onDelete: "set null" }
+    ),
     specialArrangements: text("special_arrangements").notNull().default(""),
     /**
      * PTR-11: whether attendees may register, and the terms when they may. The two window columns

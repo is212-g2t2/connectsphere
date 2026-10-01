@@ -310,6 +310,45 @@ export function parseReleaseEquipmentInput(data: unknown): ReleaseEquipmentValue
   return parseOrThrow(ReleaseEquipmentInput, data);
 }
 
+/**
+ * PTR-43 AC1: Technical Support Staff marks all equipment arrangements for an event as complete.
+ * Only the event id is needed; the handler verifies every line is `reserved` or `not_required`.
+ */
+export const CompleteArrangementsInput = z.object({
+  eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
+});
+
+export type CompleteArrangementsValues = z.infer<typeof CompleteArrangementsInput>;
+
+export function parseCompleteArrangementsInput(data: unknown): CompleteArrangementsValues {
+  return parseOrThrow(CompleteArrangementsInput, data);
+}
+
+export const UNAVAILABLE_REASON_REQUIRED_MESSAGE =
+  "Give a reason for marking this equipment unavailable";
+export const UNAVAILABLE_REASON_LENGTH_MESSAGE = `Reason must be ${EQUIPMENT_NOTES_MAX} characters or fewer`;
+
+/**
+ * PTR-43 AC2: Technical Support Staff records that requested equipment cannot be provided. Takes
+ * the line id and a mandatory reason so the Coordinator knows why.
+ */
+export const RecordUnavailableInput = z.object({
+  eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
+  id: EquipmentLineId,
+  reason: z
+    .string({ error: UNAVAILABLE_REASON_REQUIRED_MESSAGE })
+    .trim()
+    .min(1, UNAVAILABLE_REASON_REQUIRED_MESSAGE)
+    .max(EQUIPMENT_NOTES_MAX, UNAVAILABLE_REASON_LENGTH_MESSAGE),
+  arrangementNotes: arrangementFields.arrangementNotes.optional(),
+});
+
+export type RecordUnavailableValues = z.infer<typeof RecordUnavailableInput>;
+
+export function parseRecordUnavailableInput(data: unknown): RecordUnavailableValues {
+  return parseOrThrow(RecordUnavailableInput, data);
+}
+
 // ── Form shapes (string-leaf values for React inputs) ─────────────────────────────────────────
 
 /**

@@ -117,6 +117,7 @@ interface EventRecord {
   status: EventRequestStatus;
   proposedDates: Array<{ start?: string; end?: string }>;
   equipmentSubmittedAt?: Date | null;
+  equipmentArrangementsCompletedAt?: Date | null;
   expectedAttendance: number | null;
   roomLayoutPreference: string;
   accessibilityRequirements: string;
@@ -210,6 +211,7 @@ export interface EventProjection {
     startTime: string | null;
     endTime: string | null;
     equipmentSubmittedAt?: string | null;
+    equipmentArrangementsCompletedAt?: string | null;
     status: EventRequestStatus;
     registrationOpensAt?: string | null;
     registrationClosesAt?: string | null;
@@ -221,6 +223,41 @@ export interface EventProjection {
     venueRequest?: EventVenueRequest | null;
     equipment?: EquipmentLineProjection[];
   };
+}
+
+/**
+ * PTR-42 AC4: The recorded completion state is read only while every equipment line is still
+ * reserved or not required. If any line is in another state, or no completion was recorded,
+ * null is returned.
+ */
+export function effectiveEquipmentArrangementsCompletedAt(
+  completedAt: Date | null | undefined,
+  equipment: Array<{ arrangementStatus: string }>
+): string | null {
+  if (!completedAt) return null;
+  const allArranged =
+    equipment.length > 0 &&
+    equipment.every(
+      line => line.arrangementStatus === "reserved" || line.arrangementStatus === "not_required"
+    );
+  return allArranged ? completedAt.toISOString() : null;
+}
+
+/**
+ * PTR-42 / PTR-24 AC5: Evaluates whether the equipment arrangements side of an event is satisfied.
+ * - An event with no recorded equipment requirements is satisfied without any completion action required.
+ * - An event with equipment lines is satisfied only if arrangements were marked complete AND every
+ *   line is still in state 'reserved' or 'not_required'.
+ */
+export function isEquipmentArrangementsSatisfied(
+  equipment: Array<{ arrangementStatus: string }>,
+  completedAt: Date | string | null | undefined
+): boolean {
+  if (equipment.length === 0) return true;
+  if (!completedAt) return false;
+  return equipment.every(
+    line => line.arrangementStatus === "reserved" || line.arrangementStatus === "not_required"
+  );
 }
 
 /**
@@ -279,6 +316,10 @@ export function projectEvent(
           ...timing,
           status: record.status,
           equipment,
+          equipmentArrangementsCompletedAt: effectiveEquipmentArrangementsCompletedAt(
+            record.equipmentArrangementsCompletedAt,
+            equipment
+          ),
         },
       };
 
@@ -317,6 +358,14 @@ export function projectEvent(
           })),
           venueRequest,
           equipmentSubmittedAt: record.equipmentSubmittedAt?.toISOString() ?? null,
+          ...(access === "coordinator"
+            ? {
+                equipmentArrangementsCompletedAt: effectiveEquipmentArrangementsCompletedAt(
+                  record.equipmentArrangementsCompletedAt,
+                  equipment
+                ),
+              }
+            : {}),
         },
       };
 

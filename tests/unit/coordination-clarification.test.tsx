@@ -82,6 +82,8 @@ const underReviewRequest: CoordinationRequest = {
   clarifications: [],
   pendingHandover: null,
   equipmentSubmittedAt: null,
+  equipmentArrangementsCompletedAt: null,
+  equipmentArrangementsCompletedById: null,
 };
 
 describe("Clarification requests (PTR-18)", () => {
