@@ -11,6 +11,8 @@ import type { EventProjection } from "#/features/events/access";
 
 const {
   updateEquipmentArrangement,
+  recordEquipmentUnavailable,
+  completeEquipmentArrangements,
   checkEquipmentAvailability,
   reserveEquipment,
   releaseEquipment,
@@ -19,6 +21,8 @@ const {
   success,
 } = vi.hoisted(() => ({
   updateEquipmentArrangement: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  recordEquipmentUnavailable: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  completeEquipmentArrangements: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
   checkEquipmentAvailability: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
   reserveEquipment: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
   releaseEquipment: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
@@ -29,6 +33,8 @@ const {
 
 vi.mock("#/features/equipment-requests/server-fns", () => ({
   updateEquipmentArrangement,
+  recordEquipmentUnavailable,
+  completeEquipmentArrangements,
   checkEquipmentAvailability,
   reserveEquipment,
   releaseEquipment,
@@ -87,7 +93,11 @@ const equipmentTypes = [
   { id: 4, name: "Microphone" },
 ];
 
-function renderReview(equipment: Line[] = [projector, microphone, speaker]) {
+function renderReview(
+  equipment: Line[] = [projector, microphone, speaker],
+  access: EventProjection["access"] = "technical_support",
+  completedAt?: string | null
+) {
   const event: EventProjection["event"] = {
     id: 7,
     name: "Summit",
@@ -97,8 +107,11 @@ function renderReview(equipment: Line[] = [projector, microphone, speaker]) {
     endTime: "17:00",
     status: "approved",
     equipment,
+    equipmentArrangementsCompletedAt: completedAt,
   };
-  return render(<EquipmentReviewPage event={event} equipmentTypes={equipmentTypes} />);
+  return render(
+    <EquipmentReviewPage event={event} access={access} equipmentTypes={equipmentTypes} />
+  );
 }
 
 const stateSelect = (item: string) =>
@@ -244,7 +257,7 @@ describe("EquipmentReviewPage", () => {
 
   it("asks for a reason when unavailable is chosen", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    updateEquipmentArrangement.mockResolvedValue({});
+    recordEquipmentUnavailable.mockResolvedValue({});
     renderReview([projector]);
 
     expect(screen.queryByRole("textbox", { name: /Reason unavailable/ })).toBeNull();
@@ -255,23 +268,79 @@ describe("EquipmentReviewPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Save Projector" }));
     expect(await screen.findByText(ARRANGEMENT_REASON_MESSAGE)).toBeTruthy();
-    expect(updateEquipmentArrangement).not.toHaveBeenCalled();
+    expect(recordEquipmentUnavailable).not.toHaveBeenCalled();
 
     await user.type(reason, "Loaned out");
     await user.click(screen.getByRole("button", { name: "Save Projector" }));
 
     await waitFor(() =>
-      expect(updateEquipmentArrangement).toHaveBeenCalledWith({
+      expect(recordEquipmentUnavailable).toHaveBeenCalledWith({
         data: {
           eventId: 7,
           id: "line-a",
-          arrangementStatus: "unavailable",
-          unavailableReason: "Loaned out",
+          reason: "Loaned out",
         },
       })
     );
     expect(success).toHaveBeenCalledWith("Equipment line updated.");
     expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("marks arrangements complete and refreshes the event", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    completeEquipmentArrangements.mockResolvedValue({});
+    renderReview([microphone, speaker]);
+
+    await user.click(screen.getByRole("button", { name: "Mark arrangements complete" }));
+
+    await waitFor(() =>
+      expect(completeEquipmentArrangements).toHaveBeenCalledWith({ data: { eventId: 7 } })
+    );
+    expect(success).toHaveBeenCalledWith("Technical arrangements marked complete.");
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("shows a completion refusal without hiding the action", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    completeEquipmentArrangements.mockRejectedValueOnce(
+      new Error("Cannot mark arrangements complete: Projector is not arranged.")
+    );
+    renderReview([projector]);
+
+    await user.click(screen.getByRole("button", { name: "Mark arrangements complete" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Cannot mark arrangements complete: Projector is not arranged."
+    );
+    expect(screen.getByRole("button", { name: "Mark arrangements complete" })).toBeTruthy();
+  });
+
+  it("shows the recorded completion and hides the action", () => {
+    renderReview([microphone], "technical_support", "2026-10-01T00:00:00.000Z");
+
+    expect(screen.getByRole("status").textContent).toContain("Technical arrangements complete.");
+    expect(screen.queryByRole("button", { name: "Mark arrangements complete" })).toBeNull();
+  });
+
+  it("does not offer completion for coordinators or events without lines", () => {
+    const { rerender } = renderReview([microphone], "coordinator");
+    expect(screen.queryByRole("button", { name: "Mark arrangements complete" })).toBeNull();
+
+    rerender(
+      <EquipmentReviewPage
+        event={{
+          id: 7,
+          status: "approved",
+          eventDate: null,
+          startTime: null,
+          endTime: null,
+          equipment: [],
+        }}
+        access="technical_support"
+        equipmentTypes={equipmentTypes}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Mark arrangements complete" })).toBeNull();
   });
 
   it("leaves the state out of the update for a reserved line", async () => {
@@ -322,13 +391,8 @@ describe("EquipmentReviewPage", () => {
     await user.click(screen.getByRole("button", { name: "Save Projector" }));
 
     await waitFor(() =>
-      expect(updateEquipmentArrangement).toHaveBeenCalledWith({
-        data: {
-          eventId: 7,
-          id: "line-a",
-          arrangementStatus: "unavailable",
-          unavailableReason: "Broken",
-        },
+      expect(recordEquipmentUnavailable).toHaveBeenCalledWith({
+        data: { eventId: 7, id: "line-a", reason: "Broken" },
       })
     );
   });
@@ -492,7 +556,7 @@ describe("EquipmentReviewPage", () => {
         status: "approved",
         equipment: [speaker],
       };
-      render(<EquipmentReviewPage event={event} equipmentTypes={[]} />);
+      render(<EquipmentReviewPage event={event} access="technical_support" equipmentTypes={[]} />);
 
       expect(screen.getByRole("heading", { name: "Check availability" })).toBeTruthy();
       expect(screen.getByText("No equipment types are available.")).toBeTruthy();
@@ -510,7 +574,9 @@ describe("EquipmentReviewPage", () => {
         status: "approved",
         equipment: [speaker],
       };
-      render(<EquipmentReviewPage event={event} equipmentTypes={null} />);
+      render(
+        <EquipmentReviewPage event={event} access="technical_support" equipmentTypes={null} />
+      );
 
       expect(screen.getByText("Could not load equipment types.")).toBeTruthy();
       expect(screen.queryByRole("combobox", { name: "Equipment type" })).toBeNull();

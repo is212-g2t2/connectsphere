@@ -1,0 +1,4 @@
+ALTER TABLE "event_requests" ADD COLUMN "equipment_arrangements_completed_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "equipment_arrangements_completed_by_id" text;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_equipment_arrangements_completed_by_id_user_id_fk" FOREIGN KEY ("equipment_arrangements_completed_by_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "event_requests_equipment_arrangements_completed_by_id_idx" ON "event_requests" USING btree ("equipment_arrangements_completed_by_id");

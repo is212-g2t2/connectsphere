@@ -40,7 +40,7 @@ export const Route = createFileRoute("/_authenticated/equipment-requests/$eventI
     ]);
     const entry = entries.at(0);
     if (!entry) throw notFound();
-    return { event: entry.event, equipmentTypes };
+    return { event: entry.event, access: entry.access, equipmentTypes };
   },
   component: () => <EquipmentReviewPage {...Route.useLoaderData()} />,
   pendingComponent: EquipmentReviewSkeleton,

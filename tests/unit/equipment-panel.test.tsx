@@ -5,16 +5,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
 import type { EquipmentLine } from "#/features/equipment-requests/schema";
 
-const { saveEquipmentLine, removeEquipmentLine, submitEquipmentRequest, invalidate, success } =
-  vi.hoisted(() => ({
-    saveEquipmentLine: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
-    removeEquipmentLine: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
-    submitEquipmentRequest: vi.fn<() => Promise<unknown>>(),
-    invalidate: vi.fn<() => Promise<void>>(),
-    success: vi.fn<(message: string) => void>(),
-  }));
+const {
+  checkLineAvailability,
+  reserveEquipment,
+  saveEquipmentLine,
+  removeEquipmentLine,
+  submitEquipmentRequest,
+  invalidate,
+  success,
+} = vi.hoisted(() => ({
+  checkLineAvailability: vi.fn<() => Promise<unknown>>(),
+  reserveEquipment: vi.fn<() => Promise<unknown>>(),
+  saveEquipmentLine: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  removeEquipmentLine: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
+  submitEquipmentRequest: vi.fn<() => Promise<unknown>>(),
+  invalidate: vi.fn<() => Promise<void>>(),
+  success: vi.fn<(message: string) => void>(),
+}));
 
 vi.mock("#/features/equipment-requests/server-fns", () => ({
+  checkLineAvailability,
+  reserveEquipment,
   saveEquipmentLine,
   removeEquipmentLine,
   submitEquipmentRequest,
@@ -144,5 +155,32 @@ describe("EquipmentPanel arrangement position (PTR-39 AC4)", () => {
     expect(screen.queryByText(/State:/)).toBeNull();
     expect(screen.queryByText(/Reason:/)).toBeNull();
     expect(screen.queryByText(/Technical Support note:/)).toBeNull();
+  });
+
+  it("shows the effective completion state to the Coordinator", () => {
+    render(
+      <EquipmentPanel
+        eventId={7}
+        lines={[{ ...projector, arrangementStatus: "reserved" }]}
+        status="approved"
+        submittedAt="2030-01-01T00:00:00.000Z"
+        arrangementsCompletedAt="2030-01-02T00:00:00.000Z"
+      />
+    );
+
+    expect(screen.getByRole("status").textContent).toBe("Technical arrangements complete.");
+  });
+
+  it("shows no completion output when nothing was recorded", () => {
+    render(
+      <EquipmentPanel
+        eventId={7}
+        lines={[{ ...projector, arrangementStatus: "reserved" }]}
+        status="approved"
+        submittedAt="2030-01-01T00:00:00.000Z"
+      />
+    );
+
+    expect(screen.queryByText("Technical arrangements complete.")).toBeNull();
   });
 });

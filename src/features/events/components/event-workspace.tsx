@@ -187,6 +187,7 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                       lines={event.equipment}
                       status={event.status}
                       submittedAt={event.equipmentSubmittedAt ?? null}
+                      arrangementsCompletedAt={event.equipmentArrangementsCompletedAt ?? null}
                     />
                   </div>
                 )}

@@ -1,4 +1,4 @@
-import { and, count, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNotNull, isNull } from "drizzle-orm";
 import { createElement } from "react";
 
 import type { db as Db } from "#/db";
@@ -12,12 +12,14 @@ import {
   EQUIPMENT_RESERVED_REMOVE_MESSAGE,
   isEquipmentEditableStatus,
   parseArrangementUpdateInput,
+  parseCompleteArrangementsInput,
   parseEquipmentLineInput,
+  parseRecordUnavailableInput,
   parseRemoveEquipmentLineInput,
   parseSubmitEquipmentInput,
 } from "#/features/equipment-requests/schema";
 import { EQUIPMENT_MAX_LINES } from "#/features/event-requests/schema";
-import { isEquipmentQueueRow } from "#/features/events/access";
+import { isArrangedLine, isEquipmentQueueRow } from "#/features/events/access";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("equipment-requests");
@@ -143,6 +145,7 @@ export async function handleSaveEquipmentLine(
         )
         .returning();
       if (rows.length === 0) throw new NotFoundError("Not Found");
+      await clearArrangementsCompletion(tx, input.eventId);
       return rows[0];
     }
 
@@ -168,6 +171,7 @@ export async function handleSaveEquipmentLine(
         notes: input.notes ? input.notes : null,
       })
       .returning();
+    await clearArrangementsCompletion(tx, input.eventId);
     return inserted;
   });
 }
@@ -198,14 +202,25 @@ export async function handleRemoveEquipmentLine(
       .where(and(eq(equipmentRequests.id, input.id), eq(equipmentRequests.eventId, input.eventId)))
       .returning();
     if (rows.length === 0) throw new NotFoundError("Not Found");
+    await clearArrangementsCompletion(tx, input.eventId);
     return rows[0];
   });
 }
 
 /**
- * The event-level gate for Technical Support: every line of the event (locked when `lock`), and
- * whether the event is submitted. Throws 403 unless the actor may work at least one line, so a
- * probe of an event they have no line on says nothing about it.
+ * The event-level gate for Technical Support: every line of the event (locked when `lock`), the
+ * event's status and whether it is submitted. Throws 403 unless the actor may work at least one
+ * line, so a probe of an event they have no line on says nothing about it.
+ *
+ * Lock order is lines -> event: every writer that can run on a submitted event (these arrangement
+ * handlers, reserve, release) takes its line locks before touching the event row (the reservation
+ * paths do so through the completion clear), so they cannot form a cycle. save/remove take the
+ * event first but refuse once the request is submitted, and reservations only exist on submitted
+ * requests, so the two orders never overlap. When `lock`, the event row is locked after the
+ * lines, so the status the caller's gate reads cannot change under it.
+ *
+ * The status is returned so the arrangement handlers can apply PTR-43's confirmation gate;
+ * reserve and release deliberately stay open after confirmation.
  */
 export async function loadWorkableLines(
   database: Pick<Database, "select">,
@@ -213,21 +228,38 @@ export async function loadWorkableLines(
   actor: SessionUser,
   lock = false
 ) {
-  const query = database
+  const lineQuery = database
     .select()
     .from(equipmentRequests)
     .where(eq(equipmentRequests.eventId, eventId));
-  const lines = await (lock ? query.for("update") : query);
-  const events = await database
-    .select({ submittedAt: eventRequests.equipmentSubmittedAt })
+  const lines = await (lock ? lineQuery.for("update") : lineQuery);
+  const eventQuery = database
+    .select({
+      status: eventRequests.status,
+      submittedAt: eventRequests.equipmentSubmittedAt,
+    })
     .from(eventRequests)
     .where(eq(eventRequests.id, eventId))
     .limit(1);
-  const submitted = Boolean(events.at(0)?.submittedAt);
+  const event = (await (lock ? eventQuery.for("update") : eventQuery)).at(0);
+  const submitted = Boolean(event?.submittedAt);
   if (!lines.some(row => isEquipmentQueueRow(row, actor.id, submitted))) {
     throw new AuthorizationError("Forbidden");
   }
-  return { lines, submitted };
+  return { lines, submitted, status: event?.status };
+}
+
+/**
+ * PTR-43: arrangements are mutable only before the event is confirmed. Reserve and release stay
+ * open after confirmation (PTR-24 AC6 expects the Coordinator to handle those manually); the
+ * three arrangement handlers call this after the event-level gate.
+ */
+function assertArrangementsEditable(status: string | undefined) {
+  if (status === undefined || !isEquipmentEditableStatus(status)) {
+    throw new ConflictError(
+      "Technical arrangements can only be changed before the event is confirmed."
+    );
+  }
 }
 
 /**
@@ -247,7 +279,8 @@ export async function handleUpdateArrangement(
 ) {
   const input = parseArrangementUpdateInput(data);
   return database.transaction(async tx => {
-    const { lines, submitted } = await loadWorkableLines(tx, input.eventId, actor, true);
+    const { lines, submitted, status } = await loadWorkableLines(tx, input.eventId, actor, true);
+    assertArrangementsEditable(status);
     const line = lines.find(row => row.id === input.id);
     if (!line) throw new NotFoundError("Not Found");
     if (!isEquipmentQueueRow(line, actor.id, submitted)) throw new AuthorizationError("Forbidden");
@@ -276,6 +309,12 @@ export async function handleUpdateArrangement(
       .set(changes)
       .where(eq(equipmentRequests.id, line.id))
       .returning();
+
+    // A status or notes change may invalidate a prior completion stamp.
+    if (input.arrangementStatus !== undefined || input.arrangementNotes !== undefined) {
+      await clearArrangementsCompletion(tx, input.eventId);
+    }
+
     return updated;
   });
 }
@@ -358,4 +397,198 @@ export async function handleSubmitEquipmentRequest(
     recipientCount: submitted.recipientEmails.length,
     failedCount: failed,
   };
+}
+
+// ── PTR-43: Technical arrangement completion / unavailability ──────────────────────────────────
+
+/**
+ * Clears a previously recorded completion stamp. Scoped to rows that have a stamp, so it is a
+ * no-op when nothing was recorded. Called inside the same transaction that mutates
+ * a line (add, edit, remove) or reduces/releases a reservation, so the confirmation gate never
+ * reads a stale completion.
+ */
+export async function clearArrangementsCompletion(tx: Pick<Database, "update">, eventId: number) {
+  await tx
+    .update(eventRequests)
+    .set({
+      equipmentArrangementsCompletedAt: null,
+      equipmentArrangementsCompletedById: null,
+    })
+    .where(
+      and(eq(eventRequests.id, eventId), isNotNull(eventRequests.equipmentArrangementsCompletedAt))
+    );
+}
+
+/**
+ * Sends a best-effort email to the event's assigned Coordinator after a Technical Support outcome
+ * (completion or unavailability). Logs when no coordinator can be notified.
+ */
+async function notifyCoordinator(
+  eventId: number,
+  subject: string,
+  emailElement: React.ReactElement,
+  database: Pick<Database, "select">
+): Promise<void> {
+  const event = (
+    await database
+      .select({
+        coordinatorId: eventRequests.assignedCoordinatorId,
+      })
+      .from(eventRequests)
+      .where(eq(eventRequests.id, eventId))
+      .limit(1)
+  ).at(0);
+
+  if (!event?.coordinatorId) {
+    log.warn("No assigned Coordinator to notify", { eventId });
+    return;
+  }
+
+  const coordinator = (
+    await database
+      .select({ email: user.email })
+      .from(user)
+      .where(eq(user.id, event.coordinatorId))
+      .limit(1)
+  ).at(0);
+
+  if (!coordinator) {
+    log.warn("Assigned Coordinator account not found", {
+      eventId,
+      coordinatorId: event.coordinatorId,
+    });
+    return;
+  }
+
+  try {
+    const { sendEmail } = await import("#/lib/mailer.server");
+    await sendEmail(coordinator.email, subject, emailElement);
+  } catch (error) {
+    log.warn("Coordinator notification failed", {
+      eventId,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+}
+
+/**
+ * PTR-43 AC1: Technical Support Staff marks all equipment arrangements for the event as complete.
+ *
+ * Every line must be in state `reserved` or `not_required`; if any line is in another state the
+ * action is refused. The completion is stamped on the event row; the event's status is unchanged.
+ * An event with no equipment lines needs no completion action (the confirmation gate treats the
+ * equipment side as satisfied).
+ */
+export async function handleCompleteArrangements(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseCompleteArrangementsInput(data);
+  const result = await database.transaction(async tx => {
+    // Lock all lines so a concurrent reservation change cannot slip between the check and the stamp.
+    const { lines, status } = await loadWorkableLines(tx, input.eventId, actor, true);
+    assertArrangementsEditable(status);
+
+    const unarranged = lines.filter(line => !isArrangedLine(line.arrangementStatus));
+    if (unarranged.length > 0) {
+      const items = unarranged.map(l => l.item).join(", ");
+      throw new ConflictError(
+        `Cannot mark arrangements complete: the following lines are not yet reserved or marked not required: ${items}`
+      );
+    }
+
+    const now = new Date();
+    const [updated] = await tx
+      .update(eventRequests)
+      .set({
+        equipmentArrangementsCompletedAt: now,
+        equipmentArrangementsCompletedById: actor.id,
+      })
+      .where(eq(eventRequests.id, input.eventId))
+      .returning({
+        id: eventRequests.id,
+        equipmentArrangementsCompletedAt: eventRequests.equipmentArrangementsCompletedAt,
+      });
+
+    return { event: updated, lineCount: lines.length };
+  });
+
+  // Best-effort notification after the transaction commits.
+  const { EquipmentArrangementsCompleteEmail } =
+    await import("#/features/emails/components/equipment-arrangements-email");
+  await notifyCoordinator(
+    input.eventId,
+    `Equipment arrangements complete for event ${input.eventId}`,
+    createElement(EquipmentArrangementsCompleteEmail, {
+      eventId: input.eventId,
+      lineCount: result.lineCount,
+    }),
+    database
+  );
+
+  return result.event;
+}
+
+/**
+ * PTR-43 AC2: Technical Support Staff records that a requested equipment line cannot be provided.
+ *
+ * Sets the line's arrangement status to `unavailable` and stores the reason. The assigned
+ * Coordinator is notified so they can adjust the event plan.
+ */
+export async function handleRecordUnavailable(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseRecordUnavailableInput(data);
+  const updated = await database.transaction(async tx => {
+    const { lines, submitted, status } = await loadWorkableLines(tx, input.eventId, actor, true);
+    assertArrangementsEditable(status);
+    const line = lines.find(row => row.id === input.id);
+    if (!line) throw new NotFoundError("Not Found");
+    if (!isEquipmentQueueRow(line, actor.id, submitted)) {
+      throw new AuthorizationError("Forbidden");
+    }
+
+    // A reserved line commits capacity; it cannot be marked unavailable without releasing first.
+    if (line.arrangementStatus === "reserved" || (await lineHoldsReservation(tx, line.id))) {
+      throw new ConflictError(ARRANGEMENT_RESERVED_MESSAGE);
+    }
+
+    const [updatedLine] = await tx
+      .update(equipmentRequests)
+      .set({
+        arrangementStatus: "unavailable",
+        unavailableReason: input.reason,
+        assignedStaffId: actor.id,
+        ...(input.arrangementNotes !== undefined
+          ? { arrangementNotes: input.arrangementNotes === "" ? null : input.arrangementNotes }
+          : {}),
+      })
+      .where(eq(equipmentRequests.id, line.id))
+      .returning();
+
+    // Recording unavailability invalidates any prior completion stamp.
+    await clearArrangementsCompletion(tx, input.eventId);
+
+    return updatedLine;
+  });
+
+  // Best-effort notification after the transaction commits.
+  const { EquipmentUnavailableEmail } =
+    await import("#/features/emails/components/equipment-arrangements-email");
+  await notifyCoordinator(
+    input.eventId,
+    `Equipment unavailable for event ${input.eventId}`,
+    createElement(EquipmentUnavailableEmail, {
+      eventId: input.eventId,
+      item: updated.item,
+      quantity: updated.quantity,
+      reason: input.reason,
+    }),
+    database
+  );
+
+  return updated;
 }

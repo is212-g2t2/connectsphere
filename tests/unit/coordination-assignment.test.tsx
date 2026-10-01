@@ -97,6 +97,8 @@ const request: CoordinationRequest = {
   clarifications: [],
   pendingHandover: null,
   equipmentSubmittedAt: null,
+  equipmentArrangementsCompletedAt: null,
+  equipmentArrangementsCompletedById: null,
 };
 
 beforeEach(() => {

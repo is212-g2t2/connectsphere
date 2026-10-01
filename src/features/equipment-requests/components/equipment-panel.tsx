@@ -41,6 +41,7 @@ interface EquipmentPanelProps {
   /** Event status — the panel is only editable on `approved` or `planning`. */
   status: string;
   submittedAt: string | null;
+  arrangementsCompletedAt?: string | null;
 }
 
 const EMPTY_FORM = { item: "", quantity: "", notes: "" };
@@ -75,7 +76,13 @@ export function submitToastMessage(result: {
  * dialog; the submit section owns its dialog state the same way. The panel itself only tracks
  * which inline form is open.
  */
-export function EquipmentPanel({ eventId, lines, status, submittedAt }: EquipmentPanelProps) {
+export function EquipmentPanel({
+  eventId,
+  lines,
+  status,
+  submittedAt,
+  arrangementsCompletedAt,
+}: EquipmentPanelProps) {
   const router = useRouter();
   const editable = isEquipmentEditableStatus(status);
   const alreadySubmitted = submittedAt !== null;
@@ -106,6 +113,10 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
         <p id={emptyStateId} className="mt-3 body-sm text-muted-foreground">
           {canEditLines ? EQUIPMENT_NO_LINES_MESSAGE : "No equipment lines recorded."}
         </p>
+      )}
+
+      {arrangementsCompletedAt && (
+        <output className="mt-3 block body-sm">Technical arrangements complete.</output>
       )}
 
       {lines.length > 0 && (
