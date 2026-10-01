@@ -1,10 +1,13 @@
 import { and, eq } from "drizzle-orm";
+import { createElement } from "react";
 
 import type { db as Db } from "#/db";
 import {
   equipmentRequests,
   equipmentReservations,
   equipmentTypes,
+  eventRequests,
+  user,
   venueRequests,
 } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
@@ -12,8 +15,12 @@ import type { SessionUser } from "#/features/auth/session";
 import { loadTypeAvailability } from "#/features/equipment-requests/availability.server";
 import { loadWorkableLines } from "#/features/equipment-requests/equipment.server";
 import {
+  RELEASE_NO_RESERVATION_MESSAGE,
+  RELEASE_NOT_LOWER_MESSAGE,
   arrangementStateLabel,
+  isBlank,
   parseCheckLineAvailabilityInput,
+  parseReleaseEquipmentInput,
   parseReserveEquipmentInput,
 } from "#/features/equipment-requests/schema";
 import { isEquipmentQueueRow } from "#/features/events/access";
@@ -25,16 +32,12 @@ type Database = typeof Db;
 const log = logger.getChild("equipment-requests");
 
 /**
- * The preamble both reserve paths share: the line, the queue gate, the state gate, the booking
- * window and the catalogue type. `lock` takes the line `FOR UPDATE` and the booking rows `FOR
- * SHARE`; the reserve handler takes the equipment_types lock after this returns, so every path
- * takes all locks in line-then-bookings-then-type order (AC5). `quantity` carries the reserve
- * amount so its cap keeps its place before the booking read; the check path passes none and
- * takes no locks.
+ * The shared staff gate both reserve and release apply: the line, the queue gate and the
+ * assignment check. `lock` takes the line `FOR UPDATE`.
  */
-async function loadReservableLine(
+async function loadLineForStaff(
   database: Pick<Database, "select">,
-  args: { lineId: string; actor: SessionUser; lock?: boolean; quantity?: number }
+  args: { lineId: string; actor: SessionUser; lock?: boolean }
 ) {
   const lineQuery = database
     .select()
@@ -58,6 +61,27 @@ async function loadReservableLine(
   if (!isEquipmentQueueRow(line, args.actor.id, submitted)) {
     throw new AuthorizationError("Forbidden");
   }
+
+  return line;
+}
+
+/**
+ * The preamble the reserve paths share on top of the shared gate: the state gate, the quantity
+ * cap, the booking window and the catalogue type. `lock` takes the booking rows `FOR SHARE`
+ * too; the reserve handler takes the equipment_types lock after this returns, so every path
+ * takes all locks in line-then-bookings-then-type order (AC5). `quantity` carries the reserve
+ * amount so its cap keeps its place before the booking read; the check path passes none and
+ * takes no locks.
+ */
+async function loadReservableLine(
+  database: Pick<Database, "select">,
+  args: { lineId: string; actor: SessionUser; lock?: boolean; quantity?: number }
+) {
+  const line = await loadLineForStaff(database, {
+    lineId: args.lineId,
+    actor: args.actor,
+    lock: args.lock,
+  });
 
   // PTR-39's hand-set states are not ours to overwrite: a line marked unavailable or not
   // required stays as Technical Support left it until they move it back to requested. The
@@ -287,4 +311,154 @@ export async function handleCheckLineAvailability(
       endsAt: toLocalMinuteValue(booking.endsAt),
     },
   };
+}
+
+/**
+ * Reduces a line's reservation to a new total, or releases it outright (PTR-42).
+ *
+ * A release only frees units, so no availability check runs; the freed units show in every
+ * overlapping event's availability at once because the sweep reads the reservation rows
+ * (criterion 2). Locks are taken in the reserve path's order — the line, then the
+ * `equipment_types` row — so a release and a concurrent reserve on the same type serialise rather
+ * than interleave. The line's state returns to `requested`, or to `unavailable` with the reason
+ * Technical Support gives (criterion 1); its event's status is never written (criterion 4). The
+ * assigned Coordinator is told after the commit, best-effort, the shape the submit notice uses
+ * (criterion 3).
+ */
+export async function handleReleaseEquipment(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseReleaseEquipmentInput(data);
+  const unavailableReason =
+    input.unavailableReason !== undefined && !isBlank(input.unavailableReason)
+      ? input.unavailableReason
+      : null;
+
+  const committed = await database.transaction(async tx => {
+    const line = await loadLineForStaff(tx, {
+      lineId: input.equipmentRequestId,
+      actor,
+      lock: true,
+    });
+
+    const reservation = (
+      await tx
+        .select()
+        .from(equipmentReservations)
+        .where(eq(equipmentReservations.equipmentRequestId, line.id))
+        .limit(1)
+    ).at(0);
+    if (!reservation) throw new ConflictError(RELEASE_NO_RESERVATION_MESSAGE);
+    if (input.quantity >= reservation.quantity) throw new ConflictError(RELEASE_NOT_LOWER_MESSAGE);
+    // No state gate is needed: a line holding a reservation can only be `requested` or `reserved`
+    // (reserve refuses the hand-set states and the arrangement update freezes a held line), and
+    // both are rewritten below. A state that could coexist with a holding would need a gate here.
+
+    // Serialise with reserve on the type (its AC5 lock), taken after the line as reserve does.
+    await tx
+      .select({ id: equipmentTypes.id })
+      .from(equipmentTypes)
+      .where(eq(equipmentTypes.id, reservation.equipmentTypeId))
+      .for("update");
+
+    if (input.quantity === 0) {
+      await tx.delete(equipmentReservations).where(eq(equipmentReservations.id, reservation.id));
+    } else {
+      await tx
+        .update(equipmentReservations)
+        .set({ quantity: input.quantity })
+        .where(eq(equipmentReservations.id, reservation.id));
+    }
+
+    const arrangementStatus: "unavailable" | "requested" = unavailableReason
+      ? "unavailable"
+      : "requested";
+    await tx
+      .update(equipmentRequests)
+      .set({
+        arrangementStatus,
+        unavailableReason,
+        // Keeps the line on the releasing member's list, mirroring reserve.
+        assignedStaffId: line.assignedStaffId ?? actor.id,
+        lastReleasedByStaffId: actor.id,
+        lastReleasedByStaffName: actor.name?.trim() || actor.email,
+        lastReleasedAt: new Date(),
+        lastReleasedQuantity: reservation.quantity - input.quantity,
+      })
+      .where(eq(equipmentRequests.id, line.id));
+
+    log.info("Equipment reservation reduced or released", {
+      reservationId: reservation.id,
+      eventId: line.eventId,
+      equipmentRequestId: line.id,
+      previousQuantity: reservation.quantity,
+      quantity: input.quantity,
+      arrangementStatus,
+    });
+
+    return {
+      line,
+      previousQuantity: reservation.quantity,
+      arrangementStatus,
+      eventId: line.eventId,
+    };
+  });
+
+  const result = {
+    equipmentRequestId: committed.line.id,
+    previousQuantity: committed.previousQuantity,
+    quantity: input.quantity,
+    released: input.quantity === 0,
+    arrangementStatus: committed.arrangementStatus,
+    notified: false,
+  };
+
+  // Everything after the commit is best-effort: neither a failed notice read nor a mail outage
+  // can undo the release the caller was already told about.
+  try {
+    const notice = (
+      await database
+        .select({ eventName: eventRequests.eventName, coordinatorEmail: user.email })
+        .from(eventRequests)
+        .leftJoin(user, eq(user.id, eventRequests.assignedCoordinatorId))
+        .where(eq(eventRequests.id, committed.eventId))
+        .limit(1)
+    ).at(0);
+
+    if (!notice?.coordinatorEmail) {
+      log.warn("No Coordinator to notify of equipment release", {
+        eventId: committed.line.eventId,
+      });
+      return result;
+    }
+
+    // Reached only when there is someone to email, so the mailer import is never paid otherwise.
+    const [{ sendEmail }, { EquipmentReleasedEmail }] = await Promise.all([
+      import("#/lib/mailer.server"),
+      import("#/features/emails/components/equipment-released-email"),
+    ]);
+    await sendEmail(
+      notice.coordinatorEmail,
+      `Equipment ${result.released ? "released" : "reduced"}: ${committed.line.item}`,
+      createElement(EquipmentReleasedEmail, {
+        eventName: notice.eventName,
+        item: committed.line.item,
+        requestedQuantity: committed.line.quantity,
+        previousQuantity: committed.previousQuantity,
+        quantity: input.quantity,
+        arrangementStatus: committed.arrangementStatus,
+        unavailableReason,
+        actorName: actor.name ?? "Technical Support",
+      })
+    );
+    return { ...result, notified: true };
+  } catch (error) {
+    log.warn("Equipment release notification failed", {
+      eventId: committed.line.eventId,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+    return result;
+  }
 }

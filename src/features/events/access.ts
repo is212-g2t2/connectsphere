@@ -1,4 +1,5 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schema";
 import type { VenueSuggestion } from "#/features/venue-requests/schema";
 
 export type EventAccess =
@@ -39,17 +40,17 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
 
 /**
  * The one queue rule both staff queues share: a staff member works the rows assigned to them,
- * plus every unassigned one still in the pending status. `isVenueQueueRow` and
+ * plus every unassigned one still in an open status. `isVenueQueueRow` and
  * `isEquipmentQueueRow` are thin wrappers over this so the rule has one home. This module is
  * client-reachable, so it carries no `#/db` import.
  */
 function isQueueRow(
   row: { assignedStaffId: string | null; queueStatus: string },
   userId: string,
-  pendingStatus: string
+  openStatuses: readonly string[]
 ): boolean {
   return row.assignedStaffId === null
-    ? row.queueStatus === pendingStatus
+    ? openStatuses.includes(row.queueStatus)
     : row.assignedStaffId === userId;
 }
 
@@ -62,11 +63,9 @@ export function isVenueQueueRow(
   row: { assignedStaffId: string | null; status: string },
   userId: string
 ): boolean {
-  return isQueueRow(
-    { assignedStaffId: row.assignedStaffId, queueStatus: row.status },
-    userId,
-    "pending"
-  );
+  return isQueueRow({ assignedStaffId: row.assignedStaffId, queueStatus: row.status }, userId, [
+    "pending",
+  ]);
 }
 
 /**
@@ -187,6 +186,12 @@ export interface EquipmentLineProjection {
   assignedStaffName?: string | null | undefined;
   /** PTR-41 AC4: the line's reserved units when a reservation exists, so the view can show it. */
   reservedQuantity?: number | null | undefined;
+  /**
+   * PTR-42: the most recent reduce or release, so the view can show what changed. Mirrors
+   * `reservedQuantity` above: present for Technical Support and the Coordinator, absent for
+   * the Organiser.
+   */
+  lastRelease?: EquipmentReleaseRecord | null | undefined;
 }
 
 /**
@@ -306,6 +311,7 @@ export function projectEvent(
               ? {
                   arrangementNotes: line.arrangementNotes,
                   unavailableReason: line.unavailableReason,
+                  lastRelease: line.lastRelease,
                 }
               : {}),
           })),
@@ -325,9 +331,12 @@ export function projectEvent(
 
 /**
  * The shared equipment queue (PTR-38 AC5: submitted events reach the shared queue; assignment
- * still grants its own staff access), mirroring isVenueQueueRow: an unassigned, newly-requested
- * line of a submitted event is visible to every Technical Support Staff member; once a line is
- * picked up (assignedStaffId set), only that staff member sees it through this row.
+ * still grants its own staff access), mirroring isVenueQueueRow: an unassigned `requested` line
+ * of a submitted event is visible to every Technical Support Staff member; once a line is
+ * picked up (assignedStaffId set), only that staff member sees it through this row. An
+ * unassigned `reserved` line is queueable too: deleting the holder's account nulls the
+ * assignment and leaves the reservation holding, so without this leg the units could never be
+ * released.
  */
 export function isEquipmentQueueRow(
   row: { assignedStaffId: string | null; arrangementStatus: string },
@@ -335,12 +344,12 @@ export function isEquipmentQueueRow(
   eventSubmitted: boolean
 ): boolean {
   // The same shared rule, with the eventSubmitted gate applied only on the unassigned leg: an
-  // unassigned `requested` line reaches the queue only once the Coordinator has submitted.
+  // unassigned line reaches the queue only once the Coordinator has submitted.
   return (
     isQueueRow(
       { assignedStaffId: row.assignedStaffId, queueStatus: row.arrangementStatus },
       userId,
-      "requested"
+      ["requested", "reserved"]
     ) &&
     (row.assignedStaffId !== null || eventSubmitted)
   );

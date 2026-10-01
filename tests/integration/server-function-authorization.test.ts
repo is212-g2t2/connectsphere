@@ -25,6 +25,7 @@ import {
   checkEquipmentAvailability,
   checkLineAvailability,
   listEquipmentTypes,
+  releaseEquipment,
   reserveEquipment,
   updateEquipmentArrangement,
 } from "#/features/equipment-requests/server-fns";
@@ -666,6 +667,7 @@ describe("server-function authorization (PTR-69)", () => {
       quantity: 1,
     };
     const lineInput = { equipmentRequestId: "eq-1" };
+    const releaseInput = { equipmentRequestId: "eq-1", quantity: 0 };
 
     it("answers 401 to an unauthenticated reserve", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
@@ -675,6 +677,10 @@ describe("server-function authorization (PTR-69)", () => {
         body: "Unauthorized",
       });
       expect(await refusalFrom(checkLineAvailability, lineInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(releaseEquipment, releaseInput)).toEqual({
         status: 401,
         body: "Unauthorized",
       });
@@ -693,6 +699,11 @@ describe("server-function authorization (PTR-69)", () => {
           status: 403,
           body: "Forbidden",
         });
+        // PTR-42: the release verb sits on the same role and nowhere else.
+        expect(await refusalFrom(releaseEquipment, releaseInput)).toMatchObject({
+          status: 403,
+          body: "Forbidden",
+        });
       }
     );
 
@@ -701,6 +712,7 @@ describe("server-function authorization (PTR-69)", () => {
 
       expect((await call(reserveEquipment, reserveInput)).error).toBeUndefined();
       expect((await call(checkLineAvailability, lineInput)).error).toBeUndefined();
+      expect((await call(releaseEquipment, releaseInput)).error).toBeUndefined();
     });
   });
 

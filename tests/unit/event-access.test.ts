@@ -266,6 +266,24 @@ describe("isEquipmentQueueRow", () => {
       submitted: false,
       expected: false,
     },
+    {
+      name: "unassigned reserved on a submitted event (the holder's account is gone)",
+      row: { assignedStaffId: null, arrangementStatus: "reserved" },
+      submitted: true,
+      expected: true,
+    },
+    {
+      name: "unassigned reserved before submit stays out of the queue",
+      row: { assignedStaffId: null, arrangementStatus: "reserved" },
+      submitted: false,
+      expected: false,
+    },
+    {
+      name: "unassigned unavailable on a submitted event stays out of the queue",
+      row: { assignedStaffId: null, arrangementStatus: "unavailable" },
+      submitted: true,
+      expected: false,
+    },
   ];
 
   it.each(cases)("$name -> $expected", ({ row, submitted, expected }) => {

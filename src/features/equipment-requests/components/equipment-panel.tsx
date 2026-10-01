@@ -25,6 +25,7 @@ import {
   isEquipmentEditableStatus,
 } from "#/features/equipment-requests/schema";
 import { ArrangementPosition } from "#/features/equipment-requests/components/arrangement-position";
+import { LastReleaseNote } from "#/features/equipment-requests/components/last-release-note";
 import type { EquipmentLine } from "#/features/equipment-requests/schema";
 import {
   removeEquipmentLine,
@@ -132,6 +133,7 @@ export function EquipmentPanel({ eventId, lines, status, submittedAt }: Equipmen
                     {line.notes && <p className="mt-0.5 text-muted-foreground">{line.notes}</p>}
                     {/* PTR-39 AC4: where Technical Support has got to. Nothing is arranged before the request is submitted, so nothing is shown until then. */}
                     {alreadySubmitted && <ArrangementPosition line={line} />}
+                    <LastReleaseNote release={line.lastRelease} />
                   </div>
                   {canEditLines && (
                     <div className="flex shrink-0 items-center gap-2">

@@ -6,6 +6,7 @@ import {
   parseAvailabilityCheckInput,
   parseCheckLineAvailabilityInput,
   parseEquipmentLineInput,
+  parseReleaseEquipmentInput,
   parseRemoveEquipmentLineInput,
   parseReserveEquipmentInput,
   parseSubmitEquipmentInput,
@@ -161,4 +162,18 @@ export const checkLineAvailability = createServerFn({ method: "POST" })
       import("#/features/equipment-requests/reservations.server"),
     ]);
     return handleCheckLineAvailability(data, context.user, db);
+  });
+
+/** PTR-42: Technical Support Staff reduce a line's reservation to a new total, or release it. */
+export const requireEquipmentRelease = requirePermission({ equipment: ["release"] });
+
+export const releaseEquipment = createServerFn({ method: "POST" })
+  .validator(parseReleaseEquipmentInput)
+  .middleware([requireEquipmentRelease])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleReleaseEquipment }] = await Promise.all([
+      import("#/db"),
+      import("#/features/equipment-requests/reservations.server"),
+    ]);
+    return handleReleaseEquipment(data, context.user, db);
   });

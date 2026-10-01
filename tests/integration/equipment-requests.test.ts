@@ -836,7 +836,10 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       ).rejects.toBeInstanceOf(AuthorizationError);
     });
 
-    test("AC5: a reserved (non-requested) unassigned line on a submitted event connects no technical-support user", async () => {
+    // PTR-42: deleting the holder's account nulls the assignment and leaves the reservation
+    // holding, so an unassigned `reserved` line must stay reachable — otherwise no member could
+    // ever release its units. Assigned lines still connect only their assignee (next test).
+    test("AC5: a reserved unassigned line on a submitted event connects technical support", async () => {
       const id = await createEvent("approved");
       const line = await handleSaveEquipmentLine(
         { eventId: id, item: "Projector", quantity: 1 },
@@ -849,9 +852,12 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
         .set({ arrangementStatus: "reserved" })
         .where(eq(schema.equipmentRequests.id, line.id));
 
-      await expect(
-        handleListEvents({ eventId: id }, techSupport, database as never)
-      ).rejects.toBeInstanceOf(AuthorizationError);
+      const events = await handleListEvents({ eventId: id }, techSupport, database as never);
+      expect(events.map(e => e.event.id)).toContain(id);
+      expect(events[0]?.event.equipment?.[0]).toMatchObject({
+        id: line.id,
+        arrangeable: true,
+      });
     });
 
     test("AC5: a line assigned to another staffer connects only that staffer", async () => {
