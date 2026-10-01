@@ -508,6 +508,34 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
+  it("lets any member release a reserved line whose holder's account was deleted", async () => {
+    const { eventId, lineId } = await createEvent({ name: "Holder gone", requested: 3 });
+    await reserve(lineId, 3);
+
+    // What the user FK's ON DELETE SET NULL leaves behind: a fully reserved, unassigned line.
+    await database
+      .update(schema.equipmentRequests)
+      .set({ assignedStaffId: null })
+      .where(eq(schema.equipmentRequests.id, lineId));
+
+    // The event must still reach the queue the member's list is scoped by...
+    const [projected] = await handleListEvents({ eventId }, session("tech2"), database as never);
+    expect(projected?.event.equipment?.[0]).toMatchObject({
+      id: lineId,
+      arrangeable: true,
+      reservedQuantity: 3,
+    });
+
+    // ...and its units must be releasable by a member who never held the line.
+    const result = await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 0 },
+      session("tech2"),
+      database as never
+    );
+    expect(result.released).toBe(true);
+    expect((await readLine(lineId)).reservation).toBeUndefined();
+  });
+
   it("lets Technical Support move the line's state again once released", async () => {
     const { eventId, lineId } = await createEvent({ name: "Unlocked", requested: 2 });
     await reserve(lineId, 2);

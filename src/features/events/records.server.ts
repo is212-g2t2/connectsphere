@@ -124,8 +124,10 @@ export async function handleListEvents(
     case "technical_support_staff":
       // PTR-38 AC5: an unassigned `requested` line is the shared queue, but only once the event
       // has been submitted — before that the draft belongs to the Coordinator alone. An assigned
-      // row connects only the staff it names. `isEquipmentQueueRow` in `access.ts` states the
-      // same rule for the in-memory readers below.
+      // row connects only the staff it names, and an unassigned `reserved` row is queueable too
+      // (a deleted holder leaves the line reserved with no assignee, and its units must stay
+      // releasable). `isEquipmentQueueRow` in `access.ts` states the same rule for the in-memory
+      // readers below.
       relationship = and(
         visible,
         inArray(
@@ -137,7 +139,7 @@ export async function handleListEvents(
               or(
                 eq(equipmentRequests.assignedStaffId, user.id),
                 and(
-                  eq(equipmentRequests.arrangementStatus, "requested"),
+                  inArray(equipmentRequests.arrangementStatus, ["requested", "reserved"]),
                   isNull(equipmentRequests.assignedStaffId),
                   // Correlated semi-join: the line's event must have been submitted.
                   exists(
