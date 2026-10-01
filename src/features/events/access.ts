@@ -1,4 +1,5 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schema";
 import type { VenueSuggestion } from "#/features/venue-requests/schema";
 
 export type EventAccess =
@@ -187,6 +188,12 @@ export interface EquipmentLineProjection {
   assignedStaffName?: string | null | undefined;
   /** PTR-41 AC4: the line's reserved units when a reservation exists, so the view can show it. */
   reservedQuantity?: number | null | undefined;
+  /**
+   * PTR-42: the most recent reduce or release, so the view can show what changed. Mirrors
+   * `reservedQuantity` above: present for Technical Support and the Coordinator, absent for
+   * the Organiser.
+   */
+  lastRelease?: EquipmentReleaseRecord | null | undefined;
 }
 
 /**
@@ -306,6 +313,7 @@ export function projectEvent(
               ? {
                   arrangementNotes: line.arrangementNotes,
                   unavailableReason: line.unavailableReason,
+                  lastRelease: line.lastRelease,
                 }
               : {}),
           })),

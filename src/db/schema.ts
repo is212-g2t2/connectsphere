@@ -531,11 +531,22 @@ export const equipmentRequests = pgTable(
     arrangementNotes: text("arrangement_notes"),
     /** PTR-39 AC3: why the line is `unavailable`; null in every other state. */
     unavailableReason: text("unavailable_reason"),
+    /** PTR-42: last Technical Support actor to reduce or release this line's reservation. */
+    lastReleasedByStaffId: text("last_released_by_staff_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /** Durable PTR-42 actor label, retained if the staff account is later deleted. */
+    lastReleasedByStaffName: text("last_released_by_staff_name"),
+    /** PTR-42: when the reduction or release was committed. */
+    lastReleasedAt: timestamp("last_released_at", { withTimezone: true }),
+    /** PTR-42: units given back in the most recent reduce or release. */
+    lastReleasedQuantity: integer("last_released_quantity"),
   },
   table => [
     check("equipment_requests_quantity_positive", sql`${table.quantity} > 0`),
     index("equipment_requests_event_id_idx").on(table.eventId),
     index("equipment_requests_assigned_staff_id_idx").on(table.assignedStaffId),
+    index("equipment_requests_last_released_by_staff_id_idx").on(table.lastReleasedByStaffId),
     // PTR-39 AC3 backstop against a missing or whitespace-only reason. The Zod rule
     // (`requireReasonAndChange`) also rejects format/control characters such as zero-width spaces,
     // which pass this check. Compared as text: Postgres refuses to
@@ -544,6 +555,10 @@ export const equipmentRequests = pgTable(
     check(
       "equipment_requests_unavailable_has_reason",
       sql`${table.arrangementStatus}::text <> 'unavailable' or coalesce(${table.unavailableReason}, '') ~ '[^[:space:]]'`
+    ),
+    check(
+      "equipment_requests_last_released_positive",
+      sql`${table.lastReleasedQuantity} is null or ${table.lastReleasedQuantity} > 0`
     ),
   ]
 );

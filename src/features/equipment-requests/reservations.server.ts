@@ -32,16 +32,12 @@ type Database = typeof Db;
 const log = logger.getChild("equipment-requests");
 
 /**
- * The preamble both reserve paths share: the line, the queue gate, the state gate, the booking
- * window and the catalogue type. `lock` takes the line `FOR UPDATE` and the booking rows `FOR
- * SHARE`; the reserve handler takes the equipment_types lock after this returns, so every path
- * takes all locks in line-then-bookings-then-type order (AC5). `quantity` carries the reserve
- * amount so its cap keeps its place before the booking read; the check path passes none and
- * takes no locks.
+ * The shared staff gate both reserve and release apply: the line, the queue gate and the
+ * assignment check. `lock` takes the line `FOR UPDATE`.
  */
-async function loadReservableLine(
+async function loadLineForStaff(
   database: Pick<Database, "select">,
-  args: { lineId: string; actor: SessionUser; lock?: boolean; quantity?: number }
+  args: { lineId: string; actor: SessionUser; lock?: boolean }
 ) {
   const lineQuery = database
     .select()
@@ -65,6 +61,27 @@ async function loadReservableLine(
   if (!isEquipmentQueueRow(line, args.actor.id, submitted)) {
     throw new AuthorizationError("Forbidden");
   }
+
+  return line;
+}
+
+/**
+ * The preamble the reserve paths share on top of the shared gate: the state gate, the quantity
+ * cap, the booking window and the catalogue type. `lock` takes the booking rows `FOR SHARE`
+ * too; the reserve handler takes the equipment_types lock after this returns, so every path
+ * takes all locks in line-then-bookings-then-type order (AC5). `quantity` carries the reserve
+ * amount so its cap keeps its place before the booking read; the check path passes none and
+ * takes no locks.
+ */
+async function loadReservableLine(
+  database: Pick<Database, "select">,
+  args: { lineId: string; actor: SessionUser; lock?: boolean; quantity?: number }
+) {
+  const line = await loadLineForStaff(database, {
+    lineId: args.lineId,
+    actor: args.actor,
+    lock: args.lock,
+  });
 
   // PTR-39's hand-set states are not ours to overwrite: a line marked unavailable or not
   // required stays as Technical Support left it until they move it back to requested. The
@@ -319,25 +336,12 @@ export async function handleReleaseEquipment(
       ? input.unavailableReason
       : null;
 
-  const released = await database.transaction(async tx => {
-    const line = (
-      await tx
-        .select()
-        .from(equipmentRequests)
-        .where(eq(equipmentRequests.id, input.equipmentRequestId))
-        .limit(1)
-        .for("update")
-    ).at(0);
-    if (!line) throw new NotFoundError("Equipment request not found");
-
-    // The same queue gate as reserve: a refused probe learns nothing about the event.
-    const { submitted } = await loadWorkableLines(tx, line.eventId, actor);
-    if (line.assignedStaffId !== null && line.assignedStaffId !== actor.id) {
-      throw new AuthorizationError("Equipment request is assigned to another staff member");
-    }
-    if (!isEquipmentQueueRow(line, actor.id, submitted)) {
-      throw new AuthorizationError("Forbidden");
-    }
+  const committed = await database.transaction(async tx => {
+    const line = await loadLineForStaff(tx, {
+      lineId: input.equipmentRequestId,
+      actor,
+      lock: true,
+    });
 
     const reservation = (
       await tx
@@ -368,24 +372,22 @@ export async function handleReleaseEquipment(
         .where(eq(equipmentReservations.id, reservation.id));
     }
 
-    const arrangementStatus = unavailableReason ? "unavailable" : "requested";
+    const arrangementStatus: "unavailable" | "requested" = unavailableReason
+      ? "unavailable"
+      : "requested";
     await tx
       .update(equipmentRequests)
       .set({
         arrangementStatus,
         unavailableReason,
+        // Keeps the line on the releasing member's list, mirroring reserve.
         assignedStaffId: line.assignedStaffId ?? actor.id,
+        lastReleasedByStaffId: actor.id,
+        lastReleasedByStaffName: actor.name?.trim() || actor.email,
+        lastReleasedAt: new Date(),
+        lastReleasedQuantity: reservation.quantity - input.quantity,
       })
       .where(eq(equipmentRequests.id, line.id));
-
-    const notice = (
-      await tx
-        .select({ eventName: eventRequests.eventName, coordinatorEmail: user.email })
-        .from(eventRequests)
-        .leftJoin(user, eq(user.id, eventRequests.assignedCoordinatorId))
-        .where(eq(eventRequests.id, line.eventId))
-        .limit(1)
-    ).at(0);
 
     log.info("Equipment reservation reduced or released", {
       reservationId: reservation.id,
@@ -400,41 +402,53 @@ export async function handleReleaseEquipment(
       line,
       previousQuantity: reservation.quantity,
       arrangementStatus,
-      notice,
+      eventId: line.eventId,
     };
   });
 
   const result = {
-    equipmentRequestId: released.line.id,
-    previousQuantity: released.previousQuantity,
+    equipmentRequestId: committed.line.id,
+    previousQuantity: committed.previousQuantity,
     quantity: input.quantity,
     released: input.quantity === 0,
-    arrangementStatus: released.arrangementStatus,
+    arrangementStatus: committed.arrangementStatus,
     notified: false,
   };
 
-  if (!released.notice?.coordinatorEmail) {
-    log.warn("No Coordinator to notify of equipment release", { eventId: released.line.eventId });
-    return result;
-  }
-
-  // After the commit, so a mail outage cannot undo the release; reached only when there is
-  // someone to email, so the mailer import is never paid otherwise.
+  // Everything after the commit is best-effort: neither a failed notice read nor a mail outage
+  // can undo the release the caller was already told about.
   try {
+    const notice = (
+      await database
+        .select({ eventName: eventRequests.eventName, coordinatorEmail: user.email })
+        .from(eventRequests)
+        .leftJoin(user, eq(user.id, eventRequests.assignedCoordinatorId))
+        .where(eq(eventRequests.id, committed.eventId))
+        .limit(1)
+    ).at(0);
+
+    if (!notice?.coordinatorEmail) {
+      log.warn("No Coordinator to notify of equipment release", {
+        eventId: committed.line.eventId,
+      });
+      return result;
+    }
+
+    // Reached only when there is someone to email, so the mailer import is never paid otherwise.
     const [{ sendEmail }, { EquipmentReleasedEmail }] = await Promise.all([
       import("#/lib/mailer.server"),
       import("#/features/emails/components/equipment-released-email"),
     ]);
     await sendEmail(
-      released.notice.coordinatorEmail,
-      `Equipment ${result.released ? "released" : "reduced"}: ${released.line.item}`,
+      notice.coordinatorEmail,
+      `Equipment ${result.released ? "released" : "reduced"}: ${committed.line.item}`,
       createElement(EquipmentReleasedEmail, {
-        eventName: released.notice.eventName,
-        item: released.line.item,
-        requestedQuantity: released.line.quantity,
-        previousQuantity: released.previousQuantity,
+        eventName: notice.eventName,
+        item: committed.line.item,
+        requestedQuantity: committed.line.quantity,
+        previousQuantity: committed.previousQuantity,
         quantity: input.quantity,
-        arrangementStatus: released.arrangementStatus,
+        arrangementStatus: committed.arrangementStatus,
         unavailableReason,
         actorName: actor.name ?? "Technical Support",
       })
@@ -442,8 +456,8 @@ export async function handleReleaseEquipment(
     return { ...result, notified: true };
   } catch (error) {
     log.warn("Equipment release notification failed", {
-      eventId: released.line.eventId,
-      error: error instanceof Error ? error.message : String(error),
+      eventId: committed.line.eventId,
+      errorName: error instanceof Error ? error.name : "unknown",
     });
     return result;
   }

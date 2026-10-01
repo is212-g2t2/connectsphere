@@ -231,6 +231,10 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     expect(reservation.quantity).toBe(1);
     expect(line.arrangementStatus).toBe("requested");
     expect(line.unavailableReason).toBeNull();
+    expect(line.lastReleasedQuantity).toBe(2);
+    expect(line.lastReleasedByStaffId).toBe(fixtureUsers.tech1.id);
+    expect(line.lastReleasedByStaffName).toBe(fixtureUsers.tech1.name);
+    expect(line.lastReleasedAt).toBeInstanceOf(Date);
   });
 
   it("releases a reservation outright and removes the row (AC1)", async () => {
@@ -247,6 +251,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     const { line, reservation } = await readLine(lineId);
     expect(reservation).toBeUndefined();
     expect(line.arrangementStatus).toBe("requested");
+    expect(line.lastReleasedQuantity).toBe(2);
     // The line stays with the member who released it, so it keeps its place on their list.
     expect(line.assignedStaffId).toBe(fixtureUsers.tech1.id);
   });
@@ -371,6 +376,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
 
     expect(result.notified).toBe(false);
     expect((await readLine(lineId)).reservation.quantity).toBe(1);
+    expect((await readLine(lineId)).line.lastReleasedQuantity).toBe(1);
   });
 
   it("sends nothing when the event has no assigned Coordinator", async () => {
@@ -411,7 +417,18 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     expect(projected[0]?.event.equipment?.[0]).toMatchObject({
       arrangementStatus: "requested",
       reservedQuantity: null,
+      lastRelease: {
+        quantity: 2,
+        byName: fixtureUsers.tech1.name,
+        at: expect.any(String),
+      },
     });
+    const organiserProjected = await handleListEvents(
+      { eventId },
+      session("organiser"),
+      database as never
+    );
+    expect(organiserProjected[0]?.event.equipment?.[0]?.lastRelease).toBeUndefined();
   });
 
   it("refuses a total at or above the current holding, leaving it untouched", async () => {

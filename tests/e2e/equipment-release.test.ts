@@ -150,6 +150,9 @@ test("[PTR-42][AC1][AC4] reducing then releasing returns the line to Requested a
   await dialog.getByRole("button", { name: "Keep 1 unit, release 2" }).click();
   await expect(dialog).toBeHidden();
   await expect(line.getByText("· 1 reserved")).toBeVisible();
+  await expect(
+    line.getByText(/Last release: 2 units given back by Seeded Technical Support on/)
+  ).toBeVisible();
 
   // Release the rest: the reopened dialog shows the fresh holding.
   await line
@@ -163,6 +166,9 @@ test("[PTR-42][AC1][AC4] reducing then releasing returns the line to Requested a
   await expect(dialog).toBeHidden();
   await expect(line).toBeVisible();
   await expect(line.getByText("· 1 reserved")).toHaveCount(0);
+  await expect(
+    line.getByText(/Last release: 1 unit given back by Seeded Technical Support on/)
+  ).toBeVisible();
   await expect(
     line.getByRole("button", { name: `Reduce or release equipment for ${target.item}` })
   ).toHaveCount(0);

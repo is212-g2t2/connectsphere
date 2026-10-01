@@ -638,24 +638,39 @@ describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
     );
   });
 
-  it("refuses a reason on a reduction before calling the server, on the reason field", async () => {
+  it("disables the reason on a reduction and clears a reason typed at full release", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderReview([{ ...microphone, reservedQuantity: 4 }]);
 
     await user.click(releaseButton("Microphone") as HTMLElement);
     const dialog = await screen.findByRole("dialog");
+    const reason = within(dialog).getByLabelText("Reason the line is unavailable (optional)");
+    expect(reason).toHaveProperty("disabled", false);
+    await user.type(reason, "Recalled");
+
     const quantity = within(dialog).getByLabelText("Units to keep reserved");
     await user.clear(quantity);
     await user.type(quantity, "2");
-    const reason = within(dialog).getByLabelText("Reason the line is unavailable (optional)");
-    await user.type(reason, "Two recalled");
-    await user.click(within(dialog).getByRole("button", { name: "Keep 2 units, release 2" }));
 
-    const message = await within(dialog).findByText(
-      "A reason marks the line unavailable, which goes with a full release: keep 0 units or leave the reason blank"
-    );
-    expect(reason.getAttribute("aria-describedby")).toContain(message.id);
-    expect(releaseEquipment).not.toHaveBeenCalled();
+    expect(reason).toHaveProperty("disabled", true);
+    expect(reason).toHaveProperty("value", "");
+    expect(
+      within(dialog).getByText(
+        "A reason goes with a full release only — keep 0 units to mark the line Unavailable."
+      )
+    ).toBeTruthy();
+  });
+
+  it("shows the last release on the line", () => {
+    renderReview([
+      {
+        ...microphone,
+        reservedQuantity: 1,
+        lastRelease: { quantity: 2, byName: "Sam Tech", at: "2026-10-01T09:00:00.000Z" },
+      },
+    ]);
+
+    expect(screen.getByText(/Last release: 2 units given back by Sam Tech on/)).toBeTruthy();
   });
 
   it("tells a one-unit line there is nothing to reduce to", async () => {

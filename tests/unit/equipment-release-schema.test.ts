@@ -6,6 +6,7 @@ import {
   RELEASE_REASON_NEEDS_RELEASE_MESSAGE,
   RELEASE_TOTAL_MESSAGE,
   ReleaseEquipmentFormInput,
+  canGiveBackUnits,
   parseReleaseEquipmentInput,
 } from "#/features/equipment-requests/schema";
 
@@ -105,5 +106,16 @@ describe("ReleaseEquipmentFormInput", () => {
       path: ["quantity"],
       message: RELEASE_TOTAL_MESSAGE,
     });
+  });
+});
+
+describe("canGiveBackUnits", () => {
+  it("needs units held and no refusal to arrange", () => {
+    expect(canGiveBackUnits({ arrangeable: true, reservedQuantity: 2 })).toBe(true);
+    expect(canGiveBackUnits({ reservedQuantity: 2 })).toBe(true);
+    expect(canGiveBackUnits({ arrangeable: false, reservedQuantity: 2 })).toBe(false);
+    expect(canGiveBackUnits({ arrangeable: true, reservedQuantity: 0 })).toBe(false);
+    expect(canGiveBackUnits({ arrangeable: true, reservedQuantity: null })).toBe(false);
+    expect(canGiveBackUnits({ arrangeable: true })).toBe(false);
   });
 });

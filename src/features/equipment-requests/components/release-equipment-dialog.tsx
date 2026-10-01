@@ -30,9 +30,15 @@ export interface ReleaseEquipmentDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/** Whether the entered total gives the reservation back outright (0 units kept). */
+function isFullRelease(quantity: string): boolean {
+  const kept = parseWholeNumber(quantity);
+  return Number.isInteger(kept) && kept === 0;
+}
+
 /** The submit button says what will happen, so a full release is never a neutral "confirm". */
 function submitLabel(quantity: string, currentReserved: number): string {
-  if (quantity === "0") {
+  if (isFullRelease(quantity)) {
     return `Release all ${currentReserved} unit${currentReserved === 1 ? "" : "s"}`;
   }
   const kept = Number(quantity);
@@ -115,8 +121,8 @@ export function ReleaseEquipmentDialog({
           <DialogHeader>
             <DialogTitle>Reduce or release equipment</DialogTitle>
             <DialogDescription>
-              Units given back are available to other events at once. The event&apos;s status does
-              not change; its Coordinator is told.
+              Units given back are available to other events at once and are recorded on the line.
+              The event&apos;s status does not change; its Coordinator is emailed.
             </DialogDescription>
           </DialogHeader>
 
@@ -152,7 +158,13 @@ export function ReleaseEquipmentDialog({
                             max={Math.max(currentReserved - 1, 0)}
                             step={1}
                             value={field.state.value}
-                            onChange={e => field.handleChange(e.target.value)}
+                            onChange={e => {
+                              const next = e.target.value;
+                              field.handleChange(next);
+                              if (!isFullRelease(next)) {
+                                field.form.setFieldValue("unavailableReason", "");
+                              }
+                            }}
                             onBlur={field.handleBlur}
                             disabled={isSubmitting}
                             aria-invalid={invalid}
@@ -173,28 +185,36 @@ export function ReleaseEquipmentDialog({
                     {field => {
                       const invalid = field.state.meta.errors.length > 0;
                       return (
-                        <Field data-invalid={invalid}>
-                          <FieldLabel htmlFor={reasonId}>
-                            Reason the line is unavailable (optional)
-                          </FieldLabel>
-                          <Textarea
-                            id={reasonId}
-                            rows={2}
-                            value={field.state.value}
-                            onChange={e => field.handleChange(e.target.value)}
-                            onBlur={field.handleBlur}
-                            disabled={isSubmitting}
-                            aria-invalid={invalid}
-                            aria-describedby={
-                              invalid ? `${reasonHelpId} ${reasonErrorId}` : reasonHelpId
-                            }
-                          />
-                          <p id={reasonHelpId} className="caption text-muted-foreground">
-                            Leave blank and the line returns to Requested. A reason marks it
-                            Unavailable, which goes with a full release (0 units kept).
-                          </p>
-                          <FieldError id={reasonErrorId} errors={field.state.meta.errors} />
-                        </Field>
+                        <form.Subscribe selector={state => state.values.quantity}>
+                          {quantity => {
+                            const fullRelease = isFullRelease(quantity);
+                            return (
+                              <Field data-invalid={invalid}>
+                                <FieldLabel htmlFor={reasonId}>
+                                  Reason the line is unavailable (optional)
+                                </FieldLabel>
+                                <Textarea
+                                  id={reasonId}
+                                  rows={2}
+                                  value={field.state.value}
+                                  onChange={e => field.handleChange(e.target.value)}
+                                  onBlur={field.handleBlur}
+                                  disabled={isSubmitting || !fullRelease}
+                                  aria-invalid={invalid}
+                                  aria-describedby={
+                                    invalid ? `${reasonHelpId} ${reasonErrorId}` : reasonHelpId
+                                  }
+                                />
+                                <p id={reasonHelpId} className="caption text-muted-foreground">
+                                  {fullRelease
+                                    ? "Leave blank and the line returns to Requested. A reason marks it Unavailable, which goes with a full release (0 units kept)."
+                                    : "A reason goes with a full release only — keep 0 units to mark the line Unavailable."}
+                                </p>
+                                <FieldError id={reasonErrorId} errors={field.state.meta.errors} />
+                              </Field>
+                            );
+                          }}
+                        </form.Subscribe>
                       );
                     }}
                   </form.Field>
@@ -204,27 +224,26 @@ export function ReleaseEquipmentDialog({
           </div>
 
           <DialogFooter>
-            <form.Subscribe
-              selector={state => ({
-                isSubmitting: state.isSubmitting,
-                quantity: state.values.quantity,
-              })}
-            >
-              {({ isSubmitting, quantity }) => (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onOpenChange(false)}
-                    disabled={isSubmitting}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" size="sm" disabled={isSubmitting}>
-                    {isSubmitting ? "Saving…" : submitLabel(quantity, currentReserved)}
-                  </Button>
-                </>
+            <form.Subscribe selector={state => state.values.quantity}>
+              {quantity => (
+                <form.Subscribe selector={state => state.isSubmitting}>
+                  {isSubmitting => (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onOpenChange(false)}
+                        disabled={isSubmitting}
+                      >
+                        Cancel
+                      </Button>
+                      <Button type="submit" size="sm" disabled={isSubmitting}>
+                        {isSubmitting ? "Releasing…" : submitLabel(quantity, currentReserved)}
+                      </Button>
+                    </>
+                  )}
+                </form.Subscribe>
               )}
             </form.Subscribe>
           </DialogFooter>

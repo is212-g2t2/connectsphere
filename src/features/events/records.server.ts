@@ -214,6 +214,9 @@ export async function handleListEvents(
         arrangementNotes: equipmentRequests.arrangementNotes,
         unavailableReason: equipmentRequests.unavailableReason,
         reservedQuantity: equipmentReservations.quantity,
+        lastReleasedAt: equipmentRequests.lastReleasedAt,
+        lastReleasedQuantity: equipmentRequests.lastReleasedQuantity,
+        lastReleasedByStaffName: equipmentRequests.lastReleasedByStaffName,
       })
       .from(equipmentRequests)
       .leftJoin(
@@ -349,6 +352,14 @@ export async function handleListEvents(
         arrangementNotes: row.arrangementNotes,
         unavailableReason: row.unavailableReason,
         reservedQuantity: row.reservedQuantity,
+        lastRelease:
+          row.lastReleasedAt !== null && row.lastReleasedQuantity !== null
+            ? {
+                quantity: row.lastReleasedQuantity,
+                byName: row.lastReleasedByStaffName ?? "Technical Support",
+                at: row.lastReleasedAt.toISOString(),
+              }
+            : null,
         // Only Technical Support acts on a line, so only their copy says whether they may.
         arrangeable:
           access === "technical_support"

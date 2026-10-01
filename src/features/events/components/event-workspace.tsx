@@ -6,13 +6,14 @@ import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import { ReleaseEquipmentAction } from "#/features/equipment-requests/components/release-equipment-action";
+import { LastReleaseNote } from "#/features/equipment-requests/components/last-release-note";
 import { ReserveEquipmentAction } from "#/features/equipment-requests/components/reserve-equipment-action";
 import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import type { EquipmentLineProjection, EventProjection } from "#/features/events/access";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
-import { arrangementStateLabel } from "#/features/equipment-requests/schema";
+import { arrangementStateLabel, canGiveBackUnits } from "#/features/equipment-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 
@@ -206,11 +207,7 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                               (item.arrangementStatus === "requested" ||
                                 item.arrangementStatus === "reserved")
                             }
-                            canRelease={
-                              access === "technical_support" &&
-                              item.arrangeable === true &&
-                              (item.reservedQuantity ?? 0) > 0
-                            }
+                            canRelease={access === "technical_support" && canGiveBackUnits(item)}
                           />
                         ))}
                       </ul>
@@ -254,7 +251,7 @@ function EquipmentItemRow({
 }: {
   item: EquipmentLineProjection;
   canReserve: boolean;
-  /** The same rule as the review page: units held, and this member may arrange the line. */
+  /** Shared with the review page via `canGiveBackUnits`: units held, and this member may arrange. */
   canRelease: boolean;
 }) {
   return (
@@ -266,6 +263,7 @@ function EquipmentItemRow({
           <ReservedCount quantity={item.reservedQuantity} className="text-muted-foreground" />
         )}
         {item.notes && <p className="mt-0.5 text-muted-foreground">{item.notes}</p>}
+        {item.lastRelease && <LastReleaseNote release={item.lastRelease} />}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
         <span>{arrangementStateLabel(item.arrangementStatus)}</span>

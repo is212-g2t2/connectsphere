@@ -81,4 +81,14 @@ describe("workspace equipment row actions (PTR-41, PTR-42)", () => {
 
     expect(row.queryByRole("button")).toBeNull();
   });
+
+  it("shows the last release on the line", () => {
+    const row = workspace({
+      ...projector,
+      reservedQuantity: 1,
+      lastRelease: { quantity: 2, byName: "Sam Tech", at: "2026-10-01T09:00:00.000Z" },
+    });
+
+    expect(row.getByText(/Last release: 2 units given back by Sam Tech on/)).toBeTruthy();
+  });
 });

@@ -1,6 +1,7 @@
 import { Section, Text } from "@react-email/components";
 
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
+import type { ArrangementState } from "#/features/equipment-requests/schema";
 import { emailHeading, emailText } from "./email-styles";
 import { Layout } from "./layout";
 
@@ -10,7 +11,7 @@ interface EquipmentReleasedEmailProps {
   requestedQuantity: number;
   previousQuantity: number;
   quantity: number;
-  arrangementStatus: string;
+  arrangementStatus: ArrangementState;
   unavailableReason: string | null;
   actorName: string;
 }

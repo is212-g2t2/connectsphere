@@ -18,6 +18,7 @@ import {
 import { Textarea } from "#/components/ui/textarea";
 import { availabilityMessage } from "#/features/equipment-requests/availability";
 import { ArrangementPosition } from "#/features/equipment-requests/components/arrangement-position";
+import { LastReleaseNote } from "#/features/equipment-requests/components/last-release-note";
 import { ReleaseEquipmentAction } from "#/features/equipment-requests/components/release-equipment-action";
 import { ReserveEquipmentAction } from "#/features/equipment-requests/components/reserve-equipment-action";
 import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
@@ -28,6 +29,7 @@ import {
   ArrangementFormInput,
   AvailabilityCheckFormInput,
   arrangementStateLabel,
+  canGiveBackUnits,
 } from "#/features/equipment-requests/schema";
 import {
   checkEquipmentAvailability,
@@ -265,7 +267,7 @@ function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLi
     line.arrangeable !== false &&
     (line.arrangementStatus === "requested" || line.arrangementStatus === "reserved");
   // PTR-42: only units already held can be given back.
-  const canRelease = line.arrangeable !== false && (line.reservedQuantity ?? 0) > 0;
+  const canRelease = canGiveBackUnits(line);
   return (
     <li aria-label={line.item} className="rounded-lg border border-border p-4">
       <h3 className="font-medium">
@@ -275,6 +277,11 @@ function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLi
         )}
       </h3>
       {line.notes && <p className="mt-1 body-sm text-muted-foreground">{line.notes}</p>}
+      {line.lastRelease && (
+        <div className="mt-1">
+          <LastReleaseNote release={line.lastRelease} />
+        </div>
+      )}
 
       {line.arrangeable === false ? (
         <div className="mt-4 body-sm">

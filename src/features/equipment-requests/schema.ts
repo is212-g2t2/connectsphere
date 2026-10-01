@@ -32,6 +32,7 @@ export interface EquipmentLine {
   arrangementNotes?: string | null;
   unavailableReason?: string | null;
   reservedQuantity?: number | null;
+  lastRelease?: EquipmentReleaseRecord | null;
 }
 
 /**
@@ -40,7 +41,25 @@ export interface EquipmentLine {
  */
 export const ARRANGEMENT_STATES = ["requested", "not_required", "unavailable"] as const;
 
-type ArrangementState = (typeof ARRANGEMENT_STATES)[number];
+export type ArrangementState = (typeof ARRANGEMENT_STATES)[number];
+
+/** PTR-42: the most recent reduce/release on a line, kept after the reservation row is gone. */
+export interface EquipmentReleaseRecord {
+  /** Units given back in that change. */
+  quantity: number;
+  /** The member who made the change, name or email. */
+  byName: string;
+  /** ISO timestamp. */
+  at: string;
+}
+
+/** The shared rule for the Reduce or release action: units held, and this member may arrange the line. */
+export function canGiveBackUnits(line: {
+  arrangeable?: boolean | undefined;
+  reservedQuantity?: number | null | undefined;
+}): boolean {
+  return line.arrangeable !== false && (line.reservedQuantity ?? 0) > 0;
+}
 
 /** Every state a line can hold, settable or not, as the words people read. */
 const ARRANGEMENT_STATE_LABELS: Record<ArrangementState | "reserved", string> = {
