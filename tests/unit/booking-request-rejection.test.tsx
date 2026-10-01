@@ -97,7 +97,7 @@ describe("rejecting a booking from the request's detail page (PTR-34)", () => {
     expect(screen.getByLabelText("Suggested end time")).toBeTruthy();
 
     await userEvent.click(screen.getByLabelText("Suggested venue"));
-    const options = screen.getAllByRole("option").map(option => option.textContent);
+    const options = (await screen.findAllByRole("option")).map(option => option.textContent);
     expect(options).toEqual(["Harbour Hall"]);
   });
 
@@ -107,8 +107,8 @@ describe("rejecting a booking from the request's detail page (PTR-34)", () => {
     await userEvent.click(screen.getByLabelText("Suggested venue"));
 
     // Orchid Room (id 3) is the venue being rejected; suggesting it back makes no sense.
-    expect(screen.queryByRole("option", { name: "Orchid Room" })).toBeNull();
     expect(await screen.findByRole("option", { name: "Harbour Hall" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Orchid Room" })).toBeNull();
   });
 
   it("refuses a rejection without a reason and does not call the server (AC1)", async () => {
