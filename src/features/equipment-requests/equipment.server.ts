@@ -215,9 +215,9 @@ export async function handleRemoveEquipmentLine(
  * Lock order is lines -> event: every writer that can run on a submitted event (these arrangement
  * handlers, reserve, release) takes its line locks before touching the event row (the reservation
  * paths do so through the completion clear), so they cannot form a cycle. save/remove take the
- * event first but refuse once the request is submitted, and reservations only exist on submitted
- * requests, so the two orders never overlap. When `lock`, the event row is locked after the
- * lines, so the status the caller's gate reads cannot change under it.
+ * event first but refuse once the request is submitted; confirmation also takes lines then event
+ * and can be attempted before submission, so that pair can deadlock (40P01). When `lock`, the
+ * event row is locked after the lines, so the status the caller's gate reads cannot change under it.
  *
  * The status is returned so the arrangement handlers can apply PTR-43's confirmation gate;
  * reserve and release deliberately stay open after confirmation.

@@ -6,10 +6,9 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 /**
  * PTR-24 AC1/AC2: the stages an event can be confirmed from. `approved` is where a decision
  * leaves it; `planning` is the stage the brief names between approval and confirmation, kept
- * here so a later story that writes it does not have to widen the gate. Client-safe on purpose:
- * the Coordinator's card reads it to decide whether to offer the action.
+ * here so a later story that writes it does not have to widen the gate.
  */
-export const CONFIRMABLE_STATUSES = [
+const CONFIRMABLE_STATUSES = [
   "approved",
   "planning",
 ] as const satisfies readonly EventRequestStatus[];

@@ -38,8 +38,10 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
   const input = parseEventRequestId(data);
 
   const confirmed = await database.transaction(async tx => {
-    // Lock order matches the equipment paths (lines, then the event row): the reverse order lets a
-    // confirmation and a line edit or release deadlock.
+    // Locks: lines, then event, then venue requests. Line saves (`loadEditableEvent`) take the
+    // event before their line, so a save or remove racing this confirmation can deadlock; Postgres
+    // aborts the loser with 40P01. No ADR-5 `lockVenue`: this transaction writes no venue row, and
+    // a future venue write here must take that lock first.
     const equipmentRows = await tx
       .select()
       .from(equipmentRequests)
