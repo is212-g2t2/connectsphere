@@ -18,7 +18,7 @@ vi.mock("sonner", () => ({ toast: { success } }));
 async function openAndConfirm() {
   const user = userEvent.setup();
   render(<ConfirmEventAction eventId={7} eventName="Demo Day" />);
-  await user.click(screen.getByRole("button", { name: "Confirm Demo Day" }));
+  await user.click(screen.getByRole("button", { name: "Confirm event: Demo Day" }));
   await user.click(await screen.findByRole("button", { name: "Confirm" }));
 }
 
@@ -51,6 +51,7 @@ describe("ConfirmEventAction (PTR-24)", () => {
     await openAndConfirm();
 
     const [alert] = await screen.findAllByRole("alert", { hidden: true });
+    expect(screen.getAllByRole("alert", { hidden: true })).toHaveLength(1);
     expect(alert.textContent).toContain("There is no approved venue booking.");
     expect(alert.textContent).toContain("Projector is not arranged (requested).");
     expect(success).not.toHaveBeenCalled();

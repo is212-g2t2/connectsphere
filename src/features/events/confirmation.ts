@@ -20,6 +20,7 @@ export function isConfirmableStatus(status: EventRequestStatus): boolean {
 
 export const CONFIRMATION_REFUSAL_HEADING = "This event cannot be confirmed yet:";
 export const VENUE_BOOKING_OUTSTANDING_MESSAGE = "There is no approved venue booking.";
+export const MULTIPLE_VENUE_BOOKINGS_MESSAGE = "There is more than one approved venue booking.";
 export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
   "Technical Support has not marked the equipment arrangements complete.";
 
@@ -34,9 +35,10 @@ interface ConfirmationInput {
 /**
  * Every reason the event cannot be confirmed, or an empty list when it can. A status that cannot
  * be confirmed is the only reason given — the arrangements of a cancelled or completed event are
- * not outstanding. Otherwise each missing arrangement is its own entry, so a Coordinator learns
- * of all of them at once rather than fixing one and retrying (AC2). An event with no equipment
- * lines has nothing to settle, so the venue booking alone governs (AC5).
+ * not outstanding. Otherwise the gate needs exactly one approved venue booking, and each missing
+ * arrangement is its own entry, so a Coordinator learns of all of them at once rather than fixing
+ * one and retrying (AC2). An event with no equipment lines has nothing to settle, so the venue
+ * booking alone governs (AC5).
  */
 export function confirmationBlockers(input: ConfirmationInput): string[] {
   if (!isConfirmableStatus(input.status)) {
@@ -44,8 +46,11 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
   }
 
   const blockers: string[] = [];
-  if (!input.venueRequestStatuses.includes("approved")) {
+  const approvedBookings = input.venueRequestStatuses.filter(status => status === "approved");
+  if (approvedBookings.length === 0) {
     blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
+  } else if (approvedBookings.length > 1) {
+    blockers.push(MULTIPLE_VENUE_BOOKINGS_MESSAGE);
   }
   const openLines = input.equipmentLines.filter(line => !isArrangedLine(line.arrangementStatus));
   for (const line of openLines) {

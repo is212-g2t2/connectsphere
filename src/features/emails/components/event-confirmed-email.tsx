@@ -10,7 +10,7 @@ interface EventConfirmedEmailProps {
   date: string;
   startTime: string;
   endTime: string;
-  equipment: { item: string; quantity: number; state: string }[];
+  equipment: { id: string; item: string; quantity: number; state: string }[];
   eventUrl: string;
 }
 
@@ -38,7 +38,7 @@ export const EventConfirmedEmail = ({
         <>
           <Text style={emailText}>Equipment:</Text>
           {equipment.map(line => (
-            <Text key={line.item} style={emailText}>
+            <Text key={line.id} style={emailText}>
               {line.item} × {line.quantity}: {line.state}
             </Text>
           ))}

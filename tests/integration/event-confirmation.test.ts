@@ -12,7 +12,10 @@ import * as schema from "#/db/schema";
 import { runSeed } from "../../scripts/seed";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { CONFIRMATION_REFUSAL_HEADING } from "#/features/events/confirmation";
+import {
+  CONFIRMATION_REFUSAL_HEADING,
+  MULTIPLE_VENUE_BOOKINGS_MESSAGE,
+} from "#/features/events/confirmation";
 import { handleConfirmEvent } from "#/features/events/confirm.server";
 import { handleListEvents } from "#/features/events/records.server";
 
@@ -251,6 +254,26 @@ describe("confirming an event (PTR-24)", () => {
       }
     );
 
+    test("refuses more than one approved booking and leaves the event untouched", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      // A distant second window keeps the overlap constraint from tripping.
+      await database.insert(schema.venueRequests).values({
+        id: crypto.randomUUID(),
+        eventId,
+        venueId,
+        requestedById: coordinator.id,
+        startsAt: "2042-06-10 09:00:00",
+        endsAt: "2042-06-10 12:30:00",
+        status: "approved",
+      });
+
+      const message = await refusal(eventId);
+
+      expect(message).toContain(MULTIPLE_VENUE_BOOKINGS_MESSAGE);
+      expect((await readEvent(eventId)).status).toBe("approved");
+    });
+
     test("refuses while equipment is outstanding and names only the outstanding lines", async () => {
       const eventId = await createEvent();
       await createBooking(eventId);
@@ -288,18 +311,22 @@ describe("confirming an event (PTR-24)", () => {
       expect(message).toContain("Projector");
     });
 
-    test.each(["submitted", "under_review", "rejected", "cancelled", "completed"] as const)(
-      "refuses a %s event and names its status",
-      async status => {
-        const eventId = await createEvent(status);
-        await createBooking(eventId);
+    test.each([
+      "submitted",
+      "under_review",
+      "awaiting_organiser",
+      "rejected",
+      "cancelled",
+      "completed",
+    ] as const)("refuses a %s event and names its status", async status => {
+      const eventId = await createEvent(status);
+      await createBooking(eventId);
 
-        const message = await refusal(eventId);
+      const message = await refusal(eventId);
 
-        expect(message).toContain(`status is ${status.replaceAll("_", " ")}`);
-        expect((await readEvent(eventId)).status).toBe(status);
-      }
-    );
+      expect(message).toContain(`status is ${status.replaceAll("_", " ")}`);
+      expect((await readEvent(eventId)).status).toBe(status);
+    });
 
     test("a second confirmation is refused and does not overwrite the first record", async () => {
       const eventId = await createEvent();

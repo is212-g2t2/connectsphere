@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { createElement } from "react";
 
 import type { db as Db } from "#/db";
@@ -10,12 +10,7 @@ import { EventConfirmedEmail } from "#/features/emails/components/event-confirme
 import { formatDate, formatTime } from "#/features/emails/format";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
-import {
-  CONFIRMABLE_STATUSES,
-  confirmationBlockers,
-  confirmationRefusalMessage,
-  VENUE_BOOKING_OUTSTANDING_MESSAGE,
-} from "#/features/events/confirmation";
+import { confirmationBlockers, confirmationRefusalMessage } from "#/features/events/confirmation";
 import { logger } from "#/lib/logger";
 import { sendEmail } from "#/lib/mailer.server";
 
@@ -84,10 +79,10 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       await tx.select({ email: user.email }).from(user).where(eq(user.id, request.organiserId))
     ).at(0);
 
-    // The gate guarantees an approved booking; finding it also narrows the type.
+    // The gate guarantees exactly one approved booking; the throw only narrows the type.
     const booking = venueRows.find(row => row.status === "approved");
     if (!booking) {
-      throw new ConflictError(confirmationRefusalMessage([VENUE_BOOKING_OUTSTANDING_MESSAGE]));
+      throw new Error("Confirmation gate passed without an approved venue booking");
     }
 
     const [updated] = await tx
@@ -98,12 +93,7 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
         confirmedByName: actor.name,
         confirmedAt: new Date(),
       })
-      .where(
-        and(
-          eq(eventRequests.id, request.id),
-          inArray(eventRequests.status, [...CONFIRMABLE_STATUSES])
-        )
-      )
+      .where(eq(eventRequests.id, request.id))
       .returning();
 
     return {
@@ -113,6 +103,7 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       startsAt: booking.startsAt,
       endsAt: booking.endsAt,
       equipment: equipmentRows.map(line => ({
+        id: line.id,
         item: line.item,
         quantity: line.quantity,
         state: arrangementStateLabel(line.arrangementStatus),

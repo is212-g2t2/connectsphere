@@ -126,7 +126,7 @@ async function openCoordinatorDashboard(page: Page) {
 
 async function confirmFromCard(page: Page, name: string) {
   await cardFor(page, name)
-    .getByRole("button", { name: `Confirm ${name}` })
+    .getByRole("button", { name: `Confirm event: ${name}` })
     .click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
 }
@@ -148,7 +148,7 @@ test.describe("AC1: confirming", () => {
     const card = cardFor(page, name);
     await expect(card.getByText("Confirmed venue")).toBeVisible();
     await expect(card.getByText(venueName)).toBeVisible();
-    await expect(card.getByRole("button", { name: `Confirm ${name}` })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: `Confirm event: ${name}` })).toHaveCount(0);
     expect(await statusOf(id)).toBe("confirmed");
   });
 
@@ -210,7 +210,7 @@ test.describe("AC3 and AC4: the Organiser", () => {
       await expect(card.getByText("09:00–12:30")).toBeVisible();
       await expect(card.getByText("Projector")).toBeVisible();
       // Equipment is shown as a state, never with Technical Support's own notes.
-      await expect(card.getByRole("button", { name: `Confirm ${name}` })).toHaveCount(0);
+      await expect(card.getByRole("button", { name: `Confirm event: ${name}` })).toHaveCount(0);
     } finally {
       await organiserContext.close();
     }

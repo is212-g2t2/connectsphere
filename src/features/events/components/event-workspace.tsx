@@ -22,6 +22,10 @@ import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 // Rebuilding an `Intl.DateTimeFormat` per call is wasted work on a list of cards; one instance is
 // reused for every date this component formats.
 const dateFormatter = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
+const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 function formatDate(value: string) {
   return dateFormatter.format(new Date(`${value}T00:00:00`));
@@ -199,13 +203,13 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                       </>
                     ) : (
                       <Detail
-                        label="Confirmed venue"
+                        label="Venue booking"
                         value="The booking has been released. The Coordinator will follow up."
                       />
                     )}
                     <Detail
                       label="Confirmed"
-                      value={`${dateFormatter.format(new Date(event.confirmation.confirmedAt))} by ${
+                      value={`${dateTimeFormatter.format(new Date(event.confirmation.confirmedAt))} by ${
                         event.confirmation.confirmedByName
                       }`}
                     />

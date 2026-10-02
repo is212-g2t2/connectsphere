@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import {
   CONFIRMATION_REFUSAL_HEADING,
+  MULTIPLE_VENUE_BOOKINGS_MESSAGE,
   VENUE_BOOKING_OUTSTANDING_MESSAGE,
   EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE,
   confirmationBlockers,
@@ -61,6 +62,16 @@ describe("confirmationBlockers (PTR-24)", () => {
         equipmentLines: [],
       })
     ).toEqual([]);
+  });
+
+  it("refuses more than one approved venue booking", () => {
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequestStatuses: ["approved", "approved"],
+        equipmentLines: [],
+      })
+    ).toEqual([MULTIPLE_VENUE_BOOKINGS_MESSAGE]);
   });
 
   it("names every outstanding equipment line and no settled one", () => {
