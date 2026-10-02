@@ -10,6 +10,7 @@ import {
   eventRequests,
   venueHolds,
   venueRequests,
+  venues,
 } from "#/db/schema";
 import { user as userTable } from "#/db/auth-schema";
 import { RoleSchema } from "#/features/auth/schema/role";
@@ -24,6 +25,7 @@ import {
 } from "#/features/events/access";
 import type {
   EquipmentLineProjection,
+  EventConfirmation,
   EventProjection,
   EventVenueRequest,
 } from "#/features/events/access";
@@ -265,6 +267,33 @@ export async function handleListEvents(
       ? await loadVenueRequestOutcomesForEvents(database, requestIds)
       : new Map<number, VenueRequestOutcome>();
 
+  // PTR-24 AC3: the booking a confirmed event was confirmed against, for the two roles that are
+  // shown it. Only an approved booking counts; a released one leaves `venue` null.
+  const confirmedVenues = new Map<number, NonNullable<EventConfirmation["venue"]>>();
+  const confirmedIds = requestRows.filter(row => row.status === "confirmed").map(row => row.id);
+  if (confirmedIds.length > 0 && (role === "event_organiser" || role === "event_coordinator")) {
+    const bookings = await database
+      .select({
+        eventId: venueRequests.eventId,
+        name: venues.name,
+        startsAt: venueRequests.startsAt,
+        endsAt: venueRequests.endsAt,
+      })
+      .from(venueRequests)
+      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+      .where(
+        and(inArray(venueRequests.eventId, confirmedIds), eq(venueRequests.status, "approved"))
+      );
+    for (const booking of bookings) {
+      confirmedVenues.set(booking.eventId, {
+        name: booking.name,
+        date: booking.startsAt.slice(0, 10),
+        startTime: booking.startsAt.slice(11, 16),
+        endTime: booking.endsAt.slice(11, 16),
+      });
+    }
+  }
+
   // PTR-36 criterion 4: which pending requests overlap an approved booking for the same venue.
   // A self-join rather than a per-request read, and deliberately not scoped to `venueRows`: the
   // approved booking can belong to an event the caller cannot see. Only the conflict kind reaches
@@ -405,7 +434,8 @@ export async function handleListEvents(
             }
           : null,
         equipment,
-        venueRequest
+        venueRequest,
+        confirmedVenues.get(record.id) ?? null
       ),
     ];
   });

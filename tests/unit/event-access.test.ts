@@ -51,6 +51,46 @@ describe("event access", () => {
     expect(getEventAccess({ ...relationship, hasOwnRegistration: true })).toBe("attendee");
   });
 
+  describe("confirmation (PTR-24)", () => {
+    const confirmedRequest = {
+      ...request,
+      status: "confirmed" as const,
+      confirmedAt: new Date("2026-10-02T03:00:00Z"),
+      confirmedByName: "Casey Coordinator",
+    };
+    const booking = { name: "Hall A", date: "2026-10-01", startTime: "09:00", endTime: "12:30" };
+
+    it.each(["organiser", "coordinator"] as const)(
+      "projects who confirmed, when, and the booked venue for the %s",
+      access => {
+        const result = projectEvent(confirmedRequest, access, null, [], null, booking);
+        expect(result.event.confirmation).toEqual({
+          confirmedAt: "2026-10-02T03:00:00.000Z",
+          confirmedByName: "Casey Coordinator",
+          venue: booking,
+        });
+      }
+    );
+
+    it("carries a null venue once the booking has been released", () => {
+      const result = projectEvent(confirmedRequest, "organiser", null, [], null);
+      expect(result.event.confirmation?.venue).toBeNull();
+    });
+
+    it("carries no confirmation before the event is confirmed", () => {
+      const result = projectEvent(request, "organiser", null, [], null, booking);
+      expect(result.event.confirmation).toBeNull();
+    });
+
+    it.each(["venue_staff", "technical_support", "attendee"] as const)(
+      "withholds the confirmation record from %s",
+      access => {
+        const result = projectEvent(confirmedRequest, access, null, [], null, booking);
+        expect(result.event).not.toHaveProperty("confirmation");
+      }
+    );
+  });
+
   it("redacts venue staff responses to the request directed at them", () => {
     const result = projectEvent(
       request,

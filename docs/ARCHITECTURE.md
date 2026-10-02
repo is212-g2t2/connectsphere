@@ -98,6 +98,10 @@ The equipment side of an event is marked settled on `event_requests.equipment_ar
 
 A reduce lowers a reservation's quantity and a release deletes the row, so freed units reach every overlapping event through the same sweep. The line returns to `requested`, or to `unavailable` with the reason Technical Support gives; the event's status is never written by either. Release takes the line lock then the type lock, the reserve path's order, which also reads the approved booking `FOR SHARE` between the two while release skips that read because it never reads bookings.
 
+The assigned Coordinator confirms an event from `approved` or `planning`. The gate needs one approved venue request and, when the event has equipment lines, every line reserved or not required with Technical Support's completion mark set (`equipment_arrangements_completed_at`); an event with no equipment lines needs the booking alone. A refusal names every outstanding item, or the current status.
+
+The handler locks the event, its venue requests and its equipment lines before reading them. It records who confirmed and when in `confirmed_*` columns kept apart from the approval attribution. A booking or reservation changed after confirmation never moves the status.
+
 ## Authentication
 
 Handled by **Better Auth**; rate limited to 20 requests per 60-second window.

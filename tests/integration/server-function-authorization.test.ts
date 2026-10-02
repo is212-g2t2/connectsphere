@@ -46,7 +46,7 @@ import {
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
-import { listEvents } from "#/features/events/server-fns";
+import { confirmEvent, listEvents } from "#/features/events/server-fns";
 import {
   VENUE_REJECTION_REASON_REQUIRED,
   VENUE_REQUEST_DATE_MESSAGE,
@@ -598,6 +598,42 @@ describe("server-function authorization (PTR-69)", () => {
         });
       }
     );
+  });
+
+  describe("PTR-24 confirm event", () => {
+    const confirmInput = { id: 1 };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(confirmEvent, confirmInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Event Coordinator", async () => {
+      signIn("event_coordinator");
+
+      expect((await call(confirmEvent, confirmInput)).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(confirmEvent, confirmInput)).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("rejects a malformed id before the handler", async () => {
+      signIn("event_coordinator");
+
+      const { error } = await call(confirmEvent, { id: "not-a-number" });
+
+      expect(error).toBeInstanceOf(Error);
+    });
   });
 
   describe("PTR-40 equipment availability", () => {

@@ -2336,6 +2336,14 @@ describe("Status set and decision attribution (PTR-21)", () => {
     decidedAt: new Date(),
   };
 
+  // PTR-24: a confirmed event also records who confirmed it and when, so the decision CHECK is the
+  // only one these writes can trip.
+  const confirmed = {
+    confirmedById: "seed-coordinator-1",
+    confirmedByName: "Seeded Event Coordinator",
+    confirmedAt: new Date(),
+  };
+
   async function submitted() {
     const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
     return handleSubmitEventRequest({ id: saved.id }, organiser, database as never);
@@ -2349,13 +2357,13 @@ describe("Status set and decision attribution (PTR-21)", () => {
       await expect(
         database
           .update(schema.eventRequests)
-          .set({ status })
+          .set({ status, ...(status === "confirmed" ? confirmed : {}) })
           .where(eq(schema.eventRequests.id, request.id))
       ).rejects.toMatchObject({ cause: { constraint: "event_requests_decision_matches_status" } });
 
       const [row] = await database
         .update(schema.eventRequests)
-        .set({ status, ...decided })
+        .set({ status, ...decided, ...(status === "confirmed" ? confirmed : {}) })
         .where(eq(schema.eventRequests.id, request.id))
         .returning();
       expect(row.status).toBe(status);

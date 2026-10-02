@@ -393,6 +393,33 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
+  // PTR-24 AC6: a release after confirmation is the Coordinator's to handle, not a status change.
+  it("leaves a confirmed event confirmed (PTR-24 AC6)", async () => {
+    const { eventId, lineId } = await createEvent({ name: "Already confirmed", requested: 2 });
+    await reserve(lineId, 2);
+    await database
+      .update(schema.eventRequests)
+      .set({
+        status: "confirmed",
+        confirmedById: fixtureUsers.coordinator.id,
+        confirmedByName: fixtureUsers.coordinator.name,
+        confirmedAt: new Date(),
+      })
+      .where(eq(schema.eventRequests.id, eventId));
+
+    await handleReleaseEquipment(
+      { equipmentRequestId: lineId, quantity: 0 },
+      session("tech1"),
+      database as never
+    );
+
+    const [event] = await database
+      .select({ status: schema.eventRequests.status })
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, eventId));
+    expect(event.status).toBe("confirmed");
+  });
+
   it("leaves the event's status untouched (AC4)", async () => {
     const { eventId, lineId } = await createEvent({ name: "Still approved", requested: 2 });
     await reserve(lineId, 2);
