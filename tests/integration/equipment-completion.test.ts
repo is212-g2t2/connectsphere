@@ -468,7 +468,13 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
       // The fixtures set decided_by/decided_at already; only the status moves.
       await database
         .update(schema.eventRequests)
-        .set({ status: "confirmed" })
+        .set({
+          status: "confirmed",
+          // PTR-24: a confirmed row carries who confirmed it and when.
+          confirmedById: fixtureUsers.coordinator.id,
+          confirmedByName: fixtureUsers.coordinator.name,
+          confirmedAt: new Date(),
+        })
         .where(eq(schema.eventRequests.id, eventId));
 
       const message = "Technical arrangements can only be changed before the event is confirmed.";
@@ -1069,7 +1075,13 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         );
         await database
           .update(schema.eventRequests)
-          .set({ status: "confirmed" })
+          .set({
+            status: "confirmed",
+            // PTR-24: a confirmed row carries who confirmed it and when.
+            confirmedById: fixtureUsers.coordinator.id,
+            confirmedByName: fixtureUsers.coordinator.name,
+            confirmedAt: new Date(),
+          })
           .where(eq(schema.eventRequests.id, eventId));
 
         await handleReleaseEquipment(

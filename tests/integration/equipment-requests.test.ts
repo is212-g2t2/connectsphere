@@ -109,12 +109,22 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
           decisionReason: status === "rejected" ? "Test rejection" : null,
         }
       : {};
+    // PTR-24: a confirmed event always records who confirmed it and when.
+    const confirmationDefaults =
+      status === "confirmed"
+        ? {
+            confirmedById: coordinator.id,
+            confirmedByName: "Event List Coordinator",
+            confirmedAt: new Date(),
+          }
+        : {};
 
     const [row] = await database
       .insert(schema.eventRequests)
       .values({
         organiserId: "test-user-2",
         status: status as never,
+        ...confirmationDefaults,
         submittedAt: new Date(),
         assignedCoordinatorId: coordinator.id,
         assignedAt: new Date(),
@@ -367,6 +377,9 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
           decidedByCoordinatorId: coordinator.id,
           decidedByCoordinatorName: "Event List Coordinator",
           decidedAt: new Date(),
+          confirmedById: coordinator.id,
+          confirmedByName: "Event List Coordinator",
+          confirmedAt: new Date(),
         })
         .where(eq(schema.eventRequests.id, id));
       await expect(

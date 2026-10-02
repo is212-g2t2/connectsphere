@@ -40,6 +40,7 @@ import {
 import { formatLocalDate, formatLocalDateTime } from "#/features/event-requests/format";
 import { parseWholeNumber } from "#/features/event-requests/schema";
 import type { EquipmentLineProjection, EventProjection } from "#/features/events/access";
+import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 /**
@@ -58,26 +59,12 @@ export function EquipmentReviewPage({
   equipmentTypes: { id: number; name: string }[] | null;
 }) {
   const lines = event.equipment ?? [];
-  const [completionError, setCompletionError] = useState<string | null>(null);
-  const [completing, setCompleting] = useState(false);
   const router = useRouter();
-
-  const markComplete = async () => {
-    if (completing) return;
-    setCompletionError(null);
-    setCompleting(true);
-    try {
-      await completeEquipmentArrangements({ data: { eventId: event.id } });
-      toast.success("Technical arrangements marked complete.");
-      await router.invalidate();
-    } catch (error) {
-      setCompletionError(
-        error instanceof Error ? error.message : "Could not mark arrangements complete. Try again."
-      );
-    } finally {
-      setCompleting(false);
-    }
-  };
+  const [completion, markComplete, completing] = useMutation(async () => {
+    await completeEquipmentArrangements({ data: { eventId: event.id } });
+    toast.success("Technical arrangements marked complete.");
+    await router.invalidate();
+  }, "Could not mark arrangements complete. Try again.");
 
   return (
     <Page width="page">
@@ -133,9 +120,9 @@ export function EquipmentReviewPage({
                 Every line must be reserved or marked not required before arrangements can be
                 completed.
               </p>
-              {completionError && (
+              {completion.status === "error" && (
                 <p role="alert" className="mt-3 body-sm text-destructive">
-                  {completionError}
+                  {completion.error}
                 </p>
               )}
               <Button onClick={() => void markComplete()} disabled={completing}>

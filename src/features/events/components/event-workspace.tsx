@@ -11,6 +11,8 @@ import { ReserveEquipmentAction } from "#/features/equipment-requests/components
 import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import type { EquipmentLineProjection, EventProjection } from "#/features/events/access";
+import { isConfirmableStatus } from "#/features/events/confirmation";
+import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
 import { arrangementStateLabel, canGiveBackUnits } from "#/features/equipment-requests/schema";
@@ -20,6 +22,10 @@ import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 // Rebuilding an `Intl.DateTimeFormat` per call is wasted work on a list of cards; one instance is
 // reused for every date this component formats.
 const dateFormatter = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
+const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 function formatDate(value: string) {
   return dateFormatter.format(new Date(`${value}T00:00:00`));
@@ -179,6 +185,37 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                   </EventRequirements>
                 )}
 
+                {/* PTR-24 AC3: the confirmed venue, date and time, and who confirmed it, for the two roles that see the full record. */}
+                {event.confirmation && (
+                  <dl
+                    className="mt-5 space-y-3 border-t border-border pt-4 body-sm"
+                    aria-label="Confirmation"
+                  >
+                    {event.confirmation.venue ? (
+                      <>
+                        <Detail label="Confirmed venue" value={event.confirmation.venue.name} />
+                        <Detail
+                          label="Confirmed date and time"
+                          value={`${formatDate(event.confirmation.venue.date)}, ${
+                            event.confirmation.venue.startTime
+                          }–${event.confirmation.venue.endTime}`}
+                        />
+                      </>
+                    ) : (
+                      <Detail
+                        label="Venue booking"
+                        value="The booking has been released. The Coordinator will follow up."
+                      />
+                    )}
+                    <Detail
+                      label="Confirmed"
+                      value={`${dateTimeFormatter.format(new Date(event.confirmation.confirmedAt))} by ${
+                        event.confirmation.confirmedByName
+                      }`}
+                    />
+                  </dl>
+                )}
+
                 {/* PTR-38: coordinator gets the editable panel; technical_support and organiser keep the read-only list. */}
                 {access === "coordinator" && event.equipment !== undefined && (
                   <div className="mt-5 border-t border-border pt-4">
@@ -189,6 +226,12 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                       submittedAt={event.equipmentSubmittedAt ?? null}
                       arrangementsCompletedAt={event.equipmentArrangementsCompletedAt ?? null}
                     />
+                  </div>
+                )}
+
+                {access === "coordinator" && isConfirmableStatus(event.status) && (
+                  <div className="mt-5 border-t border-border pt-4">
+                    <ConfirmEventAction eventId={event.id} eventName={event.name ?? "this event"} />
                   </div>
                 )}
 

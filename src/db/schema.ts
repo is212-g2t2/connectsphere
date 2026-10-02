@@ -79,6 +79,14 @@ export const eventRequests = pgTable(
     decidedByCoordinatorId: text("decided_by_coordinator_id"),
     decidedByCoordinatorName: text("decided_by_coordinator_name"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /**
+     * PTR-24 AC4: who confirmed the event and when, kept apart from the decision columns so the
+     * approval attribution survives. The id and name are snapshots, like the decision's, so an
+     * account deletion keeps the record. Null until the event is confirmed.
+     */
+    confirmedById: text("confirmed_by_id"),
+    confirmedByName: text("confirmed_by_name"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     eventName: text("event_name").notNull().default(""),
     purpose: text("purpose").notNull().default(""),
     /**
@@ -161,6 +169,13 @@ export const eventRequests = pgTable(
     check(
       "event_requests_decision_matches_status",
       sql`(${table.status}::text in ('approved', 'rejected', 'planning', 'confirmed', 'completed') and ${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.status}::text in ('draft', 'submitted', 'under_review', 'awaiting_organiser') and ${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null) or (${table.status}::text = 'cancelled' and ((${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null)))`
+    ),
+    // PTR-24 AC4: a confirmed event always says who confirmed it and when; the three columns are
+    // all present or all absent; and only the stages from confirmation on may carry them.
+    // `completed` and `cancelled` keep the record of a confirmation they followed.
+    check(
+      "event_requests_confirmation_matches_status",
+      sql`(${table.status}::text = 'confirmed' and ${table.confirmedById} is not null and btrim(${table.confirmedById}) <> '' and ${table.confirmedByName} is not null and btrim(${table.confirmedByName}) <> '' and ${table.confirmedAt} is not null) or (${table.status}::text in ('completed', 'cancelled') and ((${table.confirmedById} is not null and btrim(${table.confirmedById}) <> '' and ${table.confirmedByName} is not null and btrim(${table.confirmedByName}) <> '' and ${table.confirmedAt} is not null) or (${table.confirmedById} is null and ${table.confirmedByName} is null and ${table.confirmedAt} is null))) or (${table.status}::text not in ('confirmed', 'completed', 'cancelled') and ${table.confirmedById} is null and ${table.confirmedByName} is null and ${table.confirmedAt} is null)`
     ),
     check(
       "event_requests_rejection_has_reason",

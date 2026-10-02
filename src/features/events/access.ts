@@ -118,6 +118,8 @@ interface EventRecord {
   proposedDates: Array<{ start?: string; end?: string }>;
   equipmentSubmittedAt?: Date | null;
   equipmentArrangementsCompletedAt?: Date | null;
+  confirmedAt?: Date | null;
+  confirmedByName?: string | null;
   expectedAttendance: number | null;
   roomLayoutPreference: string;
   accessibilityRequirements: string;
@@ -162,6 +164,18 @@ export interface EventVenueRequest {
   conflict?: "booking" | "hold";
   rejection?: VenueRequestRejection;
   release?: VenueRequestRelease;
+}
+
+/**
+ * PTR-24 AC3: what an Organiser or Coordinator sees of a confirmed event — who confirmed it and
+ * when, and the venue booking it was confirmed against. `venue` is null when that booking has
+ * since been released: the status does not move by itself (AC6), so the view says the booking is
+ * gone rather than hiding the confirmation. Times are `HH:MM`, the date is `YYYY-MM-DD`.
+ */
+export interface EventConfirmation {
+  confirmedAt: string;
+  confirmedByName: string;
+  venue: { name: string; date: string; startTime: string; endTime: string } | null;
 }
 
 /**
@@ -223,6 +237,7 @@ export interface EventProjection {
     registration?: { status: string; registeredAt: string } | null;
     venueRequest?: EventVenueRequest | null;
     equipment?: EquipmentLineProjection[];
+    confirmation?: EventConfirmation | null;
   };
 }
 
@@ -255,7 +270,7 @@ export function effectiveEquipmentArrangementsCompletedAt(
  * `not_required`. This is the value PTR-24's confirmation gate reads.
  */
 export function isEquipmentArrangementsSatisfied(
-  equipment: Array<{ arrangementStatus: string }>,
+  equipment: readonly { arrangementStatus: string }[],
   completedAt: Date | string | null | undefined
 ): boolean {
   if (equipment.length === 0) return true;
@@ -272,7 +287,8 @@ export function projectEvent(
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
   equipment: EquipmentLineProjection[],
-  venueRequest: EventVenueRequest | null
+  venueRequest: EventVenueRequest | null,
+  confirmedVenue: EventConfirmation["venue"] = null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 
@@ -377,6 +393,14 @@ export function projectEvent(
                 ),
               }
             : {}),
+          confirmation:
+            record.status === "confirmed" && record.confirmedAt && record.confirmedByName
+              ? {
+                  confirmedAt: record.confirmedAt.toISOString(),
+                  confirmedByName: record.confirmedByName,
+                  venue: confirmedVenue,
+                }
+              : null,
         },
       };
 

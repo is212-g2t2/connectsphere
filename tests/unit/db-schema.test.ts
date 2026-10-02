@@ -4,6 +4,7 @@ import {
   createTableRelationsHelpers,
   getTableColumns,
 } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import * as schema from "#/db/schema";
 import { EVENT_REQUEST_STATUSES } from "#/features/event-requests/schema";
 import {
@@ -157,6 +158,15 @@ describe("Database Schema Definitions", () => {
       "decided_by_coordinator_name"
     );
     expect(getTableColumns(eventRequests).decidedAt.name).toBe("decided_at");
+  });
+
+  it("defines the confirmation columns and the CHECK that ties them to the status (PTR-24)", () => {
+    const columns = getTableColumns(eventRequests);
+    expect(columns.confirmedById.name).toBe("confirmed_by_id");
+    expect(columns.confirmedByName.name).toBe("confirmed_by_name");
+    expect(columns.confirmedAt.name).toBe("confirmed_at");
+    const checks = getTableConfig(eventRequests).checks.map(check => check.name);
+    expect(checks).toContain("event_requests_confirmation_matches_status");
   });
 
   it("defines relations between user, session, and account", () => {
