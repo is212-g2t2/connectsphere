@@ -1,5 +1,5 @@
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
-import { isEquipmentArrangementsSatisfied } from "#/features/events/access";
+import { isArrangedLine, isEquipmentArrangementsSatisfied } from "#/features/events/access";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 
@@ -17,9 +17,6 @@ export const CONFIRMABLE_STATUSES = [
 export function isConfirmableStatus(status: EventRequestStatus): boolean {
   return CONFIRMABLE_STATUSES.some(confirmable => confirmable === status);
 }
-
-/** An equipment line is settled once it is reserved or Technical Support marked it not required. */
-const SETTLED_ARRANGEMENT_STATES = new Set(["reserved", "not_required"]);
 
 export const CONFIRMATION_REFUSAL_HEADING = "This event cannot be confirmed yet:";
 export const VENUE_BOOKING_OUTSTANDING_MESSAGE = "There is no approved venue booking.";
@@ -50,9 +47,7 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
   if (!input.venueRequestStatuses.includes("approved")) {
     blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
   }
-  const openLines = input.equipmentLines.filter(
-    line => !SETTLED_ARRANGEMENT_STATES.has(line.arrangementStatus)
-  );
+  const openLines = input.equipmentLines.filter(line => !isArrangedLine(line.arrangementStatus));
   for (const line of openLines) {
     blockers.push(
       `${line.item} is not arranged (${arrangementStateLabel(line.arrangementStatus).toLowerCase()}).`

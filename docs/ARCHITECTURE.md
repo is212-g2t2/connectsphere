@@ -100,7 +100,7 @@ A reduce lowers a reservation's quantity and a release deletes the row, so freed
 
 The assigned Coordinator confirms an event from `approved` or `planning`. The gate needs one approved venue request and, when the event has equipment lines, every line reserved or not required with Technical Support's completion mark set (`equipment_arrangements_completed_at`); an event with no equipment lines needs the booking alone. A refusal names every outstanding item, or the current status.
 
-The handler locks the event, its venue requests and its equipment lines before reading them. It records who confirmed and when in `confirmed_*` columns kept apart from the approval attribution. A booking or reservation changed after confirmation never moves the status.
+The handler locks the equipment lines, then the event, then its venue requests before reading them, the order the equipment paths use. It records who confirmed and when in `confirmed_*` columns kept apart from the approval attribution. A booking or reservation changed after confirmation never moves the status.
 
 ## Authentication
 

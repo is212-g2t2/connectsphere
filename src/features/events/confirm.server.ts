@@ -31,7 +31,7 @@ type Database = typeof Db;
 
 /**
  * PTR-24 AC1/AC2/AC4: the assigned Coordinator confirms an event once its arrangements are in
- * place. The event row, its venue requests and its equipment lines are locked before the gate
+ * place. The event's equipment lines, the event row and its venue requests are locked before the gate
  * reads them, so a booking released or a line changed at the same moment makes this wait and then
  * see the new state, rather than confirming against arrangements that no longer hold. Who and
  * when are recorded on the event in the same statement as the status.
@@ -43,6 +43,13 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
   const input = parseEventRequestId(data);
 
   const confirmed = await database.transaction(async tx => {
+    // Lock order matches the equipment paths (lines, then the event row): the reverse order lets a
+    // confirmation and a line edit or release deadlock.
+    const equipmentRows = await tx
+      .select()
+      .from(equipmentRequests)
+      .where(eq(equipmentRequests.eventId, input.id))
+      .for("update");
     const request = (
       await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
     ).at(0);
@@ -64,11 +71,6 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       .innerJoin(venues, eq(venues.id, venueRequests.venueId))
       .where(eq(venueRequests.eventId, request.id))
       .for("update", { of: venueRequests });
-    const equipmentRows = await tx
-      .select()
-      .from(equipmentRequests)
-      .where(eq(equipmentRequests.eventId, request.id))
-      .for("update");
 
     const blockers = confirmationBlockers({
       status: request.status,
