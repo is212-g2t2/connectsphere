@@ -174,10 +174,7 @@ export async function handleReplyToClarification(
         .from(user)
         .where(and(eq(user.id, request.assignedCoordinatorId), eq(user.role, "event_coordinator")))
     ).at(0);
-    if (!coordinator)
-      throw new ConflictError(
-        "The assigned Coordinator is unavailable. Try again after reassignment."
-      );
+    if (!coordinator) throw new ConflictError("This request's Coordinator is unavailable.");
     const [clarification] = await tx
       .update(clarificationRequests)
       .set({

@@ -990,6 +990,17 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     const outgoing = extraCoordinators[0];
     const incoming = extraCoordinators[1];
 
+    async function decidedRequest() {
+      const request = await submitNew(fullRequest, organiser, database);
+      await handleTakeUpForReview({ id: request.id }, outgoing, database as never);
+      await handleDecideEventRequest(
+        { id: request.id, decision: "approved" },
+        outgoing,
+        database as never
+      );
+      return request;
+    }
+
     it("refuses to move an assigned request directly; the accepted handover is the only path (PTR-116 AC1, AC2)", async () => {
       const request = await submitNew(fullRequest, organiser, database);
       const input = {
@@ -1038,7 +1049,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       }
     );
 
-    it("refuses another Coordinator's handover, drafts, and missing requests", async () => {
+    it("refuses another Coordinator's pick-up, drafts, and missing requests", async () => {
       const assigned = await submitNew(fullRequest, organiser, database);
       const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
       await Promise.all(
@@ -1049,7 +1060,10 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
               incoming,
               database as never
             )
-          ).rejects.toMatchObject({ status: 403 });
+          ).rejects.toMatchObject({
+            status: 403,
+            message: "Only an unassigned request can be picked up here.",
+          });
           await expect(
             handleGetCoordinationRequest({ id }, incoming, database as never)
           ).rejects.toMatchObject({ status: 403 });
@@ -1081,7 +1095,10 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
           outgoing,
           database as never
         )
-      ).rejects.toMatchObject({ status: 409, message: /assignment has changed/ });
+      ).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringMatching(/assignment has changed/),
+      });
       expect(await database.select().from(schema.eventAssignments)).toEqual([]);
       expect(
         (await handleListCoordinators(database as never)).every(row => row.id !== organiser.id)
@@ -1105,18 +1122,13 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     });
 
     it("refuses to pick up a decided request its deleted Coordinator left unassigned", async () => {
-      const request = await submitNew(fullRequest, organiser, database);
-      await handleTakeUpForReview({ id: request.id }, outgoing, database as never);
-      await handleDecideEventRequest(
-        { id: request.id, decision: "approved" },
-        outgoing,
-        database as never
-      );
+      const request = await decidedRequest();
       // What deleting the deciding account does to the row (`assigned_coordinator_id` is
-      // ON DELETE SET NULL): closed work with nobody on it, which the unassigned list then shows.
+      // ON DELETE SET NULL, which keeps `assigned_at` as the record of the assignment): closed
+      // work with nobody on it, which the unassigned list then shows.
       await database
         .update(schema.eventRequests)
-        .set({ assignedCoordinatorId: null, assignedAt: null })
+        .set({ assignedCoordinatorId: null })
         .where(eq(schema.eventRequests.id, request.id));
 
       await expect(
@@ -1125,12 +1137,28 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
           incoming,
           database as never
         )
-      ).rejects.toMatchObject({ status: 409, message: /decided request/ });
+      ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/decided request/) });
       const [row] = await database
         .select({ assignedCoordinatorId: schema.eventRequests.assignedCoordinatorId })
         .from(schema.eventRequests)
         .where(eq(schema.eventRequests.id, request.id));
       expect(row.assignedCoordinatorId).toBeNull();
+      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
+    });
+
+    it("refuses a decided request still assigned to the acting Coordinator as decided", async () => {
+      const request = await decidedRequest();
+
+      await expect(
+        handleAssignEventRequest(
+          { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: outgoing.id },
+          outgoing,
+          database as never
+        )
+      ).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringMatching(/decided request/),
+      });
       expect(await database.select().from(schema.eventAssignments)).toEqual([]);
     });
   });
@@ -1422,41 +1450,71 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     });
 
     it("resolves an offer the request has moved past, rather than leaving it pending", async () => {
-      const { request, handover } = await pendingHandover();
-      // The one remaining way an assigned request moves without an accepted handover is the
-      // outgoing account being deleted (the assignment is set null) and another Coordinator
-      // picking it up; a raw update stands in for that two-step path on the shared fixture user.
-      await database
-        .update(schema.eventRequests)
-        .set({ assignedCoordinatorId: tieBreakCoordinator.id, assignedAt: new Date() })
-        .where(eq(schema.eventRequests.id, request.id));
+      const vacated = {
+        id: "test-coordinator-vacated",
+        name: "Vacated Coordinator",
+        email: "coordinator.vacated@example.com",
+        emailVerified: true,
+        role: "event_coordinator",
+        createdAt: new Date("1999-06-01T00:00:00Z"),
+      };
+      await database.insert(schema.user).values(vacated).onConflictDoNothing();
+      try {
+        const request = await submittedRequest(null);
+        await handleAssignEventRequest(
+          { id: request.id, coordinatorId: vacated.id, expectedCoordinatorId: null },
+          outgoing,
+          database as never
+        );
+        const handover = await handleRequestEventHandover(
+          { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: vacated.id },
+          { id: vacated.id, email: vacated.email, name: vacated.name, role: "event_coordinator" },
+          database as never
+        );
 
-      // The new assignee's page does not show the previous assignment's offer as pending.
-      const newAssigneeView = await handleGetCoordinationRequest(
-        { id: request.id },
-        tieBreakCoordinator,
-        database as never
-      );
-      expect(newAssigneeView.pendingHandover).toBeNull();
-      const [newAssigneeRow] = await handleListAssignedEventRequests(
-        tieBreakCoordinator,
-        database as never
-      );
-      expect(newAssigneeRow.handoverTo).toBeNull();
-      expect(await handleListPendingEventHandovers(incoming, database as never)).toEqual([]);
+        // The outgoing account being deleted sets the assignment null; another Coordinator then
+        // picks the request up for real.
+        await database.delete(schema.user).where(eq(schema.user.id, vacated.id));
+        const [vacatedRow] = await database
+          .select()
+          .from(schema.eventRequests)
+          .where(eq(schema.eventRequests.id, request.id));
+        expect(vacatedRow.assignedCoordinatorId).toBeNull();
+        await handleAssignEventRequest(
+          { id: request.id, coordinatorId: tieBreakCoordinator.id, expectedCoordinatorId: null },
+          tieBreakCoordinator,
+          database as never
+        );
 
-      // Accepting it anyway still records who and when, and sends no false "you remain" notice.
-      sendEmail.mockClear();
-      await expect(
-        handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
-      ).rejects.toMatchObject({ status: 409 });
-      const [resolved] = await database
-        .select()
-        .from(schema.eventHandovers)
-        .where(eq(schema.eventHandovers.id, handover.id));
-      expect(resolved).toMatchObject({ decision: "declined", decidedById: incoming.id });
-      expect(resolved.decidedAt).toBeInstanceOf(Date);
-      expect(sendEmail).not.toHaveBeenCalled();
+        // The new assignee's page does not show the previous assignment's offer as pending.
+        const newAssigneeView = await handleGetCoordinationRequest(
+          { id: request.id },
+          tieBreakCoordinator,
+          database as never
+        );
+        expect(newAssigneeView.pendingHandover).toBeNull();
+        const [newAssigneeRow] = await handleListAssignedEventRequests(
+          tieBreakCoordinator,
+          database as never
+        );
+        expect(newAssigneeRow.handoverTo).toBeNull();
+        expect(await handleListPendingEventHandovers(incoming, database as never)).toEqual([]);
+
+        // Accepting it anyway still records who and when, and sends no false "you remain" notice.
+        sendEmail.mockClear();
+        await expect(
+          handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
+        ).rejects.toMatchObject({ status: 409 });
+        const [resolved] = await database
+          .select()
+          .from(schema.eventHandovers)
+          .where(eq(schema.eventHandovers.id, handover.id));
+        expect(resolved).toMatchObject({ decision: "declined", decidedById: incoming.id });
+        expect(resolved.decidedAt).toBeInstanceOf(Date);
+        expect(sendEmail).not.toHaveBeenCalled();
+      } finally {
+        await database.delete(schema.user).where(eq(schema.user.id, vacated.id));
+      }
     });
 
     it("does not list an offer for a decided request, and voids it on accept", async () => {

@@ -68,6 +68,11 @@ const handoverSenders = alias(user, "handover_sender");
  * serial id space must not tell a Coordinator whether another Coordinator holds a live offer.
  */
 const HANDOVER_NOT_ANSWERABLE = "This handover is not available to answer.";
+const ASSIGNMENT_CHANGED_MESSAGE =
+  "This assignment has changed. Refresh the request and try again.";
+/** Refusal for a pick-up call on an assigned request; the accepted handover is the only path. */
+export const ASSIGNED_REQUEST_HANDOVER_MESSAGE =
+  "This request is assigned. Offer it as a handover and wait for that Coordinator to accept.";
 
 export async function handleListAssignedEventRequests(actor: SessionUser, database: Database) {
   return database
@@ -182,19 +187,11 @@ export async function handleGetCoordinationRequest(
   };
 }
 
-/** The direct move is gone; an assigned request changes hands only by accepted handover. */
-export const ASSIGNED_REQUEST_HANDOVER_MESSAGE =
-  "This request is assigned. Offer it as a handover and wait for that Coordinator to accept.";
-
 /**
- * Pick-up only: any Event Coordinator assigns an unassigned request to themselves or a named
- * Coordinator, immediately and with its audit row. An assigned request never moves here — the
- * accepted handover is the one path (`handleRequestEventHandover`), so the incoming Coordinator
- * always agrees before the event changes hands. A stranger probing an assigned id is refused the
- * same way the detail read refuses them; its own Coordinator is told to use the handover. A
- * decided request that lost its Coordinator (the account was deleted, which sets the assignment
- * null) is closed work, not a pick-up. The row lock serialises competing pick-ups; all effects
- * either commit together or roll back.
+ * Pick-up assigns an unassigned request immediately with its audit row. An assigned request never
+ * moves here (accepted handover raised by `handleRequestEventHandover`, applied by
+ * `handleAcceptEventHandover`); a decided request whose Coordinator was deleted is closed work, not
+ * a pick-up. The row lock serialises competing pick-ups.
  */
 export async function handleAssignEventRequest(
   data: unknown,
@@ -214,9 +211,7 @@ export async function handleAssignEventRequest(
       request.status === "draft" ||
       (request.assignedCoordinatorId !== null && request.assignedCoordinatorId !== actor.id)
     ) {
-      throw new AuthorizationError(
-        "Only an unassigned request can be picked up here; an assigned request is handed over by its Coordinator."
-      );
+      throw new AuthorizationError("Only an unassigned request can be picked up here.");
     }
     // Decided first: a decided request cannot be handed over either, so pointing its Coordinator
     // at the handover would be advice they cannot follow.
@@ -229,7 +224,7 @@ export async function handleAssignEventRequest(
     // The request is unassigned, so the only observation a stale page can hold is a Coordinator
     // who has since been removed; `null` is the one value that matches.
     if (input.expectedCoordinatorId !== null) {
-      throw new ConflictError("This assignment has changed. Refresh the request and try again.");
+      throw new ConflictError(ASSIGNMENT_CHANGED_MESSAGE);
     }
 
     // Hold the selected account while its role is validated and the assignment is committed.
@@ -284,7 +279,7 @@ export async function handleRequestEventHandover(
       throw new AuthorizationError("Only the assigned Coordinator can hand this request over.");
     }
     if (request.assignedCoordinatorId !== input.expectedCoordinatorId) {
-      throw new ConflictError("This assignment has changed. Refresh the request and try again.");
+      throw new ConflictError(ASSIGNMENT_CHANGED_MESSAGE);
     }
     if (request.status === "approved" || request.status === "rejected") {
       throw new ConflictError("A decided request can no longer be handed over.");
