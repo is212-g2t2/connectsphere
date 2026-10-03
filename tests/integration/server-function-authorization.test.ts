@@ -699,20 +699,20 @@ describe("server-function authorization (PTR-69)", () => {
   });
 
   describe("notifications (PTR-55, PTR-56)", () => {
-    it("answers 401 to an unauthenticated list or mark", async () => {
+    it("answers 401 to an unauthenticated list or mark, before validating the mark", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
 
       expect(await refusalFrom(listNotifications, {}, "GET")).toEqual({
         status: 401,
         body: "Unauthorized",
       });
-      expect(await refusalFrom(markNotificationsRead, { id: 1 })).toEqual({
+      expect(await refusalFrom(markNotificationsRead, {})).toEqual({
         status: 401,
         body: "Unauthorized",
       });
     });
 
-    it("lets any signed-in role read and mark its own, and refuses a malformed mark", async () => {
+    it("lets a signed-in role through the session guard, and refuses a malformed mark", async () => {
       signIn("attendee");
 
       expect((await call(listNotifications, {}, "GET")).error).toBeUndefined();

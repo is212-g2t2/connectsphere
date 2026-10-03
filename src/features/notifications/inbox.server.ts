@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, lte, notInArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventHandovers, eventRequests, notifications, venueRequests } from "#/db/schema";
@@ -25,8 +25,8 @@ const INBOX_LIMIT = 50;
  * PTR-55: one row as the inbox renders it. A row whose subject the caller can no longer reach is
  * neutralised — null summary, null href, and nothing of the payload or kind crosses the network —
  * so opening it cannot expose event data (AC5); `read` is the caller's own state and still shows
- * (PTR-56). `createdAt` is ISO. The server function re-exports
- * this shape as `NotificationListItem`, the type the page consumes.
+ * (PTR-56). `createdAt` is ISO. The page consumes this shape as `NotificationListItem`, derived
+ * from the server function's return.
  */
 interface NotificationListItem {
   id: number;
@@ -148,14 +148,32 @@ export async function handleCountUnreadNotifications(
 }
 
 /**
+ * PTR-56: the inbox page's data — the listed rows and the unread count — read in one read-only
+ * repeatable-read snapshot, so a notification raised between the two reads cannot leave the count
+ * disagreeing with the rows it sits above.
+ */
+export async function handleReadInbox(
+  actor: SessionUser,
+  database: Database
+): Promise<{ notifications: NotificationListItem[]; unreadCount: number }> {
+  return database.transaction(
+    async tx => ({
+      notifications: await handleListNotifications(actor, tx),
+      unreadCount: await handleCountUnreadNotifications(actor, tx),
+    }),
+    { isolationLevel: "repeatable read", accessMode: "read only" }
+  );
+}
+
+/**
  * PTR-56 AC3: marks one notification read (`id`), or every notification up to the highest id the
- * caller was shown (`throughId`), so a row raised after the page rendered stays unread. Scoped to
+ * caller was shown (`throughId`), so a row with a higher id than any shown stays unread. Scoped to
  * the caller, so another user's id changes nothing; an already-read row keeps its first read time.
  */
 export async function handleMarkNotificationsRead(
   data: unknown,
   actor: SessionUser,
-  database: Database
+  database: Pick<Database, "update">
 ): Promise<void> {
   const input = parseMarkNotificationsReadInput(data);
   // ponytail: serial ids follow insert order, not commit order, so a lower-id row committing after
@@ -164,7 +182,7 @@ export async function handleMarkNotificationsRead(
     "id" in input ? eq(notifications.id, input.id) : lte(notifications.id, input.throughId);
   await database
     .update(notifications)
-    .set({ readAt: new Date() })
+    .set({ readAt: sql`now()` })
     .where(and(eq(notifications.recipientId, actor.id), isNull(notifications.readAt), target));
 }
 

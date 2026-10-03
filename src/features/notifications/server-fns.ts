@@ -19,17 +19,8 @@ async function loadServer() {
 export const listNotifications = createServerFn({ method: "GET" })
   .middleware([requireSession])
   .handler(async ({ context }) => {
-    const [{ db }, { handleListNotifications, handleCountUnreadNotifications }] =
-      await loadServer();
-    // One snapshot for both reads, so a notification raised between them cannot leave the count
-    // disagreeing with the rows it sits above.
-    return db.transaction(
-      async tx => ({
-        notifications: await handleListNotifications(context.user, tx),
-        unreadCount: await handleCountUnreadNotifications(context.user, tx),
-      }),
-      { isolationLevel: "repeatable read", accessMode: "read only" }
-    );
+    const [{ db }, { handleReadInbox }] = await loadServer();
+    return handleReadInbox(context.user, db);
   });
 
 export type NotificationListItem = Awaited<
