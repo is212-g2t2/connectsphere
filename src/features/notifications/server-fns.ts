@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
 
 import { requireSession } from "#/features/auth/session";
+import { parseMarkNotificationsReadInput } from "#/features/notifications/schema";
 
 /**
  * Routes import this module, so it stays free of any static server import — `./inbox.server` and
@@ -21,37 +21,23 @@ export const listNotifications = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const [{ db }, { handleListNotifications, handleCountUnreadNotifications }] =
       await loadServer();
-    const [notifications, unreadCount] = await Promise.all([
-      handleListNotifications(context.user, db),
-      handleCountUnreadNotifications(context.user, db),
-    ]);
-    return { notifications, unreadCount };
+    // One snapshot for both reads, so a notification raised between them cannot leave the count
+    // disagreeing with the rows it sits above.
+    return db.transaction(
+      async tx => ({
+        notifications: await handleListNotifications(context.user, tx),
+        unreadCount: await handleCountUnreadNotifications(context.user, tx),
+      }),
+      { isolationLevel: "repeatable read", accessMode: "read only" }
+    );
   });
 
 export type NotificationListItem = Awaited<
   ReturnType<typeof listNotifications>
 >["notifications"][number];
 
-const NOTIFICATION_ID_MESSAGE = "Choose a notification";
-const notificationId = z
-  .int32({ error: NOTIFICATION_ID_MESSAGE })
-  .positive(NOTIFICATION_ID_MESSAGE);
-
-const MarkNotificationsReadInput = z.union(
-  [z.object({ id: notificationId }), z.object({ throughId: notificationId })],
-  { error: NOTIFICATION_ID_MESSAGE }
-);
-
-export function parseMarkNotificationsReadInput(
-  input: unknown
-): { id: number } | { throughId: number } {
-  const parsed = MarkNotificationsReadInput.safeParse(input);
-  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
-  return parsed.data;
-}
-
 /**
- * PTR-56 AC3: marks one of the caller's notifications read, or all of them up to the newest one
+ * PTR-56 AC3: marks one of the caller's notifications read, or all of them up to the highest id
  * the page showed.
  */
 export const markNotificationsRead = createServerFn({ method: "POST" })

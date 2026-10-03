@@ -11,6 +11,7 @@ import {
   parseNotificationPayload,
 } from "#/features/notifications/message";
 import type { NotificationHrefFacts } from "#/features/notifications/message";
+import { parseMarkNotificationsReadInput } from "#/features/notifications/schema";
 import { logger } from "#/lib/logger";
 
 type Database = typeof Db;
@@ -23,7 +24,8 @@ const INBOX_LIMIT = 50;
 /**
  * PTR-55: one row as the inbox renders it. A row whose subject the caller can no longer reach is
  * neutralised — null summary, null href, and nothing of the payload or kind crosses the network —
- * so opening it cannot expose event data (AC5). `createdAt` is ISO. The server function re-exports
+ * so opening it cannot expose event data (AC5); `read` is the caller's own state and still shows
+ * (PTR-56). `createdAt` is ISO. The server function re-exports
  * this shape as `NotificationListItem`, the type the page consumes.
  */
 interface NotificationListItem {
@@ -44,7 +46,7 @@ interface NotificationListItem {
  */
 export async function handleListNotifications(
   actor: SessionUser,
-  database: Database
+  database: Pick<Database, "select">
 ): Promise<NotificationListItem[]> {
   const rows = await database
     .select({
@@ -95,18 +97,18 @@ export async function handleListNotifications(
         );
 
   return rows.map(row => {
-    const read = row.readAt !== null;
+    const item = (summary: string | null, href: string | null): NotificationListItem => ({
+      id: row.id,
+      createdAt: row.createdAt.toISOString(),
+      read: row.readAt !== null,
+      summary,
+      href,
+    });
     const parsed = parseNotificationPayload(row.kind, row.payload);
     if (!parsed) {
       // A row no renderer understands stays listed but says nothing; it is still the recipient's.
       log.warn("Notification payload did not parse", { notificationId: row.id, kind: row.kind });
-      return {
-        id: row.id,
-        createdAt: row.createdAt.toISOString(),
-        read,
-        summary: null,
-        href: null,
-      };
+      return item(null, null);
     }
 
     const handoverPending = pendingHandoverEventIds.has(row.eventRequestId);
@@ -115,13 +117,7 @@ export async function handleListNotifications(
       handoverPending,
     });
     if (!reachable) {
-      return {
-        id: row.id,
-        createdAt: row.createdAt.toISOString(),
-        read,
-        summary: null,
-        href: null,
-      };
+      return item(null, null);
     }
 
     const facts: NotificationHrefFacts = { handoverPending };
@@ -129,13 +125,10 @@ export async function handleListNotifications(
       facts.venueRequestStatus = venueRequestStatuses.get(parsed.payload.venueRequestId) ?? null;
     }
 
-    return {
-      id: row.id,
-      createdAt: row.createdAt.toISOString(),
-      read,
-      summary: notificationSummary(parsed),
-      href: notificationHref({ ...parsed, eventRequestId: row.eventRequestId }, facts),
-    };
+    return item(
+      notificationSummary(parsed),
+      notificationHref({ ...parsed, eventRequestId: row.eventRequestId }, facts)
+    );
   });
 }
 
@@ -145,7 +138,7 @@ export async function handleListNotifications(
  */
 export async function handleCountUnreadNotifications(
   actor: SessionUser,
-  database: Database
+  database: Pick<Database, "select">
 ): Promise<number> {
   const [row] = await database
     .select({ unread: count() })
@@ -155,15 +148,16 @@ export async function handleCountUnreadNotifications(
 }
 
 /**
- * PTR-56 AC3: marks one notification read (`id`), or every notification up to the newest one the
+ * PTR-56 AC3: marks one notification read (`id`), or every notification up to the highest id the
  * caller was shown (`throughId`), so a row raised after the page rendered stays unread. Scoped to
  * the caller, so another user's id changes nothing; an already-read row keeps its first read time.
  */
 export async function handleMarkNotificationsRead(
-  input: { id: number } | { throughId: number },
+  data: unknown,
   actor: SessionUser,
   database: Database
 ): Promise<void> {
+  const input = parseMarkNotificationsReadInput(data);
   // ponytail: serial ids follow insert order, not commit order, so a lower-id row committing after
   // the page rendered is marked read unseen; a per-user read watermark fixes that if it matters.
   const target =
@@ -183,7 +177,7 @@ export async function handleMarkNotificationsRead(
 async function liveHandoverEventIds(
   userId: string,
   eventIds: readonly number[],
-  database: Database
+  database: Pick<Database, "select">
 ): Promise<number[]> {
   const rows = await database
     .select({ eventRequestId: eventHandovers.eventRequestId })
