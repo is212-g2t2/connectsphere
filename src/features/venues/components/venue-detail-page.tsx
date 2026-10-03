@@ -6,7 +6,7 @@ import { Button } from "#/components/ui/button";
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
 import { VenueRequestPanel } from "#/features/venue-requests/components/venue-request-panel";
-import type { VenueRequestPrefill } from "#/features/venue-requests/components/venue-request-panel";
+import type { VenueRequestPrefill } from "#/features/venue-requests/schema";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";

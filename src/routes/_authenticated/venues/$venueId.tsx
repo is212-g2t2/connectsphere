@@ -33,9 +33,10 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
       throw redirect({ to: "/dashboard" });
     }
   },
-  // The search is a loader dependency so `eventId` re-runs the loader when it changes; the
-  // loader context itself carries only params, so the value arrives as `deps`.
-  loaderDeps: ({ search }) => search,
+  // Only `eventId` re-runs the loader; `saved` and the prefill window are read by the
+  // component, so changing those alone skips the loader. The loader context itself carries only
+  // params, so the value arrives as `deps`.
+  loaderDeps: ({ search }) => ({ eventId: search.eventId }),
   loader: async ({
     params,
     deps,

@@ -401,17 +401,23 @@ export async function handleListEvents(
             ? (holderNames.get(row.assignedStaffId ?? "") ?? null)
             : undefined,
       }));
-    // PTR-31 criterion 5: a withdrawn request leaves the card, so only a pending row is reported; no fallback to an older withdrawn request — an event with none shows no venue request. A Venue Staff caller sees only the rows the queue rule grants them.
-    const pendingRequest =
-      venueRows.find(
-        row =>
-          row.eventId === record.id &&
-          row.status === "pending" &&
-          (access !== "venue_staff" || isVenueQueueRow(row, user.id))
-      ) ?? null;
+    // PTR-31 criterion 5: a withdrawn request leaves the card, so only a pending row is reported; no fallback to an older withdrawn request — an event with none shows no venue request. Several pending rows can sit on one event, so the card reports the newest the caller may see, by update time with the greater id string breaking a tie, the same stable rule the outcome reader uses. A Venue Staff caller sees only the rows the queue rule grants them.
+    let pendingRequest: (typeof venueRows)[number] | null = null;
+    for (const row of venueRows) {
+      if (row.eventId !== record.id || row.status !== "pending") continue;
+      if (access === "venue_staff" && !isVenueQueueRow(row, user.id)) continue;
+      if (
+        !pendingRequest ||
+        row.updatedAt.getTime() > pendingRequest.updatedAt.getTime() ||
+        (row.updatedAt.getTime() === pendingRequest.updatedAt.getTime() &&
+          row.id > pendingRequest.id)
+      ) {
+        pendingRequest = row;
+      }
+    }
     // The assigned Coordinator sees the current rejection or release outcome. With a request
-    // pending, the last rejection still rides along: an adjusted request answers it, and the
-    // reason stays on the record until Venue Staff decide again.
+    // pending, the last rejection still rides along — but when more than one request is pending
+    // it is not necessarily the one the rejection answered.
     const outcome = access === "coordinator" ? (venueRequestOutcomes.get(record.id) ?? null) : null;
     const conflictKind = pendingRequest ? conflictKinds.get(pendingRequest.id) : undefined;
     const venueRequest: EventVenueRequest | null = pendingRequest

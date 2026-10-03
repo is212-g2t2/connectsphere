@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { CalendarDays, Clock3 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { cn } from "cn";
 
 import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
@@ -331,7 +332,7 @@ function AdjustRequestRow({
   eventId: number;
   rejection: VenueRequestRejection;
 }) {
-  const { venueId, venueName, ...window } = adjustedRequest(rejection);
+  const { venueId, venueName, ...prefill } = adjustedRequest(rejection);
   return (
     <Detail
       label="Next step"
@@ -339,8 +340,11 @@ function AdjustRequestRow({
         <Link
           to="/venues/$venueId"
           params={{ venueId: String(venueId) }}
-          search={{ eventId, ...window }}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
+          search={{ eventId, ...prefill }}
+          className={cn(
+            buttonVariants({ variant: "outline", size: "sm" }),
+            "h-auto min-w-0 whitespace-normal py-1.5 text-left"
+          )}
         >
           Adjust request at {venueName}
         </Link>
@@ -352,9 +356,9 @@ function AdjustRequestRow({
 /** The one extra row a card adds beside the shared requirements: its pending request. */
 function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="eyebrow text-muted-foreground">{label}</dt>
-      <dd className="mt-1 font-medium text-foreground">{value}</dd>
+      <dd className="mt-1 min-w-0 font-medium text-foreground">{value}</dd>
     </div>
   );
 }

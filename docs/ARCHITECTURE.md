@@ -51,7 +51,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view
 │   │   ├── venue-requests/ # Booking requests: raise, withdraw, approve, reject, release, amend, notify
-│   │   └── venues/       # Venue catalogue, requirements search with suitability verdicts, availability; the venue page pre-fills the request panel from an event id and window in its search
+│   │   └── venues/       # Venue catalogue, requirements search with suitability verdicts, and availability
 │   ├── hooks/            # Client hooks shared across features
 │   ├── lib/              # Shared integrations (auth, mail, storage, logger, SEO)
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata

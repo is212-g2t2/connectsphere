@@ -80,7 +80,26 @@ describe("VenueRequestPanel (PTR-31)", () => {
     expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2027-04-21");
     expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "10:00");
     expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "13:30");
-    expect(screen.getByText(/carried over from the rejection card/)).toBeTruthy();
+    expect(screen.getByText(/carried over from the rejected request/)).toBeTruthy();
+  });
+
+  it.each([
+    { name: "end does not come after its start", startTime: "13:30", endTime: "10:00" },
+    { name: "end equals its start", startTime: "13:30", endTime: "13:30" },
+  ])("ignores a carried-in window whose $name (PTR-35)", ({ startTime, endTime }) => {
+    render(
+      <VenueRequestPanel
+        venueId={9}
+        venueName="Harbour Hall"
+        context={openContext}
+        prefill={{ date: "2027-04-21", startTime, endTime }}
+      />
+    );
+
+    expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2026-10-12");
+    expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "14:30");
+    expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "18:45");
+    expect(screen.queryByText(/carried over from the rejected request/)).toBeNull();
   });
 
   it("labels each requirement as its own fact before the request is sent", () => {

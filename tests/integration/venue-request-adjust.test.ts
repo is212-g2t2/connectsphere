@@ -142,6 +142,44 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       .onConflictDoNothing();
   });
 
+  /** The adjusted request on the suggested venue, answering the rejection. */
+  async function adjustRequest() {
+    return handleCreateVenueRequest(
+      {
+        eventId,
+        venueId: suggestedVenueId,
+        date: "2027-05-11",
+        startTime: "10:00",
+        endTime: "13:30",
+      },
+      session(users.coordinator),
+      database as never
+    );
+  }
+
+  /** The event state AC4 compares: status, equipment lines and registrations. */
+  async function eventSnapshot() {
+    return {
+      event: (
+        await database
+          .select({
+            status: schema.eventRequests.status,
+            equipmentSubmittedAt: schema.eventRequests.equipmentSubmittedAt,
+          })
+          .from(schema.eventRequests)
+          .where(eq(schema.eventRequests.id, eventId))
+      )[0],
+      equipment: await database
+        .select()
+        .from(schema.equipmentRequests)
+        .where(eq(schema.equipmentRequests.eventId, eventId)),
+      registrations: await database
+        .select()
+        .from(schema.eventRegistrations)
+        .where(eq(schema.eventRegistrations.eventId, eventId)),
+    };
+  }
+
   /** A request on the refused hall, rejected with a full suggestion of the other room. */
   async function rejectedWithSuggestion() {
     const request = await handleCreateVenueRequest(
@@ -192,17 +230,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
   it("queues the adjusted request as a new pending request on the suggested venue (AC2)", async () => {
     const rejected = await rejectedWithSuggestion();
 
-    const adjusted = await handleCreateVenueRequest(
-      {
-        eventId,
-        venueId: suggestedVenueId,
-        date: "2027-05-11",
-        startTime: "10:00",
-        endTime: "13:30",
-      },
-      session(users.coordinator),
-      database as never
-    );
+    const adjusted = await adjustRequest();
 
     expect(adjusted).toMatchObject({
       status: "pending",
@@ -223,17 +251,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
 
   it("keeps the original rejection and its reason beside the pending request (AC3)", async () => {
     await rejectedWithSuggestion();
-    await handleCreateVenueRequest(
-      {
-        eventId,
-        venueId: suggestedVenueId,
-        date: "2027-05-11",
-        startTime: "10:00",
-        endTime: "13:30",
-      },
-      session(users.coordinator),
-      database as never
-    );
+    await adjustRequest();
 
     const [card] = await handleListEvents(
       { eventId },
@@ -253,17 +271,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
 
   it("shows the Organiser and Venue Staff the pending request without the rejection", async () => {
     await rejectedWithSuggestion();
-    await handleCreateVenueRequest(
-      {
-        eventId,
-        venueId: suggestedVenueId,
-        date: "2027-05-11",
-        startTime: "10:00",
-        endTime: "13:30",
-      },
-      session(users.coordinator),
-      database as never
-    );
+    await adjustRequest();
 
     const [organiserCard] = await handleListEvents(
       { eventId },
@@ -281,17 +289,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
 
   it("surfaces no rejection once a later request is approved", async () => {
     await rejectedWithSuggestion();
-    const adjusted = await handleCreateVenueRequest(
-      {
-        eventId,
-        venueId: suggestedVenueId,
-        date: "2027-05-11",
-        startTime: "10:00",
-        endTime: "13:30",
-      },
-      session(users.coordinator),
-      database as never
-    );
+    const adjusted = await adjustRequest();
     await handleApproveVenueRequest(
       { id: adjusted.id },
       session(users.venueStaff),
@@ -304,57 +302,11 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
 
   it("changes nothing else on the event: status, equipment and registrations (AC4)", async () => {
     await rejectedWithSuggestion();
-    const before = {
-      event: (
-        await database
-          .select({
-            status: schema.eventRequests.status,
-            equipmentSubmittedAt: schema.eventRequests.equipmentSubmittedAt,
-          })
-          .from(schema.eventRequests)
-          .where(eq(schema.eventRequests.id, eventId))
-      )[0],
-      equipment: await database
-        .select()
-        .from(schema.equipmentRequests)
-        .where(eq(schema.equipmentRequests.eventId, eventId)),
-      registrations: await database
-        .select()
-        .from(schema.eventRegistrations)
-        .where(eq(schema.eventRegistrations.eventId, eventId)),
-    };
+    const before = await eventSnapshot();
 
-    await handleCreateVenueRequest(
-      {
-        eventId,
-        venueId: suggestedVenueId,
-        date: "2027-05-11",
-        startTime: "10:00",
-        endTime: "13:30",
-      },
-      session(users.coordinator),
-      database as never
-    );
+    await adjustRequest();
 
-    const after = {
-      event: (
-        await database
-          .select({
-            status: schema.eventRequests.status,
-            equipmentSubmittedAt: schema.eventRequests.equipmentSubmittedAt,
-          })
-          .from(schema.eventRequests)
-          .where(eq(schema.eventRequests.id, eventId))
-      )[0],
-      equipment: await database
-        .select()
-        .from(schema.equipmentRequests)
-        .where(eq(schema.equipmentRequests.eventId, eventId)),
-      registrations: await database
-        .select()
-        .from(schema.eventRegistrations)
-        .where(eq(schema.eventRegistrations.eventId, eventId)),
-    };
+    const after = await eventSnapshot();
     expect(after).toEqual(before);
     expect(before.event.status).toBe("submitted");
     // Two rows now sit on the event: the rejected one and the pending one; the rejected is intact.

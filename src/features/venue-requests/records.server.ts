@@ -57,7 +57,8 @@ export async function loadVenueRequestOutcomesForEvents(
 
   // The newest decided row per event: a withdrawal is not a decision, and a pending request
   // raised after a rejection (an adjusted request) must not hide the rejection it answers. A tie
-  // (same instant) falls to the higher id, the same stable rule the single-event reader used.
+  // (same instant) falls to the greater id string, the same stable rule the single-event reader
+  // used.
   const newestByEvent = new Map<number, (typeof rows)[number]>();
   for (const row of rows) {
     if (row.status === "withdrawn" || row.status === "pending") continue;

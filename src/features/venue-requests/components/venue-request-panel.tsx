@@ -22,7 +22,7 @@ import { Input } from "#/components/ui/input";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { VenueRequestInput } from "#/features/venue-requests/schema";
-import type { VenueRequestValues } from "#/features/venue-requests/schema";
+import type { VenueRequestPrefill, VenueRequestValues } from "#/features/venue-requests/schema";
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
@@ -30,13 +30,6 @@ import { useMutation } from "#/hooks/use-mutation";
 const FIELDS = ["date", "startTime", "endTime"] as const;
 
 type FieldName = (typeof FIELDS)[number];
-
-/** The window an adjusted request arrives with, already validated by the route's search schema. */
-export interface VenueRequestPrefill {
-  date: string;
-  startTime: string;
-  endTime: string;
-}
 
 /**
  * The inputs hold the event's proposed window as the form's values, or the adjusted window the
@@ -80,13 +73,18 @@ export function VenueRequestPanel({
   const request = context.request;
   const sameDay = context.event.endDate === context.event.eventDate;
   // The route hands a fresh `prefill` object on every render; compare it by value so a re-render
-  // never resets what the Coordinator is mid-way through typing.
+  // never resets what the Coordinator is mid-way through typing. A carried-in window counts only
+  // when it is complete and ordered — fixed-width `HH:MM` strings compare as times, the same rule
+  // `VenueRequestInput` applies — so a hand-edited or unordered window falls back to the event's own.
   const prefillDate = prefill?.date;
   const prefillStart = prefill?.startTime;
   const prefillEnd = prefill?.endTime;
   const stablePrefill = useMemo<VenueRequestPrefill | null>(
     () =>
-      prefillDate === undefined || prefillStart === undefined || prefillEnd === undefined
+      prefillDate === undefined ||
+      prefillStart === undefined ||
+      prefillEnd === undefined ||
+      prefillEnd <= prefillStart
         ? null
         : { date: prefillDate, startTime: prefillStart, endTime: prefillEnd },
     [prefillDate, prefillStart, prefillEnd]
@@ -173,7 +171,13 @@ export function VenueRequestPanel({
       <Card>
         <CardContent>
           <div className="flex items-center gap-2">
-            <h2 id="venue-request-heading" ref={headingRef} tabIndex={-1} className="display-h3">
+            <h2
+              id="venue-request-heading"
+              ref={headingRef}
+              tabIndex={-1}
+              aria-describedby={stablePrefill && showsForm ? "venue-request-context" : undefined}
+              className="display-h3"
+            >
               {request ? "Venue request" : "Request this venue"}
             </h2>
             {request && <Badge variant="progress">Pending</Badge>}
@@ -230,11 +234,11 @@ export function VenueRequestPanel({
             </>
           ) : (
             <>
-              <p className="mt-2 body-sm text-muted-foreground">
+              <p id="venue-request-context" className="mt-2 body-sm text-muted-foreground">
                 Send Venue Staff a booking request for {venueName} on behalf of {context.event.name}
                 .
                 {stablePrefill &&
-                  " The date and times below were carried over from the rejection card; change them if needed."}
+                  " The date and times below were carried over from the rejected request; change them if needed."}
               </p>
               {!sameDay && (
                 <p className="mt-2 body-sm text-muted-foreground">

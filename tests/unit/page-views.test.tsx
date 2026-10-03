@@ -712,6 +712,22 @@ describe("adjusting a rejected venue request (PTR-35)", () => {
     ).toBe("/venues/5?eventId=7&date=2026-10-06&startTime=09%3A00&endTime=12%3A00");
   });
 
+  it("takes the suggested times with the refused venue and date when only times were suggested", () => {
+    render(
+      card({
+        status: "rejected",
+        rejection: {
+          ...rejection,
+          suggestion: { venueName: null, date: null, startTime: "10:00", endTime: "13:30" },
+        },
+      })
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Adjust request at Main Hall" }).getAttribute("href")
+    ).toBe("/venues/5?eventId=7&date=2026-10-05&startTime=10%3A00&endTime=13%3A30");
+  });
+
   it("offers the link only to the Coordinator, and only while the event is still submitted", () => {
     const { unmount } = render(card({ status: "rejected", rejection }, { access: "organiser" }));
     expect(adjustLink()).toBeNull();
