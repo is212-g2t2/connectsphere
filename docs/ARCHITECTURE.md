@@ -59,7 +59,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
 │       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues
 │       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
-│       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection
+│       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection; a rejection's suggestion reopens the request panel pre-filled
 │       │   └── venue-bookings/ # Venue Staff's approved-booking release and amendment view
 │       ├── api/          # Better Auth handler, health, smoke, upload-url
 │       └── robots[.]txt.ts, sitemap[.]xml.ts

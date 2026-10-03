@@ -31,13 +31,25 @@ const FIELDS = ["date", "startTime", "endTime"] as const;
 
 type FieldName = (typeof FIELDS)[number];
 
+/** The window an adjusted request arrives with, already validated by the route's search schema. */
+export interface VenueRequestPrefill {
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
 /**
- * The inputs hold the event's proposed window as the form's values. A request covers one civil
- * day, so a multi-day (or cross-midnight) window leaves the times empty rather than silently
- * truncating to its first day — the required-field and order messages then force a conscious
- * choice.
+ * The inputs hold the event's proposed window as the form's values, or the adjusted window the
+ * rejection card carried in. A request covers one civil day, so a multi-day (or cross-midnight)
+ * window leaves the times empty rather than silently truncating to its first day — the
+ * required-field and order messages then force a conscious choice.
  */
-function toFormValues(event: VenueRequestContext["event"], venueId: number): VenueRequestValues {
+function toFormValues(
+  event: VenueRequestContext["event"],
+  venueId: number,
+  prefill: VenueRequestPrefill | null
+): VenueRequestValues {
+  if (prefill) return { eventId: event.id, venueId, ...prefill };
   const sameDay = event.endDate === event.eventDate;
   return {
     eventId: event.id,
@@ -57,10 +69,12 @@ export function VenueRequestPanel({
   venueId,
   venueName,
   context,
+  prefill = null,
 }: {
   venueId: number;
   venueName: string;
   context: VenueRequestContext;
+  prefill?: VenueRequestPrefill | null;
 }) {
   const router = useRouter();
   const request = context.request;
@@ -79,7 +93,7 @@ export function VenueRequestPanel({
   }, "Could not withdraw this request. Try again.");
 
   const form = useForm({
-    defaultValues: toFormValues(context.event, venueId),
+    defaultValues: toFormValues(context.event, venueId, prefill),
     // `VenueRequestInput` is the same gate the server uses, so the ids, the date and the times are
     // checked once and every issue marks its own field.
     validators: { onSubmit: VenueRequestInput },
@@ -115,8 +129,8 @@ export function VenueRequestPanel({
   // remounting on a key, keeps the inputs in step without dropping what was mid-typing, the
   // pattern `venue-list-page.tsx` follows.
   useEffect(() => {
-    form.reset(toFormValues(context.event, venueId));
-  }, [context, venueId, form]);
+    form.reset(toFormValues(context.event, venueId, prefill));
+  }, [context, venueId, prefill, form]);
 
   // Sending or withdrawing swaps the panel's branch under the same heading, so focus would
   // otherwise fall to `<body>` and the new state go unannounced. Only a request that changed
@@ -199,6 +213,8 @@ export function VenueRequestPanel({
               <p className="mt-2 body-sm text-muted-foreground">
                 Send Venue Staff a booking request for {venueName} on behalf of {context.event.name}
                 .
+                {prefill &&
+                  " The date and times below follow the alternative Venue Staff suggested; change them if needed."}
               </p>
               {!sameDay && (
                 <p className="mt-2 body-sm text-muted-foreground">

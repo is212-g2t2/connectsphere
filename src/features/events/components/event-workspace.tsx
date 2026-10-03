@@ -10,7 +10,11 @@ import { LastReleaseNote } from "#/features/equipment-requests/components/last-r
 import { ReserveEquipmentAction } from "#/features/equipment-requests/components/reserve-equipment-action";
 import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
-import type { EquipmentLineProjection, EventProjection } from "#/features/events/access";
+import type {
+  EquipmentLineProjection,
+  EventProjection,
+  VenueRequestRejection,
+} from "#/features/events/access";
 import { isConfirmableStatus } from "#/features/events/confirmation";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
 import { EventRequirements } from "#/features/events/components/event-requirements";
@@ -152,6 +156,26 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                                 )}
                               />
                             )}
+                            {access === "coordinator" &&
+                              event.venueRequest.status === "rejected" && (
+                                <div className="pt-1">
+                                  <Link
+                                    to="/venues/$venueId"
+                                    params={{
+                                      venueId: String(
+                                        adjustedVenueId(event.venueRequest.rejection)
+                                      ),
+                                    }}
+                                    search={{
+                                      eventId: event.id,
+                                      ...adjustedWindow(event.venueRequest.rejection),
+                                    }}
+                                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                                  >
+                                    Adjust request
+                                  </Link>
+                                </div>
+                              )}
                           </>
                         )}
                         {event.venueRequest.release && (
@@ -279,6 +303,28 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
 }
 
 /** The one extra row a card adds beside the shared requirements: its pending request. */
+/**
+ * Where an adjusted request opens: the suggested venue when Venue Staff named one, else the
+ * venue that refused. Each part of the window falls back the same way, so a suggestion of "same
+ * room, a day later" needs nothing retyped.
+ */
+function adjustedVenueId(rejection: VenueRequestRejection): number {
+  return rejection.suggestedVenueId ?? rejection.venueId;
+}
+
+function adjustedWindow(rejection: VenueRequestRejection): {
+  date: string;
+  startTime: string;
+  endTime: string;
+} {
+  const suggestion = rejection.suggestion;
+  const times =
+    suggestion?.startTime && suggestion.endTime
+      ? { startTime: suggestion.startTime, endTime: suggestion.endTime }
+      : { startTime: rejection.startTime, endTime: rejection.endTime };
+  return { date: suggestion?.date ?? rejection.date, ...times };
+}
+
 function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>

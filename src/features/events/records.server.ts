@@ -409,13 +409,16 @@ export async function handleListEvents(
           row.status === "pending" &&
           (access !== "venue_staff" || isVenueQueueRow(row, user.id))
       ) ?? null;
-    // With none pending, the assigned Coordinator sees the current rejection or release outcome.
+    // The assigned Coordinator sees the current rejection or release outcome. With a request
+    // pending, the last rejection still rides along: an adjusted request answers it, and the
+    // reason stays on the record until Venue Staff decide again.
     const outcome = access === "coordinator" ? (venueRequestOutcomes.get(record.id) ?? null) : null;
     const conflictKind = pendingRequest ? conflictKinds.get(pendingRequest.id) : undefined;
     const venueRequest: EventVenueRequest | null = pendingRequest
       ? {
           status: pendingRequest.status,
           ...(conflictKind ? { conflict: conflictKind } : {}),
+          ...(outcome?.status === "rejected" ? { rejection: outcome.rejection } : {}),
         }
       : outcome
         ? outcome
