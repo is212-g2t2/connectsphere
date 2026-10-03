@@ -8,15 +8,15 @@ const notificationId = z
 
 /**
  * PTR-56: mark one notification read (`id`), or every one up to the highest id the page showed
- * (`throughId`). Strict, so a payload carrying both keys is refused instead of quietly taking one.
+ * (`throughId`). Strict, so a payload carrying both keys is refused instead of quietly taking one;
+ * the message is set on every layer because each can be the one that reports.
  */
-const strict = { error: NOTIFICATION_ID_MESSAGE };
 const MarkNotificationsReadInput = z.union(
   [
-    z.strictObject({ id: notificationId }, strict),
-    z.strictObject({ throughId: notificationId }, strict),
+    z.strictObject({ id: notificationId }, { error: NOTIFICATION_ID_MESSAGE }),
+    z.strictObject({ throughId: notificationId }, { error: NOTIFICATION_ID_MESSAGE }),
   ],
-  strict
+  { error: NOTIFICATION_ID_MESSAGE }
 );
 
 export type MarkNotificationsReadValues = z.infer<typeof MarkNotificationsReadInput>;

@@ -6,17 +6,20 @@ import { NotificationsPage } from "#/features/notifications/components/notificat
 import { NotificationsPageSkeleton } from "#/features/notifications/components/notifications-page-skeleton";
 import type { NotificationListItem } from "#/features/notifications/server-fns";
 
-const { markNotificationsRead, invalidate } = vi.hoisted(() => ({
+const { markNotificationsRead, invalidate, toastError } = vi.hoisted(() => ({
   markNotificationsRead: vi.fn<(input: { data: unknown }) => Promise<void>>(),
   invalidate: vi.fn<() => Promise<void>>(),
+  toastError: vi.fn<(message: string) => void>(),
 }));
 
 vi.mock("#/features/notifications/server-fns", () => ({ markNotificationsRead }));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => ({ invalidate }) }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 
 beforeEach(() => {
   markNotificationsRead.mockReset().mockResolvedValue(undefined);
   invalidate.mockReset().mockResolvedValue(undefined);
+  toastError.mockReset();
 });
 
 const linked: NotificationListItem = {
@@ -104,6 +107,13 @@ describe("NotificationsPage read state (PTR-56)", () => {
     expect(screen.getByRole("button", { name: "Mark all as read" })).toBeTruthy();
   });
 
+  it("shows the server's count rather than counting listed rows, so rows past the page still count", () => {
+    render(<NotificationsPage notifications={[linked]} unreadCount={5} />);
+
+    expect(screen.getByRole("status").textContent).toBe("5 unread");
+    expect(screen.getByRole("button", { name: "Mark all as read" })).toBeTruthy();
+  });
+
   it("says nothing is unread and hides mark-all when every row is read", () => {
     render(<NotificationsPage notifications={[linked]} unreadCount={0} />);
 
@@ -118,8 +128,14 @@ describe("NotificationsPage read state (PTR-56)", () => {
   });
 
   it("marks one row read by id, naming the row and its time, and re-reads the list", async () => {
-    render(<NotificationsPage notifications={[unread]} unreadCount={1} />);
+    render(<NotificationsPage notifications={[unread, unreadNeutral]} unreadCount={2} />);
 
+    // A neutralised row's button names the neutral line, never the hidden subject.
+    expect(
+      screen.getByRole("button", {
+        name: /^Mark as read, This notification is no longer available\., /,
+      })
+    ).toBeTruthy();
     await userEvent.click(
       screen.getByRole("button", { name: "Mark as read, Event confirmed: Gala, 2 Nov 2030, 09:00" })
     );
@@ -139,24 +155,19 @@ describe("NotificationsPage read state (PTR-56)", () => {
       <NotificationsPage notifications={[unread, olderHigherId, unreadNeutral]} unreadCount={3} />
     );
 
-    expect(
-      screen.getByRole("button", {
-        name: /^Mark as read, This notification is no longer available\./,
-      })
-    ).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
 
     expect(markNotificationsRead).toHaveBeenCalledWith({ data: { throughId: 12 } });
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
-  it("shows the server's refusal when marking fails, and still re-reads the list", async () => {
+  it("toasts the server's refusal when marking fails, and still re-reads the list", async () => {
     markNotificationsRead.mockRejectedValueOnce(new Error("Choose a notification"));
     render(<NotificationsPage notifications={[unread]} unreadCount={1} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
 
-    expect((await screen.findByRole("alert")).textContent).toBe("Choose a notification");
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("Choose a notification"));
     expect(invalidate).toHaveBeenCalled();
   });
 });

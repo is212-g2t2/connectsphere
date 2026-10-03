@@ -1,9 +1,11 @@
 import { useRouter } from "@tanstack/react-router";
+import { toast } from "sonner";
 
 import { Page, PageHeader } from "#/components/layout/page";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { formatInstant } from "#/features/event-requests/format";
+import type { MarkNotificationsReadValues } from "#/features/notifications/schema";
 import { markNotificationsRead } from "#/features/notifications/server-fns";
 import type { NotificationListItem } from "#/features/notifications/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
@@ -24,7 +26,8 @@ const NEUTRAL_LINE = "This notification is no longer available.";
  * line keeps the same left edge. The header counts every unread row, not just the listed ones, as
  * a live status so the change after a mark is announced. "Mark all as read" stops at the highest
  * listed id — list order is by creation instant, which need not follow id order — so a
- * notification raised after the page rendered stays unread. Either action re-reads the list.
+ * notification with a higher id than any listed stays unread. Either action re-reads the list; a
+ * failure is a toast, because a banner above a long list sits out of view of the row clicked.
  */
 export function NotificationsPage({
   notifications,
@@ -34,31 +37,34 @@ export function NotificationsPage({
   unreadCount: number;
 }) {
   const router = useRouter();
-  const [mark, markRead, marking] = useMutation(
-    async (input: { id: number } | { throughId: number }) => {
-      try {
-        await markNotificationsRead({ data: input });
-      } finally {
-        // A refusal may follow a mark that landed (a lost response), so re-read either way rather
-        // than leave rows showing a state the server no longer holds.
-        await router.invalidate();
-      }
-    },
-    "Could not mark notifications as read. Try again."
-  );
+  const [, markRead, marking] = useMutation(async (input: MarkNotificationsReadValues) => {
+    try {
+      await markNotificationsRead({ data: input });
+    } finally {
+      // A refusal may follow a mark that landed (a lost response), so re-read either way rather
+      // than leave rows showing a state the server no longer holds.
+      await router.invalidate();
+    }
+  }, "Could not mark notifications as read. Try again.");
+  const mark = async (input: MarkNotificationsReadValues) => {
+    const state = await markRead(input);
+    if (state.status === "error") toast.error(state.error);
+  };
 
   // Empty, the page already says there is nothing; a count line would only repeat it.
-  const description =
-    notifications.length === 0 ? (
-      "Everything addressed to you, newest first."
-    ) : (
-      <>
-        <output className="font-medium text-foreground">
-          {unreadCount === 0 ? "Nothing unread" : `${unreadCount} unread`}
-        </output>
-        . Everything addressed to you, newest first.
-      </>
-    );
+  const description = (
+    <>
+      {notifications.length > 0 && (
+        <>
+          <output className="font-medium text-foreground">
+            {unreadCount === 0 ? "Nothing unread" : `${unreadCount} unread`}
+          </output>
+          .{" "}
+        </>
+      )}
+      Everything addressed to you, newest first.
+    </>
+  );
 
   return (
     <Page width="page">
@@ -67,14 +73,15 @@ export function NotificationsPage({
         title="Notifications"
         description={description}
         actions={
-          unreadCount > 0 && notifications.length > 0 ? (
+          // The count and the list share one snapshot, so a count above zero means rows are listed.
+          unreadCount > 0 ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
               disabled={marking}
               onClick={() =>
-                void markRead({ throughId: Math.max(...notifications.map(item => item.id)) })
+                void mark({ throughId: Math.max(...notifications.map(item => item.id)) })
               }
             >
               Mark all as read
@@ -82,12 +89,6 @@ export function NotificationsPage({
           ) : null
         }
       />
-
-      {mark.status === "error" && (
-        <p role="alert" className="mb-4 body-sm text-destructive">
-          {mark.error}
-        </p>
-      )}
 
       {notifications.length === 0 ? (
         <p className="body-sm text-muted-foreground">No notifications yet.</p>
@@ -115,10 +116,10 @@ export function NotificationsPage({
                     <Button
                       type="button"
                       variant="secondary"
-                      size="xs"
+                      size="sm"
                       disabled={marking}
                       aria-label={`Mark as read, ${notification.summary ?? NEUTRAL_LINE}, ${when}`}
-                      onClick={() => void markRead({ id: notification.id })}
+                      onClick={() => void mark({ id: notification.id })}
                     >
                       Mark as read
                     </Button>

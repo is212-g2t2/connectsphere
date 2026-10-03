@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -10,6 +10,7 @@ import {
   handleCountUnreadNotifications,
   handleListNotifications,
   handleMarkNotificationsRead,
+  handleReadInbox,
 } from "#/features/notifications/inbox.server";
 import {
   NOTIFICATION_MAX_ATTEMPTS,
@@ -439,6 +440,15 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
   });
 
   describe("read state (PTR-56)", () => {
+    it("reads the listed rows and the unread count together for the page (AC2)", async () => {
+      const coordinator = session("coordinator");
+      const unread = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+
+      const inbox = await handleReadInbox(coordinator, database as never);
+      expect(inbox.unreadCount).toBe(1);
+      expect(inbox.notifications.map(item => [item.id, item.read])).toEqual([[unread.id, false]]);
+    });
+
     it("starts every new notification unread and counts it (AC1, AC2)", async () => {
       const coordinator = session("coordinator");
       const row = await raise(coordinator.id, "event_confirmed", confirmedPayload());
@@ -446,36 +456,38 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       expect(row.readAt).toBeNull();
       const items = await handleListNotifications(coordinator, database);
       expect(items.map(item => item.read)).toEqual([false]);
-      expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(1);
+      expect(await handleCountUnreadNotifications(coordinator, database)).toBe(1);
     });
 
-    it("marks one read, keeps its first read time, and leaves the rest unread (AC3, AC4)", async () => {
+    it("marks one read, keeps an earlier first read time, and leaves the rest unread (AC3, AC4)", async () => {
       const coordinator = session("coordinator");
+      const firstRead = new Date(Date.UTC(2030, 0, 1, 0, 0, 0));
+      const alreadyRead = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+      await database
+        .update(schema.notifications)
+        .set({ readAt: firstRead })
+        .where(eq(schema.notifications.id, alreadyRead.id));
       const older = await raise(coordinator.id, "event_confirmed", confirmedPayload());
       const newer = await raise(coordinator.id, "event_confirmed", confirmedPayload());
 
       await handleMarkNotificationsRead({ id: older.id }, coordinator, database as never);
-      const [first] = await database
-        .select({ readAt: schema.notifications.readAt })
-        .from(schema.notifications)
-        .where(eq(schema.notifications.id, older.id));
-      await handleMarkNotificationsRead({ id: older.id }, coordinator, database as never);
-      const [second] = await database
-        .select({ readAt: schema.notifications.readAt })
-        .from(schema.notifications)
-        .where(eq(schema.notifications.id, older.id));
+      await handleMarkNotificationsRead({ id: alreadyRead.id }, coordinator, database as never);
 
-      expect(first.readAt).not.toBeNull();
-      expect(second.readAt).toEqual(first.readAt);
+      const [kept] = await database
+        .select({ readAt: schema.notifications.readAt })
+        .from(schema.notifications)
+        .where(eq(schema.notifications.id, alreadyRead.id));
+      expect(kept.readAt).toEqual(firstRead);
       const items = await handleListNotifications(coordinator, database);
       expect(items.map(item => [item.id, item.read])).toEqual([
         [newer.id, false],
         [older.id, true],
+        [alreadyRead.id, true],
       ]);
-      expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(1);
+      expect(await handleCountUnreadNotifications(coordinator, database)).toBe(1);
     });
 
-    it("refuses to mark another user's notification and changes nothing", async () => {
+    it("leaves another user's notification unread when asked to mark it", async () => {
       const organiserRow = await raise(
         session("organiser").id,
         "event_confirmed",
@@ -488,7 +500,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         database as never
       );
 
-      expect(await handleCountUnreadNotifications(session("organiser"), database as never)).toBe(1);
+      expect(await handleCountUnreadNotifications(session("organiser"), database)).toBe(1);
     });
 
     it("marks all read up to the highest listed id, beyond the 50-row page, and only the caller's (AC3)", async () => {
@@ -509,28 +521,16 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         )
         .returning({ id: schema.notifications.id });
       // The count is not capped by the page.
-      expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(52);
+      expect(await handleCountUnreadNotifications(coordinator, database)).toBe(52);
 
-      // A row that arrives after the page rendered stays unread.
-      const listedNewest = rows[50].id;
-      await handleMarkNotificationsRead(
-        { throughId: listedNewest },
-        coordinator,
-        database as never
-      );
+      // rows[51] stands in for a notification raised after the page rendered: above the cutoff.
+      const cutoff = rows[50].id;
+      await handleMarkNotificationsRead({ throughId: cutoff }, coordinator, database as never);
 
-      expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(1);
-      expect(await handleCountUnreadNotifications(session("organiser"), database as never)).toBe(1);
-      const [unread] = await database
-        .select({ id: schema.notifications.id })
-        .from(schema.notifications)
-        .where(
-          and(
-            eq(schema.notifications.recipientId, coordinator.id),
-            isNull(schema.notifications.readAt)
-          )
-        );
-      expect(unread.id).toBe(rows[51].id);
+      expect(await handleCountUnreadNotifications(coordinator, database)).toBe(1);
+      expect(await handleCountUnreadNotifications(session("organiser"), database)).toBe(1);
+      const items = await handleListNotifications(coordinator, database);
+      expect(items.filter(item => !item.read).map(item => item.id)).toEqual([rows[51].id]);
     });
 
     it("keeps the read state of a neutralised or unparseable row without exposing anything else", async () => {
