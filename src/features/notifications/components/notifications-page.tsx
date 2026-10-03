@@ -19,10 +19,12 @@ const NEUTRAL_LINE = "This notification is no longer available.";
  * non-actionable rows render muted so the linked row is the only full-ink element in the list.
  * Timestamps use the shared instant formatter, which pins the zone for SSR and hydration.
  *
- * PTR-56: an unread row carries an "Unread" label and its own mark-read button, so read state is
- * told in text rather than by ink alone; ink already means "actionable". The header counts every
- * unread row, not just the listed ones, and "Mark all as read" stops at the newest listed row, so
- * a notification raised after the page rendered stays unread. Either action re-reads the list.
+ * PTR-56: an unread row carries an "Unread" label after its line and its own mark-read button, so
+ * read state is told in text rather than by ink alone (ink already means "actionable"), and every
+ * line keeps the same left edge. The header counts every unread row, not just the listed ones, as
+ * a live status so the change after a mark is announced. "Mark all as read" stops at the highest
+ * listed id — list order is by creation instant, which need not follow id order — so a
+ * notification raised after the page rendered stays unread. Either action re-reads the list.
  */
 export function NotificationsPage({
   notifications,
@@ -32,31 +34,48 @@ export function NotificationsPage({
   unreadCount: number;
 }) {
   const router = useRouter();
-  const [marking, markRead, pending] = useMutation(
+  const [mark, markRead, marking] = useMutation(
     async (input: { id: number } | { throughId: number }) => {
       try {
         await markNotificationsRead({ data: input });
       } finally {
+        // A refusal may follow a mark that landed (a lost response), so re-read either way rather
+        // than leave rows showing a state the server no longer holds.
         await router.invalidate();
       }
     },
     "Could not mark notifications as read. Try again."
   );
 
+  // Empty, the page already says there is nothing; a count line would only repeat it.
+  const description =
+    notifications.length === 0 ? (
+      "Everything addressed to you, newest first."
+    ) : (
+      <>
+        <output className="font-medium text-foreground">
+          {unreadCount === 0 ? "Nothing unread" : `${unreadCount} unread`}
+        </output>
+        . Everything addressed to you, newest first.
+      </>
+    );
+
   return (
     <Page width="page">
       <PageHeader
         eyebrow="Your account"
         title="Notifications"
-        description={`${unreadCount === 0 ? "Nothing unread" : `${unreadCount} unread`}. Everything addressed to you, newest first.`}
+        description={description}
         actions={
           unreadCount > 0 && notifications.length > 0 ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              disabled={pending}
-              onClick={() => void markRead({ throughId: notifications[0].id })}
+              disabled={marking}
+              onClick={() =>
+                void markRead({ throughId: Math.max(...notifications.map(item => item.id)) })
+              }
             >
               Mark all as read
             </Button>
@@ -64,9 +83,9 @@ export function NotificationsPage({
         }
       />
 
-      {marking.status === "error" && (
+      {mark.status === "error" && (
         <p role="alert" className="mb-4 body-sm text-destructive">
-          {marking.error}
+          {mark.error}
         </p>
       )}
 
@@ -74,40 +93,43 @@ export function NotificationsPage({
         <p className="body-sm text-muted-foreground">No notifications yet.</p>
       ) : (
         <ul className="divide-y divide-border">
-          {notifications.map(notification => (
-            <li
-              key={notification.id}
-              className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4"
-            >
-              {!notification.read && <Badge variant="progress">Unread</Badge>}
-              {notification.summary === null ? (
-                <p className="body-md text-muted-foreground">{NEUTRAL_LINE}</p>
-              ) : notification.href === null ? (
-                <p className="body-md text-muted-foreground">{notification.summary}</p>
-              ) : (
-                <a href={notification.href} className={NAV_LINK_CLASSNAME}>
-                  {notification.summary}
-                </a>
-              )}
-              <span className="ml-auto flex items-baseline gap-3">
-                {!notification.read && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    disabled={pending}
-                    aria-label={`Mark as read: ${notification.summary ?? NEUTRAL_LINE}`}
-                    onClick={() => void markRead({ id: notification.id })}
-                  >
-                    Mark as read
-                  </Button>
+          {notifications.map(notification => {
+            const when = formatInstant(new Date(notification.createdAt));
+            return (
+              <li
+                key={notification.id}
+                className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4"
+              >
+                {notification.summary === null ? (
+                  <p className="body-md text-muted-foreground">{NEUTRAL_LINE}</p>
+                ) : notification.href === null ? (
+                  <p className="body-md text-muted-foreground">{notification.summary}</p>
+                ) : (
+                  <a href={notification.href} className={NAV_LINK_CLASSNAME}>
+                    {notification.summary}
+                  </a>
                 )}
-                <time className="body-sm text-muted-foreground" dateTime={notification.createdAt}>
-                  {formatInstant(new Date(notification.createdAt))}
-                </time>
-              </span>
-            </li>
-          ))}
+                {!notification.read && <Badge>Unread</Badge>}
+                <span className="ml-auto flex items-baseline gap-3">
+                  {!notification.read && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="xs"
+                      disabled={marking}
+                      aria-label={`Mark as read, ${notification.summary ?? NEUTRAL_LINE}, ${when}`}
+                      onClick={() => void markRead({ id: notification.id })}
+                    >
+                      Mark as read
+                    </Button>
+                  )}
+                  <time className="body-sm text-muted-foreground" dateTime={notification.createdAt}>
+                    {when}
+                  </time>
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </Page>

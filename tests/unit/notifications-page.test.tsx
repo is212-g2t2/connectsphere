@@ -93,10 +93,10 @@ describe("NotificationsPage read state (PTR-56)", () => {
   };
   const unreadNeutral: NotificationListItem = { ...neutral, id: 8, read: false };
 
-  it("labels unread rows in text, shows the count, and offers mark-all only while unread remain", () => {
+  it("labels unread rows in text, shows the count as a status, and offers mark-all", () => {
     render(<NotificationsPage notifications={[unread, linked]} unreadCount={1} />);
 
-    expect(screen.getByText(/^1 unread./)).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("1 unread");
     const [unreadRow, readRow] = screen.getAllByRole("listitem");
     expect(within(unreadRow).getByText("Unread")).toBeTruthy();
     expect(within(readRow).queryByText("Unread")).toBeNull();
@@ -107,43 +107,57 @@ describe("NotificationsPage read state (PTR-56)", () => {
   it("says nothing is unread and hides mark-all when every row is read", () => {
     render(<NotificationsPage notifications={[linked]} unreadCount={0} />);
 
-    expect(screen.getByText(/^Nothing unread./)).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Nothing unread");
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("marks one row read by id and re-reads the list", async () => {
+  it("drops the count line when there are no notifications at all", () => {
+    render(<NotificationsPage notifications={[]} unreadCount={0} />);
+
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("marks one row read by id, naming the row and its time, and re-reads the list", async () => {
     render(<NotificationsPage notifications={[unread]} unreadCount={1} />);
 
     await userEvent.click(
-      screen.getByRole("button", { name: `Mark as read: ${unread.summary as string}` })
+      screen.getByRole("button", { name: "Mark as read, Event confirmed: Gala, 2 Nov 2030, 09:00" })
     );
 
     expect(markNotificationsRead).toHaveBeenCalledWith({ data: { id: unread.id } });
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
-  it("marks all read through the newest listed row, and still labels an unread neutral row", async () => {
-    render(<NotificationsPage notifications={[unread, unreadNeutral]} unreadCount={5} />);
+  it("marks all read through the highest listed id, even when it is not the first row", async () => {
+    // Listed second (an earlier instant) yet holding the higher id: the cutoff must still cover it.
+    const olderHigherId: NotificationListItem = {
+      ...unread,
+      id: 12,
+      createdAt: "2030-11-01T23:00:00.000Z",
+    };
+    render(
+      <NotificationsPage notifications={[unread, olderHigherId, unreadNeutral]} unreadCount={3} />
+    );
 
-    expect(screen.getByText(/^5 unread./)).toBeTruthy();
     expect(
       screen.getByRole("button", {
-        name: "Mark as read: This notification is no longer available.",
+        name: /^Mark as read, This notification is no longer available\./,
       })
     ).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
 
-    expect(markNotificationsRead).toHaveBeenCalledWith({ data: { throughId: unread.id } });
+    expect(markNotificationsRead).toHaveBeenCalledWith({ data: { throughId: 12 } });
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
-  it("shows the server's refusal when marking fails", async () => {
+  it("shows the server's refusal when marking fails, and still re-reads the list", async () => {
     markNotificationsRead.mockRejectedValueOnce(new Error("Choose a notification"));
     render(<NotificationsPage notifications={[unread]} unreadCount={1} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
 
     expect((await screen.findByRole("alert")).textContent).toBe("Choose a notification");
+    expect(invalidate).toHaveBeenCalled();
   });
 });
 

@@ -202,7 +202,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       );
       await raise(session("organiser").id, "event_confirmed", confirmedPayload(), eventId);
 
-      const items = await handleListNotifications(coordinator, database as never);
+      const items = await handleListNotifications(coordinator, database);
       expect(items.map(item => item.id)).toEqual([newest.id, middle.id, oldest.id]);
       expect(items).toHaveLength(3);
     });
@@ -216,17 +216,14 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         eventId
       );
 
-      const organiserItems = await handleListNotifications(session("organiser"), database as never);
+      const organiserItems = await handleListNotifications(session("organiser"), database);
       expect(organiserItems[0]).toMatchObject({
         summary: "Event confirmed: Notification Gala",
         href: `/event-requests/${eventId}`,
       });
       expect(Number.isNaN(Date.parse(organiserItems[0].createdAt))).toBe(false);
 
-      const coordinatorItems = await handleListNotifications(
-        session("coordinator"),
-        database as never
-      );
+      const coordinatorItems = await handleListNotifications(session("coordinator"), database);
       expect(coordinatorItems[0]).toMatchObject({
         summary: "Clarification replied: Notification Gala",
         href: `/coordination/${eventId}`,
@@ -237,7 +234,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       // The other Coordinator is not assigned to this event, so it is not in reach.
       await raise(session("otherCoordinator").id, "event_confirmed", confirmedPayload(), eventId);
 
-      const items = await handleListNotifications(session("otherCoordinator"), database as never);
+      const items = await handleListNotifications(session("otherCoordinator"), database);
       expect(items).toHaveLength(1);
       expect(items[0]).toMatchObject({ summary: null, href: null });
       const serialized = JSON.stringify(items);
@@ -262,7 +259,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         eventId
       );
 
-      const live = await handleListNotifications(session("otherCoordinator"), database as never);
+      const live = await handleListNotifications(session("otherCoordinator"), database);
       expect(live[0]).toMatchObject({
         summary: "Handover requested: Notification Gala",
         href: "/coordination",
@@ -275,7 +272,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .set({ assignedCoordinatorId: null })
         .where(eq(schema.eventRequests.id, eventId));
       try {
-        const stale = await handleListNotifications(session("otherCoordinator"), database as never);
+        const stale = await handleListNotifications(session("otherCoordinator"), database);
         expect(stale[0]).toMatchObject({ summary: null, href: null });
       } finally {
         await database
@@ -305,7 +302,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         eventId
       );
 
-      const pendingItems = await handleListNotifications(session("venueStaff"), database as never);
+      const pendingItems = await handleListNotifications(session("venueStaff"), database);
       expect(pendingItems[0]).toMatchObject({
         summary: "Venue booking requested: Notification Hall",
         href: `/venue-requests/${venueRequestId}`,
@@ -318,14 +315,14 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .update(schema.venueRequests)
         .set({ status: "approved", assignedStaffId: users.venueStaff.id })
         .where(eq(schema.venueRequests.id, venueRequestId));
-      const settled = await handleListNotifications(session("venueStaff"), database as never);
+      const settled = await handleListNotifications(session("venueStaff"), database);
       expect(settled[0]?.href).toBe("/venue-bookings");
 
       await database
         .update(schema.venueRequests)
         .set({ status: "released", releaseReason: "Maintenance" })
         .where(eq(schema.venueRequests.id, venueRequestId));
-      const released = await handleListNotifications(session("venueStaff"), database as never);
+      const released = await handleListNotifications(session("venueStaff"), database);
       expect(released[0]).toMatchObject({
         summary: "Venue booking requested: Notification Hall",
         href: null,
@@ -335,7 +332,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .update(schema.venueRequests)
         .set({ status: "rejected", rejectionReason: "Not available" })
         .where(eq(schema.venueRequests.id, venueRequestId));
-      const rejected = await handleListNotifications(session("venueStaff"), database as never);
+      const rejected = await handleListNotifications(session("venueStaff"), database);
       expect(rejected[0]).toMatchObject({
         summary: "Venue booking requested: Notification Hall",
         href: null,
@@ -359,7 +356,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         )
         .returning({ id: schema.notifications.id });
 
-      const items = await handleListNotifications(coordinator, database as never);
+      const items = await handleListNotifications(coordinator, database);
       expect(items).toHaveLength(50);
       expect(items[0].id).toBe(rows[50].id);
       expect(items.map(item => item.id)).not.toContain(rows[0].id);
@@ -377,7 +374,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         at
       );
 
-      const items = await handleListNotifications(coordinator, database as never);
+      const items = await handleListNotifications(coordinator, database);
       expect(items.map(item => item.id)).toEqual([second.id, first.id]);
     });
 
@@ -404,11 +401,11 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .set({ status: "approved", assignedStaffId: users.venueStaff.id })
         .where(eq(schema.venueRequests.id, venueRequestId));
 
-      const other = await handleListNotifications(session("otherVenueStaff"), database as never);
+      const other = await handleListNotifications(session("otherVenueStaff"), database);
       expect(other).toHaveLength(1);
       expect(other[0]).toMatchObject({ summary: null, href: null });
 
-      const decider = await handleListNotifications(session("venueStaff"), database as never);
+      const decider = await handleListNotifications(session("venueStaff"), database);
       expect(decider[0]).toMatchObject({
         summary: "Venue booking requested: Notification Hall",
         href: "/venue-bookings",
@@ -435,7 +432,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .set({ assignedCoordinatorId: users.otherCoordinator.id })
         .where(eq(schema.eventRequests.id, eventId));
 
-      const items = await handleListNotifications(session("coordinator"), database as never);
+      const items = await handleListNotifications(session("coordinator"), database);
       expect(items).toHaveLength(1);
       expect(items[0]).toMatchObject({ summary: null, href: null });
     });
@@ -447,7 +444,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       const row = await raise(coordinator.id, "event_confirmed", confirmedPayload());
 
       expect(row.readAt).toBeNull();
-      const items = await handleListNotifications(coordinator, database as never);
+      const items = await handleListNotifications(coordinator, database);
       expect(items.map(item => item.read)).toEqual([false]);
       expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(1);
     });
@@ -470,7 +467,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
 
       expect(first.readAt).not.toBeNull();
       expect(second.readAt).toEqual(first.readAt);
-      const items = await handleListNotifications(coordinator, database as never);
+      const items = await handleListNotifications(coordinator, database);
       expect(items.map(item => [item.id, item.read])).toEqual([
         [newer.id, false],
         [older.id, true],
@@ -494,8 +491,10 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       expect(await handleCountUnreadNotifications(session("organiser"), database as never)).toBe(1);
     });
 
-    it("marks all read up to the newest listed row, beyond the 50-row page, and only the caller's (AC3)", async () => {
+    it("marks all read up to the highest listed id, beyond the 50-row page, and only the caller's (AC3)", async () => {
       const coordinator = session("coordinator");
+      // Raised first, so its id sits below the cutoff: only the recipient scope can spare it.
+      await raise(session("organiser").id, "event_confirmed", confirmedPayload());
       const base = Date.UTC(2033, 0, 1, 0, 0, 0);
       const rows = await database
         .insert(schema.notifications)
@@ -509,7 +508,6 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
           }))
         )
         .returning({ id: schema.notifications.id });
-      await raise(session("organiser").id, "event_confirmed", confirmedPayload());
       // The count is not capped by the page.
       expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(52);
 
@@ -535,19 +533,29 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       expect(unread.id).toBe(rows[51].id);
     });
 
-    it("keeps a neutralised row's read state without exposing anything else", async () => {
-      const row = await raise(
-        session("otherCoordinator").id,
-        "event_confirmed",
-        confirmedPayload()
+    it("keeps the read state of a neutralised or unparseable row without exposing anything else", async () => {
+      const otherCoordinator = session("otherCoordinator");
+      const unreachable = await raise(otherCoordinator.id, "event_confirmed", confirmedPayload());
+      const unparseable = await raise(otherCoordinator.id, "event_confirmed", {});
+      await handleMarkNotificationsRead(
+        { throughId: unparseable.id },
+        otherCoordinator,
+        database as never
       );
 
-      const items = await handleListNotifications(session("otherCoordinator"), database as never);
+      const items = await handleListNotifications(otherCoordinator, database);
       expect(items).toEqual([
         {
-          id: row.id,
-          createdAt: row.createdAt.toISOString(),
-          read: false,
+          id: unparseable.id,
+          createdAt: unparseable.createdAt.toISOString(),
+          read: true,
+          summary: null,
+          href: null,
+        },
+        {
+          id: unreachable.id,
+          createdAt: unreachable.createdAt.toISOString(),
+          read: true,
           summary: null,
           href: null,
         },

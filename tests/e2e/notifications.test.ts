@@ -179,7 +179,7 @@ test("[PTR-56] tells unread from read and marks one, then all, read", async ({ p
 
     const items = page.getByRole("listitem");
     await expect(items).toHaveCount(3);
-    await expect(page.getByText(/^2 unread\./)).toBeVisible();
+    await expect(page.getByRole("status")).toHaveText("2 unread");
     await expect(items.nth(0).getByText("Unread")).toBeVisible();
     await expect(items.nth(1).getByText("Unread")).toBeVisible();
     await expect(items.nth(2).getByText("Unread")).toHaveCount(0);
@@ -188,11 +188,11 @@ test("[PTR-56] tells unread from read and marks one, then all, read", async ({ p
       .nth(1)
       .getByRole("button", { name: /^Mark as read/ })
       .click();
-    await expect(page.getByText(/^1 unread\./)).toBeVisible();
+    await expect(page.getByRole("status")).toHaveText("1 unread");
     await expect(items.nth(1).getByText("Unread")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Mark all as read" }).click();
-    await expect(page.getByText(/^Nothing unread\./)).toBeVisible();
+    await expect(page.getByRole("status")).toHaveText("Nothing unread");
     await expect(page.getByText("Unread", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Mark all as read" })).toHaveCount(0);
   } finally {
