@@ -440,13 +440,23 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
   });
 
   describe("read state (PTR-56)", () => {
-    it("reads the listed rows and the unread count together for the page (AC2)", async () => {
+    it("reads the listed rows and the global unread count together for the page (AC2)", async () => {
       const coordinator = session("coordinator");
-      const unread = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+      const base = Date.UTC(2034, 0, 1, 0, 0, 0);
+      await database.insert(schema.notifications).values(
+        Array.from({ length: 52 }, (_, index) => ({
+          recipientId: coordinator.id,
+          eventRequestId: eventId,
+          kind: "event_confirmed" as const,
+          payload: confirmedPayload() as never,
+          createdAt: new Date(base + index * 1_000),
+        }))
+      );
 
       const inbox = await handleReadInbox(coordinator, database as never);
-      expect(inbox.unreadCount).toBe(1);
-      expect(inbox.notifications.map(item => [item.id, item.read])).toEqual([[unread.id, false]]);
+      // Counted past the page: a count derived from the listed rows would say 50.
+      expect(inbox.notifications).toHaveLength(50);
+      expect(inbox.unreadCount).toBe(52);
     });
 
     it("starts every new notification unread and counts it (AC1, AC2)", async () => {
@@ -461,7 +471,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
 
     it("marks one read, keeps an earlier first read time, and leaves the rest unread (AC3, AC4)", async () => {
       const coordinator = session("coordinator");
-      const firstRead = new Date(Date.UTC(2030, 0, 1, 0, 0, 0));
+      const firstRead = new Date(Date.UTC(2020, 0, 1, 0, 0, 0));
       const alreadyRead = await raise(coordinator.id, "event_confirmed", confirmedPayload());
       await database
         .update(schema.notifications)
@@ -503,7 +513,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       expect(await handleCountUnreadNotifications(session("organiser"), database)).toBe(1);
     });
 
-    it("marks all read up to the highest listed id, beyond the 50-row page, and only the caller's (AC3)", async () => {
+    it("marks all read up to the cutoff id, beyond the 50-row page, and only the caller's (AC3)", async () => {
       const coordinator = session("coordinator");
       // Raised first, so its id sits below the cutoff: only the recipient scope can spare it.
       await raise(session("organiser").id, "event_confirmed", confirmedPayload());

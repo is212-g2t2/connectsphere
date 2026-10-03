@@ -51,6 +51,8 @@ describe("NotificationsPage", () => {
     render(<NotificationsPage notifications={[]} unreadCount={0} />);
 
     expect(screen.getByText("No notifications yet.")).toBeTruthy();
+    // Empty, the page already says there is nothing, so no count line repeats it.
+    expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
     expect(screen.queryByRole("list")).toBeNull();
   });
@@ -121,12 +123,6 @@ describe("NotificationsPage read state (PTR-56)", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("drops the count line when there are no notifications at all", () => {
-    render(<NotificationsPage notifications={[]} unreadCount={0} />);
-
-    expect(screen.queryByRole("status")).toBeNull();
-  });
-
   it("marks one row read by id, naming the row and its time, and re-reads the list", async () => {
     render(<NotificationsPage notifications={[unread, unreadNeutral]} unreadCount={2} />);
 
@@ -136,12 +132,16 @@ describe("NotificationsPage read state (PTR-56)", () => {
         name: /^Mark as read, This notification is no longer available\., /,
       })
     ).toBeTruthy();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Mark as read, Event confirmed: Gala, 2 Nov 2030, 09:00" })
-    );
+    const button = screen.getByRole("button", {
+      name: "Mark as read, Event confirmed: Gala, 2 Nov 2030, 09:00",
+    });
+    await userEvent.click(button);
 
     expect(markNotificationsRead).toHaveBeenCalledWith({ data: { id: unread.id } });
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    // Settled once the buttons re-enable; a success says nothing.
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("marks all read through the highest listed id, even when it is not the first row", async () => {
