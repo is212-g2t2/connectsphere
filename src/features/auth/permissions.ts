@@ -6,7 +6,7 @@ import type { Role } from "#/features/auth/schema/role";
 
 /**
  * The role/function matrix (PTR-7). Rationale and the human-readable table live in
- * `docs/ARCHITECTURE.md#authorisation`.
+ * `docs/ARCHITECTURE.md#authorization`.
  *
  * `createAccessControl` is a plain helper, *not* a plugin: it never goes in
  * `betterAuth({ plugins })`, and adding it there is the mistake to avoid.

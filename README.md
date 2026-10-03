@@ -9,7 +9,7 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
 ### Prerequisites
 
 - [Bun](https://bun.sh/) v1.4.2 or later
-- [Docker](https://www.docker.com/) for local services (Postgres, Redis)
+- [Docker](https://www.docker.com/) for local services (PostgreSQL, MinIO, Redis)
 
 ### Setup
 
@@ -19,49 +19,49 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
    bun install
    ```
 
-2. **Configure environment**
+2. **Configure the environment**
 
    ```bash
    cp .env.example .env
    ```
 
-   Open `.env` and fill in the required values (see the [Environment Variables Reference](./docs/DEVELOPMENT.md#environment-variables) in the Development Guide).
+   Open `.env` and fill in the required values. See the [Environment Variables Reference](./docs/DEVELOPMENT.md#environment-variables) in the Development Guide.
 
 3. **Start local services**
 
    ```bash
-   docker compose up -d postgres redis
+   docker compose up -d postgres redis minio minio_init
    ```
 
-   This starts the infrastructure only. The `connectsphere` app service binds port 3000 and would clash with the local dev server; see the [Deployment Guide](./docs/DEPLOYMENT.md).
+   This command starts the infrastructure services only. The `connectsphere` service binds port 3000. It conflicts with the local development server. See the [Deployment Guide](./docs/DEPLOYMENT.md).
 
 4. **Prepare the database**
 
    ```bash
-   bun run db:migrate   # apply migrations
-   bun run db:seed      # optional: demo accounts, venues and equipment
+   bun run db:migrate   # Apply migrations
+   bun run db:seed      # Optional: demo accounts, venues and equipment
    ```
 
-   _(Or push schema directly during local prototyping: `bun run db:push`.)_
+   For local prototyping, you can push the schema directly with `bun run db:push`.
 
    Seeded credentials and demo data are listed in the [Development Guide](./docs/DEVELOPMENT.md#seeded-data).
 
-5. **Start the dev server**
+5. **Start the development server**
 
    ```bash
    bun run dev
    ```
 
-   Open [http://localhost:3000](http://localhost:3000). Sign up, sign in, and land on the protected dashboard.
+   Open [http://localhost:3000](http://localhost:3000). Sign up or sign in. The application opens the protected dashboard.
 
-For complete workflow instructions, script catalogs, testing guidelines, and environment configuration, see the [Development Guide](./docs/DEVELOPMENT.md).
+For the full workflow instructions, scripts catalog, testing guidelines, and environment configuration, see the [Development Guide](./docs/DEVELOPMENT.md).
 
 ## Documentation
 
 - [Development](./docs/DEVELOPMENT.md): local setup, scripts catalog, database management, testing, and tooling.
-- [Architecture](./docs/ARCHITECTURE.md): project structure, data flow, auth, and observability.
+- [Architecture](./docs/ARCHITECTURE.md): project structure, data flow, authentication, and observability.
 - [Design System](./docs/DESIGN.md): the ConnectSphere design system and its tokens.
-- [Agents Guide](./AGENTS.md): rules for coding agents working in this repo.
+- [Agents Guide](./AGENTS.md): rules for coding agents working in this repository.
 - [Deployment](./docs/DEPLOYMENT.md): deployed environments, the release pipeline, rollback, and the local Docker workflow.
 - [Changelog](./CHANGELOG.md): version history.
 - [Contributing](./docs/CONTRIBUTING.md): branch, commit, and test conventions.

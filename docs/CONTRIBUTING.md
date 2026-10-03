@@ -2,12 +2,12 @@
 
 ## Local Development
 
-Before opening a pull request, ensure your local environment is configured and working. Follow the instructions in the [Development Guide](./DEVELOPMENT.md) for prerequisites, local service orchestration (Docker Compose), and the complete scripts catalog.
+Before you open a pull request, make sure that your local environment is configured and operates correctly. The [Development Guide](./DEVELOPMENT.md) gives the prerequisites, the local service orchestration (Docker Compose), and the complete scripts catalog. Follow its instructions.
 
 ## Branches
 
-- Base feature work off `main` and open pull requests against `main`. Merging a code change to `main` deploys staging.
-- Production deploys only when a release is published; release-please maintains the version PR that cuts it. See the [Deployment Guide](./DEPLOYMENT.md#releases).
+- Start feature work from `main`. Open pull requests against `main`. A merge to `main` starts the staging deploy.
+- Production deploys only after you publish a release. release-please maintains the version PR that creates the release. See the [Deployment Guide](./DEPLOYMENT.md#releases).
 - Use short, lowercase, hyphen-separated names: `feat/venue-booking`, `fix/auth-redirect`, `chore/ci-cache`.
 
 ## Commits
@@ -22,7 +22,7 @@ chore: pin Bun version in CI
 
 ## Pre-PR Verification
 
-Run the full verification suite before opening a PR:
+Run the full verification suite before you open a PR:
 
 ```bash
 bun run lint:check
@@ -33,16 +33,16 @@ bun run test:integration
 bun run test:e2e
 ```
 
-New features need at least one unit test covering the core behaviour. New routes need at least one Playwright smoke test verifying the happy path and any redirect guards. For detailed test tier rules and running targeted tests, see the [Testing Guide in DEVELOPMENT.md](./DEVELOPMENT.md#testing-guide).
+New features must have one or more unit tests that cover the core behavior. New routes must have one or more Playwright smoke tests that verify the happy path and the redirect guards. For the test tier rules and the commands for targeted tests, see the [Testing Guide in DEVELOPMENT.md](./DEVELOPMENT.md#testing-guide).
 
 ## Database changes
 
-Schema changes (`src/db/schema.ts`, `src/db/auth-schema.ts`) ship in the same commit as their generated migration in `src/db/drizzle/`, and the migration must apply cleanly against your local database. Never handwrite migrations, with one reviewed exception: the booking exclusion constraint Drizzle cannot express is added with `db:generate --custom` ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)). A code-quality job regenerates migrations and fails if `src/db/drizzle/` differs, and runs `drizzle-kit check` for conflicting or broken migration files, so regenerate after the last schema edit. Full workflow: [Database Management in DEVELOPMENT.md](./DEVELOPMENT.md#database-management--migrations).
+Commit schema changes (`src/db/schema.ts`, `src/db/auth-schema.ts`) with their generated migration in `src/db/drizzle/`. The migration must apply cleanly against your local database. Never handwrite migrations. One reviewed exception is the booking exclusion constraint Drizzle cannot express. Add it with `db:generate --custom` ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)). A code-quality job regenerates migrations and fails if `src/db/drizzle/` differs. The same job runs `drizzle-kit check` for conflicting or broken migration files. Regenerate after the last schema change. Full workflow: [Database Management in DEVELOPMENT.md](./DEVELOPMENT.md#database-management-and-migrations).
 
 ## Adding dependencies
 
-Every runtime dependency added to `package.json` must be used by shipped code. Dev dependencies are fine as long as they stay out of the production bundle.
+Every runtime dependency in `package.json` must be used by shipped code. Dev dependencies are permitted if they do not enter the production bundle.
 
 ## Environment variables
 
-New variables follow [DEVELOPMENT.md §Adding Environment Variables](./DEVELOPMENT.md#adding-environment-variables): declared in `src/env.ts`, commented in `.env.example`, and mentioned in `README.md` when they change setup.
+Add new variables in three places. Declare them in `src/env.ts`, comment them in `.env.example`, and mention them in `README.md` when they change the setup. See [DEVELOPMENT.md §Adding Environment Variables](./DEVELOPMENT.md#adding-environment-variables).

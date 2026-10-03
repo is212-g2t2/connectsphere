@@ -1,32 +1,32 @@
 # AGENTS.md
 
-This file provides guidance to AI agents when working with code in this repository.
+This file gives guidance to AI agents that work with code in this repository.
 
 ## Where things are documented
 
-Read these instead of re-deriving; do not duplicate their content here.
+Read these documents. Do not derive the information again. Do not copy their content here.
 
-- `docs/ARCHITECTURE.md`: stack, directory map, data flow, auth flows, observability config.
+- `docs/ARCHITECTURE.md`: stack, directory map, data flow, authentication flows, observability configuration.
 - `docs/DEVELOPMENT.md`: local setup, environment variables, scripts, database workflows, testing, and tooling.
-- `docs/CONTRIBUTING.md`: branch names, Conventional Commits, dependency and env-var rules.
+- `docs/CONTRIBUTING.md`: branch names, Conventional Commits, dependency and environment variable rules.
 - `README.md`: overview, quickstart, local services.
 
 ## Writing documentation
 
-Each kind of content has exactly one home; decide it before writing:
+Each kind of content has exactly one home. Decide the home before you write:
 
-- **What shipped**: `CHANGELOG.md` at the repo root, curated by the maintainer. Never add, edit, or remove a changelog entry, even for work that ships; acceptance detail stays in the PR.
+- **What shipped**: `CHANGELOG.md` at the repository root, curated by the maintainer. Never add, edit, or remove a changelog entry, even for work that ships. Acceptance detail stays in the PR.
 - **Why a decision was made**: `docs/adrs/`.
 - **How to do a procedure**: `docs/DEVELOPMENT.md`, `DEPLOYMENT.md`, `CONTRIBUTING.md`.
 - **What is true about the system now**: `docs/ARCHITECTURE.md`.
 
-`ARCHITECTURE.md` is undated: no ticket ids (`PTR-*`), no per-story narrative, no one-time release instructions ("apply migration 0011"). If a sentence only made sense in the release that introduced it, it belongs in the PR description, not in architecture. Anything architectural that must outlive a release goes in an ADR; a rule that already has a home gets a link, not a second copy.
+`ARCHITECTURE.md` is undated: no ticket ids (`PTR-*`), no per-story narrative, and no one-time release instructions ("apply migration 0011"). If a sentence makes sense only in the release that introduced it, it belongs in the PR description, not in architecture. Anything architectural that must outlive a release goes in an ADR. A rule that already has a home gets a link, not a second copy.
 
-Apply the [no-ai-slop](https://raw.githubusercontent.com/petergyang/no-ai-slop/refs/heads/main/skills/no-ai-slop/SKILL.md) rules when you write or edit docs: active voice, concrete facts over abstraction, no filler openers, no binary contrasts, em dashes only where they beat a comma or a full stop. Prose budget: a paragraph ≤ 4 lines, a list item ≤ 3 sentences. More than that wants a table, a list, or its own document, not a bigger paragraph.
+Apply the [no-ai-slop](https://raw.githubusercontent.com/petergyang/no-ai-slop/refs/heads/main/skills/no-ai-slop/SKILL.md) rules when you write or edit docs: active voice, concrete facts over abstractions, no filler openers, and no binary contrasts. Use an em dash only where it is better than a comma or a full stop. Prose budget: a paragraph ≤ 4 lines, and a list item ≤ 3 sentences. More than that needs a table, a list, or its own document, not a bigger paragraph.
 
 ## Running a single test
 
-`package.json` only exposes whole-suite scripts; target a single test by passing the path through:
+`package.json` exposes whole-suite scripts only. To target one test, pass the path through:
 
 ```bash
 bun run vitest run tests/unit/auth-session.test.ts            # one file
@@ -36,41 +36,47 @@ bun run test:e2e tests/e2e/landing.test.ts            # one E2E file (forwards t
 
 ## Verifying changes
 
-Before calling work done: `bun run lint:check`, `bun run type:check` and `bun run format:check`, plus the suite your change touches (`test:unit`, `test:integration`, `test:e2e`). Full list: `docs/CONTRIBUTING.md` §Pre-PR Verification.
+Before you call work done, run `bun run lint:check`, `bun run type:check`, and `bun run format:check`. Also run the suite that your change touches (`test:unit`, `test:integration`, or `test:e2e`). Full list: `docs/CONTRIBUTING.md` §Pre-PR Verification.
 
 ## Test layout gotchas
 
 - `test:unit` runs the Vitest `unit` project (`vitest run --project unit`), targeting `tests/unit/` with `jsdom` environment.
 - `test:integration` runs the Vitest `integration` project (`vitest run --project integration`), targeting `tests/integration/` with `node` environment.
-- Unit tests must not start a database container; keep them to pure logic. Testcontainers belongs in integration/E2E only.
+- Unit tests must not start a database container. Keep them to pure logic, and use Testcontainers in integration and E2E tests only.
 - Coverage is `enabled: true` in `vitest.config.ts`, so test runs rewrite `coverage/`.
 
 ## Client/server boundary
 
-- Server functions exported via `createServerFn` and consumed by routes are compiled for the client environment. TanStack Start strips `.handler(...)` bodies but preserves all other `export` declarations.
-- Never statically import runtime built-ins or server-only dependencies (`#/db`, **`#/db/schema`**, `"bun"`) at module level in a module the client can reach. The import alone is enough; it does not need an exported helper referencing it. Drizzle builds its tables by calling `pgTable()` at module scope, which a bundler cannot prove side-effect free, so the module is retained whole and Dead Code Elimination drops nothing. A `<feature>.server.ts` module (see below) is the sanctioned exception: nothing client-reachable may import it, so a static import there never reaches the bundle.
-- `#/db/schema` is the trap, because unlike `#/db` it does **not** fail `bun run build`: it just silently serves the entire database schema, Better Auth tables included, to the browser. `tests/unit/client-bundle-safety.test.ts` walks every module under `src/features`, `src/hooks`, `src/lib` and `src/components` (modules are discovered, not listed) and is the only thing that catches it. When adding a server-only _dependency_, not a module, add its specifier to that test's `SERVER_ONLY_IMPORT`.
-- Instead, reach server dependencies dynamically inside `.handler()` (or a middleware's `.server()` callback, as `src/features/auth/session.ts` does) via `await import("#/db")`, import server types with `import type`, and require injected dependencies in exported helpers (e.g. `database: Database`). Never anchor `database = db` as a default parameter on an exported function; the same test rejects that pattern and expects the caller to pass `database`.
-- Do **not** give a client-reachable module the `<feature>.server.ts` suffix. `@tanstack/start-plugin-core`'s import-protection plugin denies `**/*.server.*` in the client environment, so the first route that imports it fails `bun run build`, and only `build`: `type:check` and the test suites stay green. That suffix is only for modules nothing client-reachable imports, like `event-requests/drafts.server.ts`.
+- TanStack Start compiles the server functions that `createServerFn` exports and routes consume for the client environment. It strips `.handler(...)` bodies, but it preserves all other `export` declarations.
+- Never statically import runtime built-ins or server-only dependencies (`#/db`, **`#/db/schema`**, `"bun"`) at module level in a module that the client can reach. The import alone is sufficient; it does not need an exported helper that references it. Drizzle calls `pgTable()` at module scope to build its tables, and a bundler cannot prove that call side-effect free. The bundler therefore retains the module whole, and Dead Code Elimination drops nothing. A `<feature>.server.ts` module (see below) is the sanctioned exception. No client-reachable module imports it, so a static import there never reaches the bundle.
+- `#/db/schema` is the trap: unlike `#/db`, it does **not** fail `bun run build`. It silently serves the entire database schema, Better Auth tables included, to the browser. `tests/unit/client-bundle-safety.test.ts` walks every module under `src/features`, `src/hooks`, `src/lib`, and `src/components`. It discovers the modules and does not use a list. This test is the only check that catches the problem. When you add a server-only _dependency_, not a module, add its specifier to that test's `SERVER_ONLY_IMPORT`.
+- Instead, reach server dependencies dynamically inside `.handler()` with `await import("#/db")`, or inside a middleware's `.server()` callback, as `src/features/auth/session.ts` does. Import server types with `import type`, and require injected dependencies in exported helpers (for example `database: Database`). Never anchor `database = db` as a default parameter on an exported function. The same test rejects that pattern and expects the caller to pass `database`.
+- Do **not** give a client-reachable module the `<feature>.server.ts` suffix. The import-protection plugin in `@tanstack/start-plugin-core` denies `**/*.server.*` in the client environment, so `bun run build` fails at the first route that imports the module. Only `build` fails: `type:check` and the test suites stay green. Use that suffix only for modules that nothing client-reachable imports, like `event-requests/drafts.server.ts`.
 
-## File layout & naming
+## File layout and naming
 
-- A page view is a feature component, not a route: `src/features/<feature>/components/<page>-page.tsx`, taking its route data (context, loader data, search) as props. The route file keeps only wiring (search validation, guards, loaders, metadata, pending/error components) and binds the two together with `component: () => <Page {...Route.use*()} />`. `tests/unit/route-module-boundaries.test.ts` fails if a route module declares anything but `Route` or reaches for React state.
-- No `-model` suffix, and no entity-name stutter (`venues/venues-fns.ts`). A helper with only one caller lives in that caller's file, even if a unit test also imports and tests it; export it from the caller's file for the test. Only extract a helper into its own file when it has two or more application callers.
+- A page view is a feature component, not a route: `src/features/<feature>/components/<page>-page.tsx`, which takes its route data (context, loader data, search) as props. The route file keeps only wiring (search validation, guards, loaders, metadata, and pending or error components), and it binds the two together with `component: () => <Page {...Route.use*()} />`. `tests/unit/route-module-boundaries.test.ts` fails if a route module declares anything but `Route`, or if it reaches for React state.
+- No `-model` suffix, and no entity-name stutter (`venues/venues-fns.ts`). A helper with only one caller lives in that caller's file, even if a unit test also imports and tests it. Export it from the caller's file for the test. Extract a helper into its own file only when it has two or more application callers.
 
 ## Server functions
 
-- Every `createServerFn` declares `.middleware([...])`. Session and permission enforcement runs there, never in the handler. `tests/unit/server-function-middleware.test.ts` fails the suite if one omits it, and `tests/integration/server-function-authorization.test.ts` proves a refusal runs before the handler.
-- Validation lives in the Zod schema, parsed with `safeParse` rethrowing `issues[0].message`. Never let a raw `ZodError` reach a route.
+- Every `createServerFn` declares `.middleware([...])`. Session and permission enforcement runs there, never in the handler. `tests/unit/server-function-middleware.test.ts` fails the suite if a function omits the middleware. `tests/integration/server-function-authorization.test.ts` proves that a refusal runs before the handler.
+- Validation lives in the Zod schema, which the code parses with `safeParse` and rethrows as `issues[0].message`. Never let a raw `ZodError` reach a route.
 
 ## Imports
 
-`#/...` is the only alias for `src/`. It lives in three places that must stay in sync (`tsconfig.json` `paths`, `package.json` `imports`, and `vitest.config.ts` `alias`), so a new alias means touching all three or it will typecheck and then fail under test. `components.json` already generates `#/`, so shadcn output needs no rewriting. Workflow: `docs/DEVELOPMENT.md` §Imports & Path Aliases.
+`#/...` is the only alias for `src/`. It lives in three places that must stay in sync (`tsconfig.json` `paths`, `package.json` `imports`, and `vitest.config.ts` `alias`). A new alias therefore means touching all three files, or it typechecks and then fails under test. `components.json` already generates `#/`, so shadcn output needs no rewriting. Workflow: `docs/DEVELOPMENT.md` §Imports and Path Aliases.
 
 ## Adding an environment variable
 
-Three places, all required: `src/env.ts` (optional unless the app cannot boot without it), a commented entry in `.env.example`, and `README.md` if it changes setup steps. Workflow: `docs/DEVELOPMENT.md` §Adding Environment Variables.
+You must update three places:
+
+- `src/env.ts` (optional unless the application cannot boot without it)
+- `.env.example` (a commented entry)
+- `README.md` (only if the variable changes the setup steps)
+
+Workflow: `docs/DEVELOPMENT.md` §Adding Environment Variables.
 
 ## Database schemas and migrations
 
-When touching any schema file (`src/db/schema.ts`, `src/db/auth-schema.ts`): run `bun run db:generate`, review the generated DDL in `src/db/drizzle/`, and commit the schema with its migration together. Never handwrite SQL, and never use `db:push` outside local prototyping; it records no migration history. Two reviewed exceptions are the exclusion constraints Drizzle cannot express, added with `db:generate --custom`: the booking constraint `venue_requests_no_overlap` (migration 0019) and the venue-hold constraint `venue_holds_no_overlap` (migration 0024), both documented by ADR-5 (`docs/adrs/ADR-5-venue-booking-overlap.md`). Workflow: `docs/DEVELOPMENT.md` §Migration Rules.
+When you touch a schema file (`src/db/schema.ts`, `src/db/auth-schema.ts`), run `bun run db:generate`. Review the generated DDL in `src/db/drizzle/`, and commit the schema with its migration together. Never handwrite SQL, and never use `db:push` outside local prototyping: it records no migration history. Two reviewed exceptions are the exclusion constraints that Drizzle cannot express, added with `db:generate --custom`. The first is the booking constraint `venue_requests_no_overlap` (migration 0019). The second is the venue-hold constraint `venue_holds_no_overlap` (migration 0024). Both are documented by ADR-5 (`docs/adrs/ADR-5-venue-booking-overlap.md`). Workflow: `docs/DEVELOPMENT.md` §Migration Rules.

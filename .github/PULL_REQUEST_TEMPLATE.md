@@ -2,19 +2,19 @@
 
 <!-- Briefly describe the purpose and context of this change. What problem does it solve? -->
 
-Implements PTR- <!-- Linear work item, e.g. Implements PTR-84. -->
+Implements PTR- <!-- Linear work item, for example Implements PTR-84. -->
 
 ## Key Changes
 
-<!-- Outline the main changes introduced in this PR -->
+<!-- Outline the main changes in this PR. -->
 
 ## Screenshots / Demos
 
-<!-- If applicable, include screenshots, recordings, or terminal output demonstrating the changes -->
+<!-- If necessary, include screenshots, recordings, or terminal output that shows the changes. -->
 
 ## Checklist
 
-- [ ] I have read the CONTRIBUTING document
-- [ ] I have performed a self-review of my code.
-- [ ] I have added/modified tests to cover my changes (where applicable).
-- [ ] I have updated the documentation (where applicable).
+- [ ] I have read the CONTRIBUTING document.
+- [ ] I have reviewed my own code.
+- [ ] I have added or changed tests for my changes when necessary.
+- [ ] I have updated the documentation when necessary.
