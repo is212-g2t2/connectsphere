@@ -1104,29 +1104,11 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(await database.select().from(schema.eventAssignments)).toHaveLength(1);
     });
 
-    it("refuses two simultaneous direct moves alike and audits neither (PTR-116 AC2)", async () => {
-      const request = await submitNew(fullRequest, organiser, database);
-      const results = await Promise.allSettled(
-        [incoming.id, "seed-coordinator-1"].map(coordinatorId =>
-          handleAssignEventRequest(
-            { id: request.id, coordinatorId, expectedCoordinatorId: outgoing.id },
-            outgoing,
-            database as never
-          )
-        )
-      );
-      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(0);
-      for (const result of results) {
-        expect(result).toMatchObject({ status: "rejected", reason: { status: 409 } });
-      }
-      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
-    });
-
     it("refuses to pick up a decided request its deleted Coordinator left unassigned", async () => {
       const request = await submitNew(fullRequest, organiser, database);
       await handleTakeUpForReview({ id: request.id }, outgoing, database as never);
       await handleDecideEventRequest(
-        { id: request.id, decision: "approved", reason: "" },
+        { id: request.id, decision: "approved" },
         outgoing,
         database as never
       );

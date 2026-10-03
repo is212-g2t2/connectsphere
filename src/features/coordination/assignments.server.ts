@@ -218,11 +218,13 @@ export async function handleAssignEventRequest(
         "Only an unassigned request can be picked up here; an assigned request is handed over by its Coordinator."
       );
     }
-    if (request.assignedCoordinatorId !== null) {
-      throw new ConflictError(ASSIGNED_REQUEST_HANDOVER_MESSAGE);
-    }
+    // Decided first: a decided request cannot be handed over either, so pointing its Coordinator
+    // at the handover would be advice they cannot follow.
     if (request.status === "approved" || request.status === "rejected") {
       throw new ConflictError("A decided request can no longer be assigned.");
+    }
+    if (request.assignedCoordinatorId !== null) {
+      throw new ConflictError(ASSIGNED_REQUEST_HANDOVER_MESSAGE);
     }
     // The request is unassigned, so the only observation a stale page can hold is a Coordinator
     // who has since been removed; `null` is the one value that matches.
@@ -248,7 +250,8 @@ export async function handleAssignEventRequest(
       .returning();
     await tx.insert(eventAssignments).values({
       eventRequestId: request.id,
-      fromCoordinatorId: request.assignedCoordinatorId,
+      // A pick-up always starts from nobody; the guards above refuse everything else.
+      fromCoordinatorId: null,
       toCoordinatorId: incoming.id,
       actorId: actor.id,
       createdAt: now,
