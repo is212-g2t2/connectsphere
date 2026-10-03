@@ -45,8 +45,8 @@ export function NotificationsPage({
       // than leave rows showing a state the server no longer holds.
       await router.invalidate();
     }
-  }, "Could not mark notifications as read. Try again.");
-  const mark = async (input: MarkNotificationsReadValues) => {
+  }, "Could not mark as read. Try again.");
+  const handleMark = async (input: MarkNotificationsReadValues) => {
     const state = await markRead(input);
     if (state.status === "error") toast.error(state.error);
   };
@@ -81,7 +81,7 @@ export function NotificationsPage({
               size="sm"
               disabled={marking}
               onClick={() =>
-                void mark({ throughId: Math.max(...notifications.map(item => item.id)) })
+                void handleMark({ throughId: Math.max(...notifications.map(item => item.id)) })
               }
             >
               Mark all as read
@@ -99,7 +99,7 @@ export function NotificationsPage({
             return (
               <li
                 key={notification.id}
-                className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4"
+                className="flex flex-wrap items-center gap-x-4 gap-y-1 py-4"
               >
                 {notification.summary === null ? (
                   <p className="body-md text-muted-foreground">{NEUTRAL_LINE}</p>
@@ -111,7 +111,8 @@ export function NotificationsPage({
                   </a>
                 )}
                 {!notification.read && <Badge>Unread</Badge>}
-                <span className="ml-auto flex items-baseline gap-3">
+                {/* Reserves the mark button's height, so a row keeps its height once read. */}
+                <span className="ml-auto flex min-h-8 items-center gap-3">
                   {!notification.read && (
                     <Button
                       type="button"
@@ -119,7 +120,7 @@ export function NotificationsPage({
                       size="sm"
                       disabled={marking}
                       aria-label={`Mark as read, ${notification.summary ?? NEUTRAL_LINE}, ${when}`}
-                      onClick={() => void mark({ id: notification.id })}
+                      onClick={() => void handleMark({ id: notification.id })}
                     >
                       Mark as read
                     </Button>
