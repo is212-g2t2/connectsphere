@@ -26,6 +26,7 @@ import { env } from "#/env";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
+  ASSIGNED_REQUEST_HANDOVER_MESSAGE,
   parseAssignmentInput,
   parseDecisionInput,
   parseEventHandoverId,
@@ -182,7 +183,14 @@ export async function handleGetCoordinationRequest(
   };
 }
 
-/** The row lock serialises pickups and handovers; all effects either commit together or roll back. */
+/**
+ * Pick-up only: any Event Coordinator assigns an unassigned request to themselves or a named
+ * Coordinator, immediately and with its audit row. An assigned request never moves here — the
+ * accepted handover is the one path (`handleRequestEventHandover`), so the incoming Coordinator
+ * always agrees before the event changes hands. A stranger probing an assigned id is refused the
+ * same way the detail read refuses them; its own Coordinator is told to use the handover. The row
+ * lock serialises competing pick-ups; all effects either commit together or roll back.
+ */
 export async function handleAssignEventRequest(
   data: unknown,
   actor: SessionUser,
@@ -202,17 +210,16 @@ export async function handleAssignEventRequest(
       (request.assignedCoordinatorId !== null && request.assignedCoordinatorId !== actor.id)
     ) {
       throw new AuthorizationError(
-        "Only the assigned Coordinator can reassign this request. Unassigned requests can be picked up by any Event Coordinator."
+        "Only an unassigned request can be picked up here; an assigned request is handed over by its Coordinator."
       );
     }
-    if (request.assignedCoordinatorId !== input.expectedCoordinatorId) {
+    if (request.assignedCoordinatorId !== null) {
+      throw new ConflictError(ASSIGNED_REQUEST_HANDOVER_MESSAGE);
+    }
+    // The request is unassigned, so the only observation a stale page can hold is a Coordinator
+    // who has since been removed; `null` is the one value that matches.
+    if (input.expectedCoordinatorId !== null) {
       throw new ConflictError("This assignment has changed. Refresh the request and try again.");
-    }
-    if (request.status === "approved" || request.status === "rejected") {
-      throw new ConflictError("A decided request can no longer be reassigned.");
-    }
-    if (request.assignedCoordinatorId === input.coordinatorId) {
-      throw new ConflictError("This Coordinator is already assigned to the request.");
     }
 
     // Hold the selected account while its role is validated and the assignment is committed.

@@ -13,6 +13,10 @@ const AssignmentInput = z.object({
 
 export type AssignmentValues = z.infer<typeof AssignmentInput>;
 
+/** PTR-116: the direct move is gone; an assigned request changes hands only by accepted handover. */
+export const ASSIGNED_REQUEST_HANDOVER_MESSAGE =
+  "This request is assigned. Offer it as a handover and wait for that Coordinator to accept.";
+
 /**
  * The coordinator choice on its own, derived from the rule above so the form and the server
  * function cannot drift on the message or the trim.
