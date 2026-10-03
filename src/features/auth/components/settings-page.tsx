@@ -1,4 +1,4 @@
-import { Trash2, Link } from "lucide-react";
+import { Trash, Link } from "lucide-react";
 import { toast } from "sonner";
 
 import { Page, PageHeader } from "#/components/layout/page";
@@ -94,7 +94,7 @@ export function SettingsPage({
         <SettingsSection title="Danger zone">
           <AlertDialog>
             <AlertDialogTrigger render={<Button variant="destructive" size="sm" />}>
-              <Trash2 className="size-4" />
+              <Trash className="size-4" />
               Delete account
             </AlertDialogTrigger>
             <AlertDialogContent size="sm">

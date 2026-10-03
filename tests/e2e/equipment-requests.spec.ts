@@ -8,6 +8,7 @@ import { expect, test } from "@playwright/test";
 import type { Browser, Page } from "@playwright/test";
 import { Pool } from "pg";
 
+import { waitForHydration } from "./hydration";
 import { signInAsStaff, signInWithSeedPassword } from "./staff-auth";
 
 const DASHBOARD_PATH = "/dashboard";
@@ -261,6 +262,7 @@ async function countLines(item: string) {
 async function openDashboardAs(page: Page, email: string) {
   await signInWithSeedPassword(page, email);
   await page.goto(DASHBOARD_PATH);
+  await waitForHydration(page);
 }
 
 const card = (page: Page) => page.locator("[data-slot=card]").filter({ hasText: DEMO_EVENT });
@@ -342,6 +344,7 @@ test.describe("Coordinator equipment panel", () => {
     await page.getByRole("button", { name: "Edit Projector" }).click();
     await card(page).getByLabel("Quantity (required)").fill("4");
     await card(page).getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByText("Equipment line updated.")).toBeVisible();
     await page.reload();
     await expect(card(page).getByText("× 4")).toBeVisible();
 
