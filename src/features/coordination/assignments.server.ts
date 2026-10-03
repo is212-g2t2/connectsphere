@@ -68,6 +68,11 @@ const handoverSenders = alias(user, "handover_sender");
  * serial id space must not tell a Coordinator whether another Coordinator holds a live offer.
  */
 const HANDOVER_NOT_ANSWERABLE = "This handover is not available to answer.";
+const ASSIGNMENT_CHANGED_MESSAGE =
+  "This assignment has changed. Refresh the request and try again.";
+/** Refusal for a pick-up call on an assigned request; the accepted handover is the only path. */
+export const ASSIGNED_REQUEST_HANDOVER_MESSAGE =
+  "This request is assigned. Offer it as a handover and wait for that Coordinator to accept.";
 
 export async function handleListAssignedEventRequests(actor: SessionUser, database: Database) {
   return database
@@ -85,7 +90,7 @@ export async function handleListAssignedEventRequests(actor: SessionUser, databa
         eq(eventHandovers.eventRequestId, eventRequests.id),
         isNull(eventHandovers.decision),
         // Only the current assignment's offer counts: a row left behind by an account deletion
-        // or a direct reassignment must not label the new Coordinator's request, and a decided
+        // and a later pick-up must not label the new Coordinator's request, and a decided
         // request's offer can never be taken up.
         eq(eventHandovers.fromCoordinatorId, eventRequests.assignedCoordinatorId),
         notInArray(eventRequests.status, ["approved", "rejected"])
@@ -146,7 +151,7 @@ export async function handleGetCoordinationRequest(
 
   // PTR-110: the live offer, but only while it is still this assignment's offer — the outgoing
   // Coordinator sees it and cannot raise a second one. A row the current assignment has moved
-  // past (account deletion, a direct move), one on a decided request, or one whose incoming
+  // past (account deletion and a later pick-up), one on a decided request, or one whose incoming
   // account no longer exists (the inner join) is not shown as if it still waited.
   const assignedCoordinatorId = request.assignedCoordinatorId;
 
@@ -182,7 +187,12 @@ export async function handleGetCoordinationRequest(
   };
 }
 
-/** The row lock serialises pickups and handovers; all effects either commit together or roll back. */
+/**
+ * Pick-up assigns an unassigned request immediately with its audit row. An assigned request never
+ * moves here (accepted handover raised by `handleRequestEventHandover`, applied by
+ * `handleAcceptEventHandover`); a decided request whose Coordinator was deleted is closed work, not
+ * a pick-up. The row lock serialises competing pick-ups.
+ */
 export async function handleAssignEventRequest(
   data: unknown,
   actor: SessionUser,
@@ -201,18 +211,20 @@ export async function handleAssignEventRequest(
       request.status === "draft" ||
       (request.assignedCoordinatorId !== null && request.assignedCoordinatorId !== actor.id)
     ) {
-      throw new AuthorizationError(
-        "Only the assigned Coordinator can reassign this request. Unassigned requests can be picked up by any Event Coordinator."
-      );
+      throw new AuthorizationError("Only an unassigned request can be picked up here.");
     }
-    if (request.assignedCoordinatorId !== input.expectedCoordinatorId) {
-      throw new ConflictError("This assignment has changed. Refresh the request and try again.");
-    }
+    // Decided first: a decided request cannot be handed over either, so pointing its Coordinator
+    // at the handover would be advice they cannot follow.
     if (request.status === "approved" || request.status === "rejected") {
-      throw new ConflictError("A decided request can no longer be reassigned.");
+      throw new ConflictError("A decided request can no longer be assigned.");
     }
-    if (request.assignedCoordinatorId === input.coordinatorId) {
-      throw new ConflictError("This Coordinator is already assigned to the request.");
+    if (request.assignedCoordinatorId !== null) {
+      throw new ConflictError(ASSIGNED_REQUEST_HANDOVER_MESSAGE);
+    }
+    // The request is unassigned, so the only observation a stale page can hold is a Coordinator
+    // who has since been removed; `null` is the one value that matches.
+    if (input.expectedCoordinatorId !== null) {
+      throw new ConflictError(ASSIGNMENT_CHANGED_MESSAGE);
     }
 
     // Hold the selected account while its role is validated and the assignment is committed.
@@ -233,7 +245,8 @@ export async function handleAssignEventRequest(
       .returning();
     await tx.insert(eventAssignments).values({
       eventRequestId: request.id,
-      fromCoordinatorId: request.assignedCoordinatorId,
+      // A pick-up always starts from nobody; the guards above refuse everything else.
+      fromCoordinatorId: null,
       toCoordinatorId: incoming.id,
       actorId: actor.id,
       createdAt: now,
@@ -266,7 +279,7 @@ export async function handleRequestEventHandover(
       throw new AuthorizationError("Only the assigned Coordinator can hand this request over.");
     }
     if (request.assignedCoordinatorId !== input.expectedCoordinatorId) {
-      throw new ConflictError("This assignment has changed. Refresh the request and try again.");
+      throw new ConflictError(ASSIGNMENT_CHANGED_MESSAGE);
     }
     if (request.status === "approved" || request.status === "rejected") {
       throw new ConflictError("A decided request can no longer be handed over.");
@@ -331,8 +344,8 @@ export async function handleRequestEventHandover(
  * Locks are taken in the same order as a raise (request, then handover): the unlocked read learns
  * which request to lock first and refuses anyone but the addressee before a lock is taken, so a
  * concurrent raise cannot deadlock against an accept and a wrong actor cannot lock another
- * assignment. An offer whose request moved on (the account was deleted, or a direct reassignment
- * slipped in) is resolved as declined — that still records who answered and when — and refused
+ * assignment. An offer whose request moved on (the account was deleted and the request picked up
+ * again) is resolved as declined — that still records who answered and when — and refused
  * with 409.
  *
  * The Organiser is emailed after the commit, best effort.

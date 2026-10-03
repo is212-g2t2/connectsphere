@@ -70,7 +70,6 @@ export const assignEventRequest = createServerFn({ method: "POST" })
     log.info("Event request assigned", {
       requestId: request.id,
       actorId: context.user.id,
-      fromCoordinatorId: data.expectedCoordinatorId,
       toCoordinatorId: request.assignedCoordinatorId,
     });
 
