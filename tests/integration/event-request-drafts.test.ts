@@ -956,19 +956,38 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       .where(inArray(schema.eventRequests.organiserId, organiserIds));
   });
 
+  /** A freshly submitted request, assigned by the least-loaded rule. */
+  async function assignedRequest() {
+    return submitNew(fullRequest, organiser, database);
+  }
+
+  /** A submitted row, assigned to `coordinatorId` or left unassigned when it is null. */
+  async function submittedRequest(coordinatorId: string | null) {
+    const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
+    const [row] = await database
+      .update(schema.eventRequests)
+      .set({
+        status: "submitted",
+        submittedAt: new Date(),
+        assignedCoordinatorId: coordinatorId,
+        assignedAt: coordinatorId ? new Date() : null,
+      })
+      .where(eq(schema.eventRequests.id, saved.id))
+      .returning();
+    return row;
+  }
+
+  async function statusOf(id: number) {
+    const rows = await database
+      .select({ status: schema.eventRequests.status })
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, id));
+    return rows.at(0)?.status;
+  }
+
   describe("manual handover and pickup (PTR-16)", () => {
     const outgoing = extraCoordinators[0];
     const incoming = extraCoordinators[1];
-
-    async function waitingRequest() {
-      const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-      const [waiting] = await database
-        .update(schema.eventRequests)
-        .set({ status: "submitted", submittedAt: new Date() })
-        .where(eq(schema.eventRequests.id, saved.id))
-        .returning();
-      return waiting;
-    }
 
     it("records a handover, actor and time, updates organiser reads and transfers access (AC1–3, AC5)", async () => {
       const request = await submitNew(fullRequest, organiser, database);
@@ -1010,7 +1029,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     it.each([0, 1])(
       "lets any Coordinator pick up an unassigned event for themselves or a named Coordinator (%s)",
       async index => {
-        const request = await waitingRequest();
+        const request = await submittedRequest(null);
         const target = extraCoordinators[index];
         await handleAssignEventRequest(
           { id: request.id, coordinatorId: target.id, expectedCoordinatorId: null },
@@ -1074,7 +1093,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     });
 
     it("allows only one competing pickup, with one audit entry", async () => {
-      const request = await waitingRequest();
+      const request = await submittedRequest(null);
       const results = await Promise.allSettled(
         extraCoordinators.map(coordinator =>
           handleAssignEventRequest(
@@ -1108,11 +1127,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
   describe("accepting or declining a handover (PTR-110)", () => {
     const outgoing = extraCoordinators[0];
     const incoming = extraCoordinators[1];
-
-    /** A freshly submitted request, assigned to `outgoing` by the least-loaded rule. */
-    async function assignedRequest() {
-      return submitNew(fullRequest, organiser, database);
-    }
 
     async function pendingHandover() {
       const request = await assignedRequest();
@@ -1703,30 +1717,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     const actor = extraCoordinators[0];
     const other = extraCoordinators[1];
 
-    /** A submitted row, assigned to `coordinatorId` or left unassigned when it is null. */
-    async function submittedRequest(coordinatorId: string | null) {
-      const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-      const [row] = await database
-        .update(schema.eventRequests)
-        .set({
-          status: "submitted",
-          submittedAt: new Date(),
-          assignedCoordinatorId: coordinatorId,
-          assignedAt: coordinatorId ? new Date() : null,
-        })
-        .where(eq(schema.eventRequests.id, saved.id))
-        .returning();
-      return row;
-    }
-
-    async function statusOf(id: number) {
-      const rows = await database
-        .select({ status: schema.eventRequests.status })
-        .from(schema.eventRequests)
-        .where(eq(schema.eventRequests.id, id));
-      return rows.at(0)?.status;
-    }
-
     it("refuses a different Coordinator and leaves the row submitted", async () => {
       const request = await submittedRequest(actor.id);
       await expect(
@@ -1972,29 +1962,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
   describe("handleRaiseClarificationRequest (PTR-18)", () => {
     const actor = extraCoordinators[0];
     const other = extraCoordinators[1];
-
-    async function submittedRequest(coordinatorId: string | null) {
-      const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-      const [row] = await database
-        .update(schema.eventRequests)
-        .set({
-          status: "submitted",
-          submittedAt: new Date(),
-          assignedCoordinatorId: coordinatorId,
-          assignedAt: coordinatorId ? new Date() : null,
-        })
-        .where(eq(schema.eventRequests.id, saved.id))
-        .returning();
-      return row;
-    }
-
-    async function statusOf(id: number) {
-      const rows = await database
-        .select({ status: schema.eventRequests.status })
-        .from(schema.eventRequests)
-        .where(eq(schema.eventRequests.id, id));
-      return rows.at(0)?.status;
-    }
 
     it("refuses a different Coordinator (403)", async () => {
       const request = await submittedRequest(actor.id);

@@ -1089,49 +1089,49 @@ describe("tentative venue holds (PTR-109)", () => {
     });
   });
 
+  /**
+   * Genuine-concurrency barrier: a session-level advisory lock on the venue is held while both
+   * writers start, so neither can finish before the other begins. Both block on the venue lock
+   * inside their transactions; releasing the gate lets them contend for real. Without this, one
+   * writer could commit before the other starts and the "race" would prove nothing. Callers
+   * assert the post-race invariant, never which writer won.
+   */
+  async function raceForVenue<A, B>(
+    contenderA: () => Promise<A>,
+    contenderB: () => Promise<B>
+  ): Promise<[PromiseSettledResult<A>, PromiseSettledResult<B>]> {
+    const gate = new Pool({ connectionString: process.env.DATABASE_URL });
+    const gateClient = await gate.connect();
+    try {
+      await gateClient.query("SELECT pg_advisory_lock($1::integer)", [venueId]);
+      const pending = Promise.allSettled([contenderA(), contenderB()]);
+      try {
+        await vi.waitFor(
+          async () => {
+            // This venue's key only: writers take single-bigint xact locks (classid 0, objid
+            // the venue id, objsubid 1 — verified against pg_locks), so other suites' venues
+            // sharing the cluster never satisfy the barrier early.
+            const waiting = await database.execute<{ count: string }>(
+              sql`SELECT count(*)::text AS count FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND classid = 0 AND objid = ${venueId} AND objsubid = 1`
+            );
+            expect(Number(waiting.rows[0].count)).toBeGreaterThanOrEqual(2);
+          },
+          { timeout: 10_000, interval: 25 }
+        );
+      } finally {
+        await gateClient.query("SELECT pg_advisory_unlock($1::integer)", [venueId]);
+      }
+      return pending;
+    } finally {
+      gateClient.release();
+      await gate.end();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Concurrent hold write vs approval — the advisory-lock guarantee
   // ---------------------------------------------------------------------------
   describe("concurrent hold write and approval", () => {
-    /**
-     * Genuine-concurrency barrier: a session-level advisory lock on the venue is held while both
-     * writers start, so neither can finish before the other begins. Both block on the venue lock
-     * inside their transactions; releasing the gate lets them contend for real. Without this, one
-     * writer could commit before the other starts and the "race" would prove nothing. Callers
-     * assert the post-race invariant, never which writer won.
-     */
-    async function raceForVenue<A, B>(
-      contenderA: () => Promise<A>,
-      contenderB: () => Promise<B>
-    ): Promise<[PromiseSettledResult<A>, PromiseSettledResult<B>]> {
-      const gate = new Pool({ connectionString: process.env.DATABASE_URL });
-      const gateClient = await gate.connect();
-      try {
-        await gateClient.query("SELECT pg_advisory_lock($1::integer)", [venueId]);
-        const pending = Promise.allSettled([contenderA(), contenderB()]);
-        try {
-          await vi.waitFor(
-            async () => {
-              // This venue's key only: writers take single-bigint xact locks (classid 0, objid
-              // the venue id, objsubid 1 — verified against pg_locks), so other suites' venues
-              // sharing the cluster never satisfy the barrier early.
-              const waiting = await database.execute<{ count: string }>(
-                sql`SELECT count(*)::text AS count FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND classid = 0 AND objid = ${venueId} AND objsubid = 1`
-              );
-              expect(Number(waiting.rows[0].count)).toBeGreaterThanOrEqual(2);
-            },
-            { timeout: 10_000, interval: 25 }
-          );
-        } finally {
-          await gateClient.query("SELECT pg_advisory_unlock($1::integer)", [venueId]);
-        }
-        return pending;
-      } finally {
-        gateClient.release();
-        await gate.end();
-      }
-    }
-
     it("never leaves a held hold and an approved booking for the same venue and period", async () => {
       const request = await handleCreateVenueRequest(
         { ...HOLD_WINDOW, eventId: eventIdB, venueId },

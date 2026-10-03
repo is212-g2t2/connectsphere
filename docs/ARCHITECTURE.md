@@ -167,7 +167,7 @@ Seroval serializes these errors across the network boundary. Callers and SSR rej
 
 LogTape provides the app logger in `src/lib/logger.ts`, configured from `src/server.ts` so the built server needs no source tree beside it. The console sink prints each event's structured properties after its message, and `maskEmail` (`src/lib/utils.ts`) masks email addresses before they are logged. The server process preloads `instrument.server.mjs`, which initialises Sentry with:
 
-- `sendDefaultPii: false`, so PII is not forwarded by default.
+- a restrictive `dataCollection` baseline: user info, cookies, request and response bodies, database query data, queue arguments and GenAI inputs/outputs are off; request/response headers and URL query parameters pass through a deny list.
 - `tracesSampleRate: 0.1`, so 10% of server traces are sampled to control cost.
 
-Enable `sendDefaultPii: true` and raise `tracesSampleRate` only intentionally, after reviewing your data-handling obligations.
+Widen `dataCollection` and raise `tracesSampleRate` only intentionally, after reviewing your data-handling obligations.

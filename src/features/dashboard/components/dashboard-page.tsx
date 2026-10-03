@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Upload, CheckCircle } from "lucide-react";
+import { Upload, CircleCheck } from "lucide-react";
 import { useRef } from "react";
 
 import { Page, PageHeader } from "#/components/layout/page";
@@ -154,7 +154,7 @@ function FileUploadCard() {
 
         {uploading ? null : upload.status === "success" ? (
           <p className="mt-4 flex items-center gap-2 body-sm">
-            <CheckCircle className="size-4" />
+            <CircleCheck className="size-4" />
             Uploaded: <code className="font-mono mono break-all">{upload.data}</code>
           </p>
         ) : upload.status === "error" ? (

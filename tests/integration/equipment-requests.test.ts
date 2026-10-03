@@ -157,6 +157,27 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       .from(schema.equipmentRequests)
       .where(eq(schema.equipmentRequests.eventId, eventId));
 
+  const seedLines = (eventId: number, n: number) =>
+    database.insert(schema.equipmentRequests).values(
+      Array.from({ length: n }, (_, i) => ({
+        id: crypto.randomUUID(),
+        eventId,
+        item: `Line ${i}`,
+        quantity: 1,
+      }))
+    );
+
+  const decide = (id: number, decision: "approved" | "rejected") =>
+    handleDecideEventRequest(
+      {
+        id,
+        decision,
+        reason: decision === "rejected" ? "Test rejection" : "",
+      },
+      coordinator,
+      database as never
+    );
+
   // ── AC1, AC3, AC4 ──────────────────────────────────────────────────────────────────────────
   describe("handleSaveEquipmentLine", () => {
     test("AC1: adds lines with type, quantity and notes; further lines can be added", async () => {
@@ -302,16 +323,6 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       expect(message).toMatch(/equipment_requests_quantity_positive|check constraint/i);
     });
 
-    const seedLines = (eventId: number, n: number) =>
-      database.insert(schema.equipmentRequests).values(
-        Array.from({ length: n }, (_, i) => ({
-          id: crypto.randomUUID(),
-          eventId,
-          item: `Line ${i}`,
-          quantity: 1,
-        }))
-      );
-
     test(`a full event (${EQUIPMENT_MAX_LINES} lines) refuses another add`, async () => {
       const id = await createEvent("approved");
       await seedLines(id, EQUIPMENT_MAX_LINES);
@@ -423,17 +434,6 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
 
   // ── AC2 ────────────────────────────────────────────────────────────────────────────────────
   describe("approval seeds equipment lines", () => {
-    const decide = (id: number, decision: "approved" | "rejected") =>
-      handleDecideEventRequest(
-        {
-          id,
-          decision,
-          reason: decision === "rejected" ? "Test rejection" : "",
-        },
-        coordinator,
-        database as never
-      );
-
     test("AC2: complete draft lines are copied; blank/half-typed ones are skipped", async () => {
       const id = await createEvent("under_review", {
         equipmentRequirements: [
@@ -530,16 +530,6 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
 
   // ── Row locks & concurrency ───────────────────────────────────────────────────────────────
   describe("row locks serialize submit against edits", () => {
-    const seedLines = (eventId: number, n: number) =>
-      database.insert(schema.equipmentRequests).values(
-        Array.from({ length: n }, (_, i) => ({
-          id: crypto.randomUUID(),
-          eventId,
-          item: `Line ${i}`,
-          quantity: 1,
-        }))
-      );
-
     // Each test drives a second raw connection holding the event row lock, while the handler
     // under test runs on the pooled drizzle connection. The handler's `FOR UPDATE` must block
     // on that lock; if `loadEditableEvent` drops `.for("update")`, the handler reads the row
