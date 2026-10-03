@@ -81,14 +81,14 @@ export function VenueRequestPanel({
   const sameDay = context.event.endDate === context.event.eventDate;
   // The route hands a fresh `prefill` object on every render; compare it by value so a re-render
   // never resets what the Coordinator is mid-way through typing.
-  const prefillDate = prefill?.date ?? null;
-  const prefillStart = prefill?.startTime ?? null;
-  const prefillEnd = prefill?.endTime ?? null;
+  const prefillDate = prefill?.date;
+  const prefillStart = prefill?.startTime;
+  const prefillEnd = prefill?.endTime;
   const stablePrefill = useMemo<VenueRequestPrefill | null>(
     () =>
-      prefillDate && prefillStart && prefillEnd
-        ? { date: prefillDate, startTime: prefillStart, endTime: prefillEnd }
-        : null,
+      prefillDate === undefined || prefillStart === undefined || prefillEnd === undefined
+        ? null
+        : { date: prefillDate, startTime: prefillStart, endTime: prefillEnd },
     [prefillDate, prefillStart, prefillEnd]
   );
   const inputRefs = useRef<Record<FieldName, HTMLInputElement | null>>({
@@ -145,10 +145,12 @@ export function VenueRequestPanel({
   }, [context, venueId, stablePrefill, form]);
 
   // An adjusted request arrives from the rejection card with the form below the venue record, so
-  // the heading takes focus on arrival: the reader lands on the pre-filled form, not the top.
+  // the heading takes focus on arrival: the reader lands on the pre-filled form, not the top. Only
+  // while the form is showing — once the request is sent the URL still carries the window.
+  const showsForm = request === null;
   useEffect(() => {
-    if (stablePrefill) headingRef.current?.focus();
-  }, [stablePrefill]);
+    if (stablePrefill && showsForm) headingRef.current?.focus();
+  }, [stablePrefill, showsForm]);
 
   // Sending or withdrawing swaps the panel's branch under the same heading, so focus would
   // otherwise fall to `<body>` and the new state go unannounced. Only a request that changed

@@ -51,7 +51,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view
 │   │   ├── venue-requests/ # Booking requests: raise, withdraw, approve, reject, release, amend, notify
-│   │   └── venues/       # Venue catalogue, requirements search with suitability verdicts, and availability
+│   │   └── venues/       # Venue catalogue, requirements search with suitability verdicts, availability; the venue page pre-fills the request panel from an event id and window in its search
 │   ├── hooks/            # Client hooks shared across features
 │   ├── lib/              # Shared integrations (auth, mail, storage, logger, SEO)
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata
@@ -59,7 +59,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
 │       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues
 │       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
-│       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection; a rejection's suggestion reopens the request panel pre-filled
+│       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection
 │       │   └── venue-bookings/ # Venue Staff's approved-booking release and amendment view
 │       ├── api/          # Better Auth handler, health, smoke, upload-url
 │       └── robots[.]txt.ts, sitemap[.]xml.ts

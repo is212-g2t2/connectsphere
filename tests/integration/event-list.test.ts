@@ -564,10 +564,19 @@ describe("event list handler (PTR-8)", () => {
           eventId: fixtures.main.id,
         });
 
-        // The card reads pending, and the rejection it answers rides along with its reason.
-        expect(await coordinatorCard(fixtures.main.id)).toMatchObject({
+        // The card reads pending, and the rejection it answers rides along in full.
+        expect(await coordinatorCard(fixtures.main.id)).toEqual({
           status: "pending",
-          rejection: { reason: "Closed for floor resurfacing", venueId: fixtureVenueId },
+          rejection: {
+            venueId: fixtureVenueId,
+            venueName: FIXTURE_VENUE_NAME,
+            date: "2026-11-01",
+            startTime: "09:00",
+            endTime: "12:00",
+            reason: "Closed for floor resurfacing",
+            suggestion: null,
+            suggestedVenueId: null,
+          },
         });
       });
 

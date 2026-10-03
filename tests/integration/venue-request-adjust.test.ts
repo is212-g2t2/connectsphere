@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -361,7 +361,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
     const rows = await database
       .select({ status: schema.venueRequests.status, venueId: schema.venueRequests.venueId })
       .from(schema.venueRequests)
-      .where(and(eq(schema.venueRequests.eventId, eventId)));
+      .where(eq(schema.venueRequests.eventId, eventId));
     expect(rows.map(row => row.status).toSorted()).toEqual(["pending", "rejected"]);
   });
 });

@@ -163,27 +163,9 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                             {access === "coordinator" &&
                               event.venueRequest.status === "rejected" &&
                               event.status === "submitted" && (
-                                <Detail
-                                  label="Next step"
-                                  value={
-                                    <Link
-                                      to="/venues/$venueId"
-                                      params={{
-                                        venueId: String(
-                                          adjustedVenueId(event.venueRequest.rejection)
-                                        ),
-                                      }}
-                                      search={{
-                                        eventId: event.id,
-                                        ...adjustedWindow(event.venueRequest.rejection),
-                                      }}
-                                      hash="venue-request-heading"
-                                      className={buttonVariants({ variant: "outline", size: "sm" })}
-                                    >
-                                      Adjust request at{" "}
-                                      {adjustedVenueName(event.venueRequest.rejection)}
-                                    </Link>
-                                  }
+                                <AdjustRequestRow
+                                  eventId={event.id}
+                                  rejection={event.venueRequest.rejection}
                                 />
                               )}
                           </>
@@ -312,22 +294,14 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
   );
 }
 
-/** The one extra row a card adds beside the shared requirements: its pending request. */
 /**
- * Where an adjusted request opens: the suggested venue when Venue Staff named one, else the
- * venue that refused. Each part of the window falls back the same way, so a suggestion of "same
- * room, a day later" needs nothing retyped. The link is offered only while the event is still
- * `submitted`, the one status the venue page's request panel answers for.
+ * What an adjusted request opens with: the suggested venue when Venue Staff named one, else the
+ * venue that refused, and each part of the window falling back the same way, so a suggestion of
+ * "same room, a day later" needs nothing retyped. Times are taken only as a pair.
  */
-function adjustedVenueId(rejection: VenueRequestRejection): number {
-  return rejection.suggestedVenueId ?? rejection.venueId;
-}
-
-function adjustedVenueName(rejection: VenueRequestRejection): string {
-  return rejection.suggestion?.venueName ?? rejection.venueName;
-}
-
-function adjustedWindow(rejection: VenueRequestRejection): {
+function adjustedRequest(rejection: VenueRequestRejection): {
+  venueId: number;
+  venueName: string;
   date: string;
   startTime: string;
   endTime: string;
@@ -337,9 +311,45 @@ function adjustedWindow(rejection: VenueRequestRejection): {
     suggestion?.startTime && suggestion.endTime
       ? { startTime: suggestion.startTime, endTime: suggestion.endTime }
       : { startTime: rejection.startTime, endTime: rejection.endTime };
-  return { date: suggestion?.date ?? rejection.date, ...times };
+  return {
+    venueId: rejection.suggestedVenueId ?? rejection.venueId,
+    venueName: suggestion?.venueName ?? rejection.venueName,
+    date: suggestion?.date ?? rejection.date,
+    ...times,
+  };
 }
 
+/**
+ * The rejection block's action: reopen the request on the suggested venue with its window. Only
+ * while the event is still `submitted`, the one status the venue page's request panel answers
+ * for, and only for the Coordinator — the caller gates both.
+ */
+function AdjustRequestRow({
+  eventId,
+  rejection,
+}: {
+  eventId: number;
+  rejection: VenueRequestRejection;
+}) {
+  const { venueId, venueName, ...window } = adjustedRequest(rejection);
+  return (
+    <Detail
+      label="Next step"
+      value={
+        <Link
+          to="/venues/$venueId"
+          params={{ venueId: String(venueId) }}
+          search={{ eventId, ...window }}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          Adjust request at {venueName}
+        </Link>
+      }
+    />
+  );
+}
+
+/** The one extra row a card adds beside the shared requirements: its pending request. */
 function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
