@@ -6,11 +6,11 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
-import { ASSIGNED_REQUEST_HANDOVER_MESSAGE } from "#/features/coordination/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
   handleAcceptEventHandover,
   handleAssignEventRequest,
+  ASSIGNED_REQUEST_HANDOVER_MESSAGE,
   handleDecideEventRequest,
   handleDeclineEventHandover,
   handleGetCoordinationRequest,
@@ -1116,6 +1116,39 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         )
       );
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(0);
+      for (const result of results) {
+        expect(result).toMatchObject({ status: "rejected", reason: { status: 409 } });
+      }
+      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
+    });
+
+    it("refuses to pick up a decided request its deleted Coordinator left unassigned", async () => {
+      const request = await submitNew(fullRequest, organiser, database);
+      await handleTakeUpForReview({ id: request.id }, outgoing, database as never);
+      await handleDecideEventRequest(
+        { id: request.id, decision: "approved", reason: "" },
+        outgoing,
+        database as never
+      );
+      // What deleting the deciding account does to the row (`assigned_coordinator_id` is
+      // ON DELETE SET NULL): closed work with nobody on it, which the unassigned list then shows.
+      await database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: null, assignedAt: null })
+        .where(eq(schema.eventRequests.id, request.id));
+
+      await expect(
+        handleAssignEventRequest(
+          { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: null },
+          incoming,
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409, message: /decided request/ });
+      const [row] = await database
+        .select({ assignedCoordinatorId: schema.eventRequests.assignedCoordinatorId })
+        .from(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, request.id));
+      expect(row.assignedCoordinatorId).toBeNull();
       expect(await database.select().from(schema.eventAssignments)).toEqual([]);
     });
   });
@@ -1408,8 +1441,9 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
 
     it("resolves an offer the request has moved past, rather than leaving it pending", async () => {
       const { request, handover } = await pendingHandover();
-      // No application path moves an assigned request except an accepted handover (PTR-116), so
-      // a raw update stands in for whatever future path might; the stale-offer rule holds either way.
+      // The one remaining way an assigned request moves without an accepted handover is the
+      // outgoing account being deleted (the assignment is set null) and another Coordinator
+      // picking it up; a raw update stands in for that two-step path on the shared fixture user.
       await database
         .update(schema.eventRequests)
         .set({ assignedCoordinatorId: tieBreakCoordinator.id, assignedAt: new Date() })
