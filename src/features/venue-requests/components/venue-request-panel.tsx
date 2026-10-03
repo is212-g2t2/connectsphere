@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -22,7 +22,7 @@ import { Input } from "#/components/ui/input";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { VenueRequestInput } from "#/features/venue-requests/schema";
-import type { VenueRequestValues } from "#/features/venue-requests/schema";
+import type { VenueRequestPrefill, VenueRequestValues } from "#/features/venue-requests/schema";
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
@@ -32,12 +32,17 @@ const FIELDS = ["date", "startTime", "endTime"] as const;
 type FieldName = (typeof FIELDS)[number];
 
 /**
- * The inputs hold the event's proposed window as the form's values. A request covers one civil
- * day, so a multi-day (or cross-midnight) window leaves the times empty rather than silently
- * truncating to its first day — the required-field and order messages then force a conscious
- * choice.
+ * The inputs hold the event's proposed window as the form's values, or the adjusted window the
+ * rejection card carried in. A request covers one civil day, so a multi-day (or cross-midnight)
+ * window leaves the times empty rather than silently truncating to its first day — the
+ * required-field and order messages then force a conscious choice.
  */
-function toFormValues(event: VenueRequestContext["event"], venueId: number): VenueRequestValues {
+function toFormValues(
+  event: VenueRequestContext["event"],
+  venueId: number,
+  prefill: VenueRequestPrefill | null
+): VenueRequestValues {
+  if (prefill) return { eventId: event.id, venueId, ...prefill };
   const sameDay = event.endDate === event.eventDate;
   return {
     eventId: event.id,
@@ -57,14 +62,33 @@ export function VenueRequestPanel({
   venueId,
   venueName,
   context,
+  prefill = null,
 }: {
   venueId: number;
   venueName: string;
   context: VenueRequestContext;
+  prefill?: VenueRequestPrefill | null;
 }) {
   const router = useRouter();
   const request = context.request;
   const sameDay = context.event.endDate === context.event.eventDate;
+  // The route hands a fresh `prefill` object on every render; compare it by value so a re-render
+  // never resets what the Coordinator is mid-way through typing. A carried-in window counts only
+  // when it is complete and ordered — fixed-width `HH:MM` strings compare as times, the same rule
+  // `VenueRequestInput` applies — so a hand-edited or unordered window falls back to the event's own.
+  const prefillDate = prefill?.date;
+  const prefillStart = prefill?.startTime;
+  const prefillEnd = prefill?.endTime;
+  const stablePrefill = useMemo<VenueRequestPrefill | null>(
+    () =>
+      prefillDate === undefined ||
+      prefillStart === undefined ||
+      prefillEnd === undefined ||
+      prefillEnd <= prefillStart
+        ? null
+        : { date: prefillDate, startTime: prefillStart, endTime: prefillEnd },
+    [prefillDate, prefillStart, prefillEnd]
+  );
   const inputRefs = useRef<Record<FieldName, HTMLInputElement | null>>({
     date: null,
     startTime: null,
@@ -79,7 +103,7 @@ export function VenueRequestPanel({
   }, "Could not withdraw this request. Try again.");
 
   const form = useForm({
-    defaultValues: toFormValues(context.event, venueId),
+    defaultValues: toFormValues(context.event, venueId, stablePrefill),
     // `VenueRequestInput` is the same gate the server uses, so the ids, the date and the times are
     // checked once and every issue marks its own field.
     validators: { onSubmit: VenueRequestInput },
@@ -115,8 +139,16 @@ export function VenueRequestPanel({
   // remounting on a key, keeps the inputs in step without dropping what was mid-typing, the
   // pattern `venue-list-page.tsx` follows.
   useEffect(() => {
-    form.reset(toFormValues(context.event, venueId));
-  }, [context, venueId, form]);
+    form.reset(toFormValues(context.event, venueId, stablePrefill));
+  }, [context, venueId, stablePrefill, form]);
+
+  // An adjusted request arrives from the rejection card with the form below the venue record, so
+  // the heading takes focus on arrival: the reader lands on the pre-filled form, not the top. Only
+  // while the form is showing — once the request is sent the URL still carries the window.
+  const showsForm = request === null;
+  useEffect(() => {
+    if (stablePrefill && showsForm) headingRef.current?.focus();
+  }, [stablePrefill, showsForm]);
 
   // Sending or withdrawing swaps the panel's branch under the same heading, so focus would
   // otherwise fall to `<body>` and the new state go unannounced. Only a request that changed
@@ -139,7 +171,13 @@ export function VenueRequestPanel({
       <Card>
         <CardContent>
           <div className="flex items-center gap-2">
-            <h2 id="venue-request-heading" ref={headingRef} tabIndex={-1} className="display-h3">
+            <h2
+              id="venue-request-heading"
+              ref={headingRef}
+              tabIndex={-1}
+              aria-describedby={stablePrefill && showsForm ? "venue-request-context" : undefined}
+              className="display-h3"
+            >
               {request ? "Venue request" : "Request this venue"}
             </h2>
             {request && <Badge variant="progress">Pending</Badge>}
@@ -196,9 +234,11 @@ export function VenueRequestPanel({
             </>
           ) : (
             <>
-              <p className="mt-2 body-sm text-muted-foreground">
+              <p id="venue-request-context" className="mt-2 body-sm text-muted-foreground">
                 Send Venue Staff a booking request for {venueName} on behalf of {context.event.name}
                 .
+                {stablePrefill &&
+                  " The date and times below were carried over from the rejected request; change them if needed."}
               </p>
               {!sameDay && (
                 <p className="mt-2 body-sm text-muted-foreground">

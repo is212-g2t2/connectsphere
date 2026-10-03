@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { CalendarDays, Clock3 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { cn } from "cn";
 
 import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
@@ -10,7 +11,11 @@ import { LastReleaseNote } from "#/features/equipment-requests/components/last-r
 import { ReserveEquipmentAction } from "#/features/equipment-requests/components/reserve-equipment-action";
 import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
-import type { EquipmentLineProjection, EventProjection } from "#/features/events/access";
+import type {
+  EquipmentLineProjection,
+  EventProjection,
+  VenueRequestRejection,
+} from "#/features/events/access";
 import { isConfirmableStatus } from "#/features/events/confirmation";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
 import { EventRequirements } from "#/features/events/components/event-requirements";
@@ -128,7 +133,11 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                         {event.venueRequest.rejection && (
                           <>
                             <Detail
-                              label="Rejected booking"
+                              label={
+                                event.venueRequest.status === "rejected"
+                                  ? "Rejected booking"
+                                  : "Previously rejected booking"
+                              }
                               value={`${event.venueRequest.rejection.venueName}, ${formatDate(
                                 event.venueRequest.rejection.date
                               )}, ${event.venueRequest.rejection.startTime}–${
@@ -152,6 +161,14 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                                 )}
                               />
                             )}
+                            {access === "coordinator" &&
+                              event.venueRequest.status === "rejected" &&
+                              event.status === "submitted" && (
+                                <AdjustRequestRow
+                                  eventId={event.id}
+                                  rejection={event.venueRequest.rejection}
+                                />
+                              )}
                           </>
                         )}
                         {event.venueRequest.release && (
@@ -278,12 +295,70 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
   );
 }
 
+/**
+ * What an adjusted request opens with: the suggested venue when Venue Staff named one, else the
+ * venue that refused, and each part of the window falling back the same way, so a suggestion of
+ * "same room, a day later" needs nothing retyped. Times are taken only as a pair.
+ */
+function adjustedRequest(rejection: VenueRequestRejection): {
+  venueId: number;
+  venueName: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+} {
+  const suggestion = rejection.suggestion;
+  const times =
+    suggestion?.startTime && suggestion.endTime
+      ? { startTime: suggestion.startTime, endTime: suggestion.endTime }
+      : { startTime: rejection.startTime, endTime: rejection.endTime };
+  return {
+    venueId: rejection.suggestedVenueId ?? rejection.venueId,
+    venueName: suggestion?.venueName ?? rejection.venueName,
+    date: suggestion?.date ?? rejection.date,
+    ...times,
+  };
+}
+
+/**
+ * The rejection block's action: reopen the request on the suggested venue with its window. Only
+ * while the event is still `submitted`, the one status the venue page's request panel answers
+ * for, and only for the Coordinator — the caller gates both.
+ */
+function AdjustRequestRow({
+  eventId,
+  rejection,
+}: {
+  eventId: number;
+  rejection: VenueRequestRejection;
+}) {
+  const { venueId, venueName, ...prefill } = adjustedRequest(rejection);
+  return (
+    <Detail
+      label="Next step"
+      value={
+        <Link
+          to="/venues/$venueId"
+          params={{ venueId: String(venueId) }}
+          search={{ eventId, ...prefill }}
+          className={cn(
+            buttonVariants({ variant: "outline", size: "sm" }),
+            "h-auto min-w-0 whitespace-normal py-1.5 text-left"
+          )}
+        >
+          Adjust request at {venueName}
+        </Link>
+      }
+    />
+  );
+}
+
 /** The one extra row a card adds beside the shared requirements: its pending request. */
 function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="eyebrow text-muted-foreground">{label}</dt>
-      <dd className="mt-1 font-medium text-foreground">{value}</dd>
+      <dd className="mt-1 min-w-0 font-medium text-foreground">{value}</dd>
     </div>
   );
 }

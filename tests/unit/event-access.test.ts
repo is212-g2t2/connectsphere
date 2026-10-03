@@ -238,6 +238,7 @@ describe("projectEvent with a rejected venue request (PTR-34 AC3)", () => {
   const rejected = {
     status: "rejected",
     rejection: {
+      venueId: 5,
       venueName: "Main Hall",
       date: "2026-10-10",
       startTime: "09:00",
@@ -249,6 +250,7 @@ describe("projectEvent with a rejected venue request (PTR-34 AC3)", () => {
         startTime: "10:00",
         endTime: "13:30",
       },
+      suggestedVenueId: 9,
     },
   };
 

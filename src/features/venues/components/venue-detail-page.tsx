@@ -6,6 +6,7 @@ import { Button } from "#/components/ui/button";
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
 import { VenueRequestPanel } from "#/features/venue-requests/components/venue-request-panel";
+import type { VenueRequestPrefill } from "#/features/venue-requests/schema";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";
@@ -28,12 +29,15 @@ export function VenueDetailPage({
   justCreated,
   requestContext,
   requestContextFailed,
+  prefill = null,
 }: {
   venue: Venue;
   user: SessionUser;
   justCreated: boolean;
   requestContext: VenueRequestContext | null;
   requestContextFailed: boolean;
+  /** An adjusted request's window from the rejection card; null means the event's own window. */
+  prefill?: VenueRequestPrefill | null;
 }) {
   const navigate = useNavigate();
   const router = useRouter();
@@ -104,7 +108,12 @@ export function VenueDetailPage({
       )}
 
       {requestContext ? (
-        <VenueRequestPanel venueId={venue.id} venueName={venue.name} context={requestContext} />
+        <VenueRequestPanel
+          venueId={venue.id}
+          venueName={venue.name}
+          context={requestContext}
+          prefill={prefill}
+        />
       ) : (
         canRequest &&
         (requestContextFailed ? (
