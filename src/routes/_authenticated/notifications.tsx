@@ -8,6 +8,6 @@ import { createSeoHead } from "#/lib/seo";
 export const Route = createFileRoute("/_authenticated/notifications")({
   head: () => createSeoHead({ title: "Notifications — ConnectSphere", noindex: true }),
   loader: () => listNotifications(),
-  component: () => <NotificationsPage notifications={Route.useLoaderData()} />,
+  component: () => <NotificationsPage {...Route.useLoaderData()} />,
   pendingComponent: NotificationsPageSkeleton,
 });

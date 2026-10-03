@@ -125,3 +125,83 @@ test("[PTR-55] reads notifications, follows one, and sees no data for an event o
     }
   }
 });
+
+/**
+ * PTR-56: unread notifications are labelled and counted; marking one read, then all, clears the
+ * labels and the count on the next render.
+ */
+test("[PTR-56] tells unread from read and marks one, then all, read", async ({ page }) => {
+  const eventIds: number[] = [];
+  let readerId: string | undefined;
+
+  try {
+    const reader = await registerAccount(database, page, {
+      role: "event_organiser",
+      name: "PTR-56 Reader",
+      password: PASSWORD,
+    });
+    readerId = reader.id;
+
+    const [event] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: reader.id,
+        eventName: "PTR-56 Gala",
+        status: "submitted",
+        submittedAt: new Date(),
+      })
+      .returning({ id: schema.eventRequests.id });
+    eventIds.push(event.id);
+
+    const confirmed = (venueName: string, createdAt: string) => ({
+      recipientId: reader.id,
+      eventRequestId: event.id,
+      kind: "event_confirmed" as const,
+      payload: {
+        eventName: "PTR-56 Gala",
+        venueName,
+        startsAt: "2037-09-01 09:00:00",
+        endsAt: "2037-09-01 12:00:00",
+        equipment: [],
+      },
+      createdAt: new Date(createdAt),
+    });
+    await database
+      .insert(schema.notifications)
+      .values([
+        { ...confirmed("Hall A", "2037-07-01T00:00:00Z"), readAt: new Date() },
+        confirmed("Hall B", "2037-07-02T00:00:00Z"),
+        confirmed("Hall C", "2037-07-03T00:00:00Z"),
+      ]);
+
+    await page.goto("/notifications");
+    await waitForHydration(page);
+
+    const items = page.getByRole("listitem");
+    await expect(items).toHaveCount(3);
+    await expect(page.getByText(/^2 unread\./)).toBeVisible();
+    await expect(items.nth(0).getByText("Unread")).toBeVisible();
+    await expect(items.nth(1).getByText("Unread")).toBeVisible();
+    await expect(items.nth(2).getByText("Unread")).toHaveCount(0);
+
+    await items
+      .nth(1)
+      .getByRole("button", { name: /^Mark as read/ })
+      .click();
+    await expect(page.getByText(/^1 unread\./)).toBeVisible();
+    await expect(items.nth(1).getByText("Unread")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Mark all as read" }).click();
+    await expect(page.getByText(/^Nothing unread\./)).toBeVisible();
+    await expect(page.getByText("Unread", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Mark all as read" })).toHaveCount(0);
+  } finally {
+    await database
+      .delete(schema.notifications)
+      .where(inArray(schema.notifications.eventRequestId, eventIds));
+    await database.delete(schema.eventRequests).where(inArray(schema.eventRequests.id, eventIds));
+    if (readerId !== undefined) {
+      await database.delete(schema.user).where(eq(schema.user.id, readerId));
+    }
+  }
+});

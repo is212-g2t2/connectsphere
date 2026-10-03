@@ -1,12 +1,16 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
-import { handleListNotifications } from "#/features/notifications/inbox.server";
+import {
+  handleCountUnreadNotifications,
+  handleListNotifications,
+  handleMarkNotificationsRead,
+} from "#/features/notifications/inbox.server";
 import {
   NOTIFICATION_MAX_ATTEMPTS,
   deliverPendingNotifications,
@@ -434,6 +438,120 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       const items = await handleListNotifications(session("coordinator"), database as never);
       expect(items).toHaveLength(1);
       expect(items[0]).toMatchObject({ summary: null, href: null });
+    });
+  });
+
+  describe("read state (PTR-56)", () => {
+    it("starts every new notification unread and counts it (AC1, AC2)", async () => {
+      const coordinator = session("coordinator");
+      const row = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+
+      expect(row.readAt).toBeNull();
+      const items = await handleListNotifications(coordinator, database as never);
+      expect(items.map(item => item.read)).toEqual([false]);
+      expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(1);
+    });
+
+    it("marks one read, keeps its first read time, and leaves the rest unread (AC3, AC4)", async () => {
+      const coordinator = session("coordinator");
+      const older = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+      const newer = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+
+      await handleMarkNotificationsRead({ id: older.id }, coordinator, database as never);
+      const [first] = await database
+        .select({ readAt: schema.notifications.readAt })
+        .from(schema.notifications)
+        .where(eq(schema.notifications.id, older.id));
+      await handleMarkNotificationsRead({ id: older.id }, coordinator, database as never);
+      const [second] = await database
+        .select({ readAt: schema.notifications.readAt })
+        .from(schema.notifications)
+        .where(eq(schema.notifications.id, older.id));
+
+      expect(first.readAt).not.toBeNull();
+      expect(second.readAt).toEqual(first.readAt);
+      const items = await handleListNotifications(coordinator, database as never);
+      expect(items.map(item => [item.id, item.read])).toEqual([
+        [newer.id, false],
+        [older.id, true],
+      ]);
+      expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(1);
+    });
+
+    it("refuses to mark another user's notification and changes nothing", async () => {
+      const organiserRow = await raise(
+        session("organiser").id,
+        "event_confirmed",
+        confirmedPayload()
+      );
+
+      await handleMarkNotificationsRead(
+        { id: organiserRow.id },
+        session("coordinator"),
+        database as never
+      );
+
+      expect(await handleCountUnreadNotifications(session("organiser"), database as never)).toBe(1);
+    });
+
+    it("marks all read up to the newest listed row, beyond the 50-row page, and only the caller's (AC3)", async () => {
+      const coordinator = session("coordinator");
+      const base = Date.UTC(2033, 0, 1, 0, 0, 0);
+      const rows = await database
+        .insert(schema.notifications)
+        .values(
+          Array.from({ length: 52 }, (_, index) => ({
+            recipientId: coordinator.id,
+            eventRequestId: eventId,
+            kind: "event_confirmed" as const,
+            payload: confirmedPayload() as never,
+            createdAt: new Date(base + index * 1_000),
+          }))
+        )
+        .returning({ id: schema.notifications.id });
+      await raise(session("organiser").id, "event_confirmed", confirmedPayload());
+      // The count is not capped by the page.
+      expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(52);
+
+      // A row that arrives after the page rendered stays unread.
+      const listedNewest = rows[50].id;
+      await handleMarkNotificationsRead(
+        { throughId: listedNewest },
+        coordinator,
+        database as never
+      );
+
+      expect(await handleCountUnreadNotifications(coordinator, database as never)).toBe(1);
+      expect(await handleCountUnreadNotifications(session("organiser"), database as never)).toBe(1);
+      const [unread] = await database
+        .select({ id: schema.notifications.id })
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.recipientId, coordinator.id),
+            isNull(schema.notifications.readAt)
+          )
+        );
+      expect(unread.id).toBe(rows[51].id);
+    });
+
+    it("keeps a neutralised row's read state without exposing anything else", async () => {
+      const row = await raise(
+        session("otherCoordinator").id,
+        "event_confirmed",
+        confirmedPayload()
+      );
+
+      const items = await handleListNotifications(session("otherCoordinator"), database as never);
+      expect(items).toEqual([
+        {
+          id: row.id,
+          createdAt: row.createdAt.toISOString(),
+          read: false,
+          summary: null,
+          href: null,
+        },
+      ]);
     });
   });
 
