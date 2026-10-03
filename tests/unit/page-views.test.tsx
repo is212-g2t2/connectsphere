@@ -630,6 +630,29 @@ describe("VenueDetailPage", () => {
 
 const adjustLink = () => screen.queryByRole("link", { name: /^Adjust request at / });
 
+const card = (
+  venueRequest: { status: string; rejection?: VenueRequestRejection },
+  overrides: { access?: "coordinator" | "organiser"; status?: EventRequestStatus } = {}
+) => (
+  <DashboardPage
+    user={userWithRole(overrides.access === "organiser" ? "event_organiser" : "event_coordinator")}
+    events={[
+      {
+        access: overrides.access ?? "coordinator",
+        event: {
+          id: 7,
+          name: "Annual dinner",
+          status: overrides.status ?? "submitted",
+          eventDate: "2026-10-01",
+          startTime: "09:00",
+          endTime: "17:00",
+          venueRequest,
+        },
+      },
+    ]}
+  />
+);
+
 describe("adjusting a rejected venue request (PTR-35)", () => {
   const rejection: VenueRequestRejection = {
     venueId: 5,
@@ -641,30 +664,6 @@ describe("adjusting a rejected venue request (PTR-35)", () => {
     suggestion: null,
     suggestedVenueId: null,
   };
-  const card = (
-    venueRequest: { status: string; rejection?: VenueRequestRejection },
-    overrides: { access?: "coordinator" | "organiser"; status?: EventRequestStatus } = {}
-  ) => (
-    <DashboardPage
-      user={userWithRole(
-        overrides.access === "organiser" ? "event_organiser" : "event_coordinator"
-      )}
-      events={[
-        {
-          access: overrides.access ?? "coordinator",
-          event: {
-            id: 7,
-            name: "Annual dinner",
-            status: overrides.status ?? "submitted",
-            eventDate: "2026-10-01",
-            startTime: "09:00",
-            endTime: "17:00",
-            venueRequest,
-          },
-        },
-      ]}
-    />
-  );
   it("opens the suggested venue with the suggested window (AC1)", () => {
     render(
       card({
