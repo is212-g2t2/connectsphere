@@ -1,12 +1,11 @@
 import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { createElement } from "react";
 
 import type { db as Db } from "#/db";
 import { eventRequests, user, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { VenueBookingChangedEmail } from "#/features/emails/components/venue-booking-changed-email";
+import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
   VENUE_BOOKING_NOT_APPROVED_MESSAGE,
   VENUE_REQUEST_CONFLICT_MESSAGE,
@@ -25,7 +24,6 @@ import { toLocalMinuteValue } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
-import { sendEmail } from "#/lib/mailer.server";
 
 type Database = typeof Db;
 
@@ -62,9 +60,10 @@ function rethrowOverlap(error: unknown): never {
 }
 
 interface BookingChangeNotice {
+  eventId: number;
   eventName: string;
-  requesterEmail: string | null;
-  coordinatorEmail: string | null;
+  requesterId: string | null;
+  coordinatorId: string | null;
   venueName: string;
   startsAt: string;
   endsAt: string;
@@ -79,9 +78,10 @@ async function loadBookingChangeNotice(
 ): Promise<BookingChangeNotice | undefined> {
   const [notice] = await database
     .select({
+      eventId: venueRequests.eventId,
       eventName: eventRequests.eventName,
-      requesterEmail: requestingCoordinator.email,
-      coordinatorEmail: assignedCoordinator.email,
+      requesterId: requestingCoordinator.id,
+      coordinatorId: assignedCoordinator.id,
       venueName: venues.name,
       startsAt: venueRequests.startsAt,
       endsAt: venueRequests.endsAt,
@@ -96,42 +96,47 @@ async function loadBookingChangeNotice(
   return notice;
 }
 
-async function notifyBookingChange(
+/**
+ * PTR-37 AC4: the change notice to the event's current assignee, raised in the change's own
+ * transaction. The request raiser is the fallback when the event has no current Coordinator, so a
+ * change notice is not silently dropped. Delivery is the worker's job.
+ */
+async function raiseBookingChangeNotification(
+  tx: Pick<Database, "insert">,
   requestId: string,
   notice: BookingChangeNotice,
   action: "released" | "amended",
   reason?: string
-) {
-  // Booking changes go to the event's current assignee. The request raiser is the fallback when
-  // the event has no current Coordinator, so a change notice is not silently dropped.
-  const recipient = notice.coordinatorEmail ?? notice.requesterEmail;
-  if (!recipient) {
+): Promise<void> {
+  const recipientId = notice.coordinatorId ?? notice.requesterId;
+  if (!recipientId) {
     log.warn("No Coordinator to notify of venue booking change", { requestId, action });
     return;
   }
-  try {
-    await sendEmail(
-      recipient,
-      `Venue booking ${action}: ${notice.venueName}`,
-      createElement(VenueBookingChangedEmail, {
+
+  await raiseNotifications(tx, [
+    {
+      recipientId,
+      eventRequestId: notice.eventId,
+      kind: "venue_booking_changed",
+      payload: {
+        venueRequestId: requestId,
         eventName: notice.eventName,
         action,
         venueName: notice.venueName,
         startsAt: notice.startsAt,
         endsAt: notice.endsAt,
-        reason,
-        previousVenueName: notice.previousVenueName,
-        previousStartsAt: notice.previousStartsAt,
-        previousEndsAt: notice.previousEndsAt,
-      })
-    );
-  } catch (error) {
-    log.warn("Venue booking change notification failed", {
-      requestId,
-      action,
-      errorName: error instanceof Error ? error.name : "unknown",
-    });
-  }
+        ...(reason !== undefined ? { reason } : {}),
+        ...(notice.previousVenueName !== undefined
+          ? { previousVenueName: notice.previousVenueName }
+          : {}),
+        ...(notice.previousStartsAt !== undefined
+          ? { previousStartsAt: notice.previousStartsAt }
+          : {}),
+        ...(notice.previousEndsAt !== undefined ? { previousEndsAt: notice.previousEndsAt } : {}),
+      },
+    },
+  ]);
 }
 
 /** The shared Venue Staff queue of upcoming approved bookings, ordered by venue-local time. */
@@ -220,13 +225,13 @@ export async function handleReleaseVenueBooking(
       .where(eq(venueRequests.id, input.id))
       .returning();
     const notice = await loadBookingChangeNotice(tx, input.id);
-    return { booking: updated, notice };
+    if (notice) {
+      await raiseBookingChangeNotification(tx, input.id, notice, "released", input.reason);
+    }
+    return updated;
   });
 
-  if (released.notice) {
-    void notifyBookingChange(input.id, released.notice, "released", input.reason);
-  }
-  return released.booking;
+  return released;
 }
 
 /** Amend an approved booking without bypassing the overlap guarantee. */
@@ -315,22 +320,22 @@ export async function handleAmendVenueBooking(
         .where(eq(venueRequests.id, input.id))
         .returning();
       const notice = await loadBookingChangeNotice(tx, input.id);
-      return {
-        booking: updated,
-        notice: notice
-          ? {
-              ...notice,
-              previousVenueName: row.venueName,
-              previousStartsAt: row.startsAt,
-              previousEndsAt: row.endsAt,
-            }
-          : undefined,
-      };
+      if (notice) {
+        await raiseBookingChangeNotification(
+          tx,
+          input.id,
+          {
+            ...notice,
+            previousVenueName: row.venueName,
+            previousStartsAt: row.startsAt,
+            previousEndsAt: row.endsAt,
+          },
+          "amended"
+        );
+      }
+      return updated;
     })
     .catch(rethrowOverlap);
 
-  if (amended.notice) {
-    void notifyBookingChange(input.id, amended.notice, "amended");
-  }
-  return amended.booking;
+  return amended;
 }

@@ -1,4 +1,6 @@
 // oxlint-disable node/no-process-env, no-await-in-loop
+import { deliverQueuedEmails } from "./notifications";
+
 interface MailpitAddress {
   Address: string;
 }
@@ -10,10 +12,12 @@ interface MailpitMessage {
 }
 
 /**
- * Polls Mailpit until a message with the exact subject arrives for the recipient, then returns its
- * body. Mailpit stands in for the mail provider so the e2e suites can assert on real mail.
+ * Delivers anything queued, then polls Mailpit until a message with the exact subject arrives for
+ * the recipient, and returns its body. Mailpit stands in for the mail provider so the e2e suites
+ * can assert on real mail; the drain is what stands in for the every-minute scheduler.
  */
 export async function waitForEmail(recipient: string, subject: string): Promise<string> {
+  await deliverQueuedEmails();
   const mailpitUrl = process.env.MAILPIT_URL ?? "http://localhost:8025";
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {

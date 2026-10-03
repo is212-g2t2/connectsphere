@@ -1,5 +1,5 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -19,11 +19,6 @@ import {
 } from "#/features/equipment-requests/schema";
 import { handleListEvents } from "#/features/events/records.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
-
-const sendEmail = vi.hoisted(() =>
-  vi.fn<(to: string, subject: string, body: unknown) => Promise<void>>(async () => {})
-);
-vi.mock("#/lib/mailer.server", () => ({ sendEmail }));
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -204,9 +199,15 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     return { line, reservation };
   }
 
+  async function notificationsFor(recipientId: string) {
+    return database
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.recipientId, recipientId));
+  }
+
   beforeEach(async () => {
     await cleanup();
-    sendEmail.mockClear();
   });
 
   it("reduces a reservation to a new total and returns the line to requested (AC1)", async () => {
@@ -346,8 +347,8 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     expect(reserved.arrangementStatus).toBe("reserved");
   });
 
-  it("notifies the assigned Coordinator after the commit (AC3)", async () => {
-    const { lineId } = await createEvent({ name: "Notify me", requested: 2 });
+  it("queues the assigned Coordinator's notification with the release (AC3)", async () => {
+    const { eventId, lineId } = await createEvent({ name: "Notify me", requested: 2 });
     await reserve(lineId, 2);
 
     const result = await handleReleaseEquipment(
@@ -356,30 +357,38 @@ describe("Reduce or release a reservation (PTR-42)", () => {
       database as never
     );
 
-    expect(result.notified).toBe(true);
-    expect(sendEmail).toHaveBeenCalledTimes(1);
-    const [to, subject] = sendEmail.mock.calls[0];
-    expect(to).toBe(fixtureUsers.coordinator.email);
-    expect(subject).toBe(`Equipment released: ${typeName}`);
+    expect(result.notificationQueued).toBe(true);
+    const rows = await notificationsFor(fixtureUsers.coordinator.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe("equipment_released");
+    expect(rows[0].eventRequestId).toBe(eventId);
+    expect(rows[0].emailedAt).toBeNull();
+    expect(rows[0].payload).toMatchObject({
+      eventName: "Notify me",
+      item: typeName,
+      quantity: 0,
+      previousQuantity: 2,
+      unavailableReason: null,
+    });
   });
 
-  it("commits the release even when the notification fails, and says so", async () => {
-    const { lineId } = await createEvent({ name: "Mail down", requested: 2 });
+  it("leaves no notification behind when the release is refused", async () => {
+    const { lineId } = await createEvent({ name: "Refused", requested: 2 });
     await reserve(lineId, 2);
-    sendEmail.mockRejectedValueOnce(new Error("SMTP down"));
 
-    const result = await handleReleaseEquipment(
-      { equipmentRequestId: lineId, quantity: 1 },
-      session("tech1"),
-      database as never
-    );
+    await expect(
+      handleReleaseEquipment(
+        { equipmentRequestId: lineId, quantity: 2 },
+        session("tech1"),
+        database as never
+      )
+    ).rejects.toThrow(RELEASE_NOT_LOWER_MESSAGE);
 
-    expect(result.notified).toBe(false);
-    expect((await readLine(lineId)).reservation.quantity).toBe(1);
-    expect((await readLine(lineId)).line.lastReleasedQuantity).toBe(1);
+    expect(await notificationsFor(fixtureUsers.coordinator.id)).toHaveLength(0);
+    expect((await readLine(lineId)).reservation.quantity).toBe(2);
   });
 
-  it("sends nothing when the event has no assigned Coordinator", async () => {
+  it("queues nothing when the event has no assigned Coordinator", async () => {
     const { lineId } = await createEvent({ name: "Nobody", requested: 2, coordinatorId: null });
     await reserve(lineId, 2);
 
@@ -389,8 +398,8 @@ describe("Reduce or release a reservation (PTR-42)", () => {
       database as never
     );
 
-    expect(result.notified).toBe(false);
-    expect(sendEmail).not.toHaveBeenCalled();
+    expect(result.notificationQueued).toBe(false);
+    expect(await notificationsFor(fixtureUsers.coordinator.id)).toHaveLength(0);
   });
 
   // PTR-24 AC6: a release after confirmation is the Coordinator's to handle, not a status change.

@@ -13,6 +13,8 @@ Client ──► Cloudflare edge (proxied, Free managed WAF)
                         ├── Cloudflare R2 bucket: presigned uploads
                         ├── Secret Manager: per-environment configuration
                         └── Resend (email) · Sentry (errors)
+
+Cloud Scheduler ──► POST /api/cron/notifications on the same service, every minute (PTR-55)
 ```
 
 |                      | Production                                                | Staging                                                      |
@@ -62,16 +64,19 @@ A failure after `migrate` leaves the migration applied; `cleanup` only drops the
 
 ### Secrets
 
-Secret Manager holds fourteen containers: seven names under each environment prefix. The Cloud Run container sees the bare name; the prefix is a Secret Manager naming concern. Values never enter Terraform state or a tfvars file; operators add versions with `gcloud`.
+Secret Manager holds sixteen containers: eight names under each environment prefix. The Cloud Run container sees the bare name; the prefix is a Secret Manager naming concern. Values never enter Terraform state or a tfvars file; operators add versions with `gcloud`.
 
-| Secret (`<env>-…`)                      | Purpose                                                                                   |
-| --------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                          | Supabase **transaction pooler** (`:6543`) URL, consumed by the app with `prepare: false`  |
-| `BETTER_AUTH_SECRET`                    | `openssl rand -base64 48`; distinct per environment                                       |
-| `SMOKE_TOKEN`                           | `openssl rand -hex 32`; distinct per environment, read by the `smoke` job                 |
-| `VITE_SENTRY_DSN`                       | Sentry DSN: a build arg for the browser bundle _and_ a runtime env var for the server SDK |
-| `RESEND_API_KEY`                        | Transactional email                                                                       |
-| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | R2 API token scoped to that environment's bucket                                          |
+| Secret (`<env>-…`)                      | Purpose                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                          | Supabase **transaction pooler** (`:6543`) URL, consumed by the app with `prepare: false`    |
+| `BETTER_AUTH_SECRET`                    | `openssl rand -base64 48`; distinct per environment                                         |
+| `SMOKE_TOKEN`                           | `openssl rand -hex 32`; distinct per environment, read by the `smoke` job                   |
+| `CRON_TOKEN`                            | `openssl rand -hex 32`; distinct per environment, the notification worker's bearer (PTR-55) |
+| `VITE_SENTRY_DSN`                       | Sentry DSN: a build arg for the browser bundle _and_ a runtime env var for the server SDK   |
+| `RESEND_API_KEY`                        | Transactional email                                                                         |
+| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | R2 API token scoped to that environment's bucket                                            |
+
+Create a `CRON_TOKEN` version in **both** environments before you deploy a revision that references it. A Cloud Run revision that mounts a versionless secret never becomes ready. Install the real header of the Cloud Scheduler job after the first apply; see [`infra/README.md`](../infra/README.md#notification-email-worker).
 
 Add or rotate a version:
 
@@ -107,6 +112,31 @@ The WIF binding in [`infra/iam.tf`](../infra/iam.tf) admits only the `main` bran
 | `MINIO_BUCKET`                  | `connectsphere-uploads`                                        | `connectsphere-staging-uploads`          |
 
 `BETTER_AUTH_URL` must equal the environment's public origin. Better Auth derives its trusted origins from it, there is no `trustedOrigins` override, and the app will boot cheerfully with the wrong value, producing broken verification links and cookie-domain mismatches rather than an error.
+
+### Notification email worker
+
+Cloud Scheduler (`<env>-notification-emails`, Terraform-owned in [`infra/scheduler.tf`](../infra/scheduler.tf)) POSTs to the environment's Cloud Run URL `/api/cron/notifications` every minute with the `CRON_TOKEN` bearer. The route claims up to 50 pending notification emails. It sends them and answers `{sent, failed, pending}`. `failed` counts the failures of this run. Rows retry with backoff and dead-letter after ten attempts. Dead-letter rows stay visible in the app's notifications page either way.
+
+The route logs a rejected bearer as a warning. A scheduler header left as the placeholder shows in Cloud Run logs. Create `<env>-CRON_TOKEN` versions before the next deploy. A revision that references a versionless secret never becomes ready.
+
+Drain the queue by hand (staging shown; the token is a secret version, never stored here):
+
+```bash
+TOKEN="$(gcloud secrets versions access latest --secret=staging-CRON_TOKEN --project=connectsphere-is212)"
+curl -fsS -X POST -H "Authorization: Bearer $TOKEN" \
+  https://connectsphere-staging.ciav.dev/api/cron/notifications
+```
+
+Dead letters are the rows worth chasing:
+
+```sql
+select id, kind, recipient_id, email_attempts, last_email_error, created_at
+from notifications
+where emailed_at is null and failed_at is not null
+order by created_at;
+```
+
+The every-minute wake pays a cold start on a scale-to-zero service. If that cost exceeds notification latency, widen the schedule in `scheduler.tf` to `*/5 * * * *`. No code assumes a cadence.
 
 ### Deployed migrations
 

@@ -2,7 +2,8 @@
 // (which is configured with the bun-sql driver and does not accept this codebase's query shapes
 // in a test context — see the "client.unsafe is not a function" failure this replaces).
 // oxlint-disable node/no-process-env
-import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { render } from "@react-email/render";
 import { eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -20,11 +21,8 @@ import { handleDecideEventRequest } from "#/features/coordination/assignments.se
 import { handleListEvents } from "#/features/events/records.server";
 import { EQUIPMENT_MAX_LINES } from "#/features/event-requests/schema";
 import { EQUIPMENT_NO_LINES_MESSAGE } from "#/features/equipment-requests/schema";
-
-const sendEmail = vi.hoisted(() =>
-  vi.fn<(...args: unknown[]) => Promise<void>>(async (..._args) => {})
-);
-vi.mock("#/lib/mailer.server", () => ({ sendEmail }));
+import { notificationSummary } from "#/features/notifications/message";
+import { renderNotificationEmail } from "#/features/notifications/render.server";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -83,7 +81,6 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
   });
 
   afterEach(async () => {
-    sendEmail.mockClear();
     if (created.length === 0) return;
     await database
       .delete(schema.equipmentRequests)
@@ -629,10 +626,16 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
         .from(schema.eventRequests)
         .where(eq(schema.eventRequests.id, id));
       expect(row.equipmentSubmittedAt).toBeNull();
-      expect(sendEmail).not.toHaveBeenCalled();
+      // The refused submission rolls back, so no notification rows are left behind.
+      expect(
+        await database
+          .select()
+          .from(schema.notifications)
+          .where(eq(schema.notifications.eventRequestId, id))
+      ).toHaveLength(0);
     });
 
-    test("AC5: with lines -> stamps the event, returns counts, and emails every technical-support user", async () => {
+    test("AC5: with lines -> stamps the event, returns counts, and queues one notification per technical-support user", async () => {
       const id = await createEvent("approved");
       await handleSaveEquipmentLine(
         { eventId: id, item: "Projector", quantity: 1 },
@@ -647,56 +650,69 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       );
 
       const techRows = await database
-        .select({ email: schema.user.email })
+        .select({ id: schema.user.id })
         .from(schema.user)
         .where(eq(schema.user.role, "technical_support_staff"));
       expect(techRows.length).toBeGreaterThan(0);
-      expect(result).toEqual({ lineCount: 1, recipientCount: techRows.length, failedCount: 0 });
-      expect(sendEmail).toHaveBeenCalledTimes(techRows.length);
-      for (const { email } of techRows) {
-        expect(sendEmail).toHaveBeenCalledWith(
-          email,
-          `Equipment request for event ${id}`,
-          expect.anything()
-        );
+      expect(result).toEqual({ lineCount: 1, recipientCount: techRows.length });
+
+      const rows = await database
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.eventRequestId, id));
+      expect(rows.map(row => row.recipientId).toSorted()).toEqual(
+        techRows.map(row => row.id).toSorted()
+      );
+      for (const row of rows) {
+        expect(row.kind).toBe("equipment_requested");
+        expect(row.emailedAt).toBeNull();
       }
-      const [row] = await database
+      const [event] = await database
         .select()
         .from(schema.eventRequests)
         .where(eq(schema.eventRequests.id, id));
-      expect(row.equipmentSubmittedAt).not.toBeNull();
+      expect(rows[0].payload).toMatchObject({
+        eventName: event.eventName,
+        lines: [{ item: "Projector", quantity: 1 }],
+      });
+      const { subject, element } = renderNotificationEmail({
+        kind: rows[0].kind,
+        payload: rows[0].payload,
+        eventRequestId: rows[0].eventRequestId,
+      } as never);
+      expect(subject).toBe(
+        notificationSummary({ kind: rows[0].kind, payload: rows[0].payload } as never)
+      );
+      expect(subject).toBe(`Equipment request for ${event.eventName}`);
+      const html = await render(element);
+      expect(html).toContain("Projector");
+      expect(html).toContain(String(id));
+      expect(event.equipmentSubmittedAt).not.toBeNull();
     });
 
-    test("AC5: every notification rejected still commits the submission and reports the failures", async () => {
+    test("AC5: a refused second submit queues nothing more and keeps the first submission", async () => {
       const id = await createEvent("approved");
       await handleSaveEquipmentLine(
         { eventId: id, item: "Projector", quantity: 1 },
         coordinator,
         database as never
       );
-      const techRows = await database
-        .select({ email: schema.user.email })
-        .from(schema.user)
-        .where(eq(schema.user.role, "technical_support_staff"));
-      expect(techRows.length).toBeGreaterThan(0);
+      await handleSubmitEquipmentRequest({ eventId: id }, coordinator, database as never);
+      const before = await database
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.eventRequestId, id));
+      expect(before.length).toBeGreaterThan(0);
 
-      // One rejection per recipient, consumed by the call, so no global mock state leaks.
-      for (let i = 0; i < techRows.length; i++) {
-        sendEmail.mockRejectedValueOnce(new Error("smtp down"));
-      }
-      const result = await handleSubmitEquipmentRequest(
-        { eventId: id },
-        coordinator,
-        database as never
-      );
+      await expect(
+        handleSubmitEquipmentRequest({ eventId: id }, coordinator, database as never)
+      ).rejects.toBeInstanceOf(ConflictError);
 
-      expect(result).toEqual({
-        lineCount: 1,
-        recipientCount: techRows.length,
-        failedCount: techRows.length,
-      });
-      expect(sendEmail).toHaveBeenCalledTimes(techRows.length);
-
+      const after = await database
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.eventRequestId, id));
+      expect(after).toHaveLength(before.length);
       const [row] = await database
         .select()
         .from(schema.eventRequests)

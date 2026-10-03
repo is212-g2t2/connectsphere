@@ -144,7 +144,7 @@ test.describe("AC1: confirming", () => {
 
     await confirmFromCard(page, name);
 
-    await expect(page.getByText("Event confirmed. The Organiser has been notified.")).toBeVisible();
+    await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
     const card = cardFor(page, name);
     await expect(card.getByText("Confirmed venue")).toBeVisible();
     await expect(card.getByText(venueName)).toBeVisible();
@@ -159,7 +159,7 @@ test.describe("AC1: confirming", () => {
 
     await confirmFromCard(page, name);
 
-    await expect(page.getByText("Event confirmed. The Organiser has been notified.")).toBeVisible();
+    await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
     expect(await statusOf(id)).toBe("confirmed");
   });
 });
@@ -195,7 +195,7 @@ test.describe("AC3 and AC4: the Organiser", () => {
     });
     await openCoordinatorDashboard(page);
     await confirmFromCard(page, name);
-    await expect(page.getByText("Event confirmed. The Organiser has been notified.")).toBeVisible();
+    await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
 
     const organiserContext = await browser.newContext();
     const organiserPage = await organiserContext.newPage();

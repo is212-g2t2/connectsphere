@@ -6,8 +6,8 @@ import { AuthorizationError, ConflictError, NotFoundError } from "#/features/aut
 import type { SessionUser } from "#/features/auth/session";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import {
+  raiseVenueRequestNotifications,
   rethrowDuplicate,
-  sendVenueRequestNotification,
 } from "#/features/venue-requests/requests.server";
 import {
   parseVenueHoldId,
@@ -247,34 +247,36 @@ export async function handleConvertVenueHold(
     const event = eventRows.at(0);
 
     const staffRecipients = await tx
-      .select({ email: user.email })
+      .select({ id: user.id })
       .from(user)
       .where(eq(user.role, "venue_staff"));
+
+    // The request and its notifications commit together; the worker sends the emails.
+    await raiseVenueRequestNotifications(
+      tx,
+      {
+        venueRequestId: createdRequest.id,
+        eventId: hold.eventId,
+        venueName: venue.name,
+        startsAt: createdRequest.startsAt,
+        endsAt: createdRequest.endsAt,
+        expectedAttendance: event?.expectedAttendance ?? null,
+        layout: event?.roomLayoutPreference ?? "",
+        accessibilityRequirements: event?.accessibilityRequirements ?? "",
+        requiredFacilities: event?.venueRequirements ?? "",
+      },
+      staffRecipients.map(recipient => recipient.id)
+    );
 
     return {
       hold: releasedHold,
       request: createdRequest,
-      venue,
-      event,
-      recipientEmails: staffRecipients.map(r => r.email),
+      recipientCount: staffRecipients.length,
     };
   });
 
-  if (result.recipientEmails.length === 0) {
+  if (result.recipientCount === 0) {
     log.warn("No Venue Staff to notify of the venue request", { requestId: result.request.id });
-  } else {
-    await sendVenueRequestNotification(
-      {
-        venueName: result.venue.name,
-        startsAt: result.request.startsAt,
-        endsAt: result.request.endsAt,
-        expectedAttendance: result.event?.expectedAttendance ?? null,
-        layout: result.event?.roomLayoutPreference ?? "",
-        accessibilityRequirements: result.event?.accessibilityRequirements ?? "",
-        requiredFacilities: result.event?.venueRequirements ?? "",
-      },
-      result.recipientEmails
-    );
   }
 
   return {

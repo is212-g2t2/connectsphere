@@ -135,9 +135,8 @@ export const removeEquipmentLine = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-38 AC5: submit the full equipment list to Technical Support. The handler sends the
- * notification after the commit; mail failures are logged and swallowed there, matching the
- * best-effort pattern venue requests use.
+ * PTR-38 AC5: submit the full equipment list to Technical Support. The handler raises every
+ * Technical Support member's notification with the submission; the worker delivers the emails.
  */
 export const submitEquipmentRequest = createServerFn({ method: "POST" })
   .validator(parseSubmitEquipmentInput)
@@ -151,7 +150,6 @@ export const submitEquipmentRequest = createServerFn({ method: "POST" })
       actorId: context.user.id,
       lineCount: result.lineCount,
       recipientCount: result.recipientCount,
-      failedCount: result.failedCount,
     });
 
     return result;

@@ -10,10 +10,11 @@ State lives in `gs://connectsphere-is212-tfstate` (`prefix = terraform/state`). 
 | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `state-bucket.tf` | The state bucket (imported, see below) and the project API enablement                                             |
 | `cloud-run.tf`    | Both Cloud Run services, their public invoker, the startup probe, and the domain mappings                         |
-| `secrets.tf`      | Fourteen Secret Manager containers and the per-environment runtime `secretAccessor` grants                        |
+| `secrets.tf`      | Sixteen Secret Manager containers and the per-environment runtime `secretAccessor` grants                         |
 | `iam.tf`          | The WIF pool and provider, the deploy service account, its ref- and ref_type-scoped binding, the runtime accounts |
 | `cloudflare.tf`   | One CNAME per environment, pointing at `ghs.googlehosted.com`                                                     |
 | `r2.tf`           | One private R2 bucket per environment                                                                             |
+| `scheduler.tf`    | One Cloud Scheduler job per environment: the every-minute notification email worker (PTR-55)                      |
 | `budget.tf`       | A monthly SGD 10 budget with alerts at 50%, 90% and 100%                                                          |
 
 The per-environment settings (service name, hostname, instance bounds, bucket, Sentry environment, proxy flag, sender address) are one map in `main.tf`.
@@ -47,7 +48,7 @@ Before the first run, authenticate: `gcloud auth login` for the bootstrap script
 
 5. **Create the R2 API tokens and CORS rules** (see below).
 
-6. **Populate all fourteen secret versions** (see below).
+6. **Populate all sixteen secret versions** (see below). Create `staging-CRON_TOKEN` and `prod-CRON_TOKEN` before the full apply. The Cloud Run template mounts every secret. A revision that references a versionless secret never becomes ready.
 
 7. **Now the full apply.** Both services come up on the `hello` placeholder with every secret resolvable.
 
@@ -66,6 +67,33 @@ Before the first run, authenticate: `gcloud auth login` for the bootstrap script
 ### Secret versions
 
 The containers exist after step 3; the versions do not. The command, the value formats and the per-environment requirements are in [DEPLOYMENT.md](../docs/DEPLOYMENT.md#secrets).
+
+### Notification email worker
+
+`scheduler.tf` creates one Cloud Scheduler job per environment. It uses a placeholder `Authorization` header and `ignore_changes`. The real `CRON_TOKEN` never enters Terraform state. After the first apply creates the jobs, install the real header once per environment. Take values from Secret Manager. Never write them down:
+
+```bash
+# Staging
+token="$(gcloud secrets versions access latest --secret=staging-CRON_TOKEN --project=connectsphere-is212)"
+gcloud scheduler jobs update http staging-notification-emails \
+  --project=connectsphere-is212 --location=asia-southeast1 \
+  --update-headers="Authorization=Bearer ${token}"
+
+# Production
+token="$(gcloud secrets versions access latest --secret=prod-CRON_TOKEN --project=connectsphere-is212)"
+gcloud scheduler jobs update http prod-notification-emails \
+  --project=connectsphere-is212 --location=asia-southeast1 \
+  --update-headers="Authorization=Bearer ${token}"
+```
+
+Until you set the header, the route answers 401 and delivers nothing. Confirm the job after the update:
+
+```bash
+gcloud scheduler jobs describe staging-notification-emails \
+  --project=connectsphere-is212 --location=asia-southeast1
+```
+
+Observe delivery from the job result and from the app. The response holds `{sent, failed, pending}`. Failures appear in Sentry. The dead-letter query is in [DEPLOYMENT.md](../docs/DEPLOYMENT.md#notification-email-worker).
 
 ### Webmaster Central
 

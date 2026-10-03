@@ -21,6 +21,7 @@ import type {
   ClarificationField,
   EventRequestDraftValues,
 } from "#/features/event-requests/schema";
+import type { NotificationPayload } from "#/features/notifications/message";
 import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 
 import { user } from "./auth-schema";
@@ -678,5 +679,73 @@ export const eventRegistrations = pgTable(
     // The primary key leads with `event_id`, so an attendee's own registrations need their own
     // path to be indexed.
     index("event_registrations_attendee_id_idx").on(table.attendeeId),
+  ]
+);
+
+/**
+ * PTR-55: every notification raised for one user, and the queue its email copy is delivered from.
+ * A row commits in the same transaction as the state change it announces, so a rolled-back change
+ * leaves nothing behind. `kind` selects the email template; `payload` carries the domain facts the
+ * inbox line and the email are both built from (never template props). The list in
+ * `src/features/notifications/message.ts` restates this enum, held identical by `db-schema.test.ts`.
+ */
+export const notificationKind = pgEnum("notification_kind", [
+  "venue_booking_requested",
+  "venue_booking_approved",
+  "venue_booking_rejected",
+  "venue_booking_changed",
+  "clarification_requested",
+  "clarification_replied",
+  "handover_requested",
+  "handover_accepted",
+  "handover_declined",
+  "event_decided",
+  "event_confirmed",
+  "equipment_requested",
+  "equipment_arrangements_completed",
+  "equipment_unavailable",
+  "equipment_released",
+]);
+
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: serial("id").primaryKey(),
+    recipientId: text("recipient_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** The event request the notification is about; every current kind has one. */
+    eventRequestId: integer("event_request_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    kind: notificationKind("kind").notNull(),
+    payload: jsonb("payload").$type<NotificationPayload["payload"]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Null until the worker delivers the email copy; the inbox does not depend on it. */
+    emailedAt: timestamp("emailed_at", { withTimezone: true }),
+    /** Set when the worker gives up after its attempt budget; the row stays in the inbox. */
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    emailAttempts: integer("email_attempts").notNull().default(0),
+    /** When a worker may claim the row; a failure pushes it out with backoff. */
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Lease: set while a worker owns the row, so a second run skips it rather than double-sends. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    /** Sanitised failure name only: provider messages can echo the recipient address. */
+    lastEmailError: text("last_email_error"),
+  },
+  table => [
+    // The inbox reads one recipient's rows newest first; Postgres scans a btree backwards, so
+    // ascending columns serve the descending read.
+    index("notifications_recipient_created_at_idx").on(
+      table.recipientId,
+      table.createdAt,
+      table.id
+    ),
+    // The worker scans pending rows oldest first; the partial predicate keeps the queue small.
+    index("notifications_pending_idx")
+      .on(table.createdAt)
+      .where(sql`${table.emailedAt} is null and ${table.failedAt} is null`),
+    // The event-request read path and the FK's cascade both look the event up.
+    index("notifications_event_request_id_idx").on(table.eventRequestId),
   ]
 );

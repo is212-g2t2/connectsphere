@@ -1,13 +1,10 @@
 import { and, eq } from "drizzle-orm";
-import { createElement } from "react";
 
 import type { db as Db } from "#/db";
 import {
   equipmentRequests,
   equipmentReservations,
   equipmentTypes,
-  eventRequests,
-  user,
   venueRequests,
 } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
@@ -16,6 +13,7 @@ import { loadTypeAvailability } from "#/features/equipment-requests/availability
 import {
   clearArrangementsCompletion,
   loadWorkableLines,
+  raiseCoordinatorNotification,
 } from "#/features/equipment-requests/equipment.server";
 import {
   RELEASE_NO_RESERVATION_MESSAGE,
@@ -330,7 +328,7 @@ export async function handleCheckLineAvailability(
  * `equipment_types` row — so a release and a concurrent reserve on the same type serialise rather
  * than interleave. The line's state returns to `requested`, or to `unavailable` with the reason
  * Technical Support gives (criterion 1); its event's status is never written (criterion 4). The
- * assigned Coordinator is told after the commit, best-effort, the shape the submit notice uses
+ * assigned Coordinator's notification is raised with the release, the shape the submit notice uses
  * (criterion 3).
  */
 export async function handleReleaseEquipment(
@@ -344,7 +342,7 @@ export async function handleReleaseEquipment(
       ? input.unavailableReason
       : null;
 
-  const committed = await database.transaction(async tx => {
+  const result = await database.transaction(async tx => {
     const line = await loadLineForStaff(tx, {
       lineId: input.equipmentRequestId,
       actor,
@@ -400,6 +398,24 @@ export async function handleReleaseEquipment(
     // PTR-43 AC4: reducing or releasing a reservation invalidates a prior completion stamp.
     await clearArrangementsCompletion(tx, line.eventId);
 
+    // PTR-42 criterion 3: the Coordinator's notice commits with the change; the worker sends the
+    // email, so a mail outage cannot lose the record of what was given back.
+    const notificationQueued = await raiseCoordinatorNotification(tx, line.eventId, context => ({
+      recipientId: context.coordinatorId,
+      eventRequestId: line.eventId,
+      kind: "equipment_released",
+      payload: {
+        eventName: context.eventName,
+        item: line.item,
+        requestedQuantity: line.quantity,
+        previousQuantity: reservation.quantity,
+        quantity: input.quantity,
+        arrangementStatus,
+        unavailableReason,
+        actorName: actor.name ?? "Technical Support",
+      },
+    }));
+
     log.info("Equipment reservation reduced or released", {
       reservationId: reservation.id,
       eventId: line.eventId,
@@ -410,66 +426,14 @@ export async function handleReleaseEquipment(
     });
 
     return {
-      line,
+      equipmentRequestId: line.id,
       previousQuantity: reservation.quantity,
+      quantity: input.quantity,
+      released: input.quantity === 0,
       arrangementStatus,
-      eventId: line.eventId,
+      notificationQueued,
     };
   });
 
-  const result = {
-    equipmentRequestId: committed.line.id,
-    previousQuantity: committed.previousQuantity,
-    quantity: input.quantity,
-    released: input.quantity === 0,
-    arrangementStatus: committed.arrangementStatus,
-    notified: false,
-  };
-
-  // Everything after the commit is best-effort: neither a failed notice read nor a mail outage
-  // can undo the release the caller was already told about.
-  try {
-    const notice = (
-      await database
-        .select({ eventName: eventRequests.eventName, coordinatorEmail: user.email })
-        .from(eventRequests)
-        .leftJoin(user, eq(user.id, eventRequests.assignedCoordinatorId))
-        .where(eq(eventRequests.id, committed.eventId))
-        .limit(1)
-    ).at(0);
-
-    if (!notice?.coordinatorEmail) {
-      log.warn("No Coordinator to notify of equipment release", {
-        eventId: committed.line.eventId,
-      });
-      return result;
-    }
-
-    // Reached only when there is someone to email, so the mailer import is never paid otherwise.
-    const [{ sendEmail }, { EquipmentReleasedEmail }] = await Promise.all([
-      import("#/lib/mailer.server"),
-      import("#/features/emails/components/equipment-released-email"),
-    ]);
-    await sendEmail(
-      notice.coordinatorEmail,
-      `Equipment ${result.released ? "released" : "reduced"}: ${committed.line.item}`,
-      createElement(EquipmentReleasedEmail, {
-        eventName: notice.eventName,
-        item: committed.line.item,
-        requestedQuantity: committed.line.quantity,
-        previousQuantity: committed.previousQuantity,
-        quantity: input.quantity,
-        arrangementStatus: committed.arrangementStatus,
-        unavailableReason,
-        actorName: actor.name ?? "Technical Support",
-      })
-    );
-    return { ...result, notified: true };
-  } catch (error) {
-    log.warn("Equipment release notification failed", {
-      eventId: committed.line.eventId,
-      errorName: error instanceof Error ? error.name : "unknown",
-    });
-    return result;
-  }
+  return result;
 }
