@@ -17,6 +17,7 @@ import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authenticated/notifications'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiSmokeRouteImport } from './routes/api/smoke'
@@ -36,6 +37,7 @@ import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authen
 import { Route as AuthenticatedVenuesAvailabilityRouteImport } from './routes/_authenticated/venues/availability'
 import { Route as AuthenticatedVenuesNewRouteImport } from './routes/_authenticated/venues/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiCronNotificationsRouteImport } from './routes/api/cron/notifications'
 import { Route as AuthenticatedEventRequestsReopenDraftIdRouteImport } from './routes/_authenticated/event-requests/reopenDraft.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -77,6 +79,12 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedNotificationsRoute =
+  AuthenticatedNotificationsRouteImport.update({
+    id: '/notifications',
+    path: '/notifications',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -185,6 +193,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCronNotificationsRoute = ApiCronNotificationsRouteImport.update({
+  id: '/api/cron/notifications',
+  path: '/api/cron/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedEventRequestsReopenDraftIdRoute =
   AuthenticatedEventRequestsReopenDraftIdRouteImport.update({
     id: '/event-requests/reopenDraft/$id',
@@ -200,6 +213,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/notifications': typeof AuthenticatedNotificationsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
@@ -213,6 +227,7 @@ export interface FileRoutesByFullPath {
   '/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/coordination/': typeof AuthenticatedCoordinationIndexRoute
   '/equipment-requests/': typeof AuthenticatedEquipmentRequestsIndexRoute
   '/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
@@ -229,6 +244,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/notifications': typeof AuthenticatedNotificationsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
@@ -242,6 +258,7 @@ export interface FileRoutesByTo {
   '/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/coordination': typeof AuthenticatedCoordinationIndexRoute
   '/equipment-requests': typeof AuthenticatedEquipmentRequestsIndexRoute
   '/event-requests': typeof AuthenticatedEventRequestsIndexRoute
@@ -260,6 +277,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/notifications': typeof AuthenticatedNotificationsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
@@ -273,6 +291,7 @@ export interface FileRoutesById {
   '/_authenticated/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
   '/_authenticated/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/_authenticated/coordination/': typeof AuthenticatedCoordinationIndexRoute
   '/_authenticated/equipment-requests/': typeof AuthenticatedEquipmentRequestsIndexRoute
   '/_authenticated/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
@@ -291,6 +310,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/dashboard'
+    | '/notifications'
     | '/settings'
     | '/api/health'
     | '/api/smoke'
@@ -304,6 +324,7 @@ export interface FileRouteTypes {
     | '/venues/availability'
     | '/venues/new'
     | '/api/auth/$'
+    | '/api/cron/notifications'
     | '/coordination/'
     | '/equipment-requests/'
     | '/event-requests/'
@@ -320,6 +341,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/dashboard'
+    | '/notifications'
     | '/settings'
     | '/api/health'
     | '/api/smoke'
@@ -333,6 +355,7 @@ export interface FileRouteTypes {
     | '/venues/availability'
     | '/venues/new'
     | '/api/auth/$'
+    | '/api/cron/notifications'
     | '/coordination'
     | '/equipment-requests'
     | '/event-requests'
@@ -350,6 +373,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/_authenticated/dashboard'
+    | '/_authenticated/notifications'
     | '/_authenticated/settings'
     | '/api/health'
     | '/api/smoke'
@@ -363,6 +387,7 @@ export interface FileRouteTypes {
     | '/_authenticated/venues/availability'
     | '/_authenticated/venues/new'
     | '/api/auth/$'
+    | '/api/cron/notifications'
     | '/_authenticated/coordination/'
     | '/_authenticated/equipment-requests/'
     | '/_authenticated/event-requests/'
@@ -384,6 +409,7 @@ export interface RootRouteChildren {
   ApiSmokeRoute: typeof ApiSmokeRoute
   ApiUploadUrlRoute: typeof ApiUploadUrlRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiCronNotificationsRoute: typeof ApiCronNotificationsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -442,6 +468,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/notifications': {
+      id: '/_authenticated/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof AuthenticatedNotificationsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/settings': {
@@ -577,6 +610,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cron/notifications': {
+      id: '/api/cron/notifications'
+      path: '/api/cron/notifications'
+      fullPath: '/api/cron/notifications'
+      preLoaderRoute: typeof ApiCronNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/event-requests/reopenDraft/$id': {
       id: '/_authenticated/event-requests/reopenDraft/$id'
       path: '/event-requests/reopenDraft/$id'
@@ -589,6 +629,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedNotificationsRoute: typeof AuthenticatedNotificationsRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedCoordinationRequestIdRoute: typeof AuthenticatedCoordinationRequestIdRoute
   AuthenticatedEquipmentRequestsEventIdRoute: typeof AuthenticatedEquipmentRequestsEventIdRoute
@@ -609,6 +650,7 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedNotificationsRoute: AuthenticatedNotificationsRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedCoordinationRequestIdRoute:
     AuthenticatedCoordinationRequestIdRoute,
@@ -649,6 +691,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSmokeRoute: ApiSmokeRoute,
   ApiUploadUrlRoute: ApiUploadUrlRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiCronNotificationsRoute: ApiCronNotificationsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

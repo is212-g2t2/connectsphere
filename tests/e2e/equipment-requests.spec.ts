@@ -15,12 +15,8 @@ const DASHBOARD_PATH = "/dashboard";
 const DEMO_EVENT = "ConnectSphere Demo Summit";
 const SUBMITTED_CAPTION = "Submitted to Technical Support.";
 const EMPTY_STATE_MESSAGE = "No equipment lines recorded. Add at least one line before submitting.";
-// A local E2E run has no mailer (no SMTP_URL/RESEND_API_KEY), so every notification is rejected
-// and the honest submit toast reports it. CI wires Mailpit, so the success message is expected.
-const MAIL_CONFIGURED = Boolean(process.env.SMTP_URL || process.env.RESEND_API_KEY);
-const SUBMIT_TOAST = MAIL_CONFIGURED
-  ? "Equipment requirements sent to Technical Support."
-  : "Equipment requirements submitted, but no notifications were delivered.";
+// Delivery is queued now, so the submit toast no longer varies with the mailer's configuration.
+const SUBMIT_TOAST = "Equipment requirements sent to Technical Support.";
 
 const USERS = {
   coordinator: "coordinator.seed@example.com",

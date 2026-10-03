@@ -20,6 +20,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 - [ADR-3: Google Cloud Run in a single GCP project](./adrs/ADR-3-cloud-run.md)
 - [ADR-4: Trunk-based main with release-gated production](./adrs/ADR-4-trunk-based-main.md)
 - [ADR-5: Overlap-free approved bookings, enforced by a Postgres exclusion constraint](./adrs/ADR-5-venue-booking-overlap.md)
+- [ADR-6: Notification emails from a transactional queue drained by a scheduled worker](./adrs/ADR-6-notification-delivery.md)
 
 ## Directory Structure
 
@@ -50,6 +51,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── event-requests/ # Requirement capture, drafts, submission
 │   │   ├── events/       # Relationship-scoped event access
 │   │   ├── landing/      # Public landing view
+│   │   ├── notifications/ # The notification inbox, its queue rows and the delivery worker
 │   │   ├── venue-requests/ # Booking requests: raise, withdraw, approve, reject, release, amend, notify
 │   │   └── venues/       # Venue catalogue, requirements search with suitability verdicts, and availability
 │   ├── hooks/            # Client hooks shared across features
@@ -82,6 +84,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 5. **Client mutations**: browser writes a form does not own (save a draft, delete an account, sign out, upload) run through `useMutation` (`src/hooks/use-mutation.ts`), a thin wrapper over React's `useActionState` holding the run's in-flight flag, result and error. The run receives the last _successful_ result, which is how a server-assigned draft id reaches the next save without the page storing it.
 6. **Auth flow**: forms in `src/features/auth/components/` call `src/lib/auth-client.ts`; `/login`, `/signup` and `/reset-password` (`?token=`) are the routes.
 7. **File uploads**: `src/routes/api/upload-url.ts` generates a presigned PUT URL; the client uploads directly to storage and the server never proxies file bytes.
+8. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The in-app record and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute. The worker delivers pending rows and marks them. The reasoning, failure policy and P0 bypass are [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
 
 ## Database & Migrations
 
@@ -99,6 +102,8 @@ The equipment side of an event is marked settled on `event_requests.equipment_ar
 A reduce lowers a reservation's quantity and a release deletes the row, so freed units reach every overlapping event through the same sweep. The line returns to `requested`, or to `unavailable` with the reason Technical Support gives; the event's status is never written by either. Release takes the line lock then the type lock, the reserve path's order, which also reads the approved booking `FOR SHARE` between the two while release skips that read because it never reads bookings.
 
 The assigned Coordinator confirms an event from `approved` or `planning`. The gate needs exactly one approved venue request and, when the event has equipment lines, every line reserved or not required with Technical Support's completion mark set (`equipment_arrangements_completed_at`); an event with no equipment lines needs the booking alone. A refusal names every outstanding item, the conflicting state, or the current status.
+
+The `notifications` table is the application's only notification record. Each trigger creates one row per recipient. Each row carries the notification `kind` and a domain-fact `payload`. The change writes its rows in its own transaction. The delivery worker drains pending rows (`emailed_at IS NULL AND failed_at IS NULL`) in batches. The worker leases each row, so overlapping runs cannot double-send. `failed_at` marks a row that spent its attempt budget. The row stays visible in the inbox. The inbox read re-applies the caller's event relationship. It renders a neutral line when the caller can no longer reach the subject. No event data crosses the boundary after access ends.
 
 The handler locks the equipment lines, then the event, then its venue requests before reading them, the order the equipment paths use. It records who confirmed and when in `confirmed_*` columns kept apart from the approval attribution. A booking or reservation changed after confirmation never moves the status.
 

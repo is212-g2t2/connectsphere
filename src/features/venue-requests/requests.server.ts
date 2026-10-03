@@ -1,17 +1,14 @@
 import { and, asc, eq, gt, inArray, lt } from "drizzle-orm";
-import { createElement } from "react";
-import type { ReactElement } from "react";
 
 import type { db as Db } from "#/db";
 import { eventRequests, user, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
-import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
-import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { loadAssignedEvent } from "#/features/events/records.server";
+import { raiseNotifications } from "#/features/notifications/raise.server";
+import type { NewNotification } from "#/features/notifications/raise.server";
 import {
   VENUE_REQUEST_CONFLICT_MESSAGE,
   VENUE_REQUEST_DECIDED_MESSAGE,
@@ -30,7 +27,6 @@ import { toLocalMinuteValue } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
-import { sendEmail } from "#/lib/mailer.server";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -47,6 +43,8 @@ type Database = typeof Db;
 const log = logger.getChild("venue-requests");
 
 export interface VenueRequestNotification {
+  venueRequestId: string;
+  eventId: number;
   venueName: string;
   startsAt: string;
   endsAt: string;
@@ -57,37 +55,35 @@ export interface VenueRequestNotification {
 }
 
 /**
- * Every Venue Staff member works the shared pending queue, so all of them are told (§6: a venue
- * booking is requested). One allSettled pass over the resolved recipients; a failure is logged
- * and swallowed, because the request is already committed and losing a notification must not undo
- * it — the best-effort shape the decision emails use.
+ * PTR-31 criterion 4: every Venue Staff member works the shared pending queue, so every one of
+ * them is told (§6: a venue booking is requested). The rows commit in the caller's transaction —
+ * a rolled-back request raises nothing — and the worker delivers the emails afterwards, so a mail
+ * outage cannot lose or undo the notification. An empty recipient list is the caller's to log,
+ * not a refusal.
  */
-export async function sendVenueRequestNotification(
+export async function raiseVenueRequestNotifications(
+  tx: Pick<Database, "insert">,
   notification: VenueRequestNotification,
-  recipients: string[]
-) {
-  const subject = `Venue booking requested: ${notification.venueName}`;
-  const results = await Promise.allSettled(
-    recipients.map(recipient =>
-      sendEmail(
-        recipient,
-        subject,
-        createElement(VenueBookingRequestEmail, {
-          venueName: notification.venueName,
-          startsAt: notification.startsAt,
-          endsAt: notification.endsAt,
-          expectedAttendance: notification.expectedAttendance,
-          layout: notification.layout,
-          accessibilityRequirements: notification.accessibilityRequirements,
-          requiredFacilities: notification.requiredFacilities,
-        })
-      )
-    )
+  recipientIds: readonly string[]
+): Promise<void> {
+  await raiseNotifications(
+    tx,
+    recipientIds.map(recipientId => ({
+      recipientId,
+      eventRequestId: notification.eventId,
+      kind: "venue_booking_requested" as const,
+      payload: {
+        venueRequestId: notification.venueRequestId,
+        venueName: notification.venueName,
+        startsAt: notification.startsAt,
+        endsAt: notification.endsAt,
+        expectedAttendance: notification.expectedAttendance,
+        layout: notification.layout,
+        accessibilityRequirements: notification.accessibilityRequirements,
+        requiredFacilities: notification.requiredFacilities,
+      },
+    }))
   );
-  const failed = results.filter(result => result.status === "rejected").length;
-  if (failed > 0) {
-    log.warn("Venue request notification failed", { failed, recipients: recipients.length });
-  }
 }
 
 /**
@@ -127,49 +123,55 @@ function rethrowOverlap(error: unknown): never {
 /**
  * What a decision email needs, read in the decision's own transaction: the event, the venue, and
  * the address of the Coordinator who raised the request. That Coordinator is the raiser
- * (`requestedById`), not the event's current assignee; a raiser whose account is gone has no
- * address, so `requesterEmail` may be null.
+ * (`requestedById`), not the event's current assignee; a raiser whose account is gone has no id,
+ * so `requesterId` may be null.
  */
 async function loadDecisionNotice(database: Pick<Database, "select">, id: string) {
   const [notice] = await database
     .select({
+      eventId: venueRequests.eventId,
       eventName: eventRequests.eventName,
       venueName: venues.name,
-      requesterEmail: user.email,
+      requesterId: venueRequests.requestedById,
     })
     .from(venueRequests)
     .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .leftJoin(user, eq(user.id, venueRequests.requestedById))
     .where(eq(venueRequests.id, id))
     .limit(1);
   return notice;
 }
 
 /**
- * Best effort, like the request notification: the decision is committed, and a mail outage must
- * not turn a held venue or a recorded rejection into a failure. A missing address is logged rather
- * than silent.
+ * PTR-33/PTR-34: the decision email to the Coordinator who raised the request, raised in the
+ * decision's own transaction. A raiser whose account is gone has no recipient id, which is logged
+ * rather than silent. Delivery is the worker's job, so no mail outage can turn a held venue or a
+ * recorded rejection into a failure.
  */
-async function notifyRaiser(
+async function raiseDecisionNotification(
+  tx: Pick<Database, "insert">,
   requestId: string,
-  requesterEmail: string | null,
-  subject: string,
-  body: ReactElement,
-  decision: "approval" | "rejection"
+  notice: Awaited<ReturnType<typeof loadDecisionNotice>> | undefined,
+  build: (context: {
+    requesterId: string;
+    eventRequestId: number;
+    eventName: string;
+    venueName: string;
+  }) => NewNotification
 ) {
-  if (!requesterEmail) {
-    log.warn(`No Coordinator to notify of the venue ${decision}`, { requestId });
+  if (!notice?.requesterId) {
+    log.warn("No Coordinator to notify of the venue decision", { requestId });
     return;
   }
-  try {
-    await sendEmail(requesterEmail, subject, body);
-  } catch (error) {
-    log.warn(`Venue ${decision} notification failed`, {
-      requestId,
-      errorName: error instanceof Error ? error.name : "unknown",
-    });
-  }
+
+  await raiseNotifications(tx, [
+    build({
+      requesterId: notice.requesterId,
+      eventRequestId: notice.eventId,
+      eventName: notice.eventName,
+      venueName: notice.venueName,
+    }),
+  ]);
 }
 
 /**
@@ -484,42 +486,37 @@ export async function handleCreateVenueRequest(
       .returning()
       .catch(rethrowDuplicate);
 
-    // Recipients are resolved in the transaction, the canonical shape; the send runs after the
-    // commit so a mail outage cannot undo the request.
+    // Recipients are resolved and the notification rows written in the transaction, the
+    // canonical shape: the request and its notifications commit together, and the worker
+    // delivers from the queue.
     const recipients = await tx
-      .select({ email: user.email })
+      .select({ id: user.id })
       .from(user)
       .where(eq(user.role, "venue_staff"));
 
-    return {
-      request: rows[0],
-      venue,
-      recipientEmails: recipients.map(recipient => recipient.email),
-      expectedAttendance: event.expectedAttendance,
-      layout: event.roomLayoutPreference,
-      accessibilityRequirements: event.accessibilityRequirements,
-      requiredFacilities: event.venueRequirements,
-    };
+    const request = rows[0];
+    await raiseVenueRequestNotifications(
+      tx,
+      {
+        venueRequestId: request.id,
+        eventId: event.id,
+        venueName: venue.name,
+        startsAt: request.startsAt,
+        endsAt: request.endsAt,
+        expectedAttendance: event.expectedAttendance,
+        layout: event.roomLayoutPreference,
+        accessibilityRequirements: event.accessibilityRequirements,
+        requiredFacilities: event.venueRequirements,
+      },
+      recipients.map(recipient => recipient.id)
+    );
+
+    return { request, recipientCount: recipients.length };
   });
 
-  if (created.recipientEmails.length === 0) {
+  if (created.recipientCount === 0) {
     // Nobody to tell does not refuse the request, but it must be observable rather than silent.
     log.warn("No Venue Staff to notify of the venue request", { requestId: created.request.id });
-  } else {
-    // sendVenueRequestNotification settles every send through Promise.allSettled and only logs,
-    // so it never rejects; the request stays committed either way.
-    await sendVenueRequestNotification(
-      {
-        venueName: created.venue.name,
-        startsAt: created.request.startsAt,
-        endsAt: created.request.endsAt,
-        expectedAttendance: created.expectedAttendance,
-        layout: created.layout,
-        accessibilityRequirements: created.accessibilityRequirements,
-        requiredFacilities: created.requiredFacilities,
-      },
-      created.recipientEmails
-    );
   }
 
   return created.request;
@@ -663,30 +660,25 @@ export async function handleApproveVenueRequest(
         .where(eq(venueRequests.id, id))
         .returning();
 
-      // The send runs after the commit.
+      // The decision and its notification commit together; the worker sends the email.
       const notice = await loadDecisionNotice(tx, id);
-      return { approved, notice };
+      await raiseDecisionNotification(tx, id, notice, context => ({
+        recipientId: context.requesterId,
+        eventRequestId: context.eventRequestId,
+        kind: "venue_booking_approved",
+        payload: {
+          venueRequestId: id,
+          eventName: context.eventName,
+          venueName: context.venueName,
+          startsAt: approved.startsAt,
+          endsAt: approved.endsAt,
+        },
+      }));
+      return approved;
     })
     .catch(rethrowOverlap);
 
-  const { approved, notice } = decided;
-  // Best effort, like the request notification: the booking is committed, and a mail outage must
-  // not turn a held venue into a failed approval. Deliberately not awaited — nodemailer's default
-  // connect timeout is two minutes, and the response must not wait on a stalled server.
-  void notifyRaiser(
-    approved.id,
-    notice.requesterEmail,
-    `Venue booking approved: ${notice.venueName}`,
-    createElement(VenueBookingApprovedEmail, {
-      eventName: notice.eventName,
-      venueName: notice.venueName,
-      startsAt: approved.startsAt,
-      endsAt: approved.endsAt,
-    }),
-    "approval"
-  );
-
-  return approved;
+  return decided;
 }
 
 /**
@@ -694,7 +686,8 @@ export async function handleApproveVenueRequest(
  * suggested alternative (venue, date or time, each optional). It follows the approval's row lock
  * and queue rule, so an approval and a rejection racing for one request settle it exactly once. No
  * venue lock is needed: a rejection holds nothing, and the exclusion constraint only reads
- * `approved`. The raising Coordinator is emailed after the commit.
+ * `approved`. The raising Coordinator's notification is raised with the rejection; the worker
+ * delivers it.
  *
  * A rejected request is final: approving, withdrawing or rejecting it again is refused with the
  * sentence that tells the Coordinator to raise a new request. The partial unique index covers only
@@ -707,7 +700,7 @@ export async function handleRejectVenueRequest(
 ) {
   const input = parseVenueRejectionInput(data);
 
-  const decided = await database.transaction(async tx => {
+  const rejected = await database.transaction(async tx => {
     const rows = await tx
       .select({ status: venueRequests.status, assignedStaffId: venueRequests.assignedStaffId })
       .from(venueRequests)
@@ -749,32 +742,30 @@ export async function handleRejectVenueRequest(
       .where(eq(venueRequests.id, input.id))
       .returning();
 
+    // The rejection and its notification commit together; the worker sends the email.
     const notice = await loadDecisionNotice(tx, input.id);
-    return { rejected: updated, notice, suggestedVenueName };
-  });
-
-  const { rejected, notice, suggestedVenueName } = decided;
-  // Not awaited, like the approval: the rejection is committed, and the response must not wait on
-  // a stalled mail server.
-  void notifyRaiser(
-    rejected.id,
-    notice.requesterEmail,
-    `Venue booking rejected: ${notice.venueName}`,
-    createElement(VenueBookingRejectedEmail, {
-      eventName: notice.eventName,
-      venueName: notice.venueName,
-      startsAt: rejected.startsAt,
-      endsAt: rejected.endsAt,
-      reason: input.reason,
-      suggestion: {
-        venueName: suggestedVenueName ?? null,
-        date: input.suggestedDate ?? null,
-        startTime: input.suggestedStartTime ?? null,
-        endTime: input.suggestedEndTime ?? null,
+    await raiseDecisionNotification(tx, input.id, notice, context => ({
+      recipientId: context.requesterId,
+      eventRequestId: context.eventRequestId,
+      kind: "venue_booking_rejected",
+      payload: {
+        venueRequestId: input.id,
+        eventName: context.eventName,
+        venueName: context.venueName,
+        startsAt: updated.startsAt,
+        endsAt: updated.endsAt,
+        reason: input.reason,
+        suggestion: {
+          venueName: suggestedVenueName ?? null,
+          date: input.suggestedDate ?? null,
+          startTime: input.suggestedStartTime ?? null,
+          endTime: input.suggestedEndTime ?? null,
+        },
       },
-    }),
-    "rejection"
-  );
+    }));
+
+    return updated;
+  });
 
   return rejected;
 }

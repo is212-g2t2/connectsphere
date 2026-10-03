@@ -7,6 +7,7 @@ import {
 import { getTableConfig } from "drizzle-orm/pg-core";
 import * as schema from "#/db/schema";
 import { EVENT_REQUEST_STATUSES } from "#/features/event-requests/schema";
+import { NOTIFICATION_KINDS } from "#/features/notifications/message";
 import {
   user,
   session,
@@ -36,6 +37,27 @@ describe("Database Schema Definitions", () => {
 
   it("keeps the client-safe status list identical to the Postgres enum (PTR-14)", () => {
     expect([...schema.eventRequestStatus.enumValues]).toEqual([...EVENT_REQUEST_STATUSES]);
+  });
+
+  it("keeps the notification kind list identical to the Postgres enum (PTR-55)", () => {
+    expect([...schema.notificationKind.enumValues]).toEqual([...NOTIFICATION_KINDS]);
+  });
+
+  it("defines the notification queue columns (PTR-55)", () => {
+    const columns = getTableColumns(schema.notifications);
+    expect(columns.recipientId.name).toBe("recipient_id");
+    expect(columns.eventRequestId.name).toBe("event_request_id");
+    expect(columns.kind.name).toBe("kind");
+    expect(columns.payload.name).toBe("payload");
+    expect(columns.createdAt.name).toBe("created_at");
+    expect(columns.emailedAt.name).toBe("emailed_at");
+    expect(columns.failedAt.name).toBe("failed_at");
+    expect(columns.emailAttempts.name).toBe("email_attempts");
+    expect(columns.nextAttemptAt.name).toBe("next_attempt_at");
+    expect(columns.claimedAt.name).toBe("claimed_at");
+    expect(columns.lastEmailError.name).toBe("last_email_error");
+    expect(columns.recipientId.notNull).toBe(true);
+    expect(columns.eventRequestId.notNull).toBe(true);
   });
 
   it("defines the venue catalogue tables with their column names (PTR-26)", () => {

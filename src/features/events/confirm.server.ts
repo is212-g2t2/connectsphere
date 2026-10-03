@@ -1,20 +1,13 @@
 import { eq } from "drizzle-orm";
-import { createElement } from "react";
 
 import type { db as Db } from "#/db";
-import { equipmentRequests, eventRequests, user, venueRequests, venues } from "#/db/schema";
-import { env } from "#/env";
+import { equipmentRequests, eventRequests, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
-import { formatDate, formatTime } from "#/features/emails/format";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import { confirmationBlockers, confirmationRefusalMessage } from "#/features/events/confirmation";
-import { logger } from "#/lib/logger";
-import { sendEmail } from "#/lib/mailer.server";
-
-const log = logger.getChild("events");
+import { raiseNotifications } from "#/features/notifications/raise.server";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, so this is
@@ -31,8 +24,7 @@ type Database = typeof Db;
  * see the new state, rather than confirming against arrangements that no longer hold. Who and
  * when are recorded on the event in the same statement as the status.
  *
- * The Organiser is emailed after the commit. A failed send must not undo a confirmation that is
- * already recorded, matching every other notification here.
+ * The Organiser's notification is raised with the confirmation; the worker delivers the email.
  */
 export async function handleConfirmEvent(data: unknown, actor: SessionUser, database: Database) {
   const input = parseEventRequestId(data);
@@ -77,10 +69,6 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
     });
     if (blockers.length > 0) throw new ConflictError(confirmationRefusalMessage(blockers));
 
-    const organiser = (
-      await tx.select({ email: user.email }).from(user).where(eq(user.id, request.organiserId))
-    ).at(0);
-
     // The gate guarantees exactly one approved booking; the throw only narrows the type.
     const booking = venueRows.find(row => row.status === "approved");
     if (!booking) {
@@ -98,49 +86,29 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       .where(eq(eventRequests.id, request.id))
       .returning();
 
-    return {
-      recorded: updated,
-      organiserEmail: organiser?.email ?? null,
-      venueName: booking.venueName,
-      startsAt: booking.startsAt,
-      endsAt: booking.endsAt,
-      equipment: equipmentRows.map(line => ({
-        id: line.id,
-        item: line.item,
-        quantity: line.quantity,
-        state: arrangementStateLabel(line.arrangementStatus),
-      })),
-    };
+    // The confirmation and the Organiser's notification commit together; the worker sends it.
+    await raiseNotifications(tx, [
+      {
+        recipientId: request.organiserId,
+        eventRequestId: updated.id,
+        kind: "event_confirmed",
+        payload: {
+          eventName: updated.eventName.trim() || "Untitled event",
+          venueName: booking.venueName,
+          startsAt: booking.startsAt,
+          endsAt: booking.endsAt,
+          equipment: equipmentRows.map(line => ({
+            id: line.id,
+            item: line.item,
+            quantity: line.quantity,
+            state: arrangementStateLabel(line.arrangementStatus),
+          })),
+        },
+      },
+    ]);
+
+    return updated;
   });
 
-  const eventName = confirmed.recorded.eventName.trim() || "Untitled event";
-  if (confirmed.organiserEmail === null) {
-    log.warn("No Organiser email to notify of event confirmation", {
-      eventId: confirmed.recorded.id,
-    });
-  } else {
-    try {
-      await sendEmail(
-        confirmed.organiserEmail,
-        `Event confirmed: ${eventName}`,
-        createElement(EventConfirmedEmail, {
-          eventName,
-          venueName: confirmed.venueName,
-          date: formatDate(confirmed.startsAt),
-          startTime: formatTime(confirmed.startsAt),
-          endTime: formatTime(confirmed.endsAt),
-          equipment: confirmed.equipment,
-          eventUrl: `${env.BETTER_AUTH_URL}/event-requests/${confirmed.recorded.id}`,
-        })
-      );
-    } catch (error) {
-      // The confirmation is already committed; a failed notification must not lose it.
-      log.warn("Event confirmation email failed", {
-        eventId: confirmed.recorded.id,
-        errorName: error instanceof Error ? error.name : "unknown",
-      });
-    }
-  }
-
-  return confirmed.recorded;
+  return confirmed;
 }

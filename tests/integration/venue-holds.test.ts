@@ -1,5 +1,5 @@
 // oxlint-disable node/no-process-env
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -35,18 +35,6 @@ import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
  *   AC6 — Tentative hold shown on venue calendar and in suitability checks to internal users
  *   AC7 — Acting user and creation time are stored
  */
-
-const { sendEmail } = vi.hoisted(() => ({
-  sendEmail: vi
-    .fn<(to: string, subject: string, react: unknown) => Promise<unknown>>()
-    .mockResolvedValue({ id: "test-email" }),
-}));
-
-vi.mock("#/lib/mailer.server", () => ({
-  createMailer: vi.fn<() => null>(() => null),
-  getMailer: vi.fn<() => null>(() => null),
-  sendEmail,
-}));
 
 const users = {
   organiser: {
@@ -119,9 +107,6 @@ describe("tentative venue holds (PTR-109)", () => {
   });
 
   beforeEach(async () => {
-    sendEmail.mockReset();
-    sendEmail.mockResolvedValue({ id: "test-email" });
-
     await database.delete(schema.venueHolds).where(eq(schema.venueHolds.venueId, venueId));
 
     await database
@@ -182,11 +167,6 @@ describe("tentative venue holds (PTR-109)", () => {
       })
       .returning({ id: schema.eventRequests.id });
     underReviewEventId = underReview.id;
-  });
-
-  afterEach(async () => {
-    // Settle any background / notification microtasks
-    await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   // ---------------------------------------------------------------------------
@@ -709,11 +689,19 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(result.request.startsAt).toMatch(/^2027-06-15[ T]09:00/);
       expect(result.request.endsAt).toMatch(/^2027-06-15[ T]12:00/);
 
-      // Verify Venue Staff notification email was sent
-      expect(sendEmail).toHaveBeenCalled();
-      const emailCalls = sendEmail.mock.calls;
-      const staffEmailCall = emailCalls.find(call => call[0] === users.venueStaff.email);
-      expect(staffEmailCall).toBeDefined();
+      // The conversion queues a booking-request notification for Venue Staff
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.recipientId, users.venueStaff.id));
+      expect(queued).toHaveLength(1);
+      expect(queued[0].kind).toBe("venue_booking_requested");
+      expect(queued[0].emailedAt).toBeNull();
+      expect(queued[0].eventRequestId).toBe(eventIdA);
+      expect(queued[0].payload).toMatchObject({
+        venueRequestId: result.request.id,
+        venueName: VENUE_NAME,
+      });
 
       // Verify DB persistence of the new venue request and released hold
       const [persistedHold] = await database

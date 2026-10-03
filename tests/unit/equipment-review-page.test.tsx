@@ -615,7 +615,7 @@ describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
       previousQuantity: 4,
       quantity: 0,
       arrangementStatus: "requested",
-      notified: true,
+      notificationQueued: true,
     });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderReview([{ ...microphone, reservedQuantity: 4 }]);
@@ -638,18 +638,18 @@ describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
       })
     );
     expect(success).toHaveBeenCalledWith(
-      "Released all 4 × Microphone — the line is Requested. Coordinator notified."
+      "Released all 4 × Microphone — the line is Requested. The Coordinator will be notified."
     );
     expect(invalidate).toHaveBeenCalled();
   });
 
-  it("sends a reduction, naming what is kept, and says when the Coordinator could not be told", async () => {
+  it("sends a reduction, naming what is kept, and says when there is no Coordinator to notify", async () => {
     releaseEquipment.mockResolvedValue({
       released: false,
       previousQuantity: 4,
       quantity: 1,
       arrangementStatus: "requested",
-      notified: false,
+      notificationQueued: false,
     });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderReview([{ ...microphone, reservedQuantity: 4 }]);
@@ -667,7 +667,7 @@ describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
       })
     );
     expect(success).toHaveBeenCalledWith(
-      "Reduced Microphone from 4 to 1 — the line is Requested. The Coordinator could not be notified; tell them yourself."
+      "Reduced Microphone from 4 to 1 — the line is Requested. No Coordinator to notify; tell them yourself."
     );
   });
 
@@ -677,7 +677,7 @@ describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
       previousQuantity: 4,
       quantity: 0,
       arrangementStatus: "unavailable",
-      notified: true,
+      notificationQueued: true,
     });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderReview([{ ...microphone, reservedQuantity: 4 }]);
@@ -700,7 +700,7 @@ describe("EquipmentReviewPage reduce or release (PTR-42)", () => {
       })
     );
     expect(success).toHaveBeenCalledWith(
-      "Released all 4 × Microphone — the line is Unavailable. Coordinator notified."
+      "Released all 4 × Microphone — the line is Unavailable. The Coordinator will be notified."
     );
   });
 

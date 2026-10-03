@@ -1,12 +1,11 @@
 // Mirrors equipment-arrangement.test.ts: a local node-postgres drizzle instance, not the app's
-// `#/db`, with the mailer mocked as venue-requests.test.ts does.
+// `#/db`, with notifications read back from the `notifications` table.
 // oxlint-disable node/no-process-env
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { render } from "@react-email/components";
-import type { ReactElement } from "react";
 
 import * as schema from "#/db/schema";
 import { runSeed } from "../../scripts/seed";
@@ -18,18 +17,8 @@ import {
 } from "#/features/events/confirmation";
 import { handleConfirmEvent } from "#/features/events/confirm.server";
 import { handleListEvents } from "#/features/events/records.server";
-
-const { sendEmail } = vi.hoisted(() => ({
-  sendEmail: vi
-    .fn<(to: string, subject: string, react: ReactElement) => Promise<unknown>>()
-    .mockResolvedValue({ id: "test-email" }),
-}));
-
-vi.mock("#/lib/mailer.server", () => ({
-  createMailer: vi.fn<() => null>(() => null),
-  getMailer: vi.fn<() => null>(() => null),
-  sendEmail,
-}));
+import { notificationSummary } from "#/features/notifications/message";
+import { renderNotificationEmail } from "#/features/notifications/render.server";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -89,11 +78,6 @@ describe("confirming an event (PTR-24)", () => {
       .delete(schema.user)
       .where(inArray(schema.user.id, [stranger.id, otherOrganiser.id]));
     await pool.end();
-  });
-
-  beforeEach(() => {
-    sendEmail.mockReset();
-    sendEmail.mockResolvedValue({ id: "test-email" });
   });
 
   afterEach(async () => {
@@ -182,6 +166,19 @@ describe("confirming an event (PTR-24)", () => {
       arrangementStatus,
       ...(arrangementStatus === "unavailable" ? { unavailableReason: "Loaned out" } : {}),
     });
+  }
+
+  async function notificationsFor(eventId: number) {
+    return database
+      .select()
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.eventRequestId, eventId),
+          eq(schema.notifications.recipientId, organiser.id),
+          eq(schema.notifications.kind, "event_confirmed")
+        )
+      );
   }
 
   const readEvent = async (id: number) =>
@@ -379,42 +376,47 @@ describe("confirming an event (PTR-24)", () => {
       expect(row.decidedAt).toEqual(before.decidedAt);
     });
 
-    test("emails the Organiser after the commit with the venue, time and equipment", async () => {
+    test("queues the Organiser notification after the commit with the venue, time and equipment", async () => {
       const eventId = await createEvent();
       await createBooking(eventId);
       await createLine(eventId, "Projector", "reserved", 2);
 
       await confirm(eventId);
 
-      expect(sendEmail).toHaveBeenCalledTimes(1);
-      const [to, subject, body] = sendEmail.mock.calls[0];
-      const [organiserRow] = await database
-        .select({ email: schema.user.email })
-        .from(schema.user)
-        .where(eq(schema.user.id, organiser.id));
-      expect(to).toBe(organiserRow.email);
-      expect(subject).toMatch(/^Event confirmed: Confirmation test /);
-      const html = await render(body);
+      const rows = await notificationsFor(eventId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].emailedAt).toBeNull();
+      expect(rows[0].payload).toMatchObject({ venueName });
+      expect(
+        notificationSummary({ kind: rows[0].kind, payload: rows[0].payload } as never)
+      ).toMatch(/^Event confirmed: Confirmation test /);
+      const html = await render(
+        renderNotificationEmail({
+          kind: rows[0].kind,
+          payload: rows[0].payload,
+          eventRequestId: eventId,
+        } as never).element
+      );
       expect(html).toContain(venueName);
       expect(html).toContain("Projector");
       expect(html).toContain("09:00");
     });
 
-    test("keeps the confirmation when the email fails", async () => {
-      sendEmail.mockRejectedValue(new Error("smtp is down"));
+    test("queues the confirmation notification with the committed confirmation", async () => {
       const eventId = await createEvent();
       await createBooking(eventId);
 
       await expect(confirm(eventId)).resolves.toMatchObject({ status: "confirmed" });
       expect((await readEvent(eventId)).status).toBe("confirmed");
+      expect(await notificationsFor(eventId)).toHaveLength(1);
     });
 
-    test("sends nothing when the confirmation is refused", async () => {
+    test("leaves no notification when the confirmation is refused", async () => {
       const eventId = await createEvent();
 
       await refusal(eventId);
 
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(await notificationsFor(eventId)).toHaveLength(0);
     });
   });
 

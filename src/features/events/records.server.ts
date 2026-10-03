@@ -82,32 +82,32 @@ export async function loadAssignedEvent(
   return rows.at(0) ?? null;
 }
 
-export async function handleListEvents(
-  data: unknown,
-  user: SessionUser,
-  database: Database
-): Promise<EventProjection[]> {
-  const { eventId } = parseEventListInput(data);
+/**
+ * The one SQL statement of PTR-8's relationship rule: the event requests a caller is connected
+ * to. `handleListEvents` filters the event list through it, and the notifications inbox reuses it
+ * to decide whether a notification's subject is still reachable (PTR-55 AC5). `undefined` is an
+ * unknown or missing role, which is granted nothing rather than everything.
+ *
+ * Every branch is scoped in SQL: the four internal roles see every non-draft status, while
+ * browsing attendees are gated on `submitted` as the stand-in for PTR-44's `confirmed` (PTR-8),
+ * and an existing registration keeps a non-draft event visible.
+ */
+export function connectedEventCondition(
+  database: Pick<Database, "select">,
+  user: Pick<SessionUser, "id" | "role">
+): SQL | undefined {
   const role = RoleSchema.safeParse(user.role).data ?? null;
-  const now = new Date();
-
-  // The event is the event request (PTR-21/24's event record replaces this). Each role reaches
-  // only the rows its relationship names, filtered in SQL: the four internal roles see every
-  // non-draft status, while browsing attendees are gated on `submitted` as the stand-in for
-  // PTR-44's `confirmed` (PTR-8), and an existing registration keeps a non-draft event visible.
   const visible = ne(eventRequests.status, "draft");
   const attendeeVisible = eq(eventRequests.status, "submitted");
-  let relationship: SQL | undefined;
+
   switch (role) {
     case "event_organiser":
-      relationship = and(visible, eq(eventRequests.organiserId, user.id));
-      break;
+      return and(visible, eq(eventRequests.organiserId, user.id));
     case "event_coordinator":
-      relationship = and(visible, eq(eventRequests.assignedCoordinatorId, user.id));
-      break;
+      return and(visible, eq(eventRequests.assignedCoordinatorId, user.id));
     case "venue_staff":
       // PTR-31: an unassigned `pending` row is the shared queue, so it connects every Venue Staff member to the event; an assigned row connects only the staff it names. `isVenueQueueRow` in `access.ts` states the same rule for the in-memory readers below.
-      relationship = and(
+      return and(
         visible,
         inArray(
           eventRequests.id,
@@ -122,7 +122,6 @@ export async function handleListEvents(
             )
         )
       );
-      break;
     case "technical_support_staff":
       // PTR-38 AC5: an unassigned `requested` line is the shared queue, but only once the event
       // has been submitted — before that the draft belongs to the Coordinator alone. An assigned
@@ -130,7 +129,7 @@ export async function handleListEvents(
       // (a deleted holder leaves the line reserved with no assignee, and its units must stay
       // releasable). `isEquipmentQueueRow` in `access.ts` states the same rule for the in-memory
       // readers below.
-      relationship = and(
+      return and(
         visible,
         inArray(
           eventRequests.id,
@@ -160,9 +159,8 @@ export async function handleListEvents(
             )
         )
       );
-      break;
     case "attendee":
-      relationship = or(
+      return or(
         and(attendeeVisible, eq(eventRequests.registrationEnabled, true)),
         and(
           visible,
@@ -175,11 +173,24 @@ export async function handleListEvents(
           )
         )
       );
-      break;
     default:
       // An unknown or missing role is granted nothing rather than everything.
-      relationship = undefined;
+      return undefined;
   }
+}
+
+export async function handleListEvents(
+  data: unknown,
+  user: SessionUser,
+  database: Database
+): Promise<EventProjection[]> {
+  const { eventId } = parseEventListInput(data);
+  const now = new Date();
+  const role = RoleSchema.safeParse(user.role).data ?? null;
+
+  // The event is the event request (PTR-21/24's event record replaces this). Each role reaches
+  // only the rows its relationship names, filtered in SQL by `connectedEventCondition`.
+  const relationship = connectedEventCondition(database, user);
 
   const requestRows =
     relationship === undefined

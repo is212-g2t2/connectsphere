@@ -90,7 +90,6 @@ describe("EquipmentPanel error paths (PTR-38)", () => {
     submitEquipmentRequest.mockResolvedValueOnce({
       lineCount: 1,
       recipientCount: 1,
-      failedCount: 0,
     });
     renderPanel();
 

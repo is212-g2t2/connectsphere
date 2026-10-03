@@ -1,5 +1,4 @@
 import { and, count, eq, isNotNull, isNull } from "drizzle-orm";
-import { createElement } from "react";
 
 import type { db as Db } from "#/db";
 import { equipmentRequests, equipmentReservations, eventRequests, user } from "#/db/schema";
@@ -20,6 +19,8 @@ import {
 } from "#/features/equipment-requests/schema";
 import { EQUIPMENT_MAX_LINES } from "#/features/event-requests/schema";
 import { isArrangedLine, isEquipmentQueueRow } from "#/features/events/access";
+import { raiseNotifications } from "#/features/notifications/raise.server";
+import type { NewNotification } from "#/features/notifications/raise.server";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("equipment-requests");
@@ -49,6 +50,7 @@ async function loadEditableEvent(
   const rows = await database
     .select({
       id: eventRequests.id,
+      eventName: eventRequests.eventName,
       status: eventRequests.status,
       equipmentSubmittedAt: eventRequests.equipmentSubmittedAt,
     })
@@ -321,9 +323,8 @@ export async function handleUpdateArrangement(
 
 /**
  * PTR-38 AC5: submit the full equipment list to Technical Support. Refuses when no lines are
- * recorded — there is nothing to submit. The notification sends after the commit, matching the
- * best-effort pattern venue requests use (the send runs after the commit, so a mail outage
- * cannot undo the submission).
+ * recorded — there is nothing to submit. The submission and its notifications commit in the same
+ * transaction, so the worker delivers every Technical Support member's email from the queue.
  */
 export async function handleSubmitEquipmentRequest(
   data: unknown,
@@ -332,7 +333,7 @@ export async function handleSubmitEquipmentRequest(
 ) {
   const input = parseSubmitEquipmentInput(data);
   const submitted = await database.transaction(async tx => {
-    await loadEditableEvent(tx, input.eventId, actor.id);
+    const event = await loadEditableEvent(tx, input.eventId, actor.id);
 
     const lines = await tx
       .select()
@@ -351,52 +352,40 @@ export async function handleSubmitEquipmentRequest(
     }
 
     const recipients = await tx
-      .select({ email: user.email })
+      .select({ id: user.id })
       .from(user)
       .where(eq(user.role, "technical_support_staff"));
 
-    return { lines, recipientEmails: recipients.map(r => r.email) };
+    // Recipients are resolved and the rows written in the transaction; the worker sends the
+    // emails from the queue, so a mail outage cannot lose the submission notice.
+    await raiseNotifications(
+      tx,
+      recipients.map(recipient => ({
+        recipientId: recipient.id,
+        eventRequestId: input.eventId,
+        kind: "equipment_requested" as const,
+        payload: {
+          eventName: event.eventName.trim() || "Untitled event",
+          lines: lines.map(line => ({
+            id: line.id,
+            item: line.item,
+            quantity: line.quantity,
+            notes: line.notes,
+          })),
+        },
+      }))
+    );
+
+    return { lines, recipientCount: recipients.length };
   });
 
-  if (submitted.recipientEmails.length === 0) {
+  if (submitted.recipientCount === 0) {
     log.warn("No Technical Support Staff to notify of equipment request", {
       eventId: input.eventId,
     });
-    return {
-      lineCount: submitted.lines.length,
-      recipientCount: 0,
-      failedCount: 0,
-    };
   }
 
-  // Reached only when there is someone to email, so save/remove never pay the mailer import.
-  const [{ sendEmail }, { EquipmentRequestEmail }] = await Promise.all([
-    import("#/lib/mailer.server"),
-    import("#/features/emails/components/equipment-request-email"),
-  ]);
-  const results = await Promise.allSettled(
-    submitted.recipientEmails.map(recipient =>
-      sendEmail(
-        recipient,
-        `Equipment request for event ${input.eventId}`,
-        createElement(EquipmentRequestEmail, { lines: submitted.lines, eventId: input.eventId })
-      )
-    )
-  );
-  const failed = results.filter(r => r.status === "rejected").length;
-  if (failed > 0) {
-    log.warn("Equipment request notification failed", {
-      failed,
-      total: submitted.recipientEmails.length,
-      eventId: input.eventId,
-    });
-  }
-
-  return {
-    lineCount: submitted.lines.length,
-    recipientCount: submitted.recipientEmails.length,
-    failedCount: failed,
-  };
+  return { lineCount: submitted.lines.length, recipientCount: submitted.recipientCount };
 }
 
 // ── PTR-43: Technical arrangement completion / unavailability ──────────────────────────────────
@@ -420,18 +409,20 @@ export async function clearArrangementsCompletion(tx: Pick<Database, "update">, 
 }
 
 /**
- * Sends a best-effort email to the event's assigned Coordinator after a Technical Support outcome
- * (completion or unavailability). Logs when no coordinator can be notified.
+ * Raises the assigned Coordinator's notification for a Technical Support outcome inside the
+ * caller's transaction, returning whether a row was queued. Logs when no Coordinator is assigned,
+ * rather than failing an outcome that is already committed. Shared with the reservation release
+ * path, which has the same recipient shape.
  */
-async function notifyCoordinator(
+export async function raiseCoordinatorNotification(
+  tx: Pick<Database, "insert" | "select">,
   eventId: number,
-  subject: string,
-  emailElement: React.ReactElement,
-  database: Pick<Database, "select">
-): Promise<void> {
+  build: (context: { coordinatorId: string; eventName: string }) => NewNotification
+): Promise<boolean> {
   const event = (
-    await database
+    await tx
       .select({
+        eventName: eventRequests.eventName,
         coordinatorId: eventRequests.assignedCoordinatorId,
       })
       .from(eventRequests)
@@ -441,34 +432,16 @@ async function notifyCoordinator(
 
   if (!event?.coordinatorId) {
     log.warn("No assigned Coordinator to notify", { eventId });
-    return;
+    return false;
   }
 
-  const coordinator = (
-    await database
-      .select({ email: user.email })
-      .from(user)
-      .where(eq(user.id, event.coordinatorId))
-      .limit(1)
-  ).at(0);
-
-  if (!coordinator) {
-    log.warn("Assigned Coordinator account not found", {
-      eventId,
+  await raiseNotifications(tx, [
+    build({
       coordinatorId: event.coordinatorId,
-    });
-    return;
-  }
-
-  try {
-    const { sendEmail } = await import("#/lib/mailer.server");
-    await sendEmail(coordinator.email, subject, emailElement);
-  } catch (error) {
-    log.warn("Coordinator notification failed", {
-      eventId,
-      errorName: error instanceof Error ? error.name : "UnknownError",
-    });
-  }
+      eventName: event.eventName.trim() || "Untitled event",
+    }),
+  ]);
+  return true;
 }
 
 /**
@@ -511,23 +484,18 @@ export async function handleCompleteArrangements(
         equipmentArrangementsCompletedAt: eventRequests.equipmentArrangementsCompletedAt,
       });
 
-    return { event: updated, lineCount: lines.length };
+    // The completion and the Coordinator's notification commit together; the worker sends it.
+    await raiseCoordinatorNotification(tx, input.eventId, context => ({
+      recipientId: context.coordinatorId,
+      eventRequestId: input.eventId,
+      kind: "equipment_arrangements_completed",
+      payload: { eventName: context.eventName, lineCount: lines.length },
+    }));
+
+    return updated;
   });
 
-  // Best-effort notification after the transaction commits.
-  const { EquipmentArrangementsCompleteEmail } =
-    await import("#/features/emails/components/equipment-arrangements-email");
-  await notifyCoordinator(
-    input.eventId,
-    `Equipment arrangements complete for event ${input.eventId}`,
-    createElement(EquipmentArrangementsCompleteEmail, {
-      eventId: input.eventId,
-      lineCount: result.lineCount,
-    }),
-    database
-  );
-
-  return result.event;
+  return result;
 }
 
 /**
@@ -572,23 +540,21 @@ export async function handleRecordUnavailable(
     // Recording unavailability invalidates any prior completion stamp.
     await clearArrangementsCompletion(tx, input.eventId);
 
+    // The outcome and the Coordinator's notification commit together; the worker sends it.
+    await raiseCoordinatorNotification(tx, input.eventId, context => ({
+      recipientId: context.coordinatorId,
+      eventRequestId: input.eventId,
+      kind: "equipment_unavailable",
+      payload: {
+        eventName: context.eventName,
+        item: updatedLine.item,
+        quantity: updatedLine.quantity,
+        reason: input.reason,
+      },
+    }));
+
     return updatedLine;
   });
-
-  // Best-effort notification after the transaction commits.
-  const { EquipmentUnavailableEmail } =
-    await import("#/features/emails/components/equipment-arrangements-email");
-  await notifyCoordinator(
-    input.eventId,
-    `Equipment unavailable for event ${input.eventId}`,
-    createElement(EquipmentUnavailableEmail, {
-      eventId: input.eventId,
-      item: updated.item,
-      quantity: updated.quantity,
-      reason: input.reason,
-    }),
-    database
-  );
 
   return updated;
 }

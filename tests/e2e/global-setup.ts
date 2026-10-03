@@ -17,6 +17,10 @@ const APP_URL = "http://localhost:3000";
  * database with it.
  */
 export default async function globalSetup(): Promise<() => Promise<void>> {
+  // PTR-55: the E2E suite drains the notification queue through the cron route, and the server
+  // must accept the same token. A real deployment gets it from Secret Manager.
+  process.env.CRON_TOKEN ??= "e2e-cron-token";
+
   console.info("Spinning up PostgreSQL testcontainer for E2E tests...");
   const container = await new PostgreSqlContainer("postgres:18-alpine")
     .withUsername("postgres")

@@ -11,7 +11,6 @@ import {
   isNull,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { createElement } from "react";
 
 import type { db as Db } from "#/db";
 import {
@@ -22,7 +21,6 @@ import {
   eventRequests,
   user,
 } from "#/db/schema";
-import { env } from "#/env";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
@@ -30,20 +28,12 @@ import {
   parseDecisionInput,
   parseEventHandoverId,
 } from "#/features/coordination/schema";
-import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
-import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
-import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
-import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
-import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
 import {
   EQUIPMENT_MAX_LINES,
   parseClarificationBody,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
-import { logger } from "#/lib/logger";
-import { sendEmail } from "#/lib/mailer.server";
-
-const log = logger.getChild("coordination");
+import { raiseNotifications } from "#/features/notifications/raise.server";
 
 /**
  * Server-only on purpose, and named for it. `#/db/schema` is a value import here: the table
@@ -262,7 +252,7 @@ export async function handleAssignEventRequest(
  * neither leaves two offers waiting nor blocks the event forever. The row lock serialises raises,
  * and the partial unique index is the backstop.
  *
- * The incoming Coordinator is emailed after the commit, best effort like every other notification.
+ * The incoming Coordinator's notification is raised with the offer; the worker delivers the email.
  */
 export async function handleRequestEventHandover(
   data: unknown,
@@ -291,7 +281,7 @@ export async function handleRequestEventHandover(
     // Hold the selected account while its role is validated and the offer is committed.
     const incoming = (
       await tx
-        .select({ id: user.id, email: user.email })
+        .select({ id: user.id })
         .from(user)
         .where(and(eq(user.id, input.coordinatorId), eq(user.role, "event_coordinator")))
         .for("share")
@@ -310,30 +300,23 @@ export async function handleRequestEventHandover(
       })
       .returning();
 
-    return { handover, incomingEmail: incoming.email, eventName: request.eventName };
+    // The offer and its notification commit together; the worker sends the email.
+    await raiseNotifications(tx, [
+      {
+        recipientId: incoming.id,
+        eventRequestId: request.id,
+        kind: "handover_requested",
+        payload: {
+          eventName: request.eventName.trim() || "Untitled request",
+          fromName: actor.name ?? actor.email,
+        },
+      },
+    ]);
+
+    return handover;
   });
 
-  const displayName = raised.eventName.trim() || "Untitled request";
-  try {
-    await sendEmail(
-      raised.incomingEmail,
-      `Handover requested: ${displayName}`,
-      createElement(HandoverRequestEmail, {
-        eventName: displayName,
-        fromName: actor.name ?? actor.email,
-        coordinationUrl: `${env.BETTER_AUTH_URL}/coordination`,
-      })
-    );
-  } catch (error) {
-    // The offer is committed; a failed notification must not lose it.
-    log.warn("Handover request email failed", {
-      requestId: input.id,
-      handoverId: raised.handover.id,
-      errorName: error instanceof Error ? error.name : "unknown",
-    });
-  }
-
-  return raised.handover;
+  return raised;
 }
 
 /**
@@ -348,7 +331,7 @@ export async function handleRequestEventHandover(
  * again) is resolved as declined — that still records who answered and when — and refused
  * with 409.
  *
- * The Organiser is emailed after the commit, best effort.
+ * The Organiser's notification is raised with the new assignment; the worker delivers it.
  */
 export async function handleAcceptEventHandover(
   data: unknown,
@@ -433,41 +416,24 @@ export async function handleAcceptEventHandover(
       .where(eq(eventHandovers.id, handover.id))
       .returning();
 
-    const [organiser] = await tx
-      .select({ email: user.email })
-      .from(user)
-      .where(eq(user.id, request.organiserId));
+    // The new assignment and the Organiser's notification commit together; the worker sends it.
+    await raiseNotifications(tx, [
+      {
+        recipientId: request.organiserId,
+        eventRequestId: request.id,
+        kind: "handover_accepted",
+        payload: {
+          eventName: updated.eventName.trim() || "Untitled request",
+          coordinatorName: actor.name ?? actor.email,
+        },
+      },
+    ]);
 
-    return {
-      kind: "accepted" as const,
-      handover: answered,
-      request: updated,
-      organiserEmail: organiser.email,
-    };
+    return { kind: "accepted" as const, handover: answered };
   });
 
   if (outcome.kind === "void") {
     throw new ConflictError("This handover is no longer valid because the request has moved on.");
-  }
-
-  const displayName = outcome.request.eventName.trim() || "Untitled request";
-  try {
-    await sendEmail(
-      outcome.organiserEmail,
-      `Your event request has a new Coordinator: ${displayName}`,
-      createElement(HandoverAcceptedEmail, {
-        eventName: displayName,
-        coordinatorName: actor.name ?? actor.email,
-        eventRequestUrl: `${env.BETTER_AUTH_URL}/event-requests/${outcome.request.id}`,
-      })
-    );
-  } catch (error) {
-    // The new assignment is committed; a failed notification must not undo it.
-    log.warn("Handover accepted email failed", {
-      requestId: outcome.request.id,
-      handoverId: outcome.handover.id,
-      errorName: error instanceof Error ? error.name : "unknown",
-    });
   }
 
   return outcome.handover;
@@ -491,13 +457,26 @@ export async function handleDeclineEventHandover(
     // not let any Coordinator lock another Coordinator's offer.
     const offer = (
       await tx
-        .select({ toCoordinatorId: eventHandovers.toCoordinatorId })
+        .select({
+          toCoordinatorId: eventHandovers.toCoordinatorId,
+          eventRequestId: eventHandovers.eventRequestId,
+        })
         .from(eventHandovers)
         .where(eq(eventHandovers.id, id))
     ).at(0);
     if (!offer || offer.toCoordinatorId !== actor.id) {
       throw new AuthorizationError(HANDOVER_NOT_ANSWERABLE);
     }
+
+    // The request is key-shared before the handover lock. The notification insert below takes
+    // that lock anyway through its FK, and taking it while holding the handover would deadlock
+    // against a raise that locks the request first and then waits on the handover row. This is
+    // the same request-then-handover order accept and raise already use.
+    await tx
+      .select({ id: eventRequests.id })
+      .from(eventRequests)
+      .where(eq(eventRequests.id, offer.eventRequestId))
+      .for("key share");
 
     const handover = (
       await tx.select().from(eventHandovers).where(eq(eventHandovers.id, id)).for("update")
@@ -519,46 +498,34 @@ export async function handleDeclineEventHandover(
       .select({
         eventName: eventRequests.eventName,
         assignedCoordinatorId: eventRequests.assignedCoordinatorId,
-        outgoingEmail: user.email,
+        outgoingId: user.id,
       })
       .from(eventRequests)
       .leftJoin(user, eq(user.id, handover.fromCoordinatorId))
       .where(eq(eventRequests.id, handover.eventRequestId))
       .limit(1);
 
-    return {
-      handover: declined,
-      eventName: request.eventName,
-      // Only tell the outgoing Coordinator they keep the request when they actually do: an offer
-      // the request has already moved past is resolved silently.
-      outgoingEmail:
-        request.assignedCoordinatorId === handover.fromCoordinatorId ? request.outgoingEmail : null,
-    };
+    // Only tell the outgoing Coordinator they keep the request when they actually do: an offer
+    // the request has already moved past is resolved silently. The answer and its notification
+    // commit together.
+    if (request.assignedCoordinatorId === handover.fromCoordinatorId && request.outgoingId) {
+      await raiseNotifications(tx, [
+        {
+          recipientId: request.outgoingId,
+          eventRequestId: handover.eventRequestId,
+          kind: "handover_declined",
+          payload: {
+            eventName: request.eventName.trim() || "Untitled request",
+            coordinatorName: actor.name ?? actor.email,
+          },
+        },
+      ]);
+    }
+
+    return declined;
   });
 
-  if (answered.outgoingEmail !== null) {
-    const displayName = answered.eventName.trim() || "Untitled request";
-    try {
-      await sendEmail(
-        answered.outgoingEmail,
-        `Handover declined: ${displayName}`,
-        createElement(HandoverDeclinedEmail, {
-          eventName: displayName,
-          coordinatorName: actor.name ?? actor.email,
-          eventRequestUrl: `${env.BETTER_AUTH_URL}/coordination/${answered.handover.eventRequestId}`,
-        })
-      );
-    } catch (error) {
-      // The offer is settled; a failed notification must not undo the answer.
-      log.warn("Handover declined email failed", {
-        requestId: answered.handover.eventRequestId,
-        handoverId: answered.handover.id,
-        errorName: error instanceof Error ? error.name : "unknown",
-      });
-    }
-  }
-
-  return answered.handover;
+  return answered;
 }
 
 /**
@@ -644,8 +611,7 @@ export async function handleTakeUpForReview(data: unknown, actor: SessionUser, d
 /**
  * PTR-20: record one terminal decision against a request held by the assigned Coordinator. The
  * row lock makes competing approval/rejection calls serialize, so exactly one can win. The
- * decision commits before the Organiser's email is attempted; a failed send is logged, not
- * fatal, so a mail outage cannot lose a recorded decision.
+ * decision and the Organiser's notification commit together; the worker delivers the email.
  */
 export async function handleDecideEventRequest(
   data: unknown,
@@ -653,7 +619,7 @@ export async function handleDecideEventRequest(
   database: Database
 ) {
   const input = parseDecisionInput(data);
-  const { recorded, organiserEmail } = await database.transaction(async tx => {
+  const recorded = await database.transaction(async tx => {
     const request = (
       await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
     ).at(0);
@@ -723,30 +689,23 @@ export async function handleDecideEventRequest(
       }
     }
 
-    return {
-      recorded: updated,
-      organiserEmail: requestOrganiser.email,
-    };
+    // The decision and the Organiser's notification commit together; the worker sends it.
+    await raiseNotifications(tx, [
+      {
+        recipientId: requestOrganiser.id,
+        eventRequestId: updated.id,
+        kind: "event_decided",
+        payload: {
+          eventName: updated.eventName.trim() || "Untitled request",
+          decision: input.decision,
+          ...(input.reason ? { reason: input.reason } : {}),
+        },
+      },
+    ]);
+
+    return updated;
   });
 
-  try {
-    await sendEmail(
-      organiserEmail,
-      `Your event request was ${input.decision}`,
-      createElement(EventDecisionEmail, {
-        eventName: recorded.eventName.trim() || "Untitled request",
-        decision: input.decision,
-        reason: input.reason,
-        eventRequestUrl: `${env.BETTER_AUTH_URL}/event-requests/${recorded.id}`,
-      })
-    );
-  } catch (error) {
-    // The decision is already committed; a failed notification must not lose it (matches PTR-18).
-    log.warn("Decision email failed", {
-      requestId: recorded.id,
-      errorName: error instanceof Error ? error.name : "unknown",
-    });
-  }
   return recorded;
 }
 
@@ -761,7 +720,7 @@ export async function handleRaiseClarificationRequest(
   database: Database
 ) {
   const input = parseClarificationBody(data);
-  const { clarification, organiserEmail, eventName } = await database.transaction(async tx => {
+  const clarification = await database.transaction(async tx => {
     const rows = await tx
       .select({
         id: eventRequests.id,
@@ -800,38 +759,21 @@ export async function handleRaiseClarificationRequest(
       .set({ status: "awaiting_organiser" })
       .where(eq(eventRequests.id, request.id));
 
-    const [organiser] = await tx
-      .select({ email: user.email })
-      .from(user)
-      .where(eq(user.id, request.organiserId));
+    // The clarification and its notification commit together; the worker sends the email.
+    await raiseNotifications(tx, [
+      {
+        recipientId: request.organiserId,
+        eventRequestId: request.id,
+        kind: "clarification_requested",
+        payload: {
+          eventName: request.eventName.trim() || "Untitled request",
+          body: input.body,
+        },
+      },
+    ]);
 
-    return {
-      clarification: inserted,
-      organiserEmail: organiser.email,
-      eventName: request.eventName,
-    };
+    return inserted;
   });
-
-  const displayName = eventName.trim() || "Untitled request";
-
-  try {
-    await sendEmail(
-      organiserEmail,
-      `Clarification requested: ${displayName}`,
-      createElement(ClarificationRequestEmail, {
-        eventName: displayName,
-        body: input.body,
-        eventRequestUrl: `${env.BETTER_AUTH_URL}/event-requests/${clarification.eventRequestId}`,
-      })
-    );
-  } catch (error) {
-    // Email failure does not roll back the recorded clarification
-    log.warn("Clarification email failed", {
-      requestId: input.id,
-      clarificationId: clarification.id,
-      errorName: error instanceof Error ? error.name : "unknown",
-    });
-  }
 
   return clarification;
 }

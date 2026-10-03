@@ -30,7 +30,7 @@ export function ClarificationReplyForm({
 
     setDeliveryWarning(null);
 
-    const result = await replyToClarification({
+    await replyToClarification({
       data: {
         id: requestId,
         clarificationId: clarification.id,
@@ -40,24 +40,18 @@ export function ClarificationReplyForm({
     });
 
     // The mutation committed even if a route reload has a transient failure. Lock this form so
-    // retrying the browser action cannot create a second reply while the page is stale.
+    // retrying the browser action cannot create a second reply while the page is stale. The
+    // Coordinator's email is queued with the reply now, so there is no delivery failure to report
+    // here — only the route reload can fail.
     setSaved(true);
-    if (result.notification === "sent") {
-      toast.success("Reply sent — the Coordinator has been notified.");
-    } else {
-      const message = "Your reply was saved, but ConnectSphere could not notify the Coordinator.";
-      setDeliveryWarning(message);
-      toast.warning(message);
-    }
+    toast.success("Reply sent — the Coordinator will be notified.");
 
     try {
       await router.invalidate();
     } catch {
-      if (result.notification !== "failed") {
-        const message = "Your reply was saved. Refresh this page to see the updated request.";
-        setDeliveryWarning(message);
-        toast.warning(message);
-      }
+      const message = "Your reply was saved. Refresh this page to see the updated request.";
+      setDeliveryWarning(message);
+      toast.warning(message);
     }
   }
 
