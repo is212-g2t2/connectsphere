@@ -507,9 +507,10 @@ describe("event list handler (PTR-8)", () => {
           suggestedEndTime: "13:30",
         });
 
-        expect(await coordinatorCard(fixtures.closed.id)).toMatchObject({
+        expect(await coordinatorCard(fixtures.closed.id)).toEqual({
           status: "rejected",
           rejection: {
+            venueId: fixtureVenueId,
             venueName: FIXTURE_VENUE_NAME,
             date: "2026-11-01",
             startTime: "09:00",
@@ -521,21 +522,24 @@ describe("event list handler (PTR-8)", () => {
               startTime: "10:00",
               endTime: "13:30",
             },
+            suggestedVenueId: fixtureVenueId,
           },
         });
       });
 
       it("reports no suggestion when Venue Staff gave none, and only the parts they gave", async () => {
         await insertRejected("el-venue-rejected-bare");
-        expect(await coordinatorCard(fixtures.closed.id)).toMatchObject({
+        expect(await coordinatorCard(fixtures.closed.id)).toEqual({
           status: "rejected",
           rejection: {
+            venueId: fixtureVenueId,
             venueName: FIXTURE_VENUE_NAME,
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
             reason: "Closed for floor resurfacing",
             suggestion: null,
+            suggestedVenueId: null,
           },
         });
 
@@ -555,14 +559,15 @@ describe("event list handler (PTR-8)", () => {
         });
       });
 
-      it("prefers a pending request to a rejection", async () => {
+      it("keeps the last rejection beside a pending request (PTR-35 AC3)", async () => {
         await insertRejected("el-venue-rejected-old", {
           eventId: fixtures.main.id,
         });
 
-        // PTR-35: the pending request rides with the last rejection, so the reason stays visible.
+        // The card reads pending, and the rejection it answers rides along with its reason.
         expect(await coordinatorCard(fixtures.main.id)).toMatchObject({
           status: "pending",
+          rejection: { reason: "Closed for floor resurfacing", venueId: fixtureVenueId },
         });
       });
 

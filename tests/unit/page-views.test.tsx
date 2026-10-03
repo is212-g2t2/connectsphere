@@ -10,6 +10,7 @@ import { VenueListPage } from "#/features/venues/components/venue-list-page";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import type { SessionUser } from "#/features/auth/session";
 import type { VenueRequestRejection } from "#/features/events/access";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
 
@@ -627,6 +628,8 @@ describe("VenueDetailPage", () => {
   });
 });
 
+const adjustLink = () => screen.queryByRole("link", { name: /^Adjust request at / });
+
 describe("adjusting a rejected venue request (PTR-35)", () => {
   const rejection: VenueRequestRejection = {
     venueId: 5,
@@ -638,16 +641,21 @@ describe("adjusting a rejected venue request (PTR-35)", () => {
     suggestion: null,
     suggestedVenueId: null,
   };
-  const card = (venueRequest: { status: string; rejection?: VenueRequestRejection }) => (
+  const card = (
+    venueRequest: { status: string; rejection?: VenueRequestRejection },
+    overrides: { access?: "coordinator" | "organiser"; status?: EventRequestStatus } = {}
+  ) => (
     <DashboardPage
-      user={userWithRole("event_coordinator")}
+      user={userWithRole(
+        overrides.access === "organiser" ? "event_organiser" : "event_coordinator"
+      )}
       events={[
         {
-          access: "coordinator",
+          access: overrides.access ?? "coordinator",
           event: {
             id: 7,
             name: "Annual dinner",
-            status: "submitted",
+            status: overrides.status ?? "submitted",
             eventDate: "2026-10-01",
             startTime: "09:00",
             endTime: "17:00",
@@ -657,7 +665,6 @@ describe("adjusting a rejected venue request (PTR-35)", () => {
       ]}
     />
   );
-
   it("opens the suggested venue with the suggested window (AC1)", () => {
     render(
       card({
@@ -675,9 +682,18 @@ describe("adjusting a rejected venue request (PTR-35)", () => {
       })
     );
 
-    expect(screen.getByRole("link", { name: "Adjust request" }).getAttribute("href")).toBe(
+    const link = screen.getByRole("link", { name: "Adjust request at Harbour Hall" });
+    expect(link.getAttribute("href")).toBe(
       "/venues/9?eventId=7&date=2027-04-21&startTime=10%3A00&endTime=13%3A30"
     );
+  });
+
+  it("opens the refused venue with its own window when nothing was suggested", () => {
+    render(card({ status: "rejected", rejection }));
+
+    expect(
+      screen.getByRole("link", { name: "Adjust request at Main Hall" }).getAttribute("href")
+    ).toBe("/venues/5?eventId=7&date=2026-10-05&startTime=09%3A00&endTime=12%3A00");
   });
 
   it("falls back to the refused venue and window for whatever was not suggested", () => {
@@ -691,16 +707,27 @@ describe("adjusting a rejected venue request (PTR-35)", () => {
       })
     );
 
-    expect(screen.getByRole("link", { name: "Adjust request" }).getAttribute("href")).toBe(
-      "/venues/5?eventId=7&date=2026-10-06&startTime=09%3A00&endTime=12%3A00"
-    );
+    expect(
+      screen.getByRole("link", { name: "Adjust request at Main Hall" }).getAttribute("href")
+    ).toBe("/venues/5?eventId=7&date=2026-10-06&startTime=09%3A00&endTime=12%3A00");
+  });
+
+  it("offers the link only to the Coordinator, and only while the event is still submitted", () => {
+    const { unmount } = render(card({ status: "rejected", rejection }, { access: "organiser" }));
+    expect(adjustLink()).toBeNull();
+    unmount();
+
+    render(card({ status: "rejected", rejection }, { status: "confirmed" }));
+    expect(screen.getByText("Closed for floor resurfacing")).toBeTruthy();
+    expect(adjustLink()).toBeNull();
   });
 
   it("keeps the rejection on the card beside a pending adjusted request, without a second link (AC3)", () => {
     render(card({ status: "pending", rejection }));
 
     expect(screen.getByText("Pending")).toBeTruthy();
+    expect(screen.getByText("Previously rejected booking")).toBeTruthy();
     expect(screen.getByText("Closed for floor resurfacing")).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Adjust request" })).toBeNull();
+    expect(adjustLink()).toBeNull();
   });
 });

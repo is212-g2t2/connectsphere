@@ -7,7 +7,7 @@ import { getVenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
 import { VenueDetailPageSkeleton } from "#/features/venues/components/venue-detail-page-skeleton";
-import { VenueIdInput } from "#/features/venues/schema";
+import { TIME_SHAPE, VenueIdInput } from "#/features/venues/schema";
 import { getVenue } from "#/features/venues/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
@@ -25,16 +25,8 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
     saved: z.string().optional(),
     eventId: z.coerce.number().int().positive().optional().catch(undefined),
     date: z.iso.date().optional().catch(undefined),
-    startTime: z
-      .string()
-      .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
-      .optional()
-      .catch(undefined),
-    endTime: z
-      .string()
-      .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
-      .optional()
-      .catch(undefined),
+    startTime: z.string().regex(TIME_SHAPE).optional().catch(undefined),
+    endTime: z.string().regex(TIME_SHAPE).optional().catch(undefined),
   }),
   beforeLoad: ({ context }) => {
     if (!can(context.user.role, { venue: ["read"] })) {

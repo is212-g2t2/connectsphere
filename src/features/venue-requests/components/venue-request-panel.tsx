@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -79,6 +79,18 @@ export function VenueRequestPanel({
   const router = useRouter();
   const request = context.request;
   const sameDay = context.event.endDate === context.event.eventDate;
+  // The route hands a fresh `prefill` object on every render; compare it by value so a re-render
+  // never resets what the Coordinator is mid-way through typing.
+  const prefillDate = prefill?.date ?? null;
+  const prefillStart = prefill?.startTime ?? null;
+  const prefillEnd = prefill?.endTime ?? null;
+  const stablePrefill = useMemo<VenueRequestPrefill | null>(
+    () =>
+      prefillDate && prefillStart && prefillEnd
+        ? { date: prefillDate, startTime: prefillStart, endTime: prefillEnd }
+        : null,
+    [prefillDate, prefillStart, prefillEnd]
+  );
   const inputRefs = useRef<Record<FieldName, HTMLInputElement | null>>({
     date: null,
     startTime: null,
@@ -93,7 +105,7 @@ export function VenueRequestPanel({
   }, "Could not withdraw this request. Try again.");
 
   const form = useForm({
-    defaultValues: toFormValues(context.event, venueId, prefill),
+    defaultValues: toFormValues(context.event, venueId, stablePrefill),
     // `VenueRequestInput` is the same gate the server uses, so the ids, the date and the times are
     // checked once and every issue marks its own field.
     validators: { onSubmit: VenueRequestInput },
@@ -129,8 +141,14 @@ export function VenueRequestPanel({
   // remounting on a key, keeps the inputs in step without dropping what was mid-typing, the
   // pattern `venue-list-page.tsx` follows.
   useEffect(() => {
-    form.reset(toFormValues(context.event, venueId, prefill));
-  }, [context, venueId, prefill, form]);
+    form.reset(toFormValues(context.event, venueId, stablePrefill));
+  }, [context, venueId, stablePrefill, form]);
+
+  // An adjusted request arrives from the rejection card with the form below the venue record, so
+  // the heading takes focus on arrival: the reader lands on the pre-filled form, not the top.
+  useEffect(() => {
+    if (stablePrefill) headingRef.current?.focus();
+  }, [stablePrefill]);
 
   // Sending or withdrawing swaps the panel's branch under the same heading, so focus would
   // otherwise fall to `<body>` and the new state go unannounced. Only a request that changed
@@ -213,8 +231,8 @@ export function VenueRequestPanel({
               <p className="mt-2 body-sm text-muted-foreground">
                 Send Venue Staff a booking request for {venueName} on behalf of {context.event.name}
                 .
-                {prefill &&
-                  " The date and times below follow the alternative Venue Staff suggested; change them if needed."}
+                {stablePrefill &&
+                  " The date and times below were carried over from the rejection card; change them if needed."}
               </p>
               {!sameDay && (
                 <p className="mt-2 body-sm text-muted-foreground">

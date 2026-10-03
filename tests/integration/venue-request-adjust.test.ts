@@ -9,6 +9,7 @@ import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
 import { loadVenueRequestOutcomesForEvents } from "#/features/venue-requests/records.server";
 import {
+  handleApproveVenueRequest,
   handleCreateVenueRequest,
   handleGetVenueRequestContext,
   handleRejectVenueRequest,
@@ -52,6 +53,13 @@ const users = {
     email: "adjust-venue-staff@example.invalid",
     emailVerified: true,
     role: "venue_staff",
+  },
+  attendee: {
+    id: "adjust-attendee",
+    name: "Adjust Attendee",
+    email: "adjust-attendee@example.invalid",
+    emailVerified: true,
+    role: "attendee",
   },
 } satisfies Record<string, typeof schema.user.$inferInsert>;
 
@@ -127,6 +135,11 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       item: "Projector",
       quantity: 2,
     });
+    // One registration on the event, so AC4's "unchanged" comparison has a row to compare.
+    await database
+      .insert(schema.eventRegistrations)
+      .values({ eventId, attendeeId: users.attendee.id })
+      .onConflictDoNothing();
   });
 
   /** A request on the refused hall, rejected with a full suggestion of the other room. */
@@ -238,6 +251,34 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
     });
   });
 
+  it("shows the Organiser and Venue Staff the pending request without the rejection", async () => {
+    await rejectedWithSuggestion();
+    await handleCreateVenueRequest(
+      {
+        eventId,
+        venueId: suggestedVenueId,
+        date: "2027-05-11",
+        startTime: "10:00",
+        endTime: "13:30",
+      },
+      session(users.coordinator),
+      database as never
+    );
+
+    const [organiserCard] = await handleListEvents(
+      { eventId },
+      session(users.organiser),
+      database as never
+    );
+    expect(organiserCard.event.venueRequest).toEqual({ status: "pending" });
+    const [staffCard] = await handleListEvents(
+      { eventId },
+      session(users.venueStaff),
+      database as never
+    );
+    expect(staffCard.event.venueRequest).toEqual({ status: "pending" });
+  });
+
   it("surfaces no rejection once a later request is approved", async () => {
     await rejectedWithSuggestion();
     const adjusted = await handleCreateVenueRequest(
@@ -251,10 +292,11 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       session(users.coordinator),
       database as never
     );
-    await database
-      .update(schema.venueRequests)
-      .set({ status: "approved" })
-      .where(eq(schema.venueRequests.id, adjusted.id));
+    await handleApproveVenueRequest(
+      { id: adjusted.id },
+      session(users.venueStaff),
+      database as never
+    );
 
     const outcomes = await loadVenueRequestOutcomesForEvents(database, [eventId]);
     expect(outcomes.get(eventId)).toBeUndefined();

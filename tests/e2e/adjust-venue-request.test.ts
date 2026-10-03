@@ -98,19 +98,21 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     await expect(card.getByText(reason)).toBeVisible();
 
     // AC1: the suggestion opens the suggested venue with the window already filled in.
-    await card.getByRole("link", { name: "Adjust request" }).click();
+    await card.getByRole("link", { name: `Adjust request at ${suggestedName}` }).click();
     await waitForHydration(page);
     await expect(page).toHaveURL(new RegExp(`/venues/${venueIds[1]}\\?`));
     await expect(page.getByRole("heading", { name: suggestedName })).toBeVisible();
     await expect(page.getByLabel("Date (required)")).toHaveValue("2037-10-14");
     await expect(page.getByLabel("Start time (required)")).toHaveValue("10:00");
     await expect(page.getByLabel("End time (required)")).toHaveValue("13:30");
-    await expect(page.getByText(/follow the alternative Venue Staff suggested/)).toBeVisible();
+    await expect(page.getByText(/carried over from the rejection card/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request this venue" })).toBeFocused();
 
     // AC2: sending it queues a new pending request.
     await page.getByRole("button", { name: "Send booking request" }).click();
-    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
-    await expect(page.getByText("Pending", { exact: true })).toBeVisible();
+    const panel = page.getByRole("region", { name: "Venue request" });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("Pending", { exact: true })).toBeVisible();
     const rows = await database
       .select({ status: schema.venueRequests.status, venueId: schema.venueRequests.venueId })
       .from(schema.venueRequests)
@@ -124,8 +126,9 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     await waitForHydration(page);
     const reloaded = page.locator("[data-slot=card]").filter({ hasText: eventName });
     await expect(reloaded.getByText("Pending", { exact: true })).toBeVisible();
+    await expect(reloaded.getByText("Previously rejected booking")).toBeVisible();
     await expect(reloaded.getByText(reason)).toBeVisible();
-    await expect(reloaded.getByRole("link", { name: "Adjust request" })).toHaveCount(0);
+    await expect(reloaded.getByRole("link", { name: /^Adjust request at / })).toHaveCount(0);
     const [row] = await database
       .select({ status: schema.eventRequests.status })
       .from(schema.eventRequests)

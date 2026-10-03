@@ -132,7 +132,11 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                         {event.venueRequest.rejection && (
                           <>
                             <Detail
-                              label="Rejected booking"
+                              label={
+                                event.venueRequest.status === "rejected"
+                                  ? "Rejected booking"
+                                  : "Previously rejected booking"
+                              }
                               value={`${event.venueRequest.rejection.venueName}, ${formatDate(
                                 event.venueRequest.rejection.date
                               )}, ${event.venueRequest.rejection.startTime}–${
@@ -157,24 +161,30 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                               />
                             )}
                             {access === "coordinator" &&
-                              event.venueRequest.status === "rejected" && (
-                                <div className="pt-1">
-                                  <Link
-                                    to="/venues/$venueId"
-                                    params={{
-                                      venueId: String(
-                                        adjustedVenueId(event.venueRequest.rejection)
-                                      ),
-                                    }}
-                                    search={{
-                                      eventId: event.id,
-                                      ...adjustedWindow(event.venueRequest.rejection),
-                                    }}
-                                    className={buttonVariants({ variant: "outline", size: "sm" })}
-                                  >
-                                    Adjust request
-                                  </Link>
-                                </div>
+                              event.venueRequest.status === "rejected" &&
+                              event.status === "submitted" && (
+                                <Detail
+                                  label="Next step"
+                                  value={
+                                    <Link
+                                      to="/venues/$venueId"
+                                      params={{
+                                        venueId: String(
+                                          adjustedVenueId(event.venueRequest.rejection)
+                                        ),
+                                      }}
+                                      search={{
+                                        eventId: event.id,
+                                        ...adjustedWindow(event.venueRequest.rejection),
+                                      }}
+                                      hash="venue-request-heading"
+                                      className={buttonVariants({ variant: "outline", size: "sm" })}
+                                    >
+                                      Adjust request at{" "}
+                                      {adjustedVenueName(event.venueRequest.rejection)}
+                                    </Link>
+                                  }
+                                />
                               )}
                           </>
                         )}
@@ -306,10 +316,15 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
 /**
  * Where an adjusted request opens: the suggested venue when Venue Staff named one, else the
  * venue that refused. Each part of the window falls back the same way, so a suggestion of "same
- * room, a day later" needs nothing retyped.
+ * room, a day later" needs nothing retyped. The link is offered only while the event is still
+ * `submitted`, the one status the venue page's request panel answers for.
  */
 function adjustedVenueId(rejection: VenueRequestRejection): number {
   return rejection.suggestedVenueId ?? rejection.venueId;
+}
+
+function adjustedVenueName(rejection: VenueRequestRejection): string {
+  return rejection.suggestion?.venueName ?? rejection.venueName;
 }
 
 function adjustedWindow(rejection: VenueRequestRejection): {
