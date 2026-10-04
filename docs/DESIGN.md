@@ -225,7 +225,7 @@ Two corner languages coexist on purpose:
 - **Pill** (Tailwind `rounded-full`) for anything you act on or that represents status: buttons at every size, status pills, avatars, chips.
 - **Soft rectangle** for anything you read inside: inputs at 8px (`--rounded-sm`), cards at 16px (`--rounded-md`), hero cover art and sign-in cards at 20px (`--rounded-lg`).
 
-No surface the system defines uses a sharp 0px corner, and none exceeds 20px. Two things sit below the 8px floor and should stay there: a control glyph too small to carry it (a 16px checkbox at 8px is a circle, which `questionnaire.tsx` uses to mean _radio_), and a corner nested inside another, where the inner radius is derived from `--radius` rather than chosen. Tailwind's radius scale is mapped onto these in `globals.css` (`--radius-sm` and `--radius-md` both resolve to 8px, `--radius-lg` and `--radius-xl` to 16px, `--radius-2xl` to 20px), so `rounded-md` on an input and `rounded-xl` on a card land on the right value without either primitive naming a pixel.
+No surface the system defines uses a sharp 0px corner, and none exceeds 20px. Two things sit below the 8px floor and should stay there: a control glyph too small to carry it (a 16px checkbox at 8px is a circle, which reads as _radio_), and a corner nested inside another, where the inner radius is derived from `--radius` rather than chosen. Tailwind's radius scale is mapped onto these in `globals.css` (`--radius-sm` and `--radius-md` both resolve to 8px, `--radius-lg` and `--radius-xl` to 16px, `--radius-2xl` to 20px), so `rounded-md` on an input and `rounded-xl` on a card land on the right value without either primitive naming a pixel.
 
 ## Components
 
