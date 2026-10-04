@@ -7,7 +7,8 @@ const AssignmentInput = z.object({
   // where Postgres raises 22003 instead of the intended refusal.
   id: z.int32({ error: EVENT_REQUEST_ID_MESSAGE }).positive(EVENT_REQUEST_ID_MESSAGE),
   coordinatorId: z.string().trim().min(1, "Choose an Event Coordinator"),
-  // Required even for a pickup: a stale unassigned page must not overwrite another pickup.
+  // Required by both callers: the assign pick-up sends null, the handover the Coordinator it saw;
+  // the server refuses anything stale.
   expectedCoordinatorId: z.string().min(1).nullable(),
 });
 
