@@ -6,16 +6,9 @@ This document covers the deployed topology, the release pipeline, the configurat
 
 ## Topology
 
-```
-Client ──► Cloudflare edge (proxied, Free managed WAF)
-               └──► Cloud Run (asia-southeast1, project connectsphere-is212)
-                        ├── Supabase PostgreSQL: transaction pooler (:6543)
-                        ├── Cloudflare R2 bucket: presigned uploads
-                        ├── Secret Manager: per-environment configuration
-                        └── Resend (email) · Sentry (errors)
+![Deployment topology: the Cloudflare edge fronts the two Cloud Run services, which use Supabase PostgreSQL, Cloudflare R2, Secret Manager, Resend, and Sentry](./diagrams/deployment-topology.svg)
 
-Cloud Scheduler ──► POST /api/cron/notifications on the same service, every minute (PTR-55)
-```
+Source: [`deployment-topology.drawio`](./diagrams/deployment-topology.drawio).
 
 |                      | Production                                                | Staging                                                      |
 | -------------------- | --------------------------------------------------------- | ------------------------------------------------------------ |

@@ -47,26 +47,7 @@ C4Context
 
 ## Deployment Topology
 
-Both environments run on Google Cloud Run in the project `connectsphere-is212` (`asia-southeast1`), behind the Cloudflare edge. The services share Supabase PostgreSQL, Cloudflare R2, Secret Manager, Resend, and Sentry. [`DEPLOYMENT.md`](./DEPLOYMENT.md#topology) holds the configuration and the release pipeline.
-
-```mermaid
-flowchart LR
-    browser["Browser"] --> edge["Cloudflare edge<br/>proxied, Free managed WAF"]
-
-    subgraph run["Cloud Run"]
-        prod["connectsphere<br/>production"]
-        staging["connectsphere-staging<br/>staging"]
-    end
-
-    edge --> run
-    scheduler["Cloud Scheduler<br/>every minute"] -->|"POST /api/cron/notifications"| run
-
-    run -->|"SQL"| db["Supabase PostgreSQL<br/>transaction pooler :6543"]
-    run -->|"S3 API"| r2["Cloudflare R2<br/>presigned uploads"]
-    run -->|"mounts secrets"| sm["Secret Manager<br/>configuration"]
-    run -->|"HTTPS"| resend["Resend<br/>email"]
-    run -->|"HTTPS"| sentry["Sentry<br/>errors"]
-```
+Both environments run on Google Cloud Run in the project `connectsphere-is212` (`asia-southeast1`), behind the Cloudflare edge. The services share Supabase PostgreSQL, Cloudflare R2, Secret Manager, Resend, and Sentry. [`DEPLOYMENT.md`](./DEPLOYMENT.md#topology) holds the topology diagram, the configuration, and the release pipeline.
 
 ## Decision Records
 
@@ -85,6 +66,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 .
 ├── docs/
 │   ├── adrs/             # Architecture decision records
+│   ├── diagrams/         # Draw.io source and SVG export for the deployment topology
 │   ├── ARCHITECTURE.md   # This file
 │   ├── CONTRIBUTING.md   # Branch, commit, and test conventions
 │   ├── DEPLOYMENT.md     # Environments, release pipeline, local Docker workflow
