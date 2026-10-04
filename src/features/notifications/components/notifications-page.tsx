@@ -24,9 +24,8 @@ const NEUTRAL_LINE = "This notification is no longer available.";
  * PTR-56: an unread row carries an "Unread" label after its line and its own mark-read button, so
  * read state is told in text rather than by ink alone (ink already means "actionable"), and every
  * line keeps the same left edge. The header counts every unread row, not just the listed ones, as
- * a live status so the change after a mark is announced. "Mark all as read" stops at the highest
- * listed id — list order is by creation instant, which need not follow id order — so a
- * notification with a higher id than any listed stays unread. Either action re-reads the list; a
+ * a live status so the change after a mark is announced. "Mark all as read" sends the highest
+ * listed id as its cutoff (see `handleMarkNotificationsRead`). Either action re-reads the list; a
  * failure is a toast, because a banner above a long list sits out of view of the row clicked.
  */
 export function NotificationsPage({

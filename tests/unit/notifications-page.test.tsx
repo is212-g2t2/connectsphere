@@ -161,6 +161,17 @@ describe("NotificationsPage read state (PTR-56)", () => {
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
+  it("toasts the fallback copy when a failure carries no message", async () => {
+    markNotificationsRead.mockRejectedValueOnce(new Error(""));
+    render(<NotificationsPage notifications={[unread]} unreadCount={1} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("Could not mark as read. Try again.")
+    );
+  });
+
   it("toasts the server's refusal when marking fails, and still re-reads the list", async () => {
     markNotificationsRead.mockRejectedValueOnce(new Error("Choose a notification"));
     render(<NotificationsPage notifications={[unread]} unreadCount={1} />);
