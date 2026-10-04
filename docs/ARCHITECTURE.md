@@ -280,6 +280,7 @@ erDiagram
         text recipient_id FK
         int event_request_id FK
         text kind
+        timestamp read_at
     }
 ```
 
