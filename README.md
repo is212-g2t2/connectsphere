@@ -9,7 +9,7 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
 ### Prerequisites
 
 - [Bun](https://bun.sh/) v1.4.2 or later
-- [Docker](https://www.docker.com/) for local services (PostgreSQL, MinIO, Redis)
+- [Docker](https://www.docker.com/) for local services (PostgreSQL, Redis)
 
 ### Setup
 
@@ -30,7 +30,7 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
 3. **Start local services**
 
    ```bash
-   docker compose up -d postgres redis minio minio_init
+   docker compose up -d postgres redis
    ```
 
    This command starts the infrastructure services only. The `connectsphere` service binds port 3000. It conflicts with the local development server. See the [Deployment Guide](./docs/DEPLOYMENT.md).

@@ -1,12 +1,12 @@
 # Deployment
 
-ConnectSphere runs on **Google Cloud Run** in two environments: staging at `connectsphere-staging.ciav.dev` from `main`, and production at `connectsphere.ciav.dev` from a published release. Supabase PostgreSQL, Cloudflare R2 storage, and Cloudflare DNS and web application firewall (WAF) back both environments. The reasoning behind the target is in [ADR-3](./adrs/ADR-3-cloud-run.md). The Terraform that builds it is in [`infra/`](../infra/), with the bootstrap order and the manual steps in [`infra/README.md`](../infra/README.md).
+ConnectSphere runs on **Google Cloud Run** in two environments: staging at `connectsphere-staging.ciav.dev` from `main`, and production at `connectsphere.ciav.dev` from a published release. Supabase PostgreSQL and Cloudflare DNS and web application firewall (WAF) back both environments. The reasoning behind the target is in [ADR-3](./adrs/ADR-3-cloud-run.md). The Terraform that builds it is in [`infra/`](../infra/), with the bootstrap order and the manual steps in [`infra/README.md`](../infra/README.md).
 
 This document covers the deployed topology, the release pipeline, the configuration, and rollback. The [local Docker workflow](#what-runs-where) follows at the end, and it remains the only way to run the whole stack on a laptop.
 
 ## Topology
 
-![Deployment topology: the Cloudflare edge fronts the two Cloud Run services, which use Supabase PostgreSQL, Cloudflare R2, Secret Manager, Resend, and Sentry; GitHub Actions deploys the image through GHCR](./diagrams/deployment-topology.svg)
+![Deployment topology: the Cloudflare edge fronts the two Cloud Run services, which use Supabase PostgreSQL, Secret Manager, Resend, and Sentry; GitHub Actions deploys the image through GHCR](./diagrams/deployment-topology.svg)
 
 Source: [`deployment-topology.drawio`](./diagrams/deployment-topology.drawio).
 
@@ -16,7 +16,6 @@ Source: [`deployment-topology.drawio`](./diagrams/deployment-topology.drawio).
 | Cloud Run service    | `connectsphere`                                           | `connectsphere-staging`                                      |
 | Runtime identity     | `cs-prod-run@connectsphere-is212.iam.gserviceaccount.com` | `cs-staging-run@connectsphere-is212.iam.gserviceaccount.com` |
 | Instances (min–max)  | 0–5                                                       | 0–2                                                          |
-| R2 bucket            | `connectsphere-uploads`                                   | `connectsphere-staging-uploads`                              |
 | Sentry `environment` | `production`                                              | `staging`                                                    |
 
 Both environments live in **one Google Cloud project**, and a runtime service account per environment keeps staging out of production's credentials ([ADR-3](./adrs/ADR-3-cloud-run.md#consequences)).
@@ -57,17 +56,16 @@ A failure after `migrate` leaves the migration applied. `cleanup` drops only the
 
 ### Secrets
 
-Secret Manager holds sixteen containers: eight names under each environment prefix. The Cloud Run container sees the bare name, and the prefix is a Secret Manager naming concern. Values never enter the Terraform state or a tfvars file. Operators add versions with `gcloud`.
+Secret Manager holds twelve containers: six names under each environment prefix. The Cloud Run container sees the bare name, and the prefix is a Secret Manager naming concern. Values never enter the Terraform state or a tfvars file. Operators add versions with `gcloud`.
 
-| Secret (`<env>-…`)                      | Purpose                                                                                               |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                          | Supabase **transaction pooler** (`:6543`) URL, used by the application with `prepare: false`          |
-| `BETTER_AUTH_SECRET`                    | `openssl rand -base64 48`. Distinct per environment.                                                  |
-| `SMOKE_TOKEN`                           | `openssl rand -hex 32`. Distinct per environment, read by the `smoke` job.                            |
-| `CRON_TOKEN`                            | `openssl rand -hex 32`. Distinct per environment. The notification worker's bearer (PTR-55).          |
-| `VITE_SENTRY_DSN`                       | Sentry DSN: a build arg for the browser bundle and a runtime environment variable for the server SDK. |
-| `RESEND_API_KEY`                        | Transactional email.                                                                                  |
-| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | R2 API token scoped to that environment's bucket.                                                     |
+| Secret (`<env>-…`)   | Purpose                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`       | Supabase **transaction pooler** (`:6543`) URL, used by the application with `prepare: false`          |
+| `BETTER_AUTH_SECRET` | `openssl rand -base64 48`. Distinct per environment.                                                  |
+| `SMOKE_TOKEN`        | `openssl rand -hex 32`. Distinct per environment, read by the `smoke` job.                            |
+| `CRON_TOKEN`         | `openssl rand -hex 32`. Distinct per environment. The notification worker's bearer (PTR-55).          |
+| `VITE_SENTRY_DSN`    | Sentry DSN: a build arg for the browser bundle and a runtime environment variable for the server SDK. |
+| `RESEND_API_KEY`     | Transactional email.                                                                                  |
 
 Create a `CRON_TOKEN` version in **both** environments before you deploy a revision that references it. A Cloud Run revision that mounts a versionless secret never becomes ready. Install the real header of the Cloud Scheduler job after the first apply. See [`infra/README.md`](../infra/README.md#notification-email-worker).
 
@@ -101,8 +99,6 @@ The WIF binding in [`infra/iam.tf`](../infra/iam.tf) admits only the `main` bran
 | `BETTER_AUTH_URL`, `SERVER_URL` | `https://connectsphere.ciav.dev`                               | `https://connectsphere-staging.ciav.dev` |
 | `SENTRY_ENVIRONMENT`            | `production`                                                   | `staging`                                |
 | `EMAIL_FROM`                    | `onboarding@resend.dev` until `ciav.dev` is verified in Resend | same                                     |
-| `MINIO_ENDPOINT`                | R2 S3 endpoint (shared)                                        | same account, different bucket           |
-| `MINIO_BUCKET`                  | `connectsphere-uploads`                                        | `connectsphere-staging-uploads`          |
 
 `BETTER_AUTH_URL` must equal the environment's public origin. Better Auth derives its trusted origins from that value, and there is no `trustedOrigins` override. With a wrong value, the application still boots, but it produces broken verification links and cookie-domain mismatches instead of an error.
 
@@ -165,29 +161,28 @@ Rehearse the path on staging before you need it in production. Roll `connectsphe
 
 ## What runs where
 
-`docker-compose.yaml` (compose project `connectsphere`) defines five services:
+`docker-compose.yaml` (compose project `connectsphere`) defines four services:
 
-| Service         | Port       | Data                | Notes                                                       |
-| --------------- | ---------- | ------------------- | ----------------------------------------------------------- |
-| `postgres`      | 5432       | `./data/postgres`   | PostgreSQL 18, database `app`, user/password `postgres`     |
-| `minio`         | 9000, 9001 | `./data/minio/data` | S3-compatible storage. Console on 9001, `admin`/`password`. |
-| `minio_init`    | —          | —                   | Runs once to create the `app` bucket, then exits.           |
-| `redis`         | 6379       | —                   | Redis 7.                                                    |
-| `connectsphere` | 3000       | —                   | The application itself, built from `Dockerfile`.            |
+| Service         | Port       | Data              | Notes                                                   |
+| --------------- | ---------- | ----------------- | ------------------------------------------------------- |
+| `postgres`      | 5432       | `./data/postgres` | PostgreSQL 18, database `app`, user/password `postgres` |
+| `redis`         | 6379       | —                 | Redis 7.                                                |
+| `mailpit`       | 1025, 8025 | —                 | Mail capture for the reset-password E2E journey.        |
+| `connectsphere` | 3000       | —                 | The application itself, built from `Dockerfile`.        |
 
-State lives in bind mounts under `./data`, not named volumes. If you delete that directory, the database and the object store reset. If you rename the compose project, nothing is orphaned.
+State lives in bind mounts under `./data`, not named volumes. If you delete that directory, the database resets. If you rename the compose project, nothing is orphaned.
 
 ## The normal loop: services in Docker, the application on the host
 
 This is what [DEVELOPMENT.md](./DEVELOPMENT.md) assumes and what the test suites expect.
 
 ```bash
-docker compose up -d postgres redis minio minio_init
+docker compose up -d postgres redis
 bun run db:migrate
 bun run dev
 ```
 
-`.env.example` matches this shape: `DATABASE_URL` and `MINIO_ENDPOINT` point at `localhost`, which is correct when the application runs on the host.
+`.env.example` matches this shape: `DATABASE_URL` points at `localhost`, which is correct when the application runs on the host.
 
 > [!IMPORTANT]
 > Start the `connectsphere` service only when you want the containerized application. It binds port 3000, and the E2E setup does not reuse a running server: it fails on the busy port before any test runs. Run `docker compose stop connectsphere` before `bun run test:e2e`.
@@ -199,14 +194,13 @@ docker compose up -d
 ```
 
 > [!WARNING]
-> The `connectsphere` service loads `env_file: .env.example`, whose hostnames are `localhost`. Inside a container, `localhost` means the container itself, not the database. The application boots and serves the landing page and `/api/health`, but anything that touches PostgreSQL or MinIO fails. Override the two hostnames with compose service names before you rely on it:
+> The `connectsphere` service loads `env_file: .env.example`, whose hostnames are `localhost`. Inside a container, `localhost` means the container itself, not the database. The application boots and serves the landing page and `/api/health`, but anything that touches PostgreSQL fails. Override the hostname with the compose service name before you rely on it:
 >
 > ```
 > DATABASE_URL="postgresql://postgres:postgres@postgres:5432/app"
-> MINIO_ENDPOINT="http://minio:9000"
 > ```
 >
-> Point the service at a real `.env` with these values (`env_file: .env`). Do not edit `.env.example`, which is the committed template for host-side development.
+> Point the service at a real `.env` with this value (`env_file: .env`). Do not edit `.env.example`, which is the committed template for host-side development.
 
 To build and run the image on its own:
 

@@ -50,7 +50,7 @@ One `notifications` table is both the record in the application and the email qu
 
 ## Consequences
 
-- Delivery is at-least-once. A crash between send and mark re-sends. The provider idempotency key dedupes where supported. The SMTP capture that E2E uses ignores it. Duplicate sends are the accepted risk. The worker does not hold a transaction open across an HTTP call.
+- Delivery is at-least-once. A crash between send and mark re-sends. The provider idempotency key dedupes where supported. The provider keeps that key for 24 hours and replays it only while the payload is identical. A template or `BETTER_AUTH_URL` change between attempts makes the provider answer 409. The row then spends its attempts and dead-letters, even though the first send went out. The SMTP capture that E2E uses ignores it. Duplicate sends are the accepted risk. The worker does not hold a transaction open across an HTTP call.
 - The worker route is public but bearer-guarded. `CRON_TOKEN` is optional in `src/env.ts`. An unset token answers 401.
 - A minute-cadence job against a scale-to-zero service pays a cold start per tick. Change the interval with a one-line scheduler change if that cost exceeds notification latency.
 - `notifications` rows are the only inbox source. The read side re-applies the PTR-8 relationship rule. It neutralizes rows whose subject the caller can no longer reach. The application does not re-expose an email already sent after access ends. Delivery does not re-check reachability. A queued row is a notice raised while the recipient was connected. The email can arrive after that connection ends. The inbox read is the surface that applies current access.

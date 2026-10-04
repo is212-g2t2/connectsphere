@@ -4,7 +4,7 @@ ConnectSphere is a full-stack React application. TanStack Start renders it on th
 
 ## System Context
 
-Five roles use ConnectSphere through a browser. The system depends on five external services for data, file storage, email, error tracking, and scheduled work.
+Five roles use ConnectSphere through a browser. The system depends on four external services for data, email, error tracking, and scheduled work.
 
 ```mermaid
 C4Context
@@ -15,12 +15,10 @@ C4Context
     Person(techSupport, "Technical Support Staff", "Arranges and reserves equipment")
 
     System(connectsphere, "ConnectSphere", "Event planning and venue booking for five roles")
-    System_Ext(scheduler, "Google Cloud Scheduler", "Calls the notification email worker every minute")
-
     SystemDb_Ext(supabase, "Supabase PostgreSQL", "Stores application data")
-    System_Ext(r2, "Cloudflare R2", "Stores uploaded files")
     System_Ext(resend, "Resend", "Delivers transactional email")
     System_Ext(sentry, "Sentry", "Tracks errors and traces")
+    System_Ext(scheduler, "Google Cloud Scheduler", "Calls the notification email worker every minute")
 
     Rel(attendee, connectsphere, "Uses", "HTTPS")
     Rel(organiser, connectsphere, "Uses", "HTTPS")
@@ -28,7 +26,6 @@ C4Context
     Rel(venueStaff, connectsphere, "Uses", "HTTPS")
     Rel(techSupport, connectsphere, "Uses", "HTTPS")
     Rel(connectsphere, supabase, "Reads and writes", "SQL")
-    Rel(connectsphere, r2, "Stores uploads", "S3 API")
     Rel(connectsphere, resend, "Sends email", "HTTPS API")
     Rel(connectsphere, sentry, "Reports errors", "HTTPS")
     Rel(scheduler, connectsphere, "Calls every minute", "HTTPS")
@@ -47,7 +44,7 @@ C4Context
 
 ## Deployment Topology
 
-Both environments run on Google Cloud Run in the project `connectsphere-is212` (`asia-southeast1`), behind the Cloudflare edge. The services share Supabase PostgreSQL, Cloudflare R2, Secret Manager, Resend, and Sentry. [`DEPLOYMENT.md`](./DEPLOYMENT.md#topology) holds the topology diagram, the configuration, and the release pipeline.
+Both environments run on Google Cloud Run in the project `connectsphere-is212` (`asia-southeast1`), behind the Cloudflare edge. The services share Supabase PostgreSQL, Secret Manager, Resend, and Sentry. [`DEPLOYMENT.md`](./DEPLOYMENT.md#topology) holds the topology diagram, the configuration, and the release pipeline.
 
 ## Decision Records
 
@@ -94,7 +91,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │   │   ├── venue-requests/ # Booking requests: raise, withdraw, approve, reject, release, amend, notify
 │   │   └── venues/       # Venue catalogue, requirements search with suitability verdicts, and availability
 │   ├── hooks/            # Client hooks shared across features
-│   ├── lib/              # Shared integrations (auth, mail, storage, logger, SEO)
+│   ├── lib/              # Shared integrations (auth, mail, logger, SEO)
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
@@ -102,7 +99,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
 │       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection
 │       │   └── venue-bookings/ # Venue Staff's approved-booking release and amendment view
-│       ├── api/          # Better Auth handler, health, smoke, upload-url
+│       ├── api/          # Better Auth handler, health, smoke
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
 ├── CHANGELOG.md          # Release history
@@ -120,10 +117,9 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 2. **SSR**: TanStack Start renders the initial HTML through Nitro.
 3. **Sessions**: `src/routes/__root.tsx` resolves the session once per navigation in `beforeLoad`, for every route, so the header renders the user in the server markup. `src/routes/_authenticated.tsx` narrows the session to a signed-in user and redirects visitors to `/login`. Its children read the inherited `context.user`, and they do not call `getCurrentUser()` themselves. The role-gated routes repeat a `can()` check in their own `beforeLoad` and redirect on failure. The authentication routes redirect signed-in users to `/dashboard`.
 4. **Server functions**: every `createServerFn` is a directly addressable HTTP route, so authorization runs in middleware, never in the route guard or the handler. Handlers do pure database work, with no session lookup and no `can()` of their own. The full model is [Authorization](#authorization).
-5. **Client mutations**: browser writes that a form does not own (save a draft, delete an account, sign out, upload) run through `useMutation` (`src/hooks/use-mutation.ts`). That hook is a thin wrapper over React's `useActionState`, and it holds the run's in-flight flag, result, and error. The run receives the last _successful_ result, so a server-assigned draft id reaches the next save without the page storing it.
+5. **Client mutations**: browser writes that a form does not own (save a draft, delete an account, sign out) run through `useMutation` (`src/hooks/use-mutation.ts`). That hook is a thin wrapper over React's `useActionState`, and it holds the run's in-flight flag, result, and error. The run receives the last _successful_ result, so a server-assigned draft id reaches the next save without the page storing it.
 6. **Authentication flow**: forms in `src/features/auth/components/` call `src/lib/auth-client.ts`. The routes are `/login`, `/signup`, and `/reset-password` (`?token=`).
-7. **File uploads**: `src/routes/api/upload-url.ts` generates a presigned PUT URL. The client uploads directly to storage, and the server never proxies file bytes.
-8. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The record in the application and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute, and the worker delivers the pending rows and marks them. The reasoning, the failure policy, and the P0 bypass are in [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
+7. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The record in the application and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute, and the worker delivers the pending rows and marks them. The reasoning, the failure policy, and the P0 bypass are in [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
 
 ## Database and Migrations
 
@@ -289,7 +285,6 @@ erDiagram
 
 | Function                    | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
 | --------------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
-| `upload:create`             |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
 | `event_request:create`      |    —     |       ✅        |         —         |      —      |            —            |
 | `event_request:coordinate`  |    —     |        —        |        ✅         |      —      |            —            |
 | `venue:read`                |    —     |        —        |        ✅         |     ✅      |           ✅            |
@@ -315,7 +310,7 @@ The permission model uses `createAccessControl` from `better-auth/plugins/access
 | Layer                  | Enforcement                                                                                                                                                                                                                                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Server functions**   | `.middleware([...])` on every `createServerFn`. `withSession` resolves the session. `requireSession` answers 401, and `requirePermission(...)` answers 403, or takes an accessor where the permission depends on the payload, as `saveVenue`'s create-versus-update split does. |
-| **API route handlers** | `src/routes/api/upload-url.ts` calls `can()` beside its session check, the one handler outside the pipeline.                                                                                                                                                                    |
+| **API route handlers** | No handler does its own role check: `/api/auth/*` is Better Auth's own handler, `/api/health` is public by design, and `/api/smoke` gates on its bearer token.                                                                                                                  |
 | **Route guards**       | `beforeLoad` redirects and role checks are presentation only. The middleware behind the page repeats the check.                                                                                                                                                                 |
 | **The interface**      | Page views ask `can()` of their route's user, for example to choose between the venue form and its read-only view. Hiding a control is presentation, never enforcement.                                                                                                         |
 

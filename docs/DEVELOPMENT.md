@@ -5,7 +5,7 @@ This guide covers the local development environment, the scripts catalog, databa
 ## Prerequisites
 
 - **[Bun](https://bun.sh/)** v1.4.2 or later
-- **[Docker](https://www.docker.com/)** and Docker Compose (for local PostgreSQL, MinIO, and Redis, and for Testcontainers)
+- **[Docker](https://www.docker.com/)** and Docker Compose (for local PostgreSQL and Redis, and for Testcontainers)
 
 ## Local Setup
 
@@ -26,14 +26,12 @@ This guide covers the local development environment, the scripts catalog, databa
 3. **Start the local infrastructure services**:
 
    ```bash
-   docker compose up -d postgres redis minio minio_init mailpit
+   docker compose up -d postgres redis mailpit
    ```
 
    This command provisions:
 
    - **PostgreSQL 18** on `localhost:5432` (database `app`, user/password: `postgres`/`postgres`)
-   - **MinIO S3** on `localhost:9000` (API) and `localhost:9001` (web console: `admin` / `password`)
-   - **MinIO Init** bucket provisioner (creates the `app` bucket automatically)
    - **Redis 7** on `localhost:6379`
    - **Mailpit** on `localhost:1025` (SMTP) and `localhost:8025` (web UI) for the E2E reset journey
 
@@ -94,10 +92,6 @@ The fictional equipment inventory contains eight Portable Projectors, twelve Wir
 | `RESEND_API_KEY`      | Optional | Required to send email. The application boots without it, and email calls throw a clear error                                                                                      |
 | `EMAIL_FROM`          | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                                                  |
 | `SMTP_URL`            | Optional | SMTP relay for outgoing mail (`smtp://host:port`). When set, the application sends over SMTP instead of Resend. The E2E run uses this path to capture reset emails through Mailpit |
-| `MINIO_ENDPOINT`      | Optional | S3-compatible endpoint for file uploads. Accepts MinIO, AWS S3, Cloudflare R2, or Supabase Storage (`https://<project>.supabase.co/storage/v1/s3`)                                 |
-| `MINIO_BUCKET`        | Optional | Bucket name (default: `app`)                                                                                                                                                       |
-| `MINIO_ACCESS_KEY`    | Optional | Storage access key (default: `admin`)                                                                                                                                              |
-| `MINIO_SECRET_KEY`    | Optional | Storage secret key (default: `password`)                                                                                                                                           |
 | `REDIS_URL`           | Optional | Redis connection string for `src/lib/redis.server.ts` (Bun-native client). Nothing imports that module yet, so the value has no effect today                                       |
 | `SENTRY_AUTH_TOKEN`   | Optional | Token for Sentry source map uploads at build time                                                                                                                                  |
 | `SENTRY_ENVIRONMENT`  | Optional | Sentry environment tag for the server SDK, read by `instrument.server.mjs`. Default: `development`. Terraform sets `production` or `staging` when deployed                         |
@@ -191,7 +185,7 @@ bun run test:integration
 
 - Playwright drives these tests (`playwright.config.ts`). `tests/e2e/global-setup.ts` owns the environment. It starts a `postgres:18-alpine` testcontainer on a random host port, applies the committed migrations, and seeds the database. It then builds the application and starts the production server (`bun run build`, `bun run start`) on :3000 against that same `DATABASE_URL`. Teardown stops the server and the container, and it discards the database.
 - Docker must be running, and :3000 must be free. The setup does not reuse another server: it fails on the busy port. The application and the tests therefore always share one database.
-- The reset-password journey sends mail through the capture server. Run `docker compose up -d mailpit` and set `SMTP_URL="smtp://localhost:1025"` in `.env`. The upload journey reads MinIO from the same compose stack.
+- The reset-password journey sends mail through the capture server. Run `docker compose up -d mailpit` and set `SMTP_URL="smtp://localhost:1025"` in `.env`.
 - Notification emails wait in the `notifications` table. The application does not send them inline. Only sign-up verification and password reset send immediately. Nothing schedules the worker locally. Drain the queue when you want the mail to arrive. Mailpit shows the mail when `SMTP_URL` is set:
   ```bash
   curl -fsS -X POST -H "Authorization: Bearer $CRON_TOKEN" http://localhost:3000/api/cron/notifications
