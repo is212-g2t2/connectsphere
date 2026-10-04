@@ -10,7 +10,7 @@ const EVENT_CARDS = [0, 1];
  * and the settings link, so the loader that reads the caller's events shows the page it is about
  * to become rather than a blank screen.
  *
- * The role-gated links and the upload card are deliberately not drawn: they vary by role, and a
+ * The role-gated links are deliberately not drawn: they vary by role, and a
  * pending state must not promise controls the arriving user may not have.
  */
 export function DashboardPageSkeleton() {

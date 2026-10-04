@@ -95,10 +95,9 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("link", { name: "Account settings" })).toBeTruthy();
   });
 
-  it("shows the upload card and the workspace links the role may reach", () => {
+  it("shows the workspace links the role may reach", () => {
     render(<DashboardPage user={userWithRole("venue_staff")} events={[]} />);
 
-    expect(screen.getByRole("heading", { name: "File upload" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Venue calendar" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Booking requests" })).toBeTruthy();
@@ -108,7 +107,6 @@ describe("DashboardPage", () => {
   it("hides every role-gated control from an attendee", () => {
     render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
 
-    expect(screen.queryByRole("heading", { name: "File upload" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Venues" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Venue calendar" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Booking requests" })).toBeNull();
@@ -326,35 +324,6 @@ describe("DashboardPage", () => {
     );
 
     expect(screen.queryByRole("link", { name: "Find venues for this event" })).toBeNull();
-  });
-
-  /**
-   * PTR-71: the upload's `status`/`uploadedKey`/`errorMsg` trio is now one action, so a refused
-   * presign cannot leave the trigger reading "Uploading…" with a stale key still on screen.
-   */
-  it("reports a refused upload and leaves the trigger usable", async () => {
-    const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ error: "Upload refused for this file" }), { status: 400 })
-        )
-    );
-    const { container } = render(<DashboardPage user={userWithRole("venue_staff")} events={[]} />);
-
-    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
-    expect(input).not.toBeNull();
-    // The type has to satisfy the input's `accept`, or `user.upload` drops the file silently.
-    await user.upload(
-      input as HTMLInputElement,
-      new File(["x"], "notes.txt", { type: "text/plain" })
-    );
-
-    expect(await screen.findByText("Upload refused for this file")).toBeTruthy();
-    const trigger = screen.getByRole("button", { name: "Choose file" });
-    expect(trigger.hasAttribute("disabled")).toBe(false);
   });
 
   /** The route's `pendingComponent`: the dashboard's shape while `listEvents` is in flight. */

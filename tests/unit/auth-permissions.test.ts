@@ -15,7 +15,6 @@ import type { Role } from "#/features/auth/schema/role";
 const EXPECTED: Record<
   Role,
   {
-    upload: boolean;
     event_request: boolean;
     coordinate: boolean;
     venueRead: boolean;
@@ -30,7 +29,6 @@ const EXPECTED: Record<
   }
 > = {
   attendee: {
-    upload: false,
     event_request: false,
     coordinate: false,
     venueRead: false,
@@ -44,7 +42,6 @@ const EXPECTED: Record<
     equipmentRelease: false,
   },
   event_organiser: {
-    upload: true,
     event_request: true,
     coordinate: false,
     venueRead: false,
@@ -58,7 +55,6 @@ const EXPECTED: Record<
     equipmentRelease: false,
   },
   event_coordinator: {
-    upload: true,
     event_request: false,
     coordinate: true,
     venueRead: true,
@@ -72,7 +68,6 @@ const EXPECTED: Record<
     equipmentRelease: false,
   },
   venue_staff: {
-    upload: true,
     event_request: false,
     coordinate: false,
     venueRead: true,
@@ -86,7 +81,6 @@ const EXPECTED: Record<
     equipmentRelease: false,
   },
   technical_support_staff: {
-    upload: true,
     event_request: false,
     coordinate: false,
     venueRead: true,
@@ -103,7 +97,6 @@ const EXPECTED: Record<
 
 describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36, PTR-41, PTR-42)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
-    expect(can(role, { upload: ["create"] })).toBe(EXPECTED[role].upload);
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
     expect(can(role, { event_request: ["coordinate"] })).toBe(EXPECTED[role].coordinate);
     expect(can(role, { venue: ["read"] })).toBe(EXPECTED[role].venueRead);
@@ -119,10 +112,10 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PT
 
   describe("fails closed", () => {
     /**
-     * Every probe is a malformed spelling of a role that *does* hold `upload:create`, or a role
-     * that does not exist. Spelling them as `attendee` would prove nothing: attendee holds an
-     * empty role, so a `can()` that quietly defaulted an unknown string to it would still answer
-     * false and this block would pass while enforcing nothing.
+     * Every probe is a malformed spelling of a role that *does* hold `event_request:create`,
+     * or a role that does not exist. Spelling them as `attendee` would prove nothing: attendee
+     * holds an empty role, so a `can()` that quietly defaulted an unknown string to it would
+     * still answer false and this block would pass while enforcing nothing.
      */
     it.each<string | null | undefined>([
       null,
@@ -134,13 +127,13 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PT
       " event_organiser ",
       "event-organiser",
     ])("refuses the role %o", role => {
-      expect(can(role, { upload: ["create"] })).toBe(false);
+      expect(can(role, { event_request: ["create"] })).toBe(false);
     });
 
     // Criterion 4. Better Auth's `admin` plugin reads such a string as two roles at once,
     // which is precisely why this project does not use it.
     it("refuses a comma-separated pair of roles", () => {
-      expect(can("attendee,event_coordinator", { upload: ["create"] })).toBe(false);
+      expect(can("attendee,event_coordinator", { event_request: ["create"] })).toBe(false);
     });
   });
 });

@@ -74,8 +74,6 @@ resource "google_cloud_run_v2_service" "app" {
           SERVER_URL         = "https://${each.value.hostname}"
           SENTRY_ENVIRONMENT = each.value.sentry_environment
           EMAIL_FROM         = each.value.email_from
-          MINIO_ENDPOINT     = local.minio_endpoint
-          MINIO_BUCKET       = each.value.bucket
         }
         content {
           name  = env.key

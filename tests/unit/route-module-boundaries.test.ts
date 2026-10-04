@@ -6,7 +6,7 @@ import path from "node:path";
  * PTR-75: route modules are routing, and nothing else.
  *
  * `dashboard.tsx` (177 lines) and `settings.tsx` (143 lines) used to carry their whole view —
- * an inline `FileUploadCard`, local `SettingsSection` and `Row` helpers — beside the routing
+ * local `SettingsSection` and `Row` helpers — beside the routing
  * configuration, which is how a page view becomes impossible to render without a router. The
  * views now live under `src/features/<feature>/components/`, and these assertions are what stops
  * the next one from being written back into a route file: nothing else in the suite would notice,

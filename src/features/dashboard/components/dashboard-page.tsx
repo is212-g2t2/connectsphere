@@ -1,18 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { Upload, CircleCheck } from "lucide-react";
-import { useRef } from "react";
 
 import { Page, PageHeader } from "#/components/layout/page";
-import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
-import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import type { EventProjection } from "#/features/events/access";
 import { EventWorkspace } from "#/features/events/components/event-workspace";
-
-const UPLOAD_FAILED = "Upload failed";
 
 /**
  * The signed-in home view. The session user and the connected events arrive as props rather than
@@ -95,8 +89,6 @@ export function DashboardPage({ user, events }: { user: SessionUser; events: Eve
         )}
       </div>
 
-      {can(user.role, { upload: ["create"] }) && <FileUploadCard />}
-
       <EventWorkspace events={events} />
 
       <div className="mt-12 border-t border-border pt-6">
@@ -105,92 +97,5 @@ export function DashboardPage({ user, events }: { user: SessionUser; events: Eve
         </Link>
       </div>
     </Page>
-  );
-}
-
-/** One caller — the dashboard itself — so it stays in this file, per AGENTS.md. */
-function FileUploadCard() {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // PTR-71: one action instead of a `status`/`uploadedKey`/`errorMsg` trio that had to be moved
-  // in step. The two stages are one run, so a failed PUT cannot leave a key on screen from the
-  // presign that preceded it, and React queues a second pick behind the first rather than racing
-  // it — the concurrency the three flags could not express.
-  const [upload, uploadFile, uploading] = useMutation(async (file: File) => {
-    const res = await fetch("/api/upload-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        filename: file.name,
-        contentType: file.type,
-        size: file.size,
-      }),
-    });
-
-    if (!res.ok) {
-      const { error } = await res.json();
-      throw new Error(error ?? "Failed to get upload URL");
-    }
-
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const { url, key } = (await res.json()) as {
-      url: string;
-      key: string;
-    };
-
-    const putRes = await fetch(url, {
-      method: "PUT",
-      headers: { "Content-Type": file.type },
-      body: file,
-    });
-    if (!putRes.ok) throw new Error("Upload to storage failed");
-
-    return key;
-  }, UPLOAD_FAILED);
-
-  return (
-    <Card className="mt-12">
-      <CardContent>
-        <h2 className="display-h3">File upload</h2>
-        <p className="mt-2 max-w-xl body-sm text-muted-foreground">
-          Presigned PUT upload via MinIO. Images and PDFs up to 10 MB.
-        </p>
-
-        {uploading ? null : upload.status === "success" ? (
-          <p className="mt-4 flex items-center gap-2 body-sm">
-            <CircleCheck className="size-4" />
-            Uploaded: <code className="font-mono mono break-all">{upload.data}</code>
-          </p>
-        ) : upload.status === "error" ? (
-          <p className="mt-4 body-sm text-destructive">{upload.error}</p>
-        ) : null}
-
-        <div className="mt-4">
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*,application/pdf,text/plain"
-            className="hidden"
-            onChange={event => {
-              const file = event.target.files?.[0];
-              // Cleared before the run rather than after it, so picking the same file twice still
-              // fires a `change`; the action, not the input, is what the UI reads from now.
-              event.target.value = "";
-              if (file) void uploadFile(file);
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={uploading}
-            onClick={() => inputRef.current?.click()}
-          >
-            <Upload className="size-4" />
-            {uploading ? "Uploading…" : "Choose file"}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   );
 }

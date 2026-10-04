@@ -6,6 +6,8 @@ status: accepted
 
 # ADR-1: Use TanStack Start over Next.js or a split frontend–backend app
 
+> **Amended 2026-10-04:** the template's presigned-upload demo and its object storage were removed (PTR-121), along with the unused `@tanstack/react-table` primitive set. The decision below stands on `bun:sql`; `Bun.RedisClient` remains wired but unused.
+
 ## Context
 
 ConnectSphere is an SSR event-planning and venue-booking application: five roles, session-based auth, server functions, file uploads, and SEO-relevant public pages (`robots.txt`, sitemap, structured data). It is built and run on Bun, and the runtime uses Bun-native APIs: `bun:sql` via `drizzle-orm/bun-sql`, `Bun.s3`, and `Bun.RedisClient`.

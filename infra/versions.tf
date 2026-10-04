@@ -6,8 +6,7 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 7.0"
     }
-    # v4 has no R2 CORS resource, so CORS is a manual step. Bump only once it
-    # can be automated.
+    # Pinned to v4; bump only once the v5 upgrade is reviewed.
     cloudflare = {
       source  = "cloudflare/cloudflare"
       version = "~> 4.0"
