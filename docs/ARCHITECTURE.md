@@ -1,25 +1,60 @@
 # Architecture
 
-ConnectSphere is opinionated towards [Bun](https://bun.sh/): a full-stack React application rendered on the server by TanStack Start over Nitro.
+ConnectSphere is a full-stack React application. TanStack Start renders it on the server over Nitro, and the project uses [Bun](https://bun.sh/) throughout.
+
+## System Context
+
+Five roles use ConnectSphere through a browser. The system depends on four external services for data, email, error tracking, and scheduled work.
+
+```mermaid
+C4Context
+    Person(attendee, "Attendee", "Signs up and registers for events")
+    Person(organiser, "Event Organiser", "Raises event requests and answers clarifications")
+    Person(coordinator, "Event Coordinator", "Coordinates requests and confirms events")
+    Person(venueStaff, "Venue Staff", "Approves, rejects, releases, and amends bookings")
+    Person(techSupport, "Technical Support Staff", "Arranges and reserves equipment")
+
+    System(connectsphere, "ConnectSphere", "Event planning and venue booking for five roles")
+    SystemDb_Ext(supabase, "Supabase PostgreSQL", "Stores application data")
+    System_Ext(resend, "Resend", "Delivers transactional email")
+    System_Ext(sentry, "Sentry", "Tracks errors and traces")
+    System_Ext(scheduler, "Google Cloud Scheduler", "Calls the notification email worker every minute")
+
+    Rel(attendee, connectsphere, "Uses", "HTTPS")
+    Rel(organiser, connectsphere, "Uses", "HTTPS")
+    Rel(coordinator, connectsphere, "Uses", "HTTPS")
+    Rel(venueStaff, connectsphere, "Uses", "HTTPS")
+    Rel(techSupport, connectsphere, "Uses", "HTTPS")
+    Rel(connectsphere, supabase, "Reads and writes", "SQL")
+    Rel(connectsphere, resend, "Sends email", "HTTPS API")
+    Rel(connectsphere, sentry, "Reports errors", "HTTPS")
+    Rel(scheduler, connectsphere, "Calls every minute", "HTTPS")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+```
 
 ## Stack
 
-- **Framework**: [TanStack Start](https://tanstack.com/start). Full-stack React with TanStack Router, server functions, and SSR.
+- **Framework**: [TanStack Start](https://tanstack.com/start). Full-stack React with TanStack Router, server functions, and server-side rendering (SSR).
 - **Server**: [Nitro](https://nitro.unjs.io/). Server-side logic and deployment presets.
-- **ORM & Database**: [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL driver (`bun:sql` / `drizzle-orm/bun-sql`), PostgreSQL with no extra dependency.
-- **Auth**: [Better Auth](https://better-auth.com/). Email + password authentication with a five-role permission model.
+- **ORM and database**: [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL driver (`bun:sql` / `drizzle-orm/bun-sql`) for PostgreSQL, with no extra dependency.
+- **Authentication**: [Better Auth](https://better-auth.com/). Email and password authentication with a five-role permission model.
 - **Styling**: Tailwind CSS v4 via `@tailwindcss/vite`. The visual system and its tokens are in [`DESIGN.md`](./DESIGN.md).
 - **Theme**: [next-themes](https://github.com/pacocoursey/next-themes). Class-based on `html`, with a mounted client toggle.
 
+## Deployment Topology
+
+Both environments run on Google Cloud Run in the project `connectsphere-is212` (`asia-southeast1`), behind the Cloudflare edge. The services share Supabase PostgreSQL, Secret Manager, Resend, and Sentry. [`DEPLOYMENT.md`](./DEPLOYMENT.md#topology) holds the topology diagram, the configuration, and the release pipeline.
+
 ## Decision Records
 
-Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
+The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 
 - [ADR-1: TanStack Start over Next.js or a split frontend–backend app](./adrs/ADR-1-tanstack-start.md)
 - [ADR-2: Modular monolith over microservices](./adrs/ADR-2-monolith.md)
 - [ADR-3: Google Cloud Run in a single GCP project](./adrs/ADR-3-cloud-run.md)
 - [ADR-4: Trunk-based main with release-gated production](./adrs/ADR-4-trunk-based-main.md)
-- [ADR-5: Overlap-free approved bookings, enforced by a Postgres exclusion constraint](./adrs/ADR-5-venue-booking-overlap.md)
+- [ADR-5: Overlap-free approved bookings, enforced by a PostgreSQL exclusion constraint](./adrs/ADR-5-venue-booking-overlap.md)
 - [ADR-6: Notification emails from a transactional queue drained by a scheduled worker](./adrs/ADR-6-notification-delivery.md)
 
 ## Directory Structure
@@ -28,6 +63,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 .
 ├── docs/
 │   ├── adrs/             # Architecture decision records
+│   ├── diagrams/         # Draw.io source and SVG export for the deployment topology
 │   ├── ARCHITECTURE.md   # This file
 │   ├── CONTRIBUTING.md   # Branch, commit, and test conventions
 │   ├── DEPLOYMENT.md     # Environments, release pipeline, local Docker workflow
@@ -59,11 +95,11 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
-│       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues
+│       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues, notifications
 │       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
 │       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection
 │       │   └── venue-bookings/ # Venue Staff's approved-booking release and amendment view
-│       ├── api/          # Better Auth handler, health, smoke
+│       ├── api/          # Better Auth handler, health, smoke, cron
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
 ├── CHANGELOG.md          # Release history
@@ -77,57 +113,177 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 
 ## Data Flow
 
-1. **Routing**: TanStack Router. A route module is wiring only: search validation, guards, loaders, metadata, pending and error components. The view is a feature component (`src/features/<feature>/components/<page>-page.tsx`) taking its route data as props, bound with `component: () => <Page {...Route.use*()} />`, so it renders in a unit test without a router. `tests/unit/route-module-boundaries.test.ts` enforces the split.
+1. **Routing**: TanStack Router. A route module contains wiring only: search validation, guards, loaders, metadata, pending components, and error components. The view is a feature component (`src/features/<feature>/components/<page>-page.tsx`) that takes its route data as props. The route binds the two with `component: () => <Page {...Route.use*()} />`, so the view renders in a unit test without a router. `tests/unit/route-module-boundaries.test.ts` enforces the split.
 2. **SSR**: TanStack Start renders the initial HTML through Nitro.
-3. **Sessions**: `src/routes/__root.tsx` resolves the session once per navigation in `beforeLoad`, for every route, so the header renders the user in the server markup. `src/routes/_authenticated.tsx` narrows it to a signed-in user and redirects visitors to `/login`; its children read the inherited `context.user` rather than calling `getCurrentUser()` themselves. The role-gated routes repeat a `can()` check in their own `beforeLoad` and redirect on failure. Auth routes redirect already-signed-in users to `/dashboard`.
-4. **Server functions**: every `createServerFn` is a directly addressable HTTP route, so authorization runs in middleware, never in the route guard or the handler. Handlers do pure database work: no session lookup and no `can()` of their own. The full model is [Authorisation](#authorisation).
-5. **Client mutations**: browser writes a form does not own (save a draft, delete an account, sign out) run through `useMutation` (`src/hooks/use-mutation.ts`), a thin wrapper over React's `useActionState` holding the run's in-flight flag, result and error. The run receives the last _successful_ result, which is how a server-assigned draft id reaches the next save without the page storing it.
-6. **Auth flow**: forms in `src/features/auth/components/` call `src/lib/auth-client.ts`; `/login`, `/signup` and `/reset-password` (`?token=`) are the routes.
-7. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The in-app record and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute. The worker delivers pending rows and marks them. The reasoning, failure policy and P0 bypass are [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
+3. **Sessions**: `src/routes/__root.tsx` resolves the session once per navigation in `beforeLoad`, for every route, so the header renders the user in the server markup. `src/routes/_authenticated.tsx` narrows the session to a signed-in user and redirects visitors to `/login`. Its children read the inherited `context.user`, and they do not call `getCurrentUser()` themselves. The role-gated routes repeat a `can()` check in their own `beforeLoad` and redirect on failure. The authentication routes redirect signed-in users to `/dashboard`.
+4. **Server functions**: every `createServerFn` is a directly addressable HTTP route, so authorization runs in middleware, never in the route guard or the handler. Handlers do pure database work, with no session lookup and no `can()` of their own. The full model is [Authorization](#authorization).
+5. **Client mutations**: browser writes that a form does not own (save a draft, delete an account, sign out) run through `useMutation` (`src/hooks/use-mutation.ts`). That hook is a thin wrapper over React's `useActionState`, and it holds the run's in-flight flag, result, and error. The run receives the last _successful_ result, so a server-assigned draft id reaches the next save without the page storing it.
+6. **Authentication flow**: forms in `src/features/auth/components/` call `src/lib/auth-client.ts`. The routes are `/login`, `/signup`, and `/reset-password` (`?token=`).
+7. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The record in the application and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute, and the worker delivers the pending rows and marks them. The reasoning, the failure policy, and the P0 bypass are in [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
 
-## Database & Migrations
+## Database and Migrations
 
-PostgreSQL is accessed with Drizzle ORM and Bun's native SQL driver (`bun:sql` via `drizzle-orm/bun-sql`).
+The application accesses PostgreSQL with Drizzle ORM and Bun's native SQL driver (`bun:sql` through `drizzle-orm/bun-sql`).
 
-- **Schemas**: `src/db/schema.ts` (application tables, re-exporting the auth tables) and `src/db/auth-schema.ts` (Better Auth: `user` with `role`, `session`, `account`, `verification`).
-- **Migrations**: generated by Drizzle Kit into `src/db/drizzle/`; run `bun run db:generate` after any schema change and `bun run db:migrate` to apply. Never handwrite SQL, except the two reviewed `EXCLUDE` constraints Drizzle cannot express, added with `db:generate --custom`: the booking constraint `venue_requests_no_overlap` (migration 0019) and the venue-hold constraint `venue_holds_no_overlap` (migration 0024, with its `IMMUTABLE` `venue_hold_occupies_venue` status wrapper), both [ADR-5](./adrs/ADR-5-venue-booking-overlap.md). Workflow: [`DEVELOPMENT.md`](./DEVELOPMENT.md#database-management--migrations).
+- **Schemas**: `src/db/schema.ts` holds the application tables and re-exports the authentication tables. `src/db/auth-schema.ts` holds the Better Auth tables: `user` with `role`, `session`, `account`, and `verification`.
+- **Migrations**: Drizzle Kit generates migrations into `src/db/drizzle/`. Run `bun run db:generate` after each schema change. Run `bun run db:migrate` to apply the migrations.
 
-The equipment catalogue stores each type's aggregate held quantity in `equipment_types`. `equipment_unavailability` records out-of-service quantities by type and reason. Catalogue management is not exposed through the application, so `bun run db:seed` provides the demo inventory.
+Never handwrite SQL. The two reviewed exceptions are the `EXCLUDE` constraints that Drizzle cannot express, added with `db:generate --custom`. The booking constraint is `venue_requests_no_overlap` (migration 0019). The venue-hold constraint is `venue_holds_no_overlap` (migration 0024, with its `IMMUTABLE` `venue_hold_occupies_venue` status wrapper). Both are documented in [ADR-5](./adrs/ADR-5-venue-booking-overlap.md). Workflow: [`DEVELOPMENT.md`](./DEVELOPMENT.md#database-management-and-migrations).
 
-A reservation records the equipment type, quantity, and the event's approved booking period as a snapshot in `equipment_reservations`; later booking amendments do not move it, so the event re-reserves to re-scope. Reserve requires exactly one approved booking. Available quantity comes from one shared peak-concurrency sweep over stored reservation periods (`held − unavailable` minus peak overlap), used by both the availability check and the reserve path.
+### Entity Relationships
 
-The equipment side of an event is marked settled on `event_requests.equipment_arrangements_completed_at`, with the acting member in `equipment_arrangements_completed_by_id`. It is recorded only while every line is `reserved` or `not_required`; any line edit or reservation reduce/release clears it. The event projection exposes it to Technical Support and the Coordinator only while every line is still arranged, so a stale stamp reads as unset.
+The diagram shows the application tables and their relationships. Better Auth owns `user`, `session`, `account`, and `verification`. It shows the principal relationships only. The history tables store user ids as snapshots, and the diagram omits the secondary staff and venue links.
 
-A reduce lowers a reservation's quantity and a release deletes the row, so freed units reach every overlapping event through the same sweep. The line returns to `requested`, or to `unavailable` with the reason Technical Support gives; the event's status is never written by either. Release takes the line lock then the type lock, the reserve path's order, which also reads the approved booking `FOR SHARE` between the two while release skips that read because it never reads bookings.
+```mermaid
+erDiagram
+    direction LR
 
-The assigned Coordinator confirms an event from `approved` or `planning`. The gate needs exactly one approved venue request and, when the event has equipment lines, every line reserved or not required with Technical Support's completion mark set (`equipment_arrangements_completed_at`); an event with no equipment lines needs the booking alone. A refusal names every outstanding item, the conflicting state, or the current status.
+    user ||--o{ session : "opens"
+    user ||--o{ account : "has"
+    user ||--o{ event_requests : "owns"
+    user |o--o{ event_requests : "coordinates"
+    user |o--o{ venue_requests : "raises"
+    user ||--o{ event_registrations : "attends"
+    user ||--o{ notifications : "receives"
 
-The `notifications` table is the application's only notification record. Each trigger creates one row per recipient. Each row carries the notification `kind` and a domain-fact `payload`. The change writes its rows in its own transaction. The delivery worker drains pending rows (`emailed_at IS NULL AND failed_at IS NULL`) in batches. The worker leases each row, so overlapping runs cannot double-send. `failed_at` marks a row that spent its attempt budget. The row stays visible in the inbox. The inbox read re-applies the caller's event relationship. It renders a neutral line when the caller can no longer reach the subject. No event data crosses the boundary after access ends.
+    event_requests ||--o{ event_assignments : "records"
+    event_requests ||--o{ event_handovers : "raises"
+    event_requests ||--o{ clarification_requests : "raises"
+    event_requests ||--o{ venue_requests : "raises"
+    event_requests ||--o{ venue_holds : "places"
+    event_requests ||--o{ equipment_requests : "submits"
+    event_requests ||--o{ event_registrations : "opens"
+    event_requests ||--o{ notifications : "raises"
 
-`read_at` is null while a row is unread and keeps the first read time once set. The inbox reads its listed rows and the caller's unread count across all of their rows in one read-only repeatable-read transaction, so both come from the same snapshot. Marking read is scoped to the caller and takes one id, or the highest listed id as a cutoff, so a row with a higher id than any listed stays unread.
+    venues ||--o{ venue_requests : "receives"
+    venues ||--o{ venue_holds : "receives"
+    venues ||--o{ venue_unavailability : "has"
 
-The handler locks the equipment lines, then the event, then its venue requests before reading them, the order the equipment paths use. It records who confirmed and when in `confirmed_*` columns kept apart from the approval attribution. A booking or reservation changed after confirmation never moves the status.
+    equipment_types ||--o{ equipment_unavailability : "has"
+    equipment_types |o--o{ equipment_requests : "classifies"
+    equipment_types ||--o{ equipment_reservations : "has"
+    equipment_requests ||--o| equipment_reservations : "commits"
+
+    user {
+        text id PK
+        text email UK
+        text role
+    }
+    session {
+        text id PK
+        text user_id FK
+        timestamp expires_at
+    }
+    account {
+        text id PK
+        text user_id FK
+        text password
+    }
+    verification {
+        text id PK
+        text identifier
+        timestamp expires_at
+    }
+    event_requests {
+        int id PK
+        text organiser_id FK
+        text assigned_coordinator_id FK
+        text status
+    }
+    event_assignments {
+        int id PK
+        int event_request_id FK
+        text to_coordinator_id
+    }
+    event_handovers {
+        int id PK
+        int event_request_id FK
+        text decision
+    }
+    clarification_requests {
+        int id PK
+        int event_request_id FK
+        text reply_body
+    }
+    venues {
+        int id PK
+        text name UK
+        int max_capacity
+    }
+    venue_unavailability {
+        int id PK
+        int venue_id FK
+        timestamp starts_at
+        timestamp ends_at
+    }
+    venue_requests {
+        text id PK
+        int event_id FK
+        int venue_id FK
+        text status
+    }
+    venue_holds {
+        text id PK
+        int event_id FK
+        int venue_id FK
+        text status
+    }
+    equipment_requests {
+        text id PK
+        int event_id FK
+        int equipment_type_id FK
+        text arrangement_status
+    }
+    equipment_types {
+        int id PK
+        text name UK
+        int quantity_held
+    }
+    equipment_unavailability {
+        int id PK
+        int equipment_type_id FK
+        int quantity_unavailable
+    }
+    equipment_reservations {
+        text id PK
+        text equipment_request_id FK
+        int equipment_type_id FK
+        int quantity
+    }
+    event_registrations {
+        int event_id PK, FK
+        text attendee_id PK, FK
+        text status
+    }
+    notifications {
+        int id PK
+        text recipient_id FK
+        int event_request_id FK
+        text kind
+        timestamp read_at
+    }
+```
 
 ## Authentication
 
-Handled by **Better Auth**; rate limited to 20 requests per 60-second window.
+**Better Auth** handles authentication, rate limited to 20 requests per 60-second window.
 
-- **Email + password**: the sign-up form collects name, email, password (confirmation matched client-side only, never sent) and a role. Password hashes live in `account.password`; sign-ups are auto-signed-in, so an unverified user can still sign in.
-- **Password policy**: `PasswordSchema` (`src/features/auth/schema/password.ts`) requires 8–128 characters with a number and a symbol. Better Auth enforces only a length range of its own accord, so a `hooks.before` middleware in `src/lib/auth.server.ts` re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). `/sign-in/email` is deliberately excluded, so accounts predating the policy can still sign in.
-- **Email verification**: `emailVerification.sendOnSignUp` mails a link via the `VerificationEmail` template; Better Auth's `/api/auth/verify-email` consumes it, so there is no app route for it.
-- **Password reset**: `/reset-password` sends a link (1 hour expiry). The emailed callback returns to `/reset-password?token=…`, or `?error=INVALID_TOKEN` when it has expired. It does not create a session; the user signs in afterwards.
+- **Email and password**: the sign-up form collects the name, the email, the password, and a role. The browser matches the password confirmation only, and the form never sends the confirmation. Password hashes live in `account.password`. Sign-ups are auto-signed-in, so an unverified user can still sign in.
+- **Password policy**: `PasswordSchema` (`src/features/auth/schema/password.ts`) requires 8–128 characters, with a number and a symbol. Better Auth enforces only a length range of its own accord. A `hooks.before` middleware in `src/lib/auth.server.ts` therefore re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). The middleware deliberately excludes `/sign-in/email`, so accounts that predate the policy can still sign in.
+- **Email verification**: `emailVerification.sendOnSignUp` mails a link through the `VerificationEmail` template. Better Auth's `/api/auth/verify-email` consumes the link, so the application has no route for it.
+- **Password reset**: `/reset-password` sends a link that expires after 1 hour. The emailed callback returns to `/reset-password?token=…`, or to `?error=INVALID_TOKEN` when the token has expired. It does not create a session, and the user signs in afterwards.
 
-## Authorisation
+## Authorization
 
 ### Roles
 
-`user.role` holds one of the five values in `RoleSchema` (`src/features/auth/schema/role.ts`); a person needing two roles holds two accounts. The column is plain `text` with no CHECK constraint, so the single-role guarantee is not structural. `can()` parses `RoleSchema` and fails closed, so a hand-written `"attendee,event_coordinator"` grants nothing rather than both.
+`user.role` holds one of the five values in `RoleSchema` (`src/features/auth/schema/role.ts`). A person who needs two roles holds two accounts. The column is plain `text` with no CHECK constraint, so the single-role guarantee is not structural. `can()` parses `RoleSchema` and fails closed, so a hand-written `"attendee,event_coordinator"` grants nothing, not both roles.
 
-`SelfAssignableRoleSchema` is the subset a stranger may pick at registration (`attendee`, `event_organiser`), and that schema, not `RoleSchema`, is wired to the Better Auth `role` field's `validator.input`, so widening the role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.server.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. The three internal roles are provisioned by `bun run db:seed` (`scripts/seed.ts`); no self-service path reaches them.
+`SelfAssignableRoleSchema` is the subset that a stranger can pick at registration (`attendee`, `event_organiser`). The Better Auth `role` field's `validator.input` uses that schema, not `RoleSchema`, so a wider role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.server.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. `bun run db:seed` (`scripts/seed.ts`) provisions the three internal roles, and no self-service path reaches them.
 
 ### Role/function matrix
 
-Source of truth is `src/features/auth/permissions.ts`, held to this table by `tests/unit/auth-permissions.test.ts`. Only role-varying functions appear.
+`src/features/auth/permissions.ts` is the source of truth, and `tests/unit/auth-permissions.test.ts` holds it to this table. Only role-varying functions appear.
 
 | Function                    | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
 | --------------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
@@ -149,30 +305,33 @@ Source of truth is `src/features/auth/permissions.ts`, held to this table by `te
 
 ### Enforcing it
 
-Built with `createAccessControl` from `better-auth/plugins/access`. Despite the import path, it is **not** a plugin and never goes to `betterAuth({ plugins })`. The `admin` plugin was rejected: it adds columns nothing asks for, redefines the `role` field this project owns (silently disabling the sign-up role selector), and reads a comma-separated string as several roles at once.
+The permission model uses `createAccessControl` from `better-auth/plugins/access`. Despite the import path, it is **not** a plugin and never goes to `betterAuth({ plugins })`. The team rejected the `admin` plugin. It adds columns that nothing asks for, and it redefines the `role` field that this project owns (it silently disables the sign-up role selector). It also reads a comma-separated string as several roles at once.
 
-`permissions.ts` stays pure data because the browser imports it too; the session-aware half is the middleware pipeline in `src/features/auth/session.ts`. Every server function runs behind it:
+`permissions.ts` stays pure data because the browser imports it too. The session-aware half is the middleware pipeline in `src/features/auth/session.ts`. Every server function runs behind that pipeline:
 
-| Layer                  | Enforcement                                                                                                                                                                                                                                                                 |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Server functions**   | `.middleware([...])` on every `createServerFn`: `withSession` resolves the session, `requireSession` answers 401, `requirePermission(...)` answers 403, or takes an accessor where the permission depends on the payload, as `saveVenue`'s create-versus-update split does. |
-| **API route handlers** | No handler does its own role check: `/api/auth/*` is Better Auth's own handler, `/api/health` is public by design, and `/api/smoke` gates on its bearer token.                                                                                                              |
-| **Route guards**       | `beforeLoad` redirects and role checks, presentation only; the middleware behind the page repeats the check.                                                                                                                                                                |
-| **The interface**      | Page views ask `can()` of their route's user, for example to choose between the venue form and its read-only view. Hiding a control is presentation, never enforcement.                                                                                                     |
+| Layer                  | Enforcement                                                                                                                                                                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Server functions**   | `.middleware([...])` on every `createServerFn`. `withSession` resolves the session. `requireSession` answers 401, and `requirePermission(...)` answers 403, or takes an accessor where the permission depends on the payload, as `saveVenue`'s create-versus-update split does. |
+| **API route handlers** | No handler does its own role check: `/api/auth/*` is Better Auth's own handler, `/api/health` is public by design, and `/api/smoke` gates on its bearer token.                                                                                                                  |
+| **Route guards**       | `beforeLoad` redirects and role checks are presentation only. The middleware behind the page repeats the check.                                                                                                                                                                 |
+| **The interface**      | Page views ask `can()` of their route's user, for example to choose between the venue form and its read-only view. Hiding a control is presentation, never enforcement.                                                                                                         |
 
-Because the middleware runs before a server function's own `.validator()`, a refused role gets 403 even for a malformed payload, while a permitted one still gets the first Zod message. The behavioural half is `tests/integration/server-function-authorization.test.ts`: 401 and 403, with the handler never running.
+The middleware runs before a server function's own `.validator()`. A refused role therefore gets 403 even for a malformed payload, and a permitted role still gets the first Zod message. The behavioural half is `tests/integration/server-function-authorization.test.ts`: 401 and 403, with the handler never running.
 
 ### Refusals
 
-A handler or middleware throws a typed `Error` subclass when refusing a request: `AuthorizationError` (401 or 403), `NotFoundError` (404), or `ConflictError` (409). The middleware pipeline (`withSession`, `requireSession`, and `requirePermission`) calls `setResponseStatus` so the HTTP response on the wire carries the matching status code.
+A handler or middleware throws a typed `Error` subclass when it refuses a request: `AuthorizationError` (401 or 403), `NotFoundError` (404), or `ConflictError` (409). The middleware pipeline (`withSession`, `requireSession`, and `requirePermission`) calls `setResponseStatus`, so the HTTP response on the wire carries the matching status code.
 
-Seroval serializes these errors across the network boundary. Callers and SSR reject with a standard `Error` naturally without caller-side response unwrapping.
+Seroval serializes these errors across the network boundary. Callers and SSR reject with a standard `Error` naturally, with no caller-side response unwrapping.
 
 ## Observability
 
-LogTape provides the app logger in `src/lib/logger.ts`, configured from `src/server.ts` so the built server needs no source tree beside it. The console sink prints each event's structured properties after its message, and `maskEmail` (`src/lib/utils.ts`) masks email addresses before they are logged. The server process preloads `instrument.server.mjs`, which initialises Sentry with:
+LogTape provides the application logger in `src/lib/logger.ts`, configured from `src/server.ts`, so the built server needs no source tree beside it. The console sink prints each event's structured properties after its message. `maskEmail` (`src/lib/utils.ts`) masks email addresses before the logger writes them. The server process preloads `instrument.server.mjs`, which initializes Sentry with:
 
-- a restrictive `dataCollection` baseline: user info, cookies, request and response bodies, database query data, queue arguments and GenAI inputs/outputs are off; request/response headers and URL query parameters pass through a deny list.
-- `tracesSampleRate: 0.1`, so 10% of server traces are sampled to control cost.
+- `dataCollection` uses a restrictive baseline:
+  - user info, cookies, request and response bodies, database query data, and queue arguments are off
+  - GraphQL documents and variables, and generative AI (GenAI) inputs and outputs, are off
+  - request and response headers and URL query parameters pass through a deny list
+- `tracesSampleRate: 0.1`, so Sentry samples 10% of server traces to control cost.
 
-Widen `dataCollection` and raise `tracesSampleRate` only intentionally, after reviewing your data-handling obligations.
+Widen `dataCollection` or raise `tracesSampleRate` only intentionally, after you review your data-handling obligations.

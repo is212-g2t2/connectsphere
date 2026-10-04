@@ -169,99 +169,101 @@ components:
 
 ## Brand & Style
 
-ConnectSphere is an internal event-operations platform wearing a consumer, Luma-style front door. It spans five roles (attendee, organiser, coordinator, venue staff, tech support), each with its own dashboard, so the system has to stay legible dense (approval queues, tables, checklists) as well as inviting on the public discover and event pages.
+ConnectSphere is an internal event-operations platform with a consumer-style public entry, in the manner of Luma. It spans five roles (attendee, organiser, coordinator, venue staff, and technical support), and each role has its own dashboard. The system must stay legible where it is dense (approval queues, tables, checklists), and it must stay inviting on the public discover and event pages.
 
-The personality is **editorial and quiet**: warm off-white paper, near-black ink, a single neutral "harbor" accent for anything actionable, and two reserved semantic colors held back for status only. No brand blue, no saturated primary. Restraint is the brand. Corners are soft, motion is minimal, and the one moment of visual flourish is the pink-to-amber gradient reserved for headline text and event cover art.
+The visual character is **editorial and quiet**. It uses warm off-white paper, near-black ink, a single neutral "harbor" accent for anything actionable, and two reserved semantic colors for status only. The system uses no brand blue and no saturated primary. Restraint is the brand. Corners are soft, motion is minimal, and the one moment of visual flourish is the pink-to-amber gradient for headline text and event cover art.
 
 ## Colors
 
-Neutrals carry almost the entire interface; color is spent deliberately, only where it means something.
+Neutrals carry almost the entire interface. The system uses color deliberately, only where it has meaning.
 
 - **Paper / Paper Tint:** the page background, and a slightly deeper tint for grouped or quiet sections (approval rows, table headers).
-- **Surface:** cards and inputs sit on pure white to lift off the paper.
-- **Ink** with **Ink-60** and **Ink-30**: the entire text hierarchy is one color at three opacities: full ink for headings and primary text, 60% for body, secondary and meta, 30% for the quietest metadata. **Ink-30 is never a text role in a primitive**: at 2.5:1 on paper it is a timestamp gray, not readable body copy.
-- **Harbor:** the sole interactive accent, used for primary buttons, focus rings, links on hover, progress fills, and the "confirmed" status. Near-black in light mode, white in dark. It is a role ("the accent"), not a fixed hue.
-- **Amber / Coral:** reserved exclusively for status semantics: amber for in-progress or pending, coral for stopped, destructive and error. Each ships with a pale `-tint` background for pill and icon fills.
-- **Mist / Mist-dark:** ink-tinted transparent grays for hairline borders and dividers only, never for text or fills. Mist is the default hairline: it is what `--border` resolves to, and the radius the card carries. Mist-dark is for the denser table and section rules.
-- **Stroke:** the border that identifies a _form control_, distinct from a divider. Mist is a 1.3:1 hairline, right for a decorative rule and not enough for the border that tells a user where an input is. Stroke clears 3:1 on both paper and surface.
-- **Overlay:** modal scrims use `--color-overlay`, a 10% black. It is the one place a raw black fills a surface; the card shadow carries the only other literal black.
-- **Accent gradient** (pink `#d93384` → amber `#f59e0b`, 90°): the one expressive color moment, reserved for headline accents and event cover art. It is not a token: no screen uses it yet; the first one that does adds `--accent-gradient` and a line here.
+- **Surface:** cards and inputs sit on pure white, above the paper.
+- **Ink** with **Ink-60** and **Ink-30**: the entire text hierarchy is one color at three opacities. Full ink is for headings and primary text, 60% for body, secondary, and meta text, and 30% for the quietest metadata. **Ink-30 is never a text role in a primitive**: at 2.5:1 on paper it is a timestamp gray, not readable body copy.
+- **Harbor:** the sole interactive accent, used for primary buttons, focus rings, links on hover, progress fills, and the "confirmed" status. It is near-black in light mode and white in dark. It is a role ("the accent"), not a fixed hue.
+- **Amber and Coral:** reserved exclusively for status semantics: amber for in-progress or pending, coral for stopped, destructive, and error states. Each color has a pale `-tint` background for pill and icon fills.
+- **Mist and Mist-dark:** ink-tinted transparent grays for hairline borders and dividers only, never for text or fills. Mist is the default hairline: `--border` resolves to it, and the card border carries it. Mist-dark is for the denser table and section rules.
+- **Stroke:** the border that identifies a _form control_, distinct from a divider. Mist is a 1.3:1 hairline, right for a decorative rule but not enough for the border that shows a user where an input is. Stroke clears 3:1 on both paper and surface.
+- **Overlay:** modal scrims use `--color-overlay`, a 10% black. It is the one place where a raw black fills a surface. The card shadow carries the only other literal black.
+- **Accent gradient** (pink `#d93384` → amber `#f59e0b`, 90°): the one expressive color moment, reserved for headline accents and event cover art. It is not a token: no screen uses it yet. The first screen that uses it adds `--accent-gradient` and a line here.
 
 ### Dark mode
 
-Class-based on `<html>` through `next-themes`: the `.dark` block in `globals.css`, not `prefers-color-scheme`. Only the palette inverts; every semantic alias follows from it. Paper goes to `#131313`, ink to white, harbor to white, and the mist and ink overlays flip to white at the same alphas.
+Dark mode is class-based on `<html>` through `next-themes`: the `.dark` block in `globals.css`, not `prefers-color-scheme`. Only the palette inverts, and every semantic alias follows from it. Paper goes to `#131313`, ink to white, harbor to white, and the mist and ink overlays flip to white at the same alphas.
 
-**Amber and coral do not simply invert.** The design they came from held its light amber and coral against near-black tints in dark mode, which lands status-pill text near 2:1 on its own background, a clear AA failure on a named primitive. Both are lightened here instead: amber to `#c9a154` (5.5:1 on its tint) and coral to `#dc8271` (5.5:1). The light values are a shade darker than the originals `#9a6a00` / `#c1432b`, which sat at 4.3–4.4:1, just under the 4.5:1 that 12px pill text needs. Re-derive from these, not from the originals.
+**Amber and coral do not simply invert.** The design that they came from held its light amber and coral against near-black tints in dark mode. That choice puts status-pill text near 2:1 on its own background, a clear AA failure on a named primitive.
 
-Every text-and-background pair the primitives use clears WCAG AA in both themes: 4.5:1 for body and pill text, 3:1 for the focus ring and control borders.
+This system lightens both colors instead: amber to `#c9a154` (5.5:1 on its tint) and coral to `#dc8271` (5.5:1). The light values are a shade darker than the originals `#9a6a00` / `#c1432b`, which sat at 4.3–4.4:1. That is just under the 4.5:1 that 12px pill text needs. Re-derive from these values, not from the originals.
+
+Every text-and-background pair that the primitives use clears the Web Content Accessibility Guidelines (WCAG) AA in both themes. Body and pill text need 4.5:1, and the focus ring and control borders need 3:1.
 
 ## Typography
 
-Everything runs on a single family, **Inter Variable** (`@fontsource-variable/inter`), with system fallbacks. There is no display/body split; voice comes from weight, size and negative letter-spacing rather than a second typeface. `--font-sans`, `--font-heading` and `--font-mono` all resolve to it: "mono" signals _data_ (timestamps, reference codes) at 0.8125rem/500, not a genuine monospace rhythm.
+The whole system uses a single font family, **Inter Variable** (`@fontsource-variable/inter`), with system fallbacks. There is no display/body split: voice comes from weight, size, and negative letter-spacing, not from a second typeface. `--font-sans`, `--font-heading`, and `--font-mono` all resolve to it. "Mono" signals _data_ (timestamps, reference codes) at 0.8125rem/500, not a genuine monospace rhythm.
 
-- **Headings (h1–h3)** are 600-weight with tight `-0.03em` tracking and a 1.08–1.2 line-height, giving an editorial, slightly condensed feel even though they are small by marketing standards. H1 and h2 top out at 1.75rem. The tracking and weight are applied globally in `globals.css`, so a heading never has to ask.
-- **Event title / hero headline** are the only oversized type roles: the hero headline ships as a fluid `clamp(2.5rem, 6vw, 4rem)` on the homepage, and the fixed 3rem event title has no utility or screen yet. One moment per page that should feel like a poster.
-- **Body** is 0.9375rem at 1.5 line-height, set on `body` as the base size. Secondary body text is ink-60, never full ink, which keeps paragraphs visually behind headings and UI chrome.
-- **Label / caption** (0.8125rem, 0.75rem) carry the UI: form labels, pill text, table meta. Table headers go uppercase at 0.6875rem with `0.05em` tracking for a technical, spec-sheet tone.
+- **Headings (h1–h3)** are 600-weight, with tight `-0.03em` tracking and a 1.08–1.2 line-height. H1 and h2 top out at 1.75rem. The tracking and weight come from `globals.css`.
+- **Event title and hero headline** are the only oversized type roles. The hero headline is a fluid `clamp(2.5rem, 6vw, 4rem)` on the homepage, and the fixed 3rem event title has no utility or screen yet. One moment per page must feel like a poster.
+- **Body** is 0.9375rem at 1.5 line-height, set on `body` as the base size. Secondary body text is ink-60, never full ink, so paragraphs stay visually behind headings and UI chrome.
+- **Label and caption** (0.8125rem and 0.75rem) carry the UI: form labels, pill text, and table meta. Table headers go uppercase at 0.6875rem with `0.05em` tracking, for a technical, spec-sheet tone.
 
 ## Layout
 
-The shell is a single centered column, not a multi-column app frame. Even coordinator and organiser dashboards are one 880px or 1120px column, occasionally splitting into a 1.6:1 two-column at 860px and up for a primary panel plus sidebar.
+The shell is a single centered column, not a multi-column application frame. Even the coordinator and organiser dashboards are one 880px or 1120px column. At 860px and up, they sometimes split into a 1.6:1 two-column layout, for a primary panel plus a sidebar.
 
-Spacing follows a compact 4/8/16/24/32/48/64px scale, which is Tailwind's own 4px-based scale, not a token tier of its own: `1/2/4/6/8/12/16` in class names. 16px (`4`) is the workhorse; card padding is 24px (`6`); 64px (`16`) is reserved for the biggest vertical separations. Below the 640–860px breakpoints, two-column layouts collapse to one and side-by-side rows stack, rather than shrinking proportionally.
+Spacing follows a compact 4/8/16/24/32/48/64px scale, which is Tailwind's own 4px-based scale, not a token tier of its own: `1/2/4/6/8/12/16` in class names. 16px (`4`) is the most used step. Card padding is 24px (`6`), and 64px (`16`) is reserved for the biggest vertical separations. Below the 640–860px breakpoints, two-column layouts collapse to one, and side-by-side rows stack. They do not shrink proportionally.
 
-The nav is a slim sticky bar with a translucent, blurred paper background rather than a hard border. Chrome recedes, content floats underneath it.
+The nav is a slim sticky bar with a translucent, blurred paper background, not a hard border. Chrome recedes, and content floats underneath it.
 
-## Elevation & Depth
+## Elevation and Depth
 
-Nearly flat by design: the dominant separators are 1px hairline borders (mist, mist-dark) and a one-step background shift (paper → paper-tint, or surface → a mist-tinted fill), not shadows.
+The design is nearly flat. The dominant separators are 1px hairline borders (mist, mist-dark) and a one-step background shift (paper → paper-tint, or surface → a mist-tinted fill), not shadows.
 
-Shadow gets heavier only as content gets more featured: cards get a barely-there `0 1px 2px rgba(0,0,0,.03)`, event cover art a real lift, and the floating hero collage tiles the strongest shadow in the system, because they are meant to read as physically stacked cards. In dark mode, borders take over even more of this job, since shadows read poorly on near-black.
+Shadow gets heavier only as content gets more featured. Cards get a faint `0 1px 2px rgba(0,0,0,.03)`, and event cover art gets a real lift. The floating hero collage tiles get the strongest shadow in the system, because they must read as physically stacked cards. In dark mode, borders take over even more of this job, because shadows read poorly on near-black.
 
 ## Shapes
 
-Two corner languages coexist on purpose:
+Two corner styles coexist on purpose:
 
 - **Pill** (Tailwind `rounded-full`) for anything you act on or that represents status: buttons at every size, status pills, avatars, chips.
 - **Soft rectangle** for anything you read inside: inputs at 8px (`--rounded-sm`), cards at 16px (`--rounded-md`), hero cover art and sign-in cards at 20px (`--rounded-lg`).
 
-No surface the system defines uses a sharp 0px corner, and none exceeds 20px. Two things sit below the 8px floor and should stay there: a control glyph too small to carry it (a 16px checkbox at 8px is a circle, which reads as _radio_), and a corner nested inside another, where the inner radius is derived from `--radius` rather than chosen. Tailwind's radius scale is mapped onto these in `globals.css` (`--radius-sm` and `--radius-md` both resolve to 8px, `--radius-lg` and `--radius-xl` to 16px, `--radius-2xl` to 20px), so `rounded-md` on an input and `rounded-xl` on a card land on the right value without either primitive naming a pixel.
+No surface that the system defines uses a sharp 0px corner, and none exceeds 20px. Two things sit below the 8px floor and must stay there. The first is a control glyph that is too small to carry a radius. A 16px checkbox at 8px is a circle, which reads as _radio_. The second is a corner nested inside another, where the inner radius comes from `--radius` and is not chosen. `globals.css` maps Tailwind's radius scale onto these values: `--radius-sm` and `--radius-md` both resolve to 8px, `--radius-lg` and `--radius-xl` to 16px, and `--radius-2xl` to 20px. `rounded-md` on an input and `rounded-xl` on a card therefore reach the right value, and neither primitive names a pixel.
 
 ## Components
 
 ### Buttons
 
-Primary is solid harbor with surface text, filled pill, hover an opacity fade rather than a color swap. Secondary is the same pill at a 5% ink tint with ink text. Ghost drops the fill for the lowest-emphasis actions. Danger keeps a surface background with coral text and border, filling to the coral tint only on hover. Destructive actions stay quiet until touched.
+The primary button is solid harbor with surface text and a filled pill. On hover, it fades its opacity rather than swapping the color. The secondary button is the same pill at a 5% ink tint with ink text. The ghost button drops the fill for the lowest-emphasis actions. The danger button keeps a surface background with coral text and border, and it fills to the coral tint only on hover. Destructive actions stay quiet until the user touches them.
 
-Pill radius holds at **every** size, the `sm`, `xs` and icon variants included. Inline table and row actions are exactly where the treatment matters most, so no size may re-declare a radius of its own.
+Pill radius holds at **every** size, including the `sm`, `xs`, and icon variants. Inline table and row actions are exactly where the treatment matters most, so no size can declare a radius of its own.
 
 ### Status pills
 
-A tint background under saturated text from the same family, always pill-shaped: `confirmed` (harbor), `progress` (amber), `stopped` (coral) on `Badge`. This is the only place amber and coral appear in light-mode chrome.
+A tint background under saturated text from the same family, always pill-shaped: `confirmed` (harbor), `progress` (amber), and `stopped` (coral) on `Badge`. This is the only place where amber and coral appear in light-mode chrome.
 
-### Cards & list rows
+### Cards and list rows
 
-`Card` is the base container: surface, 16px radius, a mist hairline, a whisper of shadow. A list row (a date block, title and meta, a trailing status) is the denser alternative for scannable collections, and is what the role dashboards use instead of nesting a card per row.
+`Card` is the base container: surface, 16px radius, a mist hairline, and a faint shadow. A list row (a date block, a title and meta, and a trailing status) is the denser alternative for scannable collections. The role dashboards use list rows instead of a card per row.
 
 ### Forms
 
-Inputs are boxy at 8px rather than pill. It is the one place the system breaks from pills, treating a field as a read/write surface like a card rather than an action like a button. Their border is stroke, not mist.
+Inputs are boxy at 8px, not pill. This is the one place where the system breaks from pills. A field is a read/write surface like a card, not an action like a button. An input border is stroke, not mist.
 
 ### Focus
 
-One affordance for the whole system: a 2px harbor outline at 2px offset, declared once on `:focus-visible` in `globals.css`, so links and bare buttons get it for free and keyboard behaviour is never special-cased per component. A primitive that suppresses the outline with `outline-none` carries the same indicator as a ring instead: `focus-visible:ring-2 focus-visible:ring-ring`, 2px and solid harbor, never a softened `/50` variant. Inside menus, popovers and listboxes the highlighted row carries the accent fill instead; those surfaces do not draw the ring.
+One affordance covers the whole system: a 2px harbor outline at a 2px offset, declared once on `:focus-visible` in `globals.css`. Links and bare buttons get it for free, and keyboard behaviour is never special-cased per component. A primitive that suppresses the outline with `outline-none` carries the same indicator as a ring instead. The ring is `focus-visible:ring-2 focus-visible:ring-ring`, 2px and solid harbor, never a softened `/50` variant. Inside menus, popovers, and listboxes, the highlighted row carries the accent fill instead, and those surfaces do not draw the ring.
 
 ## Scope
 
-This document and `globals.css` deliver the system and its shared primitives, not a redesign of every screen. Focusable primitives carry the system focus ring and take their radii from the tokens; the documented sub-8px glyphs, nested corners, and menu rows that highlight with the accent fill are the exceptions. Feature pages consume the primitives and tokens; new work must not reintroduce a hardcoded value a token already owns. Email templates are the one surface that reads the palette's literal values, because email clients do not support CSS custom properties.
+This document and `globals.css` deliver the system and its shared primitives, not a redesign of every screen. Focusable primitives carry the system focus ring and take their radii from the tokens. The documented sub-8px glyphs, the nested corners, and the menu rows that highlight with the accent fill are the exceptions. Feature pages consume the primitives and the tokens, and new work must not reintroduce a hardcoded value that a token already owns. Email templates are the one surface that reads the palette's literal values, because email clients do not support CSS custom properties.
 
-## Do's and Don'ts
+## Rules
 
-- Do treat harbor as the only accent for actions and links; don't introduce a second brand hue.
-- Do reserve amber and coral for status semantics; don't use them decoratively.
-- Do build text hierarchy with the ink / ink-60 / ink-30 steps; don't introduce new grays, and don't set body text in ink-30.
-- Do use pill radius for anything actionable or status-like and soft-rectangle radius for anything you read inside; don't mix a sharp corner into either language.
-- Do use mist for dividers and stroke for control borders; don't use mist where a user has to find an input.
-- Do keep shadows minimal and let borders and background tint carry separation; don't add shadow to justify hierarchy a border already communicates.
-- Do route every color and radius value through the custom properties in `src/globals.css`, and spacing through Tailwind's scale; don't hardcode a hex or px value that already has a token.
-- Do re-check contrast when changing a palette value: check both themes, and the pill text pairs first; they have the least headroom in the system.
+- Do treat harbor as the only accent for actions and links. Do not introduce a second brand hue.
+- Do reserve amber and coral for status semantics. Do not use them decoratively.
+- Do build the text hierarchy with the ink / ink-60 / ink-30 steps. Do not introduce new grays, and do not set body text in ink-30.
+- Do use pill radius for anything actionable or status-like, and soft-rectangle radius for anything that you read inside. Do not mix a sharp corner into either style.
+- Do use mist for dividers and stroke for control borders. Do not use mist where a user must find an input.
+- Do keep shadows minimal, and let borders and background tint carry the separation. Do not add shadow to justify a hierarchy that a border already communicates.
+- Do route every color and radius value through the custom properties in `src/globals.css`, and spacing through Tailwind's scale. Do not hardcode a hex or px value that already has a token.
+- Do re-check contrast when you change a palette value. Check both themes, and check the pill text pairs first: they have the least headroom in the system.
