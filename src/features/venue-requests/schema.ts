@@ -91,6 +91,9 @@ export const VenueRequestInput = z
 
 export type VenueRequestValues = z.infer<typeof VenueRequestInput>;
 
+/** The window an adjusted request arrives with, shape-validated by the route's search schema. */
+export type VenueRequestPrefill = Pick<VenueRequestValues, "date" | "startTime" | "endTime">;
+
 /** The venue page's selection: which event and venue the request panel is asking about. */
 export const VenueRequestContextInput = z.object({ eventId: EventId, venueId: VenueId });
 

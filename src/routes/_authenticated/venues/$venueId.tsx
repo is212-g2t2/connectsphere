@@ -7,7 +7,7 @@ import { getVenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
 import { VenueDetailPageSkeleton } from "#/features/venues/components/venue-detail-page-skeleton";
-import { VenueIdInput } from "#/features/venues/schema";
+import { TIME_SHAPE, VenueIdInput } from "#/features/venues/schema";
 import { getVenue } from "#/features/venues/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
@@ -19,18 +19,24 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
   // event the visitor came from, if the venue search carried it in. The router's search codec
   // turns `?eventId=12` into a number, so the schema coerces, and `catch` keeps a hand-typed
   // `?eventId=abc` as "no context" rather than a route error.
+  // `date`, `startTime` and `endTime` are an adjusted request's prefill, carried in from the
+  // rejection card; a hand-typed value that is not a civil date or `HH:MM` is dropped the same way.
   validateSearch: z.object({
     saved: z.string().optional(),
     eventId: z.coerce.number().int().positive().optional().catch(undefined),
+    date: z.iso.date().optional().catch(undefined),
+    startTime: z.string().regex(TIME_SHAPE).optional().catch(undefined),
+    endTime: z.string().regex(TIME_SHAPE).optional().catch(undefined),
   }),
   beforeLoad: ({ context }) => {
     if (!can(context.user.role, { venue: ["read"] })) {
       throw redirect({ to: "/dashboard" });
     }
   },
-  // The search is a loader dependency so `eventId` re-runs the loader when it changes; the
-  // loader context itself carries only params, so the value arrives as `deps`.
-  loaderDeps: ({ search }) => search,
+  // Only `eventId` re-runs the loader; `saved` and the prefill window are read by the
+  // component, so changing those alone skips the loader. The loader context itself carries only
+  // params, so the value arrives as `deps`.
+  loaderDeps: ({ search }) => ({ eventId: search.eventId }),
   loader: async ({
     params,
     deps,
@@ -83,13 +89,19 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
   },
   component: () => {
     const { venue, requestContext, requestContextFailed } = Route.useLoaderData();
+    const search = Route.useSearch();
     return (
       <VenueDetailPage
         venue={venue}
         requestContext={requestContext}
         requestContextFailed={requestContextFailed}
         user={Route.useRouteContext().user}
-        justCreated={Route.useSearch().saved === "true"}
+        justCreated={search.saved === "true"}
+        prefill={
+          search.date && search.startTime && search.endTime
+            ? { date: search.date, startTime: search.startTime, endTime: search.endTime }
+            : null
+        }
       />
     );
   },

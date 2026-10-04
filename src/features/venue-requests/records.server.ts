@@ -37,12 +37,14 @@ export async function loadVenueRequestOutcomesForEvents(
       id: venueRequests.id,
       status: venueRequests.status,
       updatedAt: venueRequests.updatedAt,
+      venueId: venueRequests.venueId,
       venueName: venues.name,
       startsAt: venueRequests.startsAt,
       endsAt: venueRequests.endsAt,
       rejectionReason: venueRequests.rejectionReason,
       releaseReason: venueRequests.releaseReason,
       lastChangedByStaffName: venueRequests.lastChangedByStaffName,
+      suggestedVenueId: venueRequests.suggestedVenueId,
       suggestedVenueName: suggestedVenue.name,
       suggestedDate: venueRequests.suggestedDate,
       suggestedStartTime: venueRequests.suggestedStartTime,
@@ -53,12 +55,13 @@ export async function loadVenueRequestOutcomesForEvents(
     .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
     .where(inArray(venueRequests.eventId, [...eventIds]));
 
-  // The newest row per event, a withdrawal excluded; a tie (same instant) falls to the higher id,
-  // the same stable rule the single-event reader used before this moved.
+  // The newest decided row per event: a withdrawal is not a decision, and a pending request
+  // raised after a rejection (an adjusted request) must not hide the rejection it answers. A tie
+  // (same instant) falls to the greater id string, the same stable rule the single-event reader
+  // used.
   const newestByEvent = new Map<number, (typeof rows)[number]>();
   for (const row of rows) {
-    // A withdrawal is not a decision and does not erase the last staff outcome.
-    if (row.status === "withdrawn") continue;
+    if (row.status === "withdrawn" || row.status === "pending") continue;
     const current = newestByEvent.get(row.eventId);
     if (
       !current ||
@@ -103,12 +106,14 @@ export async function loadVenueRequestOutcomesForEvents(
     outcomes.set(eventId, {
       status: "rejected",
       rejection: {
+        venueId: row.venueId,
         venueName: row.venueName,
         date: row.startsAt.slice(0, 10),
         startTime: row.startsAt.slice(11, 16),
         endTime: row.endsAt.slice(11, 16),
         reason: row.rejectionReason,
         suggestion: Object.values(suggestion).every(part => part === null) ? null : suggestion,
+        suggestedVenueId: row.suggestedVenueId,
       },
     });
   }

@@ -136,12 +136,16 @@ interface EventRecord {
  * Venue Staff gave none; otherwise each part they did give, with the rest null. Times are `HH:MM`.
  */
 export interface VenueRequestRejection {
+  /** The rejected venue's id, so an adjusted request can fall back to it. */
+  venueId: number;
   venueName: string;
   date: string;
   startTime: string;
   endTime: string;
   reason: string;
   suggestion: VenueSuggestion | null;
+  /** The suggested venue's id when Venue Staff named one; the adjusted request opens there. */
+  suggestedVenueId: number | null;
 }
 
 /** A released booking remains visible to the Coordinator as an operational audit record. */
@@ -156,8 +160,9 @@ export interface VenueRequestRelease {
 
 /**
  * The card's one venue request. PTR-36: `conflict` is present only when a pending request overlaps
- * an approved booking. PTR-34: `rejection` is present only on a rejected request, which only the
- * assigned Coordinator is shown.
+ * an approved booking. PTR-34: `rejection` is the last rejection, which only the assigned
+ * Coordinator is shown; it stays beside a newer pending request so the reason that prompted an
+ * adjusted request is still on the record.
  */
 export interface EventVenueRequest {
   status: string;

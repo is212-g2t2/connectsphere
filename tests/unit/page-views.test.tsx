@@ -9,6 +9,8 @@ import { VenueDetailPage } from "#/features/venues/components/venue-detail-page"
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import type { SessionUser } from "#/features/auth/session";
+import type { VenueRequestRejection } from "#/features/events/access";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
 
@@ -26,9 +28,27 @@ const { routerInvalidate } = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
-  ),
+  // Params and search are composed so a test can read where a link leads.
+  Link: ({
+    children,
+    to,
+    params,
+    search,
+  }: {
+    children: React.ReactNode;
+    to: string;
+    params?: Record<string, string>;
+    search?: Record<string, string | number>;
+  }) => {
+    let href = to;
+    for (const [key, value] of Object.entries(params ?? {})) {
+      href = href.replace(`$${key}`, value);
+    }
+    const query = new URLSearchParams(
+      Object.entries(search ?? {}).map(([key, value]) => [key, String(value)])
+    ).toString();
+    return <a href={query ? `${href}?${query}` : href}>{children}</a>;
+  },
   useNavigate: () => vi.fn<() => void>(),
   useRouter: () => ({ invalidate: routerInvalidate }),
 }));
@@ -159,6 +179,7 @@ describe("DashboardPage", () => {
     {
       name: "the reason and the suggested alternative",
       rejection: {
+        venueId: 5,
         venueName: "Main Hall",
         date: "2026-10-05",
         startTime: "09:00",
@@ -170,6 +191,7 @@ describe("DashboardPage", () => {
           startTime: "10:00",
           endTime: "13:30",
         },
+        suggestedVenueId: 9,
       },
       shown: [
         "Main Hall, 5 Oct 2026, 09:00–12:00",
@@ -181,12 +203,14 @@ describe("DashboardPage", () => {
     {
       name: "only the reason when no suggestion was given",
       rejection: {
+        venueId: 6,
         venueName: "Small Room",
         date: "2026-11-02",
         startTime: "14:00",
         endTime: "15:00",
         reason: "Fully booked",
         suggestion: null,
+        suggestedVenueId: null,
       },
       shown: ["Small Room, 2 Nov 2026, 14:00–15:00", "Fully booked"],
       suggested: false,
@@ -601,5 +625,124 @@ describe("VenueDetailPage", () => {
     );
 
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Venue request" }));
+  });
+});
+
+const adjustLink = () => screen.queryByRole("link", { name: /^Adjust request at / });
+
+const card = (
+  venueRequest: { status: string; rejection?: VenueRequestRejection },
+  overrides: { access?: "coordinator" | "organiser"; status?: EventRequestStatus } = {}
+) => (
+  <DashboardPage
+    user={userWithRole(overrides.access === "organiser" ? "event_organiser" : "event_coordinator")}
+    events={[
+      {
+        access: overrides.access ?? "coordinator",
+        event: {
+          id: 7,
+          name: "Annual dinner",
+          status: overrides.status ?? "submitted",
+          eventDate: "2026-10-01",
+          startTime: "09:00",
+          endTime: "17:00",
+          venueRequest,
+        },
+      },
+    ]}
+  />
+);
+
+describe("adjusting a rejected venue request (PTR-35)", () => {
+  const rejection: VenueRequestRejection = {
+    venueId: 5,
+    venueName: "Main Hall",
+    date: "2026-10-05",
+    startTime: "09:00",
+    endTime: "12:00",
+    reason: "Closed for floor resurfacing",
+    suggestion: null,
+    suggestedVenueId: null,
+  };
+  it("opens the suggested venue with the suggested window (AC1)", () => {
+    render(
+      card({
+        status: "rejected",
+        rejection: {
+          ...rejection,
+          suggestion: {
+            venueName: "Harbour Hall",
+            date: "2027-04-21",
+            startTime: "10:00",
+            endTime: "13:30",
+          },
+          suggestedVenueId: 9,
+        },
+      })
+    );
+
+    const link = screen.getByRole("link", { name: "Adjust request at Harbour Hall" });
+    expect(link.getAttribute("href")).toBe(
+      "/venues/9?eventId=7&date=2027-04-21&startTime=10%3A00&endTime=13%3A30"
+    );
+  });
+
+  it("opens the refused venue with its own window when nothing was suggested", () => {
+    render(card({ status: "rejected", rejection }));
+
+    expect(
+      screen.getByRole("link", { name: "Adjust request at Main Hall" }).getAttribute("href")
+    ).toBe("/venues/5?eventId=7&date=2026-10-05&startTime=09%3A00&endTime=12%3A00");
+  });
+
+  it("falls back to the refused venue and window for whatever was not suggested", () => {
+    render(
+      card({
+        status: "rejected",
+        rejection: {
+          ...rejection,
+          suggestion: { venueName: null, date: "2026-10-06", startTime: null, endTime: null },
+        },
+      })
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Adjust request at Main Hall" }).getAttribute("href")
+    ).toBe("/venues/5?eventId=7&date=2026-10-06&startTime=09%3A00&endTime=12%3A00");
+  });
+
+  it("takes the suggested times with the refused venue and date when only times were suggested", () => {
+    render(
+      card({
+        status: "rejected",
+        rejection: {
+          ...rejection,
+          suggestion: { venueName: null, date: null, startTime: "10:00", endTime: "13:30" },
+        },
+      })
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Adjust request at Main Hall" }).getAttribute("href")
+    ).toBe("/venues/5?eventId=7&date=2026-10-05&startTime=10%3A00&endTime=13%3A30");
+  });
+
+  it("offers the link only to the Coordinator, and only while the event is still submitted", () => {
+    const { unmount } = render(card({ status: "rejected", rejection }, { access: "organiser" }));
+    expect(adjustLink()).toBeNull();
+    unmount();
+
+    render(card({ status: "rejected", rejection }, { status: "confirmed" }));
+    expect(screen.getByText("Closed for floor resurfacing")).toBeTruthy();
+    expect(adjustLink()).toBeNull();
+  });
+
+  it("keeps the rejection on the card beside a pending adjusted request, without a second link (AC3)", () => {
+    render(card({ status: "pending", rejection }));
+
+    expect(screen.getByText("Pending")).toBeTruthy();
+    expect(screen.getByText("Previously rejected booking")).toBeTruthy();
+    expect(screen.getByText("Closed for floor resurfacing")).toBeTruthy();
+    expect(adjustLink()).toBeNull();
   });
 });
