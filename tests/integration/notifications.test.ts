@@ -6,7 +6,12 @@ import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
-import { handleListNotifications } from "#/features/notifications/inbox.server";
+import {
+  handleCountUnreadNotifications,
+  handleListNotifications,
+  handleMarkNotificationsRead,
+  handleReadInbox,
+} from "#/features/notifications/inbox.server";
 import {
   NOTIFICATION_MAX_ATTEMPTS,
   deliverPendingNotifications,
@@ -171,6 +176,22 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
     return row;
   }
 
+  /** `count` confirmed-event rows for one recipient, a second apart from `baseMs`, oldest first. */
+  async function raiseMany(recipientId: string, count: number, baseMs: number) {
+    return database
+      .insert(schema.notifications)
+      .values(
+        Array.from({ length: count }, (_, index) => ({
+          recipientId,
+          eventRequestId: eventId,
+          kind: "event_confirmed" as const,
+          payload: confirmedPayload() as never,
+          createdAt: new Date(baseMs + index * 1_000),
+        }))
+      )
+      .returning({ id: schema.notifications.id });
+  }
+
   describe("inbox (AC1–AC5)", () => {
     it("lists the caller's notifications newest first and nobody else's (AC1, AC3)", async () => {
       const coordinator = session("coordinator");
@@ -198,7 +219,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       );
       await raise(session("organiser").id, "event_confirmed", confirmedPayload(), eventId);
 
-      const items = await handleListNotifications(coordinator, database as never);
+      const items = await handleListNotifications(coordinator, database);
       expect(items.map(item => item.id)).toEqual([newest.id, middle.id, oldest.id]);
       expect(items).toHaveLength(3);
     });
@@ -212,17 +233,14 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         eventId
       );
 
-      const organiserItems = await handleListNotifications(session("organiser"), database as never);
+      const organiserItems = await handleListNotifications(session("organiser"), database);
       expect(organiserItems[0]).toMatchObject({
         summary: "Event confirmed: Notification Gala",
         href: `/event-requests/${eventId}`,
       });
       expect(Number.isNaN(Date.parse(organiserItems[0].createdAt))).toBe(false);
 
-      const coordinatorItems = await handleListNotifications(
-        session("coordinator"),
-        database as never
-      );
+      const coordinatorItems = await handleListNotifications(session("coordinator"), database);
       expect(coordinatorItems[0]).toMatchObject({
         summary: "Clarification replied: Notification Gala",
         href: `/coordination/${eventId}`,
@@ -233,7 +251,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       // The other Coordinator is not assigned to this event, so it is not in reach.
       await raise(session("otherCoordinator").id, "event_confirmed", confirmedPayload(), eventId);
 
-      const items = await handleListNotifications(session("otherCoordinator"), database as never);
+      const items = await handleListNotifications(session("otherCoordinator"), database);
       expect(items).toHaveLength(1);
       expect(items[0]).toMatchObject({ summary: null, href: null });
       const serialized = JSON.stringify(items);
@@ -258,7 +276,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         eventId
       );
 
-      const live = await handleListNotifications(session("otherCoordinator"), database as never);
+      const live = await handleListNotifications(session("otherCoordinator"), database);
       expect(live[0]).toMatchObject({
         summary: "Handover requested: Notification Gala",
         href: "/coordination",
@@ -271,7 +289,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .set({ assignedCoordinatorId: null })
         .where(eq(schema.eventRequests.id, eventId));
       try {
-        const stale = await handleListNotifications(session("otherCoordinator"), database as never);
+        const stale = await handleListNotifications(session("otherCoordinator"), database);
         expect(stale[0]).toMatchObject({ summary: null, href: null });
       } finally {
         await database
@@ -301,7 +319,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         eventId
       );
 
-      const pendingItems = await handleListNotifications(session("venueStaff"), database as never);
+      const pendingItems = await handleListNotifications(session("venueStaff"), database);
       expect(pendingItems[0]).toMatchObject({
         summary: "Venue booking requested: Notification Hall",
         href: `/venue-requests/${venueRequestId}`,
@@ -314,14 +332,14 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .update(schema.venueRequests)
         .set({ status: "approved", assignedStaffId: users.venueStaff.id })
         .where(eq(schema.venueRequests.id, venueRequestId));
-      const settled = await handleListNotifications(session("venueStaff"), database as never);
+      const settled = await handleListNotifications(session("venueStaff"), database);
       expect(settled[0]?.href).toBe("/venue-bookings");
 
       await database
         .update(schema.venueRequests)
         .set({ status: "released", releaseReason: "Maintenance" })
         .where(eq(schema.venueRequests.id, venueRequestId));
-      const released = await handleListNotifications(session("venueStaff"), database as never);
+      const released = await handleListNotifications(session("venueStaff"), database);
       expect(released[0]).toMatchObject({
         summary: "Venue booking requested: Notification Hall",
         href: null,
@@ -331,7 +349,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .update(schema.venueRequests)
         .set({ status: "rejected", rejectionReason: "Not available" })
         .where(eq(schema.venueRequests.id, venueRequestId));
-      const rejected = await handleListNotifications(session("venueStaff"), database as never);
+      const rejected = await handleListNotifications(session("venueStaff"), database);
       expect(rejected[0]).toMatchObject({
         summary: "Venue booking requested: Notification Hall",
         href: null,
@@ -341,21 +359,9 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
     it("caps the inbox at 50 rows, newest first", async () => {
       const coordinator = session("coordinator");
       // One bulk insert with explicit increasing instants; 51 rows must exceed the 50-row page.
-      const base = Date.UTC(2032, 0, 1, 0, 0, 0);
-      const rows = await database
-        .insert(schema.notifications)
-        .values(
-          Array.from({ length: 51 }, (_, index) => ({
-            recipientId: coordinator.id,
-            eventRequestId: eventId,
-            kind: "event_confirmed" as const,
-            payload: confirmedPayload() as never,
-            createdAt: new Date(base + index * 1_000),
-          }))
-        )
-        .returning({ id: schema.notifications.id });
+      const rows = await raiseMany(coordinator.id, 51, Date.UTC(2032, 0, 1, 0, 0, 0));
 
-      const items = await handleListNotifications(coordinator, database as never);
+      const items = await handleListNotifications(coordinator, database);
       expect(items).toHaveLength(50);
       expect(items[0].id).toBe(rows[50].id);
       expect(items.map(item => item.id)).not.toContain(rows[0].id);
@@ -373,7 +379,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         at
       );
 
-      const items = await handleListNotifications(coordinator, database as never);
+      const items = await handleListNotifications(coordinator, database);
       expect(items.map(item => item.id)).toEqual([second.id, first.id]);
     });
 
@@ -400,11 +406,11 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .set({ status: "approved", assignedStaffId: users.venueStaff.id })
         .where(eq(schema.venueRequests.id, venueRequestId));
 
-      const other = await handleListNotifications(session("otherVenueStaff"), database as never);
+      const other = await handleListNotifications(session("otherVenueStaff"), database);
       expect(other).toHaveLength(1);
       expect(other[0]).toMatchObject({ summary: null, href: null });
 
-      const decider = await handleListNotifications(session("venueStaff"), database as never);
+      const decider = await handleListNotifications(session("venueStaff"), database);
       expect(decider[0]).toMatchObject({
         summary: "Venue booking requested: Notification Hall",
         href: "/venue-bookings",
@@ -431,9 +437,123 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         .set({ assignedCoordinatorId: users.otherCoordinator.id })
         .where(eq(schema.eventRequests.id, eventId));
 
-      const items = await handleListNotifications(session("coordinator"), database as never);
+      const items = await handleListNotifications(session("coordinator"), database);
       expect(items).toHaveLength(1);
       expect(items[0]).toMatchObject({ summary: null, href: null });
+    });
+  });
+
+  describe("read state (PTR-56)", () => {
+    it("reads the listed rows and the global unread count together for the page (AC2)", async () => {
+      const coordinator = session("coordinator");
+      await raiseMany(coordinator.id, 52, Date.UTC(2034, 0, 1, 0, 0, 0));
+
+      const inbox = await handleReadInbox(coordinator, database as never);
+      // Counted past the page: a count derived from the listed rows would say 50.
+      expect(inbox.notifications).toHaveLength(50);
+      expect(inbox.unreadCount).toBe(52);
+    });
+
+    it("starts every new notification unread and counts it (AC1, AC2)", async () => {
+      const coordinator = session("coordinator");
+      const row = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+
+      expect(row.readAt).toBeNull();
+      const items = await handleListNotifications(coordinator, database);
+      expect(items.map(item => item.read)).toEqual([false]);
+      expect(await handleCountUnreadNotifications(coordinator, database)).toBe(1);
+    });
+
+    it("marks one read, keeps an earlier first read time, and leaves the rest unread (AC3, AC4)", async () => {
+      const coordinator = session("coordinator");
+      const firstRead = new Date(Date.UTC(2020, 0, 1, 0, 0, 0));
+      const alreadyRead = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+      await database
+        .update(schema.notifications)
+        .set({ readAt: firstRead })
+        .where(eq(schema.notifications.id, alreadyRead.id));
+      const older = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+      const newer = await raise(coordinator.id, "event_confirmed", confirmedPayload());
+
+      // Marking the newest by id must leave the older unread row alone, unlike a mark-through.
+      await handleMarkNotificationsRead({ id: newer.id }, coordinator, database as never);
+      await handleMarkNotificationsRead({ id: alreadyRead.id }, coordinator, database as never);
+
+      const [kept] = await database
+        .select({ readAt: schema.notifications.readAt })
+        .from(schema.notifications)
+        .where(eq(schema.notifications.id, alreadyRead.id));
+      expect(kept.readAt).toEqual(firstRead);
+      const items = await handleListNotifications(coordinator, database);
+      expect(items.map(item => [item.id, item.read])).toEqual([
+        [newer.id, true],
+        [older.id, false],
+        [alreadyRead.id, true],
+      ]);
+      expect(await handleCountUnreadNotifications(coordinator, database)).toBe(1);
+    });
+
+    it("leaves another user's notification unread when asked to mark it", async () => {
+      const organiserRow = await raise(
+        session("organiser").id,
+        "event_confirmed",
+        confirmedPayload()
+      );
+
+      await handleMarkNotificationsRead(
+        { id: organiserRow.id },
+        session("coordinator"),
+        database as never
+      );
+
+      expect(await handleCountUnreadNotifications(session("organiser"), database)).toBe(1);
+    });
+
+    it("marks all read up to the cutoff id, beyond the 50-row page, and only the caller's (AC3)", async () => {
+      const coordinator = session("coordinator");
+      // Raised first, so its id sits below the cutoff: only the recipient scope can spare it.
+      await raise(session("organiser").id, "event_confirmed", confirmedPayload());
+      const rows = await raiseMany(coordinator.id, 52, Date.UTC(2033, 0, 1, 0, 0, 0));
+      // The count is not capped by the page.
+      expect(await handleCountUnreadNotifications(coordinator, database)).toBe(52);
+
+      // rows[51] stands in for a notification raised after the page rendered: above the cutoff.
+      const cutoff = rows[50].id;
+      await handleMarkNotificationsRead({ throughId: cutoff }, coordinator, database as never);
+
+      expect(await handleCountUnreadNotifications(coordinator, database)).toBe(1);
+      expect(await handleCountUnreadNotifications(session("organiser"), database)).toBe(1);
+      const items = await handleListNotifications(coordinator, database);
+      expect(items.filter(item => !item.read).map(item => item.id)).toEqual([rows[51].id]);
+    });
+
+    it("keeps the read state of a neutralised or unparseable row without exposing anything else", async () => {
+      const otherCoordinator = session("otherCoordinator");
+      const unreachable = await raise(otherCoordinator.id, "event_confirmed", confirmedPayload());
+      const unparseable = await raise(otherCoordinator.id, "event_confirmed", {});
+      await handleMarkNotificationsRead(
+        { throughId: unparseable.id },
+        otherCoordinator,
+        database as never
+      );
+
+      const items = await handleListNotifications(otherCoordinator, database);
+      expect(items).toEqual([
+        {
+          id: unparseable.id,
+          createdAt: unparseable.createdAt.toISOString(),
+          read: true,
+          summary: null,
+          href: null,
+        },
+        {
+          id: unreachable.id,
+          createdAt: unreachable.createdAt.toISOString(),
+          read: true,
+          summary: null,
+          href: null,
+        },
+      ]);
     });
   });
 

@@ -18,7 +18,7 @@ export function NotificationsPageSkeleton() {
 
       <div className="mt-8 divide-y divide-border">
         {NOTIFICATION_ROWS.map(row => (
-          <div key={row} className="flex items-center gap-4 py-4">
+          <div key={row} className="flex min-h-16 items-center gap-4 py-4">
             <Skeleton className="h-4 flex-1" />
             <Skeleton className="h-4 w-28" />
           </div>

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notInArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventHandovers, eventRequests, notifications, venueRequests } from "#/db/schema";
@@ -11,6 +11,7 @@ import {
   parseNotificationPayload,
 } from "#/features/notifications/message";
 import type { NotificationHrefFacts } from "#/features/notifications/message";
+import { parseMarkNotificationsReadInput } from "#/features/notifications/schema";
 import { logger } from "#/lib/logger";
 
 type Database = typeof Db;
@@ -23,12 +24,14 @@ const INBOX_LIMIT = 50;
 /**
  * PTR-55: one row as the inbox renders it. A row whose subject the caller can no longer reach is
  * neutralised — null summary, null href, and nothing of the payload or kind crosses the network —
- * so opening it cannot expose event data (AC5). `createdAt` is ISO. The server function re-exports
- * this shape as `NotificationListItem`, the type the page consumes.
+ * so opening it cannot expose event data (AC5); `read` is the caller's own state and still shows
+ * (PTR-56). `createdAt` is ISO. The page consumes this shape as `NotificationListItem`, derived
+ * from the server function's return.
  */
 interface NotificationListItem {
   id: number;
   createdAt: string;
+  read: boolean;
   summary: string | null;
   href: string | null;
 }
@@ -43,7 +46,7 @@ interface NotificationListItem {
  */
 export async function handleListNotifications(
   actor: SessionUser,
-  database: Database
+  database: Pick<Database, "select">
 ): Promise<NotificationListItem[]> {
   const rows = await database
     .select({
@@ -52,6 +55,7 @@ export async function handleListNotifications(
       kind: notifications.kind,
       payload: notifications.payload,
       createdAt: notifications.createdAt,
+      readAt: notifications.readAt,
     })
     .from(notifications)
     .where(eq(notifications.recipientId, actor.id))
@@ -93,11 +97,18 @@ export async function handleListNotifications(
         );
 
   return rows.map(row => {
+    const item = (summary: string | null, href: string | null): NotificationListItem => ({
+      id: row.id,
+      createdAt: row.createdAt.toISOString(),
+      read: row.readAt !== null,
+      summary,
+      href,
+    });
     const parsed = parseNotificationPayload(row.kind, row.payload);
     if (!parsed) {
       // A row no renderer understands stays listed but says nothing; it is still the recipient's.
       log.warn("Notification payload did not parse", { notificationId: row.id, kind: row.kind });
-      return { id: row.id, createdAt: row.createdAt.toISOString(), summary: null, href: null };
+      return item(null, null);
     }
 
     const handoverPending = pendingHandoverEventIds.has(row.eventRequestId);
@@ -106,7 +117,7 @@ export async function handleListNotifications(
       handoverPending,
     });
     if (!reachable) {
-      return { id: row.id, createdAt: row.createdAt.toISOString(), summary: null, href: null };
+      return item(null, null);
     }
 
     const facts: NotificationHrefFacts = { handoverPending };
@@ -114,13 +125,65 @@ export async function handleListNotifications(
       facts.venueRequestStatus = venueRequestStatuses.get(parsed.payload.venueRequestId) ?? null;
     }
 
-    return {
-      id: row.id,
-      createdAt: row.createdAt.toISOString(),
-      summary: notificationSummary(parsed),
-      href: notificationHref({ ...parsed, eventRequestId: row.eventRequestId }, facts),
-    };
+    return item(
+      notificationSummary(parsed),
+      notificationHref({ ...parsed, eventRequestId: row.eventRequestId }, facts)
+    );
   });
+}
+
+/**
+ * PTR-56: how many of the caller's notifications are unread, across all of them rather than only
+ * the listed page, so the count stays true past the inbox limit.
+ */
+export async function handleCountUnreadNotifications(
+  actor: SessionUser,
+  database: Pick<Database, "select">
+): Promise<number> {
+  const [row] = await database
+    .select({ unread: count() })
+    .from(notifications)
+    .where(and(eq(notifications.recipientId, actor.id), isNull(notifications.readAt)));
+  return row.unread;
+}
+
+/**
+ * PTR-56: the inbox page's data — the listed rows and the unread count — read in one read-only
+ * repeatable-read snapshot, so a notification raised between the two reads cannot leave the count
+ * disagreeing with the rows it sits above.
+ */
+export async function handleReadInbox(
+  actor: SessionUser,
+  database: Database
+): Promise<{ notifications: NotificationListItem[]; unreadCount: number }> {
+  return database.transaction(
+    async tx => ({
+      notifications: await handleListNotifications(actor, tx),
+      unreadCount: await handleCountUnreadNotifications(actor, tx),
+    }),
+    { isolationLevel: "repeatable read", accessMode: "read only" }
+  );
+}
+
+/**
+ * PTR-56 AC3: marks one notification read (`id`), or every notification up to the highest id the
+ * caller was shown (`throughId`), so a row with a higher id than any shown stays unread. Scoped to
+ * the caller, so another user's id changes nothing; an already-read row keeps its first read time.
+ */
+export async function handleMarkNotificationsRead(
+  data: unknown,
+  actor: SessionUser,
+  database: Pick<Database, "update">
+): Promise<void> {
+  const input = parseMarkNotificationsReadInput(data);
+  // ponytail: serial ids follow insert order, not commit order, so a lower-id row committing after
+  // the page rendered is marked read unseen; a per-user read watermark fixes that if it matters.
+  const target =
+    "id" in input ? eq(notifications.id, input.id) : lte(notifications.id, input.throughId);
+  await database
+    .update(notifications)
+    .set({ readAt: sql`now()` })
+    .where(and(eq(notifications.recipientId, actor.id), isNull(notifications.readAt), target));
 }
 
 /**
@@ -132,7 +195,7 @@ export async function handleListNotifications(
 async function liveHandoverEventIds(
   userId: string,
   eventIds: readonly number[],
-  database: Database
+  database: Pick<Database, "select">
 ): Promise<number[]> {
   const rows = await database
     .select({ eventRequestId: eventHandovers.eventRequestId })

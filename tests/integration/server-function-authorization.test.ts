@@ -47,6 +47,7 @@ import {
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
 import { confirmEvent, listEvents } from "#/features/events/server-fns";
+import { listNotifications, markNotificationsRead } from "#/features/notifications/server-fns";
 import {
   VENUE_REJECTION_REASON_REQUIRED,
   VENUE_REQUEST_DATE_MESSAGE,
@@ -694,6 +695,31 @@ describe("server-function authorization (PTR-69)", () => {
       // The relationship scoping is data rather than a role permission, so no 403 is owed here;
       // `tests/integration/event-access.test.ts` runs the handler that decides per row.
       expect((await call(listEvents, {}, "GET")).error).toBeUndefined();
+    });
+  });
+
+  describe("notifications (PTR-55, PTR-56)", () => {
+    it("answers 401 to an unauthenticated list or mark, before validating the mark", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(listNotifications, {}, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(markNotificationsRead, {})).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("lets a signed-in role through the session guard, and refuses a malformed mark", async () => {
+      signIn("attendee");
+
+      expect((await call(listNotifications, {}, "GET")).error).toBeUndefined();
+      expect((await call(markNotificationsRead, { throughId: 1 })).error).toBeUndefined();
+      expect(await messageFrom(markNotificationsRead, { id: 1, throughId: 2 })).toBe(
+        "Choose a notification"
+      );
     });
   });
 
