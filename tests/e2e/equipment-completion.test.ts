@@ -237,6 +237,8 @@ async function markUnavailable(page: Page, item: string, reason: string) {
   await chooseArrangementState(page, item, "Unavailable");
   await page.getByLabel(`Reason unavailable for ${item} (required)`).fill(reason);
   await saveLine(page, item);
+  // Wait for the server's confirmation so the afterEach delete cannot deadlock with an in-flight save.
+  await expect(page.getByText("Equipment line updated.")).toBeVisible();
 }
 
 async function eventState(eventId: number) {

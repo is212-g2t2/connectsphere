@@ -73,6 +73,13 @@ const fixtureUsers = {
 
 const session = (userKey: keyof typeof fixtureUsers): SessionUser => fixtureUsers[userKey];
 
+const sent = () =>
+  sendEmail.mock.calls.map(([to, subject, element]) => ({
+    to,
+    subject,
+    props: (element as ReactElement<Record<string, unknown>>).props,
+  }));
+
 type LineState = "requested" | "reserved" | "not_required" | "unavailable";
 interface LineSeed {
   item?: string;
@@ -273,13 +280,6 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
   async function expectCompletionKept(eventId: number) {
     expect((await readEvent(eventId)).equipmentArrangementsCompletedAt).toBeInstanceOf(Date);
   }
-
-  const sent = () =>
-    sendEmail.mock.calls.map(([to, subject, element]) => ({
-      to,
-      subject,
-      props: (element as ReactElement<Record<string, unknown>>).props,
-    }));
 
   beforeEach(async () => {
     vi.resetAllMocks();

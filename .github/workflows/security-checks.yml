@@ -50,7 +50,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-bun
       - name: Audit dependencies
-        run: bun audit --audit-level=moderate
+        # braces@3.0.3 has no patched release (GHSA-vfj7-8cjw-p6xm; micromatch/braces#70), and
+        # shadcn's fast-glob chain is its only root. Drop this ignore once a patched braces ships
+        # and the chain picks it up.
+        run: bun audit --audit-level=moderate --ignore=GHSA-vfj7-8cjw-p6xm
 
   codeql:
     name: CodeQL

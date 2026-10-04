@@ -146,6 +146,24 @@ describe("equipment arrangement handler (PTR-39)", () => {
   const update = (input: Record<string, unknown>, as: SessionUser = techSupport) =>
     handleUpdateArrangement(input, as, database as never);
 
+  async function arrangedEvent() {
+    const eventId = await createSubmittedEvent();
+    const unavailable = await createLine(eventId, { item: "Projector" });
+    const noted = await createLine(eventId, { item: "Microphone" });
+    await update({
+      eventId,
+      id: unavailable.id,
+      arrangementStatus: "unavailable",
+      unavailableReason: "Loaned out",
+    });
+    await update({
+      eventId,
+      id: noted.id,
+      arrangementNotes: "Battery pack included",
+    });
+    return eventId;
+  }
+
   // ── AC1 ────────────────────────────────────────────────────────────────────────────────────
   describe("the work list", () => {
     test("lists an event whose equipment was submitted to Technical Support", async () => {
@@ -655,24 +673,6 @@ describe("equipment arrangement handler (PTR-39)", () => {
 
   // ── AC4 ────────────────────────────────────────────────────────────────────────────────────
   describe("what the Coordinator sees", () => {
-    async function arrangedEvent() {
-      const eventId = await createSubmittedEvent();
-      const unavailable = await createLine(eventId, { item: "Projector" });
-      const noted = await createLine(eventId, { item: "Microphone" });
-      await update({
-        eventId,
-        id: unavailable.id,
-        arrangementStatus: "unavailable",
-        unavailableReason: "Loaned out",
-      });
-      await update({
-        eventId,
-        id: noted.id,
-        arrangementNotes: "Battery pack included",
-      });
-      return eventId;
-    }
-
     test("shows the Coordinator the state, notes and reason Technical Support saved", async () => {
       const eventId = await arrangedEvent();
 

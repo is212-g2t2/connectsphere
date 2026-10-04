@@ -249,6 +249,34 @@ describe("venue request handlers (PTR-31)", () => {
     });
   }
 
+  async function createPtr37AlternativeVenue() {
+    const [venue] = await database
+      .insert(schema.venues)
+      .values({
+        name: PTR37_ALTERNATIVE_VENUE_NAME,
+        location: "Request Wing",
+        maxCapacity: 200,
+        operatingHours: DEFAULT_OPERATING_HOURS,
+      })
+      .returning({ id: schema.venues.id });
+    return venue.id;
+  }
+
+  async function loadVenueBookingsForTest(bookingVenueId: number) {
+    return database
+      .select({
+        id: schema.venueRequests.id,
+        startsAt: schema.venueRequests.startsAt,
+      })
+      .from(schema.venueRequests)
+      .where(
+        and(
+          eq(schema.venueRequests.venueId, bookingVenueId),
+          eq(schema.venueRequests.status, "approved")
+        )
+      );
+  }
+
   describe("raising a request", () => {
     it("records a pending, unassigned request and notifies every Venue Staff member (AC1, AC3, AC4)", async () => {
       const request = await handleCreateVenueRequest(
@@ -873,34 +901,6 @@ describe("venue request handlers (PTR-31)", () => {
   });
 
   describe("releasing and amending approved bookings (PTR-37)", () => {
-    async function createAlternativeVenue() {
-      const [venue] = await database
-        .insert(schema.venues)
-        .values({
-          name: PTR37_ALTERNATIVE_VENUE_NAME,
-          location: "Request Wing",
-          maxCapacity: 200,
-          operatingHours: DEFAULT_OPERATING_HOURS,
-        })
-        .returning({ id: schema.venues.id });
-      return venue.id;
-    }
-
-    async function loadVenueBookingsForTest(bookingVenueId: number) {
-      return database
-        .select({
-          id: schema.venueRequests.id,
-          startsAt: schema.venueRequests.startsAt,
-        })
-        .from(schema.venueRequests)
-        .where(
-          and(
-            eq(schema.venueRequests.venueId, bookingVenueId),
-            eq(schema.venueRequests.status, "approved")
-          )
-        );
-    }
-
     it("lists the shared upcoming approved bookings with event, venue and period (AC1)", async () => {
       const owned = await raiseRequest(eventId, "09:00", "12:30");
       await approve(owned.id, users.venueStaffA);
@@ -1107,7 +1107,7 @@ describe("venue request handlers (PTR-31)", () => {
     });
 
     it("amends an owned booking and moves the venue hold (AC3, AC4, AC5)", async () => {
-      const alternativeVenueId = await createAlternativeVenue();
+      const alternativeVenueId = await createPtr37AlternativeVenue();
       const request = await raiseRequest(eventId, "09:00", "12:30");
       await approve(request.id, users.venueStaffA);
       sendEmail.mockClear();
@@ -1185,7 +1185,7 @@ describe("venue request handlers (PTR-31)", () => {
     });
 
     it("serializes concurrent amendments to the same target window (AC3)", async () => {
-      const alternativeVenueId = await createAlternativeVenue();
+      const alternativeVenueId = await createPtr37AlternativeVenue();
       const first = await raiseRequest(eventId, "09:00", "10:00");
       await approve(first.id, users.venueStaffA);
       const second = await raiseRequest(

@@ -37,8 +37,23 @@ export function getRouter() {
         tracesSampleRate: 0.1,
         replaysSessionSampleRate: REPLAY_SESSION_SAMPLE_RATE,
         replaysOnErrorSampleRate: REPLAY_ERROR_SAMPLE_RATE,
-        enableLogs: true,
-        sendDefaultPii: false,
+        // Keep this baseline in sync with instrument.server.mjs (server init).
+        // Sentry v11 collects request bodies, cookies and user info by default. Keep the
+        // v10 privacy posture explicitly; widen a category only after reviewing data-handling.
+        dataCollection: {
+          userInfo: false,
+          cookies: false,
+          httpHeaders: {
+            request: { deny: ["forwarded", "-ip", "remote-", "via", "-user"] },
+            response: { deny: ["forwarded", "-ip", "remote-", "via", "-user"] },
+          },
+          httpBodies: [],
+          urlQueryParams: { deny: ["forwarded", "-ip", "remote-", "via", "-user"] },
+          genAI: { inputs: false, outputs: false },
+          databaseQueryData: false,
+          queues: false,
+          graphQL: { document: false, variables: false },
+        },
       });
       globalState.__appSentryInitialized__ = true;
 

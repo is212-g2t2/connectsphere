@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -222,7 +222,7 @@ function RemoveLineDialog({ eventId, line }: RemoveLineDialogProps) {
           />
         }
       >
-        <Trash2 className="size-4" />
+        <Trash className="size-4" />
       </AlertDialogTrigger>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>

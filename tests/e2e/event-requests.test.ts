@@ -30,6 +30,16 @@ async function openNewRequest(page: Page): Promise<void> {
   await waitForHydration(page);
 }
 
+/** Creates a fresh organiser's draft from the list and returns to it. */
+async function draftFromList(page: Page, name: string): Promise<void> {
+  await openNewRequest(page);
+  await page.getByLabel("Event name (required)", { exact: true }).fill(name);
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByText("Draft saved.")).toBeVisible();
+  await page.getByRole("link", { name: "Back to event requests" }).click();
+  await expect(page.getByRole("heading", { name: "Event requests" })).toBeVisible();
+}
+
 test.describe("Event request drafts", () => {
   test("redirects an unauthenticated visitor to login", async ({ page }) => {
     await page.goto("/event-requests");
@@ -254,16 +264,6 @@ test.describe("Event request list (PTR-14)", () => {
 });
 
 test.describe("Event request resume and delete (PTR-12)", () => {
-  /** Creates a fresh organiser's draft from the list and returns to it. */
-  async function draftFromList(page: Page, name: string): Promise<void> {
-    await openNewRequest(page);
-    await page.getByLabel("Event name (required)", { exact: true }).fill(name);
-    await page.getByRole("button", { name: "Save draft" }).click();
-    await expect(page.getByText("Draft saved.")).toBeVisible();
-    await page.getByRole("link", { name: "Back to event requests" }).click();
-    await expect(page.getByRole("heading", { name: "Event requests" })).toBeVisible();
-  }
-
   test("answers not found for a draft that does not exist (AC1)", async ({ page }) => {
     await signUp(page, "event_organiser");
     await page.goto("/event-requests/reopenDraft/999999");

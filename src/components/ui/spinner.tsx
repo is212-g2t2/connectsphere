@@ -1,9 +1,9 @@
 import { cn } from "cn";
-import { Loader2Icon } from "lucide-react";
+import { LoaderCircleIcon } from "lucide-react";
 
 function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
   return (
-    <Loader2Icon
+    <LoaderCircleIcon
       data-slot="spinner"
       role="status"
       aria-label="Loading"
