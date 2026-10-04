@@ -191,7 +191,9 @@ Neutrals carry almost the entire interface. The system uses color deliberately, 
 
 Dark mode is class-based on `<html>` through `next-themes`: the `.dark` block in `globals.css`, not `prefers-color-scheme`. Only the palette inverts, and every semantic alias follows from it. Paper goes to `#131313`, ink to white, harbor to white, and the mist and ink overlays flip to white at the same alphas.
 
-**Amber and coral do not simply invert.** The design that they came from held its light amber and coral against near-black tints in dark mode. That choice puts status-pill text near 2:1 on its own background, a clear AA failure on a named primitive. This system lightens both colors instead: amber to `#c9a154` (5.5:1 on its tint) and coral to `#dc8271` (5.5:1). The light values are a shade darker than the originals `#9a6a00` / `#c1432b`, which sat at 4.3–4.4:1. That is just under the 4.5:1 that 12px pill text needs. Re-derive from these values, not from the originals.
+**Amber and coral do not simply invert.** The design that they came from held its light amber and coral against near-black tints in dark mode. That choice puts status-pill text near 2:1 on its own background, a clear AA failure on a named primitive.
+
+This system lightens both colors instead: amber to `#c9a154` (5.5:1 on its tint) and coral to `#dc8271` (5.5:1). The light values are a shade darker than the originals `#9a6a00` / `#c1432b`, which sat at 4.3–4.4:1. That is just under the 4.5:1 that 12px pill text needs. Re-derive from these values, not from the originals.
 
 Every text-and-background pair that the primitives use clears the Web Content Accessibility Guidelines (WCAG) AA in both themes. Body and pill text need 4.5:1, and the focus ring and control borders need 3:1.
 
@@ -199,7 +201,7 @@ Every text-and-background pair that the primitives use clears the Web Content Ac
 
 The whole system uses a single font family, **Inter Variable** (`@fontsource-variable/inter`), with system fallbacks. There is no display/body split: voice comes from weight, size, and negative letter-spacing, not from a second typeface. `--font-sans`, `--font-heading`, and `--font-mono` all resolve to it. "Mono" signals _data_ (timestamps, reference codes) at 0.8125rem/500, not a genuine monospace rhythm.
 
-- **Headings (h1–h3)** are 600-weight, with tight `-0.03em` tracking and a 1.08–1.2 line-height. They give an editorial, slightly condensed feel, although they are small by marketing standards. H1 and h2 top out at 1.75rem. `globals.css` applies the tracking and weight globally, so a heading never has to ask.
+- **Headings (h1–h3)** are 600-weight, with tight `-0.03em` tracking and a 1.08–1.2 line-height. H1 and h2 top out at 1.75rem. The tracking and weight come from `globals.css`.
 - **Event title and hero headline** are the only oversized type roles. The hero headline is a fluid `clamp(2.5rem, 6vw, 4rem)` on the homepage, and the fixed 3rem event title has no utility or screen yet. One moment per page must feel like a poster.
 - **Body** is 0.9375rem at 1.5 line-height, set on `body` as the base size. Secondary body text is ink-60, never full ink, so paragraphs stay visually behind headings and UI chrome.
 - **Label and caption** (0.8125rem and 0.75rem) carry the UI: form labels, pill text, and table meta. Table headers go uppercase at 0.6875rem with `0.05em` tracking, for a technical, spec-sheet tone.
@@ -249,7 +251,7 @@ Inputs are boxy at 8px, not pill. This is the one place where the system breaks 
 
 ### Focus
 
-One affordance covers the whole system: a 2px harbor outline at a 2px offset, declared once on `:focus-visible` in `globals.css`. Links and bare buttons get it for free, and keyboard behavior is never special-cased per component. A primitive that suppresses the outline with `outline-none` carries the same indicator as a ring instead. The ring is `focus-visible:ring-2 focus-visible:ring-ring`, 2px and solid harbor, never a softened `/50` variant. Inside menus, popovers, and listboxes, the highlighted row carries the accent fill instead, and those surfaces do not draw the ring.
+One affordance covers the whole system: a 2px harbor outline at a 2px offset, declared once on `:focus-visible` in `globals.css`. Links and bare buttons get it for free, and keyboard behaviour is never special-cased per component. A primitive that suppresses the outline with `outline-none` carries the same indicator as a ring instead. The ring is `focus-visible:ring-2 focus-visible:ring-ring`, 2px and solid harbor, never a softened `/50` variant. Inside menus, popovers, and listboxes, the highlighted row carries the accent fill instead, and those surfaces do not draw the ring.
 
 ## Scope
 

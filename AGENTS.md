@@ -48,9 +48,15 @@ Before you call work done, run `bun run lint:check`, `bun run type:check`, and `
 ## Client/server boundary
 
 - TanStack Start compiles the server functions that `createServerFn` exports and routes consume for the client environment. It strips `.handler(...)` bodies, but it preserves all other `export` declarations.
-- Never statically import runtime built-ins or server-only dependencies (`#/db`, **`#/db/schema`**, `"bun"`) at module level in a module that the client can reach. The import alone is sufficient; it does not need an exported helper that references it. Drizzle calls `pgTable()` at module scope to build its tables, and a bundler cannot prove that call side-effect free. The bundler therefore retains the module whole, and Dead Code Elimination drops nothing. A `<feature>.server.ts` module (see below) is the sanctioned exception. No client-reachable module imports it, so a static import there never reaches the bundle.
-- `#/db/schema` is the trap: unlike `#/db`, it does **not** fail `bun run build`. It silently serves the entire database schema, Better Auth tables included, to the browser. `tests/unit/client-bundle-safety.test.ts` walks every module under `src/features`, `src/hooks`, `src/lib`, and `src/components`. It discovers the modules and does not use a list. This test is the only check that catches the problem. When you add a server-only _dependency_, not a module, add its specifier to that test's `SERVER_ONLY_IMPORT`.
-- Instead, reach server dependencies dynamically inside `.handler()` with `await import("#/db")`, or inside a middleware's `.server()` callback, as `src/features/auth/session.ts` does. Import server types with `import type`, and require injected dependencies in exported helpers (for example `database: Database`). Never anchor `database = db` as a default parameter on an exported function. The same test rejects that pattern and expects the caller to pass `database`.
+- Never statically import runtime built-ins or server-only dependencies at module level in a client-reachable module. These dependencies are `#/db`, **`#/db/schema`**, and `"bun"`. The import alone is sufficient. It does not need an exported helper that references it.
+
+  Drizzle calls `pgTable()` at module scope to build its tables, and a bundler cannot prove that call side-effect free. The bundler therefore retains the module whole, and Dead Code Elimination drops nothing. A `<feature>.server.ts` module (see below) is the sanctioned exception. No client-reachable module imports it, so a static import there never reaches the bundle.
+
+- `#/db/schema` is the trap: unlike `#/db`, it does **not** fail `bun run build`. It silently serves the entire database schema, Better Auth tables included, to the browser.
+
+  `tests/unit/client-bundle-safety.test.ts` walks every module under `src/features`, `src/hooks`, `src/lib`, and `src/components`. It discovers the modules and does not use a list. This test is the only check that catches the problem. When you add a server-only _dependency_, not a module, add its specifier to that test's `SERVER_ONLY_IMPORT`.
+
+- Instead, reach server dependencies dynamically inside `.handler()` with `await import("#/db")`, or inside a middleware's `.server()` callback, as `src/features/auth/session.ts` does. Import server types with `import type`, and require injected dependencies in exported helpers (for example `database: Database`). Never anchor `database = db` as a default parameter on an exported function, because the same test rejects that pattern and expects the caller to pass `database`.
 - Do **not** give a client-reachable module the `<feature>.server.ts` suffix. The import-protection plugin in `@tanstack/start-plugin-core` denies `**/*.server.*` in the client environment, so `bun run build` fails at the first route that imports the module. Only `build` fails: `type:check` and the test suites stay green. Use that suffix only for modules that nothing client-reachable imports, like `event-requests/drafts.server.ts`.
 
 ## File layout and naming
@@ -79,4 +85,8 @@ Workflow: `docs/DEVELOPMENT.md` §Adding Environment Variables.
 
 ## Database schemas and migrations
 
-When you touch a schema file (`src/db/schema.ts`, `src/db/auth-schema.ts`), run `bun run db:generate`. Review the generated DDL in `src/db/drizzle/`, and commit the schema with its migration together. Never handwrite SQL, and never use `db:push` outside local prototyping: it records no migration history. Two reviewed exceptions are the exclusion constraints that Drizzle cannot express, added with `db:generate --custom`. The first is the booking constraint `venue_requests_no_overlap` (migration 0019). The second is the venue-hold constraint `venue_holds_no_overlap` (migration 0024). Both are documented by ADR-5 (`docs/adrs/ADR-5-venue-booking-overlap.md`). Workflow: `docs/DEVELOPMENT.md` §Migration Rules.
+When you touch a schema file (`src/db/schema.ts`, `src/db/auth-schema.ts`), run `bun run db:generate`. Review the generated DDL in `src/db/drizzle/`. Commit the schema with its migration together.
+
+Never handwrite SQL. Never use `db:push` outside local prototyping, because it records no migration history.
+
+Two reviewed exceptions are the exclusion constraints that Drizzle cannot express. Add them with `db:generate --custom`: `venue_requests_no_overlap` (migration 0019) and `venue_holds_no_overlap` (migration 0024). ADR-5 documents both (`docs/adrs/ADR-5-venue-booking-overlap.md`). Workflow: `docs/DEVELOPMENT.md` §Migration Rules.

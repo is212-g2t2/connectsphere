@@ -2,7 +2,7 @@
 
 ## Local Development
 
-Before you open a pull request, make sure that your local environment is configured and operates correctly. The [Development Guide](./DEVELOPMENT.md) gives the prerequisites, the local service orchestration (Docker Compose), and the complete scripts catalog. Follow its instructions.
+Before you open a pull request, make sure that your local environment is configured and operates correctly. The [Development Guide](./DEVELOPMENT.md) gives the prerequisites, the local service orchestration (Docker Compose), and the complete scripts catalogue. Follow its instructions.
 
 ## Branches
 
@@ -33,11 +33,15 @@ bun run test:integration
 bun run test:e2e
 ```
 
-New features must have one or more unit tests that cover the core behavior. New routes must have one or more Playwright smoke tests that verify the happy path and the redirect guards. For the test tier rules and the commands for targeted tests, see the [Testing Guide in DEVELOPMENT.md](./DEVELOPMENT.md#testing-guide).
+New features must have one or more unit tests that cover the core behaviour. New routes must have one or more Playwright smoke tests that verify the happy path and the redirect guards. For the test tier rules and the commands for targeted tests, see the [Testing Guide in DEVELOPMENT.md](./DEVELOPMENT.md#testing-guide).
 
 ## Database changes
 
-Commit schema changes (`src/db/schema.ts`, `src/db/auth-schema.ts`) with their generated migration in `src/db/drizzle/`. The migration must apply cleanly against your local database. Never handwrite migrations. One reviewed exception is the booking exclusion constraint Drizzle cannot express. Add it with `db:generate --custom` ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)). A code-quality job regenerates migrations and fails if `src/db/drizzle/` differs. The same job runs `drizzle-kit check` for conflicting or broken migration files. Regenerate after the last schema change. Full workflow: [Database Management in DEVELOPMENT.md](./DEVELOPMENT.md#database-management-and-migrations).
+Commit schema changes (`src/db/schema.ts`, `src/db/auth-schema.ts`) with their generated migration in `src/db/drizzle/`. The migration must apply cleanly against your local database. Never handwrite migrations. One reviewed exception is the booking exclusion constraint Drizzle cannot express, added with `db:generate --custom` ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)).
+
+A code-quality job regenerates migrations and fails if `src/db/drizzle/` differs. The same job runs `drizzle-kit check` for conflicting or broken migration files. Regenerate after the last schema change.
+
+Full workflow: [Database Management in DEVELOPMENT.md](./DEVELOPMENT.md#database-management-and-migrations).
 
 ## Adding dependencies
 

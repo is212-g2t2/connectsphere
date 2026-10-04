@@ -54,11 +54,11 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
 
    Open [http://localhost:3000](http://localhost:3000). Sign up or sign in. The application opens the protected dashboard.
 
-For the full workflow instructions, scripts catalog, testing guidelines, and environment configuration, see the [Development Guide](./docs/DEVELOPMENT.md).
+For the full workflow instructions, scripts catalogue, testing guidelines, and environment configuration, see the [Development Guide](./docs/DEVELOPMENT.md).
 
 ## Documentation
 
-- [Development](./docs/DEVELOPMENT.md): local setup, scripts catalog, database management, testing, and tooling.
+- [Development](./docs/DEVELOPMENT.md): local setup, scripts catalogue, database management, testing, and tooling.
 - [Architecture](./docs/ARCHITECTURE.md): project structure, data flow, authentication, and observability.
 - [Design System](./docs/DESIGN.md): the ConnectSphere design system and its tokens.
 - [Agents Guide](./AGENTS.md): rules for coding agents working in this repository.

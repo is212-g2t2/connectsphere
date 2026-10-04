@@ -6,7 +6,7 @@ This document covers the deployed topology, the release pipeline, the configurat
 
 ## Topology
 
-![Deployment topology: the Cloudflare edge fronts the two Cloud Run services, which use Supabase PostgreSQL, Secret Manager, Resend, and Sentry; GitHub Actions deploys the image through GHCR](./diagrams/deployment-topology.svg)
+![Deployment topology: the Cloudflare edge fronts the two Cloud Run services, which use Supabase PostgreSQL, Secret Manager, Resend, and Sentry. GitHub Actions deploys the image through GHCR.](./diagrams/deployment-topology.svg)
 
 Source: [`deployment-topology.drawio`](./diagrams/deployment-topology.drawio).
 
@@ -87,6 +87,7 @@ The GitHub side:
 | `RELEASE_PLEASE_TOKEN`                                     | repo secret                                  | Fine-grained personal access token (PAT) that opens the release PR (Contents, Pull requests and Issues: read and write). The default token cannot open PRs here, and a PR that it opened does not run CI. Rotate the token before it expires. |
 | `SENTRY_AUTH_TOKEN`                                        | repo secret                                  | Source-map upload. Passed to the build as a BuildKit secret.                                                                                                                                                                                  |
 | `VITE_SENTRY_DSN`                                          | repo secret                                  | Build arg.                                                                                                                                                                                                                                    |
+| `GITLEAKS_LICENSE`                                         | repo secret                                  | License for the gitleaks scan in [`security-checks.yml`](../.github/workflows/security-checks.yml).                                                                                                                                           |
 | `VITE_SENTRY_ORG`, `VITE_SENTRY_PROJECT`, `VITE_APP_TITLE` | repo variables                               | Build args.                                                                                                                                                                                                                                   |
 | `DATABASE_URL_SESSION`                                     | environment secret (`staging`, `production`) | Session pooler (`:5432`) URL, used only by `migrate`.                                                                                                                                                                                         |
 
@@ -108,7 +109,7 @@ Cloud Scheduler (`<env>-notification-emails`, Terraform-owned in [`infra/schedul
 
 The route logs a rejected bearer as a warning. A scheduler header that stays as the placeholder shows in the Cloud Run logs. Create `<env>-CRON_TOKEN` versions before the next deploy. A revision that references a versionless secret never becomes ready.
 
-Drain the queue by hand (staging shown; the token is a secret version and is never stored here):
+Drain the queue by hand (staging shown). The token is a secret version and is never stored here:
 
 ```bash
 TOKEN="$(gcloud secrets versions access latest --secret=staging-CRON_TOKEN --project=connectsphere-is212)"
@@ -129,7 +130,11 @@ The every-minute wake pays a cold start on a scale-to-zero service. If that cost
 
 ### Deployed migrations
 
-`migrate` runs after the new revision is staged at 0% traffic and before promotion. During that window, the previously serving revision handles live traffic against the migrated database. **Migrations must be additive-only.** Never drop or rename a column in the same release that stops using it. Never add a constraint that the old revision's writes can violate. Expand in one release, and contract in the next. Staging migrates on every push to `main`, and production migrates per release, so staging can be several migrations ahead. The rule spans that gap. Nothing enforces the rule mechanically. It is a review rule, and it makes the promote and rollback paths safe.
+`migrate` runs after the new revision is staged at 0% traffic and before promotion. During that window, the previously serving revision handles live traffic against the migrated database.
+
+**Migrations must be additive-only.** Never drop or rename a column in the same release that stops using it. Never add a constraint that the old revision's writes can violate. Expand in one release, and contract in the next.
+
+Staging migrates on every push to `main`, and production migrates per release, so staging can be several migrations ahead. The rule spans that gap. Nothing enforces the rule mechanically. It is a review rule, and it makes the promote and rollback paths safe.
 
 ## Rollback and incidents
 
@@ -142,7 +147,9 @@ Rollback never rebuilds an artifact and never touches the database. It moves tra
      --region=asia-southeast1 --project=connectsphere-is212
    ```
 
-2. Run **Rollback Cloud Run traffic** ([`rollback.yml`](../.github/workflows/rollback.yml)) from the Actions tab, and choose the service and the retained revision. For the production service, the run executes in the `production` GitHub Environment, so a required-reviewer rule there applies before traffic moves. Rollback shares the deploy's concurrency group (`deploy-staging` or `deploy-production`). If that deploy is in progress or waits on an approval, cancel it first: it holds the lock, and the rollback waits behind it.
+2. Run **Rollback Cloud Run traffic** ([`rollback.yml`](../.github/workflows/rollback.yml)) from the Actions tab, and choose the service and the retained revision. For the production service, the run executes in the `production` GitHub Environment, so a required-reviewer rule there applies before traffic moves.
+
+   - Rollback shares the deploy's concurrency group (`deploy-staging` or `deploy-production`). If that deploy is in progress or waits on an approval, cancel it first: it holds the lock, and the rollback waits behind it.
 
 3. Verify before you stand down:
 

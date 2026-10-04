@@ -35,16 +35,19 @@ Before the first run, authenticate. Run `gcloud auth login` for the bootstrap sc
    terraform import google_storage_bucket.tfstate connectsphere-is212-tfstate
    ```
 
-3. **Apply the secret containers on their own.** This split is not optional. `cloud-run.tf` mounts every secret as an environment reference, and a revision that references a secret with no version never becomes ready. A full apply fails halfway and leaves partial state.
+3. **Apply the secret containers on their own.** `cloud-run.tf` mounts every secret as an environment reference, and a revision that references a secret with no version never becomes ready. A full apply fails halfway and leaves partial state.
 
    ```bash
    terraform apply \
      -target=google_secret_manager_secret.app
    ```
 
-4. **Create the two Supabase projects**, one per environment. From each project, take the **transaction pooler** URL (`:6543`) for the application's `DATABASE_URL` secret. Take the **session pooler** URL (`:5432`) for the GitHub Environment's `DATABASE_URL_SESSION`. Do not use the direct connection: on Supabase Free it is IPv6-only, and GitHub-hosted runners cannot reach it.
+4. **Create the two Supabase projects**, one per environment.
 
-5. **Populate all twelve secret versions** (see below). Create `staging-CRON_TOKEN` and `prod-CRON_TOKEN` before the full apply. The Cloud Run template mounts every secret. A revision that references a versionless secret never becomes ready.
+   - Take the **transaction pooler** URL (`:6543`) for the application's `DATABASE_URL` secret.
+   - Take the **session pooler** URL (`:5432`) for the GitHub Environment's `DATABASE_URL_SESSION`. Do not use the direct connection: on Supabase Free it is IPv6-only, and GitHub-hosted runners cannot reach it.
+
+5. **Populate all twelve secret versions** (see below). Create `staging-CRON_TOKEN` and `prod-CRON_TOKEN` before the full apply. A revision that references a versionless secret never becomes ready.
 
 6. **Now the full apply.** Both services come up on the `hello` placeholder with every secret resolvable.
 
@@ -52,9 +55,19 @@ Before the first run, authenticate. Run `gcloud auth login` for the bootstrap sc
    terraform apply
    ```
 
-7. **Verify `ciav.dev` for this project** in Webmaster Central (done for `connectsphere-is212`), then enable the domain mappings. In the gitignored `infra/terraform.tfvars`, set `enable_domain_mapping = true`. Keep the environment's `proxied = false` in the `main.tf` map for the first apply. The Cloudflare proxy intercepts Google's ACME validation, and the managed certificate stays pending. After the certificate is Active, set `proxied = true` (staging first) and apply again. Every other variable in `variables.tf` has a working default.
+7. **Verify `ciav.dev` for this project** in Webmaster Central (done for `connectsphere-is212`), then enable the domain mappings.
 
-8. **Set up the GitHub side.** Create the `staging` and `production` Environments, each with a `DATABASE_URL_SESSION` secret. Add the repository secrets and variables in [DEPLOYMENT.md](../docs/DEPLOYMENT.md#configuration). If you add required reviewers to `production`, note that the rule also pauses every production release on its `migrate` job. Make the GitHub Container Registry (GHCR) package public (see below).
+   - In the gitignored `infra/terraform.tfvars`, set `enable_domain_mapping = true`.
+   - Keep the environment's `proxied = false` in the `main.tf` map for the first apply. The Cloudflare proxy intercepts Google's ACME validation, and the managed certificate stays pending.
+   - After the certificate is Active, set `proxied = true` (staging first) and apply again.
+   - Every other variable in `variables.tf` has a working default.
+
+8. **Set up the GitHub side.**
+
+   - Create the `staging` and `production` Environments, each with a `DATABASE_URL_SESSION` secret.
+   - Add the repository secrets and variables in [DEPLOYMENT.md](../docs/DEPLOYMENT.md#configuration).
+   - If you add required reviewers to `production`, note that the rule also pauses every production release on its `migrate` job.
+   - Make the GitHub Container Registry (GHCR) package public (see below).
 
 9. **Push to `main` first.** Let the staging deploy run, and fix anything that it finds. Then merge the release-please PR to publish the first release and deploy production.
 
@@ -66,7 +79,9 @@ The containers exist after step 3, but the versions do not. The command, the val
 
 ### Notification email worker
 
-`scheduler.tf` creates one Cloud Scheduler job per environment. It uses a placeholder `Authorization` header and `ignore_changes`. The real `CRON_TOKEN` never enters the Terraform state. After the first apply creates the jobs, install the real header once per environment. Take the values from Secret Manager. Never write them down:
+`scheduler.tf` creates one Cloud Scheduler job per environment. It uses a placeholder `Authorization` header and `ignore_changes`, so the real `CRON_TOKEN` never enters the Terraform state.
+
+After the first apply creates the jobs, install the real header once per environment. Take the values from Secret Manager. Never write them down:
 
 ```bash
 # Staging
@@ -97,7 +112,9 @@ Observe delivery from the job result and from the application. The response hold
 
 ### GHCR package visibility
 
-Cloud Run has no `imagePullSecret` equivalent, so `ghcr.io/is212-g2t2/connectsphere` must be a public package. A package that `GITHUB_TOKEN` publishes is private by default, even from a public repository. After the first `publish` run, use org **Packages** → `connectsphere` → **Package settings** → **Change visibility** → **Public**. Under **Manage Actions access**, confirm that the repository has Write. Until this step is complete, `deploy-stage` fails on an image pull against a revision that never becomes ready.
+Cloud Run has no `imagePullSecret` equivalent, so `ghcr.io/is212-g2t2/connectsphere` must be a public package. A package that `GITHUB_TOKEN` publishes is private by default, even from a public repository. Until this step is complete, `deploy-stage` fails on an image pull against a revision that never becomes ready.
+
+After the first `publish` run, use org **Packages** → `connectsphere` → **Package settings** → **Change visibility** → **Public**. Under **Manage Actions access**, confirm that the repository has Write.
 
 ### Resend
 

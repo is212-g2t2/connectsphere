@@ -1,6 +1,6 @@
 # Development Guide
 
-This guide covers the local development environment, the scripts catalog, database management, testing, and code quality tooling for the project.
+This guide covers the local development environment, the scripts catalogue, database management, testing, and code quality tooling for the project.
 
 ## Prerequisites
 
@@ -100,7 +100,7 @@ The fictional equipment inventory contains eight Portable Projectors, twelve Wir
 | `VITE_SENTRY_ORG`     | Optional | Sentry organization slug                                                                                                                                                           |
 | `VITE_SENTRY_PROJECT` | Optional | Sentry project slug                                                                                                                                                                |
 
-## Scripts Catalog
+## Scripts Catalogue
 
 The scripts that `package.json` defines:
 
@@ -137,7 +137,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 
 ### Schema Locations
 
-- `src/db/schema.ts`: application domain schemas. The module re-exports the authentication tables. It holds `eventRequests`, its assignment history (`eventAssignments`), pending handovers (`eventHandovers`), and clarifications (`clarificationRequests`). It also holds the venue catalogue (`venues`, `venueUnavailability`), the venue and equipment requests (`venueRequests`, `equipmentRequests`), the equipment catalogue (`equipmentTypes`, `equipmentUnavailability`, `equipmentReservations`), and event registrations (`eventRegistrations`).
+- `src/db/schema.ts`: application domain schemas. The module re-exports the authentication tables, and it holds `eventRequests`, its assignment history (`eventAssignments`), pending handovers (`eventHandovers`), and clarifications (`clarificationRequests`). It also holds the venue catalogue (`venues`, `venueUnavailability`), the venue and equipment requests (`venueRequests`, `equipmentRequests`), the equipment catalogue (`equipmentTypes`, `equipmentUnavailability`, `equipmentReservations`), and event registrations (`eventRegistrations`).
 - `src/db/auth-schema.ts`: Better Auth tables (`user` with `role`, `session`, `account`, `verification`).
 - `src/db/drizzle/`: generated SQL migration files and metadata.
 
@@ -147,7 +147,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
   ```bash
   bun run db:generate
   ```
-- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`, and handwritten migrations cause snapshot drift. One reviewed exception is the booking exclusion constraint that Drizzle cannot express ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)). The team creates it with `db:generate --custom`. The migrator runs all pending migrations in one transaction, so the constraint's predicate calls an IMMUTABLE wrapper function. It does not compare the newly added enum label.
+- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`, and handwritten migrations cause snapshot drift. One reviewed exception is the booking exclusion constraint that Drizzle cannot express ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)), created with `db:generate --custom`. The migrator runs all pending migrations in one transaction, so the constraint's predicate calls an `IMMUTABLE` wrapper function and does not compare the newly added enum label.
 - **Commit schema and migrations together**: always commit the schema changes with the generated files in `src/db/drizzle/`.
 - **Apply migrations**: run `bun run db:migrate` to apply the pending migrations.
 - **Prototyping**: during early exploration, `bun run db:push` synchronizes the schema directly without a migration file. Never use `db:push` in production.
@@ -186,11 +186,15 @@ bun run test:integration
 - Playwright drives these tests (`playwright.config.ts`). `tests/e2e/global-setup.ts` owns the environment. It starts a `postgres:18-alpine` testcontainer on a random host port, applies the committed migrations, and seeds the database. It then builds the application and starts the production server (`bun run build`, `bun run start`) on :3000 against that same `DATABASE_URL`. Teardown stops the server and the container, and it discards the database.
 - Docker must be running, and :3000 must be free. The setup does not reuse another server: it fails on the busy port. The application and the tests therefore always share one database.
 - The reset-password journey sends mail through the capture server. Run `docker compose up -d mailpit` and set `SMTP_URL="smtp://localhost:1025"` in `.env`.
-- Notification emails wait in the `notifications` table. The application does not send them inline. Only sign-up verification and password reset send immediately. Nothing schedules the worker locally. Drain the queue when you want the mail to arrive. Mailpit shows the mail when `SMTP_URL` is set:
+- Notification emails wait in the `notifications` table. The application does not send them inline, and nothing schedules the worker locally. Only sign-up verification and password reset send immediately.
+
+  Drain the queue when you want the mail to arrive. Mailpit shows the mail when `SMTP_URL` is set:
+
   ```bash
   curl -fsS -X POST -H "Authorization: Bearer $CRON_TOKEN" http://localhost:3000/api/cron/notifications
   ```
-  E2E drains the queue automatically before it waits on Mailpit. E2E uses `e2e-cron-token` as the default `CRON_TOKEN` when the environment sets no value.
+
+  E2E drains the queue automatically before it waits on Mailpit, and it uses `e2e-cron-token` as the default `CRON_TOKEN` when the environment sets no value.
 
 Run E2E tests:
 
