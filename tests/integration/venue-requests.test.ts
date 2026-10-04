@@ -1,7 +1,7 @@
 // oxlint-disable node/no-process-env
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@react-email/render";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -1082,6 +1082,60 @@ describe("venue request handlers (PTR-31)", () => {
       expect(summarize(queued[0])).toBe(`Venue booking released: ${VENUE_NAME}`);
       const html = await renderQueuedEmail(queued[0]);
       expect(html).toContain("Air-conditioning failure");
+    });
+
+    it("waits on the event before the booking row, so confirmation cannot deadlock", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+
+      // Hold the event row the way confirmation does, then let the release run into it. Without
+      // the event key share, the release takes the booking row first and waits on the event
+      // through its notification insert: the two orders form a deadlock (40P01).
+      const gate = new Pool({ connectionString: process.env.DATABASE_URL });
+      const gateClient = await gate.connect();
+      try {
+        await gateClient.query("BEGIN");
+        await gateClient.query("SELECT 1 FROM event_requests WHERE id = $1 FOR UPDATE", [eventId]);
+        const { rows: gateRows } = await gateClient.query<{ pid: number }>(
+          "SELECT pg_backend_pid() AS pid"
+        );
+        const gatePid = gateRows[0].pid;
+
+        const releasing = handleReleaseVenueBooking(
+          { id: request.id, reason: "Operational handover" },
+          session(users.venueStaffA),
+          database as never
+        );
+
+        await vi.waitFor(
+          async () => {
+            // The blocked statement names the event key share, and this gate is its blocker.
+            const waiting = await database.execute<{ count: string }>(
+              sql`SELECT count(*)::text AS count FROM pg_stat_activity
+                  WHERE wait_event_type = 'Lock'
+                    AND query ILIKE '%event_requests%'
+                    AND query ILIKE '%for key share%'
+                    AND ${gatePid}::int = ANY(pg_blocking_pids(pid))`
+            );
+            expect(Number(waiting.rows[0].count)).toBeGreaterThanOrEqual(1);
+          },
+          { timeout: 10_000, interval: 25 }
+        );
+
+        // Parked on the event, the release has not touched the booking row yet.
+        const probe = await gateClient.query(
+          "SELECT 1 FROM venue_requests WHERE id = $1 FOR UPDATE NOWAIT",
+          [request.id]
+        );
+        expect(probe.rowCount).toBe(1);
+
+        await gateClient.query("COMMIT");
+        await expect(releasing).resolves.toMatchObject({ status: "released" });
+      } finally {
+        await gateClient.query("ROLLBACK").catch(() => {});
+        gateClient.release();
+        await gate.end();
+      }
     });
 
     it("refuses a blank release reason without changing the booking (AC2)", async () => {

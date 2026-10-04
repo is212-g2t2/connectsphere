@@ -22,7 +22,11 @@ import {
   venueHoldConflictMessage,
   venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
-import { assertSameVenue, lockVenueForRequest } from "#/features/venue-requests/venue-lock.server";
+import {
+  assertSameVenue,
+  keyShareEventForRequest,
+  lockVenueForRequest,
+} from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
@@ -595,8 +599,11 @@ export async function handleApproveVenueRequest(
 
   const decided = await database
     .transaction(async tx => {
-      // One lock order for every venue writer: advisory lock first, then the row lock. The
-      // preview read learns which venue to lock; the post-lock re-read must still belong to it.
+      // The event key share precedes every venue lock: the notification insert below takes it
+      // through its FK, and confirmation holds the event before this event's requests. Then one
+      // lock order for every venue writer: advisory lock first, then the row lock. The preview
+      // read learns which venue to lock; the post-lock re-read must still belong to it.
+      await keyShareEventForRequest(tx, id);
       const lockedVenueId = await lockVenueForRequest(tx, id);
 
       const rows = await tx
@@ -701,6 +708,9 @@ export async function handleRejectVenueRequest(
   const input = parseVenueRejectionInput(data);
 
   const rejected = await database.transaction(async tx => {
+    // Same event-before-venue order as approval: the notification insert below key-shares the
+    // event through its FK, and confirmation holds the event before this event's requests.
+    await keyShareEventForRequest(tx, input.id);
     const rows = await tx
       .select({ status: venueRequests.status, assignedStaffId: venueRequests.assignedStaffId })
       .from(venueRequests)

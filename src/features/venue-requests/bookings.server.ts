@@ -16,6 +16,7 @@ import {
 } from "#/features/venue-requests/schema";
 import {
   assertSameVenue,
+  keyShareEventForRequest,
   lockVenue,
   lockVenueForRequest,
   previewVenueForRequest,
@@ -197,6 +198,9 @@ export async function handleReleaseVenueBooking(
 ) {
   const input = parseVenueReleaseInput(data);
   const released = await database.transaction(async tx => {
+    // The event key share precedes the venue lock: the notification insert below takes it through
+    // its FK, and confirmation holds the event before this event's requests.
+    await keyShareEventForRequest(tx, input.id);
     const lockedVenueId = await lockVenueForRequest(tx, input.id);
 
     const rows = await tx
@@ -246,6 +250,9 @@ export async function handleAmendVenueBooking(
 
   const amended = await database
     .transaction(async tx => {
+      // The event key share precedes the venue locks: the notification insert below takes it
+      // through its FK, and confirmation holds the event before this event's requests.
+      await keyShareEventForRequest(tx, input.id);
       const currentVenueId = await previewVenueForRequest(tx, input.id);
 
       const venueRows = await tx

@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { venueHolds, venueRequests } from "#/db/schema";
+import { eventRequests, venueHolds, venueRequests } from "#/db/schema";
 import { ConflictError, NotFoundError } from "#/features/auth/session";
 
 type Database = typeof Db;
@@ -43,6 +43,26 @@ async function previewVenueId(
 /** Preview, then lock, for a `venue_requests` writer. Returns the locked venue id. */
 export async function lockVenueForRequest(tx: VenueTx, requestId: string): Promise<number> {
   return previewVenueId(tx, venueRequests, requestId);
+}
+
+/**
+ * Key-share a venue request's event before any venue row lock. A decision notification inserted
+ * later in the transaction takes this lock through its FK. Taking it while holding the request row
+ * deadlocks against confirmation, which locks the event first and then the event's venue requests.
+ */
+export async function keyShareEventForRequest(tx: VenueTx, requestId: string): Promise<void> {
+  const rows = await tx
+    .select({ eventId: venueRequests.eventId })
+    .from(venueRequests)
+    .where(eq(venueRequests.id, requestId))
+    .limit(1);
+  const preview = rows.at(0);
+  if (!preview) return; // The row lock that follows reports Not Found.
+  await tx
+    .select({ id: eventRequests.id })
+    .from(eventRequests)
+    .where(eq(eventRequests.id, preview.eventId))
+    .for("key share");
 }
 
 /**
