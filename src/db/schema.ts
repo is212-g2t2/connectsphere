@@ -721,6 +721,8 @@ export const notifications = pgTable(
     kind: notificationKind("kind").notNull(),
     payload: jsonb("payload").$type<NotificationPayload["payload"]>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Null while unread, so every new row starts unread; set once, on the first mark. */
+    readAt: timestamp("read_at", { withTimezone: true }),
     /** Null until the worker delivers the email copy; the inbox does not depend on it. */
     emailedAt: timestamp("emailed_at", { withTimezone: true }),
     /** Set when the worker gives up after its attempt budget; the row stays in the inbox. */
