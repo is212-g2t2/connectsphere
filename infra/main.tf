@@ -18,7 +18,7 @@ data "cloudflare_zone" "ciav" {
 }
 
 # Every per-environment resource keys off this map: secrets, Cloud Run
-# services, runtime service accounts, R2 buckets, and DNS records. Adding or
+# services, runtime service accounts, and DNS records. Adding or
 # resizing an environment is one edit here.
 locals {
   environments = {
@@ -28,7 +28,6 @@ locals {
       # Scale to zero: cold start accepted, startup CPU boost softens it.
       min_instances      = 0
       max_instances      = 5
-      bucket             = "connectsphere-uploads"
       sentry_environment = "production"
       # Flipped after staging was confirmed through the proxy.
       proxied = true
@@ -42,7 +41,6 @@ locals {
       hostname           = "connectsphere-staging.ciav.dev"
       min_instances      = 0
       max_instances      = 2
-      bucket             = "connectsphere-staging-uploads"
       sentry_environment = "staging"
       # Flipped once the staging managed certificate was active, before prod.
       proxied    = true

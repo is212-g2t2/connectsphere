@@ -15,7 +15,6 @@ import type { Role } from "#/features/auth/schema/role";
  * would reach the client bundle and fail `bun run build` alone.
  */
 const statement = {
-  upload: ["create"],
   event_request: ["create", "coordinate"],
   venue: ["create", "update", "read", "search"],
   venue_request: ["request", "read", "decide"],
@@ -53,24 +52,21 @@ const ac = createAccessControl(statement);
  * rules, so these permissions never grant access to another role's event or row.
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
-  // Uploads attach documents to a request or a venue, so attendees hold no functions yet:
-  // an empty role authorizes nothing, which is the fail-closed default we want.
+  // Attendees hold no functions yet: an empty role authorizes nothing, which is the
+  // fail-closed default we want.
   attendee: ac.newRole({}),
-  event_organiser: ac.newRole({ upload: ["create"], event_request: ["create"] }),
+  event_organiser: ac.newRole({ event_request: ["create"] }),
   event_coordinator: ac.newRole({
-    upload: ["create"],
     event_request: ["coordinate"],
     venue: ["read", "search"],
     venue_request: ["request"],
     equipment_request: ["manage", "submit"],
   }),
   venue_staff: ac.newRole({
-    upload: ["create"],
     venue: ["create", "update", "read"],
     venue_request: ["read", "decide"],
   }),
   technical_support_staff: ac.newRole({
-    upload: ["create"],
     venue: ["read"],
     equipment_request: ["read", "arrange"],
     equipment: ["reserve", "release"],

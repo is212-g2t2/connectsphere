@@ -7,8 +7,3 @@ output "deploy_sa" {
   description = "Deploy service account email (GitHub secret GCP_SA)"
   value       = google_service_account.deploy.email
 }
-
-output "minio_endpoint" {
-  description = "R2 S3 endpoint shared by both buckets (manual CORS step)"
-  value       = local.minio_endpoint
-}

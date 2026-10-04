@@ -6,6 +6,8 @@ status: accepted
 
 # ADR-3: Deploy to Google Cloud Run in a single GCP project
 
+> **Amended 2026-10-04:** the upload demo and its Cloudflare R2 buckets, `Bun.s3` usage and two R2 secrets were removed (PTR-121). Secret Manager now holds six secrets per environment. The Cloud Run decision and the single-project trade stand.
+
 ## Context
 
 ConnectSphere has to be deployed. It is built on Bun and uses Bun-native drivers: `bun:sql` through `drizzle-orm/bun-sql` for Postgres, `Bun.s3` for presigned uploads, and a `Bun.RedisClient` in `src/lib/redis.server.ts` that is wired but currently imported by nothing. [ADR-1](./ADR-1-tanstack-start.md) committed to those drivers and recorded the consequence: hosting must run the Bun runtime or the three drivers need replacing.

@@ -55,7 +55,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │   │   ├── venue-requests/ # Booking requests: raise, withdraw, approve, reject, release, amend, notify
 │   │   └── venues/       # Venue catalogue, requirements search with suitability verdicts, and availability
 │   ├── hooks/            # Client hooks shared across features
-│   ├── lib/              # Shared integrations (auth, mail, storage, logger, SEO)
+│   ├── lib/              # Shared integrations (auth, mail, logger, SEO)
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
@@ -63,7 +63,7 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 │       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
 │       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection
 │       │   └── venue-bookings/ # Venue Staff's approved-booking release and amendment view
-│       ├── api/          # Better Auth handler, health, smoke, upload-url
+│       ├── api/          # Better Auth handler, health, smoke
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
 ├── CHANGELOG.md          # Release history
@@ -81,10 +81,9 @@ Reasoning behind foundational choices lives in [`docs/adrs/`](./adrs/):
 2. **SSR**: TanStack Start renders the initial HTML through Nitro.
 3. **Sessions**: `src/routes/__root.tsx` resolves the session once per navigation in `beforeLoad`, for every route, so the header renders the user in the server markup. `src/routes/_authenticated.tsx` narrows it to a signed-in user and redirects visitors to `/login`; its children read the inherited `context.user` rather than calling `getCurrentUser()` themselves. The role-gated routes repeat a `can()` check in their own `beforeLoad` and redirect on failure. Auth routes redirect already-signed-in users to `/dashboard`.
 4. **Server functions**: every `createServerFn` is a directly addressable HTTP route, so authorization runs in middleware, never in the route guard or the handler. Handlers do pure database work: no session lookup and no `can()` of their own. The full model is [Authorisation](#authorisation).
-5. **Client mutations**: browser writes a form does not own (save a draft, delete an account, sign out, upload) run through `useMutation` (`src/hooks/use-mutation.ts`), a thin wrapper over React's `useActionState` holding the run's in-flight flag, result and error. The run receives the last _successful_ result, which is how a server-assigned draft id reaches the next save without the page storing it.
+5. **Client mutations**: browser writes a form does not own (save a draft, delete an account, sign out) run through `useMutation` (`src/hooks/use-mutation.ts`), a thin wrapper over React's `useActionState` holding the run's in-flight flag, result and error. The run receives the last _successful_ result, which is how a server-assigned draft id reaches the next save without the page storing it.
 6. **Auth flow**: forms in `src/features/auth/components/` call `src/lib/auth-client.ts`; `/login`, `/signup` and `/reset-password` (`?token=`) are the routes.
-7. **File uploads**: `src/routes/api/upload-url.ts` generates a presigned PUT URL; the client uploads directly to storage and the server never proxies file bytes.
-8. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The in-app record and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute. The worker delivers pending rows and marks them. The reasoning, failure policy and P0 bypass are [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
+7. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The in-app record and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute. The worker delivers pending rows and marks them. The reasoning, failure policy and P0 bypass are [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
 
 ## Database & Migrations
 
@@ -132,7 +131,6 @@ Source of truth is `src/features/auth/permissions.ts`, held to this table by `te
 
 | Function                    | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
 | --------------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
-| `upload:create`             |    —     |       ✅        |        ✅         |     ✅      |           ✅            |
 | `event_request:create`      |    —     |       ✅        |         —         |      —      |            —            |
 | `event_request:coordinate`  |    —     |        —        |        ✅         |      —      |            —            |
 | `venue:read`                |    —     |        —        |        ✅         |     ✅      |           ✅            |
@@ -158,7 +156,7 @@ Built with `createAccessControl` from `better-auth/plugins/access`. Despite the 
 | Layer                  | Enforcement                                                                                                                                                                                                                                                                 |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Server functions**   | `.middleware([...])` on every `createServerFn`: `withSession` resolves the session, `requireSession` answers 401, `requirePermission(...)` answers 403, or takes an accessor where the permission depends on the payload, as `saveVenue`'s create-versus-update split does. |
-| **API route handlers** | `src/routes/api/upload-url.ts` calls `can()` beside its session check, the one handler outside the pipeline.                                                                                                                                                                |
+| **API route handlers** | No handler does its own role check: `/api/auth/*` is Better Auth's own handler, `/api/health` is public by design, and `/api/smoke` gates on its bearer token.                                                                                                              |
 | **Route guards**       | `beforeLoad` redirects and role checks, presentation only; the middleware behind the page repeats the check.                                                                                                                                                                |
 | **The interface**      | Page views ask `can()` of their route's user, for example to choose between the venue form and its read-only view. Hiding a control is presentation, never enforcement.                                                                                                     |
 

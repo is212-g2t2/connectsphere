@@ -36,23 +36,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      minio:
-        # quay.io/minio/minio ships CMD ["minio"], which prints help and exits; a GitHub service
-        # cannot append `server /data`. This image starts the server and creates
-        # MINIO_DEFAULT_BUCKETS on boot, so the upload journey has a bucket to PUT into.
-        image: bitnamilegacy/minio:latest
-        env:
-          MINIO_ROOT_USER: admin
-          MINIO_ROOT_PASSWORD: password
-          MINIO_DEFAULT_BUCKETS: app
-        ports:
-          - 9000:9000
-          - 9001:9001
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-bun
@@ -61,20 +44,16 @@ jobs:
       - name: Run E2E tests
         # globalSetup starts its own postgres testcontainer (random port, migrated and seeded)
         # and a production server on :3000 against it, so Docker must be reachable here — hence
-        # no job container. Mailpit and MinIO come from the services above.
+        # no job container. Mailpit comes from the services above.
         run: bun run test:e2e
         env:
           BETTER_AUTH_SECRET: "12345678901234567890123456789012"
           BETTER_AUTH_URL: "http://localhost:3000"
-          # Mail capture and object storage for the password-reset and upload journeys.
+          # Mail capture for the password-reset journey.
           SMTP_URL: smtp://127.0.0.1:1025
           MAILPIT_URL: http://127.0.0.1:8025
           # The notification email worker's bearer; E2E drains the queue through its route.
           CRON_TOKEN: e2e-cron-token
-          MINIO_ENDPOINT: http://127.0.0.1:9000
-          MINIO_BUCKET: app
-          MINIO_ACCESS_KEY: admin
-          MINIO_SECRET_KEY: password
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}

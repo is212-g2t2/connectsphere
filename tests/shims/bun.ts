@@ -1,29 +1,3 @@
-export interface S3ClientOptions {
-  endpoint?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  bucket?: string;
-  region?: string;
-}
-
-export class S3Client {
-  readonly endpoint: string;
-  readonly bucket: string;
-
-  constructor(options: S3ClientOptions = {}) {
-    this.endpoint = options.endpoint ?? "http://localhost:9000";
-    this.bucket = options.bucket ?? "app";
-  }
-
-  presign(key: string, options?: { method?: string; expiresIn?: number; type?: string }): string {
-    const method = options?.method ?? "PUT";
-    const typeParam = options?.type
-      ? `&response-content-type=${encodeURIComponent(options.type)}`
-      : "";
-    return `${this.endpoint}/${this.bucket}/${key}?method=${method}&X-Amz-Signature=mock${typeParam}`;
-  }
-}
-
 export class SQL {
   constructor(public connectionString?: string) {}
 }

@@ -1,32 +1,7 @@
-// oxlint-disable node/no-process-env
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { AwsClient } from "aws4fetch";
 
 import { waitForHydration } from "./hydration";
-
-const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT ?? "http://localhost:9000";
-const MINIO_BUCKET = process.env.MINIO_BUCKET ?? "app";
-
-/**
- * Signs a request against MinIO directly. The app signs with Bun's S3 client, but CI runs these
- * tests on Node, where that client does not exist, so the assertion carries its own signer.
- */
-const minio = new AwsClient({
-  accessKeyId: process.env.MINIO_ACCESS_KEY ?? "admin",
-  secretAccessKey: process.env.MINIO_SECRET_KEY ?? "password",
-  service: "s3",
-  region: "us-east-1",
-});
-
-async function signedObjectUrl(key: string, method: "GET" | "DELETE"): Promise<string> {
-  return (
-    await minio.sign(new URL(`/${MINIO_BUCKET}/${key}`, MINIO_ENDPOINT).toString(), {
-      method,
-      aws: { signQuery: true },
-    })
-  ).url;
-}
 
 test.describe("Protected routes (Signed Out)", () => {
   test("redirects unauthenticated user to login", async ({ page }) => {
@@ -43,32 +18,22 @@ test.describe("Protected routes (Signed Out)", () => {
 });
 
 /**
- * PTR-7 criterion 2, first half: "the function is not displayed".
- *
- * The refusal half is covered server-side. Since PTR-75 the view itself is a feature component,
- * so `tests/unit/page-views.test.tsx` asserts the same hiding far more cheaply by handing it a
- * role directly — but only this run proves that the role reaching the view is the one the session
- * actually carries. Delete the `can(...)` wrapper in
- * `src/features/dashboard/components/dashboard-page.tsx` and both should go red.
+ * The settings server response, reached through a real sign-up. Dashboard role-gating is covered
+ * far more cheaply by the unit-tested view and the route guards; this block keeps the one
+ * assertion that needs a real session against a real server render.
  */
-test.describe("Role-gated interface", () => {
+test.describe("Settings after sign-up", () => {
   const password = "Password123!";
 
-  async function signUpAs(page: Page, role: "Attendee" | "Event Organiser") {
-    const email = `e2e-${role.replace(/\s/g, "-").toLowerCase()}-${Date.now()}@example.com`;
+  async function signUpAs(page: Page) {
+    const email = `e2e-attendee-${Date.now()}@example.com`;
 
     await page.goto("/signup");
     await waitForHydration(page);
-    await page.locator("#name").fill(`E2E ${role}`);
+    await page.locator("#name").fill("E2E Attendee");
     await page.locator("#email").fill(email);
     await page.locator("#password").fill(password);
     await page.locator("#confirmPassword").fill(password);
-
-    // Attendee is the default, so only the organiser run has to touch the Select.
-    if (role === "Event Organiser") {
-      await page.locator("#role").click();
-      await page.getByRole("option", { name: role }).click();
-    }
 
     await page.getByRole("button", { name: "Create account" }).click();
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
@@ -80,73 +45,12 @@ test.describe("Role-gated interface", () => {
     await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible({ timeout: 10_000 });
   }
 
-  test("hides the upload control from an attendee", async ({ page }) => {
-    await signUpAs(page, "Attendee");
-
-    await expect(page.getByRole("heading", { name: "File upload" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Choose file" })).toHaveCount(0);
-
-    // The session summary every role sees stays, so this proves a gated function is missing
-    // rather than the whole page.
-    await expect(page.locator("dt", { hasText: "Role" })).toBeVisible();
-  });
-
-  test("shows the upload control to an event organiser", async ({ page }) => {
-    await signUpAs(page, "Event Organiser");
-
-    await expect(page.getByRole("heading", { name: "File upload" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Choose file" })).toBeVisible();
-  });
-
-  /**
-   * PTR-71's two-stage flow, exercised against the real bucket: ask the route for a presigned
-   * URL, PUT the bytes to it, then read the object back through a presigned GET. The visibility
-   * tests above only prove the control renders; this is what proves storage works.
-   */
-  test("uploads through the presigned PUT and reads the stored object back", async ({ page }) => {
-    const email = `e2e-upload-${Date.now()}@example.com`;
-    const signUp = await page.request.post("/api/auth/sign-up/email", {
-      headers: { Origin: "http://localhost:3000" },
-      data: { name: "Upload Organiser", email, password, role: "event_organiser" },
-    });
-    expect(signUp.ok(), await signUp.text()).toBe(true);
-
-    let key: string | undefined;
-
-    try {
-      await page.goto("/dashboard");
-      await expect(page.getByRole("heading", { name: "File upload" })).toBeVisible();
-
-      const content = "connectsphere e2e upload";
-      const presign = await page.request.post("/api/upload-url", {
-        data: { filename: "e2e-upload.txt", contentType: "text/plain", size: content.length },
-      });
-      expect(presign.ok(), await presign.text()).toBe(true);
-      const { url, key: uploadedKey } = (await presign.json()) as { url: string; key: string };
-      key = uploadedKey;
-
-      const put = await page.request.put(url, {
-        headers: { "Content-Type": "text/plain" },
-        data: content,
-      });
-      expect(put.ok(), await put.text()).toBe(true);
-
-      const stored = await page.request.get(await signedObjectUrl(key, "GET"));
-      expect(stored.ok(), await stored.text()).toBe(true);
-      expect(await stored.text()).toBe(content);
-    } finally {
-      if (key) {
-        await page.request.fetch(await signedObjectUrl(key, "DELETE"), { method: "DELETE" });
-      }
-    }
-  });
-
   /**
    * PTR-66: linked providers come from the route loader, so they are in the server HTML. A
    * client-side fetch would leave "Loading…" in the response and only resolve after hydration.
    */
   test("renders linked providers in the settings server response", async ({ page }) => {
-    await signUpAs(page, "Attendee");
+    await signUpAs(page);
 
     const response = await page.request.get("/settings");
     const html = await response.text();

@@ -9,8 +9,6 @@ locals {
     "CRON_TOKEN", # bearer the notification email worker is called with (PTR-55)
     "VITE_SENTRY_DSN",
     "RESEND_API_KEY",
-    "MINIO_ACCESS_KEY", # R2 API token Access Key ID
-    "MINIO_SECRET_KEY", # R2 API token secret
   ]
 
   # { "prod-DATABASE_URL" = { env = "prod", name = "DATABASE_URL" }, ... }
@@ -32,7 +30,7 @@ resource "google_secret_manager_secret" "app" {
   }
 }
 
-# Each environment's runtime service account can read only its own eight
+# Each environment's runtime service account can read only its own six
 # secrets, so cs-staging-run cannot read prod-DATABASE_URL even though both
 # live in one project. This grant is what makes the single-project design safe.
 resource "google_secret_manager_secret_iam_member" "runtime" {

@@ -21,7 +21,6 @@ import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authen
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiSmokeRouteImport } from './routes/api/smoke'
-import { Route as ApiUploadUrlRouteImport } from './routes/api/upload-url'
 import { Route as AuthenticatedCoordinationIndexRouteImport } from './routes/_authenticated/coordination/index'
 import { Route as AuthenticatedCoordinationRequestIdRouteImport } from './routes/_authenticated/coordination/$requestId'
 import { Route as AuthenticatedEquipmentRequestsIndexRouteImport } from './routes/_authenticated/equipment-requests/index'
@@ -98,11 +97,6 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
 const ApiSmokeRoute = ApiSmokeRouteImport.update({
   id: '/api/smoke',
   path: '/api/smoke',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiUploadUrlRoute = ApiUploadUrlRouteImport.update({
-  id: '/api/upload-url',
-  path: '/api/upload-url',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedCoordinationIndexRoute =
@@ -217,7 +211,6 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
-  '/api/upload-url': typeof ApiUploadUrlRoute
   '/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
   '/equipment-requests/$eventId': typeof AuthenticatedEquipmentRequestsEventIdRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
@@ -248,7 +241,6 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
-  '/api/upload-url': typeof ApiUploadUrlRoute
   '/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
   '/equipment-requests/$eventId': typeof AuthenticatedEquipmentRequestsEventIdRoute
   '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
@@ -281,7 +273,6 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
-  '/api/upload-url': typeof ApiUploadUrlRoute
   '/_authenticated/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
   '/_authenticated/equipment-requests/$eventId': typeof AuthenticatedEquipmentRequestsEventIdRoute
   '/_authenticated/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
@@ -314,7 +305,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/api/health'
     | '/api/smoke'
-    | '/api/upload-url'
     | '/coordination/$requestId'
     | '/equipment-requests/$eventId'
     | '/event-requests/$requestId'
@@ -345,7 +335,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/api/health'
     | '/api/smoke'
-    | '/api/upload-url'
     | '/coordination/$requestId'
     | '/equipment-requests/$eventId'
     | '/event-requests/$requestId'
@@ -377,7 +366,6 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/api/health'
     | '/api/smoke'
-    | '/api/upload-url'
     | '/_authenticated/coordination/$requestId'
     | '/_authenticated/equipment-requests/$eventId'
     | '/_authenticated/event-requests/$requestId'
@@ -407,7 +395,6 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiSmokeRoute: typeof ApiSmokeRoute
-  ApiUploadUrlRoute: typeof ApiUploadUrlRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCronNotificationsRoute: typeof ApiCronNotificationsRoute
 }
@@ -496,13 +483,6 @@ declare module '@tanstack/react-router' {
       path: '/api/smoke'
       fullPath: '/api/smoke'
       preLoaderRoute: typeof ApiSmokeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/upload-url': {
-      id: '/api/upload-url'
-      path: '/api/upload-url'
-      fullPath: '/api/upload-url'
-      preLoaderRoute: typeof ApiUploadUrlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/coordination/': {
@@ -689,7 +669,6 @@ const rootRouteChildren: RootRouteChildren = {
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiSmokeRoute: ApiSmokeRoute,
-  ApiUploadUrlRoute: ApiUploadUrlRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCronNotificationsRoute: ApiCronNotificationsRoute,
 }

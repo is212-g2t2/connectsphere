@@ -29,24 +29,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-  minio:
-    image: quay.io/minio/minio
-    container_name: minio
-    ports:
-      - 9000:9000
-      - 9001:9001
-    volumes:
-      - ./data/minio/data:/data
-    environment:
-      - MINIO_ROOT_USER=admin
-      - MINIO_ROOT_PASSWORD=password
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD", "sh", "-c", ": < /dev/tcp/localhost/9000"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   mailpit:
     image: axllent/mailpit:v1.31.1
     container_name: mailpit
@@ -59,22 +41,6 @@ services:
       timeout: 5s
       retries: 10
 
-  minio_init:
-    image: minio/mc
-    container_name: minio_init
-    depends_on:
-      - minio
-    environment:
-      - MC_USER=admin
-      - MC_PASS=password
-      - MC_BUCKET=app
-    entrypoint: >
-      /bin/sh -c "
-        until (mc alias set minio http://minio:9000 $$MC_USER $$MC_PASS 2>/dev/null) do echo '...' && sleep 1; done;
-        echo 'Creating bucket $$MC_BUCKET';
-        mc mb --ignore-existing minio/$$MC_BUCKET;
-        exit 0;
-      "
   connectsphere:
     build:
       context: .
@@ -87,9 +53,5 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_healthy
-      minio_init:
-        condition: service_completed_successfully
       redis:
         condition: service_healthy

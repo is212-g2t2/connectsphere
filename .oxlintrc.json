@@ -165,25 +165,12 @@
         "shadcn/no-inline-styles": "off"
       }
     },
-    // Upstream shadcn/ui internals the design system cannot verify: navigation-menu uses Base UI
-    // data variants and an undefined `xs:` breakpoint, and chart injects per-series CSS variables
-    // at runtime.
+    // Upstream shadcn/ui internals the design system cannot verify: sonner targets
+    // the library's own `toaster` class.
     {
-      "files": ["src/components/ui/sonner.tsx", "src/components/ui/input-otp.tsx"],
+      "files": ["src/components/ui/sonner.tsx"],
       "rules": {
-        "shadcn/no-unknown-classes": ["error", { "allow": ["toaster", "cn-input-otp"] }]
-      }
-    },
-    {
-      "files": ["src/components/ui/navigation-menu.tsx"],
-      "rules": {
-        "shadcn/no-unknown-classes": "off"
-      }
-    },
-    {
-      "files": ["src/components/ui/chart.tsx"],
-      "rules": {
-        "shadcn/no-inline-styles": "off"
+        "shadcn/no-unknown-classes": ["error", { "allow": ["toaster"] }]
       }
     }
   ],
