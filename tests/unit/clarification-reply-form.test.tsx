@@ -41,7 +41,6 @@ describe("ClarificationReplyForm", () => {
     const user = userEvent.setup();
     replyToClarification.mockResolvedValueOnce({
       clarification: { id: 14 },
-      notification: "sent",
     });
 
     render(
@@ -71,7 +70,6 @@ describe("ClarificationReplyForm", () => {
     const user = userEvent.setup();
     replyToClarification.mockResolvedValueOnce({
       clarification: { id: 14 },
-      notification: "sent",
     });
 
     render(
@@ -85,7 +83,7 @@ describe("ClarificationReplyForm", () => {
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     await waitFor(() => {
-      expect(success).toHaveBeenCalledWith("Reply sent — the Coordinator has been notified.");
+      expect(success).toHaveBeenCalledWith("Reply sent — the Coordinator will be notified.");
     });
   });
 
@@ -109,7 +107,6 @@ describe("ClarificationReplyForm", () => {
     const user = userEvent.setup();
     replyToClarification.mockResolvedValueOnce({
       clarification: { id: 14 },
-      notification: "sent",
     });
 
     render(
@@ -173,7 +170,6 @@ describe("ClarificationReplyForm", () => {
     const user = userEvent.setup();
     replyToClarification.mockResolvedValueOnce({
       clarification: { id: 14 },
-      notification: "sent",
     });
 
     render(
@@ -194,7 +190,6 @@ describe("ClarificationReplyForm", () => {
     const user = userEvent.setup();
     replyToClarification.mockResolvedValueOnce({
       clarification: { id: 14 },
-      notification: "sent",
     });
 
     render(
@@ -267,12 +262,9 @@ describe("ClarificationReplyForm", () => {
     expect((attendance as HTMLInputElement).value).toBe("120");
   });
 
-  it("surfaces a delivery warning after a saved reply", async () => {
+  it("treats a saved reply as sent: delivery is queued, so no failure is reportable here", async () => {
     const user = userEvent.setup();
-    replyToClarification.mockResolvedValueOnce({
-      clarification: { id: 14 },
-      notification: "failed",
-    });
+    replyToClarification.mockResolvedValueOnce({ clarification: { id: 14 } });
 
     render(
       <ClarificationReplyForm requestId={7} clarification={{ id: 14, permittedFields: [] }} />
@@ -282,20 +274,15 @@ describe("ClarificationReplyForm", () => {
     await user.click(screen.getByRole("button", { name: "Send reply" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toContain(
-        "Your reply was saved, but ConnectSphere could not notify the Coordinator."
-      );
-      expect(warning).toHaveBeenCalledWith(
-        "Your reply was saved, but ConnectSphere could not notify the Coordinator."
-      );
+      expect(success).toHaveBeenCalledWith("Reply sent — the Coordinator will be notified.");
     });
+    expect(warning).not.toHaveBeenCalled();
   });
 
   it("locks the form after a saved reply when route invalidation fails", async () => {
     const user = userEvent.setup();
     replyToClarification.mockResolvedValueOnce({
       clarification: { id: 14 },
-      notification: "sent",
     });
     invalidate.mockRejectedValueOnce(new Error("Route reload failed"));
 

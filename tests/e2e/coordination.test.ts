@@ -629,7 +629,10 @@ test("rejects an under-review request, records the decision and notifies the Org
     await expect(decidedAt).toBeVisible();
     await expect(decidedAt).toHaveAttribute("datetime", stored.decidedAt?.toISOString() ?? "");
 
-    const notification = await waitForEmail(organiser.email, "Your event request was rejected");
+    const notification = await waitForEmail(
+      organiser.email,
+      `Your event request for ${eventName} was rejected`
+    );
     expect(notification).toContain(eventName);
     expect(notification).toContain("rejected");
     expect(notification).toContain("The requested venue is unavailable.");

@@ -63,13 +63,26 @@ describe("sendEmail", () => {
 
     const result = await sendEmail("to@example.com", "Hello", element);
 
-    expect(mockEmailsSend).toHaveBeenCalledWith({
-      from: "Sender <from@example.com>",
-      to: "to@example.com",
-      subject: "Hello",
-      react: element,
-    });
+    expect(mockEmailsSend).toHaveBeenCalledWith(
+      {
+        from: "Sender <from@example.com>",
+        to: "to@example.com",
+        subject: "Hello",
+        react: element,
+      },
+      undefined
+    );
     expect(result).toEqual(data);
+  });
+
+  test("passes an idempotency key through to the provider", async () => {
+    mockEmailsSend.mockResolvedValue({ data: { id: "email_123" }, error: null });
+
+    await sendEmail("to@example.com", "Hello", element, { idempotencyKey: "notification-7" });
+
+    expect(mockEmailsSend).toHaveBeenCalledWith(expect.anything(), {
+      idempotencyKey: "notification-7",
+    });
   });
 
   test("uses default from address when EMAIL_FROM is not set", async () => {
@@ -79,7 +92,8 @@ describe("sendEmail", () => {
     await sendEmail("to@example.com", "Hello", element);
 
     expect(mockEmailsSend).toHaveBeenCalledWith(
-      expect.objectContaining({ from: "ConnectSphere <onboarding@resend.dev>" })
+      expect.objectContaining({ from: "ConnectSphere <onboarding@resend.dev>" }),
+      undefined
     );
   });
 

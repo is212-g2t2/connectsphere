@@ -22,6 +22,8 @@ resource "google_project_service" "apis" {
     "cloudresourcemanager.googleapis.com",
     "billingbudgets.googleapis.com",
     "iam.googleapis.com",
+    # PTR-55: the every-minute notification email worker.
+    "cloudscheduler.googleapis.com",
   ])
 
   service            = each.key

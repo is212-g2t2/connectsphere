@@ -69,6 +69,8 @@ jobs:
           # Mail capture and object storage for the password-reset and upload journeys.
           SMTP_URL: smtp://127.0.0.1:1025
           MAILPIT_URL: http://127.0.0.1:8025
+          # The notification email worker's bearer; E2E drains the queue through its route.
+          CRON_TOKEN: e2e-cron-token
           MINIO_ENDPOINT: http://127.0.0.1:9000
           MINIO_BUCKET: app
           MINIO_ACCESS_KEY: admin

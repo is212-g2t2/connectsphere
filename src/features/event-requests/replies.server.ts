@@ -1,13 +1,9 @@
 import { and, eq } from "drizzle-orm";
-import { createElement } from "react";
 import type { db as Db } from "#/db";
 import { clarificationRequests, eventRequests, user } from "#/db/schema";
-import { env } from "#/env";
-import { ClarificationReplyEmail } from "#/features/emails/components/clarification-reply-email";
-import { sendEmail } from "#/lib/mailer.server";
-import { logger } from "#/lib/logger";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
   clarificationAmendmentKeys,
   missingFieldsMessage,
@@ -170,7 +166,7 @@ export async function handleReplyToClarification(
     const amendments = clarificationAmendments(request, values, question.permittedFields);
     const coordinator = (
       await tx
-        .select({ email: user.email })
+        .select({ id: user.id })
         .from(user)
         .where(and(eq(user.id, request.assignedCoordinatorId), eq(user.role, "event_coordinator")))
     ).at(0);
@@ -196,27 +192,23 @@ export async function handleReplyToClarification(
         registrationClosesAt: values.registrationClosesAt ?? null,
       })
       .where(eq(eventRequests.id, request.id));
-    return { clarification, coordinatorEmail: coordinator.email, eventName: values.eventName };
+
+    // The reply and the Coordinator's notification commit together; the worker sends the email.
+    await raiseNotifications(tx, [
+      {
+        recipientId: coordinator.id,
+        eventRequestId: request.id,
+        kind: "clarification_replied",
+        payload: {
+          eventName: values.eventName.trim() || "Untitled request",
+          question: question.body,
+          body: input.body,
+        },
+      },
+    ]);
+
+    return clarification;
   });
-  const displayName = recorded.eventName.trim() || "Untitled request";
-  try {
-    await sendEmail(
-      recorded.coordinatorEmail,
-      `Clarification replied: ${displayName}`,
-      createElement(ClarificationReplyEmail, {
-        eventName: displayName,
-        question: recorded.clarification.body,
-        body: input.body,
-        eventRequestUrl: `${env.BETTER_AUTH_URL}/coordination/${input.id}`,
-      })
-    );
-  } catch (error) {
-    logger.getChild("event-requests").warn("Clarification reply email failed", {
-      requestId: input.id,
-      clarificationId: input.clarificationId,
-      errorName: error instanceof Error ? error.name : "unknown",
-    });
-    return { clarification: recorded.clarification, notification: "failed" as const };
-  }
-  return { clarification: recorded.clarification, notification: "sent" as const };
+
+  return recorded;
 }

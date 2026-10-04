@@ -6,6 +6,7 @@ locals {
     "DATABASE_URL",       # Supabase transaction-pooler connection string
     "BETTER_AUTH_SECRET", # >= 32 chars, distinct per environment
     "SMOKE_TOKEN",
+    "CRON_TOKEN", # bearer the notification email worker is called with (PTR-55)
     "VITE_SENTRY_DSN",
     "RESEND_API_KEY",
     "MINIO_ACCESS_KEY", # R2 API token Access Key ID
@@ -31,7 +32,7 @@ resource "google_secret_manager_secret" "app" {
   }
 }
 
-# Each environment's runtime service account can read only its own seven
+# Each environment's runtime service account can read only its own eight
 # secrets, so cs-staging-run cannot read prod-DATABASE_URL even though both
 # live in one project. This grant is what makes the single-project design safe.
 resource "google_secret_manager_secret_iam_member" "runtime" {

@@ -47,22 +47,12 @@ interface EquipmentPanelProps {
 const EMPTY_FORM = { item: "", quantity: "", notes: "" };
 
 /**
- * The toast text for a settled submit. The counts are all the panel needs: no recipients is a
- * different message from every recipient failing, which is different again from some failing.
- * Exported pure so the four branches are unit-testable without a browser.
+ * The toast text for a settled submit. Delivery is the worker's job now, so the only distinction
+ * left at submit time is whether anyone was there to notify.
  */
-export function submitToastMessage(result: {
-  recipientCount: number;
-  failedCount: number;
-}): string {
+export function submitToastMessage(result: { recipientCount: number }): string {
   if (result.recipientCount === 0) {
     return "Equipment requirements submitted. No Technical Support Staff to notify.";
-  }
-  if (result.failedCount === result.recipientCount) {
-    return "Equipment requirements submitted, but no notifications were delivered.";
-  }
-  if (result.failedCount > 0) {
-    return "Equipment requirements sent to Technical Support; some notifications failed.";
   }
   return "Equipment requirements sent to Technical Support.";
 }

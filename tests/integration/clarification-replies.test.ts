@@ -1,10 +1,10 @@
-// These mutations share fixtures and mail capture; their assertions must run in sequence.
+// These mutations share fixtures and notification rows; their assertions must run in sequence.
 // oxlint-disable node/no-process-env, no-await-in-loop
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq, inArray, sql } from "drizzle-orm";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { render } from "@react-email/render";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import type { ReactElement } from "react";
 import * as schema from "#/db/schema";
 import { handleGetEventRequest } from "#/features/event-requests/drafts.server";
 import {
@@ -12,13 +12,8 @@ import {
   handleRaiseClarificationRequest,
 } from "#/features/coordination/assignments.server";
 import { handleReplyToClarification } from "#/features/event-requests/replies.server";
-
-const { sendEmail } = vi.hoisted(() => ({
-  sendEmail: vi
-    .fn<(to: string, subject: string, react: ReactElement) => Promise<unknown>>()
-    .mockResolvedValue({ id: "mail" }),
-}));
-vi.mock("#/lib/mailer.server", () => ({ sendEmail }));
+import { notificationSummary } from "#/features/notifications/message";
+import { renderNotificationEmail } from "#/features/notifications/render.server";
 
 const organiser = {
   id: "ptr19-organiser",
@@ -57,7 +52,6 @@ beforeEach(async () => {
   await database
     .delete(schema.eventRequests)
     .where(inArray(schema.eventRequests.organiserId, [organiser.id, otherOrganiser.id]));
-  sendEmail.mockReset().mockResolvedValue({ id: "mail" });
 });
 afterAll(async () => {
   await database.delete(schema.user).where(
@@ -90,7 +84,6 @@ async function question(permittedFields: string[] = []) {
     coordinator,
     database as never
   );
-  sendEmail.mockClear();
   return {
     request,
     clarification,
@@ -100,6 +93,19 @@ async function question(permittedFields: string[] = []) {
       body: "Confirmed: 100 guests in Theatre.",
     },
   };
+}
+
+async function repliedNotifications(eventRequestId: number, recipientId: string) {
+  return database
+    .select()
+    .from(schema.notifications)
+    .where(
+      and(
+        eq(schema.notifications.eventRequestId, eventRequestId),
+        eq(schema.notifications.recipientId, recipientId),
+        eq(schema.notifications.kind, "clarification_replied")
+      )
+    );
 }
 
 describe("Organiser clarification replies", () => {
@@ -118,30 +124,39 @@ describe("Organiser clarification replies", () => {
       status: "awaiting_organiser",
       clarifications: [expect.objectContaining({ replyBody: null })],
     });
-    expect(sendEmail).not.toHaveBeenCalled();
+    expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(0);
     await database
       .update(schema.eventRequests)
       .set({ assignedCoordinatorId: replacement.id })
       .where(eq(schema.eventRequests.id, request.id));
-    expect(
-      (await handleReplyToClarification(input, organiser, database as never)).notification
-    ).toBe("sent");
+    const clarification = await handleReplyToClarification(input, organiser, database as never);
+    expect(clarification.replyBody).toBe(input.body);
+    const queued = await repliedNotifications(request.id, replacement.id);
+    expect(queued).toHaveLength(1);
+    expect(queued[0].emailedAt).toBeNull();
   });
-  it("preserves the committed reply when mail fails and reports delivery failure", async () => {
+  it("queues the Coordinator notification with the committed reply", async () => {
     const { request, input } = await question(["expectedAttendance"]);
-    sendEmail.mockRejectedValueOnce(new Error("SMTP unavailable"));
-    const result = await handleReplyToClarification(
+    const clarification = await handleReplyToClarification(
       { ...input, amendments: { expectedAttendance: 120 } },
       organiser,
       database as never
     );
-    expect(result.notification).toBe("failed");
+    expect(clarification.replyBody).toBe(input.body);
     expect(
       await handleGetEventRequest({ id: request.id }, organiser, database as never)
     ).toMatchObject({
       status: "under_review",
       expectedAttendance: 120,
       clarifications: [expect.objectContaining({ replyBody: input.body })],
+    });
+    const queued = await repliedNotifications(request.id, coordinator.id);
+    expect(queued).toHaveLength(1);
+    expect(queued[0].emailedAt).toBeNull();
+    expect(queued[0].payload).toMatchObject({
+      eventName: "PTR19 Test Event",
+      question: "Please confirm attendance and layout.",
+      body: input.body,
     });
   });
   it("notifies the current Coordinator after reassignment and keeps the original question author", async () => {
@@ -150,23 +165,35 @@ describe("Organiser clarification replies", () => {
       .update(schema.eventRequests)
       .set({ assignedCoordinatorId: replacement.id })
       .where(eq(schema.eventRequests.id, request.id));
-    const result = await handleReplyToClarification(input, organiser, database as never);
-    expect(result).toMatchObject({
-      notification: "sent",
-      clarification: { coordinatorId: coordinator.id },
+    const clarification = await handleReplyToClarification(input, organiser, database as never);
+    expect(clarification).toMatchObject({
+      coordinatorId: coordinator.id,
+      replyBody: input.body,
     });
-    expect(sendEmail).toHaveBeenCalledExactlyOnceWith(
-      replacement.email,
-      "Clarification replied: PTR19 Test Event",
-      expect.objectContaining({
-        props: expect.objectContaining({
-          eventName: "PTR19 Test Event",
-          question: "Please confirm attendance and layout.",
-          body: input.body,
-          eventRequestUrl: `http://localhost:3000/coordination/${request.id}`,
-        }),
-      })
+    const queued = await repliedNotifications(request.id, replacement.id);
+    expect(queued).toHaveLength(1);
+    expect(queued[0].emailedAt).toBeNull();
+    expect(queued[0].payload).toMatchObject({
+      eventName: "PTR19 Test Event",
+      question: "Please confirm attendance and layout.",
+      body: input.body,
+    });
+    expect(notificationSummary({ kind: queued[0].kind, payload: queued[0].payload } as never)).toBe(
+      "Clarification replied: PTR19 Test Event"
     );
+    const html = await render(
+      renderNotificationEmail({
+        kind: queued[0].kind,
+        payload: queued[0].payload,
+        eventRequestId: request.id,
+      } as never).element
+    );
+    expect(html).toContain("PTR19 Test Event");
+    expect(html).toContain("Please confirm attendance and layout.");
+    expect(html).toContain(input.body);
+    expect(html).toContain(`/coordination/${request.id}`);
+    // The stale assignee gets nothing.
+    expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(0);
   });
   it("saves only the concerned fields with the reply and preserves all other request values", async () => {
     const { request, input } = await question(["expectedAttendance", "roomLayoutPreference"]);
@@ -249,7 +276,6 @@ describe("Organiser clarification replies", () => {
       coordinator,
       database as never
     );
-    sendEmail.mockClear();
     await handleReplyToClarification(
       { ...input, amendments: { expectedAttendance: 120 } },
       organiser,
@@ -322,7 +348,6 @@ describe("Organiser clarification replies", () => {
       coordinator,
       database as never
     );
-    sendEmail.mockClear();
 
     await expect(
       handleReplyToClarification(own.input, otherOrganiser, database as never)
@@ -337,7 +362,8 @@ describe("Organiser clarification replies", () => {
     await expect(
       handleReplyToClarification({ ...own.input, id: 2_147_483_647 }, organiser, database as never)
     ).rejects.toMatchObject({ status: 403 });
-    expect(sendEmail).not.toHaveBeenCalled();
+    expect(await repliedNotifications(own.request.id, coordinator.id)).toHaveLength(0);
+    expect(await repliedNotifications(otherRequest.id, coordinator.id)).toHaveLength(0);
     expect(
       await handleGetEventRequest({ id: own.request.id }, organiser, database as never)
     ).toMatchObject({
@@ -375,7 +401,7 @@ describe("Organiser clarification replies", () => {
       await expect(
         handleReplyToClarification(input, organiser, database as never)
       ).rejects.toMatchObject({ status: 409 });
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(0);
       expect(
         await handleGetEventRequest({ id: request.id }, organiser, database as never)
       ).toMatchObject({ status, clarifications: [expect.objectContaining({ replyBody: null })] });
@@ -388,7 +414,7 @@ describe("Organiser clarification replies", () => {
       await expect(
         handleReplyToClarification({ ...input, amendments }, organiser, database as never)
       ).rejects.toMatchObject({ status: 403 });
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(0);
       expect(
         await handleGetEventRequest({ id: request.id }, organiser, database as never)
       ).toMatchObject({
@@ -470,7 +496,7 @@ describe("Organiser clarification replies", () => {
         expectedAttendance: 100,
         clarifications: [expect.objectContaining({ replyBody: null })],
       });
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(0);
     }
   });
 
@@ -483,7 +509,8 @@ describe("Organiser clarification replies", () => {
           organiser,
           database as never
         )
-      ).resolves.toMatchObject({ notification: "sent" });
+      ).resolves.toMatchObject({ replyBody: input.body });
+      expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(1);
       expect(
         await handleGetEventRequest({ id: request.id }, organiser, database as never)
       ).toMatchObject({ status: "under_review", expectedAttendance });
@@ -499,9 +526,10 @@ describe("Organiser clarification replies", () => {
         database as never
       )
     ).rejects.toMatchObject({ status: 403 });
+    expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(0);
     await expect(
       handleReplyToClarification(input, organiser, database as never)
-    ).resolves.toMatchObject({ notification: "sent" });
+    ).resolves.toMatchObject({ replyBody: input.body });
     expect(
       await handleGetEventRequest({ id: request.id }, organiser, database as never)
     ).toMatchObject({
@@ -522,7 +550,6 @@ describe("Organiser clarification replies", () => {
       coordinator,
       database as never
     );
-    sendEmail.mockClear();
     await handleReplyToClarification(
       { ...input, amendments: { expectedAttendance: 120 } },
       organiser,
@@ -554,7 +581,7 @@ describe("Organiser clarification replies", () => {
     await expect(
       handleReplyToClarification(input, organiser, database as never)
     ).rejects.toMatchObject({ status: 409 });
-    expect(sendEmail).toHaveBeenCalledTimes(2);
+    expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(2);
   });
 
   it("serializes concurrent duplicate replies to one save and one notification", async () => {
@@ -574,7 +601,7 @@ describe("Organiser clarification replies", () => {
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
     const rejected = results.find(result => result.status === "rejected");
     expect(rejected).toMatchObject({ status: "rejected", reason: { status: 409 } });
-    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(1);
     expect(
       await handleGetEventRequest({ id: request.id }, organiser, database as never)
     ).toMatchObject({
@@ -620,7 +647,7 @@ describe("Organiser clarification replies", () => {
       await expect(
         handleReplyToClarification(replyInput, organiser, database as never)
       ).rejects.toMatchObject({ cause: { message: "PTR19 status write failure" } });
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(0);
       const organiserRead = await handleGetEventRequest(
         { id: request.id },
         organiser,
@@ -650,7 +677,8 @@ describe("Organiser clarification replies", () => {
     }
     await expect(
       handleReplyToClarification(replyInput, organiser, database as never)
-    ).resolves.toMatchObject({ notification: "sent" });
+    ).resolves.toMatchObject({ replyBody: input.body });
+    expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(1);
     expect(
       await handleGetEventRequest({ id: request.id }, organiser, database as never)
     ).toMatchObject({

@@ -87,9 +87,9 @@ export function ReleaseEquipmentDialog({
         const change = result.released
           ? `Released all ${result.previousQuantity} × ${equipmentRequest.item} — the line is ${state}.`
           : `Reduced ${equipmentRequest.item} from ${result.previousQuantity} to ${result.quantity} — the line is ${state}.`;
-        const notice = result.notified
-          ? "Coordinator notified."
-          : "The Coordinator could not be notified; tell them yourself.";
+        const notice = result.notificationQueued
+          ? "The Coordinator will be notified."
+          : "No Coordinator to notify; tell them yourself.";
         toast.success(`${change} ${notice}`);
         onOpenChange(false);
         await router.invalidate();

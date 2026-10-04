@@ -50,6 +50,7 @@ Invoke-Gcloud services enable `
   cloudresourcemanager.googleapis.com `
   billingbudgets.googleapis.com `
   storage.googleapis.com `
+  cloudscheduler.googleapis.com `
   --project $Project
 
 $exists = gcloud storage buckets describe "gs://$Bucket" --project $Project 2>$null

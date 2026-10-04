@@ -48,6 +48,10 @@ export function DashboardPage({ user, events }: { user: SessionUser; events: Eve
       </Card>
 
       <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3">
+        <Link to="/notifications" className={NAV_LINK_CLASSNAME}>
+          Notifications
+        </Link>
+
         {can(user.role, { event_request: ["create"] }) && (
           <Link to="/event-requests" className={NAV_LINK_CLASSNAME}>
             Event requests

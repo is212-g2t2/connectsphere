@@ -1,8 +1,7 @@
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@react-email/render";
-import type { ReactElement } from "react";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -33,26 +32,30 @@ import {
 } from "#/features/venue-requests/requests.server";
 import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venues/records.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { notificationSummary, parseNotificationPayload } from "#/features/notifications/message";
+import { renderNotificationEmail } from "#/features/notifications/render.server";
+
+/** The inbox summary line for a queued row, which doubles as the email subject. */
+function summarize(row: { kind: string; payload: unknown }): string {
+  const parsed = parseNotificationPayload(row.kind, row.payload);
+  if (!parsed) throw new Error(`unreadable notification kind: ${row.kind}`);
+  return notificationSummary(parsed);
+}
+
+/** Renders a queued row as its email, so content assertions keep working. */
+async function renderQueuedEmail(row: { kind: string; payload: unknown; eventRequestId: number }) {
+  const parsed = parseNotificationPayload(row.kind, row.payload);
+  if (!parsed) throw new Error(`unreadable notification kind: ${row.kind}`);
+  return render(renderNotificationEmail({ ...parsed, eventRequestId: row.eventRequestId }).element);
+}
 
 /**
  * PTR-31 at the handler boundary: creation, notification and withdrawal. PTR-36 adds approval,
  * the overlap refusal and the exclusion constraint's own behaviour. The middleware pipeline has
  * already established the session and the `venue_request` permission before these run, so the
  * caller is a `SessionUser` and the only things under test are the event-assignment gate, the row
- * that lands in the queue, the emails, the withdrawal transition and the booking invariant.
+ * that lands in the queue, the queued notifications, the withdrawal transition and the booking invariant.
  */
-
-const { sendEmail } = vi.hoisted(() => ({
-  sendEmail: vi
-    .fn<(to: string, subject: string, react: ReactElement) => Promise<unknown>>()
-    .mockResolvedValue({ id: "test-email" }),
-}));
-
-vi.mock("#/lib/mailer.server", () => ({
-  createMailer: vi.fn<() => null>(() => null),
-  getMailer: vi.fn<() => null>(() => null),
-  sendEmail,
-}));
 
 const users = {
   organiser: {
@@ -132,9 +135,6 @@ describe("venue request handlers (PTR-31)", () => {
   });
 
   beforeEach(async () => {
-    sendEmail.mockReset();
-    sendEmail.mockResolvedValue({ id: "test-email" });
-
     await database
       .delete(schema.eventRequests)
       .where(inArray(schema.eventRequests.organiserId, [users.organiser.id]));
@@ -277,6 +277,14 @@ describe("venue request handlers (PTR-31)", () => {
       );
   }
 
+  /** Every notification row queued for one recipient. */
+  function readNotifications(recipientId: string) {
+    return database
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.recipientId, recipientId));
+  }
+
   describe("raising a request", () => {
     it("records a pending, unassigned request and notifies every Venue Staff member (AC1, AC3, AC4)", async () => {
       const request = await handleCreateVenueRequest(
@@ -296,11 +304,26 @@ describe("venue request handlers (PTR-31)", () => {
       });
       expect(request.createdAt).toBeInstanceOf(Date);
 
-      const recipients = sendEmail.mock.calls.map(call => call[0]);
-      expect(recipients).toContain(users.venueStaffA.email);
-      expect(recipients).toContain(users.venueStaffB.email);
-      expect(recipients).not.toContain(users.coordinator.email);
-      expect(sendEmail.mock.calls[0][1]).toBe(`Venue booking requested: ${VENUE_NAME}`);
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.eventRequestId, eventId));
+      // Every Venue Staff account in the database is told, this suite's fixtures included.
+      const allStaff = await database
+        .select({ id: schema.user.id })
+        .from(schema.user)
+        .where(eq(schema.user.role, "venue_staff"));
+      const recipients = queued.map(row => row.recipientId).toSorted();
+      expect(recipients).toEqual(allStaff.map(row => row.id).toSorted());
+      expect(recipients).toContain(users.venueStaffA.id);
+      expect(recipients).toContain(users.venueStaffB.id);
+      expect(recipients).not.toContain(users.coordinator.id);
+      for (const row of queued) {
+        expect(row.kind).toBe("venue_booking_requested");
+        expect(row.emailedAt).toBeNull();
+        expect(row.payload).toMatchObject({ venueRequestId: request.id, venueName: VENUE_NAME });
+        expect(summarize(row)).toBe(`Venue booking requested: ${VENUE_NAME}`);
+      }
     });
 
     it("carries the event's requirements in the notification, and never its name (AC2)", async () => {
@@ -310,7 +333,8 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
 
-      const html = await render(sendEmail.mock.calls[0][2]);
+      const [row] = await readNotifications(users.venueStaffA.id);
+      const html = await renderQueuedEmail(row);
 
       expect(html).toContain("Theatre seating");
       expect(html).toContain("Step-free access");
@@ -334,6 +358,8 @@ describe("venue request handlers (PTR-31)", () => {
           .from(schema.venueRequests)
           .where(eq(schema.venueRequests.venueId, venueId))
       ).toHaveLength(0);
+      // The refusal rolled everything back: no notification was queued either.
+      expect(await database.select().from(schema.notifications)).toHaveLength(0);
     });
 
     it("refuses an event that is no longer awaiting a booking decision", async () => {
@@ -372,20 +398,29 @@ describe("venue request handlers (PTR-31)", () => {
       ).rejects.toThrow(VENUE_REQUEST_DUPLICATE_MESSAGE);
     });
 
-    it("keeps the request when the notification fails", async () => {
-      sendEmail.mockRejectedValue(new Error("smtp is down"));
-
+    it("leaves no extra notification behind when a duplicate request is refused", async () => {
       const request = await handleCreateVenueRequest(
         { ...WINDOW, eventId, venueId },
         session(users.coordinator),
         database as never
       );
+      const before = await database.select().from(schema.notifications);
+
+      await expect(
+        handleCreateVenueRequest(
+          { ...WINDOW, endTime: "13:00", eventId, venueId },
+          session(users.coordinator),
+          database as never
+        )
+      ).rejects.toThrow(VENUE_REQUEST_DUPLICATE_MESSAGE);
 
       const rows = await database
         .select()
         .from(schema.venueRequests)
         .where(eq(schema.venueRequests.id, request.id));
       expect(rows).toHaveLength(1);
+      // The refused duplicate queued nothing: only the first request's rows remain.
+      expect(await database.select().from(schema.notifications)).toHaveLength(before.length);
     });
   });
 
@@ -848,38 +883,56 @@ describe("venue request handlers (PTR-31)", () => {
       expect(approved).toHaveLength(1);
     });
 
-    it("notifies the Coordinator who raised the request, and only them (PTR-33 AC2)", async () => {
+    it("queues a notification for the Coordinator who raised the request, and only them (PTR-33 AC2)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
-      sendEmail.mockClear();
 
       await approve(request.id, users.venueStaffA);
 
-      expect(sendEmail).toHaveBeenCalledOnce();
-      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
-      expect(sendEmail.mock.calls[0][1]).toBe(`Venue booking approved: ${VENUE_NAME}`);
-      const html = await render(sendEmail.mock.calls[0][2]);
+      const rows = await readNotifications(users.coordinator.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].kind).toBe("venue_booking_approved");
+      expect(rows[0].emailedAt).toBeNull();
+      expect(rows[0].payload).toMatchObject({
+        venueRequestId: request.id,
+        eventName: "PTR-31 Event",
+        venueName: VENUE_NAME,
+      });
+      expect(summarize(rows[0])).toBe(`Venue booking approved: ${VENUE_NAME}`);
+      const html = await renderQueuedEmail(rows[0]);
       expect(html).toContain("PTR-31 Event");
       expect(html).toContain("09:00–12:30");
+      expect(await readNotifications(users.otherCoordinator.id)).toHaveLength(0);
+      const staffApproved = (await readNotifications(users.venueStaffA.id)).filter(
+        row => row.kind === "venue_booking_approved"
+      );
+      expect(staffApproved).toHaveLength(0);
     });
 
-    it("keeps the approval when the notification fails (PTR-33 AC2)", async () => {
+    it("commits the approval with its notification queued (PTR-33 AC2)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
-      sendEmail.mockRejectedValue(new Error("smtp is down"));
 
       const approved = await approve(request.id, users.venueStaffA);
 
       expect(approved.status).toBe("approved");
+      const rows = await readNotifications(users.coordinator.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].kind).toBe("venue_booking_approved");
+      expect(rows[0].emailedAt).toBeNull();
     });
 
-    it("sends nothing for a refused approval (PTR-33 AC2)", async () => {
+    it("leaves no notification behind when an approval is refused (PTR-33 AC2)", async () => {
       const first = await raiseRequest(eventId, "09:00", "12:30");
       await approve(first.id, users.venueStaffA);
-      const second = await raiseRequest(await createEvent("PTR-33 Clash"), "10:00", "11:00");
-      sendEmail.mockClear();
+      const clashEventId = await createEvent("PTR-33 Clash");
+      const second = await raiseRequest(clashEventId, "10:00", "11:00");
 
       await expect(approve(second.id, users.venueStaffB)).rejects.toMatchObject({ status: 409 });
 
-      expect(sendEmail).not.toHaveBeenCalled();
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.eventRequestId, clashEventId));
+      expect(queued.filter(row => row.kind === "venue_booking_approved")).toHaveLength(0);
     });
 
     it("stops offering the venue once a booking is approved (PTR-33 AC3)", async () => {
@@ -987,7 +1040,6 @@ describe("venue request handlers (PTR-31)", () => {
     it("releases an owned booking, frees the period and notifies the assigned Coordinator (AC2, AC4, AC5)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       await approve(request.id, users.venueStaffA);
-      sendEmail.mockClear();
 
       const released = await handleReleaseVenueBooking(
         { id: request.id, reason: "  Air-conditioning failure  " },
@@ -1016,17 +1068,79 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
       expect(availability?.occupied ?? []).toEqual([]);
-      await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledOnce());
-      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
-      expect(sendEmail.mock.calls[0][1]).toBe(`Venue booking released: ${VENUE_NAME}`);
-      const html = await render(sendEmail.mock.calls[0][2]);
+      const queued = (await readNotifications(users.coordinator.id)).filter(
+        row => row.kind === "venue_booking_changed"
+      );
+      expect(queued).toHaveLength(1);
+      expect(queued[0].emailedAt).toBeNull();
+      expect(queued[0].payload).toMatchObject({
+        venueRequestId: request.id,
+        action: "released",
+        venueName: VENUE_NAME,
+        reason: "Air-conditioning failure",
+      });
+      expect(summarize(queued[0])).toBe(`Venue booking released: ${VENUE_NAME}`);
+      const html = await renderQueuedEmail(queued[0]);
       expect(html).toContain("Air-conditioning failure");
+    });
+
+    it("waits on the event before the booking row, so confirmation cannot deadlock", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+
+      // Hold the event row the way confirmation does, then let the release run into it. Without
+      // the event key share, the release takes the booking row first and waits on the event
+      // through its notification insert: the two orders form a deadlock (40P01).
+      const gate = new Pool({ connectionString: process.env.DATABASE_URL });
+      const gateClient = await gate.connect();
+      try {
+        await gateClient.query("BEGIN");
+        await gateClient.query("SELECT 1 FROM event_requests WHERE id = $1 FOR UPDATE", [eventId]);
+        const { rows: gateRows } = await gateClient.query<{ pid: number }>(
+          "SELECT pg_backend_pid() AS pid"
+        );
+        const gatePid = gateRows[0].pid;
+
+        const releasing = handleReleaseVenueBooking(
+          { id: request.id, reason: "Operational handover" },
+          session(users.venueStaffA),
+          database as never
+        );
+
+        await vi.waitFor(
+          async () => {
+            // The blocked statement names the event key share, and this gate is its blocker.
+            const waiting = await database.execute<{ count: string }>(
+              sql`SELECT count(*)::text AS count FROM pg_stat_activity
+                  WHERE wait_event_type = 'Lock'
+                    AND query ILIKE '%event_requests%'
+                    AND query ILIKE '%for key share%'
+                    AND ${gatePid}::int = ANY(pg_blocking_pids(pid))`
+            );
+            expect(Number(waiting.rows[0].count)).toBeGreaterThanOrEqual(1);
+          },
+          { timeout: 10_000, interval: 25 }
+        );
+
+        // Parked on the event, the release has not touched the booking row yet.
+        const probe = await gateClient.query(
+          "SELECT 1 FROM venue_requests WHERE id = $1 FOR UPDATE NOWAIT",
+          [request.id]
+        );
+        expect(probe.rowCount).toBe(1);
+
+        await gateClient.query("COMMIT");
+        await expect(releasing).resolves.toMatchObject({ status: "released" });
+      } finally {
+        await gateClient.query("ROLLBACK").catch(() => {});
+        gateClient.release();
+        await gate.end();
+      }
     });
 
     it("refuses a blank release reason without changing the booking (AC2)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       await approve(request.id, users.venueStaffA);
-      sendEmail.mockClear();
 
       await expect(
         handleReleaseVenueBooking(
@@ -1037,7 +1151,16 @@ describe("venue request handlers (PTR-31)", () => {
       ).rejects.toThrow(VENUE_RELEASE_REASON_REQUIRED);
 
       expect(await readRow(request.id)).toMatchObject({ status: "approved", releaseReason: null });
-      expect(sendEmail).not.toHaveBeenCalled();
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, eventId),
+            eq(schema.notifications.kind, "venue_booking_changed")
+          )
+        );
+      expect(queued).toHaveLength(0);
     });
 
     it("retains the actor label after the staff account is deleted", async () => {
@@ -1075,7 +1198,6 @@ describe("venue request handlers (PTR-31)", () => {
         .update(schema.eventRequests)
         .set({ assignedCoordinatorId: users.otherCoordinator.id })
         .where(eq(schema.eventRequests.id, eventId));
-      sendEmail.mockClear();
 
       await handleReleaseVenueBooking(
         { id: request.id, reason: "Emergency maintenance" },
@@ -1083,8 +1205,14 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
 
-      await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledOnce());
-      expect(sendEmail.mock.calls[0][0]).toBe(users.otherCoordinator.email);
+      const queued = await readNotifications(users.otherCoordinator.id);
+      expect(queued).toHaveLength(1);
+      expect(queued[0].kind).toBe("venue_booking_changed");
+      expect(queued[0].emailedAt).toBeNull();
+      const raiserChanged = (await readNotifications(users.coordinator.id)).filter(
+        row => row.kind === "venue_booking_changed"
+      );
+      expect(raiserChanged).toHaveLength(0);
     });
 
     it("falls back to the request raiser when the event has no assigned Coordinator", async () => {
@@ -1094,7 +1222,6 @@ describe("venue request handlers (PTR-31)", () => {
         .update(schema.eventRequests)
         .set({ assignedCoordinatorId: null })
         .where(eq(schema.eventRequests.id, eventId));
-      sendEmail.mockClear();
 
       await handleReleaseVenueBooking(
         { id: request.id, reason: "Emergency maintenance" },
@@ -1102,15 +1229,17 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
 
-      await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledOnce());
-      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
+      const queued = (await readNotifications(users.coordinator.id)).filter(
+        row => row.kind === "venue_booking_changed"
+      );
+      expect(queued).toHaveLength(1);
+      expect(queued[0].emailedAt).toBeNull();
     });
 
     it("amends an owned booking and moves the venue hold (AC3, AC4, AC5)", async () => {
       const alternativeVenueId = await createPtr37AlternativeVenue();
       const request = await raiseRequest(eventId, "09:00", "12:30");
       await approve(request.id, users.venueStaffA);
-      sendEmail.mockClear();
 
       const amended = await handleAmendVenueBooking(
         {
@@ -1135,11 +1264,17 @@ describe("venue request handlers (PTR-31)", () => {
         releaseReason: null,
       });
       expect(amended.lastChangedAt).toBeInstanceOf(Date);
-      await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledOnce());
-      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
-      expect(sendEmail.mock.calls[0][1]).toBe(
-        `Venue booking amended: ${PTR37_ALTERNATIVE_VENUE_NAME}`
+      const queued = (await readNotifications(users.coordinator.id)).filter(
+        row => row.kind === "venue_booking_changed"
       );
+      expect(queued).toHaveLength(1);
+      expect(queued[0].emailedAt).toBeNull();
+      expect(queued[0].payload).toMatchObject({
+        venueRequestId: request.id,
+        action: "amended",
+        venueName: PTR37_ALTERNATIVE_VENUE_NAME,
+      });
+      expect(summarize(queued[0])).toBe(`Venue booking amended: ${PTR37_ALTERNATIVE_VENUE_NAME}`);
       const oldAvailability = await handleGetVenueAvailability(
         { venueId, startDate: WINDOW.date, endDate: WINDOW.date },
         "",
@@ -1509,7 +1644,6 @@ describe("venue request handlers (PTR-31)", () => {
 
     it("refuses a rejection without a reason and leaves the request pending (AC1)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
-      sendEmail.mockClear();
 
       await Promise.all(
         [undefined, "", "   "].map(reason =>
@@ -1524,7 +1658,16 @@ describe("venue request handlers (PTR-31)", () => {
       );
 
       expect(await readRow(request.id)).toMatchObject({ status: "pending", rejectionReason: null });
-      expect(sendEmail).not.toHaveBeenCalled();
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, eventId),
+            eq(schema.notifications.kind, "venue_booking_rejected")
+          )
+        );
+      expect(queued).toHaveLength(0);
     });
 
     it("stores a suggested venue, date and time with the rejection (AC2)", async () => {
@@ -1586,10 +1729,9 @@ describe("venue request handlers (PTR-31)", () => {
       });
     });
 
-    it("notifies the Coordinator who raised the request, with the reason and suggestion (AC4)", async () => {
+    it("queues a notification for the Coordinator who raised the request, with the reason and suggestion (AC4)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       const alternativeId = await createAlternativeVenue();
-      sendEmail.mockClear();
 
       await reject(request.id, users.venueStaffA, {
         suggestedVenueId: alternativeId,
@@ -1598,28 +1740,39 @@ describe("venue request handlers (PTR-31)", () => {
         suggestedEndTime: "13:30",
       });
 
-      expect(sendEmail).toHaveBeenCalledOnce();
-      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
-      expect(sendEmail.mock.calls[0][1]).toBe(`Venue booking rejected: ${VENUE_NAME}`);
-      const html = await render(sendEmail.mock.calls[0][2]);
+      const rows = await readNotifications(users.coordinator.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].kind).toBe("venue_booking_rejected");
+      expect(rows[0].emailedAt).toBeNull();
+      expect(rows[0].payload).toMatchObject({
+        venueRequestId: request.id,
+        eventName: "PTR-31 Event",
+        venueName: VENUE_NAME,
+        reason: REASON,
+      });
+      expect(summarize(rows[0])).toBe(`Venue booking rejected: ${VENUE_NAME}`);
+      const html = await renderQueuedEmail(rows[0]);
       expect(html).toContain("PTR-31 Event");
       expect(html).toContain(REASON);
       expect(html).toContain(ALTERNATIVE_VENUE_NAME);
       expect(html).toContain("21 April 2027, 10:00–13:30");
     });
 
-    it("keeps the rejection when the notification fails (AC4)", async () => {
+    it("commits the rejection with its notification queued (AC4)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
-      sendEmail.mockRejectedValue(new Error("smtp is down"));
 
       const rejected = await reject(request.id, users.venueStaffA);
 
       expect(rejected.status).toBe("rejected");
+      const rows = await readNotifications(users.coordinator.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].kind).toBe("venue_booking_rejected");
+      expect(rows[0].emailedAt).toBeNull();
     });
 
-    it("keeps the rejection when the raiser's account is gone, and sends nothing (AC4)", async () => {
+    it("keeps the rejection when the raiser's account is gone, and queues nothing (AC4)", async () => {
       // `requested_by_id` is `set null` on account deletion, not cascade: the row survives
-      // unattributable, and `notifyRaiser` has no address to send to.
+      // unattributable, and there is no recipient left to queue for.
       const [orphan] = await database
         .insert(schema.venueRequests)
         .values({
@@ -1631,12 +1784,16 @@ describe("venue request handlers (PTR-31)", () => {
           endsAt: "2027-04-20 12:30:00",
         })
         .returning({ id: schema.venueRequests.id });
-      sendEmail.mockClear();
 
       const rejected = await reject(orphan.id, users.venueStaffA);
 
       expect(rejected.status).toBe("rejected");
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(
+        await database
+          .select()
+          .from(schema.notifications)
+          .where(eq(schema.notifications.eventRequestId, eventId))
+      ).toHaveLength(0);
     });
 
     it("refuses to approve a rejected request, and the venue stays free (AC5)", async () => {

@@ -36,7 +36,7 @@ export function ConfirmEventAction({ eventId, eventName }: { eventId: number; ev
       await router.invalidate();
       throw message.startsWith(CONFIRMATION_REFUSAL_HEADING) ? error : new Error();
     }
-    toast.success("Event confirmed. The Organiser has been notified.");
+    toast.success("Event confirmed. The Organiser will be notified.");
     await router.invalidate();
   }, "Could not confirm this event. Try again.");
 

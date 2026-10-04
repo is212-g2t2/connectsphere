@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useMutation } from "#/hooks/use-mutation";
 import { authClient } from "#/lib/auth-client";
 import { Button } from "#/components/ui/button";
+import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import { ThemeToggle } from "../ui/theme-toggle";
 
 const SIGN_OUT_FAILED = "Could not sign out. Try again.";
@@ -40,6 +41,11 @@ export function Header() {
         </Link>
 
         <nav className="flex items-center gap-1">
+          {user && (
+            <Link to="/notifications" className={NAV_LINK_CLASSNAME}>
+              Notifications
+            </Link>
+          )}
           {user && (
             <Button
               type="button"

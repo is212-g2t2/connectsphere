@@ -88,6 +88,7 @@ The fictional equipment inventory contains eight Portable Projectors, twelve Wir
 | `BETTER_AUTH_SECRET`  | ✅       | 32+ character secret for session signing                                                                                                                 |
 | `BETTER_AUTH_URL`     | ✅       | App origin (default: `http://localhost:3000`)                                                                                                            |
 | `SMOKE_TOKEN`         | Optional | Bearer token for `/api/smoke`; required in deployed environments, where the deploy workflow reads it from Secret Manager. Unset answers 401              |
+| `CRON_TOKEN`          | Optional | Bearer token for `/api/cron/notifications`, the notification email worker (PTR-55). Unset answers 401; Cloud Scheduler supplies it when deployed         |
 | `SERVER_URL`          | Optional | Canonical public application URL                                                                                                                         |
 | `RESEND_API_KEY`      | Optional | Required to send email. App boots without it; email calls throw a clear error                                                                            |
 | `EMAIL_FROM`          | Optional | Sender address (default: `onboarding@resend.dev`)                                                                                                        |
@@ -190,6 +191,11 @@ bun run test:integration
 - Driven by Playwright (`playwright.config.ts`). `tests/e2e/global-setup.ts` owns the environment: it starts a `postgres:18-alpine` testcontainer on a random host port, applies the committed migrations, seeds it, then builds the app and starts the production server (`bun run build`, `bun run start`) on :3000 against that same `DATABASE_URL`. Teardown stops the server and the container, discarding the database.
 - Docker must be running, and :3000 must be free: the setup fails instead of reusing another server, so the app and the specs always share one database.
 - The reset-password journey sends mail through the capture server: run `docker compose up -d mailpit` and set `SMTP_URL="smtp://localhost:1025"` in `.env`. The upload journey reads MinIO from the same compose stack.
+- Notification emails wait in the `notifications` table. The app does not send them inline. Only sign-up verification and password reset send immediately. Nothing schedules the worker locally. Drain the queue when you want the mail to arrive (Mailpit shows it when `SMTP_URL` is set):
+  ```bash
+  curl -fsS -X POST -H "Authorization: Bearer $CRON_TOKEN" http://localhost:3000/api/cron/notifications
+  ```
+  E2E drains the queue automatically before it waits on Mailpit. E2E uses `e2e-cron-token` as the default `CRON_TOKEN` when the environment sets none.
 
 Run E2E tests:
 

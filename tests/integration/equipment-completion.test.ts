@@ -1,9 +1,9 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { render } from "@react-email/render";
 import { eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import type { ReactElement } from "react";
 
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
@@ -20,16 +20,21 @@ import {
 } from "#/features/equipment-requests/reservations.server";
 import { ARRANGEMENT_RESERVED_MESSAGE } from "#/features/equipment-requests/schema";
 import { handleListEvents } from "#/features/events/records.server";
+import { notificationSummary } from "#/features/notifications/message";
+import { renderNotificationEmail } from "#/features/notifications/render.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
-// equipment.server.ts sends through a dynamic import of this module: `sendEmail(to, subject, element)`.
-// Stubbing it keeps the suite offline and lets us assert on exactly what the Coordinator is sent.
-const { sendEmail } = vi.hoisted(() => ({
-  sendEmail: vi.fn<(to: string, subject: string, element: ReactElement) => Promise<void>>(),
-}));
-vi.mock("#/lib/mailer.server", () => ({ sendEmail }));
-
 type Database = ReturnType<typeof drizzle<typeof schema>>;
+
+/** Renders a queued notification row as its email, so content assertions keep working. */
+async function renderedEmail(row: typeof schema.notifications.$inferSelect) {
+  const parsed = renderNotificationEmail({
+    kind: row.kind,
+    payload: row.payload,
+    eventRequestId: row.eventRequestId,
+  } as never);
+  return { subject: parsed.subject, html: await render(parsed.element) };
+}
 
 // Ids are namespaced `ptr43-` so this file's cleanup never touches another file's rows when the
 // integration files share one database.
@@ -72,13 +77,6 @@ const fixtureUsers = {
 };
 
 const session = (userKey: keyof typeof fixtureUsers): SessionUser => fixtureUsers[userKey];
-
-const sent = () =>
-  sendEmail.mock.calls.map(([to, subject, element]) => ({
-    to,
-    subject,
-    props: (element as ReactElement<Record<string, unknown>>).props,
-  }));
 
 type LineState = "requested" | "reserved" | "not_required" | "unavailable";
 interface LineSeed {
@@ -281,9 +279,13 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
     expect((await readEvent(eventId)).equipmentArrangementsCompletedAt).toBeInstanceOf(Date);
   }
 
+  const notificationsForEvent = (eventId: number) =>
+    database
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.eventRequestId, eventId));
+
   beforeEach(async () => {
-    vi.resetAllMocks();
-    sendEmail.mockResolvedValue(undefined);
     await cleanup();
   });
 
@@ -344,7 +346,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
 
         await expectCompletionCleared(eventId);
         expect((await readEvent(eventId)).equipmentArrangementsCompletedAt).toBeNull();
-        expect(sendEmail).not.toHaveBeenCalled();
+        expect(await notificationsForEvent(eventId)).toHaveLength(0);
       }
     );
 
@@ -625,7 +627,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         message: ARRANGEMENT_RESERVED_MESSAGE,
       });
       expect((await readLine(lineIds[0])).arrangementStatus).toBe("reserved");
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(await notificationsForEvent(eventId)).toHaveLength(0);
     });
 
     it("refuses a partially reserved line (still requested, but holding a reservation row)", async () => {
@@ -682,7 +684,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
 
   // ── AC3 ───────────────────────────────────────────────────────────────────────────────────
   describe("AC3: the assigned Coordinator is notified", () => {
-    it("completion: emails only the assigned Coordinator, with the line count", async () => {
+    it("completion: queues one notification for the assigned Coordinator, with the line count", async () => {
       const { eventId } = await createEvent({
         name: "AC3 Complete Mail",
         lines: [
@@ -693,16 +695,26 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
 
       await handleCompleteArrangements({ eventId }, session("tech1"), database as never);
 
-      expect(sent()).toEqual([
-        {
-          to: fixtureUsers.coordinator.email,
-          subject: `Equipment arrangements complete for event ${eventId}`,
-          props: { eventId, lineCount: 2 },
-        },
-      ]);
+      const rows = await notificationsForEvent(eventId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].recipientId).toBe(fixtureUsers.coordinator.id);
+      expect(rows[0].kind).toBe("equipment_arrangements_completed");
+      expect(rows[0].emailedAt).toBeNull();
+      expect(rows[0].payload).toEqual({ eventName: "AC3 Complete Mail", lineCount: 2 });
+      const { subject, html } = await renderedEmail(rows[0]);
+      expect(subject).toBe(
+        notificationSummary({ kind: rows[0].kind, payload: rows[0].payload } as never)
+      );
+      expect(subject).toBe("Equipment arrangements complete for AC3 Complete Mail");
+      // React renders each interpolated value in its own text node. Assert the fragments around
+      // the interpolation, so no sanitization step is needed.
+      expect(html).toContain(`event <!-- -->${eventId}<!-- -->`);
+      expect(html).toContain("<!-- -->2<!-- -->");
+      expect(html).toContain("requested equipment");
+      expect(html).toContain("been reserved or marked not required");
     });
 
-    it("unavailable: emails the assigned Coordinator the item, quantity and reason", async () => {
+    it("unavailable: queues one notification for the assigned Coordinator with the item, quantity and reason", async () => {
       const { eventId, lineIds } = await createEvent({
         name: "AC3 Unavailable Mail",
         lines: [
@@ -721,30 +733,38 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         database as never
       );
 
-      expect(sent()).toEqual([
-        {
-          to: fixtureUsers.coordinator.email,
-          subject: `Equipment unavailable for event ${eventId}`,
-          props: {
-            eventId,
-            item: "Wireless microphone",
-            quantity: 3,
-            reason: "Out for repair",
-          },
-        },
-      ]);
+      const rows = await notificationsForEvent(eventId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].recipientId).toBe(fixtureUsers.coordinator.id);
+      expect(rows[0].kind).toBe("equipment_unavailable");
+      expect(rows[0].emailedAt).toBeNull();
+      expect(rows[0].payload).toEqual({
+        eventName: "AC3 Unavailable Mail",
+        item: "Wireless microphone",
+        quantity: 3,
+        reason: "Out for repair",
+      });
+      const { subject, html } = await renderedEmail(rows[0]);
+      expect(subject).toBe(
+        notificationSummary({ kind: rows[0].kind, payload: rows[0].payload } as never)
+      );
+      expect(subject).toBe("Equipment unavailable for AC3 Unavailable Mail: Wireless microphone");
+      expect(html).toContain("Wireless microphone");
+      expect(html).toContain("Out for repair");
     });
 
-    it("does not email another Coordinator", async () => {
+    it("queues nothing for another Coordinator", async () => {
       const { eventId } = await createEvent({
         name: "AC3 Only Assigned",
         lines: [{ state: "reserved", assignedStaffId: fixtureUsers.tech1.id }],
       });
       await handleCompleteArrangements({ eventId }, session("tech1"), database as never);
-      expect(sent().some(m => m.to === fixtureUsers.coordinator2.email)).toBe(false);
+      const rows = await notificationsForEvent(eventId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].recipientId).toBe(fixtureUsers.coordinator.id);
     });
 
-    it("sends nothing when the action is refused", async () => {
+    it("queues nothing when the action is refused", async () => {
       const { eventId } = await createEvent({
         name: "AC3 Refused",
         lines: [{ state: "requested", assignedStaffId: fixtureUsers.tech1.id }],
@@ -752,13 +772,12 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
       await expect(
         handleCompleteArrangements({ eventId }, session("tech1"), database as never)
       ).rejects.toMatchObject({ status: 409 });
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(await notificationsForEvent(eventId)).toHaveLength(0);
     });
 
-    it("keeps the completion when the mail fails", async () => {
-      sendEmail.mockRejectedValue(new Error("SMTP down"));
+    it("commits the completion stamp and its notification together", async () => {
       const { eventId } = await createEvent({
-        name: "AC3 Mail Down Complete",
+        name: "AC3 Stamp And Row",
         lines: [{ state: "reserved", assignedStaffId: fixtureUsers.tech1.id }],
       });
 
@@ -766,12 +785,15 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         handleCompleteArrangements({ eventId }, session("tech1"), database as never)
       ).resolves.toMatchObject({ id: eventId });
       await expectCompletionKept(eventId);
+      const rows = await notificationsForEvent(eventId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].kind).toBe("equipment_arrangements_completed");
+      expect(rows[0].recipientId).toBe(fixtureUsers.coordinator.id);
     });
 
-    it("keeps the unavailable record when the mail fails", async () => {
-      sendEmail.mockRejectedValue(new Error("SMTP down"));
+    it("commits the unavailable line and its notification together", async () => {
       const { eventId, lineIds } = await createEvent({
-        name: "AC3 Mail Down Unavailable",
+        name: "AC3 Unavailable And Row",
         lines: [{ state: "requested", assignedStaffId: fixtureUsers.tech1.id }],
       });
 
@@ -781,9 +803,13 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         database as never
       );
       expect((await readLine(lineIds[0])).arrangementStatus).toBe("unavailable");
+      const rows = await notificationsForEvent(eventId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].kind).toBe("equipment_unavailable");
+      expect(rows[0].recipientId).toBe(fixtureUsers.coordinator.id);
     });
 
-    it("does not fail and sends nothing when the event has no assigned Coordinator", async () => {
+    it("does not fail and queues nothing when the event has no assigned Coordinator", async () => {
       const { eventId } = await createEvent({
         name: "AC3 No Coordinator",
         lines: [{ state: "reserved", assignedStaffId: fixtureUsers.tech1.id }],
@@ -797,22 +823,41 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
       await expect(
         handleCompleteArrangements({ eventId }, session("tech1"), database as never)
       ).resolves.toMatchObject({ id: eventId });
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(await notificationsForEvent(eventId)).toHaveLength(0);
     });
 
-    it("sends only after the commit: the stamp is already readable when the mailer runs", async () => {
+    it("queues the notification in the same transaction as the stamp", async () => {
       const { eventId } = await createEvent({
-        name: "AC3 After Commit",
+        name: "AC3 Same Transaction",
         lines: [{ state: "reserved", assignedStaffId: fixtureUsers.tech1.id }],
-      });
-      let seenAtSend: Date | null = null;
-      sendEmail.mockImplementation(async () => {
-        seenAtSend = (await readEvent(eventId)).equipmentArrangementsCompletedAt;
       });
 
       await handleCompleteArrangements({ eventId }, session("tech1"), database as never);
 
-      expect(seenAtSend).toBeInstanceOf(Date);
+      // Both the stamp and the queued row are readable once the handler returns: they committed
+      // together, so the worker can never deliver one without the other existing.
+      const event = await readEvent(eventId);
+      expect(event.equipmentArrangementsCompletedAt).toBeInstanceOf(Date);
+      const rows = await notificationsForEvent(eventId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].kind).toBe("equipment_arrangements_completed");
+      expect(rows[0].recipientId).toBe(fixtureUsers.coordinator.id);
+
+      // A refused completion rolls everything back and leaves no rows behind.
+      const refused = await createEvent({
+        name: "AC3 Refused Same Transaction",
+        day: "2027-02-02",
+        lines: [{ state: "requested", assignedStaffId: fixtureUsers.tech1.id }],
+      });
+      await expect(
+        handleCompleteArrangements(
+          { eventId: refused.eventId },
+          session("tech1"),
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409 });
+      await expectCompletionCleared(refused.eventId);
+      expect(await notificationsForEvent(refused.eventId)).toHaveLength(0);
     });
   });
 
@@ -1257,7 +1302,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
       ).rejects.toThrow("Forbidden");
 
       await expectCompletionCleared(eventId);
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(await notificationsForEvent(eventId)).toHaveLength(0);
     });
   });
 

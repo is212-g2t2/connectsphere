@@ -1,6 +1,5 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReactElement } from "react";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { render } from "@react-email/render";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Pool } from "pg";
@@ -33,6 +32,8 @@ import {
 } from "#/features/event-requests/drafts.server";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import { handleSaveVenue } from "#/features/venues/records.server";
+import { notificationSummary } from "#/features/notifications/message";
+import { renderNotificationEmail } from "#/features/notifications/render.server";
 import {
   ALREADY_SUBMITTED_MESSAGE,
   ATTENDANCE_MESSAGE,
@@ -47,21 +48,6 @@ import {
   SUBMITTED_EDIT_REFUSAL,
   missingFieldsMessage,
 } from "#/features/event-requests/schema";
-
-// The mailer is mocked so clarification and decision notifications are both observable, and so a
-// failed send is exercised rather than hidden: the handler awaits `sendEmail` after the transaction
-// commits.
-const { sendEmail } = vi.hoisted(() => ({
-  sendEmail: vi
-    .fn<(to: string, subject: string, react: ReactElement) => Promise<unknown>>()
-    .mockResolvedValue({ id: "test-email" }),
-}));
-
-vi.mock("#/lib/mailer.server", () => ({
-  createMailer: vi.fn<() => null>(() => null),
-  getMailer: vi.fn<() => null>(() => null),
-  sendEmail,
-}));
 
 const organiser: SessionUser = {
   id: "test-organiser-drafts",
@@ -1177,8 +1163,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       return { request, handover };
     }
 
-    it("records a pending offer, keeps the outgoing Coordinator assigned, and notifies the incoming one (AC1, AC2)", async () => {
-      sendEmail.mockClear();
+    it("records a pending offer, keeps the outgoing Coordinator assigned, and queues the incoming notification (AC1, AC2)", async () => {
       const request = await assignedRequest();
       const handover = await handleRequestEventHandover(
         {
@@ -1225,8 +1210,8 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       ).rejects.toMatchObject({ status: 403 });
       expect(await database.select().from(schema.eventAssignments)).toEqual([]);
 
-      // The incoming Coordinator sees the offer with everything the page renders, and is emailed
-      // the coordination link.
+      // The incoming Coordinator sees the offer with everything the page renders, and the
+      // queued notification renders the coordination link.
       const pending = await handleListPendingEventHandovers(incoming, database as never);
       expect(pending).toHaveLength(1);
       expect(pending[0]).toMatchObject({
@@ -1237,16 +1222,37 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         from: { name: outgoing.name },
       });
       expect(await handleListPendingEventHandovers(outgoing, database as never)).toEqual([]);
-      expect(sendEmail).toHaveBeenCalledWith(
-        incoming.email,
-        expect.stringContaining(request.eventName.trim()),
-        expect.anything()
-      );
-      expect(await render(sendEmail.mock.calls[0][2])).toContain("/coordination");
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, request.id),
+            eq(schema.notifications.recipientId, incoming.id),
+            eq(schema.notifications.kind, "handover_requested")
+          )
+        );
+      expect(queued).toHaveLength(1);
+      expect(queued[0].emailedAt).toBeNull();
+      expect(queued[0].payload).toMatchObject({
+        eventName: request.eventName.trim(),
+        fromName: outgoing.name,
+      });
+      expect(
+        notificationSummary({ kind: queued[0].kind, payload: queued[0].payload } as never)
+      ).toContain(request.eventName.trim());
+      expect(
+        await render(
+          renderNotificationEmail({
+            kind: queued[0].kind,
+            payload: queued[0].payload,
+            eventRequestId: request.id,
+          } as never).element
+        )
+      ).toContain("/coordination");
     });
 
-    it("accepts a handover: moves the assignment, records it, and notifies the Organiser (AC3)", async () => {
-      sendEmail.mockClear();
+    it("accepts a handover: moves the assignment, records it, and queues the Organiser notification (AC3)", async () => {
       const { request, handover } = await pendingHandover();
       const accepted = await handleAcceptEventHandover(
         { id: handover.id },
@@ -1284,18 +1290,37 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(
         await handleGetEventRequest({ id: request.id }, organiser, database as never)
       ).toMatchObject({ coordinator: { name: incoming.name, email: incoming.email } });
-      expect(sendEmail).toHaveBeenCalledWith(
-        organiser.email,
-        expect.stringContaining("new Coordinator"),
-        expect.anything()
-      );
-      const acceptanceEmail = sendEmail.mock.calls.at(-1);
-      if (!acceptanceEmail) throw new Error("Expected an acceptance notification");
-      expect(await render(acceptanceEmail[2])).toContain(`/event-requests/${request.id}`);
+      const acceptedQueued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, request.id),
+            eq(schema.notifications.recipientId, organiser.id),
+            eq(schema.notifications.kind, "handover_accepted")
+          )
+        );
+      expect(acceptedQueued).toHaveLength(1);
+      expect(acceptedQueued[0].emailedAt).toBeNull();
+      expect(acceptedQueued[0].payload).toMatchObject({ coordinatorName: incoming.name });
+      expect(
+        notificationSummary({
+          kind: acceptedQueued[0].kind,
+          payload: acceptedQueued[0].payload,
+        } as never)
+      ).toContain("new Coordinator");
+      expect(
+        await render(
+          renderNotificationEmail({
+            kind: acceptedQueued[0].kind,
+            payload: acceptedQueued[0].payload,
+            eventRequestId: request.id,
+          } as never).element
+        )
+      ).toContain(`/event-requests/${request.id}`);
     });
 
-    it("declines a handover: the event stays with the outgoing Coordinator and the answer is recorded (AC4)", async () => {
-      sendEmail.mockClear();
+    it("declines a handover: the event stays with the outgoing Coordinator, the answer is recorded, and the outgoing notification is queued (AC4)", async () => {
       const { request, handover } = await pendingHandover();
       const declined = await handleDeclineEventHandover(
         { id: handover.id },
@@ -1314,14 +1339,34 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(
         await handleGetCoordinationRequest({ id: request.id }, outgoing, database as never)
       ).toMatchObject({ assignedCoordinatorId: outgoing.id });
-      expect(sendEmail).toHaveBeenCalledWith(
-        outgoing.email,
-        expect.stringContaining("Handover declined"),
-        expect.anything()
-      );
-      const declinedEmail = sendEmail.mock.calls.at(-1);
-      if (!declinedEmail) throw new Error("Expected a decline notification");
-      expect(await render(declinedEmail[2])).toContain(`/coordination/${request.id}`);
+      const declinedQueued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, request.id),
+            eq(schema.notifications.recipientId, outgoing.id),
+            eq(schema.notifications.kind, "handover_declined")
+          )
+        );
+      expect(declinedQueued).toHaveLength(1);
+      expect(declinedQueued[0].emailedAt).toBeNull();
+      expect(declinedQueued[0].payload).toMatchObject({ coordinatorName: incoming.name });
+      expect(
+        notificationSummary({
+          kind: declinedQueued[0].kind,
+          payload: declinedQueued[0].payload,
+        } as never)
+      ).toContain("Handover declined");
+      expect(
+        await render(
+          renderNotificationEmail({
+            kind: declinedQueued[0].kind,
+            payload: declinedQueued[0].payload,
+            eventRequestId: request.id,
+          } as never).element
+        )
+      ).toContain(`/coordination/${request.id}`);
       await expect(
         handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
       ).rejects.toMatchObject({ status: 409 });
@@ -1500,8 +1545,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         expect(newAssigneeRow.handoverTo).toBeNull();
         expect(await handleListPendingEventHandovers(incoming, database as never)).toEqual([]);
 
-        // Accepting it anyway still records who and when, and sends no false "you remain" notice.
-        sendEmail.mockClear();
+        // Accepting it anyway still records who and when, and queues no false "you remain" notice.
         await expect(
           handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
         ).rejects.toMatchObject({ status: 409 });
@@ -1511,7 +1555,17 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
           .where(eq(schema.eventHandovers.id, handover.id));
         expect(resolved).toMatchObject({ decision: "declined", decidedById: incoming.id });
         expect(resolved.decidedAt).toBeInstanceOf(Date);
-        expect(sendEmail).not.toHaveBeenCalled();
+        expect(
+          await database
+            .select()
+            .from(schema.notifications)
+            .where(
+              and(
+                eq(schema.notifications.eventRequestId, request.id),
+                eq(schema.notifications.kind, "handover_accepted")
+              )
+            )
+        ).toHaveLength(0);
       } finally {
         await database.delete(schema.user).where(eq(schema.user.id, vacated.id));
       }
@@ -1546,9 +1600,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(voided).toMatchObject({ decision: "declined", decidedById: incoming.id });
     });
 
-    it("keeps the recorded offer when the notification fails", async () => {
-      sendEmail.mockClear();
-      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
+    it("queues the handover notification with the recorded offer", async () => {
       const request = await assignedRequest();
       const handover = await handleRequestEventHandover(
         { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: outgoing.id },
@@ -1558,12 +1610,21 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
 
       expect(handover.decision).toBeNull();
       expect(await database.select().from(schema.eventHandovers)).toHaveLength(1);
-      // The failure was observed: the send was attempted and its rejection swallowed.
-      expect(sendEmail).toHaveBeenCalledWith(
-        incoming.email,
-        expect.stringContaining("Handover requested"),
-        expect.anything()
-      );
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, request.id),
+            eq(schema.notifications.recipientId, incoming.id),
+            eq(schema.notifications.kind, "handover_requested")
+          )
+        );
+      expect(queued).toHaveLength(1);
+      expect(queued[0].emailedAt).toBeNull();
+      expect(
+        notificationSummary({ kind: queued[0].kind, payload: queued[0].payload } as never)
+      ).toContain("Handover requested");
     });
 
     it("refuses a partial decision and a second live offer at the database", async () => {
@@ -1599,7 +1660,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         .set({ assignedCoordinatorId: tieBreakCoordinator.id, assignedAt: new Date() })
         .where(eq(schema.eventRequests.id, request.id));
 
-      sendEmail.mockClear();
       const declined = await handleDeclineEventHandover(
         { id: handover.id },
         incoming,
@@ -1608,21 +1668,41 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(declined).toMatchObject({ decision: "declined", decidedById: incoming.id });
       expect(declined.decidedAt).toBeInstanceOf(Date);
       // The outgoing Coordinator is not told they remain the Coordinator: they do not.
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(
+        await database
+          .select()
+          .from(schema.notifications)
+          .where(
+            and(
+              eq(schema.notifications.eventRequestId, request.id),
+              eq(schema.notifications.kind, "handover_declined")
+            )
+          )
+      ).toHaveLength(0);
     });
 
-    it("commits an accept and a decline even when the notification fails", async () => {
+    it("queues accept and decline notifications with the committed handover answers", async () => {
       const accepted = await pendingHandover();
-      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
       await handleAcceptEventHandover({ id: accepted.handover.id }, incoming, database as never);
       const [acceptedRow] = await database
         .select()
         .from(schema.eventRequests)
         .where(eq(schema.eventRequests.id, accepted.request.id));
       expect(acceptedRow.assignedCoordinatorId).toBe(incoming.id);
+      const acceptedQueued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, accepted.request.id),
+            eq(schema.notifications.recipientId, organiser.id),
+            eq(schema.notifications.kind, "handover_accepted")
+          )
+        );
+      expect(acceptedQueued).toHaveLength(1);
+      expect(acceptedQueued[0].emailedAt).toBeNull();
 
       const declined = await pendingHandover();
-      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
       await handleDeclineEventHandover({ id: declined.handover.id }, incoming, database as never);
       const [declinedRow] = await database
         .select()
@@ -1634,6 +1714,18 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         .from(schema.eventHandovers)
         .where(eq(schema.eventHandovers.id, declined.handover.id));
       expect(declinedHandover.decision).toBe("declined");
+      const declinedQueued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, declined.request.id),
+            eq(schema.notifications.recipientId, outgoing.id),
+            eq(schema.notifications.kind, "handover_declined")
+          )
+        );
+      expect(declinedQueued).toHaveLength(1);
+      expect(declinedQueued[0].emailedAt).toBeNull();
     });
 
     it("allows only one of a simultaneous replacement and accept", async () => {
@@ -1853,7 +1945,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     }
 
     it("approves an under-review request and records the Coordinator and time (AC1, AC3)", async () => {
-      sendEmail.mockClear();
       const request = await underReviewRequest();
       const approved = await handleDecideEventRequest(
         { id: request.id, decision: "approved" },
@@ -1876,15 +1967,25 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         decidedByCoordinatorName: actor.name,
         decidedAt: approved.decidedAt,
       });
-      expect(sendEmail).toHaveBeenCalledWith(
-        organiser.email,
-        "Your event request was approved",
-        expect.anything()
-      );
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, request.id),
+            eq(schema.notifications.recipientId, organiser.id),
+            eq(schema.notifications.kind, "event_decided")
+          )
+        );
+      expect(queued).toHaveLength(1);
+      expect(queued[0].emailedAt).toBeNull();
+      expect(queued[0].payload).toMatchObject({ decision: "approved" });
+      expect(
+        notificationSummary({ kind: queued[0].kind, payload: queued[0].payload } as never)
+      ).toContain("was approved");
     });
 
-    it("requires a rejection reason, then records it and notifies the Organiser (AC2, AC4)", async () => {
-      sendEmail.mockClear();
+    it("requires a rejection reason, then records it and queues the Organiser notification (AC2, AC4)", async () => {
       const request = await underReviewRequest();
 
       await expect(
@@ -1894,7 +1995,12 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
           database as never
         )
       ).rejects.toThrow("Enter a reason to reject this request");
-      expect(sendEmail).not.toHaveBeenCalled();
+      expect(
+        await database
+          .select()
+          .from(schema.notifications)
+          .where(eq(schema.notifications.eventRequestId, request.id))
+      ).toHaveLength(0);
 
       const rejected = await handleDecideEventRequest(
         { id: request.id, decision: "rejected", reason: "  Venue unavailable  " },
@@ -1907,11 +2013,28 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         decidedByCoordinatorId: actor.id,
         decidedByCoordinatorName: actor.name,
       });
-      expect(sendEmail).toHaveBeenCalledWith(
-        organiser.email,
-        "Your event request was rejected",
-        expect.anything()
-      );
+      const rejectedQueued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, request.id),
+            eq(schema.notifications.recipientId, organiser.id),
+            eq(schema.notifications.kind, "event_decided")
+          )
+        );
+      expect(rejectedQueued).toHaveLength(1);
+      expect(rejectedQueued[0].emailedAt).toBeNull();
+      expect(rejectedQueued[0].payload).toMatchObject({
+        decision: "rejected",
+        reason: "Venue unavailable",
+      });
+      expect(
+        notificationSummary({
+          kind: rejectedQueued[0].kind,
+          payload: rejectedQueued[0].payload,
+        } as never)
+      ).toContain("was rejected");
     });
 
     it("refuses the wrong Coordinator, a pre-review request and a second decision", async () => {
@@ -1947,8 +2070,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       ).rejects.toMatchObject({ status: 409 });
     });
 
-    it("allows only one competing decision and sends one notification", async () => {
-      sendEmail.mockClear();
+    it("allows only one competing decision and queues one notification", async () => {
       const request = await underReviewRequest();
       const results = await Promise.allSettled([
         handleDecideEventRequest(
@@ -1965,13 +2087,21 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
 
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
       expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
-      expect(sendEmail).toHaveBeenCalledTimes(1);
+      expect(
+        await database
+          .select()
+          .from(schema.notifications)
+          .where(
+            and(
+              eq(schema.notifications.eventRequestId, request.id),
+              eq(schema.notifications.kind, "event_decided")
+            )
+          )
+      ).toHaveLength(1);
     });
 
-    it("keeps the decision when the email fails", async () => {
-      sendEmail.mockClear();
+    it("queues the decision notification with the committed decision", async () => {
       const request = await underReviewRequest();
-      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
 
       const approved = await handleDecideEventRequest(
         { id: request.id, decision: "approved" },
@@ -1979,7 +2109,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         database as never
       );
 
-      expect(sendEmail).toHaveBeenCalledTimes(1);
       expect(approved.status).toBe("approved");
       expect(
         await handleGetCoordinationRequest({ id: request.id }, actor, database as never)
@@ -1988,6 +2117,18 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         decidedAt: approved.decidedAt,
         decidedByCoordinatorId: actor.id,
       });
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, request.id),
+            eq(schema.notifications.recipientId, organiser.id),
+            eq(schema.notifications.kind, "event_decided")
+          )
+        );
+      expect(queued).toHaveLength(1);
+      expect(queued[0].emailedAt).toBeNull();
     });
 
     it("enforces decision attribution and rejection reasons at the database boundary", async () => {
@@ -2093,8 +2234,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       expect(orgView?.clarifications[0].body).toBe("Please specify dietary requirements.");
     });
 
-    it("emails the Organiser when a clarification is raised (AC3)", async () => {
-      sendEmail.mockClear();
+    it("queues the Organiser notification when a clarification is raised (AC3)", async () => {
       const request = await submittedRequest(actor.id);
       await handleTakeUpForReview({ id: request.id }, actor, database as never);
 
@@ -2104,15 +2244,37 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         database as never
       );
 
-      expect(sendEmail).toHaveBeenCalledWith(
-        organiser.email,
-        "Clarification requested: Community workshop",
-        expect.anything()
-      );
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, request.id),
+            eq(schema.notifications.recipientId, organiser.id),
+            eq(schema.notifications.kind, "clarification_requested")
+          )
+        );
+      expect(queued).toHaveLength(1);
+      expect(queued[0].emailedAt).toBeNull();
+      expect(queued[0].payload).toMatchObject({
+        eventName: "Community workshop",
+        body: "Please specify dietary requirements.",
+      });
+      expect(
+        notificationSummary({ kind: queued[0].kind, payload: queued[0].payload } as never)
+      ).toBe("Clarification requested: Community workshop");
+      expect(
+        await render(
+          renderNotificationEmail({
+            kind: queued[0].kind,
+            payload: queued[0].payload,
+            eventRequestId: request.id,
+          } as never).element
+        )
+      ).toContain("Please specify dietary requirements.");
     });
 
-    it("keeps the clarification and status when the email fails", async () => {
-      sendEmail.mockRejectedValueOnce(new Error("smtp unavailable"));
+    it("queues the clarification notification with the raised question", async () => {
       const request = await submittedRequest(actor.id);
       await handleTakeUpForReview({ id: request.id }, actor, database as never);
 
@@ -2128,6 +2290,18 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         .where(eq(schema.clarificationRequests.id, clarification.id));
       expect(stored).toHaveLength(1);
       expect(await statusOf(request.id)).toBe("awaiting_organiser");
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, request.id),
+            eq(schema.notifications.recipientId, organiser.id),
+            eq(schema.notifications.kind, "clarification_requested")
+          )
+        );
+      expect(queued).toHaveLength(1);
+      expect(queued[0].emailedAt).toBeNull();
     });
 
     it("accepts a second clarification request alongside the first (AC5 / Option A)", async () => {

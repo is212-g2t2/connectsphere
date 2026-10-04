@@ -23,7 +23,12 @@ export function getMailer(): Resend | null {
   return cachedMailer;
 }
 
-export async function sendEmail(to: string, subject: string, react: React.ReactElement) {
+export async function sendEmail(
+  to: string,
+  subject: string,
+  react: React.ReactElement,
+  options: { idempotencyKey?: string } = {}
+) {
   const maskedTo = maskEmail(to);
 
   log.info("Sending email", { to: maskedTo, subject });
@@ -31,7 +36,8 @@ export async function sendEmail(to: string, subject: string, react: React.ReactE
   const from = env.EMAIL_FROM ?? "ConnectSphere <onboarding@resend.dev>";
 
   // SMTP_URL is set only for local/E2E runs, where a capture server (Mailpit) stands in for
-  // Resend's HTTP API. Production leaves it unset and takes the Resend branch below.
+  // Resend's HTTP API. Production leaves it unset and takes the Resend branch below. The capture
+  // server has no idempotency concept, and E2E drains the queue explicitly.
   if (env.SMTP_URL) {
     const [{ createTransport }, { render }] = await Promise.all([
       import("nodemailer"),
@@ -55,12 +61,15 @@ export async function sendEmail(to: string, subject: string, react: React.ReactE
     );
   }
 
-  const { data, error } = await client.emails.send({
-    from,
-    to,
-    subject,
-    react,
-  });
+  const { data, error } = await client.emails.send(
+    {
+      from,
+      to,
+      subject,
+      react,
+    },
+    options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined
+  );
 
   if (error) {
     // Resend's message can echo the recipient address, so only the error's
