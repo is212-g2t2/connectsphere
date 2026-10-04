@@ -35,7 +35,7 @@ This guide covers the local development environment, the scripts catalogue, data
    - **Redis 7** on `localhost:6379`
    - **Mailpit** on `localhost:1025` (SMTP) and `localhost:8025` (web UI) for the E2E reset journey
 
-   The command deliberately excludes the `connectsphere` application container. It binds port 3000, and the E2E setup always starts its own production server on that port. See [Deployment](./DEPLOYMENT.md#the-normal-loop-services-in-docker-application-on-the-host) for the full stack.
+   The command deliberately excludes the `connectsphere` application container. It binds port 3000, and the E2E setup always starts its own production server on that port. See [Deployment](./DEPLOYMENT.md#the-normal-loop-services-in-docker-the-application-on-the-host) for the full stack.
 
 4. **Prepare the database**:
 
@@ -147,7 +147,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
   ```bash
   bun run db:generate
   ```
-- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`, and handwritten migrations cause snapshot drift. One reviewed exception is the booking exclusion constraint that Drizzle cannot express ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)), created with `db:generate --custom`. The migrator runs all pending migrations in one transaction, so the constraint's predicate calls an `IMMUTABLE` wrapper function and does not compare the newly added enum label.
+- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`, and handwritten migrations cause snapshot drift. One reviewed exception is the booking exclusion constraint that Drizzle cannot express ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)), created with `db:generate --custom`. The migrator runs all pending migrations in one transaction, so the constraint's predicate calls an `IMMUTABLE` wrapper function. It does not compare the newly added enum label.
 - **Commit schema and migrations together**: always commit the schema changes with the generated files in `src/db/drizzle/`.
 - **Apply migrations**: run `bun run db:migrate` to apply the pending migrations.
 - **Prototyping**: during early exploration, `bun run db:push` synchronizes the schema directly without a migration file. Never use `db:push` in production.

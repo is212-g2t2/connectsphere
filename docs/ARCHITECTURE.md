@@ -128,7 +128,7 @@ The application accesses PostgreSQL with Drizzle ORM and Bun's native SQL driver
 - **Schemas**: `src/db/schema.ts` holds the application tables and re-exports the authentication tables. `src/db/auth-schema.ts` holds the Better Auth tables: `user` with `role`, `session`, `account`, and `verification`.
 - **Migrations**: Drizzle Kit generates migrations into `src/db/drizzle/`. Run `bun run db:generate` after each schema change. Run `bun run db:migrate` to apply the migrations.
 
-Never handwrite SQL. The two reviewed exceptions are the `EXCLUDE` constraints that Drizzle cannot express, added with `db:generate --custom`: the booking constraint `venue_requests_no_overlap` (migration 0019) and the venue-hold constraint `venue_holds_no_overlap` (migration 0024, with its `IMMUTABLE` `venue_hold_occupies_venue` status wrapper). Both are documented in [ADR-5](./adrs/ADR-5-venue-booking-overlap.md). Workflow: [`DEVELOPMENT.md`](./DEVELOPMENT.md#database-management-and-migrations).
+Never handwrite SQL. The two reviewed exceptions are the `EXCLUDE` constraints that Drizzle cannot express, added with `db:generate --custom`. The booking constraint is `venue_requests_no_overlap` (migration 0019). The venue-hold constraint is `venue_holds_no_overlap` (migration 0024, with its `IMMUTABLE` `venue_hold_occupies_venue` status wrapper). Both are documented in [ADR-5](./adrs/ADR-5-venue-booking-overlap.md). Workflow: [`DEVELOPMENT.md`](./DEVELOPMENT.md#database-management-and-migrations).
 
 ### Entity Relationships
 
@@ -269,7 +269,7 @@ erDiagram
 **Better Auth** handles authentication, rate limited to 20 requests per 60-second window.
 
 - **Email and password**: the sign-up form collects the name, the email, the password, and a role. The browser matches the password confirmation only, and the form never sends the confirmation. Password hashes live in `account.password`. Sign-ups are auto-signed-in, so an unverified user can still sign in.
-- **Password policy**: `PasswordSchema` (`src/features/auth/schema/password.ts`) requires 8–128 characters, with a number and a symbol. Better Auth enforces only a length range of its own accord, so a `hooks.before` middleware in `src/lib/auth.server.ts` re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). The middleware deliberately excludes `/sign-in/email`, so accounts that predate the policy can still sign in.
+- **Password policy**: `PasswordSchema` (`src/features/auth/schema/password.ts`) requires 8–128 characters, with a number and a symbol. Better Auth enforces only a length range of its own accord. A `hooks.before` middleware in `src/lib/auth.server.ts` therefore re-applies the full schema to every endpoint that _sets_ a password (`/sign-up/email`, `/reset-password`, `/change-password`). The middleware deliberately excludes `/sign-in/email`, so accounts that predate the policy can still sign in.
 - **Email verification**: `emailVerification.sendOnSignUp` mails a link through the `VerificationEmail` template. Better Auth's `/api/auth/verify-email` consumes the link, so the application has no route for it.
 - **Password reset**: `/reset-password` sends a link that expires after 1 hour. The emailed callback returns to `/reset-password?token=…`, or to `?error=INVALID_TOKEN` when the token has expired. It does not create a session, and the user signs in afterwards.
 
