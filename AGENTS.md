@@ -22,7 +22,7 @@ Each kind of content has exactly one home. Decide the home before you write:
 
 `ARCHITECTURE.md` is undated: no ticket ids (`PTR-*`), no per-story narrative, and no one-time release instructions ("apply migration 0011"). If a sentence makes sense only in the release that introduced it, it belongs in the PR description, not in architecture. Anything architectural that must outlive a release goes in an ADR. A rule that already has a home gets a link, not a second copy.
 
-Apply the [no-ai-slop](https://raw.githubusercontent.com/petergyang/no-ai-slop/refs/heads/main/skills/no-ai-slop/SKILL.md) rules when you write or edit docs: active voice, concrete facts over abstractions, no filler openers, and no binary contrasts. Use an em dash only where it is better than a comma or a full stop. Prose budget: a paragraph ≤ 4 lines, and a list item ≤ 3 sentences. More than that needs a table, a list, or its own document, not a bigger paragraph.
+Write and edit docs in [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org/) (STE100) first. Then apply the [no-ai-slop](https://raw.githubusercontent.com/petergyang/no-ai-slop/refs/heads/main/skills/no-ai-slop/SKILL.md) rules: active voice, concrete facts over abstractions, no filler openers, and no binary contrasts. STE100 takes precedence where the two sets of rules conflict. Use an em dash only where it is better than a comma or a full stop. Prose budget: a paragraph ≤ 4 lines, and a list item ≤ 3 sentences. More than that needs a table, a list, or its own document, not a bigger paragraph.
 
 ## Running a single test
 
