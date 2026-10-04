@@ -6,7 +6,7 @@ This document covers the deployed topology, the release pipeline, the configurat
 
 ## Topology
 
-![Deployment topology: the Cloudflare edge fronts the two Cloud Run services, which use Supabase PostgreSQL, Cloudflare R2, Secret Manager, Resend, and Sentry](./diagrams/deployment-topology.svg)
+![Deployment topology: the Cloudflare edge fronts the two Cloud Run services, which use Supabase PostgreSQL, Cloudflare R2, Secret Manager, Resend, and Sentry; GitHub Actions deploys the image through GHCR](./diagrams/deployment-topology.svg)
 
 Source: [`deployment-topology.drawio`](./diagrams/deployment-topology.drawio).
 
