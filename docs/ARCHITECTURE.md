@@ -105,6 +105,8 @@ The assigned Coordinator confirms an event from `approved` or `planning`. The ga
 
 The `notifications` table is the application's only notification record. Each trigger creates one row per recipient. Each row carries the notification `kind` and a domain-fact `payload`. The change writes its rows in its own transaction. The delivery worker drains pending rows (`emailed_at IS NULL AND failed_at IS NULL`) in batches. The worker leases each row, so overlapping runs cannot double-send. `failed_at` marks a row that spent its attempt budget. The row stays visible in the inbox. The inbox read re-applies the caller's event relationship. It renders a neutral line when the caller can no longer reach the subject. No event data crosses the boundary after access ends.
 
+`read_at` is null while a row is unread and keeps the first read time once set. The inbox reads its listed rows and the caller's unread count across all of their rows in one read-only repeatable-read transaction, so both come from the same snapshot. Marking read is scoped to the caller and takes one id, or the highest listed id as a cutoff, so a row with a higher id than any listed stays unread.
+
 The handler locks the equipment lines, then the event, then its venue requests before reading them, the order the equipment paths use. It records who confirmed and when in `confirmed_*` columns kept apart from the approval attribution. A booking or reservation changed after confirmation never moves the status.
 
 ## Authentication

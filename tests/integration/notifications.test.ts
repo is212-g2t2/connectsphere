@@ -176,6 +176,22 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
     return row;
   }
 
+  /** `count` confirmed-event rows for one recipient, a second apart from `baseMs`, oldest first. */
+  async function raiseMany(recipientId: string, count: number, baseMs: number) {
+    return database
+      .insert(schema.notifications)
+      .values(
+        Array.from({ length: count }, (_, index) => ({
+          recipientId,
+          eventRequestId: eventId,
+          kind: "event_confirmed" as const,
+          payload: confirmedPayload() as never,
+          createdAt: new Date(baseMs + index * 1_000),
+        }))
+      )
+      .returning({ id: schema.notifications.id });
+  }
+
   describe("inbox (AC1–AC5)", () => {
     it("lists the caller's notifications newest first and nobody else's (AC1, AC3)", async () => {
       const coordinator = session("coordinator");
@@ -343,19 +359,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
     it("caps the inbox at 50 rows, newest first", async () => {
       const coordinator = session("coordinator");
       // One bulk insert with explicit increasing instants; 51 rows must exceed the 50-row page.
-      const base = Date.UTC(2032, 0, 1, 0, 0, 0);
-      const rows = await database
-        .insert(schema.notifications)
-        .values(
-          Array.from({ length: 51 }, (_, index) => ({
-            recipientId: coordinator.id,
-            eventRequestId: eventId,
-            kind: "event_confirmed" as const,
-            payload: confirmedPayload() as never,
-            createdAt: new Date(base + index * 1_000),
-          }))
-        )
-        .returning({ id: schema.notifications.id });
+      const rows = await raiseMany(coordinator.id, 51, Date.UTC(2032, 0, 1, 0, 0, 0));
 
       const items = await handleListNotifications(coordinator, database);
       expect(items).toHaveLength(50);
@@ -442,16 +446,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
   describe("read state (PTR-56)", () => {
     it("reads the listed rows and the global unread count together for the page (AC2)", async () => {
       const coordinator = session("coordinator");
-      const base = Date.UTC(2034, 0, 1, 0, 0, 0);
-      await database.insert(schema.notifications).values(
-        Array.from({ length: 52 }, (_, index) => ({
-          recipientId: coordinator.id,
-          eventRequestId: eventId,
-          kind: "event_confirmed" as const,
-          payload: confirmedPayload() as never,
-          createdAt: new Date(base + index * 1_000),
-        }))
-      );
+      await raiseMany(coordinator.id, 52, Date.UTC(2034, 0, 1, 0, 0, 0));
 
       const inbox = await handleReadInbox(coordinator, database as never);
       // Counted past the page: a count derived from the listed rows would say 50.
@@ -480,7 +475,8 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       const older = await raise(coordinator.id, "event_confirmed", confirmedPayload());
       const newer = await raise(coordinator.id, "event_confirmed", confirmedPayload());
 
-      await handleMarkNotificationsRead({ id: older.id }, coordinator, database as never);
+      // Marking the newest by id must leave the older unread row alone, unlike a mark-through.
+      await handleMarkNotificationsRead({ id: newer.id }, coordinator, database as never);
       await handleMarkNotificationsRead({ id: alreadyRead.id }, coordinator, database as never);
 
       const [kept] = await database
@@ -490,8 +486,8 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       expect(kept.readAt).toEqual(firstRead);
       const items = await handleListNotifications(coordinator, database);
       expect(items.map(item => [item.id, item.read])).toEqual([
-        [newer.id, false],
-        [older.id, true],
+        [newer.id, true],
+        [older.id, false],
         [alreadyRead.id, true],
       ]);
       expect(await handleCountUnreadNotifications(coordinator, database)).toBe(1);
@@ -517,19 +513,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       const coordinator = session("coordinator");
       // Raised first, so its id sits below the cutoff: only the recipient scope can spare it.
       await raise(session("organiser").id, "event_confirmed", confirmedPayload());
-      const base = Date.UTC(2033, 0, 1, 0, 0, 0);
-      const rows = await database
-        .insert(schema.notifications)
-        .values(
-          Array.from({ length: 52 }, (_, index) => ({
-            recipientId: coordinator.id,
-            eventRequestId: eventId,
-            kind: "event_confirmed" as const,
-            payload: confirmedPayload() as never,
-            createdAt: new Date(base + index * 1_000),
-          }))
-        )
-        .returning({ id: schema.notifications.id });
+      const rows = await raiseMany(coordinator.id, 52, Date.UTC(2033, 0, 1, 0, 0, 0));
       // The count is not capped by the page.
       expect(await handleCountUnreadNotifications(coordinator, database)).toBe(52);
 
