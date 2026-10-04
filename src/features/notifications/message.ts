@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ARRANGEMENT_STATES } from "#/features/equipment-requests/schema";
 
 /**
- * PTR-55: the 15 notification kinds the application raises. The Postgres enum in
+ * PTR-55: the notification kinds the application raises. The Postgres enum in
  * `#/db/schema` restates this list; `tests/unit/db-schema.test.ts` holds the two identical.
  * `kind` selects the email template at delivery time, so a new kind means a new payload schema,
  * a summary, a href and a template arm in `render.server.ts`.
@@ -15,6 +15,7 @@ export const NOTIFICATION_KINDS = [
   "venue_booking_changed",
   "clarification_requested",
   "clarification_replied",
+  "event_change_requested",
   "handover_requested",
   "handover_accepted",
   "handover_declined",
@@ -88,6 +89,11 @@ const payloadSchemas = {
     eventName: z.string(),
     question: z.string(),
     body: z.string(),
+  }),
+  event_change_requested: z.object({
+    eventName: z.string(),
+    whatShouldChange: z.string(),
+    requestedValue: z.string(),
   }),
   handover_requested: z.object({
     eventName: z.string(),
@@ -190,6 +196,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("clarification_replied"),
     payload: payloadSchemas.clarification_replied,
   }),
+  z.object({
+    kind: z.literal("event_change_requested"),
+    payload: payloadSchemas.event_change_requested,
+  }),
   z.object({ kind: z.literal("handover_requested"), payload: payloadSchemas.handover_requested }),
   z.object({ kind: z.literal("handover_accepted"), payload: payloadSchemas.handover_accepted }),
   z.object({ kind: z.literal("handover_declined"), payload: payloadSchemas.handover_declined }),
@@ -238,6 +248,8 @@ export function notificationSummary(notification: NotificationPayload): string {
       return `Clarification requested: ${notification.payload.eventName}`;
     case "clarification_replied":
       return `Clarification replied: ${notification.payload.eventName}`;
+    case "event_change_requested":
+      return `Event change requested: ${notification.payload.eventName}`;
     case "handover_requested":
       return `Handover requested: ${notification.payload.eventName}`;
     case "handover_accepted":
@@ -301,6 +313,7 @@ export function notificationHref(
     case "venue_booking_rejected":
     case "venue_booking_changed":
     case "clarification_replied":
+    case "event_change_requested":
     case "handover_declined":
     case "equipment_arrangements_completed":
     case "equipment_unavailable":
@@ -350,6 +363,7 @@ export function notificationReachable(
     case "venue_booking_changed":
     case "clarification_requested":
     case "clarification_replied":
+    case "event_change_requested":
     case "handover_accepted":
     case "handover_declined":
     case "event_decided":

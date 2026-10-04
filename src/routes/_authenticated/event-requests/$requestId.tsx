@@ -28,5 +28,7 @@ export const Route = createFileRoute("/_authenticated/event-requests/$requestId"
     }
     return request;
   },
-  component: () => <EventRequestDetailPage request={Route.useLoaderData()} showReplyForms />,
+  component: () => (
+    <EventRequestDetailPage request={Route.useLoaderData()} showReplyForms showChangeRequestForm />
+  ),
 });

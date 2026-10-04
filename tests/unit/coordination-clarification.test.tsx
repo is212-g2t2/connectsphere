@@ -83,6 +83,7 @@ const underReviewRequest: CoordinationRequest = {
   organiser: { name: "Organiser", email: "org@example.com" },
   coordinator: { name: "Alex", email: "a@example.com" },
   clarifications: [],
+  changeRequests: [],
   pendingHandover: null,
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,

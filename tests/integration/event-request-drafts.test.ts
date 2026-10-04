@@ -704,6 +704,7 @@ describe("Listing and reading an organiser's requests (PTR-14)", () => {
       ...saved,
       coordinator: null,
       clarifications: [],
+      changeRequests: [],
     });
   });
 

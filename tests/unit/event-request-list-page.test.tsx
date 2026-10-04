@@ -58,6 +58,7 @@ const base: EventRequestDetail = {
   confirmedAt: null,
   coordinator: null,
   clarifications: [],
+  changeRequests: [],
   eventName: "",
   purpose: "",
   proposedDates: [],

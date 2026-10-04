@@ -4,6 +4,7 @@ import type { db as Db } from "#/db";
 import { clarificationRequests, eventRequests, user as users } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
 import {
   ALREADY_SUBMITTED_MESSAGE,
   EVENT_REQUEST_DELETE_REFUSAL,
@@ -262,13 +263,16 @@ export async function handleGetEventRequest(
   const request = rows.at(0);
   if (!request) return null;
 
-  const clarifications = await database
-    .select()
-    .from(clarificationRequests)
-    .where(eq(clarificationRequests.eventRequestId, id))
-    .orderBy(asc(clarificationRequests.createdAt));
+  const [clarifications, changeRequests] = await Promise.all([
+    database
+      .select()
+      .from(clarificationRequests)
+      .where(eq(clarificationRequests.eventRequestId, id))
+      .orderBy(asc(clarificationRequests.createdAt)),
+    listEventChangeRequests(id, database),
+  ]);
 
-  return { ...request, clarifications };
+  return { ...request, clarifications, changeRequests };
 }
 
 /**

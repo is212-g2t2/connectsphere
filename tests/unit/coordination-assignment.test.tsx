@@ -98,6 +98,7 @@ const request: CoordinationRequest = {
   organiser: { name: "Organiser", email: "org@example.com" },
   coordinator: null,
   clarifications: [],
+  changeRequests: [],
   pendingHandover: null,
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,

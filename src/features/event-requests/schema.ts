@@ -311,6 +311,33 @@ export function parseEventRequestId(data: unknown) {
   return parsed.data;
 }
 
+/** PTR-51: the Organiser must state both the target of the change and the requested new value. */
+export const CHANGE_REQUEST_TEXT_MAX = 2000;
+export const EventChangeRequestInput = EventRequestIdInput.extend({
+  whatShouldChange: z
+    .string()
+    .trim()
+    .min(1, "State what should change")
+    .max(
+      CHANGE_REQUEST_TEXT_MAX,
+      `What should change must be ${CHANGE_REQUEST_TEXT_MAX} characters or fewer`
+    ),
+  requestedValue: z
+    .string()
+    .trim()
+    .min(1, "Enter the requested new value")
+    .max(
+      CHANGE_REQUEST_TEXT_MAX,
+      `Requested new value must be ${CHANGE_REQUEST_TEXT_MAX} characters or fewer`
+    ),
+});
+
+export function parseEventChangeRequestInput(data: unknown) {
+  const parsed = EventChangeRequestInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+
 /**
  * The PTR-10 fields a submission cannot go without, checked against a saved request. Drafting
  * stays lenient — PTR-9 lets absent fields save — so only a submission path calls this: PTR-13
