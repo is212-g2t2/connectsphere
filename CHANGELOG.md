@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-04
+
+### Added
+
+- **Coordinator handover**: a Coordinator offers an assigned event to a named colleague, who accepts or declines it from `/coordination`. The outgoing Coordinator keeps the event and its access until the colleague accepts. Acceptance moves the assignment and records it in assignment history. The offer emails the colleague, an acceptance emails the Organiser, and a decline emails the outgoing Coordinator.
+- **Booking release and amendment**: Venue Staff see upcoming approved bookings at `/venue-bookings`. The staff member who approved a booking releases it with a required reason, or amends its venue or period. A release records a `released` status and frees the period, and the assigned Coordinator gets an email for each release or amendment.
+- **Tentative venue holds**: a Coordinator places a hold on a venue and period, then releases it or converts it into a booking request. A Postgres exclusion constraint refuses overlapping holds. Holds show on the availability calendar and venue search. The Venue Staff queue flags a request that overlaps a hold, and the system refuses its approval.
+- **Adjusted booking requests**: the rejection card offers "Adjust request", which opens the suggested venue, or the refused one, with the request form prefilled from the suggestion. The rejection stays on the card next to the new pending request until Venue Staff decide it.
+- **Event equipment lines**: the assigned Coordinator adds, edits, and removes the equipment an approved or planning event needs, and submits the list to Technical Support Staff, who get an email.
+- **Equipment request review**: Technical Support Staff get a work list at `/equipment-requests` and a detail page for each event. They set each line to requested, not required, or unavailable (with a required reason), and add notes. The assigned Coordinator sees each line's state and notes, and gets an email when a line becomes unavailable. The Organiser sees the state without the notes or reason.
+- **Equipment availability and reservation**: Technical Support Staff check the free units of a catalogue equipment type for the event's approved booking period, and the check names any shortfall. They reserve units for that period, and a lock on the equipment type keeps the combined reservations within capacity.
+- **Reservation reduction and release**: Technical Support Staff return some or all of a line's reserved units, which frees them for every overlapping event. A full release can carry a reason that marks the line unavailable. The line records who released the units and when, and the Coordinator gets a notification.
+- **Completed technical arrangements**: Technical Support Staff mark an event's equipment arrangements as settled, and the assigned Coordinator gets a notification. A change to the arrangements clears the mark, and confirmation freezes them.
+- **Event confirmation**: the assigned Coordinator confirms an approved or planning event when it has one approved venue booking and, if it has equipment lines, settled technical arrangements. A refusal names each outstanding item. The Organiser gets an email and sees the confirmed arrangements.
+- **Notification inbox**: `/notifications` lists the caller's notifications, newest first, with an unread count, and the header links to it for every signed-in user. A user marks one notification read, or all of them. A notification whose event the user can no longer reach shows no event data.
+- **Queued notification email**: every notification email goes into a transactional queue that commits with the change that raises it. Cloud Scheduler calls `/api/cron/notifications` every minute with the new `CRON_TOKEN`. The worker retries a failed email with backoff and moves it to a dead-letter state after ten attempts. Authentication emails skip the queue and still send at once.
+
+### Changed
+
+- **Notification email delivery**: decision, clarification, and venue booking emails go through the notification queue instead of a best-effort send after commit. A failed send now retries, and an email goes out on the next one-minute run.
+- **Coordinator reassignment**: a Coordinator moves an assigned event to a colleague only through an accepted handover. The assign function takes unassigned events only, and its refusal of an assigned event names the handover.
+- **Dependencies**: most direct dependencies move to newer versions, the Sentry SDK among them from v10 to v11, and both Sentry initialization sites use the v11 `dataCollection` baseline. The dependency audit ignores the unpatched `braces` advisory GHSA-vfj7-8cjw-p6xm until a fix ships.
+- **Documentation**: the technical documentation follows ASD-STE100 Simplified Technical English, and `ARCHITECTURE.md` adds system context, deployment, and entity relationship diagrams.
+
+### Removed
+
+- The presigned upload demo: `POST /api/upload-url`, its storage helper, dashboard card, and permission.
+- MinIO in Compose and CI, and the Cloudflare R2 buckets in Terraform.
+- The `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, and `MINIO_SECRET_KEY` environment variables.
+- 49 unused UI component files, including the data-table folder, and 8 unused dependencies, among them `recharts`, `cmdk`, `@tanstack/react-table`, and `aws4fetch`.
+
 ## [0.2.0] - 2026-09-28
 
 ### Added
