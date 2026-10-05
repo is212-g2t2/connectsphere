@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { requireSession } from "#/features/auth/session";
+import { requirePermission, requireSession } from "#/features/auth/session";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
 import { parseEventListInput } from "#/features/events/schema";
@@ -20,6 +20,12 @@ async function loadServer() {
 async function loadConfirmServer() {
   return Promise.all([import("#/db"), import("#/features/events/confirm.server")]);
 }
+
+async function loadRegisterServer() {
+  return Promise.all([import("#/db"), import("#/features/events/register.server")]);
+}
+
+const requireEventRegister = requirePermission({ event: ["register"] });
 
 /**
  * PTR-8: the events the signed-in user is connected to, each in a role-specific projection. No
@@ -50,4 +56,21 @@ export const confirmEvent = createServerFn({ method: "POST" })
     log.info("Event confirmed", { eventId: event.id, actorId: context.user.id });
 
     return event;
+  });
+
+/**
+ * PTR-45: an Attendee registers for a published event. A visitor gets 401 and any other role gets
+ * 403 (AC1). The handler re-reads the event, its period and its places, so the permission says
+ * only that the caller may register.
+ */
+export const registerForEvent = createServerFn({ method: "POST" })
+  .middleware([requireEventRegister])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRegisterForEvent }] = await loadRegisterServer();
+    const registration = await handleRegisterForEvent(data, context.user, db);
+
+    log.info("Event registration recorded", { eventId: data.id, attendeeId: context.user.id });
+
+    return registration;
   });

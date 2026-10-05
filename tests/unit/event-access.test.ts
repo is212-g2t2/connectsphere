@@ -234,9 +234,11 @@ describe("event access", () => {
       { status: "registered", registeredAt: "2026-09-13T10:00:00.000Z" },
       [],
       null,
-      venue
+      venue,
+      { registered: 12, limit: 40 }
     );
     expect(result.event.registration?.status).toBe("registered");
+    expect(result.event.places).toEqual({ registered: 12, limit: 40 });
     expect(result.event).toMatchObject({
       name: "ConnectSphere Demo",
       description: "A demo event",
@@ -255,6 +257,7 @@ describe("event access", () => {
         "eventDate",
         "id",
         "name",
+        "places",
         "registration",
         "registrationClosesAt",
         "registrationEnabled",

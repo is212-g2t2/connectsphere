@@ -46,7 +46,7 @@ import {
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
-import { confirmEvent, listEvents } from "#/features/events/server-fns";
+import { confirmEvent, listEvents, registerForEvent } from "#/features/events/server-fns";
 import { listNotifications, markNotificationsRead } from "#/features/notifications/server-fns";
 import {
   VENUE_REJECTION_REASON_REQUIRED,
@@ -632,6 +632,43 @@ describe("server-function authorization (PTR-69)", () => {
       signIn("event_coordinator");
 
       const { error } = await call(confirmEvent, { id: "not-a-number" });
+
+      expect(error).toBeInstanceOf(Error);
+    });
+  });
+
+  // PTR-45 AC1: no guest registration path, and no role but the Attendee registers.
+  describe("PTR-45 register for an event", () => {
+    const registerInput = { id: 1 };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(registerForEvent, registerInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Attendee", async () => {
+      signIn("attendee");
+
+      expect((await call(registerForEvent, registerInput)).error).toBeUndefined();
+    });
+
+    it.each(["event_organiser", "event_coordinator", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(registerForEvent, registerInput)).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("rejects a malformed id before the handler", async () => {
+      signIn("attendee");
+
+      const { error } = await call(registerForEvent, { id: "not-a-number" });
 
       expect(error).toBeInstanceOf(Error);
     });

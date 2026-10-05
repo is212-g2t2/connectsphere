@@ -14,6 +14,10 @@ import { EquipmentRequestEmail } from "#/features/emails/components/equipment-re
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { EventChangeRequestEmail } from "#/features/emails/components/event-change-request-email";
+import {
+  EventRegisteredEmail,
+  RegistrationThresholdEmail,
+} from "#/features/emails/components/event-registration-email";
 import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
 import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
 import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
@@ -241,6 +245,33 @@ export function renderNotificationEmail(
           arrangementStatus,
           unavailableReason,
           actorName,
+        }),
+      };
+    }
+    case "event_registered": {
+      const { eventName, venueName, venueLocation, startsAt, endsAt } = notification.payload;
+      return {
+        subject,
+        element: createElement(EventRegisteredEmail, {
+          eventName,
+          venueName,
+          venueLocation,
+          startsAt,
+          endsAt,
+          eventUrl: `${base}/events/${eventRequestId}`,
+        }),
+      };
+    }
+    case "registration_threshold_reached": {
+      const { eventName, registered, limit, audience } = notification.payload;
+      const path = audience === "coordinator" ? "coordination" : "event-requests";
+      return {
+        subject,
+        element: createElement(RegistrationThresholdEmail, {
+          eventName,
+          registered,
+          limit,
+          eventUrl: `${base}/${path}/${eventRequestId}`,
         }),
       };
     }

@@ -5,7 +5,7 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import type { Role } from "#/features/auth/schema/role";
 
 /**
- * The role/function matrix of PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32 and PTR-36, restated
+ * The role/function matrix of PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36 and PTR-45, restated
  * independently of `permissions.ts`.
  *
  * The duplication is deliberate: widening a role has to be written twice and can never be a
@@ -15,6 +15,7 @@ import type { Role } from "#/features/auth/schema/role";
 const EXPECTED: Record<
   Role,
   {
+    eventRegister: boolean;
     event_request: boolean;
     coordinate: boolean;
     venueRead: boolean;
@@ -29,6 +30,7 @@ const EXPECTED: Record<
   }
 > = {
   attendee: {
+    eventRegister: true,
     event_request: false,
     coordinate: false,
     venueRead: false,
@@ -42,6 +44,7 @@ const EXPECTED: Record<
     equipmentRelease: false,
   },
   event_organiser: {
+    eventRegister: false,
     event_request: true,
     coordinate: false,
     venueRead: false,
@@ -55,6 +58,7 @@ const EXPECTED: Record<
     equipmentRelease: false,
   },
   event_coordinator: {
+    eventRegister: false,
     event_request: false,
     coordinate: true,
     venueRead: true,
@@ -68,6 +72,7 @@ const EXPECTED: Record<
     equipmentRelease: false,
   },
   venue_staff: {
+    eventRegister: false,
     event_request: false,
     coordinate: false,
     venueRead: true,
@@ -81,6 +86,7 @@ const EXPECTED: Record<
     equipmentRelease: false,
   },
   technical_support_staff: {
+    eventRegister: false,
     event_request: false,
     coordinate: false,
     venueRead: true,
@@ -95,8 +101,9 @@ const EXPECTED: Record<
   },
 };
 
-describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36, PTR-41, PTR-42)", () => {
+describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36, PTR-41, PTR-42, PTR-45)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
+    expect(can(role, { event: ["register"] })).toBe(EXPECTED[role].eventRegister);
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
     expect(can(role, { event_request: ["coordinate"] })).toBe(EXPECTED[role].coordinate);
     expect(can(role, { venue: ["read"] })).toBe(EXPECTED[role].venueRead);
@@ -114,8 +121,8 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PT
     /**
      * Every probe is a malformed spelling of a role that *does* hold `event_request:create`,
      * or a role that does not exist. Spelling them as `attendee` would prove nothing: attendee
-     * holds an empty role, so a `can()` that quietly defaulted an unknown string to it would
-     * still answer false and this block would pass while enforcing nothing.
+     * does not hold `event_request:create`, so a `can()` that quietly defaulted an unknown string
+     * to it would still answer false and this block would pass while enforcing nothing.
      */
     it.each<string | null | undefined>([
       null,

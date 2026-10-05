@@ -4,6 +4,10 @@ import { ClarificationRequestEmail } from "#/features/emails/components/clarific
 import { ClarificationReplyEmail } from "#/features/emails/components/clarification-reply-email";
 import { Layout } from "#/features/emails/components/layout";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
+import {
+  EventRegisteredEmail,
+  RegistrationThresholdEmail,
+} from "#/features/emails/components/event-registration-email";
 import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
 import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
 import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
@@ -285,5 +289,72 @@ describe("Email templates rendering", () => {
       />
     );
     expect(html).toContain("Suggested instead: New time: 10:00–13:30.");
+  });
+
+  it("renders EventRegisteredEmail with the event, its venue and period, and the event link (PTR-45 AC7)", async () => {
+    const html = await render(
+      <EventRegisteredEmail
+        eventName="Open Day"
+        venueName="Seminar Room 2A"
+        venueLocation="Level 2, Marina Centre"
+        startsAt="2026-12-05 10:00:00"
+        endsAt="2026-12-05 16:00:00"
+        eventUrl="http://localhost:3000/events/12"
+      />
+    );
+
+    expect(html).toContain("You are registered");
+    expect(html).toContain("Open Day");
+    expect(html).toContain("When: 5 December 2026, 10:00–16:00");
+    expect(html).toContain("Venue: Seminar Room 2A, Level 2, Marina Centre");
+    expect(html).toContain("http://localhost:3000/events/12");
+  });
+
+  it("names both days of a registered event that ends on a later day", async () => {
+    const html = await render(
+      <EventRegisteredEmail
+        eventName="Night Market"
+        venueName="Rooftop Pavilion"
+        venueLocation=""
+        startsAt="2026-12-05 22:00:00"
+        endsAt="2026-12-06 02:00:00"
+        eventUrl="http://localhost:3000/events/12"
+      />
+    );
+
+    expect(html).toContain("When: 5 December 2026, 22:00 – 6 December 2026, 02:00");
+    expect(html).toContain("Venue: Rooftop Pavilion");
+    expect(html).not.toContain("Rooftop Pavilion, ");
+  });
+
+  it("renders RegistrationThresholdEmail at the limit with the places and the event link (PTR-45 AC8)", async () => {
+    const html = await render(
+      <RegistrationThresholdEmail
+        eventName="Open Day"
+        registered={40}
+        limit={40}
+        eventUrl="http://localhost:3000/coordination/12"
+      />
+    );
+
+    expect(html).toContain("Registration is full");
+    expect(html).toContain("Open Day");
+    expect(html).toContain("40 of 40 places are taken. Attendees can no longer register.");
+    expect(html).toContain("http://localhost:3000/coordination/12");
+  });
+
+  it("renders RegistrationThresholdEmail as nearly full below the limit (PTR-45 AC9)", async () => {
+    const html = await render(
+      <RegistrationThresholdEmail
+        eventName="Open Day"
+        registered={36}
+        limit={40}
+        eventUrl="http://localhost:3000/event-requests/12"
+      />
+    );
+
+    expect(html).toContain("Registration is nearly full");
+    expect(html).toContain("36 of 40 places are taken.");
+    expect(html).not.toContain("can no longer register");
   });
 });

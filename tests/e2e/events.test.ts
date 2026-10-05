@@ -98,6 +98,43 @@ test.describe("Event access", () => {
     await expect(page.getByText("Expected attendance")).toHaveCount(0);
   });
 
+  test("registers a new attendee for a published event and notifies them (PTR-45)", async ({
+    page,
+  }) => {
+    const email = `e2e-events-register-${Date.now()}@example.com`;
+    const password = "Password123!";
+
+    await page.goto("/signup");
+    await waitForHydration(page);
+    await page.locator("#name").fill("E2E Registering Attendee");
+    await page.locator("#email").fill(email);
+    await page.locator("#password").fill(password);
+    await page.locator("#confirmPassword").fill(password);
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await page.goto("/dashboard");
+    await page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME }).click();
+    await expect(page).toHaveURL(/\/events\/\d+/);
+    await waitForHydration(page);
+
+    // The seed keeps the Open Day's period open, with places left out of its 40.
+    const before = await page.getByText(/^\d+ \/ 40 registered$/).textContent();
+    const taken = Number(before?.split(" ")[0]);
+    await page.getByRole("button", { name: "Register" }).click();
+
+    await expect(page.getByText("You're registered")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(`${taken + 1} / 40 registered`)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Register" })).toHaveCount(0);
+
+    await page.goto("/notifications");
+    await expect(
+      page.getByText(`You are registered for ${ATTENDEE_DEMO_EVENT_NAME}`)
+    ).toBeVisible();
+  });
+
   test("gives the assigned coordinator their event", async ({ page }) => {
     await signInAsSeeded(page, "coordinator.seed@example.com");
     await page.goto("/dashboard");
