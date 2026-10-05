@@ -9,6 +9,7 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { handleListEvents } from "#/features/events/records.server";
 import { handleRegisterForEvent } from "#/features/events/register.server";
 import {
   ALREADY_REGISTERED_MESSAGE,
@@ -199,6 +200,11 @@ describe("registering for an event (PTR-45)", () => {
       .where(
         and(eq(schema.notifications.eventRequestId, eventId), eq(schema.notifications.kind, kind))
       );
+
+  async function availability(eventId: number, now: Date, as: SessionUser = attendee) {
+    const [projection] = await handleListEvents({ eventId }, as, database as never, now);
+    return projection.event.registrationAvailability;
+  }
 
   async function registerOthers(eventId: number, count: number) {
     for (const other of placeTakers.slice(0, count)) {
@@ -486,5 +492,51 @@ describe("registering for an event (PTR-45)", () => {
       ALREADY_REGISTERED_MESSAGE
     );
     expect(await registrationsFor(event.id)).toHaveLength(1);
+  });
+
+  // ── PTR-50 ─────────────────────────────────────────────────────────────────────────────────
+  describe("telling the Attendee whether they can register yet (PTR-50)", () => {
+    test("names the opening time before the period opens, and says when it has closed", async () => {
+      const event = await createEvent();
+
+      // 00:59Z is 08:59 in Singapore, a minute before the period opens.
+      expect(await availability(event.id, new Date("2026-11-01T00:59:00Z"))).toEqual({
+        state: "not_yet_open",
+        opensAt,
+      });
+      expect(await availability(event.id, insidePeriod)).toEqual({ state: "open" });
+      // 09:00Z on 1 Dec is 17:00 in Singapore, the minute the period closes.
+      expect(await availability(event.id, new Date("2026-12-01T09:00:00Z"))).toEqual({
+        state: "closed",
+      });
+    });
+
+    test("says the event is full at its capacity, as the registration itself is refused", async () => {
+      const event = await createEvent({ capacity: 2 });
+      await registerOthers(event.id, 2);
+
+      expect(await availability(event.id, insidePeriod)).toEqual({ state: "full" });
+      expect(await refusal(event.id)).toBe(EVENT_FULL_MESSAGE);
+    });
+
+    test("says the event is full when normal and VIP registrations fill the venue", async () => {
+      const event = await createEvent({ bookedVenue: smallVenueId });
+      await database
+        .insert(schema.eventRegistrations)
+        .values({ eventId: event.id, attendeeId: secondAttendee.id, vip: true });
+      await registerOthers(event.id, 1);
+
+      expect(await availability(event.id, insidePeriod)).toEqual({ state: "full" });
+    });
+
+    test("says a cancelled event is cancelled to the Attendee registered for it", async () => {
+      const event = await createEvent({ status: "cancelled" });
+      await database
+        .insert(schema.eventRegistrations)
+        .values({ eventId: event.id, attendeeId: attendee.id });
+
+      expect(await availability(event.id, insidePeriod)).toEqual({ state: "cancelled" });
+      await expect(register(event.id)).rejects.toBeInstanceOf(AuthorizationError);
+    });
   });
 });

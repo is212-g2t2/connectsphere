@@ -364,7 +364,6 @@ export function notificationHref(
     case "equipment_requested":
       return `/equipment-requests/${eventRequestId}`;
     case "event_registered":
-      // ponytail: a cancelled event has no Attendee page yet, so this link answers 404 then.
       return `/events/${eventRequestId}`;
     case "registration_threshold_reached":
       return notification.payload.audience === "coordinator"

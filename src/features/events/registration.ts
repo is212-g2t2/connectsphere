@@ -1,3 +1,5 @@
+import type { EventRequestStatus } from "#/features/event-requests/schema";
+
 export const REGISTRATION_NOT_OPEN_MESSAGE = "Registration is not open for this event.";
 export const ALREADY_REGISTERED_MESSAGE = "You are already registered for this event.";
 export const EVENT_FULL_MESSAGE = "This event is full.";
@@ -83,4 +85,37 @@ export function registrationRefusal(input: RegistrationInput): string | null {
   }
   if (input.registeredCount >= capacity) return EVENT_FULL_MESSAGE;
   return null;
+}
+
+/**
+ * PTR-50: what an Attendee is told about registering before they try. `unavailable` covers an
+ * event with no terms or no approved booking, which the refusal above answers as not open.
+ */
+export type RegistrationAvailability =
+  | { state: "open" }
+  | { state: "not_yet_open"; opensAt: string }
+  | { state: "closed" }
+  | { state: "full" }
+  | { state: "cancelled" }
+  | { state: "unavailable" };
+
+/**
+ * PTR-50: the event's registration state, derived from the same rule `registrationRefusal`
+ * applies, so the page offers the action exactly when a new registration would proceed. A
+ * cancelled event says so first (AC4); a period that has not opened or has closed is named before
+ * a full event, because it is the reason that does not change.
+ */
+export function registrationAvailability(
+  input: Omit<RegistrationInput, "alreadyRegistered"> & { status: EventRequestStatus }
+): RegistrationAvailability {
+  if (input.status === "cancelled") return { state: "cancelled" };
+  if (input.registrationOpensAt !== null && input.now < input.registrationOpensAt) {
+    return { state: "not_yet_open", opensAt: input.registrationOpensAt };
+  }
+  if (input.registrationClosesAt !== null && input.now >= input.registrationClosesAt) {
+    return { state: "closed" };
+  }
+  const refusal = registrationRefusal({ ...input, alreadyRegistered: false });
+  if (refusal === null) return { state: "open" };
+  return refusal.startsWith(EVENT_FULL_MESSAGE) ? { state: "full" } : { state: "unavailable" };
 }

@@ -32,11 +32,13 @@ import type {
   VipAttendee,
 } from "#/features/events/access";
 import { registrationCounts } from "#/features/events/register.server";
-import { placeLimit } from "#/features/events/registration";
+import { placeLimit, registrationAvailability } from "#/features/events/registration";
+import type { RegistrationAvailability } from "#/features/events/registration";
 import type { VenueRequestOutcome } from "#/features/venue-requests/records.server";
 import { parseEventListInput } from "#/features/events/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { loadVenueRequestOutcomesForEvents } from "#/features/venue-requests/records.server";
+import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
@@ -190,7 +192,8 @@ export function connectedEventCondition(
 export async function handleListEvents(
   data: unknown,
   user: SessionUser,
-  database: Database
+  database: Database,
+  now = new Date()
 ): Promise<EventProjection[]> {
   const { eventId } = parseEventListInput(data);
   const role = RoleSchema.safeParse(user.role).data ?? null;
@@ -428,6 +431,9 @@ export async function handleListEvents(
     }
   }
 
+  // PTR-50: the venue's wall clock, in the spelling the registration period is stored in.
+  const venueNow = toLocalMinuteValue(venueLocalTimestamp(now));
+
   return requestRows.flatMap(record => {
     const ownRegistration = registrationRows.find(row => row.eventId === record.id) ?? null;
 
@@ -533,7 +539,15 @@ export async function handleListEvents(
           venueCapacities.get(record.id),
           registeredCounts.get(record.id) ?? { registered: 0, vips: 0 }
         ),
-        vipRegistrations.get(record.id) ?? null
+        vipRegistrations.get(record.id) ?? null,
+        access === "attendee"
+          ? attendeeRegistrationAvailability(
+              record,
+              venueCapacities.get(record.id),
+              registeredCounts.get(record.id) ?? { registered: 0, vips: 0 },
+              venueNow
+            )
+          : null
       ),
     ];
   });
@@ -550,4 +564,27 @@ function eventPlaces(
     registered: counts.registered,
     limit: placeLimit(registrationCapacity, venueCapacity, counts.vips),
   };
+}
+
+/**
+ * PTR-50: the registration state an Attendee is shown, for the events that have an Attendee page.
+ * The counts and the venue are read for confirmed events only; a cancelled event needs neither.
+ */
+function attendeeRegistrationAvailability(
+  record: typeof eventRequests.$inferSelect,
+  venueCapacity: number | undefined,
+  counts: { registered: number; vips: number },
+  now: string
+): RegistrationAvailability | null {
+  if (record.status !== "confirmed" && record.status !== "cancelled") return null;
+  return registrationAvailability({
+    status: record.status,
+    registrationCapacity: record.registrationCapacity,
+    registrationOpensAt: record.registrationOpensAt,
+    registrationClosesAt: record.registrationClosesAt,
+    now,
+    registeredCount: counts.registered,
+    vipCount: counts.vips,
+    venueCapacity: venueCapacity ?? null,
+  });
 }

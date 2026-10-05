@@ -883,6 +883,8 @@ describe("event list handler (PTR-8)", () => {
         registration: null,
         // PTR-45 AC10: registration capacity 60 at a 40-seat venue, so the venue sets the limit.
         places: { registered: 0, limit: 40 },
+        // PTR-50: inside the open window with places left.
+        registrationAvailability: { state: "open" },
         venue: {
           name: FIXTURE_VENUE_2_NAME,
           location: "Fixture location",
@@ -906,6 +908,7 @@ describe("event list handler (PTR-8)", () => {
           "name",
           "places",
           "registration",
+          "registrationAvailability",
           "registrationClosesAt",
           "registrationEnabled",
           "registrationOpensAt",

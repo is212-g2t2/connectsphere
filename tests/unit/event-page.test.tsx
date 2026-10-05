@@ -34,6 +34,7 @@ const projection: EventProjection = {
     registrationOpensAt: "2026-11-01T09:00",
     registrationClosesAt: "2026-12-01T17:00",
     registration: null,
+    registrationAvailability: { state: "open" },
     venue: {
       name: "Seminar Room 2A",
       location: "Level 2, ConnectSphere Marina Centre",
@@ -273,5 +274,65 @@ describe("EventPage (PTR-44)", () => {
     expect(screen.queryByText("Venue request")).toBeNull();
     expect(screen.queryByText("Equipment arrangements")).toBeNull();
     expect(container.querySelector("form")).toBeNull();
+  });
+});
+
+function renderWith(event: Partial<EventProjection["event"]>) {
+  return render(<EventPage event={{ ...projection, event: { ...projection.event, ...event } }} />);
+}
+
+describe("EventPage registration availability (PTR-50)", () => {
+  it("says registration is not yet open, names the opening time, and offers no action (AC1)", () => {
+    renderWith({
+      registrationAvailability: { state: "not_yet_open", opensAt: "2026-11-01T09:00" },
+    });
+
+    expect(screen.getByText("Registration is not yet open.")).toBeTruthy();
+    expect(screen.getByText("Registration opens 1 Nov 2026, 09:00.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+  });
+
+  it("says registration has closed and offers no action (AC2)", () => {
+    renderWith({ registrationAvailability: { state: "closed" } });
+
+    expect(screen.getByText("Registration has closed.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+  });
+
+  it("says the event is full and offers no action (AC3)", () => {
+    renderWith({
+      registrationAvailability: { state: "full" },
+      places: { registered: 40, limit: 40 },
+    });
+
+    expect(screen.getByText("This event is full.")).toBeTruthy();
+    expect(screen.getByText("40 / 40 registered")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+  });
+
+  it("says the event is cancelled and offers no action (AC4)", () => {
+    renderWith({ status: "cancelled", registrationAvailability: { state: "cancelled" } });
+
+    expect(screen.getByText("This event is cancelled.")).toBeTruthy();
+    expect(screen.getByText("Cancelled")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+  });
+
+  it("says a registered Attendee's event is cancelled in place of the registered state (AC4)", () => {
+    renderWith({
+      status: "cancelled",
+      registration: { status: "registered", registeredAt: "2026-11-02T03:04:05.000Z" },
+      registrationAvailability: { state: "cancelled" },
+    });
+
+    expect(screen.getByText("This event is cancelled.")).toBeTruthy();
+    expect(screen.queryByText("You're registered")).toBeNull();
+  });
+
+  it("offers no action while registration is unavailable for another reason", () => {
+    renderWith({ registrationAvailability: { state: "unavailable" } });
+
+    expect(screen.getByText("Registration is not open.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
   });
 });

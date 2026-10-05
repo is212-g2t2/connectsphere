@@ -6,6 +6,7 @@ import {
   REGISTRATION_NOT_OPEN_MESSAGE,
   placeMark,
   placeLimit,
+  registrationAvailability,
   registrationRefusal,
   venueCapacityReachedMessage,
 } from "#/features/events/registration";
@@ -126,5 +127,91 @@ describe("placeLimit (PTR-45, PTR-111)", () => {
 
   it("is never below zero, even when a smaller venue now holds fewer than the VIPs", () => {
     expect(placeLimit(40, 10, 12)).toBe(0);
+  });
+});
+
+describe("registrationAvailability (PTR-50)", () => {
+  const confirmed = { ...open, status: "confirmed" as const };
+
+  it("is open inside the period with places left", () => {
+    expect(registrationAvailability(confirmed)).toEqual({ state: "open" });
+  });
+
+  it("is not yet open before the opening minute, and names the opening time (AC1)", () => {
+    expect(registrationAvailability({ ...confirmed, now: "2026-11-01T08:59" })).toEqual({
+      state: "not_yet_open",
+      opensAt: "2026-11-01T09:00",
+    });
+    expect(registrationAvailability({ ...confirmed, now: "2026-11-01T09:00" })).toEqual({
+      state: "open",
+    });
+  });
+
+  it("is closed from the closing minute on (AC2)", () => {
+    expect(registrationAvailability({ ...confirmed, now: "2026-12-01T17:00" })).toEqual({
+      state: "closed",
+    });
+  });
+
+  it("is full at the registration capacity (AC3)", () => {
+    expect(registrationAvailability({ ...confirmed, registeredCount: 40 })).toEqual({
+      state: "full",
+    });
+  });
+
+  it("is full when normal and VIP registrations together fill the venue (AC3)", () => {
+    expect(
+      registrationAvailability({
+        ...confirmed,
+        venueCapacity: 30,
+        registeredCount: 25,
+        vipCount: 5,
+      })
+    ).toEqual({ state: "full" });
+  });
+
+  it("states the closed period before a full event, as the period is the plainer reason", () => {
+    expect(
+      registrationAvailability({ ...confirmed, now: "2026-12-02T09:00", registeredCount: 40 })
+    ).toEqual({ state: "closed" });
+  });
+
+  it("is cancelled for a cancelled event, whatever the period or the places (AC4)", () => {
+    expect(registrationAvailability({ ...confirmed, status: "cancelled" })).toEqual({
+      state: "cancelled",
+    });
+    expect(
+      registrationAvailability({ ...confirmed, status: "cancelled", now: "2026-10-01T09:00" })
+    ).toEqual({ state: "cancelled" });
+  });
+
+  it("is unavailable while the event has no terms or no approved booking", () => {
+    expect(
+      registrationAvailability({
+        ...confirmed,
+        registrationCapacity: null,
+        registrationOpensAt: null,
+        registrationClosesAt: null,
+      })
+    ).toEqual({ state: "unavailable" });
+    expect(registrationAvailability({ ...confirmed, venueCapacity: null })).toEqual({
+      state: "unavailable",
+    });
+  });
+
+  it("agrees with the refusal: open exactly when a new registration would proceed", () => {
+    const cases = [
+      confirmed,
+      { ...confirmed, now: "2026-11-01T08:59" },
+      { ...confirmed, now: "2026-12-01T17:00" },
+      { ...confirmed, registeredCount: 40 },
+      { ...confirmed, venueCapacity: 10 },
+      { ...confirmed, venueCapacity: null },
+    ];
+    for (const input of cases) {
+      expect(registrationAvailability(input).state === "open").toBe(
+        registrationRefusal(input) === null
+      );
+    }
   });
 });

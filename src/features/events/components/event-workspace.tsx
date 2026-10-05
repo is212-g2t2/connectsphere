@@ -16,7 +16,7 @@ import type {
   EventProjection,
   VenueRequestRejection,
 } from "#/features/events/access";
-import { isPublishedForAttendees } from "#/features/events/access";
+import { hasAttendeePage } from "#/features/events/access";
 import { isConfirmableStatus } from "#/features/events/confirmation";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
 import { EventRequirements } from "#/features/events/components/event-requirements";
@@ -70,7 +70,7 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                       {access.replaceAll("_", " ")} access
                     </p>
                     <h3 className="mt-2 display-h3">
-                      {access === "attendee" && event.name && isPublishedForAttendees(event) ? (
+                      {access === "attendee" && event.name && hasAttendeePage(event) ? (
                         <Link
                           to="/events/$eventId"
                           params={{ eventId: String(event.id) }}

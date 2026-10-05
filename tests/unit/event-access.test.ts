@@ -259,6 +259,7 @@ describe("event access", () => {
         "name",
         "places",
         "registration",
+        "registrationAvailability",
         "registrationClosesAt",
         "registrationEnabled",
         "registrationOpensAt",

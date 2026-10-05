@@ -3,7 +3,7 @@ import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { EventPage } from "#/features/events/components/event-page";
 import { EventPageSkeleton } from "#/features/events/components/event-page-skeleton";
 import type { EventProjection } from "#/features/events/access";
-import { isPublishedForAttendees } from "#/features/events/access";
+import { hasAttendeePage } from "#/features/events/access";
 import { EventId } from "#/features/events/schema";
 import { listEvents } from "#/features/events/server-fns";
 import { createSeoHead } from "#/lib/seo";
@@ -34,10 +34,11 @@ export const Route = createFileRoute("/_authenticated/events/$eventId")({
       throw error;
     }
     const projection = events.at(0);
-    // The page is only for published events (confirmed with registration on). A registered
-    // attendee's non-confirmed event stays in the dashboard list but has no page (PTR-8 AC4
-    // vs PTR-44 AC5).
-    if (!projection || !isPublishedForAttendees(projection.event)) {
+    // The page is for published events (confirmed with registration on), and for a cancelled
+    // event the server still shows the attendee, which says it is cancelled (PTR-50 AC4). A
+    // registered attendee's other non-confirmed event stays in the dashboard list but has no page
+    // (PTR-8 AC4 vs PTR-44 AC5).
+    if (!projection || !hasAttendeePage(projection.event)) {
       throw notFound();
     }
     return projection;

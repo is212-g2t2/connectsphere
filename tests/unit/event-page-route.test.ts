@@ -92,6 +92,12 @@ describe("event route loader", () => {
     });
   });
 
+  it("resolves a cancelled event the server still shows the attendee (PTR-50 AC4)", async () => {
+    const projection = { event: { id: 7, status: "cancelled", registrationEnabled: true } };
+    mockListEvents.mockResolvedValue([projection]);
+    await expect(loader({ params: { eventId: "7" } })).resolves.toEqual(projection);
+  });
+
   it("resolves to the real attendee projection shape", async () => {
     const venue = {
       name: "Hall A",

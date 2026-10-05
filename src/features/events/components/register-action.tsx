@@ -20,9 +20,9 @@ function isRegistrationRefusal(message: string): boolean {
 }
 
 /**
- * PTR-45: the Attendee registers for the event. The action stays available and the server says
- * why it refuses, because whether the period is open or a place is left can change after the page
- * loads. PTR-50 owns stating that before the Attendee tries.
+ * PTR-45: the Attendee registers for the event. The page shows the action only while registration
+ * is open (PTR-50); the server still says why it refuses, because the period or the places can
+ * change after the page loads.
  */
 export function RegisterAction({ eventId, eventName }: { eventId: number; eventName: string }) {
   const router = useRouter();

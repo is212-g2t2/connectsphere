@@ -7,6 +7,8 @@ import { EventRequestStatusBadge } from "#/features/event-requests/components/st
 import { formatLocalDateTime } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
 import { RegisterAction } from "#/features/events/components/register-action";
+import { EVENT_FULL_MESSAGE } from "#/features/events/registration";
+import type { RegistrationAvailability } from "#/features/events/registration";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 const MONTH_ABBR = [
@@ -76,7 +78,14 @@ export function EventPage({ event }: { event: EventProjection }) {
     details.venue && isNextDay(details.venue.date, details.venue.endDate)
   );
   const isRegistered = details.registration?.status === "registered";
-  const hasTerms = Boolean(details.registrationOpensAt && details.registrationClosesAt);
+  const availability = details.registrationAvailability;
+  const period =
+    details.registrationOpensAt && details.registrationClosesAt ? (
+      <p className="mt-1 body-sm text-muted-foreground">
+        Opens {formatLocalDateTime(details.registrationOpensAt)} – closes{" "}
+        {formatLocalDateTime(details.registrationClosesAt)}
+      </p>
+    ) : null;
   // PTR-45 AC10: the places taken, against the lower of the registration capacity and the venue
   // places the VIPs leave (PTR-111).
   const places = details.places ? (
@@ -156,25 +165,23 @@ export function EventPage({ event }: { event: EventProjection }) {
           <Card className="mt-6">
             <CardContent>
               <p className="label text-muted-foreground">Registration</p>
-              {isRegistered ? (
+              {availability?.state === "cancelled" ? (
+                <p className="mt-2 font-semibold">This event is cancelled.</p>
+              ) : isRegistered ? (
                 <>
                   <p className="mt-2 font-semibold">You&apos;re registered</p>
-                  {hasTerms && details.registrationOpensAt && details.registrationClosesAt ? (
-                    <p className="mt-1 body-sm text-muted-foreground">
-                      Opens {formatLocalDateTime(details.registrationOpensAt)} – closes{" "}
-                      {formatLocalDateTime(details.registrationClosesAt)}
-                    </p>
-                  ) : null}
+                  {period}
                   {places}
                 </>
-              ) : hasTerms && details.registrationOpensAt && details.registrationClosesAt ? (
+              ) : period ? (
                 <>
-                  <p className="mt-2 body-sm text-muted-foreground">
-                    Opens {formatLocalDateTime(details.registrationOpensAt)} – closes{" "}
-                    {formatLocalDateTime(details.registrationClosesAt)}
-                  </p>
+                  {period}
                   {places}
-                  <RegisterAction eventId={details.id} eventName={details.name ?? "this event"} />
+                  {availability?.state === "open" ? (
+                    <RegisterAction eventId={details.id} eventName={details.name ?? "this event"} />
+                  ) : (
+                    <RegistrationUnavailable availability={availability} />
+                  )}
                 </>
               ) : (
                 <p className="mt-2 body-sm text-muted-foreground">
@@ -196,4 +203,33 @@ export function EventPage({ event }: { event: EventProjection }) {
       </div>
     </Page>
   );
+}
+
+/**
+ * PTR-50 AC1–AC3: why the Attendee cannot register now, in place of the register action. The
+ * server applies the same rule, so a stale page that still shows the action is refused with it.
+ */
+function RegistrationUnavailable({
+  availability,
+}: {
+  availability: RegistrationAvailability | null | undefined;
+}) {
+  const sentence = "mt-4 body-sm font-semibold";
+  switch (availability?.state) {
+    case "not_yet_open":
+      return (
+        <>
+          <p className={sentence}>Registration is not yet open.</p>
+          <p className="mt-1 body-sm text-muted-foreground">
+            Registration opens {formatLocalDateTime(availability.opensAt)}.
+          </p>
+        </>
+      );
+    case "closed":
+      return <p className={sentence}>Registration has closed.</p>;
+    case "full":
+      return <p className={sentence}>{EVENT_FULL_MESSAGE}</p>;
+    default:
+      return <p className={sentence}>Registration is not open.</p>;
+  }
 }
