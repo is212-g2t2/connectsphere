@@ -276,6 +276,7 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                     <CompleteEventAction
                       eventId={event.id}
                       eventName={event.name ?? "this event"}
+                      disabledReason={event.completionUnavailableReason}
                     />
                   </div>
                 )}

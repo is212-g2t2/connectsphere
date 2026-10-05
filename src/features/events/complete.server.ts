@@ -1,32 +1,18 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests, venueRequests } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { EVENT_REQUEST_STATUS_LABELS, parseEventRequestId } from "#/features/event-requests/schema";
-import type { EventRequestStatus } from "#/features/event-requests/schema";
+import { parseEventRequestId } from "#/features/event-requests/schema";
+import { eventTiming } from "#/features/events/access";
 import {
   COMPLETION_REFUSAL_HEADING,
-  EVENT_HAS_NOT_ENDED_MESSAGE,
-  NO_APPROVED_BOOKING_MESSAGE,
+  completionRefusal,
+  singaporeLocalEndHasPassed,
 } from "#/features/events/completion";
 
 type Database = typeof Db;
-
-interface CompletionInput {
-  status: EventRequestStatus;
-  approvedBookingHasEnded: boolean | null;
-}
-
-/** One refusal for the completion attempt, or null when it may proceed. */
-export function completionRefusal(input: CompletionInput): string | null {
-  if (input.status !== "confirmed") {
-    return `Its status is ${EVENT_REQUEST_STATUS_LABELS[input.status].toLowerCase()}.`;
-  }
-  if (input.approvedBookingHasEnded === null) return NO_APPROVED_BOOKING_MESSAGE;
-  return input.approvedBookingHasEnded ? null : EVENT_HAS_NOT_ENDED_MESSAGE;
-}
 
 /**
  * PTR-25: the assigned Coordinator explicitly completes an ended confirmed event. The event row
@@ -48,16 +34,20 @@ export async function handleCompleteEvent(data: unknown, actor: SessionUser, dat
     const latestApprovedBooking = (
       await tx
         .select({
-          hasEnded: sql<boolean>`${venueRequests.endsAt} < timezone('Asia/Singapore', now())`,
+          endsAt: venueRequests.endsAt,
         })
         .from(venueRequests)
         .where(and(eq(venueRequests.eventId, request.id), eq(venueRequests.status, "approved")))
         .orderBy(desc(venueRequests.endsAt))
         .limit(1)
     ).at(0);
+    const { endDate: eventEnd, endTime: eventEndTime } = eventTiming(request.proposedDates);
     const refusal = completionRefusal({
       status: request.status,
-      approvedBookingHasEnded: latestApprovedBooking?.hasEnded ?? null,
+      approvedBookingHasEnded: singaporeLocalEndHasPassed(latestApprovedBooking?.endsAt ?? null),
+      eventHasEnded: singaporeLocalEndHasPassed(
+        eventEnd && eventEndTime ? `${eventEnd}T${eventEndTime}` : null
+      ),
     });
     if (refusal) throw new ConflictError(`${COMPLETION_REFUSAL_HEADING}\n- ${refusal}`);
 

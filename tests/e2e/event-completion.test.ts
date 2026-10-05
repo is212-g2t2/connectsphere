@@ -104,10 +104,6 @@ test("the action explains that a confirmed event has not ended", async ({ page }
   await waitForHydration(page);
 
   const card = page.locator("[data-slot=card]").filter({ hasText: event.name });
-  await card.getByRole("button", { name: `Complete event: ${event.name}` }).click();
-  await page.getByRole("button", { name: "Mark completed", exact: true }).click();
-
-  await expect(page.getByRole("alertdialog").getByRole("alert")).toContainText(
-    "The event end date and time has not passed."
-  );
+  await expect(card.getByRole("button", { name: `Complete event: ${event.name}` })).toBeDisabled();
+  await expect(card.getByText("The event end date and time has not passed.")).toBeVisible();
 });

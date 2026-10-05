@@ -62,4 +62,20 @@ describe("CompleteEventAction (PTR-25)", () => {
     const [alert] = await screen.findAllByRole("alert", { hidden: true });
     expect(alert.textContent).toContain("Could not complete this event. Try again.");
   });
+
+  it("disables the action and explains why the event is not eligible", () => {
+    render(
+      <CompleteEventAction
+        eventId={7}
+        eventName="Demo Day"
+        disabledReason={EVENT_HAS_NOT_ENDED_MESSAGE}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Complete event: Demo Day" })).toHaveProperty(
+      "disabled",
+      true
+    );
+    expect(screen.getByText(EVENT_HAS_NOT_ENDED_MESSAGE)).toBeTruthy();
+  });
 });

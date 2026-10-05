@@ -22,9 +22,11 @@ import { useMutation } from "#/hooks/use-mutation";
 export function CompleteEventAction({
   eventId,
   eventName,
+  disabledReason,
 }: {
   eventId: number;
   eventName: string;
+  disabledReason?: string | null;
 }) {
   const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -55,7 +57,11 @@ export function CompleteEventAction({
       <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <AlertDialogTrigger
           render={
-            <Button size="sm" disabled={completing} aria-label={`Complete event: ${eventName}`} />
+            <Button
+              size="sm"
+              disabled={completing || Boolean(disabledReason)}
+              aria-label={`Complete event: ${eventName}`}
+            />
           }
         >
           {completing ? "Completing…" : "Complete event"}
@@ -79,6 +85,7 @@ export function CompleteEventAction({
           {dialogOpen && refusal}
         </AlertDialogContent>
       </AlertDialog>
+      {disabledReason && <p className="body-sm text-muted-foreground">{disabledReason}</p>}
       {!dialogOpen && refusal}
     </div>
   );

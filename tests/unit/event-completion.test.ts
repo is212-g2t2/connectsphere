@@ -1,34 +1,66 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  completionRefusal,
   EVENT_HAS_NOT_ENDED_MESSAGE,
-  NO_APPROVED_BOOKING_MESSAGE,
+  NO_EVENT_END_MESSAGE,
 } from "#/features/events/completion";
-import { completionRefusal } from "#/features/events/complete.server";
 
 describe("event completion gate (PTR-25)", () => {
   it("allows only a confirmed event whose approved booking has ended", () => {
-    expect(completionRefusal({ status: "confirmed", approvedBookingHasEnded: true })).toBeNull();
+    expect(
+      completionRefusal({
+        status: "confirmed",
+        approvedBookingHasEnded: true,
+        eventHasEnded: false,
+      })
+    ).toBeNull();
+  });
+
+  it("falls back to the event end after its approved booking is released", () => {
+    expect(
+      completionRefusal({
+        status: "confirmed",
+        approvedBookingHasEnded: null,
+        eventHasEnded: true,
+      })
+    ).toBeNull();
   });
 
   it("refuses every status other than confirmed", () => {
-    expect(completionRefusal({ status: "approved", approvedBookingHasEnded: true })).toBe(
-      "Its status is approved."
-    );
-    expect(completionRefusal({ status: "completed", approvedBookingHasEnded: true })).toBe(
-      "Its status is completed."
-    );
+    expect(
+      completionRefusal({
+        status: "approved",
+        approvedBookingHasEnded: true,
+        eventHasEnded: true,
+      })
+    ).toBe("Its status is approved.");
+    expect(
+      completionRefusal({
+        status: "completed",
+        approvedBookingHasEnded: true,
+        eventHasEnded: true,
+      })
+    ).toBe("Its status is completed.");
   });
 
-  it("refuses a confirmed event without one approved booking", () => {
-    expect(completionRefusal({ status: "confirmed", approvedBookingHasEnded: null })).toBe(
-      NO_APPROVED_BOOKING_MESSAGE
-    );
+  it("refuses a confirmed event without a booking or event end", () => {
+    expect(
+      completionRefusal({
+        status: "confirmed",
+        approvedBookingHasEnded: null,
+        eventHasEnded: null,
+      })
+    ).toBe(NO_EVENT_END_MESSAGE);
   });
 
   it("refuses a confirmed event before its approved booking ends", () => {
-    expect(completionRefusal({ status: "confirmed", approvedBookingHasEnded: false })).toBe(
-      EVENT_HAS_NOT_ENDED_MESSAGE
-    );
+    expect(
+      completionRefusal({
+        status: "confirmed",
+        approvedBookingHasEnded: false,
+        eventHasEnded: true,
+      })
+    ).toBe(EVENT_HAS_NOT_ENDED_MESSAGE);
   });
 });

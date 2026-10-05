@@ -153,11 +153,24 @@ describe("completing an event (PTR-25)", () => {
       eventId: event.id,
       venueId: venueIds[1],
       requestedById: coordinator.id,
-      startsAt: "2021-03-10 09:00:00",
-      endsAt: "2021-03-10 12:30:00",
+      startsAt: "2100-03-10 09:00:00",
+      endsAt: "2100-03-10 12:30:00",
       status: "approved",
       assignedStaffId: venueStaff.id,
     });
+
+    await expect(complete(event.id)).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining(EVENT_HAS_NOT_ENDED_MESSAGE),
+    });
+  });
+
+  test("falls back to the event end after an approved booking is released", async () => {
+    const event = await createConfirmedEvent();
+    await database
+      .update(schema.venueRequests)
+      .set({ status: "released", releaseReason: "Operational change" })
+      .where(eq(schema.venueRequests.eventId, event.id));
 
     await expect(complete(event.id)).resolves.toMatchObject({ status: "completed" });
   });
