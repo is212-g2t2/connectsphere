@@ -9,7 +9,7 @@ const EVENT_LIST_ID_MESSAGE = "Choose an event";
 
 export const EventId = z.int32({ error: EVENT_LIST_ID_MESSAGE }).positive(EVENT_LIST_ID_MESSAGE);
 
-export const EventListInput = z.object({ eventId: EventId.optional() }).default({});
+const EventListInput = z.object({ eventId: EventId.optional() }).default({});
 
 type EventListValues = z.infer<typeof EventListInput>;
 

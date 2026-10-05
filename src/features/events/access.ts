@@ -48,7 +48,7 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
 /** PTR-44 AC1/AC5: the events a browsing attendee may open — confirmed with registration on. */
 export function isPublishedForAttendees(event: {
   status: EventRequestStatus;
-  registrationEnabled?: boolean | null;
+  registrationEnabled?: boolean;
 }): boolean {
   return event.status === "confirmed" && event.registrationEnabled === true;
 }

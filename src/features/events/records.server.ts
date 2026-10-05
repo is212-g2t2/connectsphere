@@ -281,7 +281,7 @@ export async function handleListEvents(
       : new Map<number, VenueRequestOutcome>();
 
   // PTR-24 AC3: the booking a confirmed event was confirmed against, for the roles that are
-  // shown it — the organiser, the coordinator, and the browsing attendee (PTR-44 AC2). Only an
+  // shown it — the organiser, the coordinator, and any attendee (PTR-44 AC2). Only an
   // approved booking counts; a released one leaves `venue` null.
   const confirmedVenues = new Map<number, NonNullable<EventConfirmation["venue"]>>();
   const confirmedIds = requestRows.filter(row => row.status === "confirmed").map(row => row.id);

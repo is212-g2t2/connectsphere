@@ -414,6 +414,7 @@ export async function runSeed(database: Database): Promise<void> {
           confirmedById: null,
           confirmedByName: null,
           confirmedAt: null,
+          equipmentSubmittedAt: null,
           equipmentArrangementsCompletedAt: null,
           equipmentArrangementsCompletedById: null,
         })

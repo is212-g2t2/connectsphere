@@ -389,7 +389,7 @@ describe("isEquipmentQueueRow", () => {
 describe("isPublishedForAttendees", () => {
   const cases: Array<{
     name: string;
-    event: { status: "confirmed" | "submitted"; registrationEnabled?: boolean | null };
+    event: { status: "confirmed" | "submitted"; registrationEnabled?: boolean };
     expected: boolean;
   }> = [
     {

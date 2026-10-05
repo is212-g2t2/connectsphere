@@ -938,6 +938,20 @@ describe("event list handler (PTR-8)", () => {
       });
     });
 
+    it("shows no venue once the approved booking is released (PTR-24 AC6)", async () => {
+      await database
+        .update(schema.venueRequests)
+        .set({ status: "released", releaseReason: "Air-conditioning failure" })
+        .where(eq(schema.venueRequests.id, "el-venue-confirmed-open"));
+
+      const [projection] = await handleListEvents(
+        { eventId: fixtures.confirmedOpen.id },
+        session("attendee"),
+        database as never
+      );
+      expect(projection.event.venue).toBeNull();
+    });
+
     it("keeps a confirmed event visible after its registration window has closed (PTR-44: the window gates the action, not the view)", async () => {
       const listed = await handleListEvents({}, session("attendee"), database as never);
 

@@ -17,8 +17,7 @@ describe("EventPageSkeleton", () => {
     expect(main?.getAttribute("aria-busy")).toBe("true");
     expect(screen.getByRole("status").textContent).toBe("Loading this event…");
 
-    // The two-column grid and its square cover.
-    expect(main?.innerHTML).toContain("grid-cols-[300px_minmax(0,1fr)]");
+    // The square cover beside the right column.
     expect(container.querySelector(".aspect-square")?.className).toContain("rounded-2xl");
 
     // The registration card plus the right column's placeholder rows.

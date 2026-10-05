@@ -88,10 +88,11 @@ test.describe("Event access", () => {
     // Structure, not hardcoded dates: the seed moves its window on every run.
     await expect(page.getByText(ATTENDEE_DEMO_VENUE_NAME).first()).toBeVisible();
     await expect(page.getByText("Level 2, ConnectSphere Marina Centre").first()).toBeVisible();
-    await expect(page.getByText("Registration", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Opens .+ – closes /)).toBeVisible();
     await expect(page.getByRole("heading", { name: "About Event" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in Maps" })).toHaveCount(0);
-    // No internal planning information leaves the server projection.
+    // These DOM absences guard the page component; the projection itself is pinned by the
+    // integration key-set assertion.
     await expect(page.getByText("Venue request", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Equipment arrangements")).toHaveCount(0);
     await expect(page.getByText("Expected attendance")).toHaveCount(0);

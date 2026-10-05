@@ -53,7 +53,7 @@ describe("EventPage (PTR-44)", () => {
     expect(screen.getByText("Seminar Room 2A")).toBeTruthy();
     expect(screen.getByText("Level 2, ConnectSphere Marina Centre")).toBeTruthy();
     expect(screen.getByText("Registration")).toBeTruthy();
-    expect(screen.getByText("1 Nov 2026, 09:00 – 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
     expect(screen.getByText("Confirmed")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Back to dashboard" }).getAttribute("href")).toBe(
       "/dashboard"
@@ -142,6 +142,32 @@ describe("EventPage (PTR-44)", () => {
     expect(screen.getByText("22:00 – 02:00 (next day)")).toBeTruthy();
   });
 
+  it("shows a plain time for a multi-day booking that does not cross midnight into the next day", () => {
+    render(
+      <EventPage
+        event={{
+          ...projection,
+          event: {
+            ...projection.event,
+            venue: {
+              name: "Seminar Room 2A",
+              location: "Level 2, ConnectSphere Marina Centre",
+              date: "2026-12-05",
+              endDate: "2026-12-07",
+              startTime: "10:00",
+              endTime: "15:00",
+            },
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByText(/5 December 2026/)).toBeTruthy();
+    expect(screen.getByText(/7 December 2026/)).toBeTruthy();
+    expect(screen.getByText("10:00–15:00")).toBeTruthy();
+    expect(screen.queryByText(/next day/)).toBeNull();
+  });
+
   it("shows the registered state when the attendee holds a registration", () => {
     render(
       <EventPage
@@ -156,7 +182,7 @@ describe("EventPage (PTR-44)", () => {
     );
 
     expect(screen.getByText("You're registered")).toBeTruthy();
-    expect(screen.getByText("1 Nov 2026, 09:00 – 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
   });
 
   it("shows the period without the registered state once the registration no longer holds", () => {
@@ -173,10 +199,10 @@ describe("EventPage (PTR-44)", () => {
     );
 
     expect(screen.queryByText("You're registered")).toBeNull();
-    expect(screen.getByText("1 Nov 2026, 09:00 – 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
   });
 
-  it("says registration is not open when the event carries no terms", () => {
+  it("says registration details are to be confirmed when the event carries no terms", () => {
     render(
       <EventPage
         event={{
@@ -190,7 +216,7 @@ describe("EventPage (PTR-44)", () => {
       />
     );
 
-    expect(screen.getByText("Registration is not open for this event")).toBeTruthy();
+    expect(screen.getByText("Registration details to be confirmed")).toBeTruthy();
   });
 
   it("shows a plain fallback when no venue is currently booked (AC3: no invented venue)", () => {

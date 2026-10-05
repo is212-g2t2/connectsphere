@@ -185,7 +185,7 @@ Neutrals carry almost the entire interface. The system uses color deliberately, 
 - **Mist and Mist-dark:** ink-tinted transparent grays for hairline borders and dividers only, never for text or fills. Mist is the default hairline: `--border` resolves to it, and the card border carries it. Mist-dark is for the denser table and section rules.
 - **Stroke:** the border that identifies a _form control_, distinct from a divider. Mist is a 1.3:1 hairline, right for a decorative rule but not enough for the border that shows a user where an input is. Stroke clears 3:1 on both paper and surface.
 - **Overlay:** modal scrims use `--color-overlay`, a 10% black. It is the one place where a raw black fills a surface. The card shadow carries the only other literal black.
-- **Accent gradient** (pink `#d93384` → amber `#f59e0b`, 90°): the one expressive color moment, reserved for headline accents and event cover art. It lives as `--accent-gradient`, and the attendee event page cover uses it.
+- **Accent gradient** (pink `#d93384` → amber `#f59e0b`, 90°): the one expressive color moment, reserved for headline accents and event cover art. It lives as `--accent-gradient`, and the attendee event page cover uses it through the `cover-art` utility.
 
 ### Dark mode
 

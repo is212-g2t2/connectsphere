@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { CalendarDays, Clock3 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "cn";
@@ -18,7 +19,6 @@ import type {
 import { isPublishedForAttendees } from "#/features/events/access";
 import { isConfirmableStatus } from "#/features/events/confirmation";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
-import { Detail } from "#/features/events/components/detail";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
 import { arrangementStateLabel, canGiveBackUnits } from "#/features/equipment-requests/schema";
@@ -360,6 +360,16 @@ function AdjustRequestRow({
         </Link>
       }
     />
+  );
+}
+
+/** The one extra row a card adds beside the shared requirements: its pending request. */
+function Detail({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="eyebrow text-muted-foreground">{label}</dt>
+      <dd className="mt-1 min-w-0 font-medium text-foreground">{value}</dd>
+    </div>
   );
 }
 

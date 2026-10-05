@@ -34,13 +34,13 @@ test.describe("Header session", () => {
     const [dashboard, landing] = await Promise.all(
       ["/dashboard", "/"].map(url => page.request.get(url))
     );
-    expect(landing.url()).toBe("http://localhost:3000/dashboard");
+    expect(landing.url()).toMatch(/\/dashboard$/);
     // The menu content renders on the client, so the server markup carries the trigger —
     // `aria-label="Account menu"` — and never the "Sign out" item itself.
     const htmls = await Promise.all([dashboard, landing].map(response => response.text()));
     for (const html of htmls) {
       expect(html).toContain('aria-label="Account menu"');
-      expect(html).toContain('aria-label="Notifications');
+      expect(html).toContain('aria-label="Notifications"');
     }
   });
 

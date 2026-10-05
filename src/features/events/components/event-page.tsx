@@ -47,6 +47,16 @@ function dateBlockParts(value: string): { month: string; day: string } {
   return { month, day: String(Number(match[3])) };
 }
 
+/** Whether `end` is the calendar day after `start` (`YYYY-MM-DD`), parsed as UTC so the
+ * server render and the hydrated client agree. Anything not in that shape is not next-day. */
+function isNextDay(start: string, end: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.exec(start) || !/^\d{4}-\d{2}-\d{2}$/.exec(end)) return false;
+  const next = new Date(`${start}T00:00:00Z`);
+  if (Number.isNaN(next.getTime())) return false;
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10) === end;
+}
+
 /**
  * PTR-44: what an attendee sees of a confirmed event with registration on. Only the published
  * fields — name, description, date/time, the approved booking's venue, and the registration
@@ -60,8 +70,10 @@ export function EventPage({ event }: { event: EventProjection }) {
   const endDate = details.venue?.endDate ?? details.endDate;
   const startTime = details.venue?.startTime ?? details.startTime;
   const endTime = details.venue?.endTime ?? details.endTime;
-  const crossesMidnight = Boolean(details.venue && details.venue.endDate !== details.venue.date);
-  const showRange = Boolean(date && endDate && endDate !== date);
+  const spansDays = Boolean(date && endDate && endDate !== date);
+  const crossesMidnight = Boolean(
+    details.venue && isNextDay(details.venue.date, details.venue.endDate)
+  );
   const isRegistered = details.registration?.status === "registered";
   const hasTerms = Boolean(details.registrationOpensAt && details.registrationClosesAt);
   return (
@@ -69,7 +81,7 @@ export function EventPage({ event }: { event: EventProjection }) {
       <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
         Back to dashboard
       </Link>
-      <div className="mt-6 grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-12">
+      <div className="mt-6 grid gap-8 split:grid-cols-[300px_minmax(0,1fr)] split:gap-12">
         <aside>
           <div className="relative aspect-square overflow-hidden rounded-2xl cover-art shadow-card">
             <div className="absolute inset-0 bg-black/55" aria-hidden="true" />
@@ -98,7 +110,7 @@ export function EventPage({ event }: { event: EventProjection }) {
               </span>
               <div className="min-w-0">
                 <p className="font-semibold">
-                  {showRange && endDate
+                  {spansDays && endDate
                     ? `${formatLongDate(date)} – ${formatLongDate(endDate)}`
                     : formatLongDate(date)}
                 </p>
@@ -141,19 +153,19 @@ export function EventPage({ event }: { event: EventProjection }) {
                   <p className="mt-2 font-semibold">You&apos;re registered</p>
                   {hasTerms && details.registrationOpensAt && details.registrationClosesAt ? (
                     <p className="mt-1 body-sm text-muted-foreground">
-                      {formatLocalDateTime(details.registrationOpensAt)} –{" "}
+                      Opens {formatLocalDateTime(details.registrationOpensAt)} – closes{" "}
                       {formatLocalDateTime(details.registrationClosesAt)}
                     </p>
                   ) : null}
                 </>
               ) : hasTerms && details.registrationOpensAt && details.registrationClosesAt ? (
                 <p className="mt-2 body-sm text-muted-foreground">
-                  {formatLocalDateTime(details.registrationOpensAt)} –{" "}
+                  Opens {formatLocalDateTime(details.registrationOpensAt)} – closes{" "}
                   {formatLocalDateTime(details.registrationClosesAt)}
                 </p>
               ) : (
                 <p className="mt-2 body-sm text-muted-foreground">
-                  Registration is not open for this event
+                  Registration details to be confirmed
                 </p>
               )}
             </CardContent>
@@ -162,7 +174,7 @@ export function EventPage({ event }: { event: EventProjection }) {
           {details.description ? (
             <section aria-label="About Event" className="mt-6">
               <h2 className="font-semibold display-h3">About Event</h2>
-              <p className="mt-2 max-w-prose body-sm text-muted-foreground">
+              <p className="mt-2 max-w-prose body-sm whitespace-pre-line text-muted-foreground">
                 {details.description}
               </p>
             </section>

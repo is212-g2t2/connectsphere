@@ -15,7 +15,7 @@ export function EventPageSkeleton() {
 
       <Skeleton className="h-4 w-32" />
 
-      <div className="mt-6 grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-12">
+      <div className="mt-6 grid gap-8 split:grid-cols-[300px_minmax(0,1fr)] split:gap-12">
         <div className="aspect-square w-full overflow-hidden rounded-2xl">
           <Skeleton className="size-full" />
         </div>

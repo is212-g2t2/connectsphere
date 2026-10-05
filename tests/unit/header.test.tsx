@@ -125,7 +125,8 @@ describe("Header component", () => {
 /**
  * PTR-71: signing out is a mutation, so React holds its in-flight flag. A refused sign-out lands
  * in the action's error state rather than leaving the nav pointing at a session that is still
- * open — and the menu closes on click, so there is no in-flight button to assert on.
+ * open — and while the run is in flight the menu item carries the disabled state, which clears
+ * once the run settles.
  */
 describe("Header sign-out", () => {
   it("signs out from the account menu", async () => {
@@ -149,5 +150,27 @@ describe("Header sign-out", () => {
     await visitor.click(screen.getByRole("menuitem", { name: "Sign out" }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Session already ended"));
+  });
+
+  it("disables the Sign out item while the run is in flight, then clears it", async () => {
+    const visitor = userEvent.setup();
+    let resolveSignOut!: (value: { error: null }) => void;
+    signOut.mockReturnValue(
+      new Promise(resolve => {
+        resolveSignOut = resolve;
+      })
+    );
+
+    render(<Header />);
+    await openAccountMenu(visitor);
+    await visitor.click(screen.getByRole("menuitem", { name: "Sign out" }));
+
+    // The menu closes on click, so reopen it while the promise is still pending.
+    await openAccountMenu(visitor);
+    const item = screen.getByRole("menuitem", { name: "Sign out" });
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+
+    resolveSignOut({ error: null });
+    await waitFor(() => expect(item.getAttribute("aria-disabled")).toBeNull());
   });
 });
