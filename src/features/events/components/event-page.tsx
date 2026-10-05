@@ -77,7 +77,8 @@ export function EventPage({ event }: { event: EventProjection }) {
   );
   const isRegistered = details.registration?.status === "registered";
   const hasTerms = Boolean(details.registrationOpensAt && details.registrationClosesAt);
-  // PTR-45 AC10: the places taken, against the lower of the registration and venue capacity.
+  // PTR-45 AC10: the places taken, against the lower of the registration capacity and the venue
+  // places the VIPs leave (PTR-111).
   const places = details.places ? (
     <p className="mt-1 body-sm text-muted-foreground">
       {`${details.places.registered} / ${details.places.limit} registered`}

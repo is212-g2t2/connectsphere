@@ -1,24 +1,32 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ilike, notExists, or, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRegistrations, eventRequests, user, venueRequests, venues } from "#/db/schema";
+import {
+  eventRegistrations,
+  eventRequests,
+  user,
+  venueRequests,
+  venues,
+  vipRegistrationChanges,
+} from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import { isPublishedForAttendees } from "#/features/events/access";
-import type { VipRegistration } from "#/features/events/access";
+import type { VipAttendee } from "#/features/events/access";
 import {
   ALREADY_REGISTERED_MESSAGE,
+  NOT_A_VIP_MESSAGE,
   REGISTRATION_NOT_OPEN_MESSAGE,
+  VIPS_CLOSED_MESSAGE,
   VIP_ALREADY_REGISTERED_MESSAGE,
-  VIP_ALREADY_REMOVED_MESSAGE,
   VIP_NOT_ATTENDEE_MESSAGE,
   crossesPlaceThreshold,
   placeLimit,
   registrationRefusal,
-  vipRegistrationRefusal,
+  venueCapacityReachedMessage,
 } from "#/features/events/registration";
-import { parseVipRegistrationInput, parseVipRemovalInput } from "#/features/events/schema";
+import { parseVipRegistrationInput, parseVipSearchInput } from "#/features/events/schema";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
@@ -30,13 +38,20 @@ import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/avail
  */
 
 type Database = typeof Db;
-type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/**
+ * The event's `registered` registrations, the normal ones and the VIPs (PTR-111) apart, as select
+ * columns. `records.server` counts the attendee's places with the same two.
+ */
+export const registrationCounts = {
+  registered: sql<number>`count(*) filter (where not ${eventRegistrations.vip})`.mapWith(Number),
+  vips: sql<number>`count(*) filter (where ${eventRegistrations.vip})`.mapWith(Number),
+};
 
 /**
  * PTR-45: an Attendee registers for a published event. The event row is the lock that every
  * registration for the event takes before it counts. Two Attendees who race for the last place
- * therefore queue on it, and the second one counts the first (AC3). `no key update` does not block
- * the key-share locks that foreign-key inserts take on the event row.
+ * therefore queue on it, and the second one counts the first (AC3).
  *
  * The registration and its notifications commit together; the worker sends the emails.
  */
@@ -49,20 +64,19 @@ export async function handleRegisterForEvent(
   const input = parseEventRequestId(data);
 
   return database.transaction(async tx => {
-    const event = await lockEvent(tx, input.id);
+    const event = await readEvent(tx, input.id, true);
 
     // AC2: only a published event takes registrations. A missing event and an unpublished one
     // are refused the same way, so the refusal does not say whether the id exists.
     if (!event || !isPublishedForAttendees(event)) throw new AuthorizationError("Forbidden");
 
-    const own = await registrationStatus(tx, event.id, actor.id);
     const booking = await approvedBooking(tx, event.id);
     const { registered, vips } = await countRegistrations(tx, event.id);
 
     const refusal = registrationRefusal({
       ...event,
       now: toLocalMinuteValue(venueLocalTimestamp(now)),
-      alreadyRegistered: own === "registered",
+      alreadyRegistered: await isRegistered(tx, event.id, actor.id),
       registeredCount: registered,
       vipCount: vips,
       venueCapacity: booking?.venueCapacity ?? null,
@@ -76,7 +90,7 @@ export async function handleRegisterForEvent(
     }
 
     // One row for each Attendee and event: a withdrawn registration returns to `registered`
-    // (PTR-47 AC5), as the Attendee's own, so a removed VIP registration's record is cleared. A
+    // (PTR-47 AC5), as the Attendee's own even where it was a removed VIP registration. A
     // `registered` row is left as it is, so no row comes back (AC6).
     const registration = (
       await tx
@@ -84,14 +98,7 @@ export async function handleRegisterForEvent(
         .values({ eventId: event.id, attendeeId: actor.id })
         .onConflictDoUpdate({
           target: [eventRegistrations.eventId, eventRegistrations.attendeeId],
-          set: {
-            status: "registered",
-            registeredAt: sql`now()`,
-            vip: false,
-            addedById: null,
-            removedById: null,
-            removedAt: null,
-          },
+          set: { status: "registered", registeredAt: sql`now()`, vip: false },
           setWhere: eq(eventRegistrations.status, "withdrawn"),
         })
         .returning({
@@ -101,14 +108,13 @@ export async function handleRegisterForEvent(
     ).at(0);
     if (!registration) throw new ConflictError(ALREADY_REGISTERED_MESSAGE);
 
-    const eventName = event.eventName.trim() || "Untitled event";
     const notices: NewNotification[] = [
       {
         recipientId: actor.id,
         eventRequestId: event.id,
         kind: "event_registered",
         payload: {
-          eventName,
+          eventName: eventName(event),
           venueName: booking.venueName,
           venueLocation: booking.venueLocation,
           startsAt: booking.startsAt,
@@ -120,21 +126,7 @@ export async function handleRegisterForEvent(
     // limit, or to the limit itself, so each threshold is announced as the count crosses it.
     const limit = placeLimit(capacity, booking.venueCapacity, vips);
     if (crossesPlaceThreshold(registered + 1, limit)) {
-      const threshold = { eventName, registered: registered + 1, limit };
-      notices.push({
-        recipientId: event.organiserId,
-        eventRequestId: event.id,
-        kind: "registration_threshold_reached",
-        payload: { ...threshold, audience: "organiser" },
-      });
-      if (event.assignedCoordinatorId) {
-        notices.push({
-          recipientId: event.assignedCoordinatorId,
-          eventRequestId: event.id,
-          kind: "registration_threshold_reached",
-          payload: { ...threshold, audience: "coordinator" },
-        });
-      }
+      notices.push(...thresholdNotices(event, registered + 1, limit));
     }
     await raiseNotifications(tx, notices);
 
@@ -142,64 +134,114 @@ export async function handleRegisterForEvent(
   });
 }
 
+/** The most Attendee accounts one VIP search returns. */
+const VIP_SEARCH_LIMIT = 10;
+
+/**
+ * PTR-111: the Attendee accounts that the Organiser or the assigned Coordinator can add as a VIP,
+ * found by part of the name or the email, case-insensitively. An Attendee who already holds a
+ * registration for the event is left out.
+ */
+export async function handleSearchVipAttendees(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+): Promise<VipAttendee[]> {
+  const input = parseVipSearchInput(data);
+  const event = requireManagedEvent(await readEvent(database, input.id), actor);
+
+  // `\` is the ILIKE escape character, so a typed `%` or `_` matches only itself.
+  const pattern = `%${input.query.replaceAll(/[\\%_]/g, "\\$&")}%`;
+  return database
+    .select({ attendeeId: user.id, name: user.name, email: user.email })
+    .from(user)
+    .where(
+      and(
+        eq(user.role, "attendee"),
+        or(ilike(user.name, pattern), ilike(user.email, pattern)),
+        notExists(
+          database
+            .select({ one: sql`1` })
+            .from(eventRegistrations)
+            .where(
+              and(
+                eq(eventRegistrations.eventId, event.id),
+                eq(eventRegistrations.attendeeId, user.id),
+                eq(eventRegistrations.status, "registered")
+              )
+            )
+        )
+      )
+    )
+    .orderBy(user.name, user.email)
+    .limit(VIP_SEARCH_LIMIT);
+}
+
 /**
  * PTR-111: the Organiser or the assigned Coordinator adds a VIP registration for an Attendee
- * account, named by its email. The VIP takes the event row lock that an Attendee's own
- * registration takes, so a VIP and an Attendee who race for the venue's last place queue on it
- * (AC3). `registeredAt` and `addedById` are the time and the acting user (AC5).
+ * account. The VIP takes the event row lock that an Attendee's own registration takes, so a VIP
+ * and an Attendee who race for the venue's last place queue on it (AC3). The change log keeps the
+ * acting user and the time (AC5).
  */
 export async function handleAddVipRegistration(
   data: unknown,
   actor: SessionUser,
   database: Database
-): Promise<VipRegistration> {
+): Promise<VipAttendee> {
   const input = parseVipRegistrationInput(data);
 
   return database.transaction(async tx => {
-    const event = await lockManagedEvent(tx, input.id, actor);
+    const event = requireManagedEvent(await readEvent(tx, input.id, true), actor);
 
     const attendee = (
       await tx
         .select({ id: user.id, name: user.name, email: user.email })
         .from(user)
-        .where(and(eq(user.email, input.email), eq(user.role, "attendee")))
+        .where(and(eq(user.id, input.attendeeId), eq(user.role, "attendee")))
     ).at(0);
     if (!attendee) throw new NotFoundError(VIP_NOT_ATTENDEE_MESSAGE);
+    if (await isRegistered(tx, event.id, attendee.id)) {
+      throw new ConflictError(VIP_ALREADY_REGISTERED_MESSAGE);
+    }
 
-    const own = await registrationStatus(tx, event.id, attendee.id);
+    // AC2 and AC3: the registration capacity and period do not apply. The venue on the approved
+    // booking is the only ceiling, and with no approved booking there is no ceiling to hold to.
     const booking = await approvedBooking(tx, event.id);
+    if (!booking) throw new ConflictError(REGISTRATION_NOT_OPEN_MESSAGE);
     const { registered, vips } = await countRegistrations(tx, event.id);
-
-    // AC2 and AC3: the registration capacity and period do not apply, the venue does.
-    const refusal = vipRegistrationRefusal({
-      alreadyRegistered: own === "registered",
-      registeredCount: registered,
-      vipCount: vips,
-      venueCapacity: booking?.venueCapacity ?? null,
-    });
-    if (refusal) throw new ConflictError(refusal);
+    if (registered + vips >= booking.venueCapacity) {
+      throw new ConflictError(venueCapacityReachedMessage(booking.venueCapacity));
+    }
 
     // The Attendee's one row for the event: a withdrawn registration of either kind becomes this
-    // VIP registration, and the record of any earlier removal is cleared.
+    // VIP registration.
     const registration = (
       await tx
         .insert(eventRegistrations)
-        .values({ eventId: event.id, attendeeId: attendee.id, vip: true, addedById: actor.id })
+        .values({ eventId: event.id, attendeeId: attendee.id, vip: true })
         .onConflictDoUpdate({
           target: [eventRegistrations.eventId, eventRegistrations.attendeeId],
-          set: {
-            status: "registered",
-            registeredAt: sql`now()`,
-            vip: true,
-            addedById: actor.id,
-            removedById: null,
-            removedAt: null,
-          },
+          set: { status: "registered", registeredAt: sql`now()`, vip: true },
           setWhere: eq(eventRegistrations.status, "withdrawn"),
         })
         .returning({ attendeeId: eventRegistrations.attendeeId })
     ).at(0);
     if (!registration) throw new ConflictError(VIP_ALREADY_REGISTERED_MESSAGE);
+    await tx
+      .insert(vipRegistrationChanges)
+      .values({ eventId: event.id, attendeeId: attendee.id, change: "added", actorId: actor.id });
+
+    // The VIP leaves normal registration one place fewer. Where that puts the normal registrations
+    // on the 90% or the full mark of the new limit, the Organiser and the Coordinator are told,
+    // as a normal registration that reaches the mark tells them (PTR-45 AC8, AC9).
+    // A published event always has a capacity; the check only narrows the type.
+    if (event.registrationCapacity !== null) {
+      const before = placeLimit(event.registrationCapacity, booking.venueCapacity, vips);
+      const after = placeLimit(event.registrationCapacity, booking.venueCapacity, vips + 1);
+      if (crossesPlaceThreshold(registered, after) && !crossesPlaceThreshold(registered, before)) {
+        await raiseNotifications(tx, thresholdNotices(event, registered, after));
+      }
+    }
 
     return { attendeeId: attendee.id, name: attendee.name, email: attendee.email };
   });
@@ -207,93 +249,128 @@ export async function handleAddVipRegistration(
 
 /**
  * PTR-111 AC6: the Organiser or the assigned Coordinator removes a VIP registration. It becomes
- * `withdrawn`, so it no longer holds a venue place, and the row keeps who removed it and when.
+ * `withdrawn`, so it no longer holds a venue place, and the change log keeps who removed it and
+ * when.
  */
 export async function handleRemoveVipRegistration(
   data: unknown,
   actor: SessionUser,
   database: Database
-) {
-  const input = parseVipRemovalInput(data);
+): Promise<void> {
+  const input = parseVipRegistrationInput(data);
 
-  return database.transaction(async tx => {
-    const event = await lockManagedEvent(tx, input.id, actor);
+  await database.transaction(async tx => {
+    const event = requireManagedEvent(await readEvent(tx, input.id, true), actor);
 
-    const removed = (
-      await tx
-        .update(eventRegistrations)
-        .set({ status: "withdrawn", removedById: actor.id, removedAt: sql`now()` })
-        .where(
-          and(
-            eq(eventRegistrations.eventId, event.id),
-            eq(eventRegistrations.attendeeId, input.attendeeId),
-            eq(eventRegistrations.vip, true),
-            eq(eventRegistrations.status, "registered")
-          )
+    const removed = await tx
+      .update(eventRegistrations)
+      .set({ status: "withdrawn" })
+      .where(
+        and(
+          eq(eventRegistrations.eventId, event.id),
+          eq(eventRegistrations.attendeeId, input.attendeeId),
+          eq(eventRegistrations.vip, true),
+          eq(eventRegistrations.status, "registered")
         )
-        .returning({ removedAt: eventRegistrations.removedAt })
-    ).at(0);
-    if (!removed?.removedAt) throw new ConflictError(VIP_ALREADY_REMOVED_MESSAGE);
-
-    return { attendeeId: input.attendeeId, removedAt: removed.removedAt.toISOString() };
+      )
+      .returning({ attendeeId: eventRegistrations.attendeeId });
+    if (removed.length === 0) throw new ConflictError(NOT_A_VIP_MESSAGE);
+    await tx.insert(vipRegistrationChanges).values({
+      eventId: event.id,
+      attendeeId: input.attendeeId,
+      change: "removed",
+      actorId: actor.id,
+    });
   });
 }
 
 /**
- * The event row that every registration write locks before it counts. `no key update` does not
+ * The event row. Every registration write locks it before it counts; `no key update` does not
  * block the key-share locks that foreign-key inserts take on the event row.
  */
-async function lockEvent(tx: Transaction, eventId: number) {
-  return (
-    await tx
-      .select({
-        id: eventRequests.id,
-        organiserId: eventRequests.organiserId,
-        assignedCoordinatorId: eventRequests.assignedCoordinatorId,
-        eventName: eventRequests.eventName,
-        status: eventRequests.status,
-        registrationEnabled: eventRequests.registrationEnabled,
-        registrationCapacity: eventRequests.registrationCapacity,
-        registrationOpensAt: eventRequests.registrationOpensAt,
-        registrationClosesAt: eventRequests.registrationClosesAt,
-      })
-      .from(eventRequests)
-      .where(eq(eventRequests.id, eventId))
-      .for("no key update")
-  ).at(0);
+async function readEvent(database: Pick<Database, "select">, eventId: number, lock = false) {
+  const query = database
+    .select({
+      id: eventRequests.id,
+      organiserId: eventRequests.organiserId,
+      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+      eventName: eventRequests.eventName,
+      status: eventRequests.status,
+      registrationEnabled: eventRequests.registrationEnabled,
+      registrationCapacity: eventRequests.registrationCapacity,
+      registrationOpensAt: eventRequests.registrationOpensAt,
+      registrationClosesAt: eventRequests.registrationClosesAt,
+    })
+    .from(eventRequests)
+    .where(eq(eventRequests.id, eventId));
+  return (await (lock ? query.for("no key update") : query)).at(0);
 }
 
+type EventRow = NonNullable<Awaited<ReturnType<typeof readEvent>>>;
+
 /**
- * PTR-111: the published event that the caller manages VIPs for, locked. Only its Organiser and
- * its assigned Coordinator do, and a missing event and someone else's are refused the same way.
- * A published event whose booking was released still lets them remove a VIP, so its existing
+ * PTR-111: the published event that the caller manages VIPs for. Only its Organiser and its
+ * assigned Coordinator do, and a missing event and someone else's are refused the same way. A
+ * published event whose booking was released still lets them remove a VIP, so its existing
  * registrations can be resolved manually.
  */
-async function lockManagedEvent(tx: Transaction, eventId: number, actor: SessionUser) {
-  const event = await lockEvent(tx, eventId);
+function requireManagedEvent(event: EventRow | undefined, actor: SessionUser): EventRow {
   if (!event || (event.organiserId !== actor.id && event.assignedCoordinatorId !== actor.id)) {
     throw new AuthorizationError("Forbidden");
   }
-  if (!isPublishedForAttendees(event)) throw new ConflictError(REGISTRATION_NOT_OPEN_MESSAGE);
+  if (!isPublishedForAttendees(event)) throw new ConflictError(VIPS_CLOSED_MESSAGE);
   return event;
 }
 
-async function registrationStatus(tx: Transaction, eventId: number, attendeeId: string) {
-  const row = (
-    await tx
-      .select({ status: eventRegistrations.status })
-      .from(eventRegistrations)
-      .where(
-        and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.attendeeId, attendeeId))
+function eventName(event: EventRow): string {
+  return event.eventName.trim() || "Untitled event";
+}
+
+/** PTR-45 AC8 and AC9: the Organiser's notice, and the assigned Coordinator's when there is one. */
+function thresholdNotices(event: EventRow, registered: number, limit: number): NewNotification[] {
+  const threshold = { eventName: eventName(event), registered, limit };
+  const notices: NewNotification[] = [
+    {
+      recipientId: event.organiserId,
+      eventRequestId: event.id,
+      kind: "registration_threshold_reached",
+      payload: { ...threshold, audience: "organiser" },
+    },
+  ];
+  if (event.assignedCoordinatorId) {
+    notices.push({
+      recipientId: event.assignedCoordinatorId,
+      eventRequestId: event.id,
+      kind: "registration_threshold_reached",
+      payload: { ...threshold, audience: "coordinator" },
+    });
+  }
+  return notices;
+}
+
+/** Whether the Attendee holds a `registered` registration for the event, of either kind. */
+async function isRegistered(
+  database: Pick<Database, "select">,
+  eventId: number,
+  attendeeId: string
+): Promise<boolean> {
+  const rows = await database
+    .select({ attendeeId: eventRegistrations.attendeeId })
+    .from(eventRegistrations)
+    .where(
+      and(
+        eq(eventRegistrations.eventId, eventId),
+        eq(eventRegistrations.attendeeId, attendeeId),
+        eq(eventRegistrations.status, "registered")
       )
-  ).at(0);
-  return row?.status ?? null;
+    );
+  return rows.length > 0;
 }
 
 /** The venue the event page shows: the earliest approved booking, as `records.server` picks it. */
-async function approvedBooking(tx: Transaction, eventId: number) {
+async function approvedBooking(database: Pick<Database, "select">, eventId: number) {
   return (
-    await tx
+    await database
       .select({
         venueName: venues.name,
         venueLocation: venues.location,
@@ -309,15 +386,9 @@ async function approvedBooking(tx: Transaction, eventId: number) {
   ).at(0);
 }
 
-/** The event's `registered` registrations: the normal ones and the VIPs (PTR-111), apart. */
-async function countRegistrations(tx: Transaction, eventId: number) {
-  const [counts] = await tx
-    .select({
-      registered: sql<number>`count(*) filter (where not ${eventRegistrations.vip})`.mapWith(
-        Number
-      ),
-      vips: sql<number>`count(*) filter (where ${eventRegistrations.vip})`.mapWith(Number),
-    })
+async function countRegistrations(database: Pick<Database, "select">, eventId: number) {
+  const [counts] = await database
+    .select(registrationCounts)
     .from(eventRegistrations)
     .where(
       and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.status, "registered"))

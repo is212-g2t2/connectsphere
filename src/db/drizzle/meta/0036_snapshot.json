@@ -1,5 +1,5 @@
 {
-  "id": "11bf9a69-fdf0-44b8-b67c-970877483afa",
+  "id": "f5699860-fe26-4628-af66-fdfb131dcd42",
   "prevId": "7209087e-2edb-46af-9b24-d04dd1f3ff23",
   "version": "7",
   "dialect": "postgresql",
@@ -864,24 +864,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "added_by_id": {
-          "name": "added_by_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "removed_by_id": {
-          "name": "removed_by_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "removed_at": {
-          "name": "removed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -929,16 +911,7 @@
       },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "event_registrations_vip_has_actor": {
-          "name": "event_registrations_vip_has_actor",
-          "value": "\"event_registrations\".\"vip\" = (\"event_registrations\".\"added_by_id\" is not null)"
-        },
-        "event_registrations_removal_complete": {
-          "name": "event_registrations_removal_complete",
-          "value": "(\"event_registrations\".\"removed_by_id\" is null and \"event_registrations\".\"removed_at\" is null) or (\"event_registrations\".\"removed_by_id\" is not null and \"event_registrations\".\"removed_at\" is not null and \"event_registrations\".\"vip\" and \"event_registrations\".\"status\"::text = 'withdrawn')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.event_requests": {
@@ -2088,6 +2061,83 @@
       },
       "isRLSEnabled": false
     },
+    "public.vip_registration_changes": {
+      "name": "vip_registration_changes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attendee_id": {
+          "name": "attendee_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "change": {
+          "name": "change",
+          "type": "vip_registration_change",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed_at": {
+          "name": "changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "vip_registration_changes_event_id_idx": {
+          "name": "vip_registration_changes_event_id_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "vip_registration_changes_event_id_event_requests_id_fk": {
+          "name": "vip_registration_changes_event_id_event_requests_id_fk",
+          "tableFrom": "vip_registration_changes",
+          "tableTo": "event_requests",
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.account": {
       "name": "account",
       "schema": "",
@@ -2504,6 +2554,11 @@
       "name": "venue_request_status",
       "schema": "public",
       "values": ["pending", "withdrawn", "approved", "rejected", "released"]
+    },
+    "public.vip_registration_change": {
+      "name": "vip_registration_change",
+      "schema": "public",
+      "values": ["added", "removed"]
     }
   },
   "schemas": {},

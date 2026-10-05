@@ -1,4 +1,4 @@
-import { and, eq, exists, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, exists, gt, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -29,8 +29,9 @@ import type {
   EventPlaces,
   EventProjection,
   EventVenueRequest,
-  VipRegistration,
+  VipAttendee,
 } from "#/features/events/access";
+import { registrationCounts } from "#/features/events/register.server";
 import { placeLimit } from "#/features/events/registration";
 import type { VenueRequestOutcome } from "#/features/venue-requests/records.server";
 import { parseEventListInput } from "#/features/events/schema";
@@ -333,12 +334,7 @@ export async function handleListEvents(
     role === "attendee" && confirmedIds.length > 0
       ? (
           await database
-            .select({
-              eventId: eventRegistrations.eventId,
-              registered:
-                sql<number>`count(*) filter (where not ${eventRegistrations.vip})`.mapWith(Number),
-              vips: sql<number>`count(*) filter (where ${eventRegistrations.vip})`.mapWith(Number),
-            })
+            .select({ eventId: eventRegistrations.eventId, ...registrationCounts })
             .from(eventRegistrations)
             .where(
               and(
@@ -353,7 +349,7 @@ export async function handleListEvents(
 
   // PTR-111 AC4: the Organiser and the assigned Coordinator see each published event's VIP
   // registrations apart from the normal ones.
-  const vipRegistrations = new Map<number, VipRegistration[]>();
+  const vipRegistrations = new Map<number, VipAttendee[]>();
   if (role === "event_organiser" || role === "event_coordinator") {
     for (const row of requestRows) {
       if (isPublishedForAttendees(row)) vipRegistrations.set(row.id, []);

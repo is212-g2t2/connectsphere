@@ -46,13 +46,14 @@ import {
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
-import { VIP_EMAIL_MESSAGE } from "#/features/events/schema";
+import { VIP_SEARCH_MESSAGE } from "#/features/events/schema";
 import {
   addVipRegistration,
   confirmEvent,
   listEvents,
   registerForEvent,
   removeVipRegistration,
+  searchVipAttendees,
 } from "#/features/events/server-fns";
 import { listNotifications, markNotificationsRead } from "#/features/notifications/server-fns";
 import {
@@ -684,7 +685,8 @@ describe("server-function authorization (PTR-69)", () => {
   // PTR-111: only the Organiser and the Coordinator manage VIP registrations; the handler re-reads
   // that the caller is the event's Organiser or its assigned Coordinator.
   describe.each([
-    { name: "addVipRegistration", fn: addVipRegistration, input: { id: 1, email: "vip@x.test" } },
+    { name: "searchVipAttendees", fn: searchVipAttendees, input: { id: 1, query: "ada" } },
+    { name: "addVipRegistration", fn: addVipRegistration, input: { id: 1, attendeeId: "a" } },
     { name: "removeVipRegistration", fn: removeVipRegistration, input: { id: 1, attendeeId: "a" } },
   ])("PTR-111 $name", ({ fn, input }) => {
     it("answers 401 without a session", async () => {
@@ -712,14 +714,6 @@ describe("server-function authorization (PTR-69)", () => {
 
       expect(error).toBeInstanceOf(Error);
     });
-  });
-
-  it("refuses a VIP email that is not an email, with the schema's message (PTR-111)", async () => {
-    signIn("event_organiser");
-
-    expect(await messageFrom(addVipRegistration, { id: 1, email: "not-an-email" })).toBe(
-      VIP_EMAIL_MESSAGE
-    );
   });
 
   describe("PTR-40 equipment availability", () => {
@@ -1214,6 +1208,12 @@ describe("server-function authorization (PTR-69)", () => {
         ATTENDANCE_MESSAGE
       );
       expect(await messageFrom(getEventRequest, { id: "1" }, "GET")).toBe(EVENT_REQUEST_ID_MESSAGE);
+      expect(await messageFrom(searchVipAttendees, { id: 1, query: " a " })).toBe(
+        VIP_SEARCH_MESSAGE
+      );
+      expect(await messageFrom(removeVipRegistration, { id: 1, attendeeId: "a\u0000b" })).toBe(
+        "Choose an Attendee"
+      );
 
       signIn("technical_support_staff");
       expect(await messageFrom(reserveEquipment, { equipmentRequestId: "", quantity: 1 })).toBe(

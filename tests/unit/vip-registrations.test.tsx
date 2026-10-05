@@ -2,26 +2,25 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { EventProjection, VipRegistration } from "#/features/events/access";
+import type { EventProjection, VipAttendee } from "#/features/events/access";
 import { EventWorkspace } from "#/features/events/components/event-workspace";
-import { VipRegistrations } from "#/features/events/components/vip-registrations";
-import {
-  VIP_ALREADY_REMOVED_MESSAGE,
-  VIP_NOT_ATTENDEE_MESSAGE,
-  venueCapacityReachedMessage,
-} from "#/features/events/registration";
-import { VIP_EMAIL_MESSAGE } from "#/features/events/schema";
+import { NAMED_REFUSALS, VipRegistrations } from "#/features/events/components/vip-registrations";
+import { NOT_A_VIP_MESSAGE, venueCapacityReachedMessage } from "#/features/events/registration";
 
-const { addVipRegistration, removeVipRegistration, invalidate, success } = vi.hoisted(() => ({
-  addVipRegistration:
-    vi.fn<(input: { data: { id: number; email: string } }) => Promise<VipRegistration>>(),
-  removeVipRegistration:
-    vi.fn<(input: { data: { id: number; attendeeId: string } }) => Promise<unknown>>(),
-  invalidate: vi.fn<() => Promise<void>>(),
-  success: vi.fn<(message: string) => void>(),
-}));
+const { searchVipAttendees, addVipRegistration, removeVipRegistration, invalidate, success } =
+  vi.hoisted(() => ({
+    searchVipAttendees:
+      vi.fn<(input: { data: { id: number; query: string } }) => Promise<VipAttendee[]>>(),
+    addVipRegistration:
+      vi.fn<(input: { data: { id: number; attendeeId: string } }) => Promise<VipAttendee>>(),
+    removeVipRegistration:
+      vi.fn<(input: { data: { id: number; attendeeId: string } }) => Promise<void>>(),
+    invalidate: vi.fn<() => Promise<void>>(),
+    success: vi.fn<(message: string) => void>(),
+  }));
 
 vi.mock("#/features/events/server-fns", () => ({
+  searchVipAttendees,
   addVipRegistration,
   removeVipRegistration,
   confirmEvent: vi.fn<() => Promise<unknown>>(),
@@ -33,14 +32,45 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success } }));
 
-const ada: VipRegistration = { attendeeId: "ada", name: "Ada Lovelace", email: "ada@x.test" };
-const alan: VipRegistration = { attendeeId: "alan", name: "Alan Turing", email: "alan@x.test" };
+const ada: VipAttendee = { attendeeId: "ada", name: "Ada Lovelace", email: "ada@x.test" };
+const alan: VipAttendee = { attendeeId: "alan", name: "Alan Turing", email: "alan@x.test" };
 
-async function addVip(email: string) {
+const card = (vipRegistrations: VipAttendee[] | null): EventProjection => ({
+  access: "organiser",
+  event: {
+    id: 12,
+    name: "Gala",
+    eventDate: "2030-01-01",
+    startTime: "09:00",
+    endTime: "17:00",
+    status: "confirmed",
+    vipRegistrations,
+  },
+});
+
+/** Types into the search box of an event with no VIPs yet. */
+async function searchFor(text: string) {
   const user = userEvent.setup();
   render(<VipRegistrations eventId={12} vips={[]} />);
-  await user.type(screen.getByLabelText("Attendee email"), email);
-  await user.click(screen.getByRole("button", { name: "Add VIP" }));
+  await user.type(screen.getByRole("searchbox", { name: "Add a VIP" }), text);
+  return user;
+}
+
+/** Searches for Ada and adds her from the results. */
+async function addAda() {
+  searchVipAttendees.mockResolvedValue([ada]);
+  const user = await searchFor("ada");
+  await user.click(await screen.findByRole("button", { name: "Add Ada Lovelace as a VIP" }));
+}
+
+/** Opens Ada's removal dialog and confirms it. */
+async function removeAda() {
+  const user = userEvent.setup();
+  render(<VipRegistrations eventId={12} vips={[ada]} />);
+  await user.click(screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" }));
+  const dialog = await screen.findByRole("alertdialog");
+  await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+  return dialog;
 }
 
 describe("VipRegistrations (PTR-111)", () => {
@@ -58,70 +88,98 @@ describe("VipRegistrations (PTR-111)", () => {
       "ada@x.test",
       "alan@x.test",
     ]);
-    expect(
-      screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" })
-    ).toBeTruthy();
   });
 
-  it("counts one VIP in the singular, and none without a list", () => {
-    const { rerender } = render(<VipRegistrations eventId={12} vips={[ada]} />);
-    expect(screen.getByText("1 VIP")).toBeTruthy();
+  it("searches once the typing pauses, not on each keystroke", async () => {
+    searchVipAttendees.mockResolvedValue([ada]);
 
-    rerender(<VipRegistrations eventId={12} vips={[]} />);
-    expect(screen.getByText("0 VIPs")).toBeTruthy();
-    expect(screen.queryByRole("list")).toBeNull();
+    await searchFor("lovelace");
+
+    expect(await screen.findByRole("button", { name: "Add Ada Lovelace as a VIP" })).toBeTruthy();
+    expect(searchVipAttendees).toHaveBeenCalledOnce();
+    expect(searchVipAttendees).toHaveBeenCalledWith({ data: { id: 12, query: "lovelace" } });
   });
 
-  it("adds an Attendee by email, tells the caller and reloads the event (AC1)", async () => {
+  it("does not search for fewer than two characters", async () => {
+    await searchFor(" a ");
+
+    await new Promise(resolve => setTimeout(resolve, 400));
+    expect(searchVipAttendees).not.toHaveBeenCalled();
+  });
+
+  it("says when no Attendee matches", async () => {
+    searchVipAttendees.mockResolvedValue([]);
+
+    await searchFor("zz");
+
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "No Attendee without a registration matches “zz”."
+    );
+  });
+
+  it("shows only the answer to the latest query", async () => {
+    let answerOlder: ((attendees: VipAttendee[]) => void) | undefined;
+    searchVipAttendees.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          answerOlder = resolve;
+        })
+    );
+    searchVipAttendees.mockResolvedValueOnce([alan]);
+    const user = await searchFor("al");
+    await waitFor(() => expect(searchVipAttendees).toHaveBeenCalledOnce());
+
+    await user.type(screen.getByRole("searchbox", { name: "Add a VIP" }), "an");
+    expect(await screen.findByRole("button", { name: "Add Alan Turing as a VIP" })).toBeTruthy();
+    answerOlder?.([ada]);
+
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(screen.queryByRole("button", { name: "Add Ada Lovelace as a VIP" })).toBeNull();
+  });
+
+  it("adds the chosen Attendee, tells the caller, clears the search and reloads (AC1)", async () => {
     addVipRegistration.mockResolvedValue(ada);
 
-    await addVip("ada@x.test");
+    await addAda();
 
     await waitFor(() =>
-      expect(addVipRegistration).toHaveBeenCalledWith({ data: { id: 12, email: "ada@x.test" } })
+      expect(addVipRegistration).toHaveBeenCalledWith({ data: { id: 12, attendeeId: "ada" } })
     );
     await waitFor(() =>
       expect(success).toHaveBeenCalledWith("Ada Lovelace is registered as a VIP.")
     );
     expect(invalidate).toHaveBeenCalled();
-    expect(screen.getByLabelText("Attendee email")).toHaveProperty("value", "");
+    expect(screen.getByRole("searchbox", { name: "Add a VIP" })).toHaveProperty("value", "");
+    expect(screen.queryByRole("list", { name: "Matching Attendees" })).toBeNull();
   });
 
-  it("refuses an email that is not one before calling the server", async () => {
-    await addVip("not-an-email");
-
-    expect(await screen.findByText(VIP_EMAIL_MESSAGE)).toBeTruthy();
-    expect(addVipRegistration).not.toHaveBeenCalled();
-  });
-
-  it.each([VIP_NOT_ATTENDEE_MESSAGE, venueCapacityReachedMessage(4)])(
-    "shows the refusal %o as the server words it (AC3)",
+  it.each([...NAMED_REFUSALS, venueCapacityReachedMessage(4)])(
+    "shows the refusal %o to an addition as the server words it, and reloads",
     async message => {
       addVipRegistration.mockRejectedValue(new Error(message));
 
-      await addVip("ada@x.test");
+      await addAda();
 
       expect((await screen.findByRole("alert")).textContent).toBe(message);
       expect(success).not.toHaveBeenCalled();
+      expect(invalidate).toHaveBeenCalled();
     }
   );
 
   it("falls back to generic text for a failure that is not a named refusal", async () => {
-    addVipRegistration.mockRejectedValue(new Error("Forbidden"));
+    searchVipAttendees.mockRejectedValue(new Error("Forbidden"));
 
-    await addVip("ada@x.test");
+    await searchFor("ada");
 
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Could not add the VIP registration. Try again."
+      "Could not search the Attendees. Try again."
     );
   });
 
-  it("removes a VIP, tells the caller and reloads the event (AC6)", async () => {
-    removeVipRegistration.mockResolvedValue({});
-    const user = userEvent.setup();
-    render(<VipRegistrations eventId={12} vips={[ada]} />);
+  it("removes a VIP once confirmed, tells the caller and reloads the event (AC6)", async () => {
+    removeVipRegistration.mockResolvedValue();
 
-    await user.click(screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" }));
+    await removeAda();
 
     await waitFor(() =>
       expect(removeVipRegistration).toHaveBeenCalledWith({
@@ -134,29 +192,26 @@ describe("VipRegistrations (PTR-111)", () => {
     expect(invalidate).toHaveBeenCalled();
   });
 
-  it("shows a refused removal and reloads, since someone else may have removed it", async () => {
-    removeVipRegistration.mockRejectedValue(new Error(VIP_ALREADY_REMOVED_MESSAGE));
+  it("removes nothing when the removal is cancelled", async () => {
     const user = userEvent.setup();
     render(<VipRegistrations eventId={12} vips={[ada]} />);
 
     await user.click(screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" }));
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" })
+    );
 
-    expect((await screen.findByRole("alert")).textContent).toBe(VIP_ALREADY_REMOVED_MESSAGE);
+    expect(removeVipRegistration).not.toHaveBeenCalled();
+  });
+
+  it("shows a refused removal in the dialog and reloads, since someone else may have removed it", async () => {
+    removeVipRegistration.mockRejectedValue(new Error(NOT_A_VIP_MESSAGE));
+
+    const dialog = await removeAda();
+
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(NOT_A_VIP_MESSAGE);
     expect(invalidate).toHaveBeenCalled();
   });
-});
-
-const card = (vipRegistrations: VipRegistration[] | null): EventProjection => ({
-  access: "organiser",
-  event: {
-    id: 12,
-    name: "Gala",
-    eventDate: "2030-01-01",
-    startTime: "09:00",
-    endTime: "17:00",
-    status: "confirmed",
-    vipRegistrations,
-  },
 });
 
 describe("the workspace card's VIP section (PTR-111)", () => {

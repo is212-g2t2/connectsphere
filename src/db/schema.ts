@@ -712,38 +712,43 @@ export const eventRegistrations = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     status: eventRegistrationStatus("status").default("registered").notNull(),
-    /** When the registration was recorded: by the Attendee, or for a VIP by `addedById`. */
+    /** When the registration was recorded: by the Attendee, or by whoever added the VIP. */
     registeredAt: timestamp("registered_at", { withTimezone: true }).defaultNow().notNull(),
     /**
      * PTR-111: the Organiser or the assigned Coordinator recorded this registration for an invited
      * Attendee. A VIP takes a place at the venue but not a place in the registration capacity.
      */
     vip: boolean("vip").notNull().default(false),
-    /**
-     * PTR-111 AC5 and AC6: who recorded the VIP registration, and who removed it and when. The ids
-     * are snapshots, like `eventAssignments`, so an account deletion keeps the record.
-     */
-    addedById: text("added_by_id"),
-    removedById: text("removed_by_id"),
-    removedAt: timestamp("removed_at", { withTimezone: true }),
   },
   table => [
     primaryKey({ columns: [table.eventId, table.attendeeId] }),
     // The primary key leads with `event_id`, so an attendee's own registrations need their own
     // path to be indexed.
     index("event_registrations_attendee_id_idx").on(table.attendeeId),
-    // A VIP registration always names who added it, and an Attendee's own never does.
-    check(
-      "event_registrations_vip_has_actor",
-      sql`${table.vip} = (${table.addedById} is not null)`
-    ),
-    // A removal is recorded whole, and only on a withdrawn VIP registration. `::text` because
-    // `withdrawn` can be added to the enum in the same migration transaction as this CHECK.
-    check(
-      "event_registrations_removal_complete",
-      sql`(${table.removedById} is null and ${table.removedAt} is null) or (${table.removedById} is not null and ${table.removedAt} is not null and ${table.vip} and ${table.status}::text = 'withdrawn')`
-    ),
   ]
+);
+
+export const vipRegistrationChange = pgEnum("vip_registration_change", ["added", "removed"]);
+
+/**
+ * PTR-111 AC5 and AC6: who added or removed each VIP registration, and when. Append-only, because
+ * the registration's one row holds only its current state, so a later change never erases an
+ * earlier one. The ids are snapshots, like `eventAssignments`, so an account deletion keeps the
+ * record.
+ */
+export const vipRegistrationChanges = pgTable(
+  "vip_registration_changes",
+  {
+    id: serial("id").primaryKey(),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    attendeeId: text("attendee_id").notNull(),
+    change: vipRegistrationChange("change").notNull(),
+    actorId: text("actor_id").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [index("vip_registration_changes_event_id_idx").on(table.eventId)]
 );
 
 /**

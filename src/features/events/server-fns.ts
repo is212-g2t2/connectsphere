@@ -6,7 +6,7 @@ import { requireEventRequestCoordinate } from "#/features/event-requests/server-
 import {
   parseEventListInput,
   parseVipRegistrationInput,
-  parseVipRemovalInput,
+  parseVipSearchInput,
 } from "#/features/events/schema";
 import { logger } from "#/lib/logger";
 
@@ -81,6 +81,20 @@ export const registerForEvent = createServerFn({ method: "POST" })
   });
 
 /**
+ * PTR-111: the Attendee accounts that the Organiser or the assigned Coordinator can add as a VIP,
+ * by part of the name or the email. Every other role gets 403, and the handler re-reads the
+ * caller's relationship to the event, so no one else can search the Attendees through it. POST,
+ * so the names and emails searched for stay out of the URL and the request logs.
+ */
+export const searchVipAttendees = createServerFn({ method: "POST" })
+  .middleware([requireVipRegistrationManage])
+  .validator(parseVipSearchInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleSearchVipAttendees }] = await loadRegisterServer();
+    return handleSearchVipAttendees(data, context.user, db);
+  });
+
+/**
  * PTR-111: the Organiser or the assigned Coordinator adds a VIP registration for an Attendee
  * account. Every other role gets 403. The handler re-reads the event, the caller's relationship to
  * it, and the venue places.
@@ -104,7 +118,7 @@ export const addVipRegistration = createServerFn({ method: "POST" })
 /** PTR-111 AC6: the Organiser or the assigned Coordinator removes a VIP registration. */
 export const removeVipRegistration = createServerFn({ method: "POST" })
   .middleware([requireVipRegistrationManage])
-  .validator(parseVipRemovalInput)
+  .validator(parseVipRegistrationInput)
   .handler(async ({ data, context }) => {
     const [{ db }, { handleRemoveVipRegistration }] = await loadRegisterServer();
     const removal = await handleRemoveVipRegistration(data, context.user, db);

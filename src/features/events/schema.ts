@@ -21,19 +21,18 @@ export function parseEventListInput(data: unknown): EventListValues {
   return parsed.data;
 }
 
-export const VIP_EMAIL_MESSAGE = "Enter the Attendee's email address";
+const VIP_ATTENDEE_MESSAGE = "Choose an Attendee";
 
 /**
- * PTR-111: the event, and the Attendee account that the VIP registration is for, named by its
- * email. Better Auth stores emails in lower case, so the input is trimmed and lowered to match.
+ * PTR-111: the event, and the Attendee account whose VIP registration is added or removed. A user
+ * id is a short run of letters, digits, `-` and `_`, so anything else is refused before a query
+ * (Postgres rejects a NUL byte with an error that would carry the SQL back).
  */
-export const VipRegistrationInput = z.object({
+const VipRegistrationInput = z.object({
   id: EventId,
-  email: z
-    .string({ error: VIP_EMAIL_MESSAGE })
-    .trim()
-    .toLowerCase()
-    .pipe(z.email({ error: VIP_EMAIL_MESSAGE })),
+  attendeeId: z
+    .string({ error: VIP_ATTENDEE_MESSAGE })
+    .regex(/^[\w-]{1,64}$/, VIP_ATTENDEE_MESSAGE),
 });
 
 export function parseVipRegistrationInput(data: unknown): z.infer<typeof VipRegistrationInput> {
@@ -44,16 +43,23 @@ export function parseVipRegistrationInput(data: unknown): z.infer<typeof VipRegi
   return parsed.data;
 }
 
-const VIP_REMOVAL_MESSAGE = "Choose a VIP registration";
+export const VIP_SEARCH_MIN_LENGTH = 2;
+export const VIP_SEARCH_MAX_LENGTH = 100;
+export const VIP_SEARCH_MESSAGE = `Type at least ${VIP_SEARCH_MIN_LENGTH} characters of a name or email`;
 
-/** PTR-111 AC6: the event, and the Attendee whose VIP registration is removed. */
-const VipRemovalInput = z.object({
+/** PTR-111: the event, and part of the name or email of the Attendee to add as a VIP. */
+const VipSearchInput = z.object({
   id: EventId,
-  attendeeId: z.string({ error: VIP_REMOVAL_MESSAGE }).min(1, VIP_REMOVAL_MESSAGE),
+  query: z
+    .string({ error: VIP_SEARCH_MESSAGE })
+    .trim()
+    .min(VIP_SEARCH_MIN_LENGTH, VIP_SEARCH_MESSAGE)
+    .max(VIP_SEARCH_MAX_LENGTH, `Search for ${VIP_SEARCH_MAX_LENGTH} characters or fewer`)
+    .regex(/^\P{Cc}*$/u, "Search for printable characters only"),
 });
 
-export function parseVipRemovalInput(data: unknown): z.infer<typeof VipRemovalInput> {
-  const parsed = VipRemovalInput.safeParse(data);
+export function parseVipSearchInput(data: unknown): z.infer<typeof VipSearchInput> {
+  const parsed = VipSearchInput.safeParse(data);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0].message);
   }
