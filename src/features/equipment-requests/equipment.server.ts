@@ -221,6 +221,10 @@ export async function handleRemoveEquipmentLine(
  * and can be attempted before submission, so that pair can deadlock (40P01). When `lock`, the
  * event row is locked after the lines, so the status the caller's gate reads cannot change under it.
  *
+ * The reserve path (`loadReservableLine` in `reservations.server.ts`) follows the same
+ * lines-then-event order — equipment line `FOR UPDATE`, then the event `FOR KEY SHARE` — so
+ * it serialises with these handlers rather than against them; the 40P01 pair above stands.
+ *
  * The status is returned so the arrangement handlers can apply PTR-43's confirmation gate;
  * reserve and release deliberately stay open after confirmation.
  */

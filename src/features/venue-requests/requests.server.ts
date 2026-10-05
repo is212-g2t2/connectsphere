@@ -5,6 +5,7 @@ import { eventRequests, user, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
+import { assertEventAcceptsActivity } from "#/features/events/completion";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
@@ -603,7 +604,7 @@ export async function handleApproveVenueRequest(
       // through its FK, and confirmation holds the event before this event's requests. Then one
       // lock order for every venue writer: advisory lock first, then the row lock. The preview
       // read learns which venue to lock; the post-lock re-read must still belong to it.
-      await keyShareEventForRequest(tx, id);
+      const event = await keyShareEventForRequest(tx, id);
       const lockedVenueId = await lockVenueForRequest(tx, id);
 
       const rows = await tx
@@ -631,6 +632,9 @@ export async function handleApproveVenueRequest(
       assertNotRejected(row.status);
       if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
       if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
+      // After the ownership gate: a refused probe of another member's row reveals
+      // nothing about the event's completion state.
+      assertEventAcceptsActivity(event?.status);
 
       // Under the lock this pre-check cannot race another approval; the constraint below is the
       // backstop for a writer that does not come through this function.

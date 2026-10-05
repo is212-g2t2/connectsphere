@@ -46,23 +46,29 @@ export async function lockVenueForRequest(tx: VenueTx, requestId: string): Promi
 }
 
 /**
- * Key-share a venue request's event before any venue row lock. A decision notification inserted
- * later in the transaction takes this lock through its FK. Taking it while holding the request row
- * deadlocks against confirmation, which locks the event first and then the event's venue requests.
+ * Key-share a venue request's event before any venue row lock, and return its row
+ * (`{ id, status }`) for the caller's gates — or null when the request row is missing.
+ * A decision notification inserted later in the transaction takes this lock through its
+ * FK. Taking it while holding the request row deadlocks against confirmation, which
+ * locks the event first and then the event's venue requests.
  */
-export async function keyShareEventForRequest(tx: VenueTx, requestId: string): Promise<void> {
+export async function keyShareEventForRequest(
+  tx: VenueTx,
+  requestId: string
+): Promise<{ id: number; status: string } | null> {
   const rows = await tx
     .select({ eventId: venueRequests.eventId })
     .from(venueRequests)
     .where(eq(venueRequests.id, requestId))
     .limit(1);
   const preview = rows.at(0);
-  if (!preview) return; // The row lock that follows reports Not Found.
-  await tx
-    .select({ id: eventRequests.id })
+  if (!preview) return null; // The row lock that follows reports Not Found.
+  const eventRows = await tx
+    .select({ id: eventRequests.id, status: eventRequests.status })
     .from(eventRequests)
     .where(eq(eventRequests.id, preview.eventId))
     .for("key share");
+  return eventRows.at(0) ?? null;
 }
 
 /**

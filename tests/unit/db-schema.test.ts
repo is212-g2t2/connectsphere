@@ -195,6 +195,15 @@ describe("Database Schema Definitions", () => {
     expect(checks).toContain("event_requests_confirmation_matches_status");
   });
 
+  it("defines the completion audit columns and status CHECK (PTR-25)", () => {
+    const columns = getTableColumns(eventRequests);
+    expect(columns.completedById.name).toBe("completed_by_id");
+    expect(columns.completedByName.name).toBe("completed_by_name");
+    expect(columns.completedAt.name).toBe("completed_at");
+    const checks = getTableConfig(eventRequests).checks.map(check => check.name);
+    expect(checks).toContain("event_requests_completion_matches_status");
+  });
+
   it("defines relations between user, session, and account", () => {
     expect(userRelations.table).toBe(user);
     expect(sessionRelations.table).toBe(session);

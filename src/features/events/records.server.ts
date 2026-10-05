@@ -33,6 +33,7 @@ import type {
 } from "#/features/events/access";
 import { registrationCounts } from "#/features/events/register.server";
 import { placeLimit } from "#/features/events/registration";
+import { completionRefusalForEvent } from "#/features/events/completion";
 import type { VenueRequestOutcome } from "#/features/venue-requests/records.server";
 import { parseEventListInput } from "#/features/events/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
@@ -277,6 +278,14 @@ export async function handleListEvents(
             .where(inArray(userTable.id, holderIds))
         ).map(row => [row.id, row.name])
   );
+
+  const completionUnavailableReasons = new Map<number, string | null>();
+  if (role === "event_coordinator") {
+    for (const record of requestRows) {
+      if (record.status !== "confirmed") continue;
+      completionUnavailableReasons.set(record.id, completionRefusalForEvent(record));
+    }
+  }
 
   // Rejections and releases are shown only to the assigned Coordinator, so no other role pays for
   // the lookup. `venue-requests` owns which row is the event's live operational outcome.
@@ -533,7 +542,8 @@ export async function handleListEvents(
           venueCapacities.get(record.id),
           registeredCounts.get(record.id) ?? { registered: 0, vips: 0 }
         ),
-        vipRegistrations.get(record.id) ?? null
+        vipRegistrations.get(record.id) ?? null,
+        completionUnavailableReasons.get(record.id)
       ),
     ];
   });

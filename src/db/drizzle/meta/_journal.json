@@ -260,6 +260,13 @@
       "when": 1791204903069,
       "tag": "0036_shocking_abomination",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791210544883,
+      "tag": "0037_parched_jetstream",
+      "breakpoints": true
     }
   ]
 }

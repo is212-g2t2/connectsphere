@@ -273,6 +273,8 @@ export interface EventProjection {
     venueRequest?: EventVenueRequest | null;
     equipment?: EquipmentLineProjection[];
     confirmation?: EventConfirmation | null;
+    /** Why the Coordinator cannot complete this confirmed event now; null means it is eligible. */
+    completionUnavailableReason?: string | null;
   };
 }
 
@@ -328,7 +330,8 @@ export function projectEvent(
   venueRequest: EventVenueRequest | null,
   confirmedVenue: EventConfirmation["venue"] = null,
   places: EventPlaces | null = null,
-  vipRegistrations: VipAttendee[] | null = null
+  vipRegistrations: VipAttendee[] | null = null,
+  completionUnavailableReason?: string | null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 
@@ -445,6 +448,9 @@ export function projectEvent(
                   venue: confirmedVenue,
                 }
               : null,
+          ...(access === "coordinator" && completionUnavailableReason !== undefined
+            ? { completionUnavailableReason }
+            : {}),
         },
       };
 

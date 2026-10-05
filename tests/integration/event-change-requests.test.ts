@@ -83,6 +83,7 @@ describe("event change requests (PTR-51)", () => {
   ) {
     const decided = ["approved", "rejected", "planning", "confirmed", "completed"].includes(status);
     const confirmed = status === "confirmed";
+    const completed = status === "completed";
     const [event] = await database
       .insert(schema.eventRequests)
       .values({
@@ -102,6 +103,9 @@ describe("event change requests (PTR-51)", () => {
         confirmedById: confirmed ? coordinator.id : null,
         confirmedByName: confirmed ? "PTR-51 Coordinator" : null,
         confirmedAt: confirmed ? new Date("2026-10-03T00:00:00Z") : null,
+        completedById: completed ? coordinator.id : null,
+        completedByName: completed ? "PTR-51 Coordinator" : null,
+        completedAt: completed ? new Date("2026-10-04T00:00:00Z") : null,
       })
       .returning();
     return event;
@@ -267,7 +271,10 @@ describe("event change requests (PTR-51)", () => {
          SET status = 'completed',
              decided_by_coordinator_id = $2,
              decided_by_coordinator_name = $3,
-             decided_at = $4
+             decided_at = $4,
+             completed_by_id = $2,
+             completed_by_name = $3,
+             completed_at = $4
          WHERE id = $1`,
         [event.id, coordinator.id, "PTR-51 Coordinator", new Date("2026-10-02T00:00:00Z")]
       );
