@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
@@ -14,7 +15,7 @@ import {
   AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
-import { Field, FieldDescription, FieldLabel } from "#/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import type { VipAttendee } from "#/features/events/access";
 import {
@@ -28,8 +29,8 @@ import {
 import {
   VIP_SEARCH_LIMIT,
   VIP_SEARCH_MAX_LENGTH,
-  VIP_SEARCH_MESSAGE,
   VIP_SEARCH_MIN_LENGTH,
+  VipSearchInput,
 } from "#/features/events/schema";
 import {
   addVipRegistration,
@@ -111,19 +112,16 @@ function searchStatus(search: SearchState): string | null {
  */
 function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
   const input = useRef<HTMLInputElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Each search takes the next number, and only the latest may show its answer. A slow answer to
   // an older query therefore never replaces the answer to a newer one.
   const latest = useRef(0);
-  // The query as it stands now, which an addition that ends later reads.
-  const typed = useRef("");
-
-  useEffect(() => () => clearTimeout(timer.current), []);
+  // The term of the search that ran last, so the paused-typing search does not repeat an Enter.
+  const ran = useRef<string | null>(null);
 
   async function runSearch(term: string) {
+    ran.current = term;
     latest.current += 1;
     const mine = latest.current;
     setSearch({ status: "searching" });
@@ -143,23 +141,26 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
     }
   }
 
-  function changeQuery(value: string) {
-    typed.current = value;
-    setQuery(value);
-    clearTimeout(timer.current);
-    // An answer still on its way is for the old query.
+  const form = useForm({
+    defaultValues: { query: "" },
+    // Enter searches at once; the schema refuses a query too short to search, in its own words.
+    validators: { onSubmit: VipSearchInput.omit({ id: true }) },
+    onSubmit: ({ value }) => runSearch(value.query.trim()),
+  });
+
+  /** Each keystroke drops any answer still on its way, which is for the query as it was. */
+  function typed(value: string) {
     latest.current += 1;
-    const term = value.trim();
-    if (term.length < VIP_SEARCH_MIN_LENGTH) {
-      setSearch({ status: "idle" });
-      return;
-    }
-    timer.current = setTimeout(() => void runSearch(term), SEARCH_DEBOUNCE_MS);
+    ran.current = null;
+    if (value.trim().length < VIP_SEARCH_MIN_LENGTH) setSearch({ status: "idle" });
   }
 
   /** After an addition the search starts again, unless the user has typed a new one since. */
   function added(term: string) {
-    if (typed.current.trim() === term) changeQuery("");
+    if (form.getFieldValue("query").trim() === term) {
+      form.reset();
+      typed("");
+    }
     input.current?.focus();
   }
 
@@ -172,26 +173,47 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
           noValidate
           onSubmit={event => {
             event.preventDefault();
-            clearTimeout(timer.current);
-            const term = query.trim();
-            if (term.length >= VIP_SEARCH_MIN_LENGTH) void runSearch(term);
+            void form.handleSubmit();
           }}
         >
-          <Field>
-            <FieldLabel htmlFor={inputId}>Add a VIP</FieldLabel>
-            <Input
-              ref={input}
-              id={inputId}
-              type="search"
-              autoComplete="off"
-              placeholder="Name or email"
-              maxLength={VIP_SEARCH_MAX_LENGTH}
-              aria-describedby={hintId}
-              value={query}
-              onChange={event => changeQuery(event.target.value)}
-            />
-            <FieldDescription id={hintId}>{VIP_SEARCH_MESSAGE}.</FieldDescription>
-          </Field>
+          <form.Field
+            name="query"
+            listeners={{
+              onChange: ({ value }) => {
+                const term = value.trim();
+                if (term.length >= VIP_SEARCH_MIN_LENGTH && term !== ran.current) {
+                  void runSearch(term);
+                }
+              },
+              onChangeDebounceMs: SEARCH_DEBOUNCE_MS,
+            }}
+          >
+            {field => (
+              <Field data-invalid={field.state.meta.errors.length > 0}>
+                <FieldLabel htmlFor={inputId}>Add a VIP</FieldLabel>
+                <Input
+                  ref={input}
+                  id={inputId}
+                  type="search"
+                  autoComplete="off"
+                  placeholder="Name or email"
+                  maxLength={VIP_SEARCH_MAX_LENGTH}
+                  aria-describedby={hintId}
+                  aria-invalid={field.state.meta.errors.length > 0}
+                  value={field.state.value}
+                  onChange={event => {
+                    typed(event.target.value);
+                    field.handleChange(event.target.value);
+                  }}
+                  onBlur={field.handleBlur}
+                />
+                <FieldDescription id={hintId}>
+                  Search by part of a name or an email.
+                </FieldDescription>
+                <FieldError errors={field.state.meta.errors} />
+              </Field>
+            )}
+          </form.Field>
         </form>
       </search>
 

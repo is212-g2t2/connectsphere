@@ -54,7 +54,7 @@ export const VIP_SEARCH_MESSAGE = `Type at least ${VIP_SEARCH_MIN_LENGTH} charac
  * character, such as a pasted tab, becomes a space before the query (Postgres rejects a NUL byte
  * with an error that would carry the SQL back).
  */
-const VipSearchInput = z.object({
+export const VipSearchInput = z.object({
   id: EventId,
   query: z
     .string({ error: VIP_SEARCH_MESSAGE })

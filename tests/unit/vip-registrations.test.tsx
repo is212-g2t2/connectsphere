@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventProjection, VipAttendee } from "#/features/events/access";
 import { EventWorkspace } from "#/features/events/components/event-workspace";
 import { VipRegistrations } from "#/features/events/components/vip-registrations";
+import { VIP_SEARCH_MESSAGE } from "#/features/events/schema";
 import {
   NOT_A_VIP_MESSAGE,
   REGISTRATION_NOT_OPEN_MESSAGE,
@@ -132,6 +133,31 @@ describe("VipRegistrations (PTR-111)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("searches at once on Enter, and does not search the same query again once the typing pauses", async () => {
+    searchVipAttendees.mockResolvedValue([ada]);
+
+    await searchFor("ada{Enter}");
+
+    expect(await screen.findByRole("button", { name: "Add Ada Lovelace as a VIP" })).toBeTruthy();
+    await new Promise(resolve => setTimeout(resolve, 400));
+    expect(searchVipAttendees).toHaveBeenCalledOnce();
+  });
+
+  it("refuses Enter on a query too short to search, in the schema's words, until it is longer", async () => {
+    searchVipAttendees.mockResolvedValue([ada]);
+
+    const user = await searchFor("a{Enter}");
+
+    expect(await screen.findByText(VIP_SEARCH_MESSAGE)).toBeTruthy();
+    expect(searchVipAttendees).not.toHaveBeenCalled();
+
+    await user.type(searchbox(), "da");
+    await waitFor(() => expect(screen.queryByText(VIP_SEARCH_MESSAGE)).toBeNull());
+    await waitFor(() =>
+      expect(searchVipAttendees).toHaveBeenCalledWith({ data: { id: 12, query: "ada" } })
+    );
   });
 
   it("says when no Attendee matches", async () => {
