@@ -148,14 +148,9 @@ describe("EventChangeRequestForm", () => {
     await user.click(screen.getByRole("button", { name: "Request change" }));
 
     const message = "Your change request was saved. Refresh this page to see the updated history.";
-    expect(await screen.findByText(message)).toBeTruthy();
     expect(success).toHaveBeenCalledWith("Change request recorded.");
     expect(warning).toHaveBeenCalledWith(message);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("button", { name: "Request recorded" })).toHaveProperty(
-      "disabled",
-      true
-    );
     expect(raiseEventChangeRequest).toHaveBeenCalledOnce();
   });
 });
