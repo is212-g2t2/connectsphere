@@ -3,7 +3,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission, requireSession } from "#/features/auth/session";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
-import { parseEventListInput } from "#/features/events/schema";
+import {
+  parseEventListInput,
+  parseVipRegistrationInput,
+  parseVipRemovalInput,
+} from "#/features/events/schema";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("events");
@@ -26,6 +30,7 @@ async function loadRegisterServer() {
 }
 
 const requireEventRegister = requirePermission({ event: ["register"] });
+const requireVipRegistrationManage = requirePermission({ vip_registration: ["manage"] });
 
 /**
  * PTR-8: the events the signed-in user is connected to, each in a role-specific projection. No
@@ -73,4 +78,42 @@ export const registerForEvent = createServerFn({ method: "POST" })
     log.info("Event registration recorded", { eventId: data.id, attendeeId: context.user.id });
 
     return registration;
+  });
+
+/**
+ * PTR-111: the Organiser or the assigned Coordinator adds a VIP registration for an Attendee
+ * account. Every other role gets 403. The handler re-reads the event, the caller's relationship to
+ * it, and the venue places.
+ */
+export const addVipRegistration = createServerFn({ method: "POST" })
+  .middleware([requireVipRegistrationManage])
+  .validator(parseVipRegistrationInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleAddVipRegistration }] = await loadRegisterServer();
+    const vip = await handleAddVipRegistration(data, context.user, db);
+
+    log.info("VIP registration recorded", {
+      eventId: data.id,
+      attendeeId: vip.attendeeId,
+      actorId: context.user.id,
+    });
+
+    return vip;
+  });
+
+/** PTR-111 AC6: the Organiser or the assigned Coordinator removes a VIP registration. */
+export const removeVipRegistration = createServerFn({ method: "POST" })
+  .middleware([requireVipRegistrationManage])
+  .validator(parseVipRemovalInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRemoveVipRegistration }] = await loadRegisterServer();
+    const removal = await handleRemoveVipRegistration(data, context.user, db);
+
+    log.info("VIP registration removed", {
+      eventId: data.id,
+      attendeeId: data.attendeeId,
+      actorId: context.user.id,
+    });
+
+    return removal;
   });

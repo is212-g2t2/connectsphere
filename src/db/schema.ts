@@ -417,6 +417,7 @@ export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status",
 /**
  * PTR-45 AC4: a registration is exactly one of these, and only `registered` counts against
  * capacity. The registration's own row moves between them (PTR-47), so `withdrawn` keeps the record.
+ * A removed VIP registration (PTR-111 AC6) is `withdrawn` too.
  */
 export const eventRegistrationStatus = pgEnum("event_registration_status", [
   "registered",
@@ -711,13 +712,37 @@ export const eventRegistrations = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     status: eventRegistrationStatus("status").default("registered").notNull(),
+    /** When the registration was recorded: by the Attendee, or for a VIP by `addedById`. */
     registeredAt: timestamp("registered_at", { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * PTR-111: the Organiser or the assigned Coordinator recorded this registration for an invited
+     * Attendee. A VIP takes a place at the venue but not a place in the registration capacity.
+     */
+    vip: boolean("vip").notNull().default(false),
+    /**
+     * PTR-111 AC5 and AC6: who recorded the VIP registration, and who removed it and when. The ids
+     * are snapshots, like `eventAssignments`, so an account deletion keeps the record.
+     */
+    addedById: text("added_by_id"),
+    removedById: text("removed_by_id"),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
   },
   table => [
     primaryKey({ columns: [table.eventId, table.attendeeId] }),
     // The primary key leads with `event_id`, so an attendee's own registrations need their own
     // path to be indexed.
     index("event_registrations_attendee_id_idx").on(table.attendeeId),
+    // A VIP registration always names who added it, and an Attendee's own never does.
+    check(
+      "event_registrations_vip_has_actor",
+      sql`${table.vip} = (${table.addedById} is not null)`
+    ),
+    // A removal is recorded whole, and only on a withdrawn VIP registration. `::text` because
+    // `withdrawn` can be added to the enum in the same migration transaction as this CHECK.
+    check(
+      "event_registrations_removal_complete",
+      sql`(${table.removedById} is null and ${table.removedAt} is null) or (${table.removedById} is not null and ${table.removedAt} is not null and ${table.vip} and ${table.status}::text = 'withdrawn')`
+    ),
   ]
 );
 

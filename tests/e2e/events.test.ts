@@ -143,6 +143,23 @@ test.describe("Event access", () => {
     await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toBeVisible();
   });
 
+  // PTR-111: a refusal, so the run adds no VIP. A VIP on the seeded Open Day would take one of its
+  // 40 venue places, which the PTR-45 run above counts at the same time.
+  test("lets the assigned coordinator add a VIP, and refuses an email with no Attendee account (PTR-111)", async ({
+    page,
+  }) => {
+    await signInAsSeeded(page, "coordinator.seed@example.com");
+    await page.goto("/dashboard");
+    await waitForHydration(page);
+
+    const vips = page.getByRole("region", { name: "VIP registrations" });
+    await expect(vips).toBeVisible({ timeout: 10_000 });
+    await vips.getByLabel("Attendee email").fill(`nobody-${randomUUID()}@example.com`);
+    await vips.getByRole("button", { name: "Add VIP" }).click();
+
+    await expect(vips.getByRole("alert")).toHaveText("No Attendee account uses this email.");
+  });
+
   test("gives the organiser the event they created", async ({ page }) => {
     await signInAsSeeded(page, "jane.doe@example.com");
     await page.goto("/dashboard");

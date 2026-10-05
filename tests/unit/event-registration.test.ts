@@ -4,9 +4,12 @@ import {
   ALREADY_REGISTERED_MESSAGE,
   EVENT_FULL_MESSAGE,
   REGISTRATION_NOT_OPEN_MESSAGE,
+  VIP_ALREADY_REGISTERED_MESSAGE,
   crossesPlaceThreshold,
+  placeLimit,
   registrationRefusal,
   venueCapacityReachedMessage,
+  vipRegistrationRefusal,
 } from "#/features/events/registration";
 
 /** A published event, open from 1 Nov 09:00 to 1 Dec 17:00, with places left. */
@@ -17,6 +20,7 @@ const open = {
   now: "2026-11-15T12:00",
   alreadyRegistered: false,
   registeredCount: 10,
+  vipCount: 0,
   venueCapacity: 60,
 };
 
@@ -59,6 +63,19 @@ describe("registrationRefusal (PTR-45)", () => {
     );
   });
 
+  it("counts the VIPs against the venue and names it, but not against the capacity (PTR-111)", () => {
+    const withVips = { ...open, venueCapacity: 45, vipCount: 5 };
+
+    expect(registrationRefusal({ ...withVips, registeredCount: 39 })).toBeNull();
+    expect(registrationRefusal({ ...withVips, registeredCount: 40 })).toBe(
+      venueCapacityReachedMessage(45)
+    );
+    // Room at the venue, so the registration capacity alone stops it.
+    expect(registrationRefusal({ ...open, vipCount: 5, registeredCount: 40 })).toBe(
+      EVENT_FULL_MESSAGE
+    );
+  });
+
   it("refuses a confirmed event whose approved booking is gone", () => {
     expect(registrationRefusal({ ...open, venueCapacity: null })).toBe(
       REGISTRATION_NOT_OPEN_MESSAGE
@@ -89,5 +106,43 @@ describe("crossesPlaceThreshold (PTR-45 AC8, AC9)", () => {
     expect(crossesPlaceThreshold(10, 11)).toBe(true);
     expect(crossesPlaceThreshold(5, 6)).toBe(false);
     expect(crossesPlaceThreshold(6, 6)).toBe(true);
+  });
+});
+
+describe("placeLimit (PTR-45, PTR-111)", () => {
+  it("is the lower of the capacity and the venue places the VIPs leave", () => {
+    expect(placeLimit(40, 60, 0)).toBe(40);
+    expect(placeLimit(40, 60, 25)).toBe(35);
+    expect(placeLimit(40, 30, 0)).toBe(30);
+  });
+
+  it("is never below zero, even when a smaller venue now holds fewer than the VIPs", () => {
+    expect(placeLimit(40, 10, 12)).toBe(0);
+  });
+});
+
+describe("vipRegistrationRefusal (PTR-111)", () => {
+  const vip = { alreadyRegistered: false, registeredCount: 40, vipCount: 0, venueCapacity: 60 };
+
+  it("accepts a VIP when normal registration is full but the venue has room (AC2)", () => {
+    // `registeredCount` is at the open event's capacity of 40.
+    expect(vipRegistrationRefusal(vip)).toBeNull();
+  });
+
+  it("refuses a VIP once normal and VIP registrations fill the venue, and names it (AC3)", () => {
+    expect(vipRegistrationRefusal({ ...vip, vipCount: 19 })).toBeNull();
+    expect(vipRegistrationRefusal({ ...vip, vipCount: 20 })).toBe(venueCapacityReachedMessage(60));
+  });
+
+  it("refuses an Attendee who already holds a registration, before any other reason", () => {
+    expect(vipRegistrationRefusal({ ...vip, alreadyRegistered: true, vipCount: 20 })).toBe(
+      VIP_ALREADY_REGISTERED_MESSAGE
+    );
+  });
+
+  it("refuses a confirmed event whose approved booking is gone", () => {
+    expect(vipRegistrationRefusal({ ...vip, venueCapacity: null })).toBe(
+      REGISTRATION_NOT_OPEN_MESSAGE
+    );
   });
 });

@@ -182,6 +182,13 @@ export interface EventPlaces {
   limit: number;
 }
 
+/** PTR-111: one VIP registration, as the Organiser and the assigned Coordinator see it. */
+export interface VipRegistration {
+  attendeeId: string;
+  name: string;
+  email: string;
+}
+
 /**
  * PTR-24 AC3: what an Organiser or Coordinator sees of a confirmed event — who confirmed it and
  * when, and the venue booking it was confirmed against. `venue` is null when that booking has
@@ -252,8 +259,13 @@ export interface EventProjection {
     accessibilityRequirements?: string | null;
     requiredFacilities?: string | null;
     registration?: { status: string; registeredAt: string } | null;
-    /** PTR-45 AC10: the event's `registered` registrations against its place limit. */
+    /** PTR-45 AC10: the event's normal `registered` registrations against its place limit. */
     places?: EventPlaces | null;
+    /**
+     * PTR-111 AC4: the Organiser's and the Coordinator's VIP registrations, apart from the normal
+     * ones. Null unless the event is published, the only state that takes them.
+     */
+    vipRegistrations?: VipRegistration[] | null;
     venue?: EventVenue | null;
     venueRequest?: EventVenueRequest | null;
     equipment?: EquipmentLineProjection[];
@@ -312,7 +324,8 @@ export function projectEvent(
   equipment: EquipmentLineProjection[],
   venueRequest: EventVenueRequest | null,
   confirmedVenue: EventConfirmation["venue"] = null,
-  places: EventPlaces | null = null
+  places: EventPlaces | null = null,
+  vipRegistrations: VipRegistration[] | null = null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 
@@ -420,6 +433,7 @@ export function projectEvent(
                 ),
               }
             : {}),
+          vipRegistrations,
           confirmation:
             record.status === "confirmed" && record.confirmedAt && record.confirmedByName
               ? {

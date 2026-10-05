@@ -30,6 +30,12 @@ const statement = {
    * reaches: that stays the event relationship, re-read by the handler.
    */
   equipment_request: ["manage", "submit", "read", "arrange"],
+  /**
+   * PTR-111: `manage` adds and removes the VIP registrations of an event. The Organiser and the
+   * Coordinator hold it; the handler re-reads that the caller is the event's Organiser or its
+   * assigned Coordinator.
+   */
+  vip_registration: ["manage"],
 } as const;
 
 const ac = createAccessControl(statement);
@@ -57,9 +63,10 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // PTR-45 AC1: registration is the Attendee's function alone, so there is no guest path and no
   // other role registers. The handler re-reads which events the Attendee may register for.
   attendee: ac.newRole({ event: ["register"] }),
-  event_organiser: ac.newRole({ event_request: ["create"] }),
+  event_organiser: ac.newRole({ event_request: ["create"], vip_registration: ["manage"] }),
   event_coordinator: ac.newRole({
     event_request: ["coordinate"],
+    vip_registration: ["manage"],
     venue: ["read", "search"],
     venue_request: ["request"],
     equipment_request: ["manage", "submit"],

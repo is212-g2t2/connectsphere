@@ -255,6 +255,7 @@ erDiagram
         int event_id PK, FK
         text attendee_id PK, FK
         text status
+        boolean vip
     }
     notifications {
         int id PK
@@ -304,6 +305,7 @@ erDiagram
 | `equipment_request:arrange` |    —     |        —        |         —         |      —      |           ✅            |
 | `equipment:reserve`         |    —     |        —        |         —         |      —      |           ✅            |
 | `equipment:release`         |    —     |        —        |         —         |      —      |           ✅            |
+| `vip_registration:manage`   |    —     |       ✅        |        ✅         |      —      |            —            |
 
 ### Enforcing it
 
