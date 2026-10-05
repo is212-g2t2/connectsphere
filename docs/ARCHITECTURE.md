@@ -10,7 +10,7 @@ Five roles use ConnectSphere through a browser. The system depends on four exter
 C4Context
     Person(attendee, "Attendee", "Signs up and registers for events")
     Person(organiser, "Event Organiser", "Raises event requests and answers clarifications")
-    Person(coordinator, "Event Coordinator", "Coordinates requests and confirms events")
+    Person(coordinator, "Event Coordinator", "Coordinates, confirms, and completes events")
     Person(venueStaff, "Venue Staff", "Approves, rejects, releases, and amends bookings")
     Person(techSupport, "Technical Support Staff", "Arranges and reserves equipment")
 
@@ -191,6 +191,9 @@ erDiagram
         text organiser_id FK
         text assigned_coordinator_id FK
         text status
+        text completed_by_id
+        text completed_by_name
+        timestamp completed_at
     }
     event_assignments {
         int id PK

@@ -5,6 +5,7 @@ import {
   equipmentRequests,
   equipmentReservations,
   equipmentTypes,
+  eventRequests,
   venueRequests,
 } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
@@ -25,6 +26,7 @@ import {
   parseReserveEquipmentInput,
 } from "#/features/equipment-requests/schema";
 import { isEquipmentQueueRow } from "#/features/events/access";
+import { COMPLETED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/completion";
 import { logger } from "#/lib/logger";
 import { toLocalMinuteValue } from "#/features/venues/availability";
 
@@ -83,6 +85,16 @@ async function loadReservableLine(
     actor: args.actor,
     lock: args.lock,
   });
+
+  const eventQuery = database
+    .select({ status: eventRequests.status })
+    .from(eventRequests)
+    .where(eq(eventRequests.id, line.eventId))
+    .limit(1);
+  const event = (await (args.lock ? eventQuery.for("key share") : eventQuery)).at(0);
+  if (event?.status === "completed") {
+    throw new ConflictError(COMPLETED_EVENT_ACTIVITY_MESSAGE);
+  }
 
   // PTR-39's hand-set states are not ours to overwrite: a line marked unavailable or not
   // required stays as Technical Support left it until they move it back to requested. The

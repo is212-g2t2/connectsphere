@@ -29,6 +29,10 @@ async function loadRegisterServer() {
   return Promise.all([import("#/db"), import("#/features/events/register.server")]);
 }
 
+async function loadCompleteServer() {
+  return Promise.all([import("#/db"), import("#/features/events/complete.server")]);
+}
+
 const requireEventRegister = requirePermission({ event: ["register"] });
 const requireVipRegistrationManage = requirePermission({ vip_registration: ["manage"] });
 
@@ -126,4 +130,17 @@ export const removeVipRegistration = createServerFn({ method: "POST" })
       attendeeId: data.attendeeId,
       actorId: context.user.id,
     });
+  });
+
+/** PTR-25: only an Event Coordinator reaches the handler; it re-checks the live assignment. */
+export const completeEvent = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleCompleteEvent }] = await loadCompleteServer();
+    const event = await handleCompleteEvent(data, context.user, db);
+
+    log.info("Event completed", { eventId: event.id, actorId: context.user.id });
+
+    return event;
   });
