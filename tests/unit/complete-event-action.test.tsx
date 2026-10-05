@@ -22,7 +22,7 @@ async function openAndComplete() {
   const user = userEvent.setup();
   render(<CompleteEventAction eventId={7} eventName="Demo Day" />);
   await user.click(screen.getByRole("button", { name: "Complete event: Demo Day" }));
-  await user.click(await screen.findByRole("button", { name: "Mark completed" }));
+  await user.click(await screen.findByRole("button", { name: /^Complete$/ }));
 }
 
 describe("CompleteEventAction (PTR-25)", () => {
@@ -37,8 +37,18 @@ describe("CompleteEventAction (PTR-25)", () => {
     await openAndComplete();
 
     await waitFor(() => expect(completeEvent).toHaveBeenCalledWith({ data: { id: 7 } }));
-    await waitFor(() => expect(success).toHaveBeenCalledWith("Event marked as completed."));
+    await waitFor(() => expect(success).toHaveBeenCalledWith("Event completed."));
     expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("still reports success when the refresh fails after the commit", async () => {
+    completeEvent.mockResolvedValue({});
+    invalidate.mockRejectedValueOnce(new Error("loader failed"));
+
+    await openAndComplete();
+
+    await waitFor(() => expect(success).toHaveBeenCalledWith("Event completed."));
+    expect(screen.queryByText("Could not complete this event. Try again.")).toBeNull();
   });
 
   it("shows the server's timing refusal", async () => {
@@ -51,7 +61,8 @@ describe("CompleteEventAction (PTR-25)", () => {
     const [alert] = await screen.findAllByRole("alert", { hidden: true });
     expect(alert.textContent).toContain(EVENT_HAS_NOT_ENDED_MESSAGE);
     expect(success).not.toHaveBeenCalled();
-    expect(invalidate).toHaveBeenCalled();
+    // A pure eligibility refusal changes nothing on the server, so no refetch follows.
+    expect(invalidate).not.toHaveBeenCalled();
   });
 
   it("uses generic text for an unnamed failure", async () => {
@@ -61,6 +72,7 @@ describe("CompleteEventAction (PTR-25)", () => {
 
     const [alert] = await screen.findAllByRole("alert", { hidden: true });
     expect(alert.textContent).toContain("Could not complete this event. Try again.");
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
   it("disables the action and explains why the event is not eligible", () => {
@@ -72,10 +84,10 @@ describe("CompleteEventAction (PTR-25)", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Complete event: Demo Day" })).toHaveProperty(
-      "disabled",
-      true
-    );
-    expect(screen.getByText(EVENT_HAS_NOT_ENDED_MESSAGE)).toBeTruthy();
+    const trigger = screen.getByRole("button", { name: "Complete event: Demo Day" });
+    expect(trigger).toHaveProperty("disabled", true);
+    const reason = screen.getByText(EVENT_HAS_NOT_ENDED_MESSAGE);
+    expect(reason.getAttribute("id")).toBeTruthy();
+    expect(trigger.getAttribute("aria-describedby")).toBe(reason.getAttribute("id"));
   });
 });

@@ -84,9 +84,9 @@ test("the Coordinator explicitly completes an ended confirmed event", async ({ p
 
   const card = page.locator("[data-slot=card]").filter({ hasText: event.name });
   await card.getByRole("button", { name: `Complete event: ${event.name}` }).click();
-  await page.getByRole("button", { name: "Mark completed", exact: true }).click();
+  await page.getByRole("button", { name: "Complete", exact: true }).click();
 
-  await expect(page.getByText("Event marked as completed.")).toBeVisible();
+  await expect(page.getByText("Event completed.")).toBeVisible();
   await expect(card.getByText("Completed", { exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: `Complete event: ${event.name}` })).toHaveCount(0);
   const [saved] = await database

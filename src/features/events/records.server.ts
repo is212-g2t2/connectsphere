@@ -17,7 +17,6 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
-  eventTiming,
   getEventAccess,
   isEquipmentQueueRow,
   isPublishedForAttendees,
@@ -34,7 +33,7 @@ import type {
 } from "#/features/events/access";
 import { registrationCounts } from "#/features/events/register.server";
 import { placeLimit } from "#/features/events/registration";
-import { completionRefusal, singaporeLocalEndHasPassed } from "#/features/events/completion";
+import { completionRefusalForEvent } from "#/features/events/completion";
 import type { VenueRequestOutcome } from "#/features/venue-requests/records.server";
 import { parseEventListInput } from "#/features/events/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
@@ -284,22 +283,7 @@ export async function handleListEvents(
   if (role === "event_coordinator") {
     for (const record of requestRows) {
       if (record.status !== "confirmed") continue;
-      const latestApprovedEnd = venueRows
-        .filter(row => row.eventId === record.id && row.status === "approved")
-        .reduce<string | null>(
-          (latest, row) => (latest === null || row.endsAt > latest ? row.endsAt : latest),
-          null
-        );
-      const { endDate, endTime } = eventTiming(record.proposedDates);
-      const eventEnd = endDate && endTime ? `${endDate}T${endTime}` : null;
-      completionUnavailableReasons.set(
-        record.id,
-        completionRefusal({
-          status: record.status,
-          approvedBookingHasEnded: singaporeLocalEndHasPassed(latestApprovedEnd),
-          eventHasEnded: singaporeLocalEndHasPassed(eventEnd),
-        })
-      );
+      completionUnavailableReasons.set(record.id, completionRefusalForEvent(record));
     }
   }
 

@@ -26,7 +26,7 @@ import {
   parseReserveEquipmentInput,
 } from "#/features/equipment-requests/schema";
 import { isEquipmentQueueRow } from "#/features/events/access";
-import { COMPLETED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/completion";
+import { assertEventAcceptsActivity } from "#/features/events/completion";
 import { logger } from "#/lib/logger";
 import { toLocalMinuteValue } from "#/features/venues/availability";
 
@@ -69,8 +69,8 @@ async function loadLineForStaff(
 }
 
 /**
- * The preamble the reserve paths share on top of the shared gate: the state gate, the quantity
- * cap, the booking window and the catalogue type. `lock` takes the booking rows `FOR SHARE`
+ * The preamble the reserve paths share on top of the shared gate: the completed-event gate,
+ * the state gate, the quantity cap, the booking window and the catalogue type. `lock` takes the booking rows `FOR SHARE`
  * too; the reserve handler takes the equipment_types lock after this returns, so every path
  * takes all locks in line-then-bookings-then-type order (AC5). `quantity` carries the reserve
  * amount so its cap keeps its place before the booking read; the check path passes none and
@@ -92,9 +92,7 @@ async function loadReservableLine(
     .where(eq(eventRequests.id, line.eventId))
     .limit(1);
   const event = (await (args.lock ? eventQuery.for("key share") : eventQuery)).at(0);
-  if (event?.status === "completed") {
-    throw new ConflictError(COMPLETED_EVENT_ACTIVITY_MESSAGE);
-  }
+  assertEventAcceptsActivity(event?.status);
 
   // PTR-39's hand-set states are not ours to overwrite: a line marked unavailable or not
   // required stays as Technical Support left it until they move it back to requested. The

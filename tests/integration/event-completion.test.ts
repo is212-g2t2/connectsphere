@@ -11,6 +11,7 @@ import type { SessionUser } from "#/features/auth/session";
 import { handleReserveEquipment } from "#/features/equipment-requests/reservations.server";
 import { EVENT_HAS_NOT_ENDED_MESSAGE } from "#/features/events/completion";
 import { handleCompleteEvent } from "#/features/events/complete.server";
+import { handleListEvents } from "#/features/events/records.server";
 import { handleApproveVenueRequest } from "#/features/venue-requests/requests.server";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
@@ -133,7 +134,17 @@ describe("completing an event (PTR-25)", () => {
     expect(saved.completedAt?.getTime()).toBeGreaterThanOrEqual(before);
   });
 
-  test("compares the event end with the Singapore wall-clock time", async () => {
+  test("completes a past event end even when its approved booking is in the future", async () => {
+    const event = await createConfirmedEvent();
+    await database
+      .update(schema.venueRequests)
+      .set({ startsAt: "2100-03-10 09:00:00", endsAt: "2100-03-10 12:30:00" })
+      .where(eq(schema.venueRequests.eventId, event.id));
+
+    await expect(complete(event.id)).resolves.toMatchObject({ status: "completed" });
+  });
+
+  test("refuses a future event end even when its approved booking has ended", async () => {
     const event = await createConfirmedEvent("2100-03-10 12:30:00");
     await database
       .update(schema.venueRequests)
@@ -143,29 +154,13 @@ describe("completing an event (PTR-25)", () => {
       })
       .where(eq(schema.venueRequests.eventId, event.id));
 
-    await expect(complete(event.id)).resolves.toMatchObject({ status: "completed" });
-  });
-
-  test("uses the latest end when a confirmed event has multiple approved bookings", async () => {
-    const event = await createConfirmedEvent();
-    await database.insert(schema.venueRequests).values({
-      id: crypto.randomUUID(),
-      eventId: event.id,
-      venueId: venueIds[1],
-      requestedById: coordinator.id,
-      startsAt: "2100-03-10 09:00:00",
-      endsAt: "2100-03-10 12:30:00",
-      status: "approved",
-      assignedStaffId: venueStaff.id,
-    });
-
     await expect(complete(event.id)).rejects.toMatchObject({
       status: 409,
       message: expect.stringContaining(EVENT_HAS_NOT_ENDED_MESSAGE),
     });
   });
 
-  test("falls back to the event end after an approved booking is released", async () => {
+  test("ignores a released booking when the event end has passed", async () => {
     const event = await createConfirmedEvent();
     await database
       .update(schema.venueRequests)
@@ -208,6 +203,25 @@ describe("completing an event (PTR-25)", () => {
     await expect(complete(2_000_000_000, stranger)).rejects.toBeInstanceOf(AuthorizationError);
   });
 
+  test("reports the completion reason on the coordinator event list", async () => {
+    const ended = await createConfirmedEvent();
+    const upcoming = await createConfirmedEvent("2100-03-10 12:30:00");
+
+    const [endedEntry] = await handleListEvents(
+      { eventId: ended.id },
+      coordinator,
+      database as never
+    );
+    const [upcomingEntry] = await handleListEvents(
+      { eventId: upcoming.id },
+      coordinator,
+      database as never
+    );
+
+    expect(endedEntry.event.completionUnavailableReason).toBeNull();
+    expect(upcomingEntry.event.completionUnavailableReason).toBe(EVENT_HAS_NOT_ENDED_MESSAGE);
+  });
+
   test("refuses a new venue booking after completion", async () => {
     const event = await createConfirmedEvent();
     await complete(event.id);
@@ -248,5 +262,35 @@ describe("completing an event (PTR-25)", () => {
     await expect(
       handleReserveEquipment({ equipmentRequestId: line.id, quantity: 1 }, tech, database as never)
     ).rejects.toMatchObject({ status: 409 });
+  });
+
+  test("rejects a completed status without the completion audit record at the database", async () => {
+    const event = await createConfirmedEvent();
+
+    await expect(
+      database
+        .update(schema.eventRequests)
+        .set({ status: "completed" })
+        .where(eq(schema.eventRequests.id, event.id))
+    ).rejects.toMatchObject({
+      cause: { code: "23514", constraint: "event_requests_completion_matches_status" },
+    });
+  });
+
+  test("rejects completion audit fields on a non-terminal status at the database", async () => {
+    const event = await createConfirmedEvent();
+
+    await expect(
+      database
+        .update(schema.eventRequests)
+        .set({
+          completedById: coordinator.id,
+          completedByName: coordinator.name,
+          completedAt: new Date(),
+        })
+        .where(eq(schema.eventRequests.id, event.id))
+    ).rejects.toMatchObject({
+      cause: { code: "23514", constraint: "event_requests_completion_matches_status" },
+    });
   });
 });
