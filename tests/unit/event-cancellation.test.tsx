@@ -2,11 +2,22 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CoordinationRequestPage } from "#/features/coordination/components/coordination-request-page";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 
-const { requestEventCancellation, invalidate, success, warning } = vi.hoisted(() => ({
+const {
+  requestEventCancellation,
+  cancelEvent,
+  declineEventCancellation,
+  invalidate,
+  success,
+  warning,
+} = vi.hoisted(() => ({
   requestEventCancellation: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
+  cancelEvent: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
+  declineEventCancellation:
+    vi.fn<(input: { data: { id: number; reason: string } }) => Promise<unknown>>(),
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
   warning: vi.fn<(message: string) => void>(),
@@ -16,6 +27,8 @@ vi.mock("#/features/event-requests/server-fns", () => ({
   raiseEventChangeRequest: vi.fn<() => Promise<never>>(),
   requestEventCancellation,
 }));
+vi.mock("#/features/events/server-fns", () => ({ cancelEvent, declineEventCancellation }));
+vi.mock("#/features/coordination/server-fns", () => ({}));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
@@ -24,6 +37,8 @@ vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate }),
 }));
 vi.mock("sonner", () => ({ toast: { success, warning } }));
+
+const actor = { id: "coord-a", email: "a@example.com", name: "Alex", role: "event_coordinator" };
 
 const request: CoordinationRequest = {
   id: 7,
@@ -43,6 +58,9 @@ const request: CoordinationRequest = {
   completedById: null,
   completedByName: null,
   completedAt: null,
+  cancelledById: null,
+  cancelledByName: null,
+  cancelledAt: null,
   purpose: "Fundraiser",
   proposedDates: [],
   expectedAttendance: 100,
@@ -64,6 +82,7 @@ const request: CoordinationRequest = {
   clarifications: [],
   changeRequests: [],
   cancellationRequests: [],
+  outstandingReleases: null,
   pendingHandover: null,
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,
@@ -232,5 +251,125 @@ describe("requesting cancellation (PTR-53)", () => {
     expect(within(history).getByText(/Declined by Alex/)).toBeTruthy();
     expect(within(history).getByText("The deposit is paid.")).toBeTruthy();
     expect(within(history).getByText(/Event cancelled by Alex/)).toBeTruthy();
+  });
+});
+
+describe("processing a cancellation request (PTR-54)", () => {
+  const withWaiting = { ...request, cancellationRequests: [waiting] };
+
+  it("offers the assigned Coordinator to cancel or decline a waiting request", () => {
+    render(<CoordinationRequestPage request={withWaiting} coordinators={[]} user={actor} />);
+
+    expect(screen.getByRole("heading", { name: "Cancellation requested" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel event" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Decline request" })).toBeTruthy();
+  });
+
+  it("offers nothing to a Coordinator the event is not assigned to", () => {
+    render(
+      <CoordinationRequestPage
+        request={{ ...withWaiting, assignedCoordinatorId: "coord-b" }}
+        coordinators={[]}
+        user={actor}
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Cancellation requested" })).toBeNull();
+  });
+
+  it("cancels the event once the Coordinator confirms it (AC1)", async () => {
+    const user = userEvent.setup();
+    cancelEvent.mockResolvedValueOnce({ outstandingReleases: null });
+    render(<CoordinationRequestPage request={withWaiting} coordinators={[]} user={actor} />);
+
+    await user.click(screen.getByRole("button", { name: "Cancel event" }));
+    await user.click(screen.getByRole("button", { name: "Cancel the event" }));
+
+    await waitFor(() => {
+      expect(cancelEvent).toHaveBeenCalledWith({ data: { id: 7 } });
+      expect(success).toHaveBeenCalledWith("Event cancelled. Everyone concerned will be notified.");
+      expect(invalidate).toHaveBeenCalled();
+    });
+  });
+
+  it("requires a reason to decline, then sends it (AC8)", async () => {
+    const user = userEvent.setup();
+    declineEventCancellation.mockResolvedValueOnce(undefined);
+    render(<CoordinationRequestPage request={withWaiting} coordinators={[]} user={actor} />);
+
+    await user.click(screen.getByRole("button", { name: "Decline request" }));
+    expect(await screen.findByText("Enter a reason for declining")).toBeTruthy();
+    expect(declineEventCancellation).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText("Reason for declining"), "The deposit is paid.");
+    await user.click(screen.getByRole("button", { name: "Decline request" }));
+
+    await waitFor(() => {
+      expect(declineEventCancellation).toHaveBeenCalledWith({
+        data: { id: 7, reason: "The deposit is paid." },
+      });
+      expect(success).toHaveBeenCalledWith("Cancellation request declined.");
+    });
+  });
+
+  it("lists what a cancelled event still holds as outstanding releases (AC2, AC6)", () => {
+    render(
+      <CoordinationRequestPage
+        request={{
+          ...request,
+          status: "cancelled",
+          cancelledById: "coord-a",
+          cancelledByName: "Alex",
+          cancelledAt: new Date("2026-10-03T02:00:00Z"),
+          outstandingReleases: {
+            venueBookings: [
+              {
+                id: "b1",
+                venueName: "Hall A",
+                startsAt: "2026-12-05 10:00:00",
+                endsAt: "2026-12-05 16:00:00",
+              },
+            ],
+            venueHolds: [
+              {
+                id: "h1",
+                venueName: "Room B",
+                startsAt: "2026-12-06 10:00:00",
+                endsAt: "2026-12-06 12:00:00",
+              },
+            ],
+            equipmentReservations: [{ id: "e1", item: "Projector", quantity: 2 }],
+          },
+        }}
+        coordinators={[]}
+        user={actor}
+      />
+    );
+
+    const releases = screen.getByRole("region", { name: "Outstanding releases" });
+    expect(within(releases).getByText(/Venue booking: Hall A/)).toBeTruthy();
+    expect(within(releases).getByText(/Tentative hold: Room B/)).toBeTruthy();
+    expect(within(releases).getByText(/Equipment reservation: Projector × 2/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel event" })).toBeNull();
+  });
+
+  it("says when a cancelled event holds nothing more", () => {
+    render(
+      <CoordinationRequestPage
+        request={{
+          ...request,
+          status: "cancelled",
+          cancelledById: "coord-a",
+          cancelledByName: "Alex",
+          cancelledAt: new Date("2026-10-03T02:00:00Z"),
+          outstandingReleases: { venueBookings: [], venueHolds: [], equipmentReservations: [] },
+        }}
+        coordinators={[]}
+        user={actor}
+      />
+    );
+
+    const releases = screen.getByRole("region", { name: "Outstanding releases" });
+    expect(within(releases).getByText("Nothing is still held for this event.")).toBeTruthy();
   });
 });

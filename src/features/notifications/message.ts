@@ -28,6 +28,8 @@ export const NOTIFICATION_KINDS = [
   "event_registered",
   "registration_threshold_reached",
   "event_cancellation_requested",
+  "event_cancelled",
+  "event_cancellation_declined",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -178,6 +180,24 @@ const payloadSchemas = {
   }),
   /** PTR-53 AC3: the Organiser asked the assigned Coordinator to cancel the event. */
   event_cancellation_requested: z.object({ eventName: z.string() }),
+  /**
+   * PTR-54 AC3, AC4, AC7: the event is cancelled, told to each party in their own words. Venue
+   * Staff are never shown an event's name (PTR-8), so their copy names the booking to release.
+   */
+  event_cancelled: z.discriminatedUnion("audience", [
+    z.object({
+      audience: z.enum(["organiser", "attendee", "technical_support"]),
+      eventName: z.string(),
+    }),
+    z.object({
+      audience: z.literal("venue_staff"),
+      venueName: z.string(),
+      startsAt: z.string(),
+      endsAt: z.string(),
+    }),
+  ]),
+  /** PTR-54 AC8: the Coordinator declined the Organiser's cancellation request, with a reason. */
+  event_cancellation_declined: z.object({ eventName: z.string(), reason: z.string() }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -249,6 +269,11 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("event_cancellation_requested"),
     payload: payloadSchemas.event_cancellation_requested,
   }),
+  z.object({ kind: z.literal("event_cancelled"), payload: payloadSchemas.event_cancelled }),
+  z.object({
+    kind: z.literal("event_cancellation_declined"),
+    payload: payloadSchemas.event_cancellation_declined,
+  }),
 ]);
 
 /**
@@ -312,6 +337,12 @@ export function notificationSummary(notification: NotificationPayload): string {
     }
     case "event_cancellation_requested":
       return `Event cancellation requested: ${notification.payload.eventName}`;
+    case "event_cancelled":
+      return notification.payload.audience === "venue_staff"
+        ? `Event cancelled: release the booking at ${notification.payload.venueName}`
+        : `Event cancelled: ${notification.payload.eventName}`;
+    case "event_cancellation_declined":
+      return `Cancellation request declined: ${notification.payload.eventName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -380,6 +411,24 @@ export function notificationHref(
         : `/event-requests/${eventRequestId}`;
     case "event_cancellation_requested":
       return `/coordination/${eventRequestId}`;
+    case "event_cancellation_declined":
+      return `/event-requests/${eventRequestId}`;
+    case "event_cancelled":
+      // Each party opens the surface where they act on the cancellation (PTR-54 AC6).
+      switch (notification.payload.audience) {
+        case "organiser":
+          return `/event-requests/${eventRequestId}`;
+        case "attendee":
+          return `/events/${eventRequestId}`;
+        case "venue_staff":
+          return "/venue-bookings";
+        case "technical_support":
+          return `/equipment-requests/${eventRequestId}`;
+        default: {
+          const unhandled: never = notification.payload;
+          throw new Error(`No event_cancelled href for "${String(unhandled)}"`);
+        }
+      }
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -425,6 +474,8 @@ export function notificationReachable(
     case "event_registered":
     case "registration_threshold_reached":
     case "event_cancellation_requested":
+    case "event_cancelled":
+    case "event_cancellation_declined":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

@@ -1,0 +1,6 @@
+ALTER TYPE "public"."notification_kind" ADD VALUE 'event_cancelled';--> statement-breakpoint
+ALTER TYPE "public"."notification_kind" ADD VALUE 'event_cancellation_declined';--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "cancelled_by_id" text;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "cancelled_by_name" text;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD COLUMN "cancelled_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "event_requests" ADD CONSTRAINT "event_requests_cancellation_matches_status" CHECK (("event_requests"."status"::text = 'cancelled' and "event_requests"."cancelled_by_id" is not null and btrim("event_requests"."cancelled_by_id") <> '' and "event_requests"."cancelled_by_name" is not null and btrim("event_requests"."cancelled_by_name") <> '' and "event_requests"."cancelled_at" is not null) or ("event_requests"."status"::text <> 'cancelled' and "event_requests"."cancelled_by_id" is null and "event_requests"."cancelled_by_name" is null and "event_requests"."cancelled_at" is null));

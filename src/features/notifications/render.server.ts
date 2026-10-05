@@ -11,7 +11,11 @@ import {
 } from "#/features/emails/components/equipment-arrangements-email";
 import { EquipmentReleasedEmail } from "#/features/emails/components/equipment-released-email";
 import { EquipmentRequestEmail } from "#/features/emails/components/equipment-request-email";
-import { EventCancellationRequestedEmail } from "#/features/emails/components/event-cancellation-email";
+import {
+  EventCancellationDeclinedEmail,
+  EventCancellationRequestedEmail,
+  EventCancelledEmail,
+} from "#/features/emails/components/event-cancellation-email";
 import { EventChangeRequestEmail } from "#/features/emails/components/event-change-request-email";
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
@@ -26,7 +30,7 @@ import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-bo
 import { VenueBookingChangedEmail } from "#/features/emails/components/venue-booking-changed-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
-import { notificationSummary } from "#/features/notifications/message";
+import { notificationHref, notificationSummary } from "#/features/notifications/message";
 import type { NotificationPayload } from "#/features/notifications/message";
 
 export interface RenderedNotification {
@@ -282,6 +286,24 @@ export function renderNotificationEmail(
         element: createElement(EventCancellationRequestedEmail, {
           eventName: notification.payload.eventName,
           eventUrl: `${base}/coordination/${eventRequestId}`,
+        }),
+      };
+    case "event_cancelled":
+      // The link is the surface each party acts on, the same one the inbox opens.
+      return {
+        subject,
+        element: createElement(EventCancelledEmail, {
+          ...notification.payload,
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    case "event_cancellation_declined":
+      return {
+        subject,
+        element: createElement(EventCancellationDeclinedEmail, {
+          eventName: notification.payload.eventName,
+          reason: notification.payload.reason,
+          eventUrl: `${base}/event-requests/${eventRequestId}`,
         }),
       };
     default: {

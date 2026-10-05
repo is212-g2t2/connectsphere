@@ -145,6 +145,13 @@ describe("registering for an event (PTR-45)", () => {
               confirmedByName: "Registration Coordinator",
               confirmedAt: new Date(),
             }),
+        ...(status === "cancelled"
+          ? {
+              cancelledById: coordinator.id,
+              cancelledByName: "Registration Coordinator",
+              cancelledAt: new Date(),
+            }
+          : {}),
         eventName: `Registration test ${crypto.randomUUID()}`,
         purpose: "test",
         proposedDates: [{ start: "2026-12-05T10:00", end: "2026-12-05T16:00" }],

@@ -1,7 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission, requireSession } from "#/features/auth/session";
-import { parseEventRequestId } from "#/features/event-requests/schema";
+import {
+  parseEventCancellationDeclineInput,
+  parseEventRequestId,
+} from "#/features/event-requests/schema";
 import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
 import {
   parseEventListInput,
@@ -23,6 +26,10 @@ async function loadServer() {
 
 async function loadConfirmServer() {
   return Promise.all([import("#/db"), import("#/features/events/confirm.server")]);
+}
+
+async function loadCancelServer() {
+  return Promise.all([import("#/db"), import("#/features/events/cancel.server")]);
 }
 
 async function loadRegisterServer() {
@@ -65,6 +72,38 @@ export const confirmEvent = createServerFn({ method: "POST" })
     log.info("Event confirmed", { eventId: event.id, actorId: context.user.id });
 
     return event;
+  });
+
+/**
+ * PTR-54: the assigned Coordinator cancels the event a waiting cancellation request asks for. The
+ * handler re-reads the assignment and the request, so the permission says only that the caller
+ * may coordinate. The answer lists what the event still holds, for the staff to release.
+ */
+export const cancelEvent = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleCancelEvent }] = await loadCancelServer();
+    const { event, outstandingReleases } = await handleCancelEvent(data, context.user, db);
+
+    log.info("Event cancelled", { eventId: event.id, actorId: context.user.id });
+
+    return { outstandingReleases };
+  });
+
+/** PTR-54 AC8: the assigned Coordinator declines a waiting cancellation request, with a reason. */
+export const declineEventCancellation = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventCancellationDeclineInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleDeclineEventCancellation }] = await loadCancelServer();
+    const declined = await handleDeclineEventCancellation(data, context.user, db);
+
+    log.info("Event cancellation declined", {
+      eventId: data.id,
+      cancellationRequestId: declined.id,
+      actorId: context.user.id,
+    });
   });
 
 /**

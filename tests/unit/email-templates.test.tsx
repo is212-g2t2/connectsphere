@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
 import { ClarificationReplyEmail } from "#/features/emails/components/clarification-reply-email";
 import { Layout } from "#/features/emails/components/layout";
-import { EventCancellationRequestedEmail } from "#/features/emails/components/event-cancellation-email";
+import {
+  EventCancellationDeclinedEmail,
+  EventCancellationRequestedEmail,
+  EventCancelledEmail,
+} from "#/features/emails/components/event-cancellation-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import {
   EventRegisteredEmail,
@@ -368,5 +372,55 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Community workshop");
     expect(html).toContain("asked for this event to be cancelled");
     expect(html).toContain(eventUrl);
+  });
+
+  it("renders the cancellation for each party, naming the booking to Venue Staff (PTR-54 AC3, AC4, AC7)", async () => {
+    const attendeeHtml = await render(
+      <EventCancelledEmail
+        audience="attendee"
+        eventName="Community workshop"
+        eventUrl="http://localhost:3000/events/42"
+      />
+    );
+    expect(attendeeHtml).toContain("Community workshop");
+    expect(attendeeHtml).toContain("has been cancelled");
+    expect(attendeeHtml).toContain("http://localhost:3000/events/42");
+
+    const venueHtml = await render(
+      <EventCancelledEmail
+        audience="venue_staff"
+        venueName="Seminar Room 2A"
+        startsAt="2026-12-05 10:00:00"
+        endsAt="2026-12-05 16:00:00"
+        eventUrl="http://localhost:3000/venue-bookings"
+      />
+    );
+    expect(venueHtml).toContain("Seminar Room 2A");
+    expect(venueHtml).toContain("5 December 2026");
+    expect(venueHtml).toContain("10:00");
+    expect(venueHtml).toContain("release");
+
+    const techHtml = await render(
+      <EventCancelledEmail
+        audience="technical_support"
+        eventName="Community workshop"
+        eventUrl="http://localhost:3000/equipment-requests/42"
+      />
+    );
+    expect(techHtml).toContain("release");
+  });
+
+  it("renders the declined cancellation request with the reason (PTR-54 AC8)", async () => {
+    const html = await render(
+      <EventCancellationDeclinedEmail
+        eventName="Community workshop"
+        reason="The deposit is non-refundable."
+        eventUrl="http://localhost:3000/event-requests/42"
+      />
+    );
+
+    expect(html).toContain("Community workshop");
+    expect(html).toContain("The deposit is non-refundable.");
+    expect(html).toContain("http://localhost:3000/event-requests/42");
   });
 });

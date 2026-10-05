@@ -130,6 +130,13 @@ describe("confirming an event (PTR-24)", () => {
               completedAt: new Date("2030-01-02T00:00:00Z"),
             }
           : {}),
+        ...(status === "cancelled"
+          ? {
+              cancelledById: coordinator.id,
+              cancelledByName: coordinator.name,
+              cancelledAt: new Date(),
+            }
+          : {}),
         equipmentArrangementsCompletedAt: equipmentCompleted ? new Date() : null,
         eventName: `Confirmation test ${crypto.randomUUID()}`,
         purpose: "test",

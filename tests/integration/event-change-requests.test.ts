@@ -106,6 +106,9 @@ describe("event change requests (PTR-51)", () => {
         completedById: completed ? coordinator.id : null,
         completedByName: completed ? "PTR-51 Coordinator" : null,
         completedAt: completed ? new Date("2026-10-04T00:00:00Z") : null,
+        cancelledById: status === "cancelled" ? coordinator.id : null,
+        cancelledByName: status === "cancelled" ? "PTR-51 Coordinator" : null,
+        cancelledAt: status === "cancelled" ? new Date("2026-10-04T00:00:00Z") : null,
       })
       .returning();
     return event;

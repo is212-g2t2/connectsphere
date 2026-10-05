@@ -95,6 +95,13 @@ export const eventRequests = pgTable(
     completedById: text("completed_by_id"),
     completedByName: text("completed_by_name"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    /**
+     * PTR-54 AC1: who cancelled the event and when (PTR-21 AC4). Snapshots, like the confirmation,
+     * so an account deletion keeps the record. Null until the event is cancelled.
+     */
+    cancelledById: text("cancelled_by_id"),
+    cancelledByName: text("cancelled_by_name"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     eventName: text("event_name").notNull().default(""),
     purpose: text("purpose").notNull().default(""),
     /**
@@ -190,6 +197,12 @@ export const eventRequests = pgTable(
     check(
       "event_requests_completion_matches_status",
       sql`(${table.status}::text = 'completed' and ${table.completedById} is not null and btrim(${table.completedById}) <> '' and ${table.completedByName} is not null and btrim(${table.completedByName}) <> '' and ${table.completedAt} is not null) or (${table.status}::text = 'cancelled' and ((${table.completedById} is not null and btrim(${table.completedById}) <> '' and ${table.completedByName} is not null and btrim(${table.completedByName}) <> '' and ${table.completedAt} is not null) or (${table.completedById} is null and ${table.completedByName} is null and ${table.completedAt} is null))) or (${table.status}::text not in ('completed', 'cancelled') and ${table.completedById} is null and ${table.completedByName} is null and ${table.completedAt} is null)`
+    ),
+    // PTR-54 AC1: a cancelled event always says who cancelled it and when, and no other stage
+    // carries a cancellation.
+    check(
+      "event_requests_cancellation_matches_status",
+      sql`(${table.status}::text = 'cancelled' and ${table.cancelledById} is not null and btrim(${table.cancelledById}) <> '' and ${table.cancelledByName} is not null and btrim(${table.cancelledByName}) <> '' and ${table.cancelledAt} is not null) or (${table.status}::text <> 'cancelled' and ${table.cancelledById} is null and ${table.cancelledByName} is null and ${table.cancelledAt} is null)`
     ),
     check(
       "event_requests_rejection_has_reason",
@@ -840,6 +853,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "event_registered",
   "registration_threshold_reached",
   "event_cancellation_requested",
+  "event_cancelled",
+  "event_cancellation_declined",
 ]);
 
 export const notifications = pgTable(

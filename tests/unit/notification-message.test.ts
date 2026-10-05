@@ -100,6 +100,8 @@ const validPayloads = {
     audience: "organiser",
   },
   event_cancellation_requested: { eventName: "Gala" },
+  event_cancelled: { audience: "organiser", eventName: "Gala" },
+  event_cancellation_declined: { eventName: "Gala", reason: "The deposit is paid." },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parses or fails the test with the kind named, so a bad fixture is not a silent null. */
@@ -177,6 +179,9 @@ describe("notification summaries (PTR-55 AC2)", () => {
   });
 });
 
+const hrefFor = (payload: unknown) =>
+  notificationHref({ ...parse("event_cancelled", payload), eventRequestId: 7 });
+
 describe("notification hrefs (PTR-55 AC4)", () => {
   const requested = parse("venue_booking_requested", requestedPayload);
 
@@ -236,6 +241,27 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     expect(notificationHref({ ...coordinator, eventRequestId: 7 })).toBe("/coordination/7");
   });
 
+  it("sends each party told of a cancellation to the surface they act on (PTR-54)", () => {
+    expect(hrefFor({ audience: "attendee", eventName: "Gala" })).toBe("/events/7");
+    expect(hrefFor({ audience: "technical_support", eventName: "Gala" })).toBe(
+      "/equipment-requests/7"
+    );
+    expect(
+      hrefFor({
+        audience: "venue_staff",
+        venueName: "Hall A",
+        startsAt: "2026-10-12 09:00:00",
+        endsAt: "2026-10-12 17:00:00",
+      })
+    ).toBe("/venue-bookings");
+  });
+
+  it("refuses a Venue Staff cancellation that carries no booking (PTR-54)", () => {
+    expect(
+      parseNotificationPayload("event_cancelled", { audience: "venue_staff", eventName: "Gala" })
+    ).toBeNull();
+  });
+
   it("sends every kind to its default surface with no facts", () => {
     const expected: Record<NotificationKind, string | null> = {
       venue_booking_requested: null,
@@ -257,6 +283,8 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       event_registered: "/events/7",
       registration_threshold_reached: "/event-requests/7",
       event_cancellation_requested: "/coordination/7",
+      event_cancelled: "/event-requests/7",
+      event_cancellation_declined: "/event-requests/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

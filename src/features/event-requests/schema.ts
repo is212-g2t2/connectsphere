@@ -433,6 +433,25 @@ export const EVENT_CANCELLATION_CLOSED = "This event can no longer be cancelled.
 export const EVENT_CANCELLATION_ALREADY_REQUESTED =
   "A cancellation request for this event is already waiting to be processed.";
 
+/** PTR-54 AC8: the Coordinator must say why they decline a cancellation request. */
+export const CANCELLATION_DECLINE_REASON_MAX = 2000;
+export const EventCancellationDeclineInput = EventRequestIdInput.extend({
+  reason: z
+    .string()
+    .trim()
+    .min(1, "Enter a reason for declining")
+    .max(
+      CANCELLATION_DECLINE_REASON_MAX,
+      `The reason must be ${CANCELLATION_DECLINE_REASON_MAX} characters or fewer`
+    ),
+});
+
+export function parseEventCancellationDeclineInput(data: unknown) {
+  const parsed = EventCancellationDeclineInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+
 /** PTR-21 criterion 2: the plain-language label every screen shows instead of the stored code. */
 export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   draft: "Draft",
