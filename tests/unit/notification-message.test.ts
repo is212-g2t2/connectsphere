@@ -99,6 +99,7 @@ const validPayloads = {
     limit: 40,
     audience: "organiser",
   },
+  event_cancellation_requested: { eventName: "Gala" },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parses or fails the test with the kind named, so a bad fixture is not a silent null. */
@@ -255,6 +256,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       equipment_requested: "/equipment-requests/7",
       event_registered: "/events/7",
       registration_threshold_reached: "/event-requests/7",
+      event_cancellation_requested: "/coordination/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

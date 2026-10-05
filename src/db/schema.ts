@@ -341,6 +341,55 @@ export const eventChangeRequests = pgTable(
   ]
 );
 
+/**
+ * PTR-53/54: what the Coordinator decided on a cancellation request. Null while the request waits.
+ */
+export const eventCancellationOutcome = pgEnum("event_cancellation_outcome", [
+  "cancelled",
+  "declined",
+]);
+
+/**
+ * PTR-53: an Organiser's request to cancel their event. Kept apart from `event_change_requests`
+ * because it names no field and no value. The event's status does not move until the Coordinator
+ * processes the request (PTR-54), and the row keeps the outcome so it stays on the event record.
+ * The processor's id and name are snapshots, like the decision's.
+ */
+export const eventCancellationRequests = pgTable(
+  "event_cancellation_requests",
+  {
+    id: serial("id").primaryKey(),
+    eventRequestId: integer("event_request_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    organiserId: text("organiser_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    outcome: eventCancellationOutcome("outcome"),
+    /** PTR-54 AC8: why the Coordinator declined; required for a decline, absent otherwise. */
+    declineReason: text("decline_reason"),
+    processedById: text("processed_by_id"),
+    processedByName: text("processed_by_name"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  table => [
+    index("event_cancellation_requests_event_request_id_idx").on(table.eventRequestId),
+    // One request waits at a time, so a double click cannot raise two.
+    uniqueIndex("event_cancellation_requests_open_event_idx")
+      .on(table.eventRequestId)
+      .where(sql`${table.outcome} is null`),
+    check(
+      "event_cancellation_requests_outcome_complete",
+      sql`(${table.outcome} is null and ${table.processedById} is null and ${table.processedByName} is null and ${table.processedAt} is null and ${table.declineReason} is null) or (${table.outcome} is not null and ${table.processedById} is not null and ${table.processedByName} is not null and ${table.processedAt} is not null)`
+    ),
+    check(
+      "event_cancellation_requests_decline_has_reason",
+      sql`(${table.outcome}::text = 'declined' and coalesce(${table.declineReason}, '') ~ '[^[:space:]]') or (${table.outcome} is distinct from 'declined' and ${table.declineReason} is null)`
+    ),
+  ]
+);
+
 export const venues = pgTable(
   "venues",
   {
@@ -790,6 +839,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "equipment_released",
   "event_registered",
   "registration_threshold_reached",
+  "event_cancellation_requested",
 ]);
 
 export const notifications = pgTable(

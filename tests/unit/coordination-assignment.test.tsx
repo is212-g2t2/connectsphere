@@ -102,6 +102,7 @@ const request: CoordinationRequest = {
   coordinator: null,
   clarifications: [],
   changeRequests: [],
+  cancellationRequests: [],
   pendingHandover: null,
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,

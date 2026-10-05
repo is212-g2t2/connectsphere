@@ -9,6 +9,7 @@ import {
 } from "#/features/event-requests/components/request-list-page";
 import { ClarificationReplyForm } from "#/features/event-requests/components/clarification-reply-form";
 import { EventChangeRequestForm } from "#/features/event-requests/components/event-change-request-form";
+import { RequestCancellationAction } from "#/features/event-requests/components/request-cancellation-action";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
 import {
@@ -16,6 +17,7 @@ import {
   EVENT_REQUEST_STATUS_LABELS,
   EVENT_REQUEST_STATUS_STAGES,
   canRaiseEventChangeRequest,
+  canRequestEventCancellation,
   clarificationAmendmentKeys,
 } from "#/features/event-requests/schema";
 import type {
@@ -47,6 +49,7 @@ export function EventRequestDetailPage({
   children,
   showReplyForms = false,
   showChangeRequestForm = false,
+  showCancellationRequest = false,
 }: {
   request: EventRequestDetail;
   back?: { to: "/event-requests" | "/coordination"; label: string };
@@ -55,6 +58,8 @@ export function EventRequestDetailPage({
   showReplyForms?: boolean;
   /** Only the Organiser's own detail route can raise a post-submission change request. */
   showChangeRequestForm?: boolean;
+  /** Only the Organiser's own detail route can ask for the event to be cancelled (PTR-53). */
+  showCancellationRequest?: boolean;
 }) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
   const stage = EVENT_REQUEST_STATUS_STAGES[request.status];
@@ -62,6 +67,10 @@ export function EventRequestDetailPage({
   const hasDecision = stage.decided || request.decidedAt !== null;
   const replyValues = toDraftValues(request);
   const canRequestChange = canRaiseEventChangeRequest(request.status);
+  // PTR-53: one request waits at a time, so the action returns once the Coordinator decides.
+  const cancellationWaiting = request.cancellationRequests.some(item => item.outcome === null);
+  const canRequestCancellation =
+    canRequestEventCancellation(request.status) && !cancellationWaiting;
 
   return (
     <Page width="page">
@@ -109,6 +118,59 @@ export function EventRequestDetailPage({
                 unchanged until a Coordinator processes this request.
               </p>
               <EventChangeRequestForm requestId={request.id} />
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {showCancellationRequest && canRequestCancellation && (
+        <section className="mt-8" aria-labelledby="request-cancellation-heading">
+          <Card>
+            <CardContent>
+              <h2 id="request-cancellation-heading" className="display-h3">
+                Request cancellation
+              </h2>
+              <p className="mt-2 body-sm text-muted-foreground">
+                Ask the Coordinator to cancel this event. The event stays as it is until they
+                process the request.
+              </p>
+              <RequestCancellationAction requestId={request.id} />
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {request.cancellationRequests.length > 0 && (
+        <section className="mt-8" aria-labelledby="cancellation-requests-heading">
+          <Card>
+            <CardContent>
+              <h2 id="cancellation-requests-heading" className="display-h3">
+                Cancellation requests
+              </h2>
+              <ul className="mt-4 divide-y divide-border">
+                {request.cancellationRequests.map((item, index) => (
+                  <li key={item.id} className="py-3 first:pt-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <span className="eyebrow text-muted-foreground">
+                        Cancellation request #{index + 1}
+                      </span>
+                      <time
+                        dateTime={item.createdAt.toISOString()}
+                        className="body-sm text-muted-foreground"
+                      >
+                        {formatInstant(item.createdAt)}
+                      </time>
+                    </div>
+                    <p className="mt-2 body-md font-medium">{cancellationOutcome(item)}</p>
+                    {item.declineReason ? (
+                      <div className="mt-3 border-l-2 border-border pl-4">
+                        <p className="eyebrow text-muted-foreground">Reason</p>
+                        <p className="mt-1 body-md whitespace-pre-line">{item.declineReason}</p>
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
             </CardContent>
           </Card>
         </section>
@@ -430,6 +492,15 @@ function formatAmendmentValue(
     default:
       return plainAmendmentText(value);
   }
+}
+
+/** PTR-54 AC7, AC8: what became of one cancellation request, and who decided it when. */
+function cancellationOutcome(item: EventRequestDetail["cancellationRequests"][number]): string {
+  if (item.outcome === null) {
+    return "Waiting for the Coordinator. The event's status is unchanged until then.";
+  }
+  const by = `${item.processedByName ?? "the Coordinator"} on ${formatInstant(item.processedAt)}`;
+  return item.outcome === "cancelled" ? `Event cancelled by ${by}.` : `Declined by ${by}.`;
 }
 
 function Detail({

@@ -27,6 +27,7 @@ export const NOTIFICATION_KINDS = [
   "equipment_released",
   "event_registered",
   "registration_threshold_reached",
+  "event_cancellation_requested",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -175,6 +176,8 @@ const payloadSchemas = {
     limit: z.number(),
     audience: z.enum(["organiser", "coordinator"]),
   }),
+  /** PTR-53 AC3: the Organiser asked the assigned Coordinator to cancel the event. */
+  event_cancellation_requested: z.object({ eventName: z.string() }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -242,6 +245,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("registration_threshold_reached"),
     payload: payloadSchemas.registration_threshold_reached,
   }),
+  z.object({
+    kind: z.literal("event_cancellation_requested"),
+    payload: payloadSchemas.event_cancellation_requested,
+  }),
 ]);
 
 /**
@@ -303,6 +310,8 @@ export function notificationSummary(notification: NotificationPayload): string {
       const { eventName, registered, limit } = notification.payload;
       return `Registration is ${registered >= limit ? "full" : "nearly full"} for ${eventName}`;
     }
+    case "event_cancellation_requested":
+      return `Event cancellation requested: ${notification.payload.eventName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -369,6 +378,8 @@ export function notificationHref(
       return notification.payload.audience === "coordinator"
         ? `/coordination/${eventRequestId}`
         : `/event-requests/${eventRequestId}`;
+    case "event_cancellation_requested":
+      return `/coordination/${eventRequestId}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -413,6 +424,7 @@ export function notificationReachable(
     case "equipment_released":
     case "event_registered":
     case "registration_threshold_reached":
+    case "event_cancellation_requested":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;
