@@ -4,7 +4,7 @@ import {
   eventTiming,
   getEventAccess,
   isEquipmentQueueRow,
-  isRegistrationWindowOpen,
+  isPublishedForAttendees,
   isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
@@ -21,6 +21,7 @@ const request = {
   venueRequirements: "Projector",
   registrationOpensAt: null,
   registrationClosesAt: null,
+  registrationEnabled: true,
 };
 
 const relationship = {
@@ -30,7 +31,8 @@ const relationship = {
   assignedCoordinatorId: "coordinator-1",
   venueStaffIds: ["venue-1"],
   technicalSupportIds: ["tech-1"],
-  isRegistrationWindowOpen: false,
+  status: "confirmed" as const,
+  registrationEnabled: true,
   hasOwnRegistration: false,
 };
 
@@ -45,10 +47,25 @@ describe("event access", () => {
     expect(getEventAccess({ ...relationship, role, userId: "unrelated-user" })).toBeNull();
   });
 
-  it("allows attendees only to open registration windows, or events they are already registered for", () => {
-    expect(getEventAccess(relationship)).toBeNull();
-    expect(getEventAccess({ ...relationship, isRegistrationWindowOpen: true })).toBe("attendee");
-    expect(getEventAccess({ ...relationship, hasOwnRegistration: true })).toBe("attendee");
+  it("allows attendees only confirmed events with registration on, or events they are already registered for (PTR-44)", () => {
+    // Confirmed and enabled: the browsing attendee sees it.
+    expect(getEventAccess(relationship)).toBe("attendee");
+    // Either half of the pair missing denies a browsing attendee.
+    expect(getEventAccess({ ...relationship, status: "submitted" })).toBeNull();
+    expect(getEventAccess({ ...relationship, registrationEnabled: false })).toBeNull();
+    // An own registration keeps a non-draft event visible regardless.
+    expect(getEventAccess({ ...relationship, status: "submitted", hasOwnRegistration: true })).toBe(
+      "attendee"
+    );
+    // A draft stays hidden even with an own registration; a submitted one with one is granted.
+    expect(getEventAccess({ ...relationship, status: "draft", hasOwnRegistration: true })).toBe(
+      null
+    );
+    // Never through another role's relationship.
+    expect(
+      getEventAccess({ ...relationship, role: "event_organiser", userId: "organiser-1" })
+    ).toBe("organiser");
+    expect(getEventAccess({ ...relationship, role: "visitor" })).toBeNull();
   });
 
   describe("confirmation (PTR-24)", () => {
@@ -58,7 +75,14 @@ describe("event access", () => {
       confirmedAt: new Date("2026-10-02T03:00:00Z"),
       confirmedByName: "Casey Coordinator",
     };
-    const booking = { name: "Hall A", date: "2026-10-01", startTime: "09:00", endTime: "12:30" };
+    const booking = {
+      name: "Hall A",
+      location: "Fixture location",
+      date: "2026-10-01",
+      endDate: "2026-10-01",
+      startTime: "09:00",
+      endTime: "12:30",
+    };
 
     it.each(["organiser", "coordinator"] as const)(
       "projects who confirmed, when, and the booked venue for the %s",
@@ -196,21 +220,50 @@ describe("event access", () => {
   });
 
   it("returns only an attendee's own registration and the PTR-44 fields", () => {
+    const venue = {
+      name: "Hall A",
+      location: "Fixture location",
+      date: "2026-10-01",
+      endDate: "2026-10-01",
+      startTime: "09:00",
+      endTime: "17:00",
+    };
     const result = projectEvent(
       request,
       "attendee",
       { status: "registered", registeredAt: "2026-09-13T10:00:00.000Z" },
       [],
-      null
+      null,
+      venue
     );
     expect(result.event.registration?.status).toBe("registered");
     expect(result.event).toMatchObject({
       name: "ConnectSphere Demo",
       description: "A demo event",
       eventDate: "2026-10-01",
+      startTime: "09:00",
+      endTime: "17:00",
+      registrationOpensAt: null,
+      registrationClosesAt: null,
+      venue,
     });
-    expect(result.event).not.toHaveProperty("expectedAttendance");
-    expect(result.event).not.toHaveProperty("equipment");
+    expect(Object.keys(result.event).toSorted()).toEqual(
+      [
+        "description",
+        "endDate",
+        "endTime",
+        "eventDate",
+        "id",
+        "name",
+        "registration",
+        "registrationClosesAt",
+        "registrationEnabled",
+        "registrationOpensAt",
+        "startTime",
+        "status",
+        "venue",
+      ].toSorted()
+    );
   });
 
   it.each(["attendee", "venue_staff", "technical_support", "organiser", "coordinator"] as const)(
@@ -333,6 +386,34 @@ describe("isEquipmentQueueRow", () => {
   });
 });
 
+describe("isPublishedForAttendees", () => {
+  const cases: Array<{
+    name: string;
+    event: { status: "confirmed" | "submitted"; registrationEnabled?: boolean };
+    expected: boolean;
+  }> = [
+    {
+      name: "confirmed with registration on",
+      event: { status: "confirmed", registrationEnabled: true },
+      expected: true,
+    },
+    {
+      name: "confirmed with registration off",
+      event: { status: "confirmed", registrationEnabled: false },
+      expected: false,
+    },
+    {
+      name: "submitted with registration on",
+      event: { status: "submitted", registrationEnabled: true },
+      expected: false,
+    },
+    { name: "confirmed with the flag missing", event: { status: "confirmed" }, expected: false },
+  ];
+  it.each(cases)("$name -> $expected", ({ event, expected }) => {
+    expect(isPublishedForAttendees(event)).toBe(expected);
+  });
+});
+
 describe("eventTiming", () => {
   it("uses the first complete proposed window", () => {
     expect(
@@ -361,37 +442,5 @@ describe("eventTiming", () => {
       startTime: null,
       endTime: null,
     });
-  });
-});
-
-describe("isRegistrationWindowOpen", () => {
-  const now = new Date("2026-09-17T12:00:00Z");
-  const terms = {
-    registrationEnabled: true,
-    registrationOpensAt: "2026-09-01T09:00",
-    registrationClosesAt: "2026-10-01T17:00",
-  };
-
-  it("is open between the stored local times", () => {
-    expect(isRegistrationWindowOpen(terms, now)).toBe(true);
-    expect(
-      isRegistrationWindowOpen({ ...terms, registrationOpensAt: "2026-09-17T11:59" }, now)
-    ).toBe(true);
-  });
-
-  it("is closed before the window, after it, or without terms", () => {
-    expect(
-      isRegistrationWindowOpen({ ...terms, registrationOpensAt: "2026-09-17T12:01" }, now)
-    ).toBe(false);
-    expect(
-      isRegistrationWindowOpen({ ...terms, registrationClosesAt: "2026-09-17T11:59" }, now)
-    ).toBe(false);
-    expect(isRegistrationWindowOpen({ ...terms, registrationEnabled: false }, now)).toBe(false);
-    expect(
-      isRegistrationWindowOpen(
-        { registrationEnabled: true, registrationOpensAt: null, registrationClosesAt: null },
-        now
-      )
-    ).toBe(false);
   });
 });

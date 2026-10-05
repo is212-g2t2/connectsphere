@@ -156,6 +156,19 @@ function futureWeekdayDate(days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Seminar Room 2A is closed Saturday and Sunday, so the attendee demo (booked there) steps a
+ * landed weekend forward to Monday. Harbour Hall opens Saturdays, so it keeps
+ * `futureWeekdayDate`.
+ */
+function futureOpenDayDate(days: number): string {
+  const date = new Date(Date.now() + days * 86_400_000);
+  while (date.getUTCDay() === 0 || date.getUTCDay() === 6) {
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+  return date.toISOString().slice(0, 10);
+}
+
 export const seedVenueUnavailability: {
   venueName: string;
   startsAt: string;
@@ -210,6 +223,17 @@ export const seedEquipmentUnavailability: {
 export const DEMO_EVENT_NAME = "ConnectSphere Demo Summit";
 const DEMO_EVENT_ORGANISER_ID = "test-user-2";
 const DEMO_EVENT_COORDINATOR_ID = "seed-coordinator-1";
+
+/**
+ * PTR-44: the attendee demo is a confirmed event with registration on, so a brand-new attendee
+ * can see it — browsing visibility is `confirmed` AND `registrationEnabled`, and the live window
+ * is not a gate. It lives apart from the demo event above because the venue-search and
+ * equipment-request demos need that row submitted and planning-stage. Same idempotency rule:
+ * looked up by organiser and name, with the attribution the CHECKs require for `confirmed`
+ * rewritten on every run so the timing and the window stay in the future.
+ */
+export const ATTENDEE_DEMO_EVENT_NAME = "ConnectSphere Open Day";
+export const ATTENDEE_DEMO_VENUE_NAME = "Seminar Room 2A";
 
 /**
  * A fixed key every seed takes before it looks up the demo request. The lookup-then-insert guard
@@ -373,10 +397,27 @@ export async function runSeed(database: Database): Promise<void> {
       demoRequestId = inserted.id;
     } else {
       // Requirements are rewritten too: a long-lived local database would otherwise keep the old
-      // text and never converge on the matchable demo request.
+      // text and never converge on the matchable demo request. A database seeded while the demo
+      // event was confirmed (PTR-44's first pass) converges back: `submitted` carries no decision
+      // or confirmation attribution, and the CHECKs refuse anything else.
       await tx
         .update(schema.eventRequests)
-        .set({ ...demoTiming, ...demoRequirements })
+        .set({
+          ...demoTiming,
+          ...demoRequirements,
+          status: "submitted",
+          submittedAt: sql`coalesce(${schema.eventRequests.submittedAt}, now())`,
+          decisionReason: null,
+          decidedByCoordinatorId: null,
+          decidedByCoordinatorName: null,
+          decidedAt: null,
+          confirmedById: null,
+          confirmedByName: null,
+          confirmedAt: null,
+          equipmentSubmittedAt: null,
+          equipmentArrangementsCompletedAt: null,
+          equipmentArrangementsCompletedById: null,
+        })
         .where(eq(schema.eventRequests.id, demoRequestId));
     }
 
@@ -419,6 +460,125 @@ export async function runSeed(database: Database): Promise<void> {
         .where(eq(schema.venueRequests.id, "demo-venue-request-1"));
     }
 
+    // The booking the attendee demo was confirmed against (PTR-44 AC2): the venue the
+    // attendee page shows. Seminar Room 2A, not Harbour Hall — the pending Harbour Hall request
+    // above must not overlap an approved booking for the same venue, or the PTR-36 conflict badge
+    // appears. No other approved booking sits on that venue, so there is no overlap. The seed
+    // leaves the booking unassigned so the venue-staff dashboard keeps the single pending demo
+    // request; the approved booking still appears on the venue-bookings page. An unassigned
+    // approved row is a real state because `assignedStaffId` is `ON DELETE SET NULL`.
+    const attendeeVenueId = venueIdByName.get(ATTENDEE_DEMO_VENUE_NAME);
+    if (attendeeVenueId === undefined) {
+      throw new Error(`Seed venue "${ATTENDEE_DEMO_VENUE_NAME}" was not inserted`);
+    }
+
+    const existingAttendeeEvents = await tx
+      .select({ id: schema.eventRequests.id })
+      .from(schema.eventRequests)
+      .where(
+        and(
+          eq(schema.eventRequests.organiserId, DEMO_EVENT_ORGANISER_ID),
+          eq(schema.eventRequests.eventName, ATTENDEE_DEMO_EVENT_NAME)
+        )
+      )
+      .limit(1)
+      .for("update");
+
+    // Its own date, a week past the demo event's, so the two never share a window. Rewritten on
+    // every run like the demo timing above, with an open registration window (opened yesterday,
+    // closes in ~18 days) so the seeded attendee demos the registered state.
+    const attendeeDate = futureOpenDayDate(27);
+    const attendeeTiming = {
+      proposedDates: [{ start: `${attendeeDate}T10:00`, end: `${attendeeDate}T16:00` }],
+      registrationOpensAt: `${futureDate(-1)}T09:00`,
+      registrationClosesAt: `${futureDate(18)}T17:00`,
+    };
+    const attendeeRequirements = {
+      expectedAttendance: 30,
+      venueRequirements: "Projector, video conferencing",
+      roomLayoutPreference: "Classroom",
+      accessibilityRequirements: "Step-free access",
+    };
+
+    // A confirmed event carries who decided and who confirmed it (the CHECKs refuse it
+    // otherwise); both are the seeded Coordinator. Re-runs rewrite them too, so a database
+    // seeded before this event existed converges instead of keeping a half-written row.
+    const attendeeAttribution = {
+      status: "confirmed" as const,
+      decidedByCoordinatorId: DEMO_EVENT_COORDINATOR_ID,
+      decidedByCoordinatorName: "Seeded Event Coordinator",
+      decidedAt: new Date(),
+      confirmedById: DEMO_EVENT_COORDINATOR_ID,
+      confirmedByName: "Seeded Event Coordinator",
+      confirmedAt: new Date(),
+    };
+
+    let attendeeEventId = existingAttendeeEvents.at(0)?.id;
+    if (attendeeEventId === undefined) {
+      const [inserted] = await tx
+        .insert(schema.eventRequests)
+        .values({
+          organiserId: DEMO_EVENT_ORGANISER_ID,
+          submittedAt: new Date(),
+          assignedCoordinatorId: DEMO_EVENT_COORDINATOR_ID,
+          assignedAt: new Date(),
+          eventName: ATTENDEE_DEMO_EVENT_NAME,
+          purpose: "Show attendees a confirmed event with registration open.",
+          ...attendeeTiming,
+          ...attendeeRequirements,
+          ...attendeeAttribution,
+          description:
+            "An open day for new members: meet the organisers, tour the rooms, and try a workshop.",
+          eventType: "Open Day",
+          registrationEnabled: true,
+          registrationCapacity: 40,
+        })
+        .returning({ id: schema.eventRequests.id });
+
+      attendeeEventId = inserted.id;
+    } else {
+      // The registration terms converge too: a hand-turned-off flag comes back on re-run.
+      await tx
+        .update(schema.eventRequests)
+        .set({
+          ...attendeeTiming,
+          ...attendeeRequirements,
+          ...attendeeAttribution,
+          submittedAt: sql`coalesce(${schema.eventRequests.submittedAt}, now())`,
+          registrationEnabled: true,
+          registrationCapacity: 40,
+        })
+        .where(eq(schema.eventRequests.id, attendeeEventId));
+    }
+
+    const attendeeVenueRequest = {
+      venueId: attendeeVenueId,
+      requestedById: DEMO_EVENT_COORDINATOR_ID,
+      startsAt: `${attendeeDate} 10:00:00`,
+      endsAt: `${attendeeDate} 16:00:00`,
+      status: "approved" as const,
+      assignedStaffId: null,
+    };
+
+    const existingAttendeeVenueRequests = await tx
+      .select({ id: schema.venueRequests.id })
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.id, "demo-attendee-venue-request-1"))
+      .limit(1);
+
+    if (existingAttendeeVenueRequests.length === 0) {
+      await tx.insert(schema.venueRequests).values({
+        id: "demo-attendee-venue-request-1",
+        eventId: attendeeEventId,
+        ...attendeeVenueRequest,
+      });
+    } else {
+      await tx
+        .update(schema.venueRequests)
+        .set(attendeeVenueRequest)
+        .where(eq(schema.venueRequests.id, "demo-attendee-venue-request-1"));
+    }
+
     const projectorTypeId = equipmentTypeIdByName.get("Portable Projector");
 
     await tx
@@ -437,6 +597,10 @@ export async function runSeed(database: Database): Promise<void> {
     await tx
       .insert(schema.eventRegistrations)
       .values({ eventId: demoRequestId, attendeeId: "test-user-1" })
+      .onConflictDoNothing();
+    await tx
+      .insert(schema.eventRegistrations)
+      .values({ eventId: attendeeEventId, attendeeId: "test-user-1" })
       .onConflictDoNothing();
   });
 }

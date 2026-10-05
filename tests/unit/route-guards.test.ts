@@ -27,7 +27,7 @@ function routeFiles(dir: string): string[] {
 describe("Route-level permission guards", () => {
   it("resolves the session in __root.tsx alone", () => {
     const resolvers = routeFiles(routesDir)
-      .filter(filePath => /\bgetCurrentUser\b/.test(fs.readFileSync(filePath, "utf-8")))
+      .filter(filePath => /\bgetSessionContext\b/.test(fs.readFileSync(filePath, "utf-8")))
       .map(filePath => path.relative(routesDir, filePath));
 
     expect(resolvers).toEqual(["__root.tsx"]);

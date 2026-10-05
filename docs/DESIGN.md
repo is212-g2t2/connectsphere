@@ -185,7 +185,7 @@ Neutrals carry almost the entire interface. The system uses color deliberately, 
 - **Mist and Mist-dark:** ink-tinted transparent grays for hairline borders and dividers only, never for text or fills. Mist is the default hairline: `--border` resolves to it, and the card border carries it. Mist-dark is for the denser table and section rules.
 - **Stroke:** the border that identifies a _form control_, distinct from a divider. Mist is a 1.3:1 hairline, right for a decorative rule but not enough for the border that shows a user where an input is. Stroke clears 3:1 on both paper and surface.
 - **Overlay:** modal scrims use `--color-overlay`, a 10% black. It is the one place where a raw black fills a surface. The card shadow carries the only other literal black.
-- **Accent gradient** (pink `#d93384` → amber `#f59e0b`, 90°): the one expressive color moment, reserved for headline accents and event cover art. It is not a token: no screen uses it yet. The first screen that uses it adds `--accent-gradient` and a line here.
+- **Accent gradient** (pink `#d93384` → amber `#f59e0b`, 90°): the one expressive color moment, reserved for headline accents and event cover art. It lives as `--accent-gradient`, and the attendee event page cover uses it through the `cover-art` utility.
 
 ### Dark mode
 
@@ -202,7 +202,7 @@ Every text-and-background pair that the primitives use clears the Web Content Ac
 The whole system uses a single font family, **Inter Variable** (`@fontsource-variable/inter`), with system fallbacks. There is no display/body split: voice comes from weight, size, and negative letter-spacing, not from a second typeface. `--font-sans`, `--font-heading`, and `--font-mono` all resolve to it. "Mono" signals _data_ (timestamps, reference codes) at 0.8125rem/500, not a genuine monospace rhythm.
 
 - **Headings (h1–h3)** are 600-weight, with tight `-0.03em` tracking and a 1.08–1.2 line-height. H1 and h2 top out at 1.75rem. The tracking and weight come from `globals.css`.
-- **Event title and hero headline** are the only oversized type roles. The hero headline is a fluid `clamp(2.5rem, 6vw, 4rem)` on the homepage, and the fixed 3rem event title has no utility or screen yet. One moment per page must feel like a poster.
+- **Event title and hero headline** are the only oversized type roles. The hero headline is a fluid `clamp(2.5rem, 6vw, 4rem)` on the homepage, and the fixed 3rem event title (`event-title` in `globals.css`) heads the attendee event page. One moment per page must feel like a poster.
 - **Body** is 0.9375rem at 1.5 line-height, set on `body` as the base size. Secondary body text is ink-60, never full ink, so paragraphs stay visually behind headings and UI chrome.
 - **Label and caption** (0.8125rem and 0.75rem) carry the UI: form labels, pill text, and table meta. Table headers go uppercase at 0.6875rem with `0.05em` tracking, for a technical, spec-sheet tone.
 

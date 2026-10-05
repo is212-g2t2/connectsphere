@@ -1,18 +1,37 @@
 import { Link, useRouteContext } from "@tanstack/react-router";
+import { Bell, BellDot, LogOut, Settings } from "lucide-react";
 import { toast } from "sonner";
 
+import type { SessionUser } from "#/features/auth/session";
 import { useMutation } from "#/hooks/use-mutation";
 import { authClient } from "#/lib/auth-client";
-import { Button } from "#/components/ui/button";
-import { NAV_LINK_CLASSNAME } from "#/lib/utils";
+import { Avatar, AvatarFallback } from "../ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { ThemeToggle } from "../ui/theme-toggle";
 
 const SIGN_OUT_FAILED = "Could not sign out. Try again.";
 
+const ICON_LINK_CLASSNAME =
+  "flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring outline-none disabled:pointer-events-none disabled:opacity-50";
+
+function initialsFor(user: SessionUser): string {
+  const words = user.name?.trim().split(/\s+/).filter(Boolean) ?? [];
+  const initials =
+    `${Array.from(words[0] ?? "")[0] ?? ""}${Array.from(words[1] ?? "")[0] ?? ""}`.toUpperCase();
+  if (initials) return initials;
+  return Array.from(user.email)[0]?.toUpperCase() || "?";
+}
+
 export function Header() {
   // PTR-73: the user comes from route context, which `__root.tsx` fills during SSR — so the
   // server markup and the first client render agree, unlike the old client-side `useSession()`.
-  const { user } = useRouteContext({ from: "__root__" });
+  const { user, unreadNotifications } = useRouteContext({ from: "__root__" });
 
   // PTR-71: signing out is a mutation, so React holds its in-flight flag. The redirect is the
   // success path and stays inside the action; a refused sign-out lands in the action's error
@@ -33,6 +52,8 @@ export function Header() {
     }
   }
 
+  const unread = unreadNotifications > 0;
+
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-md">
       <div className="flex h-13 items-center justify-between px-4">
@@ -42,22 +63,49 @@ export function Header() {
 
         <nav className="flex items-center gap-1">
           {user && (
-            <Link to="/notifications" className={NAV_LINK_CLASSNAME}>
-              Notifications
+            <Link
+              to="/notifications"
+              aria-label={unread ? "Notifications, unread" : "Notifications"}
+              title={unread ? "Notifications, unread" : "Notifications"}
+              className={ICON_LINK_CLASSNAME}
+            >
+              {unread ? <BellDot size={16} /> : <Bell size={16} />}
             </Link>
           )}
-          {user && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={signingOut}
-              onClick={() => void handleSignOut()}
-            >
-              {signingOut ? "Signing out…" : "Sign out"}
-            </Button>
-          )}
           <ThemeToggle />
+          {user && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Account menu"
+                    title="Account menu"
+                    className={ICON_LINK_CLASSNAME}
+                  />
+                }
+              >
+                <Avatar size="default">
+                  <AvatarFallback>{initialsFor(user)}</AvatarFallback>
+                </Avatar>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem render={<Link to="/settings" />}>
+                  <Settings />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={signingOut}
+                  onClick={() => void handleSignOut()}
+                >
+                  <LogOut />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </nav>
       </div>
     </header>

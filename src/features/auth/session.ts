@@ -2,6 +2,9 @@ import { createMiddleware, createServerFn } from "@tanstack/react-start";
 
 import { can } from "#/features/auth/permissions";
 import type { PermissionRequest } from "#/features/auth/permissions";
+import { logger } from "#/lib/logger";
+
+const log = logger.getChild("session");
 
 export interface SessionUser {
   id: string;
@@ -102,9 +105,31 @@ export function requirePermission(
     });
 }
 
-export const getCurrentUser = createServerFn({ method: "GET" })
+/**
+ * The root route resolves this on full loads: the session user plus the header's unread
+ * notification count, so every route renders the bell in one round trip instead of the header
+ * fetching the count on its own after the session arrives. TanStack retains the root match
+ * across sibling client-side navigations, so the count does not refresh there — it refreshes
+ * on `router.invalidate()` (sign-up and the notifications mark-read path call it).
+ */
+export const getSessionContext = createServerFn({ method: "GET" })
   .middleware([withSession])
-  .handler(({ context }) => context.user);
+  .handler(async ({ context }) => {
+    if (!context.user) return { user: null, unreadNotifications: 0 };
+    let unreadNotifications = 0;
+    try {
+      // Dynamic imports: static server-only imports would leak the database into the client bundle.
+      const [{ db }, { handleCountUnreadNotifications }] = await Promise.all([
+        import("#/db"),
+        import("#/features/notifications/inbox.server"),
+      ]);
+      unreadNotifications = await handleCountUnreadNotifications(context.user, db);
+    } catch (error) {
+      // The bell is decorative; a failed count must not take every signed-in page down with it.
+      log.warn("Unread notification count failed", { error });
+    }
+    return { user: context.user, unreadNotifications };
+  });
 
 export const listAccounts = createServerFn({ method: "GET" })
   .middleware([requireSession])

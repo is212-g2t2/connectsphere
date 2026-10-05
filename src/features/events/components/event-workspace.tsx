@@ -16,6 +16,7 @@ import type {
   EventProjection,
   VenueRequestRejection,
 } from "#/features/events/access";
+import { isPublishedForAttendees } from "#/features/events/access";
 import { isConfirmableStatus } from "#/features/events/confirmation";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
 import { EventRequirements } from "#/features/events/components/event-requirements";
@@ -51,11 +52,6 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
             Your connected events
           </h2>
         </div>
-        {events[0] && (
-          <span className="body-sm text-muted-foreground">
-            Access filtered by your relationship
-          </span>
-        )}
       </div>
 
       {events.length === 0 ? (
@@ -72,12 +68,26 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                     <p className="eyebrow text-muted-foreground">
                       {access.replaceAll("_", " ")} access
                     </p>
-                    <h3 className="mt-2 display-h3">{event.name ?? "Venue request"}</h3>
+                    <h3 className="mt-2 display-h3">
+                      {access === "attendee" && event.name && isPublishedForAttendees(event) ? (
+                        <Link
+                          to="/events/$eventId"
+                          params={{ eventId: String(event.id) }}
+                          className="underline decoration-foreground/60 underline-offset-4 hover:decoration-foreground"
+                        >
+                          {event.name}
+                        </Link>
+                      ) : (
+                        (event.name ?? "Venue request")
+                      )}
+                    </h3>
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <EventRequestStatusBadge status={event.status} />
-                    {event.registration?.status && (
-                      <Badge variant="confirmed">{event.registration.status}</Badge>
+                    {event.registration?.status === "registered" && (
+                      <Badge variant="outline" aria-label="Your registration: Registered">
+                        Registered
+                      </Badge>
                     )}
                   </div>
                 </div>

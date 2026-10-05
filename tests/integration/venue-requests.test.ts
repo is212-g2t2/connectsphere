@@ -971,7 +971,10 @@ describe("venue request handlers (PTR-31)", () => {
         new Date("2027-01-01T00:00:00Z")
       );
 
-      expect(listed).toEqual([
+      // Scoped to this suite's own rows: other suites' and the seed's approved bookings share the
+      // global list.
+      const own = listed.filter(row => row.id === owned.id || row.id === other.id);
+      expect(own).toEqual([
         expect.objectContaining({
           id: owned.id,
           eventId,

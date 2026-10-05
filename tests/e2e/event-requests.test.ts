@@ -131,7 +131,8 @@ test.describe("Event request drafts", () => {
     // The header is signed-in in the server markup now (PTR-73), so the button is clickable
     // before React has attached its handler; without this the click lands on inert markup.
     await waitForHydration(otherTab);
-    await otherTab.getByRole("button", { name: "Sign out" }).click();
+    await otherTab.getByRole("button", { name: "Account menu" }).click();
+    await otherTab.getByRole("menuitem", { name: "Sign out" }).click();
     await otherTab.waitForURL("/");
     await otherTab.close();
 

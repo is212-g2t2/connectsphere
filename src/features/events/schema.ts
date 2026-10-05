@@ -7,11 +7,9 @@ import { z } from "zod";
  */
 const EVENT_LIST_ID_MESSAGE = "Choose an event";
 
-const EventListInput = z
-  .object({
-    eventId: z.int32({ error: EVENT_LIST_ID_MESSAGE }).positive(EVENT_LIST_ID_MESSAGE).optional(),
-  })
-  .default({});
+export const EventId = z.int32({ error: EVENT_LIST_ID_MESSAGE }).positive(EVENT_LIST_ID_MESSAGE);
+
+const EventListInput = z.object({ eventId: EventId.optional() }).default({});
 
 type EventListValues = z.infer<typeof EventListInput>;
 

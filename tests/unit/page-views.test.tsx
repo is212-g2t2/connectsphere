@@ -88,11 +88,15 @@ const venue: Venue = {
 };
 
 describe("DashboardPage", () => {
-  it("greets the session user and links on to their settings", () => {
+  it("greets the session user and keeps the role links and the workspace", () => {
     render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
 
     expect(screen.getByRole("heading", { name: "Welcome, Casey" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Account settings" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your connected events" })).toBeTruthy();
+    // The session card is gone, and account settings moved to the header.
+    expect(screen.queryByText("Your ConnectSphere home")).toBeNull();
+    expect(screen.queryByText("Active")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Account settings" })).toBeNull();
   });
 
   it("shows the workspace links the role may reach", () => {
@@ -332,6 +336,92 @@ describe("DashboardPage", () => {
 
     expect(screen.getByRole("status").textContent).toBe("Loading your dashboard…");
     expect(container.querySelector("main")?.getAttribute("aria-busy")).toBe("true");
+    // The slimmed dashboard: the greeting plus the connected-events grid, with no session
+    // summary and no settings link.
+    expect(container.querySelector("section")).not.toBeNull();
+    expect(container.querySelector("dl")).toBeNull();
+  });
+
+  it("links an attendee card to the event page (PTR-44)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("attendee")}
+        events={[
+          {
+            access: "attendee",
+            event: {
+              id: 12,
+              name: "Open Day",
+              description: "An open day for new members.",
+              eventDate: "2026-12-05",
+              startTime: "10:00",
+              endTime: "15:00",
+              status: "confirmed",
+              registrationEnabled: true,
+              registrationOpensAt: "2026-11-01T09:00",
+              registrationClosesAt: "2026-12-01T17:00",
+              registration: null,
+              venue: null,
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "Open Day" }).getAttribute("href")).toBe("/events/12");
+  });
+
+  it("keeps a registered non-confirmed event as an unlinked card (PTR-8 AC4 vs PTR-44 AC5)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("attendee")}
+        events={[
+          {
+            access: "attendee",
+            event: {
+              id: 13,
+              name: "Under review gathering",
+              description: "Awaiting confirmation.",
+              eventDate: "2026-12-05",
+              startTime: "10:00",
+              endTime: "15:00",
+              status: "under_review",
+              registrationEnabled: true,
+              registration: { status: "registered", registeredAt: "2026-11-02T03:04:05.000Z" },
+              venue: null,
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Under review gathering" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Under review gathering" })).toBeNull();
+    expect(screen.getByText("Registered")).toBeTruthy();
+  });
+
+  it("leaves a staff card's event name unlinked (PTR-44: the page is for attendees)", () => {
+    render(
+      <DashboardPage
+        user={userWithRole("event_organiser")}
+        events={[
+          {
+            access: "organiser",
+            event: {
+              id: 7,
+              name: "Annual dinner",
+              status: "submitted",
+              eventDate: "2026-10-01",
+              startTime: "09:00",
+              endTime: "17:00",
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Annual dinner" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Annual dinner" })).toBeNull();
   });
 });
 

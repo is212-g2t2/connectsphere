@@ -52,6 +52,7 @@ const record: Parameters<typeof projectEvent>[0] = {
   description: "desc",
   status: "approved",
   proposedDates: [{ start: "2030-01-01T09:00", end: "2030-01-01T17:00" }],
+  registrationEnabled: true,
   equipmentSubmittedAt: new Date("2030-01-01T00:00:00Z"),
   expectedAttendance: 100,
   roomLayoutPreference: "Theatre",
@@ -108,7 +109,8 @@ describe("getEventAccess: coordinator", () => {
     assignedCoordinatorId: "c1",
     venueStaffIds: [],
     technicalSupportIds: [],
-    isRegistrationWindowOpen: false,
+    status: "confirmed" as const,
+    registrationEnabled: true,
     hasOwnRegistration: false,
   };
   test("only the assigned coordinator", () => {
