@@ -4,12 +4,15 @@ import type { db as Db } from "#/db";
 import { eventChangeRequests, eventRequests } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { parseEventChangeRequestInput } from "#/features/event-requests/schema";
+import {
+  canRaiseEventChangeRequest,
+  parseEventChangeRequestInput,
+} from "#/features/event-requests/schema";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 
 type Database = typeof Db;
 
-export const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.";
+const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.";
 
 /** PTR-51: read the append-only requests in the order the Organiser raised them. */
 export async function listEventChangeRequests(
@@ -51,7 +54,7 @@ export async function handleRaiseEventChangeRequest(
     ).at(0);
 
     if (!event) throw new AuthorizationError("Forbidden");
-    if (["draft", "completed", "cancelled"].includes(event.status)) {
+    if (!canRaiseEventChangeRequest(event.status)) {
       throw new ConflictError(EVENT_CHANGE_REQUEST_CLOSED);
     }
 
@@ -72,7 +75,7 @@ export async function handleRaiseEventChangeRequest(
           eventRequestId: event.id,
           kind: "event_change_requested",
           payload: {
-            eventName: event.eventName,
+            eventName: event.eventName.trim() || "Untitled request",
             whatShouldChange: input.whatShouldChange,
             requestedValue: input.requestedValue,
           },

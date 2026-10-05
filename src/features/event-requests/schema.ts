@@ -412,6 +412,17 @@ export const EVENT_REQUEST_STATUSES = [
 ] as const;
 export type EventRequestStatus = (typeof EVENT_REQUEST_STATUSES)[number];
 
+/** PTR-51: only post-submission events that can still change accept a new change request. */
+export const EVENT_CHANGE_REQUEST_CLOSED_STATUSES = [
+  "draft",
+  "completed",
+  "cancelled",
+] as const satisfies readonly EventRequestStatus[];
+
+export function canRaiseEventChangeRequest(status: EventRequestStatus): boolean {
+  return !EVENT_CHANGE_REQUEST_CLOSED_STATUSES.some(closedStatus => closedStatus === status);
+}
+
 /** PTR-21 criterion 2: the plain-language label every screen shows instead of the stored code. */
 export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   draft: "Draft",

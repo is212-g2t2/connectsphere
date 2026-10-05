@@ -1,19 +1,21 @@
 import { Button, Section, Text } from "@react-email/components";
 
-import { emailButton, emailHeading, emailText } from "#/features/emails/components/email-styles";
-import { Layout } from "#/features/emails/components/layout";
+import { emailButton, emailHeading, emailText } from "./email-styles";
+import { Layout } from "./layout";
 
-export function EventChangeRequestEmail({
-  eventName,
-  whatShouldChange,
-  requestedValue,
-  eventRequestUrl,
-}: {
+interface EventChangeRequestEmailProps {
   eventName: string;
   whatShouldChange: string;
   requestedValue: string;
   eventRequestUrl: string;
-}) {
+}
+
+export const EventChangeRequestEmail = ({
+  eventName,
+  whatShouldChange,
+  requestedValue,
+  eventRequestUrl,
+}: EventChangeRequestEmailProps) => {
   return (
     <Layout previewText={`Change requested for ${eventName}`}>
       <Section>
@@ -37,4 +39,4 @@ export function EventChangeRequestEmail({
       </Section>
     </Layout>
   );
-}
+};

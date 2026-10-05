@@ -1,5 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button";
@@ -10,17 +11,19 @@ import { raiseEventChangeRequest } from "#/features/event-requests/server-fns";
 
 export function EventChangeRequestForm({ requestId }: { requestId: number }) {
   const router = useRouter();
+  const [deliveryWarning, setDeliveryWarning] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const form = useForm({
     defaultValues: { whatShouldChange: "", requestedValue: "" },
     validators: {
       onSubmit: EventChangeRequestInput.omit({ id: true }),
     },
     onSubmit: async ({ value, formApi }) => {
+      if (saved) return;
+      setDeliveryWarning(null);
+
       try {
         await raiseEventChangeRequest({ data: { id: requestId, ...value } });
-        toast.success("Change request recorded.");
-        formApi.reset();
-        await router.invalidate();
       } catch (error) {
         formApi.setErrorMap({
           onSubmit: {
@@ -31,6 +34,20 @@ export function EventChangeRequestForm({ requestId }: { requestId: number }) {
                 : "Could not record the change request. Try again.",
           },
         });
+        return;
+      }
+
+      setSaved(true);
+      toast.success("Change request recorded.");
+      formApi.reset();
+
+      try {
+        await router.invalidate();
+      } catch {
+        const message =
+          "Your change request was saved. Refresh this page to see the updated history.";
+        setDeliveryWarning(message);
+        toast.warning(message);
       }
     },
   });
@@ -52,6 +69,7 @@ export function EventChangeRequestForm({ requestId }: { requestId: number }) {
               id={field.name}
               rows={3}
               maxLength={CHANGE_REQUEST_TEXT_MAX}
+              disabled={saved}
               value={field.state.value}
               aria-invalid={field.state.meta.errors.length > 0}
               onChange={event => field.handleChange(event.target.value)}
@@ -69,6 +87,7 @@ export function EventChangeRequestForm({ requestId }: { requestId: number }) {
               id={field.name}
               rows={3}
               maxLength={CHANGE_REQUEST_TEXT_MAX}
+              disabled={saved}
               value={field.state.value}
               aria-invalid={field.state.meta.errors.length > 0}
               onChange={event => field.handleChange(event.target.value)}
@@ -81,8 +100,8 @@ export function EventChangeRequestForm({ requestId }: { requestId: number }) {
       <form.Subscribe selector={state => [state.isSubmitting, state.errorMap.onSubmit]}>
         {([isSubmitting, onSubmitError]) => (
           <>
-            <Button type="submit" disabled={Boolean(isSubmitting)}>
-              {isSubmitting ? "Recording…" : "Request change"}
+            <Button type="submit" disabled={saved || Boolean(isSubmitting)}>
+              {saved ? "Request recorded" : isSubmitting ? "Recording…" : "Request change"}
             </Button>
             {typeof onSubmitError === "string" ? (
               <p role="alert" className="body-sm text-destructive">
@@ -92,6 +111,9 @@ export function EventChangeRequestForm({ requestId }: { requestId: number }) {
           </>
         )}
       </form.Subscribe>
+      {deliveryWarning && (
+        <output className="body-sm text-muted-foreground">{deliveryWarning}</output>
+      )}
     </form>
   );
 }

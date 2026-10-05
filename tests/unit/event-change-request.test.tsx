@@ -5,10 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EventChangeRequestForm } from "#/features/event-requests/components/event-change-request-form";
 import {
   CHANGE_REQUEST_TEXT_MAX,
+  canRaiseEventChangeRequest,
   parseEventChangeRequestInput,
 } from "#/features/event-requests/schema";
 
-const { invalidate, raiseEventChangeRequest, success } = vi.hoisted(() => ({
+const { invalidate, raiseEventChangeRequest, success, warning } = vi.hoisted(() => ({
   invalidate: vi.fn<() => Promise<void>>(),
   raiseEventChangeRequest:
     vi.fn<
@@ -17,6 +18,7 @@ const { invalidate, raiseEventChangeRequest, success } = vi.hoisted(() => ({
       }) => Promise<unknown>
     >(),
   success: vi.fn<(message: string) => void>(),
+  warning: vi.fn<(message: string) => void>(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -24,7 +26,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("#/features/event-requests/server-fns", () => ({ raiseEventChangeRequest }));
-vi.mock("sonner", () => ({ toast: { success } }));
+vi.mock("sonner", () => ({ toast: { success, warning } }));
 
 describe("event change request input (PTR-51 AC2)", () => {
   it("trims and accepts both required statements", () => {
@@ -39,6 +41,40 @@ describe("event change request input (PTR-51 AC2)", () => {
       whatShouldChange: "Proposed date",
       requestedValue: "18 November at 10:00",
     });
+  });
+
+  it("accepts the exact text limit and refuses whitespace-only statements", () => {
+    expect(
+      parseEventChangeRequestInput({
+        id: 7,
+        whatShouldChange: "x".repeat(CHANGE_REQUEST_TEXT_MAX),
+        requestedValue: "y".repeat(CHANGE_REQUEST_TEXT_MAX),
+      })
+    ).toMatchObject({
+      whatShouldChange: "x".repeat(CHANGE_REQUEST_TEXT_MAX),
+      requestedValue: "y".repeat(CHANGE_REQUEST_TEXT_MAX),
+    });
+    expect(() =>
+      parseEventChangeRequestInput({ id: 7, whatShouldChange: "   ", requestedValue: "New value" })
+    ).toThrow("State what should change");
+    expect(() =>
+      parseEventChangeRequestInput({ id: 7, whatShouldChange: "Date", requestedValue: "   " })
+    ).toThrow("Enter the requested new value");
+  });
+
+  it.each([
+    ["submitted", true],
+    ["under_review", true],
+    ["awaiting_organiser", true],
+    ["approved", true],
+    ["rejected", true],
+    ["planning", true],
+    ["confirmed", true],
+    ["draft", false],
+    ["completed", false],
+    ["cancelled", false],
+  ] as const)("returns %s eligibility as %s", (status, expected) => {
+    expect(canRaiseEventChangeRequest(status)).toBe(expected);
   });
 
   it.each([
@@ -100,5 +136,26 @@ describe("EventChangeRequestForm", () => {
       "Harbour Hall"
     );
     expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("reports a stale page without reporting the committed request as failed", async () => {
+    invalidate.mockRejectedValue(new Error("Reload failed"));
+    const user = userEvent.setup();
+    render(<EventChangeRequestForm requestId={7} />);
+
+    await user.type(screen.getByLabelText("What should change"), "Venue");
+    await user.type(screen.getByLabelText("Requested new value"), "Harbour Hall");
+    await user.click(screen.getByRole("button", { name: "Request change" }));
+
+    const message = "Your change request was saved. Refresh this page to see the updated history.";
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(success).toHaveBeenCalledWith("Change request recorded.");
+    expect(warning).toHaveBeenCalledWith(message);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Request recorded" })).toHaveProperty(
+      "disabled",
+      true
+    );
+    expect(raiseEventChangeRequest).toHaveBeenCalledOnce();
   });
 });

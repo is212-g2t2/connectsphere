@@ -15,6 +15,7 @@ import {
   CLARIFICATION_FIELDS,
   EVENT_REQUEST_STATUS_LABELS,
   EVENT_REQUEST_STATUS_STAGES,
+  canRaiseEventChangeRequest,
   clarificationAmendmentKeys,
 } from "#/features/event-requests/schema";
 import type {
@@ -60,7 +61,7 @@ export function EventRequestDetailPage({
   // A cancelled request keeps whatever decision it had, so the record decides, not the status.
   const hasDecision = stage.decided || request.decidedAt !== null;
   const replyValues = toDraftValues(request);
-  const canRequestChange = !["draft", "completed", "cancelled"].includes(request.status);
+  const canRequestChange = canRaiseEventChangeRequest(request.status);
 
   return (
     <Page width="page">
@@ -105,7 +106,7 @@ export function EventRequestDetailPage({
               </h2>
               <p className="mt-2 body-sm text-muted-foreground">
                 State what should change and the new value you want. The recorded event stays
-                unchanged until the Coordinator processes this request.
+                unchanged until a Coordinator processes this request.
               </p>
               <EventChangeRequestForm requestId={request.id} />
             </CardContent>
@@ -124,7 +125,9 @@ export function EventRequestDetailPage({
                 {request.changeRequests.map((item, index) => (
                   <li key={item.id} className="py-3 first:pt-0 last:pb-0">
                     <div className="flex items-center justify-between">
-                      <span className="eyebrow text-muted-foreground">Request #{index + 1}</span>
+                      <span className="eyebrow text-muted-foreground">
+                        Change request #{index + 1}
+                      </span>
                       <time
                         dateTime={item.createdAt.toISOString()}
                         className="body-sm text-muted-foreground"

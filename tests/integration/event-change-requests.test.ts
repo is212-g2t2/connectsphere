@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -181,6 +181,24 @@ describe("event change requests (PTR-51)", () => {
     });
   });
 
+  it("lists multiple requests in the order the Organiser raised them", async () => {
+    const event = await createEvent();
+
+    await handleRaiseEventChangeRequest(
+      { id: event.id, whatShouldChange: "Date", requestedValue: "18 November" },
+      organiser,
+      database as never
+    );
+    await handleRaiseEventChangeRequest(
+      { id: event.id, whatShouldChange: "Venue", requestedValue: "Harbour Hall" },
+      organiser,
+      database as never
+    );
+
+    const view = await handleGetEventRequest({ id: event.id }, organiser, database as never);
+    expect(view?.changeRequests.map(item => item.whatShouldChange)).toEqual(["Date", "Venue"]);
+  });
+
   it.each(["draft", "completed", "cancelled"] satisfies EventRequestStatus[])(
     "refuses a request while the event is %s (AC3)",
     async status => {
@@ -208,6 +226,10 @@ describe("event change requests (PTR-51)", () => {
 
   it("queues one notification for the assigned Coordinator (AC5)", async () => {
     const event = await createEvent();
+    await database
+      .update(schema.eventRequests)
+      .set({ eventName: "  submitted workshop  " })
+      .where(eq(schema.eventRequests.id, event.id));
     await handleRaiseEventChangeRequest(
       { id: event.id, whatShouldChange: "Venue", requestedValue: "Harbour Hall" },
       organiser,
@@ -230,6 +252,63 @@ describe("event change requests (PTR-51)", () => {
       whatShouldChange: "Venue",
       requestedValue: "Harbour Hall",
     });
+  });
+
+  it("waits for a concurrent completion and then refuses the stale request", async () => {
+    const event = await createEvent();
+    const gate = new Pool({ connectionString: process.env.DATABASE_URL });
+    const gateClient = await gate.connect();
+    let raising: ReturnType<typeof handleRaiseEventChangeRequest> | undefined;
+
+    try {
+      await gateClient.query("BEGIN");
+      await gateClient.query(
+        `UPDATE event_requests
+         SET status = 'completed',
+             decided_by_coordinator_id = $2,
+             decided_by_coordinator_name = $3,
+             decided_at = $4
+         WHERE id = $1`,
+        [event.id, coordinator.id, "PTR-51 Coordinator", new Date("2026-10-02T00:00:00Z")]
+      );
+      const { rows: gateRows } = await gateClient.query<{ pid: number }>(
+        "SELECT pg_backend_pid() AS pid"
+      );
+      const gatePid = gateRows[0].pid;
+
+      raising = handleRaiseEventChangeRequest(
+        { id: event.id, whatShouldChange: "Date", requestedValue: "Tomorrow" },
+        organiser,
+        database as never
+      );
+
+      await vi.waitFor(
+        async () => {
+          const waiting = await database.execute<{ count: string }>(
+            sql`SELECT count(*)::text AS count FROM pg_stat_activity
+                WHERE wait_event_type = 'Lock'
+                  AND query ILIKE '%event_requests%'
+                  AND query ILIKE '%for update%'
+                  AND ${gatePid}::int = ANY(pg_blocking_pids(pid))`
+          );
+          expect(Number(waiting.rows[0].count)).toBeGreaterThanOrEqual(1);
+        },
+        { timeout: 10_000, interval: 25 }
+      );
+
+      await gateClient.query("COMMIT");
+      await expect(raising).rejects.toMatchObject({ status: 409 });
+      const recorded = await database
+        .select()
+        .from(schema.eventChangeRequests)
+        .where(eq(schema.eventChangeRequests.eventRequestId, event.id));
+      expect(recorded).toHaveLength(0);
+    } finally {
+      await gateClient.query("ROLLBACK").catch(() => {});
+      await raising?.catch(() => {});
+      gateClient.release();
+      await gate.end();
+    }
   });
 
   it("keeps an unassigned event in the unassigned list and queues no notification (AC5)", async () => {
