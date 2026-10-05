@@ -296,6 +296,38 @@ export const clarificationRequests = pgTable(
   ]
 );
 
+/**
+ * PTR-51: an Organiser's requested post-submission change. The request is append-only here; PTR-52
+ * processes it later. Keeping the requested value outside `event_requests` ensures that raising a
+ * request cannot change the event's recorded information.
+ */
+export const eventChangeRequests = pgTable(
+  "event_change_requests",
+  {
+    id: serial("id").primaryKey(),
+    eventRequestId: integer("event_request_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    organiserId: text("organiser_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    whatShouldChange: text("what_should_change").notNull(),
+    requestedValue: text("requested_value").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    index("event_change_requests_event_request_id_idx").on(table.eventRequestId),
+    check(
+      "event_change_requests_what_should_change_present",
+      sql`btrim(${table.whatShouldChange}) <> '' and char_length(${table.whatShouldChange}) <= 2000`
+    ),
+    check(
+      "event_change_requests_requested_value_present",
+      sql`btrim(${table.requestedValue}) <> '' and char_length(${table.requestedValue}) <= 2000`
+    ),
+  ]
+);
+
 export const venues = pgTable(
   "venues",
   {
@@ -696,6 +728,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_booking_changed",
   "clarification_requested",
   "clarification_replied",
+  "event_change_requested",
   "handover_requested",
   "handover_accepted",
   "handover_declined",

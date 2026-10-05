@@ -4,6 +4,7 @@ import { requirePermission } from "#/features/auth/session";
 import {
   parseClarificationReply,
   parseDraftInput,
+  parseEventChangeRequestInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
 import { logger } from "#/lib/logger";
@@ -165,6 +166,26 @@ export const replyToClarification = createServerFn({ method: "POST" })
     log.info("Clarification replied", {
       requestId: data.id,
       clarificationId: data.clarificationId,
+      organiserId: context.user.id,
+    });
+
+    return result;
+  });
+
+/** PTR-51: records an Organiser's change request and notifies the assigned Coordinator. */
+export const raiseEventChangeRequest = createServerFn({ method: "POST" })
+  .validator(parseEventChangeRequestInput)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRaiseEventChangeRequest }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/change-requests.server"),
+    ]);
+    const result = await handleRaiseEventChangeRequest(data, context.user, db);
+
+    log.info("Event change request raised", {
+      requestId: data.id,
+      changeRequestId: result.id,
       organiserId: context.user.id,
     });
 

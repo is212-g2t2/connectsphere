@@ -2,6 +2,7 @@ import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
 import { EventRequestsPage } from "#/features/event-requests/components/request-page";
+import { EventRequestsPageSkeleton } from "#/features/event-requests/components/request-page-skeleton";
 import { EventRequestIdInput } from "#/features/event-requests/schema";
 import { getEventRequestDraft } from "#/features/event-requests/server-fns";
 import type { EventRequestDraft } from "#/features/event-requests/server-fns";
@@ -32,4 +33,5 @@ export const Route = createFileRoute("/_authenticated/event-requests/reopenDraft
     return draft;
   },
   component: () => <EventRequestsPage existingDraft={Route.useLoaderData()} />,
+  pendingComponent: EventRequestsPageSkeleton,
 });

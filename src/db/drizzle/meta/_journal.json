@@ -239,6 +239,13 @@
       "when": 1791061032499,
       "tag": "0033_lyrical_jamie_braddock",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791142379257,
+      "tag": "0034_smart_whizzer",
+      "breakpoints": true
     }
   ]
 }

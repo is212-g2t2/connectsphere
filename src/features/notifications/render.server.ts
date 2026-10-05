@@ -13,6 +13,7 @@ import { EquipmentReleasedEmail } from "#/features/emails/components/equipment-r
 import { EquipmentRequestEmail } from "#/features/emails/components/equipment-request-email";
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
+import { EventChangeRequestEmail } from "#/features/emails/components/event-change-request-email";
 import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
 import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
 import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
@@ -121,6 +122,18 @@ export function renderNotificationEmail(
           eventName,
           question,
           body,
+          eventRequestUrl: `${base}/coordination/${eventRequestId}`,
+        }),
+      };
+    }
+    case "event_change_requested": {
+      const { eventName, whatShouldChange, requestedValue } = notification.payload;
+      return {
+        subject,
+        element: createElement(EventChangeRequestEmail, {
+          eventName,
+          whatShouldChange,
+          requestedValue,
           eventRequestUrl: `${base}/coordination/${eventRequestId}`,
         }),
       };

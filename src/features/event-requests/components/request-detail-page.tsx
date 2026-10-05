@@ -8,12 +8,14 @@ import {
   UNTITLED_REQUEST,
 } from "#/features/event-requests/components/request-list-page";
 import { ClarificationReplyForm } from "#/features/event-requests/components/clarification-reply-form";
+import { EventChangeRequestForm } from "#/features/event-requests/components/event-change-request-form";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
 import {
   CLARIFICATION_FIELDS,
   EVENT_REQUEST_STATUS_LABELS,
   EVENT_REQUEST_STATUS_STAGES,
+  canRaiseEventChangeRequest,
   clarificationAmendmentKeys,
 } from "#/features/event-requests/schema";
 import type {
@@ -44,18 +46,22 @@ export function EventRequestDetailPage({
   back,
   children,
   showReplyForms = false,
+  showChangeRequestForm = false,
 }: {
   request: EventRequestDetail;
   back?: { to: "/event-requests" | "/coordination"; label: string };
   children?: React.ReactNode;
   /** The Organiser's own screen opts in; the Coordinator's shared read-only view must not reply. */
   showReplyForms?: boolean;
+  /** Only the Organiser's own detail route can raise a post-submission change request. */
+  showChangeRequestForm?: boolean;
 }) {
   const title = request.eventName.trim() || UNTITLED_REQUEST;
   const stage = EVENT_REQUEST_STATUS_STAGES[request.status];
   // A cancelled request keeps whatever decision it had, so the record decides, not the status.
   const hasDecision = stage.decided || request.decidedAt !== null;
   const replyValues = toDraftValues(request);
+  const canRequestChange = canRaiseEventChangeRequest(request.status);
 
   return (
     <Page width="page">
@@ -90,6 +96,56 @@ export function EventRequestDetailPage({
       />
 
       {children}
+
+      {showChangeRequestForm && canRequestChange && (
+        <section className="mt-8" aria-labelledby="change-request-heading">
+          <Card>
+            <CardContent>
+              <h2 id="change-request-heading" className="display-h3">
+                Request a change
+              </h2>
+              <p className="mt-2 body-sm text-muted-foreground">
+                State what should change and the new value you want. The recorded event stays
+                unchanged until a Coordinator processes this request.
+              </p>
+              <EventChangeRequestForm requestId={request.id} />
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {request.changeRequests.length > 0 && (
+        <section className="mt-8" aria-labelledby="change-requests-heading">
+          <Card>
+            <CardContent>
+              <h2 id="change-requests-heading" className="display-h3">
+                Change requests
+              </h2>
+              <ul className="mt-4 divide-y divide-border">
+                {request.changeRequests.map((item, index) => (
+                  <li key={item.id} className="py-3 first:pt-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <span className="eyebrow text-muted-foreground">
+                        Change request #{index + 1}
+                      </span>
+                      <time
+                        dateTime={item.createdAt.toISOString()}
+                        className="body-sm text-muted-foreground"
+                      >
+                        {formatInstant(item.createdAt)}
+                      </time>
+                    </div>
+                    <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+                      <Detail term="What should change">{item.whatShouldChange}</Detail>
+                      <Detail term="Requested new value">{item.requestedValue}</Detail>
+                    </dl>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       {hasDecision && (
         <Card className="mt-8">

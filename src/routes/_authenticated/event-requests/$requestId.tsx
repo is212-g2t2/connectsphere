@@ -2,6 +2,7 @@ import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
+import { EventRequestDetailPageSkeleton } from "#/features/event-requests/components/request-detail-page-skeleton";
 import { EventRequestIdInput } from "#/features/event-requests/schema";
 import { getEventRequest } from "#/features/event-requests/server-fns";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
@@ -28,5 +29,8 @@ export const Route = createFileRoute("/_authenticated/event-requests/$requestId"
     }
     return request;
   },
-  component: () => <EventRequestDetailPage request={Route.useLoaderData()} showReplyForms />,
+  component: () => (
+    <EventRequestDetailPage request={Route.useLoaderData()} showReplyForms showChangeRequestForm />
+  ),
+  pendingComponent: EventRequestDetailPageSkeleton,
 });
