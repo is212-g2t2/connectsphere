@@ -15,6 +15,11 @@ test.describe("Protected routes (Signed Out)", () => {
     await expect(page).toHaveURL(/\/login/);
     await expect(page.getByRole("heading", { name: /account/i })).toHaveCount(0);
   });
+
+  test("redirects an unauthenticated event page to login", async ({ page }) => {
+    await page.goto("/events/1");
+    await expect(page).toHaveURL(/\/login/);
+  });
 });
 
 /**

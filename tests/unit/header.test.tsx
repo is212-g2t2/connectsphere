@@ -5,7 +5,8 @@ import { Header } from "#/components/layout/header";
 import type { SessionUser } from "#/features/auth/session";
 
 const { useRouteContext } = vi.hoisted(() => ({
-  useRouteContext: vi.fn<(opts: { from: string }) => { user: SessionUser | null }>(),
+  useRouteContext:
+    vi.fn<(opts: { from: string }) => { user: SessionUser | null; unreadNotifications: number }>(),
 }));
 
 const { signOut, toast } = vi.hoisted(() => ({
@@ -14,8 +15,20 @@ const { signOut, toast } = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
+  Link: ({
+    children,
+    to,
+    ...rest
+  }: {
+    children: React.ReactNode;
+    to: string;
+    "aria-label"?: string;
+    title?: string;
+    className?: string;
+  }) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
   ),
   useRouteContext,
 }));
@@ -29,15 +42,22 @@ vi.mock("sonner", () => ({ toast }));
 const user: SessionUser = {
   id: "user-1",
   email: "organiser@example.com",
-  name: "Organiser",
+  name: "Organiser Person",
   image: null,
   role: "event_organiser",
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useRouteContext.mockReturnValue({ user });
+  useRouteContext.mockReturnValue({ user, unreadNotifications: 0 });
 });
+
+async function openAccountMenu(visitor: ReturnType<typeof userEvent.setup>) {
+  await visitor.click(screen.getByRole("button", { name: "Account menu" }));
+  // The menu popup mounts asynchronously (floating-ui positioning), so wait for it.
+  await screen.findByRole("menuitem", { name: "Sign out" });
+  return visitor;
+}
 
 /**
  * PTR-73: the nav is a pure function of the session the router already resolved. The component
@@ -46,7 +66,7 @@ beforeEach(() => {
  */
 describe("Header component", () => {
   it("reads the session from the root route context", () => {
-    useRouteContext.mockReturnValue({ user });
+    useRouteContext.mockReturnValue({ user, unreadNotifications: 0 });
 
     render(<Header />);
 
@@ -54,57 +74,80 @@ describe("Header component", () => {
     expect(useRouteContext).toHaveBeenCalledWith({ from: "__root__" });
   });
 
-  it("renders the signed-in nav on the first render when context carries a user", () => {
-    useRouteContext.mockReturnValue({ user });
+  it("renders the signed-in nav on the first render when context carries a user", async () => {
+    useRouteContext.mockReturnValue({ user, unreadNotifications: 0 });
+    const visitor = userEvent.setup();
 
-    render(<Header />);
+    const { container } = render(<Header />);
 
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Notifications" })).toBeTruthy();
+    expect(container.querySelector(".lucide-bell")).toBeTruthy();
+    expect(container.querySelector(".lucide-bell-dot")).toBeNull();
+    expect(screen.getByRole("button", { name: "Account menu" })).toBeTruthy();
+    expect(screen.getByText("OP")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeTruthy();
+
+    await openAccountMenu(visitor);
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
   });
 
-  it("omits the sign-out control when context carries no user", () => {
-    useRouteContext.mockReturnValue({ user: null });
+  it("marks the bell unread when the context carries unread notifications", () => {
+    useRouteContext.mockReturnValue({ user, unreadNotifications: 2 });
+
+    const { container } = render(<Header />);
+
+    expect(screen.getByRole("link", { name: "Notifications, unread" })).toBeTruthy();
+    expect(container.querySelector(".lucide-bell-dot")).toBeTruthy();
+  });
+
+  it("falls back to the email initial when the user has no name", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, name: null },
+      unreadNotifications: 0,
+    });
 
     render(<Header />);
 
-    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(screen.getByText("O")).toBeTruthy();
+  });
+
+  it("omits the signed-in controls when context carries no user", () => {
+    useRouteContext.mockReturnValue({ user: null, unreadNotifications: 0 });
+
+    render(<Header />);
+
+    expect(screen.queryByRole("button", { name: "Account menu" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Notifications" })).toBeNull();
   });
 });
 
 /**
- * PTR-71: signing out is a mutation, so React holds its in-flight flag. The `signingOut` boolean
- * it replaces was set before the call and cleared after it — but only on the path that returned,
- * so a refused sign-out left the button disabled for good with nothing on screen to say why.
+ * PTR-71: signing out is a mutation, so React holds its in-flight flag. A refused sign-out lands
+ * in the action's error state rather than leaving the nav pointing at a session that is still
+ * open — and the menu closes on click, so there is no in-flight button to assert on.
  */
 describe("Header sign-out", () => {
-  it("disables the control for as long as the sign-out is in flight", async () => {
+  it("signs out from the account menu", async () => {
     const visitor = userEvent.setup();
-    let complete!: () => void;
-    signOut.mockReturnValue(
-      new Promise(resolve => {
-        complete = () => resolve({ error: null });
-      })
-    );
+    signOut.mockResolvedValue({ error: null });
 
     render(<Header />);
-    await visitor.click(screen.getByRole("button", { name: "Sign out" }));
+    await openAccountMenu(visitor);
+    await visitor.click(screen.getByRole("menuitem", { name: "Sign out" }));
 
-    const button = await screen.findByRole("button", { name: "Signing out…" });
-    expect(button.hasAttribute("disabled")).toBe(true);
-
-    complete();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
+    await waitFor(() => expect(signOut).toHaveBeenCalled());
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it("surfaces a refused sign-out and leaves the control usable", async () => {
+  it("surfaces a refused sign-out", async () => {
     const visitor = userEvent.setup();
     signOut.mockResolvedValue({ error: { message: "Session already ended" } });
 
     render(<Header />);
-    await visitor.click(screen.getByRole("button", { name: "Sign out" }));
+    await openAccountMenu(visitor);
+    await visitor.click(screen.getByRole("menuitem", { name: "Sign out" }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Session already ended"));
-    const button = screen.getByRole("button", { name: "Sign out" });
-    expect(button.hasAttribute("disabled")).toBe(false);
   });
 });

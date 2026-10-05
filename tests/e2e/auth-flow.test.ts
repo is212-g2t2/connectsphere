@@ -33,7 +33,8 @@ test.describe("Auth Lifecycle Loop", () => {
     });
 
     // 2. Sign out so we can verify explicit login flow
-    await page.getByRole("button", { name: "Sign out" }).click();
+    await page.getByRole("button", { name: "Account menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
     await page.waitForURL("/", { timeout: 10_000 });
 
     // 3. Sign in via /login
@@ -53,12 +54,13 @@ test.describe("Auth Lifecycle Loop", () => {
     await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByText(testEmail)).toBeVisible({
+    await expect(page.getByRole("heading", { name: /welcome, e2e user/i })).toBeVisible({
       timeout: 10_000,
     });
 
     // 5. Sign out and go back — no protected info may display (PTR-6 AC3)
-    await page.getByRole("button", { name: "Sign out" }).click();
+    await page.getByRole("button", { name: "Account menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
     await page.waitForURL("/", { timeout: 10_000 });
     await page.goBack();
     await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });

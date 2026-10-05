@@ -16,8 +16,9 @@ import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
  * only thing under test is the scoping SQL and the projection contract.
  *
  * The fixtures are file-owned so the assertions do not depend on seed state. The one seed row that
- * would otherwise leak in is the registration-enabled demo event, which every attendee sees; the
- * attendee cases therefore find their row by id rather than asserting the whole list length.
+ * would otherwise leak in is the attendee demo event (confirmed, registration on), which every
+ * attendee sees; the attendee cases therefore find their row by id rather than asserting the
+ * whole list length.
  */
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
@@ -34,6 +35,18 @@ const fixtureUsers = {
     id: "el-outsider",
     name: "Event List Outsider",
     email: "el.outsider@example.com",
+    emailVerified: true,
+    role: "event_organiser",
+  },
+  /**
+   * Owns the confirmed fixtures below. A separate organiser keeps the organiser, outsider and
+   * coordinator list assertions untouched — those fixtures stay exactly as other roles rely on
+   * them — while no list test reads this account, so the attendee-visible rows leak nowhere.
+   */
+  extraOrganiser: {
+    id: "el-extra-organiser",
+    name: "Event List Extra Organiser",
+    email: "el.extra.organiser@example.com",
     emailVerified: true,
     role: "event_organiser",
   },
@@ -75,10 +88,19 @@ const fixtureUsers = {
 } satisfies Record<string, typeof schema.user.$inferInsert>;
 
 const fixtureUserIds = Object.values(fixtureUsers).map(user => user.id);
-const organiserIds = [fixtureUsers.organiser.id, fixtureUsers.outsider.id];
+const organiserIds = [
+  fixtureUsers.organiser.id,
+  fixtureUsers.outsider.id,
+  fixtureUsers.extraOrganiser.id,
+];
 const attendeeIds = [fixtureUsers.attendee.id, fixtureUsers.attendeeRegistered.id];
 
 const FIXTURE_VENUE_NAME = "Event List Hall";
+/**
+ * The confirmed fixtures' venue. Separate from the hall above so their approved booking never
+ * overlaps the pending rows the PTR-36 conflict test reads.
+ */
+const FIXTURE_VENUE_2_NAME = "Event List Room 2A";
 
 function session(key: keyof typeof fixtureUsers): SessionUser {
   const user = fixtureUsers[key];
@@ -101,6 +123,9 @@ interface Fixtures {
   foreign: typeof schema.eventRequests.$inferSelect;
   draft: typeof schema.eventRequests.$inferSelect;
   review: typeof schema.eventRequests.$inferSelect;
+  confirmedOpen: typeof schema.eventRequests.$inferSelect;
+  confirmedClosed: typeof schema.eventRequests.$inferSelect;
+  confirmedDisabled: typeof schema.eventRequests.$inferSelect;
 }
 
 describe("event list handler (PTR-8)", () => {
@@ -108,6 +133,7 @@ describe("event list handler (PTR-8)", () => {
   let database: Database;
   let fixtures: Fixtures;
   let fixtureVenueId: number;
+  let fixtureVenue2Id: number;
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -123,6 +149,16 @@ describe("event list handler (PTR-8)", () => {
       })
       .returning({ id: schema.venues.id });
     fixtureVenueId = venue.id;
+    const [venue2] = await database
+      .insert(schema.venues)
+      .values({
+        name: FIXTURE_VENUE_2_NAME,
+        location: "Fixture location",
+        maxCapacity: 40,
+        operatingHours: DEFAULT_OPERATING_HOURS,
+      })
+      .returning({ id: schema.venues.id });
+    fixtureVenue2Id = venue2.id;
   });
 
   afterAll(async () => {
@@ -130,7 +166,9 @@ describe("event list handler (PTR-8)", () => {
       .delete(schema.eventRequests)
       .where(inArray(schema.eventRequests.organiserId, organiserIds));
     await database.delete(schema.user).where(inArray(schema.user.id, fixtureUserIds));
-    await database.delete(schema.venues).where(eq(schema.venues.id, fixtureVenueId));
+    await database
+      .delete(schema.venues)
+      .where(inArray(schema.venues.id, [fixtureVenueId, fixtureVenue2Id]));
     await pool.end();
   });
 
@@ -216,6 +254,74 @@ describe("event list handler (PTR-8)", () => {
       })
       .returning();
 
+    /**
+     * PTR-44: the attendee-visible rows. A browsing attendee sees `confirmed` AND
+     * registration-enabled, so these live apart from the `submitted` fixtures other roles'
+     * tests rely on. They belong to the extra organiser with no assigned coordinator, so no
+     * organiser, outsider or coordinator list assertion sees them. `confirmed` carries the
+     * decision and confirmation attribution the CHECKs require.
+     */
+    const confirmedAttribution = {
+      submittedAt: new Date(),
+      decidedByCoordinatorId: fixtureUsers.coordinator.id,
+      decidedByCoordinatorName: fixtureUsers.coordinator.name,
+      decidedAt: new Date(),
+      confirmedById: fixtureUsers.coordinator.id,
+      confirmedByName: fixtureUsers.coordinator.name,
+      confirmedAt: new Date(),
+    };
+
+    const [confirmedOpen] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: fixtureUsers.extraOrganiser.id,
+        status: "confirmed",
+        eventName: "Confirmed open event",
+        purpose: "el-purpose",
+        description: "el-confirmed-description",
+        proposedDates: [{ start: "2026-12-05T10:00", end: "2026-12-05T15:00" }],
+        expectedAttendance: 50,
+        roomLayoutPreference: "Theatre",
+        accessibilityRequirements: "Step-free access",
+        venueRequirements: "Near MRT",
+        registrationEnabled: true,
+        registrationCapacity: 60,
+        ...OPEN_WINDOW,
+        ...confirmedAttribution,
+      })
+      .returning();
+
+    // A closed window stays visible: the window gates the registration action, not the view.
+    // No approved booking, so its venue reads null.
+    const [confirmedClosed] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: fixtureUsers.extraOrganiser.id,
+        status: "confirmed",
+        eventName: "Confirmed closed-window event",
+        description: "el-confirmed-closed-description",
+        proposedDates: [{ start: "2026-12-06T10:00", end: "2026-12-06T12:00" }],
+        registrationEnabled: true,
+        registrationCapacity: 60,
+        ...CLOSED_WINDOW,
+        ...confirmedAttribution,
+      })
+      .returning();
+
+    // Registration off means no terms at all (the CHECK refuses anything else) and no view.
+    const [confirmedDisabled] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: fixtureUsers.extraOrganiser.id,
+        status: "confirmed",
+        eventName: "Confirmed registration-off event",
+        description: "el-confirmed-disabled-description",
+        proposedDates: [{ start: "2026-12-07T10:00", end: "2026-12-07T12:00" }],
+        registrationEnabled: false,
+        ...confirmedAttribution,
+      })
+      .returning();
+
     await database.insert(schema.venueRequests).values([
       {
         // Sorts before the pending row; with the fallback gone it must not reach the card, and the
@@ -256,6 +362,17 @@ describe("event list handler (PTR-8)", () => {
         startsAt: "2026-11-01 09:00:00",
         endsAt: "2026-11-01 12:00:00",
         status: "withdrawn",
+      },
+      {
+        // The booking the open confirmed event was confirmed against (PTR-44 AC2): unassigned
+        // and approved, so it reaches no staff queue and only the attendee venue lookup reads it.
+        id: "el-venue-confirmed-open",
+        eventId: confirmedOpen.id,
+        venueId: fixtureVenue2Id,
+        requestedById: fixtureUsers.coordinator.id,
+        startsAt: "2026-12-05 10:00:00",
+        endsAt: "2026-12-05 15:00:00",
+        status: "approved",
       },
     ]);
 
@@ -298,7 +415,16 @@ describe("event list handler (PTR-8)", () => {
       },
     ]);
 
-    fixtures = { main, closed, foreign, draft, review };
+    fixtures = {
+      main,
+      closed,
+      foreign,
+      draft,
+      review,
+      confirmedOpen,
+      confirmedClosed,
+      confirmedDisabled,
+    };
   });
 
   function insertRejected(
@@ -737,28 +863,127 @@ describe("event list handler (PTR-8)", () => {
       expect(projection.event).not.toHaveProperty("venueRequest");
     });
 
-    it("gives an unregistered attendee the registration terms, with no registration and no internal fields", async () => {
+    it("gives an unregistered attendee the PTR-44 fields, the venue, and no internal planning information", async () => {
       const [projection] = await handleListEvents(
-        { eventId: fixtures.main.id },
+        { eventId: fixtures.confirmedOpen.id },
         session("attendee"),
         database as never
       );
 
       expect(projection.access).toBe("attendee");
       expect(projection.event).toMatchObject({
-        id: fixtures.main.id,
-        name: "Open registration event",
-        description: "el-description",
-        eventDate: "2026-10-12",
+        id: fixtures.confirmedOpen.id,
+        name: "Confirmed open event",
+        description: "el-confirmed-description",
+        eventDate: "2026-12-05",
+        startTime: "10:00",
+        endTime: "15:00",
         registrationOpensAt: OPEN_WINDOW.registrationOpensAt,
         registrationClosesAt: OPEN_WINDOW.registrationClosesAt,
         registration: null,
+        venue: {
+          name: FIXTURE_VENUE_2_NAME,
+          location: "Fixture location",
+          date: "2026-12-05",
+          endDate: "2026-12-05",
+          startTime: "10:00",
+          endTime: "15:00",
+        },
       });
       // Everyone with access sees the stage.
-      expect(projection.event.status).toBe("submitted");
-      expect(projection.event).not.toHaveProperty("expectedAttendance");
-      expect(projection.event).not.toHaveProperty("equipment");
-      expect(projection.event).not.toHaveProperty("venueRequest");
+      expect(projection.event.status).toBe("confirmed");
+      // AC3: no booking decisions, equipment, or clarification threads — and no confirmation
+      // record either (PTR-24 withholds it from attendees).
+      expect(Object.keys(projection.event).toSorted()).toEqual(
+        [
+          "description",
+          "endDate",
+          "endTime",
+          "eventDate",
+          "id",
+          "name",
+          "registration",
+          "registrationClosesAt",
+          "registrationEnabled",
+          "registrationOpensAt",
+          "startTime",
+          "status",
+          "venue",
+        ].toSorted()
+      );
+    });
+
+    it("keeps the earliest-created approved booking when a later one exists (determinism)", async () => {
+      // A different venue from the first booking, so the ADR-5 overlap rule cannot fire; the
+      // explicitly later createdAt proves the earliest-created booking wins, not the newest row.
+      await database.insert(schema.venueRequests).values({
+        id: "el-venue-confirmed-open-second",
+        eventId: fixtures.confirmedOpen.id,
+        venueId: fixtureVenueId,
+        requestedById: fixtureUsers.coordinator.id,
+        startsAt: "2026-12-05 10:00:00",
+        endsAt: "2026-12-05 15:00:00",
+        status: "approved",
+        createdAt: new Date(Date.now() + 60_000),
+      });
+
+      const [projection] = await handleListEvents(
+        { eventId: fixtures.confirmedOpen.id },
+        session("attendee"),
+        database as never
+      );
+      expect(projection.event.venue).toMatchObject({
+        name: FIXTURE_VENUE_2_NAME,
+        date: "2026-12-05",
+      });
+    });
+
+    it("keeps a confirmed event visible after its registration window has closed (PTR-44: the window gates the action, not the view)", async () => {
+      const listed = await handleListEvents({}, session("attendee"), database as never);
+
+      expect(listed.map(row => row.event.id)).toContain(fixtures.confirmedClosed.id);
+
+      const [projection] = await handleListEvents(
+        { eventId: fixtures.confirmedClosed.id },
+        session("attendee"),
+        database as never
+      );
+      expect(projection.access).toBe("attendee");
+      expect(projection.event.venue).toBeNull();
+    });
+
+    it("keeps a confirmed event with registration off out of an attendee's list and refuses it by id", async () => {
+      const listed = await handleListEvents({}, session("attendee"), database as never);
+
+      expect(listed.map(row => row.event.id)).not.toContain(fixtures.confirmedDisabled.id);
+      await expect(
+        handleListEvents(
+          { eventId: fixtures.confirmedDisabled.id },
+          session("attendee"),
+          database as never
+        )
+      ).rejects.toMatchObject({
+        name: "AuthorizationError",
+        status: 403,
+        message: "Forbidden",
+      });
+    });
+
+    it("keeps a submitted event out of an attendee's list and refuses it by id (PTR-44: submitted is no longer the stand-in)", async () => {
+      const listed = await handleListEvents({}, session("attendee"), database as never);
+
+      expect(listed.map(row => row.event.id)).toContain(fixtures.confirmedOpen.id);
+      expect(listed.map(row => row.event.id)).not.toContain(fixtures.main.id);
+      expect(listed.map(row => row.event.id)).not.toContain(fixtures.closed.id);
+      expect(listed.map(row => row.event.id)).not.toContain(fixtures.foreign.id);
+      expect(listed.map(row => row.event.id)).not.toContain(fixtures.draft.id);
+      await expect(
+        handleListEvents({ eventId: fixtures.main.id }, session("attendee"), database as never)
+      ).rejects.toMatchObject({
+        name: "AuthorizationError",
+        status: 403,
+        message: "Forbidden",
+      });
     });
 
     it("keeps an event visible to an attendee whose own registration outlives the closed window", async () => {
@@ -775,21 +1000,10 @@ describe("event list handler (PTR-8)", () => {
       });
     });
 
-    it("silently omits an event whose registration window has closed for an unregistered attendee", async () => {
-      // The row is selected because registration is enabled, but the window check denies it and
-      // the projection drops it — so it never reaches this caller.
-      const listed = await handleListEvents({}, session("attendee"), database as never);
-
-      expect(listed.map(row => row.event.id)).toContain(fixtures.main.id);
-      expect(listed.map(row => row.event.id)).not.toContain(fixtures.closed.id);
-      expect(listed.map(row => row.event.id)).not.toContain(fixtures.foreign.id);
-      expect(listed.map(row => row.event.id)).not.toContain(fixtures.draft.id);
-    });
-
     it("keeps an under-review event out of an attendee's list and refuses it by id", async () => {
       const listed = await handleListEvents({}, session("attendee"), database as never);
 
-      expect(listed.map(row => row.event.id)).toContain(fixtures.main.id);
+      expect(listed.map(row => row.event.id)).toContain(fixtures.confirmedOpen.id);
       expect(listed.map(row => row.event.id)).not.toContain(fixtures.review.id);
       await expect(
         handleListEvents({ eventId: fixtures.review.id }, session("attendee"), database as never)

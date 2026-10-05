@@ -1,7 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
 import { Page, PageHeader } from "#/components/layout/page";
-import { Card, CardContent } from "#/components/ui/card";
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -16,36 +15,9 @@ import { EventWorkspace } from "#/features/events/components/event-workspace";
 export function DashboardPage({ user, events }: { user: SessionUser; events: EventProjection[] }) {
   return (
     <Page width="wide">
-      <PageHeader
-        eyebrow="Dashboard"
-        title={`Welcome, ${user.name?.trim() || user.email}`}
-        description="Your ConnectSphere home. Events and requests are filtered by your role and relationship to each event; server-side checks enforce the same boundary for direct requests."
-      />
-
-      <Card>
-        <CardContent>
-          <dl className="grid gap-6 sm:grid-cols-3">
-            <div>
-              <dt className="eyebrow text-muted-foreground">Session</dt>
-              <dd className="mt-2 body-md font-medium">Active</dd>
-            </div>
-            <div>
-              <dt className="eyebrow text-muted-foreground">Email</dt>
-              <dd className="mt-2 truncate body-md font-medium">{user.email}</dd>
-            </div>
-            <div>
-              <dt className="eyebrow text-muted-foreground">Role</dt>
-              <dd className="mt-2 truncate body-md font-medium">{user.role ?? "attendee"}</dd>
-            </div>
-          </dl>
-        </CardContent>
-      </Card>
+      <PageHeader eyebrow="Dashboard" title={`Welcome, ${user.name?.trim() || user.email}`} />
 
       <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3">
-        <Link to="/notifications" className={NAV_LINK_CLASSNAME}>
-          Notifications
-        </Link>
-
         {can(user.role, { event_request: ["create"] }) && (
           <Link to="/event-requests" className={NAV_LINK_CLASSNAME}>
             Event requests
@@ -90,12 +62,6 @@ export function DashboardPage({ user, events }: { user: SessionUser; events: Eve
       </div>
 
       <EventWorkspace events={events} />
-
-      <div className="mt-12 border-t border-border pt-6">
-        <Link to="/settings" className={NAV_LINK_CLASSNAME}>
-          Account settings
-        </Link>
-      </div>
     </Page>
   );
 }

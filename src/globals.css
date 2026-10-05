@@ -34,6 +34,9 @@
      decorative rule and fails WCAG 1.4.11 for the border that *identifies* an input. */
   --stroke: rgba(21, 21, 21, 0.46);
 
+  /* The one expressive color moment: event cover art on the attendee event page. */
+  --accent-gradient: linear-gradient(90deg, #d93384, #f59e0b);
+
   /* Radii. Pill for anything you act on, soft rectangle for anything you read inside. 8px is the
      floor for a surface; control glyphs and nested inner corners are the documented exceptions. */
   --rounded-sm: 8px;
@@ -166,6 +169,12 @@
   line-height: 1.1;
 }
 
+@utility event-title {
+  font-size: 3rem;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
 @utility body-md {
   font-size: 0.9375rem;
   line-height: 1.5;
@@ -200,6 +209,10 @@
   font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.5;
+}
+
+@utility cover-art {
+  background-image: var(--accent-gradient);
 }
 
 /* The elevation, layout and overlay scales in docs/DESIGN.md. */

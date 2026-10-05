@@ -19,7 +19,6 @@ import type { SessionUser } from "#/features/auth/session";
 import {
   getEventAccess,
   isEquipmentQueueRow,
-  isRegistrationWindowOpen,
   isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
@@ -88,9 +87,10 @@ export async function loadAssignedEvent(
  * to decide whether a notification's subject is still reachable (PTR-55 AC5). `undefined` is an
  * unknown or missing role, which is granted nothing rather than everything.
  *
- * Every branch is scoped in SQL: the four internal roles see every non-draft status, while
- * browsing attendees are gated on `submitted` as the stand-in for PTR-44's `confirmed` (PTR-8),
- * and an existing registration keeps a non-draft event visible.
+ * Every branch is scoped in SQL: the four internal roles see every non-draft status, while a
+ * browsing attendee sees a `confirmed` event with registration enabled (PTR-44, superseding
+ * PTR-8's `submitted` stand-in — the live window is not a visibility gate), and an existing
+ * registration keeps a non-draft event visible.
  */
 export function connectedEventCondition(
   database: Pick<Database, "select">,
@@ -98,7 +98,10 @@ export function connectedEventCondition(
 ): SQL | undefined {
   const role = RoleSchema.safeParse(user.role).data ?? null;
   const visible = ne(eventRequests.status, "draft");
-  const attendeeVisible = eq(eventRequests.status, "submitted");
+  const attendeeVisible = and(
+    eq(eventRequests.status, "confirmed"),
+    eq(eventRequests.registrationEnabled, true)
+  );
 
   switch (role) {
     case "event_organiser":
@@ -161,7 +164,7 @@ export function connectedEventCondition(
       );
     case "attendee":
       return or(
-        and(attendeeVisible, eq(eventRequests.registrationEnabled, true)),
+        attendeeVisible,
         and(
           visible,
           inArray(
@@ -185,7 +188,6 @@ export async function handleListEvents(
   database: Database
 ): Promise<EventProjection[]> {
   const { eventId } = parseEventListInput(data);
-  const now = new Date();
   const role = RoleSchema.safeParse(user.role).data ?? null;
 
   // The event is the event request (PTR-21/24's event record replaces this). Each role reaches
@@ -278,15 +280,20 @@ export async function handleListEvents(
       ? await loadVenueRequestOutcomesForEvents(database, requestIds)
       : new Map<number, VenueRequestOutcome>();
 
-  // PTR-24 AC3: the booking a confirmed event was confirmed against, for the two roles that are
-  // shown it. Only an approved booking counts; a released one leaves `venue` null.
+  // PTR-24 AC3: the booking a confirmed event was confirmed against, for the roles that are
+  // shown it — the organiser, the coordinator, and the browsing attendee (PTR-44 AC2). Only an
+  // approved booking counts; a released one leaves `venue` null.
   const confirmedVenues = new Map<number, NonNullable<EventConfirmation["venue"]>>();
   const confirmedIds = requestRows.filter(row => row.status === "confirmed").map(row => row.id);
-  if (confirmedIds.length > 0 && (role === "event_organiser" || role === "event_coordinator")) {
+  if (
+    confirmedIds.length > 0 &&
+    (role === "event_organiser" || role === "event_coordinator" || role === "attendee")
+  ) {
     const bookings = await database
       .select({
         eventId: venueRequests.eventId,
         name: venues.name,
+        location: venues.location,
         startsAt: venueRequests.startsAt,
         endsAt: venueRequests.endsAt,
       })
@@ -294,14 +301,22 @@ export async function handleListEvents(
       .innerJoin(venues, eq(venues.id, venueRequests.venueId))
       .where(
         and(inArray(venueRequests.eventId, confirmedIds), eq(venueRequests.status, "approved"))
-      );
+      )
+      .orderBy(venueRequests.createdAt, venueRequests.id);
+    // The earliest-created approved booking is chosen so the render is stable. The booking used
+    // at confirmation is not stored (a PTR-24 follow-up), so a booking approved after
+    // confirmation can change which venue shows.
     for (const booking of bookings) {
-      confirmedVenues.set(booking.eventId, {
-        name: booking.name,
-        date: booking.startsAt.slice(0, 10),
-        startTime: booking.startsAt.slice(11, 16),
-        endTime: booking.endsAt.slice(11, 16),
-      });
+      if (!confirmedVenues.has(booking.eventId)) {
+        confirmedVenues.set(booking.eventId, {
+          name: booking.name,
+          location: booking.location,
+          date: booking.startsAt.slice(0, 10),
+          endDate: booking.endsAt.slice(0, 10),
+          startTime: booking.startsAt.slice(11, 16),
+          endTime: booking.endsAt.slice(11, 16),
+        });
+      }
     }
   }
 
@@ -376,7 +391,8 @@ export async function handleListEvents(
           ? [user.id]
           : []
       ),
-      isRegistrationWindowOpen: isRegistrationWindowOpen(record, now),
+      status: record.status,
+      registrationEnabled: record.registrationEnabled,
       hasOwnRegistration: ownRegistration !== null,
     });
 

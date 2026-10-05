@@ -73,6 +73,8 @@ This guide covers the local development environment, the scripts catalogue, data
 
 The seeded attendee (`john.doe@example.com`) and organiser (`jane.doe@example.com`) also use `Seed-Pass123!`. The demo event request connects to all five roles, so you can check each access projection locally. It belongs to jane. The seeded Coordinator and Venue Staff are assigned to it. Technical Support holds an equipment request for it, and john is registered.
 
+A second event, ConnectSphere Open Day, is confirmed with registration on, so attendees can open its event page.
+
 These credentials are not for production (shared password, `example.com` addresses, no real personal data). Never use them outside local or demo environments.
 
 The seed also creates three demo venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion). Each venue has capacity, facilities, accessibility features, supported layouts, and operating hours. The seed adds two future periods of unavailability. A re-run of `bun run db:seed` is safe: it leaves existing accounts and venues untouched.

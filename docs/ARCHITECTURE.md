@@ -95,8 +95,9 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
-│       ├── _authenticated/    # dashboard, settings, coordination, event-requests, venues, notifications
+│       ├── _authenticated/    # dashboard, settings, coordination, event-requests, events, venues, notifications
 │       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
+│       │   ├── events/ # Attendee view of a published (confirmed, registration-on) event
 │       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection
 │       │   └── venue-bookings/ # Venue Staff's approved-booking release and amendment view
 │       ├── api/          # Better Auth handler, health, smoke, cron
@@ -115,7 +116,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 
 1. **Routing**: TanStack Router. A route module contains wiring only: search validation, guards, loaders, metadata, pending components, and error components. The view is a feature component (`src/features/<feature>/components/<page>-page.tsx`) that takes its route data as props. The route binds the two with `component: () => <Page {...Route.use*()} />`, so the view renders in a unit test without a router. `tests/unit/route-module-boundaries.test.ts` enforces the split.
 2. **SSR**: TanStack Start renders the initial HTML through Nitro.
-3. **Sessions**: `src/routes/__root.tsx` resolves the session once per navigation in `beforeLoad`, for every route, so the header renders the user in the server markup. `src/routes/_authenticated.tsx` narrows the session to a signed-in user and redirects visitors to `/login`. Its children read the inherited `context.user`, and they do not call `getCurrentUser()` themselves. The role-gated routes repeat a `can()` check in their own `beforeLoad` and redirect on failure. The authentication routes redirect signed-in users to `/dashboard`.
+3. **Sessions**: `src/routes/__root.tsx` resolves the session in `beforeLoad` on each full load (TanStack retains the root match across sibling client navigations), for every route, so the header renders the user in the server markup. `src/routes/_authenticated.tsx` narrows the session to a signed-in user and redirects visitors to `/login`. Its children read the inherited `context.user`, and they do not call `getSessionContext()` themselves. The role-gated routes repeat a `can()` check in their own `beforeLoad` and redirect on failure. The authentication routes and the landing route redirect signed-in users to `/dashboard`.
 4. **Server functions**: every `createServerFn` is a directly addressable HTTP route, so authorization runs in middleware, never in the route guard or the handler. Handlers do pure database work, with no session lookup and no `can()` of their own. The full model is [Authorization](#authorization).
 5. **Client mutations**: browser writes that a form does not own (save a draft, delete an account, sign out) run through `useMutation` (`src/hooks/use-mutation.ts`). That hook is a thin wrapper over React's `useActionState`, and it holds the run's in-flight flag, result, and error. The run receives the last _successful_ result, so a server-assigned draft id reaches the next save without the page storing it.
 6. **Authentication flow**: forms in `src/features/auth/components/` call `src/lib/auth-client.ts`. The routes are `/login`, `/signup`, and `/reset-password` (`?token=`).

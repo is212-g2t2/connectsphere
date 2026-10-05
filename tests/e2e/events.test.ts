@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { DEMO_EVENT_NAME, SEED_STAFF_PASSWORD } from "../../scripts/seed";
+import {
+  ATTENDEE_DEMO_EVENT_NAME,
+  ATTENDEE_DEMO_VENUE_NAME,
+  DEMO_EVENT_NAME,
+  SEED_STAFF_PASSWORD,
+} from "../../scripts/seed";
 import { waitForHydration } from "./hydration";
 
 async function signInAsSeeded(page: Page, email: string): Promise<void> {
@@ -49,10 +54,47 @@ test.describe("Event access", () => {
 
     await page.goto("/dashboard");
 
-    // The seed's demo request is submitted with registration enabled and an open window, so a
+    // The seed's attendee demo is a confirmed event with registration on, so a
     // brand-new attendee sees it as "attendee access".
     await expect(page.getByText("attendee access").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toBeVisible();
+    await expect(page.getByRole("heading", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
+  });
+
+  test("opens a confirmed event and shows only its published details", async ({ page }) => {
+    const email = `e2e-events-page-${Date.now()}@example.com`;
+    const password = "Password123!";
+
+    await page.goto("/signup");
+    await waitForHydration(page);
+    await page.locator("#name").fill("E2E Events Page Attendee");
+    await page.locator("#email").fill(email);
+    await page.locator("#password").fill(password);
+    await page.locator("#confirmPassword").fill(password);
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await page.goto("/dashboard");
+    await expect(page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible({
+      timeout: 10_000,
+    });
+    await page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME }).click();
+
+    // A published event has its own page under its id.
+    await expect(page).toHaveURL(/\/events\/\d+/);
+    await expect(page.getByRole("heading", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
+    await expect(page.getByText("An open day for new members: meet the organisers")).toBeVisible();
+    // Structure, not hardcoded dates: the seed moves its window on every run.
+    await expect(page.getByText(ATTENDEE_DEMO_VENUE_NAME).first()).toBeVisible();
+    await expect(page.getByText("Level 2, ConnectSphere Marina Centre").first()).toBeVisible();
+    await expect(page.getByText("Registration", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "About Event" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open in Maps" })).toHaveCount(0);
+    // No internal planning information leaves the server projection.
+    await expect(page.getByText("Venue request", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Equipment arrangements")).toHaveCount(0);
+    await expect(page.getByText("Expected attendance")).toHaveCount(0);
   });
 
   test("gives the assigned coordinator their event", async ({ page }) => {

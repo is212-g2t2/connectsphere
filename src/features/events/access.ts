@@ -16,7 +16,8 @@ interface EventAccessInput {
   assignedCoordinatorId: string | null;
   venueStaffIds: string[];
   technicalSupportIds: string[];
-  isRegistrationWindowOpen: boolean;
+  status: EventRequestStatus;
+  registrationEnabled: boolean;
   hasOwnRegistration: boolean;
 }
 
@@ -33,9 +34,23 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
   ) {
     return "technical_support";
   }
-  if (input.role === "attendee" && (input.isRegistrationWindowOpen || input.hasOwnRegistration))
+  // PTR-44: a browsing attendee sees a confirmed event with registration on; the live window is
+  // not a gate here (PTR-45/PTR-50 own it at the registration action). An own registration keeps
+  // a non-draft event visible. This mirrors the attendee leg of `connectedEventCondition` in SQL.
+  if (
+    input.role === "attendee" &&
+    (isPublishedForAttendees(input) || (input.status !== "draft" && input.hasOwnRegistration))
+  )
     return "attendee";
   return null;
+}
+
+/** PTR-44 AC1/AC5: the events a browsing attendee may open — confirmed with registration on. */
+export function isPublishedForAttendees(event: {
+  status: EventRequestStatus;
+  registrationEnabled?: boolean | null;
+}): boolean {
+  return event.status === "confirmed" && event.registrationEnabled === true;
 }
 
 /**
@@ -68,34 +83,6 @@ export function isVenueQueueRow(
   ]);
 }
 
-/**
- * Whether registration is open at this instant. The stored window is a `datetime-local` string
- * with no offset (PTR-11), so it is read on the same arbitrary meridian the draft schema parses
- * it on, and compared as instants rather than lexicographically. Missing terms or registration
- * turned off fail closed.
- *
- * PTR-8 criterion 4 says "open to registration" for a *published* event; until PTR-21/24 add
- * `confirmed`, the caller applies the status gate for browsing attendees and this only answers
- * the window.
- */
-export function isRegistrationWindowOpen(
-  request: {
-    registrationEnabled: boolean;
-    registrationOpensAt: string | null;
-    registrationClosesAt: string | null;
-  },
-  now = new Date()
-): boolean {
-  const { registrationEnabled, registrationOpensAt, registrationClosesAt } = request;
-  if (!registrationEnabled || registrationOpensAt === null || registrationClosesAt === null) {
-    return false;
-  }
-  return (
-    Date.parse(`${registrationOpensAt}Z`) <= now.getTime() &&
-    now.getTime() < Date.parse(`${registrationClosesAt}Z`)
-  );
-}
-
 /** The first proposed window with both sides present — a submitted request has at least one. */
 export function eventTiming(dates: Array<{ start?: string; end?: string }>) {
   const window = dates.find(date => date.start !== undefined && date.end !== undefined);
@@ -116,6 +103,7 @@ interface EventRecord {
   description: string;
   status: EventRequestStatus;
   proposedDates: Array<{ start?: string; end?: string }>;
+  registrationEnabled: boolean;
   equipmentSubmittedAt?: Date | null;
   equipmentArrangementsCompletedAt?: Date | null;
   confirmedAt?: Date | null;
@@ -172,15 +160,29 @@ export interface EventVenueRequest {
 }
 
 /**
+ * The venue of the approved booking a confirmed event was confirmed against. Times are `HH:MM`,
+ * the date is `YYYY-MM-DD`. `endDate` is the booking's end day, so a cross-midnight booking
+ * renders its full range.
+ */
+export interface EventVenue {
+  name: string;
+  location: string;
+  date: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+}
+
+/**
  * PTR-24 AC3: what an Organiser or Coordinator sees of a confirmed event — who confirmed it and
  * when, and the venue booking it was confirmed against. `venue` is null when that booking has
  * since been released: the status does not move by itself (AC6), so the view says the booking is
- * gone rather than hiding the confirmation. Times are `HH:MM`, the date is `YYYY-MM-DD`.
+ * gone rather than hiding the confirmation.
  */
 export interface EventConfirmation {
   confirmedAt: string;
   confirmedByName: string;
-  venue: { name: string; date: string; startTime: string; endTime: string } | null;
+  venue: EventVenue | null;
 }
 
 /**
@@ -235,11 +237,13 @@ export interface EventProjection {
     status: EventRequestStatus;
     registrationOpensAt?: string | null;
     registrationClosesAt?: string | null;
+    registrationEnabled?: boolean;
     expectedAttendance?: number | null;
     layout?: string | null;
     accessibilityRequirements?: string | null;
     requiredFacilities?: string | null;
     registration?: { status: string; registeredAt: string } | null;
+    venue?: EventVenue | null;
     venueRequest?: EventVenueRequest | null;
     equipment?: EquipmentLineProjection[];
     confirmation?: EventConfirmation | null;
@@ -284,8 +288,10 @@ export function isEquipmentArrangementsSatisfied(
 }
 
 /**
- * The role-specific projection (PTR-8 criteria 3 and 4). A venue is not part of any branch: none
- * is chosen until a booking exists (PTR-31), and PTR-44 AC2's venue returns with it.
+ * The role-specific projection (PTR-8 criteria 3 and 4). The attendee branch carries PTR-44
+ * AC2's fields — name, description, date/time, the registration period, the attendee's own
+ * registration, and the venue of the approved booking the event was confirmed against (null
+ * once released) — and no booking decisions, equipment, or clarification threads.
  */
 export function projectEvent(
   record: EventRecord,
@@ -309,7 +315,9 @@ export function projectEvent(
           status: record.status,
           registrationOpensAt: record.registrationOpensAt,
           registrationClosesAt: record.registrationClosesAt,
+          registrationEnabled: record.registrationEnabled,
           registration: ownRegistration,
+          venue: confirmedVenue,
         },
       };
 

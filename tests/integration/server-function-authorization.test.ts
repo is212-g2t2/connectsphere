@@ -7,7 +7,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
-import { getCurrentUser, listAccounts, requireSession } from "#/features/auth/session";
+import { getSessionContext, listAccounts, requireSession } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   acceptEventHandover,
@@ -921,12 +921,12 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(listAccounts, undefined, "GET")).error).toBeUndefined();
     });
 
-    // `getCurrentUser` is intentionally session-optional (the root route reads it to tell a
+    // `getSessionContext` is intentionally session-optional (the root route reads it to tell a
     // signed-out visitor they are signed out), so "no session" is the allow path, not a 401.
     it("answers the current user with no session, so a rewire to requireSession would fail (PTR-98)", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
 
-      expect((await call(getCurrentUser, undefined, "GET")).error).toBeUndefined();
+      expect((await call(getSessionContext, undefined, "GET")).error).toBeUndefined();
     });
 
     it.each([
@@ -938,7 +938,7 @@ describe("server-function authorization (PTR-69)", () => {
     ])("lets a signed-in %s read the current user (PTR-98)", async role => {
       signIn(role);
 
-      expect((await call(getCurrentUser, undefined, "GET")).error).toBeUndefined();
+      expect((await call(getSessionContext, undefined, "GET")).error).toBeUndefined();
     });
   });
 

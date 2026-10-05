@@ -101,6 +101,10 @@ test("[PTR-55] reads notifications, follows one, and sees no data for an event o
     await page.goto("/notifications");
     await waitForHydration(page);
 
+    await expect(
+      page.getByRole("link", { name: "Notifications, unread", exact: true })
+    ).toBeVisible();
+
     await expect(page.getByRole("heading", { name: "Notifications" })).toBeVisible();
 
     const items = page.getByRole("listitem");
@@ -177,6 +181,10 @@ test("[PTR-56] tells unread from read and marks one, then all, read", async ({ p
     await page.goto("/notifications");
     await waitForHydration(page);
 
+    await expect(
+      page.getByRole("link", { name: "Notifications, unread", exact: true })
+    ).toBeVisible();
+
     const items = page.getByRole("listitem");
     await expect(items).toHaveCount(3);
     await expect(page.getByRole("status")).toHaveText("2 unread");
@@ -195,6 +203,7 @@ test("[PTR-56] tells unread from read and marks one, then all, read", async ({ p
     await expect(page.getByRole("status")).toHaveText("Nothing unread");
     await expect(page.getByText("Unread", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Mark all as read" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Notifications", exact: true })).toBeVisible();
   } finally {
     await database
       .delete(schema.notifications)

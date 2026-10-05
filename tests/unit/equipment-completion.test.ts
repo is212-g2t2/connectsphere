@@ -114,6 +114,7 @@ const record = (completedAt: Date | null) => ({
   description: "",
   status: "planning" as const,
   proposedDates: [{ start: "2030-01-01T10:00", end: "2030-01-01T12:00" }],
+  registrationEnabled: false,
   equipmentSubmittedAt: new Date(),
   equipmentArrangementsCompletedAt: completedAt,
   expectedAttendance: 10,
