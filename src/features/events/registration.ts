@@ -27,11 +27,12 @@ export function placeLimit(
 }
 
 /**
- * AC8 and AC9: whether a registration that brings the registered count to `registered` tells the
- * Organiser and the Coordinator. That is so at the limit, and at 90% of it rounded up.
+ * AC8 and AC9: the mark that a registered count stands on, which the Organiser and the Coordinator
+ * are told of: the limit itself, or 90% of it rounded up. Null between the marks.
  */
-export function crossesPlaceThreshold(registered: number, limit: number): boolean {
-  return registered === limit || registered === Math.ceil(limit * 0.9);
+export function placeMark(registered: number, limit: number): "full" | "nearly_full" | null {
+  if (registered === limit) return "full";
+  return registered === Math.ceil(limit * 0.9) ? "nearly_full" : null;
 }
 
 /** The terms of a published event; the handler refuses an unpublished one before this runs. */

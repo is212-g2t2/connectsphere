@@ -104,15 +104,13 @@ export const addVipRegistration = createServerFn({ method: "POST" })
   .validator(parseVipRegistrationInput)
   .handler(async ({ data, context }) => {
     const [{ db }, { handleAddVipRegistration }] = await loadRegisterServer();
-    const vip = await handleAddVipRegistration(data, context.user, db);
+    await handleAddVipRegistration(data, context.user, db);
 
     log.info("VIP registration recorded", {
       eventId: data.id,
-      attendeeId: vip.attendeeId,
+      attendeeId: data.attendeeId,
       actorId: context.user.id,
     });
-
-    return vip;
   });
 
 /** PTR-111 AC6: the Organiser or the assigned Coordinator removes a VIP registration. */
@@ -121,13 +119,11 @@ export const removeVipRegistration = createServerFn({ method: "POST" })
   .validator(parseVipRegistrationInput)
   .handler(async ({ data, context }) => {
     const [{ db }, { handleRemoveVipRegistration }] = await loadRegisterServer();
-    const removal = await handleRemoveVipRegistration(data, context.user, db);
+    await handleRemoveVipRegistration(data, context.user, db);
 
     log.info("VIP registration removed", {
       eventId: data.id,
       attendeeId: data.attendeeId,
       actorId: context.user.id,
     });
-
-    return removal;
   });

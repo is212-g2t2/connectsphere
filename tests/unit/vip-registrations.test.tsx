@@ -1,23 +1,37 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EventProjection, VipAttendee } from "#/features/events/access";
 import { EventWorkspace } from "#/features/events/components/event-workspace";
-import { NAMED_REFUSALS, VipRegistrations } from "#/features/events/components/vip-registrations";
-import { NOT_A_VIP_MESSAGE, venueCapacityReachedMessage } from "#/features/events/registration";
+import { VipRegistrations } from "#/features/events/components/vip-registrations";
+import {
+  NOT_A_VIP_MESSAGE,
+  REGISTRATION_NOT_OPEN_MESSAGE,
+  VIPS_CLOSED_MESSAGE,
+  VIP_ALREADY_REGISTERED_MESSAGE,
+  VIP_NOT_ATTENDEE_MESSAGE,
+  venueCapacityReachedMessage,
+} from "#/features/events/registration";
 
-const { searchVipAttendees, addVipRegistration, removeVipRegistration, invalidate, success } =
-  vi.hoisted(() => ({
-    searchVipAttendees:
-      vi.fn<(input: { data: { id: number; query: string } }) => Promise<VipAttendee[]>>(),
-    addVipRegistration:
-      vi.fn<(input: { data: { id: number; attendeeId: string } }) => Promise<VipAttendee>>(),
-    removeVipRegistration:
-      vi.fn<(input: { data: { id: number; attendeeId: string } }) => Promise<void>>(),
-    invalidate: vi.fn<() => Promise<void>>(),
-    success: vi.fn<(message: string) => void>(),
-  }));
+const {
+  searchVipAttendees,
+  addVipRegistration,
+  removeVipRegistration,
+  invalidate,
+  success,
+  failure,
+} = vi.hoisted(() => ({
+  searchVipAttendees:
+    vi.fn<(input: { data: { id: number; query: string } }) => Promise<VipAttendee[]>>(),
+  addVipRegistration:
+    vi.fn<(input: { data: { id: number; attendeeId: string } }) => Promise<void>>(),
+  removeVipRegistration:
+    vi.fn<(input: { data: { id: number; attendeeId: string } }) => Promise<void>>(),
+  invalidate: vi.fn<() => Promise<void>>(),
+  success: vi.fn<(message: string) => void>(),
+  failure: vi.fn<(message: string) => void>(),
+}));
 
 vi.mock("#/features/events/server-fns", () => ({
   searchVipAttendees,
@@ -30,7 +44,7 @@ vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate }),
   Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a>,
 }));
-vi.mock("sonner", () => ({ toast: { success } }));
+vi.mock("sonner", () => ({ toast: { success, error: failure } }));
 
 const ada: VipAttendee = { attendeeId: "ada", name: "Ada Lovelace", email: "ada@x.test" };
 const alan: VipAttendee = { attendeeId: "alan", name: "Alan Turing", email: "alan@x.test" };
@@ -52,7 +66,7 @@ const card = (vipRegistrations: VipAttendee[] | null): EventProjection => ({
 async function searchFor(text: string) {
   const user = userEvent.setup();
   render(<VipRegistrations eventId={12} vips={[]} />);
-  await user.type(screen.getByRole("searchbox", { name: "Add a VIP" }), text);
+  await user.type(searchbox(), text);
   return user;
 }
 
@@ -73,6 +87,8 @@ async function removeAda() {
   return dialog;
 }
 
+const searchbox = () => screen.getByRole("searchbox", { name: "Add a VIP" });
+
 describe("VipRegistrations (PTR-111)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -90,21 +106,44 @@ describe("VipRegistrations (PTR-111)", () => {
     ]);
   });
 
-  it("searches once the typing pauses, not on each keystroke", async () => {
+  it("searches once the typing pauses, not on each keystroke, and says how many match", async () => {
     searchVipAttendees.mockResolvedValue([ada]);
 
     await searchFor("lovelace");
 
     expect(await screen.findByRole("button", { name: "Add Ada Lovelace as a VIP" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("1 Attendee matches.");
     expect(searchVipAttendees).toHaveBeenCalledOnce();
     expect(searchVipAttendees).toHaveBeenCalledWith({ data: { id: 12, query: "lovelace" } });
   });
 
   it("does not search for fewer than two characters", async () => {
-    await searchFor(" a ");
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<VipRegistrations eventId={12} vips={[]} />);
 
-    await new Promise(resolve => setTimeout(resolve, 400));
-    expect(searchVipAttendees).not.toHaveBeenCalled();
+      await user.type(searchbox(), " a ");
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+
+      expect(searchVipAttendees).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("turns a pasted tab into a space, since the server refuses control characters", async () => {
+    searchVipAttendees.mockResolvedValue([ada]);
+    render(<VipRegistrations eventId={12} vips={[]} />);
+
+    fireEvent.change(searchbox(), { target: { value: "ada\tlovelace" } });
+
+    expect(searchbox()).toHaveProperty("value", "ada lovelace");
+    await waitFor(() =>
+      expect(searchVipAttendees).toHaveBeenCalledWith({ data: { id: 12, query: "ada lovelace" } })
+    );
   });
 
   it("says when no Attendee matches", async () => {
@@ -112,8 +151,24 @@ describe("VipRegistrations (PTR-111)", () => {
 
     await searchFor("zz");
 
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "No Attendee without a registration matches “zz”."
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "No Attendee without a registration matches “zz”."
+      )
+    );
+  });
+
+  it("says when only the first matches are shown", async () => {
+    searchVipAttendees.mockResolvedValue(
+      Array.from({ length: 10 }, (_, index) => ({ ...ada, attendeeId: `ada-${index}` }))
+    );
+
+    await searchFor("ada");
+
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "Showing the first 10 matches. Type more to narrow the search."
+      )
     );
   });
 
@@ -129,38 +184,65 @@ describe("VipRegistrations (PTR-111)", () => {
     const user = await searchFor("al");
     await waitFor(() => expect(searchVipAttendees).toHaveBeenCalledOnce());
 
-    await user.type(screen.getByRole("searchbox", { name: "Add a VIP" }), "an");
+    await user.type(searchbox(), "an");
     expect(await screen.findByRole("button", { name: "Add Alan Turing as a VIP" })).toBeTruthy();
-    answerOlder?.([ada]);
+    await act(async () => {
+      answerOlder?.([ada]);
+    });
 
-    await new Promise(resolve => setTimeout(resolve, 50));
     expect(screen.queryByRole("button", { name: "Add Ada Lovelace as a VIP" })).toBeNull();
   });
 
-  it("adds the chosen Attendee, tells the caller, clears the search and reloads (AC1)", async () => {
-    addVipRegistration.mockResolvedValue(ada);
+  it("adds the chosen Attendee, clears the search, returns focus to it and reloads (AC1)", async () => {
+    addVipRegistration.mockResolvedValue();
 
     await addAda();
 
     await waitFor(() =>
-      expect(addVipRegistration).toHaveBeenCalledWith({ data: { id: 12, attendeeId: "ada" } })
-    );
-    await waitFor(() =>
       expect(success).toHaveBeenCalledWith("Ada Lovelace is registered as a VIP.")
     );
+    expect(addVipRegistration).toHaveBeenCalledWith({ data: { id: 12, attendeeId: "ada" } });
     expect(invalidate).toHaveBeenCalled();
-    expect(screen.getByRole("searchbox", { name: "Add a VIP" })).toHaveProperty("value", "");
+    await waitFor(() => expect(searchbox()).toHaveProperty("value", ""));
     expect(screen.queryByRole("list", { name: "Matching Attendees" })).toBeNull();
+    expect(document.activeElement).toBe(searchbox());
   });
 
-  it.each([...NAMED_REFUSALS, venueCapacityReachedMessage(4)])(
-    "shows the refusal %o to an addition as the server words it, and reloads",
+  it("shows which addition is running", async () => {
+    // Settled before the test ends: React holds later transitions behind one still running.
+    let finish: (() => void) | undefined;
+    addVipRegistration.mockReturnValue(
+      new Promise<void>(resolve => {
+        finish = resolve;
+      })
+    );
+
+    await addAda();
+
+    expect(await screen.findByRole("button", { name: "Add Ada Lovelace as a VIP" })).toHaveProperty(
+      "textContent",
+      "Adding…"
+    );
+    await act(async () => {
+      finish?.();
+    });
+  });
+
+  it.each([
+    VIP_NOT_ATTENDEE_MESSAGE,
+    VIP_ALREADY_REGISTERED_MESSAGE,
+    VIPS_CLOSED_MESSAGE,
+    REGISTRATION_NOT_OPEN_MESSAGE,
+    venueCapacityReachedMessage(4),
+  ])(
+    "shows the refusal %o beside the Attendee, as the server words it, and reloads",
     async message => {
       addVipRegistration.mockRejectedValue(new Error(message));
 
       await addAda();
 
-      expect((await screen.findByRole("alert")).textContent).toBe(message);
+      const row = screen.getByRole("button", { name: "Add Ada Lovelace as a VIP" }).closest("li");
+      expect((await within(row as HTMLElement).findByRole("alert")).textContent).toBe(message);
       expect(success).not.toHaveBeenCalled();
       expect(invalidate).toHaveBeenCalled();
     }
@@ -174,6 +256,16 @@ describe("VipRegistrations (PTR-111)", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Could not search the Attendees. Try again."
     );
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("reloads when a search is refused because the event changed", async () => {
+    searchVipAttendees.mockRejectedValue(new Error(VIPS_CLOSED_MESSAGE));
+
+    await searchFor("ada");
+
+    expect((await screen.findByRole("alert")).textContent).toBe(VIPS_CLOSED_MESSAGE);
+    expect(invalidate).toHaveBeenCalled();
   });
 
   it("removes a VIP once confirmed, tells the caller and reloads the event (AC6)", async () => {
@@ -182,13 +274,9 @@ describe("VipRegistrations (PTR-111)", () => {
     await removeAda();
 
     await waitFor(() =>
-      expect(removeVipRegistration).toHaveBeenCalledWith({
-        data: { id: 12, attendeeId: "ada" },
-      })
-    );
-    await waitFor(() =>
       expect(success).toHaveBeenCalledWith("Ada Lovelace is no longer registered as a VIP.")
     );
+    expect(removeVipRegistration).toHaveBeenCalledWith({ data: { id: 12, attendeeId: "ada" } });
     expect(invalidate).toHaveBeenCalled();
   });
 
@@ -204,13 +292,28 @@ describe("VipRegistrations (PTR-111)", () => {
     expect(removeVipRegistration).not.toHaveBeenCalled();
   });
 
-  it("shows a refused removal in the dialog and reloads, since someone else may have removed it", async () => {
-    removeVipRegistration.mockRejectedValue(new Error(NOT_A_VIP_MESSAGE));
+  it.each([NOT_A_VIP_MESSAGE, VIPS_CLOSED_MESSAGE])(
+    "tells a refused removal %o in a toast, which outlives the row the reload takes away",
+    async message => {
+      removeVipRegistration.mockRejectedValue(new Error(message));
+
+      await removeAda();
+
+      await waitFor(() => expect(failure).toHaveBeenCalledWith(message));
+      expect(invalidate).toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    }
+  );
+
+  it("keeps the dialog open with generic text for a failure that is not a named refusal", async () => {
+    removeVipRegistration.mockRejectedValue(new Error("Network down"));
 
     const dialog = await removeAda();
 
-    expect((await within(dialog).findByRole("alert")).textContent).toBe(NOT_A_VIP_MESSAGE);
-    expect(invalidate).toHaveBeenCalled();
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(
+      "Could not remove this VIP registration. Try again."
+    );
+    expect(failure).not.toHaveBeenCalled();
   });
 });
 

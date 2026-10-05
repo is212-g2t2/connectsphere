@@ -45,6 +45,8 @@ export function parseVipRegistrationInput(data: unknown): z.infer<typeof VipRegi
 
 export const VIP_SEARCH_MIN_LENGTH = 2;
 export const VIP_SEARCH_MAX_LENGTH = 100;
+/** The most Attendee accounts one VIP search returns. */
+export const VIP_SEARCH_LIMIT = 10;
 export const VIP_SEARCH_MESSAGE = `Type at least ${VIP_SEARCH_MIN_LENGTH} characters of a name or email`;
 
 /** PTR-111: the event, and part of the name or email of the Attendee to add as a VIP. */

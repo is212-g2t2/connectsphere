@@ -26,6 +26,7 @@ import {
   VIP_NOT_ATTENDEE_MESSAGE,
 } from "#/features/events/registration";
 import {
+  VIP_SEARCH_LIMIT,
   VIP_SEARCH_MAX_LENGTH,
   VIP_SEARCH_MESSAGE,
   VIP_SEARCH_MIN_LENGTH,
@@ -40,7 +41,7 @@ import { useMutation } from "#/hooks/use-mutation";
 /** How long the typing must pause before the search runs, so each keystroke does not run one. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-export const NAMED_REFUSALS = new Set([
+const NAMED_REFUSALS = new Set([
   VIP_NOT_ATTENDEE_MESSAGE,
   VIP_ALREADY_REGISTERED_MESSAGE,
   NOT_A_VIP_MESSAGE,
@@ -92,6 +93,18 @@ type SearchState =
   | { status: "done"; query: string; attendees: VipAttendee[] }
   | { status: "error"; error: string };
 
+/** What the status line says about a search, for sighted users and screen readers alike. */
+function searchStatus(search: SearchState): string | null {
+  if (search.status === "searching") return "Searching…";
+  if (search.status !== "done") return null;
+  const found = search.attendees.length;
+  if (found === 0) return `No Attendee without a registration matches “${search.query}”.`;
+  if (found === VIP_SEARCH_LIMIT) {
+    return `Showing the first ${VIP_SEARCH_LIMIT} matches. Type more to narrow the search.`;
+  }
+  return found === 1 ? "1 Attendee matches." : `${found} Attendees match.`;
+}
+
 /**
  * AC1: find an Attendee account by part of its name or email, and add it as a VIP. The search
  * runs when the typing pauses, or at once on Enter.
@@ -100,10 +113,13 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
+  const input = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Each search takes the next number, and only the latest may show its answer. A slow answer to
   // an older query therefore never replaces the answer to a newer one.
   const latest = useRef(0);
+  // The query as it stands now, which an addition that ends later reads.
+  const typed = useRef("");
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -115,21 +131,27 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
       const attendees = await searchVipAttendees({ data: { id: eventId, query: term } });
       if (mine === latest.current) setSearch({ status: "done", query: term, attendees });
     } catch (error) {
+      const refusal = refusalOf(error);
+      // A named refusal means that the event changed after the page loaded.
+      if (refusal) await router.invalidate();
       if (mine === latest.current) {
         setSearch({
           status: "error",
-          error: refusalOf(error) || "Could not search the Attendees. Try again.",
+          error: refusal || "Could not search the Attendees. Try again.",
         });
       }
     }
   }
 
   function changeQuery(value: string) {
-    setQuery(value);
+    // A pasted tab or line break becomes a space, because the server refuses control characters.
+    const next = value.replaceAll(/\p{Cc}/gu, " ");
+    typed.current = next;
+    setQuery(next);
     clearTimeout(timer.current);
     // An answer still on its way is for the old query.
     latest.current += 1;
-    const term = value.trim();
+    const term = next.trim();
     if (term.length < VIP_SEARCH_MIN_LENGTH) {
       setSearch({ status: "idle" });
       return;
@@ -137,18 +159,11 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
     timer.current = setTimeout(() => void runSearch(term), SEARCH_DEBOUNCE_MS);
   }
 
-  const [added, add, adding] = useMutation(async (attendee: VipAttendee) => {
-    try {
-      await addVipRegistration({ data: { id: eventId, attendeeId: attendee.attendeeId } });
-    } catch (error) {
-      // The places or the Attendee's registration may have changed since the page loaded.
-      await router.invalidate();
-      throw new Error(refusalOf(error), { cause: error });
-    }
-    toast.success(`${attendee.name} is registered as a VIP.`);
-    changeQuery("");
-    await router.invalidate();
-  }, "Could not add the VIP registration. Try again.");
+  /** After an addition the search starts again, unless the user has typed a new one since. */
+  function added(term: string) {
+    if (typed.current.trim() === term) changeQuery("");
+    input.current?.focus();
+  }
 
   const hintId = `${inputId}-hint`;
 
@@ -167,6 +182,7 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
           <Field>
             <FieldLabel htmlFor={inputId}>Add a VIP</FieldLabel>
             <Input
+              ref={input}
               id={inputId}
               type="search"
               autoComplete="off"
@@ -181,48 +197,77 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
         </form>
       </search>
 
-      {search.status === "searching" && (
-        <output className="block body-sm text-muted-foreground">Searching…</output>
-      )}
+      {/* Mounted throughout, so a screen reader announces each change to it. */}
+      <output className="block body-sm text-muted-foreground empty:hidden">
+        {searchStatus(search)}
+      </output>
       {search.status === "error" && (
         <p role="alert" className="body-sm text-destructive">
           {search.error}
         </p>
       )}
-      {search.status === "done" &&
-        (search.attendees.length === 0 ? (
-          <output className="block body-sm text-muted-foreground">
-            No Attendee without a registration matches “{search.query}”.
-          </output>
-        ) : (
-          <ul aria-label="Matching Attendees" className="space-y-3">
-            {search.attendees.map(attendee => (
-              <li
-                key={attendee.attendeeId}
-                className="flex items-start justify-between gap-4 body-sm"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium">{attendee.name}</p>
-                  <p className="break-all text-muted-foreground">{attendee.email}</p>
-                </div>
-                <Button
-                  size="sm"
-                  disabled={adding}
-                  aria-label={`Add ${attendee.name} as a VIP`}
-                  onClick={() => void add(attendee)}
-                >
-                  Add
-                </Button>
-              </li>
-            ))}
-          </ul>
-        ))}
-      {added.status === "error" && (
-        <p role="alert" className="body-sm text-destructive">
-          {added.error}
-        </p>
+      {search.status === "done" && search.attendees.length > 0 && (
+        <ul aria-label="Matching Attendees" className="space-y-3">
+          {search.attendees.map(attendee => (
+            <CandidateRow
+              key={attendee.attendeeId}
+              eventId={eventId}
+              attendee={attendee}
+              onAdded={() => added(search.query)}
+            />
+          ))}
+        </ul>
       )}
     </div>
+  );
+}
+
+/** One search result and its addition as a VIP. A refusal stays beside the Attendee it names. */
+function CandidateRow({
+  eventId,
+  attendee,
+  onAdded,
+}: {
+  eventId: number;
+  attendee: VipAttendee;
+  onAdded: () => void;
+}) {
+  const router = useRouter();
+  const [state, add, adding] = useMutation(async () => {
+    try {
+      await addVipRegistration({ data: { id: eventId, attendeeId: attendee.attendeeId } });
+    } catch (error) {
+      // The places or the Attendee's registration may have changed since the page loaded.
+      await router.invalidate();
+      throw new Error(refusalOf(error), { cause: error });
+    }
+    toast.success(`${attendee.name} is registered as a VIP.`);
+    await router.invalidate();
+    onAdded();
+  }, "Could not add the VIP registration. Try again.");
+
+  return (
+    <li className="body-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="font-medium">{attendee.name}</p>
+          <p className="break-all text-muted-foreground">{attendee.email}</p>
+        </div>
+        <Button
+          size="sm"
+          disabled={adding}
+          aria-label={`Add ${attendee.name} as a VIP`}
+          onClick={() => void add()}
+        >
+          {adding ? "Adding…" : "Add"}
+        </Button>
+      </div>
+      {state.status === "error" ? (
+        <p role="alert" className="mt-1 text-destructive">
+          {state.error}
+        </p>
+      ) : null}
+    </li>
   );
 }
 
@@ -237,21 +282,19 @@ function VipRow({ eventId, vip }: { eventId: number; vip: VipAttendee }) {
     try {
       await removeVipRegistration({ data: { id: eventId, attendeeId: vip.attendeeId } });
     } catch (error) {
-      // Someone else may have removed it since this page loaded.
+      const refusal = refusalOf(error);
+      if (!refusal) throw new Error("", { cause: error });
+      // A named refusal means that the VIP or the event changed after the page loaded. The reload
+      // can take this row away, so the message goes in a toast, which outlives the row.
+      setDialogOpen(false);
+      toast.error(refusal);
       await router.invalidate();
-      throw new Error(refusalOf(error), { cause: error });
+      return;
     }
     setDialogOpen(false);
     toast.success(`${vip.name} is no longer registered as a VIP.`);
     await router.invalidate();
   }, "Could not remove this VIP registration. Try again.");
-
-  const refusal =
-    state.status === "error" ? (
-      <p role={dialogOpen ? "alert" : undefined} className="body-sm text-destructive">
-        {state.error}
-      </p>
-    ) : null;
 
   return (
     <li className="body-sm">
@@ -294,12 +337,14 @@ function VipRow({ eventId, vip }: { eventId: number; vip: VipAttendee }) {
                 {removing ? "Removing…" : "Remove"}
               </AlertDialogAction>
             </AlertDialogFooter>
-            {/* One copy at a time: two live role="alert" nodes would announce twice. */}
-            {dialogOpen && refusal}
+            {state.status === "error" ? (
+              <p role="alert" className="body-sm text-destructive">
+                {state.error}
+              </p>
+            ) : null}
           </AlertDialogContent>
         </AlertDialog>
       </div>
-      {!dialogOpen && refusal}
     </li>
   );
 }

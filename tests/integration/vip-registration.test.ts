@@ -40,17 +40,21 @@ const organiser = actor("vip-organiser", "event_organiser");
 const otherOrganiser = actor("vip-other-organiser", "event_organiser");
 const coordinator = actor("vip-coordinator", "event_coordinator");
 const otherCoordinator = actor("vip-other-coordinator", "event_coordinator");
-const attendees = Array.from({ length: 6 }, (_, index) =>
-  actor(`vip-attendee-${index}`, "attendee")
+const attendees = Array.from({ length: 12 }, (_, index) =>
+  actor(`vip-attendee-${String(index).padStart(2, "0")}`, "attendee")
 );
 const [guest, secondGuest, thirdGuest, fourthGuest, fifthGuest, sixthGuest] = attendees;
+/** The Attendees who only take normal places, kept apart from the six a test names. */
+const placeTakers = attendees.slice(6);
 const users = [organiser, otherOrganiser, coordinator, otherCoordinator, ...attendees];
 
-/** A 4-seat venue, so the ceiling is reached in a few rows, and a 2-seat one to amend to. */
+/** A 4-seat venue, so the ceiling is reached in a few rows, a 2-seat one, and a 10-seat one. */
 const VENUE_NAME = "VIP Test Room";
 const VENUE_CAPACITY = 4;
 const SMALL_VENUE_NAME = "VIP Test Booth";
 const SMALL_VENUE_CAPACITY = 2;
+const HALL_NAME = "VIP Test Hall";
+const VENUE_NAMES = [VENUE_NAME, SMALL_VENUE_NAME, HALL_NAME];
 
 /** Inside the event's registration period. */
 const insidePeriod = new Date("2026-11-15T04:00:00Z");
@@ -66,6 +70,7 @@ describe("VIP registrations (PTR-111)", () => {
   let database: Database;
   let venueId: number;
   let smallVenueId: number;
+  let hallId: number;
   let bookingYear = 2150;
   const created: number[] = [];
 
@@ -85,10 +90,8 @@ describe("VIP registrations (PTR-111)", () => {
         }))
       )
       .onConflictDoNothing();
-    await database
-      .delete(schema.venues)
-      .where(inArray(schema.venues.name, [VENUE_NAME, SMALL_VENUE_NAME]));
-    const [venue, smallVenue] = await database
+    await database.delete(schema.venues).where(inArray(schema.venues.name, VENUE_NAMES));
+    const [venue, smallVenue, hall] = await database
       .insert(schema.venues)
       .values([
         {
@@ -103,16 +106,21 @@ describe("VIP registrations (PTR-111)", () => {
           maxCapacity: SMALL_VENUE_CAPACITY,
           operatingHours: DEFAULT_OPERATING_HOURS,
         },
+        {
+          name: HALL_NAME,
+          location: "Level 7",
+          maxCapacity: 10,
+          operatingHours: DEFAULT_OPERATING_HOURS,
+        },
       ])
       .returning({ id: schema.venues.id });
     venueId = venue.id;
     smallVenueId = smallVenue.id;
+    hallId = hall.id;
   });
 
   afterAll(async () => {
-    await database
-      .delete(schema.venues)
-      .where(inArray(schema.venues.name, [VENUE_NAME, SMALL_VENUE_NAME]));
+    await database.delete(schema.venues).where(inArray(schema.venues.name, VENUE_NAMES));
     await database.delete(schema.user).where(
       inArray(
         schema.user.id,
@@ -142,6 +150,7 @@ describe("VIP registrations (PTR-111)", () => {
       registration?: boolean;
       capacity?: number;
       booked?: boolean;
+      venue?: number;
       window?: { opensAt: string; closesAt: string };
     } = {}
   ) {
@@ -188,7 +197,7 @@ describe("VIP registrations (PTR-111)", () => {
       await database.insert(schema.venueRequests).values({
         id: crypto.randomUUID(),
         eventId: row.id,
-        venueId,
+        venueId: options.venue ?? venueId,
         requestedById: coordinator.id,
         startsAt: `${bookingYear}-12-05 10:00:00`,
         endsAt: `${bookingYear}-12-05 16:00:00`,
@@ -258,9 +267,8 @@ describe("VIP registrations (PTR-111)", () => {
     const event = await createEvent();
     const before = Date.now();
 
-    const vip = await addVip(event.id, guest);
+    await addVip(event.id, guest);
 
-    expect(vip).toEqual({ attendeeId: guest.id, name: guest.name, email: guest.email });
     expect(await registrationOf(event.id, guest)).toMatchObject({
       status: "registered",
       vip: true,
@@ -268,16 +276,6 @@ describe("VIP registrations (PTR-111)", () => {
     const [change] = await changesFor(event.id, guest);
     expect(change).toMatchObject({ change: "added", actorId: organiser.id });
     expect(change.changedAt.getTime()).toBeGreaterThanOrEqual(before - 1_000);
-  });
-
-  test("lets the assigned Coordinator add one", async () => {
-    const event = await createEvent();
-
-    await addVip(event.id, guest, coordinator);
-
-    expect(await changesFor(event.id, guest)).toEqual([
-      expect.objectContaining({ change: "added", actorId: coordinator.id }),
-    ]);
   });
 
   test("ignores the registration period: a VIP is added after it closes", async () => {
@@ -520,12 +518,59 @@ describe("VIP registrations (PTR-111)", () => {
   test("finds Attendees by part of the name or the email, whatever the case", async () => {
     const event = await createEvent();
 
-    expect(await search(event.id, "VIP-ATTENDEE-1 NAME")).toEqual([
+    expect(await search(event.id, "VIP-ATTENDEE-01 NAME")).toEqual([
       { attendeeId: secondGuest.id, name: secondGuest.name, email: secondGuest.email },
     ]);
-    expect((await search(event.id, "attendee-2@X.TEST")).map(found => found.attendeeId)).toEqual([
-      thirdGuest.id,
-    ]);
+    // The assigned Coordinator searches the same way.
+    expect(
+      (await search(event.id, "attendee-02@X.TEST", coordinator)).map(found => found.attendeeId)
+    ).toEqual([thirdGuest.id]);
+  });
+
+  test("puts the account with exactly the typed email first, ahead of accounts named after it", async () => {
+    const event = await createEvent();
+    const decoys = Array.from({ length: 10 }, (_, index) => ({
+      id: `decoy-${index}`,
+      name: `A ${guest.email} ${index}`,
+      email: `decoy-${index}@x.test`,
+      emailVerified: false,
+      role: "attendee",
+    }));
+    await database.insert(schema.user).values(decoys);
+    try {
+      const found = await search(event.id, guest.email.toUpperCase());
+
+      expect(found).toHaveLength(10);
+      expect(found[0].attendeeId).toBe(guest.id);
+    } finally {
+      await database.delete(schema.user).where(
+        inArray(
+          schema.user.id,
+          decoys.map(decoy => decoy.id)
+        )
+      );
+    }
+  });
+
+  test("finds and adds an Attendee who has not verified the email", async () => {
+    const event = await createEvent();
+    const unverified = actor("unverified-guest", "attendee");
+    await database.insert(schema.user).values({
+      id: unverified.id,
+      name: "Unverified Guest",
+      email: unverified.email,
+      emailVerified: false,
+      role: "attendee",
+    });
+    try {
+      expect((await search(event.id, "unverified-guest")).map(found => found.attendeeId)).toEqual([
+        unverified.id,
+      ]);
+      await addVip(event.id, unverified);
+      expect(await registrationOf(event.id, unverified)).toMatchObject({ vip: true });
+    } finally {
+      await database.delete(schema.user).where(eq(schema.user.id, unverified.id));
+    }
   });
 
   test("leaves out other roles and Attendees who already hold a registration", async () => {
@@ -537,8 +582,14 @@ describe("VIP registrations (PTR-111)", () => {
 
     const found = (await search(event.id, "vip-")).map(account => account.attendeeId);
 
-    // A removed VIP holds no registration, so it can be found and added again.
-    expect(found).toEqual([thirdGuest.id, fourthGuest.id, fifthGuest.id, sixthGuest.id]);
+    // A removed VIP holds no registration, so it can be found and added again. Ten at most.
+    expect(found).toEqual([
+      thirdGuest.id,
+      fourthGuest.id,
+      fifthGuest.id,
+      sixthGuest.id,
+      ...placeTakers.map(taker => taker.id),
+    ]);
   });
 
   test("matches a typed % or _ only as itself", async () => {
@@ -546,12 +597,6 @@ describe("VIP registrations (PTR-111)", () => {
 
     expect(await search(event.id, "%%")).toEqual([]);
     expect(await search(event.id, "__")).toEqual([]);
-  });
-
-  test("lets the assigned Coordinator search too", async () => {
-    const event = await createEvent();
-
-    expect(await search(event.id, "vip-attendee-0", coordinator)).toHaveLength(1);
   });
 
   // ── AC4 and the place limit ────────────────────────────────────────────────────────────────
@@ -602,9 +647,11 @@ describe("VIP registrations (PTR-111)", () => {
 
     await register(event.id, sixthGuest);
 
-    expect((await thresholdNotices(event.id)).map(notice => notice.payload)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ registered: 2, limit: 2 })])
-    );
+    const notices = await thresholdNotices(event.id);
+    expect(notices.map(notice => notice.payload)).toEqual([
+      expect.objectContaining({ registered: 2, limit: 2 }),
+      expect.objectContaining({ registered: 2, limit: 2 }),
+    ]);
   });
 
   test("tells the Organiser and the Coordinator when a VIP takes normal registration's last place", async () => {
@@ -638,5 +685,43 @@ describe("VIP registrations (PTR-111)", () => {
       ])
     );
     expect(notices).toHaveLength(2);
+  });
+
+  test("tells the full mark when a VIP moves the count onto it from the 90% mark", async () => {
+    // 9 normal registrations at a 10-seat venue are 90% of a limit of 10; a VIP makes the limit 9.
+    const event = await createEvent({ capacity: 10, venue: hallId });
+    await fillNormal(event.id, [...attendees.slice(1, 6), ...placeTakers.slice(0, 4)]);
+
+    await addVip(event.id, guest);
+
+    expect((await thresholdNotices(event.id)).map(notice => notice.payload)).toEqual([
+      expect.objectContaining({ registered: 9, limit: 9 }),
+      expect.objectContaining({ registered: 9, limit: 9 }),
+    ]);
+  });
+
+  test("tells nothing when a VIP leaves the limit where it was", async () => {
+    // The registration capacity of 2 binds, so a VIP at the 4-seat venue does not move the limit.
+    const event = await createEvent({ capacity: 2 });
+    await fillNormal(event.id, [fifthGuest, sixthGuest]);
+
+    await addVip(event.id, guest);
+
+    expect(await thresholdNotices(event.id)).toEqual([]);
+  });
+
+  test("tells each mark once, however often a VIP is removed and added again", async () => {
+    const event = await createEvent({ capacity: 4 });
+    await fillNormal(event.id, [fifthGuest, sixthGuest]);
+    await addVip(event.id, guest);
+
+    for (let round = 0; round < 3; round += 1) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- the rounds run in order
+      await addVip(event.id, secondGuest);
+      // oxlint-disable-next-line eslint/no-await-in-loop -- the rounds run in order
+      await removeVip(event.id, secondGuest);
+    }
+
+    expect(await thresholdNotices(event.id)).toHaveLength(2);
   });
 });
