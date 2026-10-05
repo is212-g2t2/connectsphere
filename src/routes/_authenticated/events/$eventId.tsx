@@ -1,6 +1,7 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { EventPage } from "#/features/events/components/event-page";
+import { EventPageSkeleton } from "#/features/events/components/event-page-skeleton";
 import type { EventProjection } from "#/features/events/access";
 import { isPublishedForAttendees } from "#/features/events/access";
 import { EventId } from "#/features/events/schema";
@@ -42,4 +43,5 @@ export const Route = createFileRoute("/_authenticated/events/$eventId")({
     return projection;
   },
   component: () => <EventPage event={Route.useLoaderData()} />,
+  pendingComponent: EventPageSkeleton,
 });
