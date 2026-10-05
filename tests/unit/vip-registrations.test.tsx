@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -134,18 +134,6 @@ describe("VipRegistrations (PTR-111)", () => {
     }
   });
 
-  it("turns a pasted tab into a space, since the server refuses control characters", async () => {
-    searchVipAttendees.mockResolvedValue([ada]);
-    render(<VipRegistrations eventId={12} vips={[]} />);
-
-    fireEvent.change(searchbox(), { target: { value: "ada\tlovelace" } });
-
-    expect(searchbox()).toHaveProperty("value", "ada lovelace");
-    await waitFor(() =>
-      expect(searchVipAttendees).toHaveBeenCalledWith({ data: { id: 12, query: "ada lovelace" } })
-    );
-  });
-
   it("says when no Attendee matches", async () => {
     searchVipAttendees.mockResolvedValue([]);
 
@@ -167,7 +155,7 @@ describe("VipRegistrations (PTR-111)", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toBe(
-        "Showing the first 10 matches. Type more to narrow the search."
+        "10 or more Attendees match. Type more to narrow the search."
       )
     );
   });
@@ -206,6 +194,24 @@ describe("VipRegistrations (PTR-111)", () => {
     await waitFor(() => expect(searchbox()).toHaveProperty("value", ""));
     expect(screen.queryByRole("list", { name: "Matching Attendees" })).toBeNull();
     expect(document.activeElement).toBe(searchbox());
+  });
+
+  it("keeps a newer search when an addition ends after the user typed on", async () => {
+    let finish: (() => void) | undefined;
+    addVipRegistration.mockReturnValue(
+      new Promise<void>(resolve => {
+        finish = resolve;
+      })
+    );
+
+    await addAda();
+    await userEvent.setup().type(searchbox(), " l");
+    await act(async () => {
+      finish?.();
+    });
+
+    await waitFor(() => expect(success).toHaveBeenCalled());
+    expect(searchbox()).toHaveProperty("value", "ada l");
   });
 
   it("shows which addition is running", async () => {
@@ -248,7 +254,8 @@ describe("VipRegistrations (PTR-111)", () => {
     }
   );
 
-  it("falls back to generic text for a failure that is not a named refusal", async () => {
+  it("falls back to generic text for a failure that is not a named refusal, and reloads", async () => {
+    // What a Coordinator gets once the event is handed to someone else.
     searchVipAttendees.mockRejectedValue(new Error("Forbidden"));
 
     await searchFor("ada");
@@ -256,10 +263,10 @@ describe("VipRegistrations (PTR-111)", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Could not search the Attendees. Try again."
     );
-    expect(invalidate).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalled();
   });
 
-  it("reloads when a search is refused because the event changed", async () => {
+  it("shows a named search refusal as the server words it, and reloads", async () => {
     searchVipAttendees.mockRejectedValue(new Error(VIPS_CLOSED_MESSAGE));
 
     await searchFor("ada");

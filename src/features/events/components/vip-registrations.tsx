@@ -100,7 +100,7 @@ function searchStatus(search: SearchState): string | null {
   const found = search.attendees.length;
   if (found === 0) return `No Attendee without a registration matches “${search.query}”.`;
   if (found === VIP_SEARCH_LIMIT) {
-    return `Showing the first ${VIP_SEARCH_LIMIT} matches. Type more to narrow the search.`;
+    return `${VIP_SEARCH_LIMIT} or more Attendees match. Type more to narrow the search.`;
   }
   return found === 1 ? "1 Attendee matches." : `${found} Attendees match.`;
 }
@@ -131,9 +131,9 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
       const attendees = await searchVipAttendees({ data: { id: eventId, query: term } });
       if (mine === latest.current) setSearch({ status: "done", query: term, attendees });
     } catch (error) {
+      // The event or the caller's assignment may have changed since the page loaded.
+      await router.invalidate();
       const refusal = refusalOf(error);
-      // A named refusal means that the event changed after the page loaded.
-      if (refusal) await router.invalidate();
       if (mine === latest.current) {
         setSearch({
           status: "error",
@@ -144,14 +144,12 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
   }
 
   function changeQuery(value: string) {
-    // A pasted tab or line break becomes a space, because the server refuses control characters.
-    const next = value.replaceAll(/\p{Cc}/gu, " ");
-    typed.current = next;
-    setQuery(next);
+    typed.current = value;
+    setQuery(value);
     clearTimeout(timer.current);
     // An answer still on its way is for the old query.
     latest.current += 1;
-    const term = next.trim();
+    const term = value.trim();
     if (term.length < VIP_SEARCH_MIN_LENGTH) {
       setSearch({ status: "idle" });
       return;
@@ -197,8 +195,9 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
         </form>
       </search>
 
-      {/* Mounted throughout, so a screen reader announces each change to it. */}
-      <output className="block body-sm text-muted-foreground empty:hidden">
+      {/* Mounted throughout, and only visually hidden while empty, so a screen reader announces
+          each change to it. */}
+      <output className="block body-sm text-muted-foreground empty:sr-only">
         {searchStatus(search)}
       </output>
       {search.status === "error" && (
@@ -282,13 +281,13 @@ function VipRow({ eventId, vip }: { eventId: number; vip: VipAttendee }) {
     try {
       await removeVipRegistration({ data: { id: eventId, attendeeId: vip.attendeeId } });
     } catch (error) {
+      // The VIP, the event or the caller's assignment may have changed since the page loaded.
+      await router.invalidate();
       const refusal = refusalOf(error);
       if (!refusal) throw new Error("", { cause: error });
-      // A named refusal means that the VIP or the event changed after the page loaded. The reload
-      // can take this row away, so the message goes in a toast, which outlives the row.
+      // The reload can take this row away, so a named refusal goes in a toast, which outlives it.
       setDialogOpen(false);
       toast.error(refusal);
-      await router.invalidate();
       return;
     }
     setDialogOpen(false);

@@ -332,8 +332,9 @@ function eventName(event: EventRow): string {
 
 /**
  * PTR-45 AC8 and AC9: tells the Organiser, and the assigned Coordinator when there is one, that the
- * normal registrations stand on a mark of the place limit. Each mark is told once for each event,
- * so a VIP added and removed again and again cannot send it again and again (PTR-111).
+ * normal registrations stand on a mark of the place limit. Each pair of count and limit is told
+ * once for each event, so a VIP added and removed again and again cannot send it again and again
+ * (PTR-111).
  */
 async function announcePlaceMark(
   tx: Pick<Database, "select" | "insert">,

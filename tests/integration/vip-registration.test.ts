@@ -521,6 +521,10 @@ describe("VIP registrations (PTR-111)", () => {
     expect(await search(event.id, "VIP-ATTENDEE-01 NAME")).toEqual([
       { attendeeId: secondGuest.id, name: secondGuest.name, email: secondGuest.email },
     ]);
+    // A pasted tab is a space.
+    expect(
+      (await search(event.id, "vip-attendee-00\tname")).map(found => found.attendeeId)
+    ).toEqual([guest.id]);
     // The assigned Coordinator searches the same way.
     expect(
       (await search(event.id, "attendee-02@X.TEST", coordinator)).map(found => found.attendeeId)
