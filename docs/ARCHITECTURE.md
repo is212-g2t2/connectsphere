@@ -154,6 +154,7 @@ erDiagram
     event_requests ||--o{ venue_holds : "places"
     event_requests ||--o{ equipment_requests : "submits"
     event_requests ||--o{ event_registrations : "opens"
+    event_requests ||--o{ vip_registration_changes : "records"
     event_requests ||--o{ notifications : "raises"
 
     venues ||--o{ venue_requests : "receives"
@@ -255,6 +256,13 @@ erDiagram
         int event_id PK, FK
         text attendee_id PK, FK
         text status
+        boolean vip
+    }
+    vip_registration_changes {
+        int id PK
+        int event_id FK
+        text attendee_id
+        text change
     }
     notifications {
         int id PK
@@ -304,6 +312,7 @@ erDiagram
 | `equipment_request:arrange` |    —     |        —        |         —         |      —      |           ✅            |
 | `equipment:reserve`         |    —     |        —        |         —         |      —      |           ✅            |
 | `equipment:release`         |    —     |        —        |         —         |      —      |           ✅            |
+| `vip_registration:manage`   |    —     |       ✅        |        ✅         |      —      |            —            |
 
 ### Enforcing it
 

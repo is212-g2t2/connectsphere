@@ -51,7 +51,7 @@ export const EventRegisteredEmail = ({
 interface RegistrationThresholdEmailProps {
   eventName: string;
   registered: number;
-  /** The place limit: the lower of the registration capacity and the venue capacity. */
+  /** The place limit: the lower of the registration capacity and the venue places VIPs leave. */
   limit: number;
   eventUrl: string;
 }

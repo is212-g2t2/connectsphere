@@ -3,7 +3,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission, requireSession } from "#/features/auth/session";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
-import { parseEventListInput } from "#/features/events/schema";
+import {
+  parseEventListInput,
+  parseVipRegistrationInput,
+  parseVipSearchInput,
+} from "#/features/events/schema";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("events");
@@ -26,6 +30,7 @@ async function loadRegisterServer() {
 }
 
 const requireEventRegister = requirePermission({ event: ["register"] });
+const requireVipRegistrationManage = requirePermission({ vip_registration: ["manage"] });
 
 /**
  * PTR-8: the events the signed-in user is connected to, each in a role-specific projection. No
@@ -73,4 +78,52 @@ export const registerForEvent = createServerFn({ method: "POST" })
     log.info("Event registration recorded", { eventId: data.id, attendeeId: context.user.id });
 
     return registration;
+  });
+
+/**
+ * PTR-111: the Attendee accounts that the Organiser or the assigned Coordinator can add as a VIP,
+ * by part of the name or the email. Every other role gets 403, and the handler re-reads the
+ * caller's relationship to the event, so no one else can search the Attendees through it. POST,
+ * so the names and emails searched for stay out of the URL and the request logs.
+ */
+export const searchVipAttendees = createServerFn({ method: "POST" })
+  .middleware([requireVipRegistrationManage])
+  .validator(parseVipSearchInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleSearchVipAttendees }] = await loadRegisterServer();
+    return handleSearchVipAttendees(data, context.user, db);
+  });
+
+/**
+ * PTR-111: the Organiser or the assigned Coordinator adds a VIP registration for an Attendee
+ * account. Every other role gets 403. The handler re-reads the event, the caller's relationship to
+ * it, and the venue places.
+ */
+export const addVipRegistration = createServerFn({ method: "POST" })
+  .middleware([requireVipRegistrationManage])
+  .validator(parseVipRegistrationInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleAddVipRegistration }] = await loadRegisterServer();
+    await handleAddVipRegistration(data, context.user, db);
+
+    log.info("VIP registration recorded", {
+      eventId: data.id,
+      attendeeId: data.attendeeId,
+      actorId: context.user.id,
+    });
+  });
+
+/** PTR-111 AC6: the Organiser or the assigned Coordinator removes a VIP registration. */
+export const removeVipRegistration = createServerFn({ method: "POST" })
+  .middleware([requireVipRegistrationManage])
+  .validator(parseVipRegistrationInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRemoveVipRegistration }] = await loadRegisterServer();
+    await handleRemoveVipRegistration(data, context.user, db);
+
+    log.info("VIP registration removed", {
+      eventId: data.id,
+      attendeeId: data.attendeeId,
+      actorId: context.user.id,
+    });
   });

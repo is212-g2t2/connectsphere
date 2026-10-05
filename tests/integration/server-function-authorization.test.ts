@@ -46,7 +46,15 @@ import {
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
-import { confirmEvent, listEvents, registerForEvent } from "#/features/events/server-fns";
+import { VIP_SEARCH_MESSAGE } from "#/features/events/schema";
+import {
+  addVipRegistration,
+  confirmEvent,
+  listEvents,
+  registerForEvent,
+  removeVipRegistration,
+  searchVipAttendees,
+} from "#/features/events/server-fns";
 import { listNotifications, markNotificationsRead } from "#/features/notifications/server-fns";
 import {
   VENUE_REJECTION_REASON_REQUIRED,
@@ -674,6 +682,40 @@ describe("server-function authorization (PTR-69)", () => {
     });
   });
 
+  // PTR-111: only the Organiser and the Coordinator manage VIP registrations; the handler re-reads
+  // that the caller is the event's Organiser or its assigned Coordinator.
+  describe.each([
+    { name: "searchVipAttendees", fn: searchVipAttendees, input: { id: 1, query: "ada" } },
+    { name: "addVipRegistration", fn: addVipRegistration, input: { id: 1, attendeeId: "a" } },
+    { name: "removeVipRegistration", fn: removeVipRegistration, input: { id: 1, attendeeId: "a" } },
+  ])("PTR-111 $name", ({ fn, input }) => {
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(fn, input)).toEqual({ status: 401, body: "Unauthorized" });
+    });
+
+    it.each(["event_organiser", "event_coordinator"])("permits %s", async role => {
+      signIn(role);
+
+      expect((await call(fn, input)).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "venue_staff", "technical_support_staff"])("refuses %s", async role => {
+      signIn(role);
+
+      expect(await refusalFrom(fn, input)).toMatchObject({ status: 403 });
+    });
+
+    it("rejects a malformed id before the handler", async () => {
+      signIn("event_organiser");
+
+      const { error } = await call(fn, { ...input, id: "not-a-number" });
+
+      expect(error).toBeInstanceOf(Error);
+    });
+  });
+
   describe("PTR-40 equipment availability", () => {
     const availabilityInput = { eventId: 1, equipmentTypeId: 1 };
 
@@ -1166,6 +1208,12 @@ describe("server-function authorization (PTR-69)", () => {
         ATTENDANCE_MESSAGE
       );
       expect(await messageFrom(getEventRequest, { id: "1" }, "GET")).toBe(EVENT_REQUEST_ID_MESSAGE);
+      expect(await messageFrom(searchVipAttendees, { id: 1, query: " a " })).toBe(
+        VIP_SEARCH_MESSAGE
+      );
+      expect(await messageFrom(removeVipRegistration, { id: 1, attendeeId: "a\u0000b" })).toBe(
+        "Choose an Attendee"
+      );
 
       signIn("technical_support_staff");
       expect(await messageFrom(reserveEquipment, { equipmentRequestId: "", quantity: 1 })).toBe(

@@ -174,12 +174,22 @@ export interface EventVenue {
 }
 
 /**
- * How many places a published event has taken: its `registered` registrations against the place
- * limit, the lower of its registration capacity and its venue's capacity.
+ * How many places a published event has taken: its normal `registered` registrations against the
+ * place limit, the lower of its registration capacity and the venue places its VIPs leave.
  */
 export interface EventPlaces {
   registered: number;
   limit: number;
+}
+
+/**
+ * PTR-111: an Attendee account as the Organiser and the assigned Coordinator see it when they
+ * manage VIPs: a VIP registration, or a search result to add as one.
+ */
+export interface VipAttendee {
+  attendeeId: string;
+  name: string;
+  email: string;
 }
 
 /**
@@ -252,8 +262,13 @@ export interface EventProjection {
     accessibilityRequirements?: string | null;
     requiredFacilities?: string | null;
     registration?: { status: string; registeredAt: string } | null;
-    /** PTR-45 AC10: the event's `registered` registrations against its place limit. */
+    /** PTR-45 AC10: the event's normal `registered` registrations against its place limit. */
     places?: EventPlaces | null;
+    /**
+     * PTR-111 AC4: the Organiser's and the Coordinator's VIP registrations, apart from the normal
+     * ones. Null unless the event is published, the only state that takes them.
+     */
+    vipRegistrations?: VipAttendee[] | null;
     venue?: EventVenue | null;
     venueRequest?: EventVenueRequest | null;
     equipment?: EquipmentLineProjection[];
@@ -312,7 +327,8 @@ export function projectEvent(
   equipment: EquipmentLineProjection[],
   venueRequest: EventVenueRequest | null,
   confirmedVenue: EventConfirmation["venue"] = null,
-  places: EventPlaces | null = null
+  places: EventPlaces | null = null,
+  vipRegistrations: VipAttendee[] | null = null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 
@@ -420,6 +436,7 @@ export function projectEvent(
                 ),
               }
             : {}),
+          vipRegistrations,
           confirmation:
             record.status === "confirmed" && record.confirmedAt && record.confirmedByName
               ? {

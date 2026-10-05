@@ -417,6 +417,7 @@ export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status",
 /**
  * PTR-45 AC4: a registration is exactly one of these, and only `registered` counts against
  * capacity. The registration's own row moves between them (PTR-47), so `withdrawn` keeps the record.
+ * A removed VIP registration (PTR-111 AC6) is `withdrawn` too.
  */
 export const eventRegistrationStatus = pgEnum("event_registration_status", [
   "registered",
@@ -711,7 +712,13 @@ export const eventRegistrations = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     status: eventRegistrationStatus("status").default("registered").notNull(),
+    /** When the registration was recorded: by the Attendee, or by whoever added the VIP. */
     registeredAt: timestamp("registered_at", { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * PTR-111: the Organiser or the assigned Coordinator recorded this registration for an invited
+     * Attendee. A VIP takes a place at the venue but not a place in the registration capacity.
+     */
+    vip: boolean("vip").notNull().default(false),
   },
   table => [
     primaryKey({ columns: [table.eventId, table.attendeeId] }),
@@ -719,6 +726,29 @@ export const eventRegistrations = pgTable(
     // path to be indexed.
     index("event_registrations_attendee_id_idx").on(table.attendeeId),
   ]
+);
+
+export const vipRegistrationChange = pgEnum("vip_registration_change", ["added", "removed"]);
+
+/**
+ * PTR-111 AC5 and AC6: who added or removed each VIP registration, and when. Append-only, because
+ * the registration's one row holds only its current state, so a later change never erases an
+ * earlier one. The ids are snapshots, like `eventAssignments`, so an account deletion keeps the
+ * record.
+ */
+export const vipRegistrationChanges = pgTable(
+  "vip_registration_changes",
+  {
+    id: serial("id").primaryKey(),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    attendeeId: text("attendee_id").notNull(),
+    change: vipRegistrationChange("change").notNull(),
+    actorId: text("actor_id").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [index("vip_registration_changes_event_id_idx").on(table.eventId)]
 );
 
 /**

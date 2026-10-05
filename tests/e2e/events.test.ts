@@ -143,6 +143,24 @@ test.describe("Event access", () => {
     await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toBeVisible();
   });
 
+  // PTR-111: the run finds a seeded Attendee but adds no VIP. A VIP on the seeded Open Day would
+  // take one of its 40 venue places, which the PTR-45 run above counts at the same time.
+  test("shows the assigned coordinator the VIP section, and finds an Attendee to add (PTR-111)", async ({
+    page,
+  }) => {
+    await signInAsSeeded(page, "coordinator.seed@example.com");
+    await page.goto("/dashboard");
+    await waitForHydration(page);
+
+    const vips = page.getByRole("region", { name: "VIP registrations" });
+    await expect(vips).toBeVisible({ timeout: 10_000 });
+    await vips.getByRole("searchbox", { name: "Add a VIP" }).fill("demo@example");
+
+    await expect(vips.getByRole("button", { name: "Add Demo User as a VIP" })).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
   test("gives the organiser the event they created", async ({ page }) => {
     await signInAsSeeded(page, "jane.doe@example.com");
     await page.goto("/dashboard");

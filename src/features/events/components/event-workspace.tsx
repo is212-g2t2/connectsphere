@@ -20,6 +20,7 @@ import { isPublishedForAttendees } from "#/features/events/access";
 import { isConfirmableStatus } from "#/features/events/confirmation";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
 import { EventRequirements } from "#/features/events/components/event-requirements";
+import { VipRegistrations } from "#/features/events/components/vip-registrations";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
 import { arrangementStateLabel, canGiveBackUnits } from "#/features/equipment-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
@@ -241,6 +242,13 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                       }`}
                     />
                   </dl>
+                )}
+
+                {/* PTR-111: the Organiser and the assigned Coordinator manage a published event's VIPs. */}
+                {event.vipRegistrations && (
+                  <div className="mt-5 border-t border-border pt-4">
+                    <VipRegistrations eventId={event.id} vips={event.vipRegistrations} />
+                  </div>
                 )}
 
                 {/* PTR-38: coordinator gets the editable panel; technical_support and organiser keep the read-only list. */}

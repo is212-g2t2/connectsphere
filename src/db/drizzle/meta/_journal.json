@@ -253,6 +253,13 @@
       "when": 1791195894587,
       "tag": "0035_nifty_the_enforcers",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791204903069,
+      "tag": "0036_shocking_abomination",
+      "breakpoints": true
     }
   ]
 }

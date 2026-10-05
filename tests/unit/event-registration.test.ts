@@ -4,7 +4,8 @@ import {
   ALREADY_REGISTERED_MESSAGE,
   EVENT_FULL_MESSAGE,
   REGISTRATION_NOT_OPEN_MESSAGE,
-  crossesPlaceThreshold,
+  placeMark,
+  placeLimit,
   registrationRefusal,
   venueCapacityReachedMessage,
 } from "#/features/events/registration";
@@ -17,6 +18,7 @@ const open = {
   now: "2026-11-15T12:00",
   alreadyRegistered: false,
   registeredCount: 10,
+  vipCount: 0,
   venueCapacity: 60,
 };
 
@@ -59,6 +61,19 @@ describe("registrationRefusal (PTR-45)", () => {
     );
   });
 
+  it("counts the VIPs against the venue and names it, but not against the capacity (PTR-111)", () => {
+    const withVips = { ...open, venueCapacity: 45, vipCount: 5 };
+
+    expect(registrationRefusal({ ...withVips, registeredCount: 39 })).toBeNull();
+    expect(registrationRefusal({ ...withVips, registeredCount: 40 })).toBe(
+      venueCapacityReachedMessage(45)
+    );
+    // Room at the venue, so the registration capacity alone stops it.
+    expect(registrationRefusal({ ...open, vipCount: 5, registeredCount: 40 })).toBe(
+      EVENT_FULL_MESSAGE
+    );
+  });
+
   it("refuses a confirmed event whose approved booking is gone", () => {
     expect(registrationRefusal({ ...open, venueCapacity: null })).toBe(
       REGISTRATION_NOT_OPEN_MESSAGE
@@ -75,19 +90,41 @@ describe("registrationRefusal (PTR-45)", () => {
   });
 });
 
-describe("crossesPlaceThreshold (PTR-45 AC8, AC9)", () => {
-  it("tells at 90% of the limit, rounded up, and at the limit, and nowhere else", () => {
-    const told = Array.from({ length: 40 }, (_, index) => index + 1).filter(registered =>
-      crossesPlaceThreshold(registered, 40)
-    );
+describe("placeMark (PTR-45 AC8, AC9)", () => {
+  it("stands at 90% of the limit, rounded up, and at the limit, and nowhere else", () => {
+    const marks = Array.from({ length: 40 }, (_, index) => index + 1).flatMap(registered => {
+      const mark = placeMark(registered, 40);
+      return mark ? [[registered, mark]] : [];
+    });
 
-    expect(told).toEqual([36, 40]);
+    expect(marks).toEqual([
+      [36, "nearly_full"],
+      [40, "full"],
+    ]);
   });
 
-  it("rounds 90% up, and tells once at the limit when that is where it lands", () => {
+  it("rounds 90% up, and is full when that is where it lands", () => {
     // 90% of 11 is 9.9, so the tenth registration; 90% of 6 is 5.4, which rounds up to the limit.
-    expect(crossesPlaceThreshold(10, 11)).toBe(true);
-    expect(crossesPlaceThreshold(5, 6)).toBe(false);
-    expect(crossesPlaceThreshold(6, 6)).toBe(true);
+    expect(placeMark(10, 11)).toBe("nearly_full");
+    expect(placeMark(5, 6)).toBeNull();
+    expect(placeMark(6, 6)).toBe("full");
+  });
+
+  it("tells the two marks apart where a lower limit moves the count from one to the other", () => {
+    // PTR-111: a VIP takes a limit of 10 down to 9 with 9 normal registrations.
+    expect(placeMark(9, 10)).toBe("nearly_full");
+    expect(placeMark(9, 9)).toBe("full");
+  });
+});
+
+describe("placeLimit (PTR-45, PTR-111)", () => {
+  it("is the lower of the capacity and the venue places the VIPs leave", () => {
+    expect(placeLimit(40, 60, 0)).toBe(40);
+    expect(placeLimit(40, 60, 25)).toBe(35);
+    expect(placeLimit(40, 30, 0)).toBe(30);
+  });
+
+  it("is never below zero, even when a smaller venue now holds fewer than the VIPs", () => {
+    expect(placeLimit(40, 10, 12)).toBe(0);
   });
 });

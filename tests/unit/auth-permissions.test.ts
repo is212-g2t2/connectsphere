@@ -5,7 +5,7 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import type { Role } from "#/features/auth/schema/role";
 
 /**
- * The role/function matrix of PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36 and PTR-45, restated
+ * The role/function matrix of PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36, PTR-45 and PTR-111, restated
  * independently of `permissions.ts`.
  *
  * The duplication is deliberate: widening a role has to be written twice and can never be a
@@ -27,6 +27,7 @@ const EXPECTED: Record<
     venueDecide: boolean;
     equipmentReserve: boolean;
     equipmentRelease: boolean;
+    vipManage: boolean;
   }
 > = {
   attendee: {
@@ -42,6 +43,7 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: false,
     equipmentRelease: false,
+    vipManage: false,
   },
   event_organiser: {
     eventRegister: false,
@@ -56,6 +58,7 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: false,
     equipmentRelease: false,
+    vipManage: true,
   },
   event_coordinator: {
     eventRegister: false,
@@ -70,6 +73,7 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: false,
     equipmentRelease: false,
+    vipManage: true,
   },
   venue_staff: {
     eventRegister: false,
@@ -84,6 +88,7 @@ const EXPECTED: Record<
     venueDecide: true,
     equipmentReserve: false,
     equipmentRelease: false,
+    vipManage: false,
   },
   technical_support_staff: {
     eventRegister: false,
@@ -98,10 +103,11 @@ const EXPECTED: Record<
     venueDecide: false,
     equipmentReserve: true,
     equipmentRelease: true,
+    vipManage: false,
   },
 };
 
-describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36, PTR-41, PTR-42, PTR-45)", () => {
+describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36, PTR-41, PTR-42, PTR-45, PTR-111)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
     expect(can(role, { event: ["register"] })).toBe(EXPECTED[role].eventRegister);
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
@@ -115,6 +121,7 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PT
     expect(can(role, { venue_request: ["decide"] })).toBe(EXPECTED[role].venueDecide);
     expect(can(role, { equipment: ["reserve"] })).toBe(EXPECTED[role].equipmentReserve);
     expect(can(role, { equipment: ["release"] })).toBe(EXPECTED[role].equipmentRelease);
+    expect(can(role, { vip_registration: ["manage"] })).toBe(EXPECTED[role].vipManage);
   });
 
   describe("fails closed", () => {

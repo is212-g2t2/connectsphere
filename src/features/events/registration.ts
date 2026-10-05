@@ -1,6 +1,11 @@
 export const REGISTRATION_NOT_OPEN_MESSAGE = "Registration is not open for this event.";
 export const ALREADY_REGISTERED_MESSAGE = "You are already registered for this event.";
 export const EVENT_FULL_MESSAGE = "This event is full.";
+export const VIP_ALREADY_REGISTERED_MESSAGE = "This Attendee is already registered for this event.";
+export const VIP_NOT_ATTENDEE_MESSAGE = "This Attendee account was not found.";
+export const NOT_A_VIP_MESSAGE = "This Attendee holds no VIP registration for this event.";
+export const VIPS_CLOSED_MESSAGE =
+  "VIP registrations change only while the event is confirmed with registration on.";
 
 /** PTR-45 AC5: the venue's ceiling is named, after the same opening words as AC3's refusal. */
 export function venueCapacityReachedMessage(venueCapacity: number): string {
@@ -9,19 +14,25 @@ export function venueCapacityReachedMessage(venueCapacity: number): string {
 
 /**
  * The places normal registration may fill: the lower of the event's registration capacity and
- * the capacity of the venue on its approved booking (second clarification: registration is
- * governed by the overall venue/event capacity).
+ * the venue places that the VIPs leave, on the event's approved booking (second clarification:
+ * registration is governed by the overall venue/event capacity). VIPs take no place in the
+ * registration capacity (PTR-111 AC2).
  */
-export function placeLimit(registrationCapacity: number, venueCapacity: number): number {
-  return Math.min(registrationCapacity, venueCapacity);
+export function placeLimit(
+  registrationCapacity: number,
+  venueCapacity: number,
+  vipCount: number
+): number {
+  return Math.min(registrationCapacity, Math.max(0, venueCapacity - vipCount));
 }
 
 /**
- * AC8 and AC9: whether a registration that brings the registered count to `registered` tells the
- * Organiser and the Coordinator. That is so at the limit, and at 90% of it rounded up.
+ * AC8 and AC9: the mark that a registered count stands on, which the Organiser and the Coordinator
+ * are told of: the limit itself, or 90% of it rounded up. Null between the marks.
  */
-export function crossesPlaceThreshold(registered: number, limit: number): boolean {
-  return registered === limit || registered === Math.ceil(limit * 0.9);
+export function placeMark(registered: number, limit: number): "full" | "nearly_full" | null {
+  if (registered === limit) return "full";
+  return registered === Math.ceil(limit * 0.9) ? "nearly_full" : null;
 }
 
 /** The terms of a published event; the handler refuses an unpublished one before this runs. */
@@ -33,8 +44,10 @@ interface RegistrationInput {
   now: string;
   /** Whether the Attendee already holds a `registered` registration for the event (AC6). */
   alreadyRegistered: boolean;
-  /** The event's `registered` registrations only: a `withdrawn` one holds no place (AC4). */
+  /** The event's normal `registered` registrations only: a `withdrawn` one holds no place (AC4). */
   registeredCount: number;
+  /** The event's `registered` VIP registrations, which hold venue places only (PTR-111). */
+  vipCount: number;
   /** The capacity of the venue on the event's approved booking, or null when it has none. */
   venueCapacity: number | null;
 }
@@ -63,8 +76,9 @@ export function registrationRefusal(input: RegistrationInput): string | null {
   // PTR-111 note: a confirmed event whose booking was released takes no new registrations until
   // an approved booking is recorded again, because there is no venue ceiling to hold them to.
   if (input.venueCapacity === null) return REGISTRATION_NOT_OPEN_MESSAGE;
-  // The venue is the ceiling for every registration, so it is named when both limits are reached.
-  if (input.registeredCount >= input.venueCapacity) {
+  // The venue is the ceiling for every registration, VIPs included (PTR-45 AC5, PTR-111 AC3), so
+  // it is named when both limits are reached.
+  if (input.registeredCount + input.vipCount >= input.venueCapacity) {
     return venueCapacityReachedMessage(input.venueCapacity);
   }
   if (input.registeredCount >= capacity) return EVENT_FULL_MESSAGE;
