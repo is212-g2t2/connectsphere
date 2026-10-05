@@ -6,6 +6,7 @@ import { Card, CardContent } from "#/components/ui/card";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { formatLocalDateTime } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
+import { RegisterAction } from "#/features/events/components/register-action";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 const MONTH_ABBR = [
@@ -76,6 +77,12 @@ export function EventPage({ event }: { event: EventProjection }) {
   );
   const isRegistered = details.registration?.status === "registered";
   const hasTerms = Boolean(details.registrationOpensAt && details.registrationClosesAt);
+  // PTR-45 AC10: the places taken, against the lower of the registration and venue capacity.
+  const places = details.places ? (
+    <p className="mt-1 body-sm text-muted-foreground">
+      {`${details.places.registered} / ${details.places.limit} registered`}
+    </p>
+  ) : null;
   return (
     <Page width="wide">
       <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
@@ -157,12 +164,17 @@ export function EventPage({ event }: { event: EventProjection }) {
                       {formatLocalDateTime(details.registrationClosesAt)}
                     </p>
                   ) : null}
+                  {places}
                 </>
               ) : hasTerms && details.registrationOpensAt && details.registrationClosesAt ? (
-                <p className="mt-2 body-sm text-muted-foreground">
-                  Opens {formatLocalDateTime(details.registrationOpensAt)} – closes{" "}
-                  {formatLocalDateTime(details.registrationClosesAt)}
-                </p>
+                <>
+                  <p className="mt-2 body-sm text-muted-foreground">
+                    Opens {formatLocalDateTime(details.registrationOpensAt)} – closes{" "}
+                    {formatLocalDateTime(details.registrationClosesAt)}
+                  </p>
+                  {places}
+                  <RegisterAction eventId={details.id} eventName={details.name ?? "this event"} />
+                </>
               ) : (
                 <p className="mt-2 body-sm text-muted-foreground">
                   Registration details to be confirmed

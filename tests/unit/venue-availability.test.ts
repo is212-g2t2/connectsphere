@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { openingPeriods, projectAvailability } from "#/features/venues/availability";
+import {
+  openingPeriods,
+  projectAvailability,
+  venueLocalTimestamp,
+} from "#/features/venues/availability";
 import {
   AVAILABILITY_ORDER_MESSAGE,
   AVAILABILITY_RANGE_MESSAGE,
@@ -132,6 +136,12 @@ describe("PTR-28 opening periods", () => {
       { startsAt: day(9, "08:00:00"), endsAt: day(9, "22:00:00") },
       { startsAt: day(12, "08:00:00"), endsAt: day(12, "22:00:00") },
     ]);
+  });
+});
+
+describe("venue-local clock", () => {
+  it("reads an instant on the Singapore wall clock, across the date line", () => {
+    expect(venueLocalTimestamp(new Date("2026-10-05T16:30:15Z"))).toBe("2026-10-06 00:30:15");
   });
 });
 

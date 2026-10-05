@@ -39,6 +39,10 @@ describe("Database Schema Definitions", () => {
     expect([...schema.eventRequestStatus.enumValues]).toEqual([...EVENT_REQUEST_STATUSES]);
   });
 
+  it("gives a registration exactly two states (PTR-45 AC4)", () => {
+    expect([...schema.eventRegistrationStatus.enumValues]).toEqual(["registered", "withdrawn"]);
+  });
+
   it("keeps the notification kind list identical to the Postgres enum (PTR-55)", () => {
     expect([...schema.notificationKind.enumValues]).toEqual([...NOTIFICATION_KINDS]);
   });

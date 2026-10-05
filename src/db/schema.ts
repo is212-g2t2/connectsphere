@@ -414,7 +414,14 @@ export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status",
   "unavailable",
 ]);
 
-export const eventRegistrationStatus = pgEnum("event_registration_status", ["registered"]);
+/**
+ * PTR-45 AC4: a registration is exactly one of these, and only `registered` counts against
+ * capacity. The registration's own row moves between them (PTR-47), so `withdrawn` keeps the record.
+ */
+export const eventRegistrationStatus = pgEnum("event_registration_status", [
+  "registered",
+  "withdrawn",
+]);
 
 /**
  * PTR-8: until the event record arrives (PTR-21/24), the submitted event request *is* the event,
@@ -738,6 +745,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "equipment_arrangements_completed",
   "equipment_unavailable",
   "equipment_released",
+  "event_registered",
+  "registration_threshold_reached",
 ]);
 
 export const notifications = pgTable(

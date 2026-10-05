@@ -86,6 +86,19 @@ const validPayloads = {
     unavailableReason: null,
     actorName: "Tara",
   },
+  event_registered: {
+    eventName: "Gala",
+    venueName: "Harbour Hall",
+    venueLocation: "Pier 3",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: "2026-10-12 17:00:00",
+  },
+  registration_threshold_reached: {
+    eventName: "Gala",
+    registered: 40,
+    limit: 40,
+    audience: "organiser",
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parses or fails the test with the kind named, so a bad fixture is not a silent null. */
@@ -142,6 +155,25 @@ describe("notification summaries (PTR-55 AC2)", () => {
     expect(notificationSummary(released)).toBe("Equipment released for Gala: Projector");
     expect(notificationSummary(reduced)).toBe("Equipment reduced for Gala: Projector");
   });
+
+  it("names the event for the registration lines (PTR-45)", () => {
+    expect(notificationSummary(parse("event_registered", validPayloads.event_registered))).toBe(
+      "You are registered for Gala"
+    );
+    expect(
+      notificationSummary(
+        parse("registration_threshold_reached", validPayloads.registration_threshold_reached)
+      )
+    ).toBe("Registration is full for Gala");
+    expect(
+      notificationSummary(
+        parse("registration_threshold_reached", {
+          ...validPayloads.registration_threshold_reached,
+          registered: 36,
+        })
+      )
+    ).toBe("Registration is nearly full for Gala");
+  });
 });
 
 describe("notification hrefs (PTR-55 AC4)", () => {
@@ -192,6 +224,17 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     expect(notificationHref({ ...equipment, eventRequestId: 7 })).toBe("/equipment-requests/7");
   });
 
+  it("sends the capacity notice to the page each recipient reads (PTR-45 AC8)", () => {
+    const full = { eventName: "Gala", registered: 40, limit: 40 };
+    const organiser = parse("registration_threshold_reached", { ...full, audience: "organiser" });
+    const coordinator = parse("registration_threshold_reached", {
+      ...full,
+      audience: "coordinator",
+    });
+    expect(notificationHref({ ...organiser, eventRequestId: 7 })).toBe("/event-requests/7");
+    expect(notificationHref({ ...coordinator, eventRequestId: 7 })).toBe("/coordination/7");
+  });
+
   it("sends every kind to its default surface with no facts", () => {
     const expected: Record<NotificationKind, string | null> = {
       venue_booking_requested: null,
@@ -210,6 +253,8 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       equipment_unavailable: "/coordination/7",
       equipment_released: "/coordination/7",
       equipment_requested: "/equipment-requests/7",
+      event_registered: "/events/7",
+      registration_threshold_reached: "/event-requests/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

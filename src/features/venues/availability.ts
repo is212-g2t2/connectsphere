@@ -43,6 +43,31 @@ export function toLocalMinuteValue(value: string) {
   return normalizeDatabaseTimestamp(value).slice(0, 16);
 }
 
+const singaporeClock = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Singapore",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * An instant as the venue's wall clock reads it, in the database spelling
+ * (`"2026-10-05 10:00:00"`). The venues are in Singapore (brief §1).
+ */
+export function venueLocalTimestamp(now: Date): string {
+  const parts = Object.fromEntries(
+    singaporeClock
+      .formatToParts(now)
+      .filter(part => part.type !== "literal")
+      .map(part => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
 /** Bad source data must not read as an available venue, so this throws rather than guesses. */
 export function isFloatingTimestamp(value: string) {
   return FLOATING_TIMESTAMP.test(value) && parseCivilDate(value.slice(0, 10)) !== null;

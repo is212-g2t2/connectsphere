@@ -6,13 +6,18 @@ import { EventPage } from "#/features/events/components/event-page";
 
 /**
  * PTR-44: the attendee event view renders without a router, like the other page views
- * (`tests/unit/page-views.test.ts`). `Link` is the only router surface the page uses, so it is
- * mocked the same way — composed so a test can read where a link leads.
+ * (`tests/unit/page-views.test.ts`). `Link` and the register action's `useRouter` are the router
+ * surfaces the page uses, so they are mocked the same way — composed so a test can read where a
+ * link leads. `tests/unit/register-action.test.tsx` covers what the action does.
  */
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
+  useRouter: () => ({ invalidate: vi.fn<() => Promise<void>>() }),
+}));
+vi.mock("#/features/events/server-fns", () => ({
+  registerForEvent: vi.fn<() => Promise<unknown>>(),
 }));
 
 const projection: EventProjection = {
@@ -183,6 +188,36 @@ describe("EventPage (PTR-44)", () => {
 
     expect(screen.getByText("You're registered")).toBeTruthy();
     expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+  });
+
+  it("offers the register action to an attendee who holds no registration (PTR-45)", () => {
+    render(<EventPage event={projection} />);
+
+    expect(screen.getByRole("button", { name: "Register" })).toBeTruthy();
+  });
+
+  it("shows the places taken against the place limit (PTR-45 AC10)", () => {
+    render(
+      <EventPage
+        event={{
+          ...projection,
+          event: { ...projection.event, places: { registered: 36, limit: 40 } },
+        }}
+      />
+    );
+
+    expect(screen.getByText("36 / 40 registered")).toBeTruthy();
+  });
+
+  it("shows no count while the event has no confirmed venue to limit it", () => {
+    render(
+      <EventPage
+        event={{ ...projection, event: { ...projection.event, venue: null, places: null } }}
+      />
+    );
+
+    expect(screen.queryByText(/registered$/)).toBeNull();
   });
 
   it("shows the period without the registered state once the registration no longer holds", () => {
@@ -200,6 +235,7 @@ describe("EventPage (PTR-44)", () => {
 
     expect(screen.queryByText("You're registered")).toBeNull();
     expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Register" })).toBeTruthy();
   });
 
   it("says registration details are to be confirmed when the event carries no terms", () => {
@@ -217,6 +253,7 @@ describe("EventPage (PTR-44)", () => {
     );
 
     expect(screen.getByText("Registration details to be confirmed")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
   });
 
   it("shows a plain fallback when no venue is currently booked (AC3: no invented venue)", () => {

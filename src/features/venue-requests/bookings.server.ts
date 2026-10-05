@@ -21,7 +21,7 @@ import {
   lockVenueForRequest,
   previewVenueForRequest,
 } from "#/features/venue-requests/venue-lock.server";
-import { toLocalMinuteValue } from "#/features/venues/availability";
+import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
@@ -31,27 +31,6 @@ type Database = typeof Db;
 const log = logger.getChild("venue-bookings");
 const assignedCoordinator = alias(user, "assigned_coordinator");
 const requestingCoordinator = alias(user, "requesting_coordinator");
-
-const singaporeClock = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Singapore",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hourCycle: "h23",
-});
-
-function venueLocalTimestamp(now: Date): string {
-  const parts = Object.fromEntries(
-    singaporeClock
-      .formatToParts(now)
-      .filter(part => part.type !== "literal")
-      .map(part => [part.type, part.value])
-  );
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
-}
 
 function rethrowOverlap(error: unknown): never {
   if (isConstraintViolation(error, "venue_requests_no_overlap")) {

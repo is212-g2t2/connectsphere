@@ -881,6 +881,8 @@ describe("event list handler (PTR-8)", () => {
         registrationOpensAt: OPEN_WINDOW.registrationOpensAt,
         registrationClosesAt: OPEN_WINDOW.registrationClosesAt,
         registration: null,
+        // PTR-45 AC10: registration capacity 60 at a 40-seat venue, so the venue sets the limit.
+        places: { registered: 0, limit: 40 },
         venue: {
           name: FIXTURE_VENUE_2_NAME,
           location: "Fixture location",
@@ -902,6 +904,7 @@ describe("event list handler (PTR-8)", () => {
           "eventDate",
           "id",
           "name",
+          "places",
           "registration",
           "registrationClosesAt",
           "registrationEnabled",
@@ -911,6 +914,25 @@ describe("event list handler (PTR-8)", () => {
           "venue",
         ].toSorted()
       );
+    });
+
+    it("counts only registered places for an attendee (PTR-45 AC10)", async () => {
+      await database.insert(schema.eventRegistrations).values([
+        { eventId: fixtures.confirmedOpen.id, attendeeId: fixtureUsers.attendeeRegistered.id },
+        {
+          eventId: fixtures.confirmedOpen.id,
+          attendeeId: fixtureUsers.outsider.id,
+          status: "withdrawn",
+        },
+      ]);
+
+      const [projection] = await handleListEvents(
+        { eventId: fixtures.confirmedOpen.id },
+        session("attendee"),
+        database as never
+      );
+
+      expect(projection.event.places).toEqual({ registered: 1, limit: 40 });
     });
 
     it("keeps the earliest-created approved booking when a later one exists (determinism)", async () => {
@@ -950,6 +972,8 @@ describe("event list handler (PTR-8)", () => {
         database as never
       );
       expect(projection.event.venue).toBeNull();
+      // Without a venue there is no place limit, so no count either.
+      expect(projection.event.places).toBeNull();
     });
 
     it("keeps a confirmed event visible after its registration window has closed (PTR-44: the window gates the action, not the view)", async () => {

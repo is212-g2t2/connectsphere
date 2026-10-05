@@ -288,6 +288,7 @@ erDiagram
 
 | Function                    | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
 | --------------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
+| `event:register`            |    ✅    |        —        |         —         |      —      |            —            |
 | `event_request:create`      |    —     |       ✅        |         —         |      —      |            —            |
 | `event_request:coordinate`  |    —     |        —        |        ✅         |      —      |            —            |
 | `venue:read`                |    —     |        —        |        ✅         |     ✅      |           ✅            |

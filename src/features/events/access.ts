@@ -174,6 +174,15 @@ export interface EventVenue {
 }
 
 /**
+ * How many places a published event has taken: its `registered` registrations against the place
+ * limit, the lower of its registration capacity and its venue's capacity.
+ */
+export interface EventPlaces {
+  registered: number;
+  limit: number;
+}
+
+/**
  * PTR-24 AC3: what an Organiser or Coordinator sees of a confirmed event — who confirmed it and
  * when, and the venue booking it was confirmed against. `venue` is null when that booking has
  * since been released: the status does not move by itself (AC6), so the view says the booking is
@@ -243,6 +252,8 @@ export interface EventProjection {
     accessibilityRequirements?: string | null;
     requiredFacilities?: string | null;
     registration?: { status: string; registeredAt: string } | null;
+    /** PTR-45 AC10: the event's `registered` registrations against its place limit. */
+    places?: EventPlaces | null;
     venue?: EventVenue | null;
     venueRequest?: EventVenueRequest | null;
     equipment?: EquipmentLineProjection[];
@@ -291,7 +302,8 @@ export function isEquipmentArrangementsSatisfied(
  * The role-specific projection (PTR-8 criteria 3 and 4). The attendee branch carries PTR-44
  * AC2's fields — name, description, date/time, the registration period, the attendee's own
  * registration, and the venue of the approved booking the event was confirmed against (null
- * once released) — and no booking decisions, equipment, or clarification threads.
+ * once released) — plus PTR-45's count of places, and no booking decisions, equipment, or
+ * clarification threads.
  */
 export function projectEvent(
   record: EventRecord,
@@ -299,7 +311,8 @@ export function projectEvent(
   ownRegistration: { status: string; registeredAt: string } | null,
   equipment: EquipmentLineProjection[],
   venueRequest: EventVenueRequest | null,
-  confirmedVenue: EventConfirmation["venue"] = null
+  confirmedVenue: EventConfirmation["venue"] = null,
+  places: EventPlaces | null = null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 
@@ -317,6 +330,7 @@ export function projectEvent(
           registrationClosesAt: record.registrationClosesAt,
           registrationEnabled: record.registrationEnabled,
           registration: ownRegistration,
+          places,
           venue: confirmedVenue,
         },
       };

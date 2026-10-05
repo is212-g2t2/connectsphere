@@ -1,4 +1,4 @@
-import { and, eq, exists, gt, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
+import { and, count, eq, exists, gt, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -25,9 +25,11 @@ import {
 import type {
   EquipmentLineProjection,
   EventConfirmation,
+  EventPlaces,
   EventProjection,
   EventVenueRequest,
 } from "#/features/events/access";
+import { placeLimit } from "#/features/events/registration";
 import type { VenueRequestOutcome } from "#/features/venue-requests/records.server";
 import { parseEventListInput } from "#/features/events/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
@@ -284,6 +286,7 @@ export async function handleListEvents(
   // shown it — the organiser, the coordinator, and any attendee (PTR-44 AC2). Only an
   // approved booking counts; a released one leaves `venue` null.
   const confirmedVenues = new Map<number, NonNullable<EventConfirmation["venue"]>>();
+  const venueCapacities = new Map<number, number>();
   const confirmedIds = requestRows.filter(row => row.status === "confirmed").map(row => row.id);
   if (
     confirmedIds.length > 0 &&
@@ -294,6 +297,7 @@ export async function handleListEvents(
         eventId: venueRequests.eventId,
         name: venues.name,
         location: venues.location,
+        maxCapacity: venues.maxCapacity,
         startsAt: venueRequests.startsAt,
         endsAt: venueRequests.endsAt,
       })
@@ -316,9 +320,28 @@ export async function handleListEvents(
           startTime: booking.startsAt.slice(11, 16),
           endTime: booking.endsAt.slice(11, 16),
         });
+        venueCapacities.set(booking.eventId, booking.maxCapacity);
       }
     }
   }
+
+  // PTR-45 AC10: an attendee sees how many places each confirmed event has taken.
+  const registeredCounts = new Map<number, number>(
+    role === "attendee" && confirmedIds.length > 0
+      ? (
+          await database
+            .select({ eventId: eventRegistrations.eventId, registered: count() })
+            .from(eventRegistrations)
+            .where(
+              and(
+                inArray(eventRegistrations.eventId, confirmedIds),
+                eq(eventRegistrations.status, "registered")
+              )
+            )
+            .groupBy(eventRegistrations.eventId)
+        ).map(row => [row.eventId, row.registered])
+      : []
+  );
 
   // PTR-36 criterion 4: which pending requests overlap an approved booking for the same venue.
   // A self-join rather than a per-request read, and deliberately not scoped to `venueRows`: the
@@ -471,8 +494,23 @@ export async function handleListEvents(
           : null,
         equipment,
         venueRequest,
-        confirmedVenues.get(record.id) ?? null
+        confirmedVenues.get(record.id) ?? null,
+        eventPlaces(
+          record.registrationCapacity,
+          venueCapacities.get(record.id),
+          registeredCounts.get(record.id) ?? 0
+        )
       ),
     ];
   });
+}
+
+/** The places of an event with a registration capacity and a confirmed venue, else none. */
+function eventPlaces(
+  registrationCapacity: number | null,
+  venueCapacity: number | undefined,
+  registered: number
+): EventPlaces | null {
+  if (registrationCapacity === null || venueCapacity === undefined) return null;
+  return { registered, limit: placeLimit(registrationCapacity, venueCapacity) };
 }

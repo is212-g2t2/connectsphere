@@ -25,6 +25,8 @@ export const NOTIFICATION_KINDS = [
   "equipment_arrangements_completed",
   "equipment_unavailable",
   "equipment_released",
+  "event_registered",
+  "registration_threshold_reached",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -153,6 +155,26 @@ const payloadSchemas = {
     unavailableReason: z.string().nullable(),
     actorName: z.string(),
   }),
+  /** PTR-45 AC7: the event information an Attendee receives when their registration succeeds. */
+  event_registered: z.object({
+    eventName: z.string(),
+    venueName: z.string(),
+    venueLocation: z.string(),
+    /** Floating venue-local timestamps of the approved booking, as `event_confirmed` keeps them. */
+    startsAt: z.string(),
+    endsAt: z.string(),
+  }),
+  /**
+   * PTR-45 AC8 and AC9: the registration that took the event to 90% of its place limit, or to the
+   * limit itself; `registered` against `limit` says which. The Organiser and the Coordinator
+   * open different pages for one event, so `audience` records which page the row links to.
+   */
+  registration_threshold_reached: z.object({
+    eventName: z.string(),
+    registered: z.number(),
+    limit: z.number(),
+    audience: z.enum(["organiser", "coordinator"]),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -165,7 +187,7 @@ export type NotificationPayload = {
 }[NotificationKind];
 
 /**
- * The same 15 schemas addressed by a stored `kind`, so one parse validates a row without shaping
+ * The same schemas addressed by a stored `kind`, so one parse validates a row without shaping
  * its result by hand, and an unknown kind fails closed like a malformed payload. The list is
  * explicit because Zod's discriminated-union signature needs a literal non-empty tuple; the
  * `payloadSchemas` record below is `satisfies`-checked against `NotificationKind`, so the two
@@ -215,6 +237,11 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     payload: payloadSchemas.equipment_unavailable,
   }),
   z.object({ kind: z.literal("equipment_released"), payload: payloadSchemas.equipment_released }),
+  z.object({ kind: z.literal("event_registered"), payload: payloadSchemas.event_registered }),
+  z.object({
+    kind: z.literal("registration_threshold_reached"),
+    payload: payloadSchemas.registration_threshold_reached,
+  }),
 ]);
 
 /**
@@ -269,6 +296,12 @@ export function notificationSummary(notification: NotificationPayload): string {
     case "equipment_released": {
       const action = notification.payload.quantity === 0 ? "released" : "reduced";
       return `Equipment ${action} for ${notification.payload.eventName}: ${notification.payload.item}`;
+    }
+    case "event_registered":
+      return `You are registered for ${notification.payload.eventName}`;
+    case "registration_threshold_reached": {
+      const { eventName, registered, limit } = notification.payload;
+      return `Registration is ${registered >= limit ? "full" : "nearly full"} for ${eventName}`;
     }
     default: {
       const unhandled: never = notification;
@@ -330,6 +363,13 @@ export function notificationHref(
       return `/event-requests/${eventRequestId}`;
     case "equipment_requested":
       return `/equipment-requests/${eventRequestId}`;
+    case "event_registered":
+      // ponytail: a cancelled event has no Attendee page yet, so this link answers 404 then.
+      return `/events/${eventRequestId}`;
+    case "registration_threshold_reached":
+      return notification.payload.audience === "coordinator"
+        ? `/coordination/${eventRequestId}`
+        : `/event-requests/${eventRequestId}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -372,6 +412,8 @@ export function notificationReachable(
     case "equipment_arrangements_completed":
     case "equipment_unavailable":
     case "equipment_released":
+    case "event_registered":
+    case "registration_threshold_reached":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

@@ -15,6 +15,8 @@ import type { Role } from "#/features/auth/schema/role";
  * would reach the client bundle and fail `bun run build` alone.
  */
 const statement = {
+  /** PTR-45: `register` is an Attendee's own registration for a published event. */
+  event: ["register"],
   event_request: ["create", "coordinate"],
   venue: ["create", "update", "read", "search"],
   venue_request: ["request", "read", "decide"],
@@ -52,9 +54,9 @@ const ac = createAccessControl(statement);
  * rules, so these permissions never grant access to another role's event or row.
  */
 const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
-  // Attendees hold no functions yet: an empty role authorizes nothing, which is the
-  // fail-closed default we want.
-  attendee: ac.newRole({}),
+  // PTR-45 AC1: registration is the Attendee's function alone, so there is no guest path and no
+  // other role registers. The handler re-reads which events the Attendee may register for.
+  attendee: ac.newRole({ event: ["register"] }),
   event_organiser: ac.newRole({ event_request: ["create"] }),
   event_coordinator: ac.newRole({
     event_request: ["coordinate"],
