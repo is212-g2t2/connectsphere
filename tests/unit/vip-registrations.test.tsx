@@ -137,12 +137,21 @@ describe("VipRegistrations (PTR-111)", () => {
 
   it("searches at once on Enter, and does not search the same query again once the typing pauses", async () => {
     searchVipAttendees.mockResolvedValue([ada]);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<VipRegistrations eventId={12} vips={[]} />);
 
-    await searchFor("ada{Enter}");
+      await user.type(searchbox(), "ada{Enter}");
+      expect(await screen.findByRole("button", { name: "Add Ada Lovelace as a VIP" })).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
 
-    expect(await screen.findByRole("button", { name: "Add Ada Lovelace as a VIP" })).toBeTruthy();
-    await new Promise(resolve => setTimeout(resolve, 400));
-    expect(searchVipAttendees).toHaveBeenCalledOnce();
+      expect(searchVipAttendees).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses Enter on a query too short to search, in the schema's words, until it is longer", async () => {

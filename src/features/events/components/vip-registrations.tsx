@@ -208,7 +208,7 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
                   onBlur={field.handleBlur}
                 />
                 <FieldDescription id={hintId}>
-                  Search by part of a name or an email.
+                  Search by {VIP_SEARCH_MIN_LENGTH} or more characters of a name or an email.
                 </FieldDescription>
                 <FieldError errors={field.state.meta.errors} />
               </Field>
