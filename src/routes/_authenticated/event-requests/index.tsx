@@ -2,6 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { can } from "#/features/auth/permissions";
 import { EventRequestListPage } from "#/features/event-requests/components/request-list-page";
+import { EventRequestListPageSkeleton } from "#/features/event-requests/components/request-list-page-skeleton";
 import { listEventRequests } from "#/features/event-requests/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
@@ -14,4 +15,5 @@ export const Route = createFileRoute("/_authenticated/event-requests/")({
   },
   loader: () => listEventRequests(),
   component: () => <EventRequestListPage requests={Route.useLoaderData()} />,
+  pendingComponent: EventRequestListPageSkeleton,
 });
