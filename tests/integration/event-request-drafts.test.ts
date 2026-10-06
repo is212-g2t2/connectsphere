@@ -2589,10 +2589,16 @@ describe("Status set and decision attribution (PTR-21)", () => {
   );
 
   it("lets a request be cancelled before or after a decision, never half-attributed", async () => {
+    // PTR-54 AC1: a cancellation always carries who and when.
+    const cancellation = {
+      cancelledById: "seed-coordinator-1",
+      cancelledByName: "Event List Coordinator",
+      cancelledAt: new Date(),
+    };
     const before = await submitted();
     const [cancelledBefore] = await database
       .update(schema.eventRequests)
-      .set({ status: "cancelled" })
+      .set({ status: "cancelled", ...cancellation })
       .where(eq(schema.eventRequests.id, before.id))
       .returning();
     expect(cancelledBefore.status).toBe("cancelled");
@@ -2600,7 +2606,7 @@ describe("Status set and decision attribution (PTR-21)", () => {
     const after = await submitted();
     const [cancelledAfter] = await database
       .update(schema.eventRequests)
-      .set({ status: "cancelled", ...decided })
+      .set({ status: "cancelled", ...decided, ...cancellation })
       .where(eq(schema.eventRequests.id, after.id))
       .returning();
     expect(cancelledAfter.decidedByCoordinatorId).toBe("seed-coordinator-1");
@@ -2612,6 +2618,25 @@ describe("Status set and decision attribution (PTR-21)", () => {
         .set({ status: "cancelled", decidedAt: new Date() })
         .where(eq(schema.eventRequests.id, before.id))
     ).rejects.toMatchObject({ cause: { constraint: "event_requests_decision_matches_status" } });
+
+    // Neither a cancelled event without who and when, nor a cancellation record on another stage.
+    await expect(
+      database
+        .update(schema.eventRequests)
+        .set({ cancelledById: null, cancelledByName: null, cancelledAt: null })
+        .where(eq(schema.eventRequests.id, before.id))
+    ).rejects.toMatchObject({
+      cause: { constraint: "event_requests_cancellation_matches_status" },
+    });
+    const live = await submitted();
+    await expect(
+      database
+        .update(schema.eventRequests)
+        .set(cancellation)
+        .where(eq(schema.eventRequests.id, live.id))
+    ).rejects.toMatchObject({
+      cause: { constraint: "event_requests_cancellation_matches_status" },
+    });
   });
 
   it("does not move the status when a venue arrangement changes (AC3)", async () => {

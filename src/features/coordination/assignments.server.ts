@@ -25,6 +25,7 @@ import { AuthorizationError, ConflictError, NotFoundError } from "#/features/aut
 import type { SessionUser } from "#/features/auth/session";
 import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
 import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
+import { loadOutstandingReleases } from "#/features/events/cancel.server";
 import {
   parseAssignmentInput,
   parseDecisionInput,
@@ -135,15 +136,18 @@ export async function handleGetCoordinationRequest(
       "You no longer have coordination access to this request, or it is unavailable."
     );
 
-  const [clarifications, changeRequests, cancellationRequests] = await Promise.all([
-    database
-      .select()
-      .from(clarificationRequests)
-      .where(eq(clarificationRequests.eventRequestId, id))
-      .orderBy(asc(clarificationRequests.createdAt)),
-    listEventChangeRequests(id, database),
-    listEventCancellationRequests(id, database),
-  ]);
+  const [clarifications, changeRequests, cancellationRequests, outstandingReleases] =
+    await Promise.all([
+      database
+        .select()
+        .from(clarificationRequests)
+        .where(eq(clarificationRequests.eventRequestId, id))
+        .orderBy(asc(clarificationRequests.createdAt)),
+      listEventChangeRequests(id, database),
+      listEventCancellationRequests(id, database),
+      // PTR-54 AC2: what a cancelled event still holds, read live so a release takes it off.
+      request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
+    ]);
 
   // PTR-110: the live offer, but only while it is still this assignment's offer — the outgoing
   // Coordinator sees it and cannot raise a second one. A row the current assignment has moved
@@ -181,6 +185,7 @@ export async function handleGetCoordinationRequest(
     clarifications,
     changeRequests,
     cancellationRequests,
+    outstandingReleases,
     pendingHandover,
   };
 }

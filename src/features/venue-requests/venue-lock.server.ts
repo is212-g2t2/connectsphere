@@ -45,30 +45,59 @@ export async function lockVenueForRequest(tx: VenueTx, requestId: string): Promi
   return previewVenueId(tx, venueRequests, requestId);
 }
 
+/** The event row a venue writer locks, as its gates read it. */
+type LockedEvent = { id: number; status: string };
+
 /**
- * Key-share a venue request's event before any venue row lock, and return its row
- * (`{ id, status }`) for the caller's gates — or null when the request row is missing.
- * A decision notification inserted later in the transaction takes this lock through its
- * FK. Taking it while holding the request row deadlocks against confirmation, which
+ * Key-share an event before any venue lock, and return its row (`{ id, status }`) as read under
+ * that lock, or null when the event is missing. A cancellation holds the event row `FOR UPDATE`
+ * (PTR-54), so this lock waits for a cancellation in progress and then reads `cancelled`. While
+ * the caller holds it, a cancellation waits for the caller to commit.
+ */
+export async function keyShareEvent(tx: VenueTx, eventId: number): Promise<LockedEvent | null> {
+  const rows = await tx
+    .select({ id: eventRequests.id, status: eventRequests.status })
+    .from(eventRequests)
+    .where(eq(eventRequests.id, eventId))
+    .for("key share");
+  return rows.at(0) ?? null;
+}
+
+/**
+ * `keyShareEvent` for a writer that starts from a venue request or a hold, or null when that row
+ * is missing. A notification or a venue request inserted later in the transaction takes this lock
+ * through its FK. Taking it while holding the request row deadlocks against confirmation, which
  * locks the event first and then the event's venue requests.
  */
-export async function keyShareEventForRequest(
+async function keyShareEventOf(
   tx: VenueTx,
-  requestId: string
-): Promise<{ id: number; status: string } | null> {
+  table: typeof venueRequests | typeof venueHolds,
+  id: string
+): Promise<LockedEvent | null> {
   const rows = await tx
-    .select({ eventId: venueRequests.eventId })
-    .from(venueRequests)
-    .where(eq(venueRequests.id, requestId))
+    .select({ eventId: table.eventId })
+    .from(table)
+    .where(eq(table.id, id))
     .limit(1);
   const preview = rows.at(0);
   if (!preview) return null; // The row lock that follows reports Not Found.
-  const eventRows = await tx
-    .select({ id: eventRequests.id, status: eventRequests.status })
-    .from(eventRequests)
-    .where(eq(eventRequests.id, preview.eventId))
-    .for("key share");
-  return eventRows.at(0) ?? null;
+  return keyShareEvent(tx, preview.eventId);
+}
+
+/** Key-share a venue request's event before any venue row lock. */
+export async function keyShareEventForRequest(
+  tx: VenueTx,
+  requestId: string
+): Promise<LockedEvent | null> {
+  return keyShareEventOf(tx, venueRequests, requestId);
+}
+
+/** Key-share a hold's event before any venue row lock. */
+export async function keyShareEventForHold(
+  tx: VenueTx,
+  holdId: string
+): Promise<LockedEvent | null> {
+  return keyShareEventOf(tx, venueHolds, holdId);
 }
 
 /**

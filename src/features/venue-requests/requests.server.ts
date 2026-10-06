@@ -5,6 +5,7 @@ import { eventRequests, user, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
+import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { assertEventAcceptsActivity } from "#/features/events/completion";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { loadAssignedEvent } from "#/features/events/records.server";
@@ -25,6 +26,7 @@ import {
 } from "#/features/venue-requests/schema";
 import {
   assertSameVenue,
+  keyShareEvent,
   keyShareEventForRequest,
   lockVenueForRequest,
 } from "#/features/venue-requests/venue-lock.server";
@@ -455,7 +457,8 @@ export async function handleGetVenueRequestContext(
  * the only way the panel is reached.
  *
  * No overlap check runs here: only an approved booking holds a venue, and pending requests stack
- * by design; the approval path refuses the overlap (PTR-36).
+ * by design; the approval path refuses the overlap (PTR-36). A cancelled event takes no new
+ * request (PTR-54 AC9).
  */
 export async function handleCreateVenueRequest(
   data: unknown,
@@ -465,6 +468,10 @@ export async function handleCreateVenueRequest(
   const input = parseVenueRequestInput(data);
 
   const created = await database.transaction(async tx => {
+    // The event lock waits for a cancellation in progress, and a cancellation that starts later
+    // waits for this transaction to commit.
+    const locked = await keyShareEvent(tx, input.eventId);
+    if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
     if (!event) throw new AuthorizationError("Forbidden");
 
@@ -604,6 +611,8 @@ export async function handleApproveVenueRequest(
       // through its FK, and confirmation holds the event before this event's requests. Then one
       // lock order for every venue writer: advisory lock first, then the row lock. The preview
       // read learns which venue to lock; the post-lock re-read must still belong to it.
+      // A cancellation holds the event row, so this lock waits for it and then reads the new
+      // status (PTR-54 AC9).
       const event = await keyShareEventForRequest(tx, id);
       const lockedVenueId = await lockVenueForRequest(tx, id);
 
@@ -633,8 +642,10 @@ export async function handleApproveVenueRequest(
       if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
       if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
       // After the ownership gate: a refused probe of another member's row reveals
-      // nothing about the event's completion state.
+      // nothing about the event's completion or cancellation.
       assertEventAcceptsActivity(event?.status);
+      // PTR-54 AC9: a cancelled event takes no new booking.
+      if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
 
       // Under the lock this pre-check cannot race another approval; the constraint below is the
       // backstop for a writer that does not come through this function.

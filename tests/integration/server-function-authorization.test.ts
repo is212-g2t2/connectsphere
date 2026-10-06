@@ -50,8 +50,10 @@ import {
 import { VIP_SEARCH_MESSAGE } from "#/features/events/schema";
 import {
   addVipRegistration,
+  cancelEvent,
   completeEvent,
   confirmEvent,
+  declineEventCancellation,
   listEvents,
   registerForEvent,
   removeVipRegistration,
@@ -701,6 +703,46 @@ describe("server-function authorization (PTR-69)", () => {
           status: 403,
         });
       }
+    );
+  });
+
+  // PTR-54: only an Event Coordinator processes a cancellation request; the handler checks the
+  // assignment.
+  describe.each([
+    { name: "cancel event", serverFn: cancelEvent, input: { id: 1 } },
+    {
+      name: "decline event cancellation",
+      serverFn: declineEventCancellation,
+      input: { id: 1, reason: "The venue deposit is paid." },
+    },
+  ])("PTR-54 $name", ({ serverFn, input }) => {
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(serverFn, input)).toEqual({ status: 401, body: "Unauthorized" });
+    });
+
+    it("permits an Event Coordinator", async () => {
+      signIn("event_coordinator");
+
+      expect((await call(serverFn, input)).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(serverFn, input)).toMatchObject({ status: 403 });
+      }
+    );
+  });
+
+  it("refuses a decline without a reason before the handler (PTR-54 AC8)", async () => {
+    signIn("event_coordinator");
+
+    expect(await messageFrom(declineEventCancellation, { id: 1, reason: " " })).toBe(
+      "Enter a reason for declining"
     );
   });
 

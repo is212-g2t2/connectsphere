@@ -36,12 +36,17 @@ import {
   takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
+import {
+  CancellationDecision,
+  OutstandingReleasesList,
+} from "#/features/coordination/components/cancellation-decision";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import { formatInstant } from "#/features/event-requests/format";
 import {
   CLARIFICATION_FIELDS,
   CLARIFICATION_TEXT_MAX,
   ClarificationFormSchema,
+  canRequestEventCancellation,
 } from "#/features/event-requests/schema";
 import type { ClarificationField } from "#/features/event-requests/schema";
 import { useMutation } from "#/hooks/use-mutation";
@@ -194,6 +199,13 @@ export function CoordinationRequestPage({
   else if (requestingHandover) submitLabel = "Requesting…";
   else if (pendingHandover) submitLabel = "Offer to someone else";
 
+  // PTR-54: only the assigned Coordinator processes a waiting cancellation request. The cancel
+  // control itself is gated on the event's stage, so a completed event offers only the decline.
+  const canProcessCancellation =
+    request.assignedCoordinatorId === user.id &&
+    request.status !== "cancelled" &&
+    request.cancellationRequests.some(item => item.outcome === null);
+
   const canRequestClarification =
     (request.status === "under_review" || request.status === "awaiting_organiser") &&
     request.assignedCoordinatorId === user.id;
@@ -203,6 +215,18 @@ export function CoordinationRequestPage({
       request={request}
       back={{ to: "/coordination", label: "Back to coordination" }}
     >
+      {canProcessCancellation && (
+        <CancellationDecision
+          requestId={request.id}
+          eventName={request.eventName.trim() || "this event"}
+          canCancel={canRequestEventCancellation(request.status)}
+        />
+      )}
+
+      {request.outstandingReleases && (
+        <OutstandingReleasesList releases={request.outstandingReleases} />
+      )}
+
       {canTakeUpForReview && (
         <section className="mt-8" aria-labelledby="review-heading">
           <Card>

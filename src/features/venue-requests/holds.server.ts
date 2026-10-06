@@ -4,6 +4,7 @@ import type { db as Db } from "#/db";
 import { eventRequests, user, venueHolds, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import {
   raiseVenueRequestNotifications,
@@ -19,6 +20,8 @@ import {
 import { canReleaseHold } from "#/features/venue-requests/holds";
 import {
   assertSameVenue,
+  keyShareEvent,
+  keyShareEventForHold,
   lockVenue,
   lockVenueForHold,
 } from "#/features/venue-requests/venue-lock.server";
@@ -40,11 +43,16 @@ const log = logger.getChild("venue-holds");
  * generic overlap sentence.
  * AC4: Hold refused when approved booking exists (ConflictError 409) naming venue and period.
  * AC7: Stores acting user ID (heldById) and timestamp.
+ * PTR-54 AC9: a cancelled event takes no new hold.
  */
 export async function handleCreateVenueHold(data: unknown, actor: SessionUser, database: Database) {
   const input = parseVenueHoldInput(data);
 
   return database.transaction(async tx => {
+    // The event lock comes before the venue lock. It waits for a cancellation in progress, and a
+    // cancellation that starts later waits for this transaction to commit.
+    const locked = await keyShareEvent(tx, input.eventId);
+    if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
     if (!event) throw new AuthorizationError("Forbidden");
 
@@ -186,6 +194,7 @@ export async function handleReleaseVenueHold(
  * PTR-109 AC5: converting a tentative hold to a pending venue request.
  * Releases the hold, creates a pending venue request with matching period/venue/event,
  * and notifies Venue Staff via email.
+ * PTR-54 AC9: a cancelled event takes no new venue request, so its hold can only be released.
  */
 export async function handleConvertVenueHold(
   data: unknown,
@@ -195,6 +204,10 @@ export async function handleConvertVenueHold(
   const { id } = parseVenueHoldId(data);
 
   const result = await database.transaction(async tx => {
+    // The event lock comes before the venue lock. It waits for a cancellation in progress, and a
+    // cancellation that starts later waits for this transaction to commit.
+    const locked = await keyShareEventForHold(tx, id);
+    if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const { hold, released: releasedHold } = await releaseActiveHold(
       tx,
       id,
