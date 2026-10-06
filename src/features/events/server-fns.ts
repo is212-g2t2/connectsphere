@@ -57,6 +57,14 @@ export const listEvents = createServerFn({ method: "GET" })
     return handleListEvents(data, context.user, db);
   });
 
+/** PTR-46: one ordered, attendee-scoped list of the caller's registrations. */
+export const listAttendeeRegistrations = createServerFn({ method: "GET" })
+  .middleware([requireEventRegister])
+  .handler(async ({ context }) => {
+    const [{ db }, { handleListAttendeeRegistrations }] = await loadServer();
+    return handleListAttendeeRegistrations(context.user, db);
+  });
+
 /**
  * PTR-24: the assigned Coordinator confirms an event once its venue and equipment arrangements are
  * in place. The handler re-reads the assignment and the arrangements, so the permission says only

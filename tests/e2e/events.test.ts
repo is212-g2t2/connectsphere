@@ -37,6 +37,39 @@ async function signUpAsOrganiser(page: Page): Promise<void> {
  * handler and middleware boundaries.
  */
 test.describe("Event access", () => {
+  test("redirects a signed-out visitor from registrations to login", async ({ page }) => {
+    await page.goto("/registrations");
+
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.getByRole("heading", { name: "My registrations" })).toHaveCount(0);
+  });
+
+  test("redirects an organiser from registrations to the dashboard", async ({ page }) => {
+    await signUpAsOrganiser(page);
+    await page.goto("/registrations");
+
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole("heading", { name: "My registrations" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "My registrations" })).toHaveCount(0);
+  });
+
+  test("shows the signed-in Attendee their registrations", async ({ page }) => {
+    await signInAsSeeded(page, "john.doe@example.com");
+    await page.goto("/registrations");
+
+    await expect(page.getByRole("heading", { name: "My registrations" })).toBeVisible();
+    const registrations = page.getByRole("list", { name: "Event registrations" });
+    const registration = registrations
+      .getByRole("listitem")
+      .filter({ hasText: ATTENDEE_DEMO_EVENT_NAME });
+    await expect(registration).toBeVisible();
+    await expect(registration.getByLabel("Your registration: Registered")).toBeVisible();
+    await expect(registration.getByText(/\d{1,2} [A-Z][a-z]{2} \d{4}/)).toBeVisible();
+    await expect(registration.getByText(/\d{2}:\d{2}–\d{2}:\d{2}/)).toBeVisible();
+    await expect(registration.getByText(ATTENDEE_DEMO_VENUE_NAME)).toBeVisible();
+    await expect(registration.getByText("Level 2, ConnectSphere Marina Centre")).toBeVisible();
+  });
+
   test("renders the connected-events workspace for a signed-in attendee", async ({ page }) => {
     const email = `e2e-events-attendee-${Date.now()}@example.com`;
     const password = "Password123!";

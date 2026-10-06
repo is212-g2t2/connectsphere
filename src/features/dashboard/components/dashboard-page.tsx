@@ -18,6 +18,12 @@ export function DashboardPage({ user, events }: { user: SessionUser; events: Eve
       <PageHeader eyebrow="Dashboard" title={`Welcome, ${user.name?.trim() || user.email}`} />
 
       <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3">
+        {can(user.role, { event: ["register"] }) && (
+          <Link to="/registrations" className={NAV_LINK_CLASSNAME}>
+            My registrations
+          </Link>
+        )}
+
         {can(user.role, { event_request: ["create"] }) && (
           <Link to="/event-requests" className={NAV_LINK_CLASSNAME}>
             Event requests
