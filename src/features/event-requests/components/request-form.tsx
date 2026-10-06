@@ -178,10 +178,10 @@ function missingFieldPath(key: string, value: EventRequestFormValues): string {
 
 /**
  * A submission needs the PTR-10 fields complete; a draft does not, so the form shape maps a blank
- * permitted field to an absent one and the schema passes it. In reply mode that would let a cleared
- * required field reach the server, which answers with its form-level sentence above the action row.
- * This turns each missing field into a field-level error, at the control that owns it, for the
- * fields the Coordinator permitted. Locked fields are complete by construction and skipped.
+ * permitted field to an absent one and the schema passes it. In a reply or an update that would let
+ * a cleared required field reach the server, which answers with its form-level sentence above the
+ * action row. This turns each missing field into a field-level error, at the control that owns it,
+ * for the fields the caller can edit. Locked fields are complete by construction and skipped.
  */
 function missingFieldErrors(
   value: EventRequestFormValues,
@@ -205,24 +205,25 @@ function missingFieldErrors(
  * draft fields; the reply body is validated at its own field, so this widens the form validator to
  * accept a value carrying `replyBody` without restating the schema.
  *
- * In reply mode the schema alone is too lenient: it accepts a cleared permitted required field
- * because absence is valid while drafting. `missingFieldErrors` adds those omissions back as field
- * errors, merged so the schema's own issues stay put.
+ * When the record must stay complete (a reply, or an event information update), the schema alone
+ * is too lenient: it accepts a cleared required field because absence is valid while drafting.
+ * `missingFieldErrors` adds those omissions back as field errors, merged so the schema's own issues
+ * stay put.
  */
 function draftValidator({
   value,
   editable,
-  replyMode,
+  requireComplete,
 }: {
   value: EventRequestFormValues;
   editable: (field: string) => boolean;
-  replyMode: boolean;
+  requireComplete: boolean;
 }) {
   const result = standardSchemaValidators.validate<"form">(
     { value, validationSource: "form" },
     EventRequestDraftFormInput
   );
-  if (!replyMode) return result;
+  if (!requireComplete) return result;
 
   const parsed = EventRequestDraftFormInput.safeParse(value);
   if (!parsed.success) return result;
@@ -243,6 +244,7 @@ export function EventRequestForm({
   disabled = false,
   replyBody,
   idPrefix,
+  requireComplete = false,
 }: {
   initialValues?: EventRequestDraftValues;
   onSave: (
@@ -262,6 +264,11 @@ export function EventRequestForm({
   /** When replying, the body is a required field of this same form, labelled as given. */
   replyBody?: { label: string };
   idPrefix?: string;
+  /**
+   * PTR-22: the record is already submitted, so a required field left blank is refused at its
+   * control rather than saved. Reply mode implies it.
+   */
+  requireComplete?: boolean;
 }) {
   /**
    * Which control is submitting. A ref rather than state because the click and the submit are two
@@ -277,7 +284,7 @@ export function EventRequestForm({
     defaultValues: toDefaultFormValues(initialValues),
     validators: {
       onSubmit: ({ value }: { value: EventRequestFormValues }) =>
-        draftValidator({ value, editable, replyMode }),
+        draftValidator({ value, editable, requireComplete: replyMode || requireComplete }),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -700,8 +707,9 @@ export function EventRequestForm({
   return (
     <form noValidate onSubmit={submitForm}>
       <p className="mb-6 body-sm text-muted-foreground">
-        Fields marked required must be completed. Anything left blank is saved with the draft, so
-        you can finish it later.
+        {requireComplete
+          ? "Fields marked required must stay complete."
+          : "Fields marked required must be completed. Anything left blank is saved with the draft, so you can finish it later."}
       </p>
 
       <FieldGroup>

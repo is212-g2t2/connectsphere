@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission, requireSession } from "#/features/auth/session";
 import {
   parseEventCancellationDeclineInput,
+  parseEventInformationInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
 import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
@@ -38,6 +39,10 @@ async function loadRegisterServer() {
 
 async function loadCompleteServer() {
   return Promise.all([import("#/db"), import("#/features/events/complete.server")]);
+}
+
+async function loadUpdateServer() {
+  return Promise.all([import("#/db"), import("#/features/events/update.server")]);
 }
 
 const requireEventRegister = requirePermission({ event: ["register"] });
@@ -80,6 +85,27 @@ export const confirmEvent = createServerFn({ method: "POST" })
     log.info("Event confirmed", { eventId: event.id, actorId: context.user.id });
 
     return event;
+  });
+
+/**
+ * PTR-22: the assigned Coordinator updates an approved, planning or confirmed event's information.
+ * The handler re-reads the assignment and the status, so the permission says only that the caller
+ * may coordinate.
+ */
+export const updateEventInformation = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventInformationInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleUpdateEventInformation }] = await loadUpdateServer();
+    const result = await handleUpdateEventInformation(data, context.user, db);
+
+    log.info("Event information updated", {
+      eventId: data.id,
+      actorId: context.user.id,
+      changedFields: result.changedFields,
+    });
+
+    return result;
   });
 
 /**

@@ -115,12 +115,13 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 ## Data Flow
 
 1. **Routing**: TanStack Router. A route module contains wiring only: search validation, guards, loaders, metadata, pending components, and error components. The view is a feature component (`src/features/<feature>/components/<page>-page.tsx`) that takes its route data as props. The route binds the two with `component: () => <Page {...Route.use*()} />`, so the view renders in a unit test without a router. `tests/unit/route-module-boundaries.test.ts` enforces the split.
-2. **SSR**: TanStack Start renders the initial HTML through Nitro.
-3. **Sessions**: `src/routes/__root.tsx` resolves the session in `beforeLoad` on each full load (TanStack retains the root match across sibling client navigations), for every route, so the header renders the user and the unread-notification bell in the server markup. `src/routes/_authenticated.tsx` narrows the session to a signed-in user and redirects visitors to `/login`. Its children read the inherited `context.user`, and they do not call `getSessionContext()` themselves. The role-gated routes repeat a `can()` check in their own `beforeLoad` and redirect on failure. The authentication routes and the landing route redirect signed-in users to `/dashboard`.
-4. **Server functions**: every `createServerFn` is a directly addressable HTTP route, so authorization runs in middleware, never in the route guard or the handler. Handlers do pure database work, with no session lookup and no `can()` of their own. The full model is [Authorization](#authorization).
-5. **Client mutations**: browser writes that a form does not own (save a draft, delete an account, sign out) run through `useMutation` (`src/hooks/use-mutation.ts`). That hook is a thin wrapper over React's `useActionState`, and it holds the run's in-flight flag, result, and error. The run receives the last _successful_ result, so a server-assigned draft id reaches the next save without the page storing it.
-6. **Authentication flow**: forms in `src/features/auth/components/` call `src/lib/auth-client.ts`. The routes are `/login`, `/signup`, and `/reset-password` (`?token=`).
-7. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The record in the application and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute, and the worker delivers the pending rows and marks them. The reasoning, the failure policy, and the P0 bypass are in [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
+2. **Loader freshness**: the router sets `defaultStaleReloadMode: "blocking"`. A revisit waits for its loaders, so a page never renders a cached value that a later change replaced.
+3. **SSR**: TanStack Start renders the initial HTML through Nitro.
+4. **Sessions**: `src/routes/__root.tsx` resolves the session in `beforeLoad` on each full load (TanStack retains the root match across sibling client navigations), for every route, so the header renders the user and the unread-notification bell in the server markup. `src/routes/_authenticated.tsx` narrows the session to a signed-in user and redirects visitors to `/login`. Its children read the inherited `context.user`, and they do not call `getSessionContext()` themselves. The role-gated routes repeat a `can()` check in their own `beforeLoad` and redirect on failure. The authentication routes and the landing route redirect signed-in users to `/dashboard`.
+5. **Server functions**: every `createServerFn` is a directly addressable HTTP route, so authorization runs in middleware, never in the route guard or the handler. Handlers do pure database work, with no session lookup and no `can()` of their own. The full model is [Authorization](#authorization).
+6. **Client mutations**: browser writes that a form does not own (save a draft, delete an account, sign out) run through `useMutation` (`src/hooks/use-mutation.ts`). That hook is a thin wrapper over React's `useActionState`, and it holds the run's in-flight flag, result, and error. The run receives the last _successful_ result, so a server-assigned draft id reaches the next save without the page storing it.
+7. **Authentication flow**: forms in `src/features/auth/components/` call `src/lib/auth-client.ts`. The routes are `/login`, `/signup`, and `/reset-password` (`?token=`).
+8. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The record in the application and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute, and the worker delivers the pending rows and marks them. The reasoning, the failure policy, and the P0 bypass are in [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
 
 ## Database and Migrations
 
@@ -155,6 +156,7 @@ erDiagram
     event_requests ||--o{ equipment_requests : "submits"
     event_requests ||--o{ event_registrations : "opens"
     event_requests ||--o{ vip_registration_changes : "records"
+    event_requests ||--o{ event_information_changes : "records"
     event_requests ||--o{ notifications : "raises"
 
     venues ||--o{ venue_requests : "receives"
@@ -266,6 +268,12 @@ erDiagram
         int event_id FK
         text attendee_id
         text change
+    }
+    event_information_changes {
+        int id PK
+        int event_request_id FK
+        text field
+        text changed_by_id
     }
     notifications {
         int id PK

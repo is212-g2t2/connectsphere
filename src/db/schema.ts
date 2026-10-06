@@ -18,6 +18,7 @@ import {
 
 import type {
   ClarificationAmendment,
+  ClarificationAmendmentValue,
   ClarificationField,
   EventRequestDraftValues,
 } from "#/features/event-requests/schema";
@@ -401,6 +402,30 @@ export const eventCancellationRequests = pgTable(
       sql`(${table.outcome}::text = 'declined' and coalesce(${table.declineReason}, '') ~ '[^[:space:]]') or (${table.outcome} is distinct from 'declined' and ${table.declineReason} is null)`
     ),
   ]
+);
+
+/**
+ * PTR-22 AC4: one row for each field that an event information update changed: the field, its
+ * previous and new value, who made the change, and when (brief §8f). Append-only. `field` is a
+ * `CLARIFICATION_FIELDS` key, so `attendeeRegistration` is one row for its four columns, as in a
+ * clarification amendment. The values are `jsonb` and keep the stored shape. The actor's id and
+ * name are snapshots, so an account deletion keeps the record. No screen reads the rows yet.
+ */
+export const eventInformationChanges = pgTable(
+  "event_information_changes",
+  {
+    id: serial("id").primaryKey(),
+    eventRequestId: integer("event_request_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    field: text("field").$type<ClarificationField>().notNull(),
+    previousValue: jsonb("previous_value").$type<ClarificationAmendmentValue>(),
+    newValue: jsonb("new_value").$type<ClarificationAmendmentValue>(),
+    changedById: text("changed_by_id").notNull(),
+    changedByName: text("changed_by_name").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [index("event_information_changes_event_request_id_idx").on(table.eventRequestId)]
 );
 
 export const venues = pgTable(

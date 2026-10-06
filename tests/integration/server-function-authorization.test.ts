@@ -58,6 +58,7 @@ import {
   registerForEvent,
   removeVipRegistration,
   searchVipAttendees,
+  updateEventInformation,
 } from "#/features/events/server-fns";
 import { listNotifications, markNotificationsRead } from "#/features/notifications/server-fns";
 import {
@@ -675,6 +676,51 @@ describe("server-function authorization (PTR-69)", () => {
         expect(await refusalFrom(completeEvent, completeInput)).toMatchObject({ status: 403 });
       }
     );
+  });
+
+  describe("PTR-22 update event information", () => {
+    /** A complete record, so the permitted path runs the whole chain. */
+    const informationInput = {
+      id: 1,
+      eventName: "Planning forum",
+      purpose: "Agree the plan",
+      proposedDates: [{ start: "2031-03-10T09:00", end: "2031-03-10T17:00" }],
+      expectedAttendance: 80,
+    };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(updateEventInformation, informationInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Event Coordinator", async () => {
+      signIn("event_coordinator");
+
+      expect((await call(updateEventInformation, informationInput)).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(updateEventInformation, informationInput)).toMatchObject({
+          status: 403,
+        });
+      }
+    );
+
+    it("refuses a record that is missing a required field before the handler", async () => {
+      signIn("event_coordinator");
+
+      expect(await messageFrom(updateEventInformation, { ...informationInput, purpose: "" })).toBe(
+        "This request is missing: Purpose"
+      );
+    });
   });
 
   // PTR-53: only an Organiser raises a cancellation request; the handler checks ownership.
