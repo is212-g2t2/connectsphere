@@ -95,7 +95,9 @@
   },
   "overrides": {
     "@opentelemetry/api": "^1.9.1",
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "seroval": "^1.6.8",
+    "seroval-plugins": "^1.6.8"
   },
   "packageManager": "bun@1.4.2"
 }
