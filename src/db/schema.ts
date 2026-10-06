@@ -88,6 +88,13 @@ export const eventRequests = pgTable(
     confirmedById: text("confirmed_by_id"),
     confirmedByName: text("confirmed_by_name"),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    /**
+     * PTR-25 AC3: who explicitly completed the event and when. The id and name are durable
+     * snapshots, like confirmation, so account deletion does not erase the audit record.
+     */
+    completedById: text("completed_by_id"),
+    completedByName: text("completed_by_name"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
     eventName: text("event_name").notNull().default(""),
     purpose: text("purpose").notNull().default(""),
     /**
@@ -177,6 +184,12 @@ export const eventRequests = pgTable(
     check(
       "event_requests_confirmation_matches_status",
       sql`(${table.status}::text = 'confirmed' and ${table.confirmedById} is not null and btrim(${table.confirmedById}) <> '' and ${table.confirmedByName} is not null and btrim(${table.confirmedByName}) <> '' and ${table.confirmedAt} is not null) or (${table.status}::text in ('completed', 'cancelled') and ((${table.confirmedById} is not null and btrim(${table.confirmedById}) <> '' and ${table.confirmedByName} is not null and btrim(${table.confirmedByName}) <> '' and ${table.confirmedAt} is not null) or (${table.confirmedById} is null and ${table.confirmedByName} is null and ${table.confirmedAt} is null))) or (${table.status}::text not in ('confirmed', 'completed', 'cancelled') and ${table.confirmedById} is null and ${table.confirmedByName} is null and ${table.confirmedAt} is null)`
+    ),
+    // PTR-25 AC3: completion writes all three audit fields with the status. A later cancellation
+    // may retain the complete audit record, but no earlier stage may carry it.
+    check(
+      "event_requests_completion_matches_status",
+      sql`(${table.status}::text = 'completed' and ${table.completedById} is not null and btrim(${table.completedById}) <> '' and ${table.completedByName} is not null and btrim(${table.completedByName}) <> '' and ${table.completedAt} is not null) or (${table.status}::text = 'cancelled' and ((${table.completedById} is not null and btrim(${table.completedById}) <> '' and ${table.completedByName} is not null and btrim(${table.completedByName}) <> '' and ${table.completedAt} is not null) or (${table.completedById} is null and ${table.completedByName} is null and ${table.completedAt} is null))) or (${table.status}::text not in ('completed', 'cancelled') and ${table.completedById} is null and ${table.completedByName} is null and ${table.completedAt} is null)`
     ),
     check(
       "event_requests_rejection_has_reason",

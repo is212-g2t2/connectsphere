@@ -49,6 +49,7 @@ import {
 import { VIP_SEARCH_MESSAGE } from "#/features/events/schema";
 import {
   addVipRegistration,
+  completeEvent,
   confirmEvent,
   listEvents,
   registerForEvent,
@@ -643,6 +644,34 @@ describe("server-function authorization (PTR-69)", () => {
 
       expect(error).toBeInstanceOf(Error);
     });
+  });
+
+  describe("PTR-25 complete event", () => {
+    const completeInput = { id: 1 };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(completeEvent, completeInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Event Coordinator", async () => {
+      signIn("event_coordinator");
+
+      expect((await call(completeEvent, completeInput)).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(completeEvent, completeInput)).toMatchObject({ status: 403 });
+      }
+    );
   });
 
   // PTR-45 AC1: no guest registration path, and no role but the Attendee registers.

@@ -19,6 +19,7 @@ import type {
 import { hasAttendeePage } from "#/features/events/access";
 import { isConfirmableStatus } from "#/features/events/confirmation";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
+import { CompleteEventAction } from "#/features/events/components/complete-event-action";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { VipRegistrations } from "#/features/events/components/vip-registrations";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
@@ -267,6 +268,16 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                 {access === "coordinator" && isConfirmableStatus(event.status) && (
                   <div className="mt-5 border-t border-border pt-4">
                     <ConfirmEventAction eventId={event.id} eventName={event.name ?? "this event"} />
+                  </div>
+                )}
+
+                {access === "coordinator" && event.status === "confirmed" && (
+                  <div className="mt-5 border-t border-border pt-4">
+                    <CompleteEventAction
+                      eventId={event.id}
+                      eventName={event.name ?? "this event"}
+                      disabledReason={event.completionUnavailableReason}
+                    />
                   </div>
                 )}
 

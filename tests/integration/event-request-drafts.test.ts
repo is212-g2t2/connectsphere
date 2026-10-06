@@ -2546,6 +2546,11 @@ describe("Status set and decision attribution (PTR-21)", () => {
     confirmedByName: "Seeded Event Coordinator",
     confirmedAt: new Date(),
   };
+  const completed = {
+    completedById: "seed-coordinator-1",
+    completedByName: "Seeded Event Coordinator",
+    completedAt: new Date(),
+  };
 
   async function submitted() {
     const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
@@ -2560,13 +2565,22 @@ describe("Status set and decision attribution (PTR-21)", () => {
       await expect(
         database
           .update(schema.eventRequests)
-          .set({ status, ...(status === "confirmed" ? confirmed : {}) })
+          .set({
+            status,
+            ...(status === "confirmed" ? confirmed : {}),
+            ...(status === "completed" ? completed : {}),
+          })
           .where(eq(schema.eventRequests.id, request.id))
       ).rejects.toMatchObject({ cause: { constraint: "event_requests_decision_matches_status" } });
 
       const [row] = await database
         .update(schema.eventRequests)
-        .set({ status, ...decided, ...(status === "confirmed" ? confirmed : {}) })
+        .set({
+          status,
+          ...decided,
+          ...(status === "confirmed" ? confirmed : {}),
+          ...(status === "completed" ? completed : {}),
+        })
         .where(eq(schema.eventRequests.id, request.id))
         .returning();
       expect(row.status).toBe(status);

@@ -99,6 +99,7 @@ describe("confirming an event (PTR-24)", () => {
   ) {
     const decided = !["draft", "submitted", "under_review", "awaiting_organiser"].includes(status);
     const confirmed = status === "confirmed";
+    const completed = status === "completed";
     const [row] = await database
       .insert(schema.eventRequests)
       .values({
@@ -120,6 +121,13 @@ describe("confirming an event (PTR-24)", () => {
               confirmedById: coordinator.id,
               confirmedByName: coordinator.name,
               confirmedAt: new Date("2030-01-01T00:00:00Z"),
+            }
+          : {}),
+        ...(completed
+          ? {
+              completedById: coordinator.id,
+              completedByName: coordinator.name,
+              completedAt: new Date("2030-01-02T00:00:00Z"),
             }
           : {}),
         equipmentArrangementsCompletedAt: equipmentCompleted ? new Date() : null,
@@ -464,12 +472,18 @@ describe("confirming an event (PTR-24)", () => {
 
       await database
         .update(schema.eventRequests)
-        .set({ status: "completed" })
+        .set({
+          status: "completed",
+          completedById: coordinator.id,
+          completedByName: coordinator.name,
+          completedAt: new Date(),
+        })
         .where(eq(schema.eventRequests.id, eventId));
 
       const row = await readEvent(eventId);
       expect(row.status).toBe("completed");
       expect(row.confirmedById).toBe(coordinator.id);
+      expect(row.completedById).toBe(coordinator.id);
     });
   });
 
