@@ -1,7 +1,7 @@
 // Mirrors event-confirmation.test.ts: a local node-postgres drizzle instance, not the app's
 // `#/db`, with notifications read back from the `notifications` table.
 // oxlint-disable node/no-process-env
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -10,7 +10,10 @@ import * as schema from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { handleGetCoordinationRequest } from "#/features/coordination/assignments.server";
-import { handleReserveEquipment } from "#/features/equipment-requests/reservations.server";
+import {
+  handleReleaseEquipment,
+  handleReserveEquipment,
+} from "#/features/equipment-requests/reservations.server";
 import { handleRequestEventCancellation } from "#/features/event-requests/cancellation-requests.server";
 import {
   handleGetEventRequest,
@@ -36,8 +39,16 @@ import {
   parseNotificationPayload,
 } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
-import { handleCreateVenueHold } from "#/features/venue-requests/holds.server";
-import { handleApproveVenueRequest } from "#/features/venue-requests/requests.server";
+import { handleReleaseVenueBooking } from "#/features/venue-requests/bookings.server";
+import {
+  handleConvertVenueHold,
+  handleCreateVenueHold,
+  handleReleaseVenueHold,
+} from "#/features/venue-requests/holds.server";
+import {
+  handleApproveVenueRequest,
+  handleCreateVenueRequest,
+} from "#/features/venue-requests/requests.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
@@ -232,6 +243,12 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
     return { startsAt: `${year}-12-05 10:00:00`, endsAt: `${year}-12-05 16:00:00` };
   }
 
+  /** The form input a Coordinator sends for a new hold or venue request, in a fresh year. */
+  function periodInput(eventId: number) {
+    year += 1;
+    return { eventId, venueId, date: `${year}-12-05`, startTime: "10:00", endTime: "12:00" };
+  }
+
   async function addBooking(
     eventId: number,
     status: "pending" | "approved" | "released" = "approved"
@@ -292,6 +309,13 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
     await cancel(event.id);
     return event;
   }
+
+  const outstandingReleases = async (eventId: number) =>
+    (await handleGetCoordinationRequest({ id: eventId }, coordinator, database as never))
+      .outstandingReleases;
+
+  const holdsFor = (eventId: number) =>
+    database.select().from(schema.venueHolds).where(eq(schema.venueHolds.eventId, eventId));
 
   const eventRow = async (id: number) =>
     (await database.select().from(schema.eventRequests).where(eq(schema.eventRequests.id, id)))[0];
@@ -577,9 +601,9 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       const lineId = await addReservedLine(event.id, 4);
       await requestCancellation(event.id);
 
-      const { outstandingReleases } = await cancel(event.id);
+      await cancel(event.id);
 
-      expect(outstandingReleases).toEqual({
+      expect(await outstandingReleases(event.id)).toEqual({
         venueBookings: [
           expect.objectContaining({
             id: bookingId,
@@ -587,40 +611,55 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
             startsAt: expect.any(String),
           }),
         ],
-        venueHolds: [expect.objectContaining({ id: holdId, venueName: VENUE_NAME })],
+        venueHolds: [expect.objectContaining({ id: holdId, venueId, venueName: VENUE_NAME })],
         equipmentReservations: [{ id: lineId, item: EQUIPMENT_TYPE, quantity: 4 }],
       });
+    });
 
-      // The Coordinator's page lists the same, and stops listing what staff release.
-      const page = await handleGetCoordinationRequest(
-        { id: event.id },
-        coordinator,
+    test("stops listing each item once the staff concerned release it (AC2, AC6)", async () => {
+      const event = await createEvent("confirmed");
+      const bookingId = await addBooking(event.id);
+      const holdId = await addHold(event.id);
+      const lineId = await addReservedLine(event.id, 4);
+      await requestCancellation(event.id);
+      await cancel(event.id);
+
+      await handleReleaseVenueBooking(
+        { id: bookingId, reason: "Event cancelled" },
+        venueStaff,
         database as never
       );
-      expect(page.outstandingReleases).toEqual(outstandingReleases);
-      await database
-        .update(schema.venueRequests)
-        .set({ status: "released", releaseReason: "Event cancelled" })
-        .where(eq(schema.venueRequests.id, bookingId));
-      const after = await handleGetCoordinationRequest(
-        { id: event.id },
-        coordinator,
+      expect((await outstandingReleases(event.id))?.venueBookings).toEqual([]);
+
+      await handleReleaseVenueHold({ id: holdId }, coordinator, database as never);
+      expect((await outstandingReleases(event.id))?.venueHolds).toEqual([]);
+
+      // A partial release keeps the line listed with what it still holds; a full one removes it.
+      await handleReleaseEquipment(
+        { equipmentRequestId: lineId, quantity: 1 },
+        technicalSupport,
         database as never
       );
-      expect(after.outstandingReleases?.venueBookings).toEqual([]);
+      expect((await outstandingReleases(event.id))?.equipmentReservations).toEqual([
+        { id: lineId, item: EQUIPMENT_TYPE, quantity: 1 },
+      ]);
+      await handleReleaseEquipment(
+        { equipmentRequestId: lineId, quantity: 0 },
+        technicalSupport,
+        database as never
+      );
+      expect(await outstandingReleases(event.id)).toEqual({
+        venueBookings: [],
+        venueHolds: [],
+        equipmentReservations: [],
+      });
     });
 
     test("shows no outstanding releases while the event is not cancelled", async () => {
       const event = await createEvent("confirmed");
       await addBooking(event.id);
 
-      const page = await handleGetCoordinationRequest(
-        { id: event.id },
-        coordinator,
-        database as never
-      );
-
-      expect(page.outstandingReleases).toBeNull();
+      expect(await outstandingReleases(event.id)).toBeNull();
     });
 
     test("notifies the Venue Staff and Technical Support Staff holding arrangements (AC3)", async () => {
@@ -812,13 +851,84 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
     test("refuses a new tentative hold", async () => {
       const event = await cancelledEvent();
 
-      await expect(
-        handleCreateVenueHold(
-          { eventId: event.id, venueId, date: "2091-12-05", startTime: "10:00", endTime: "12:00" },
+      expect(
+        await conflict(handleCreateVenueHold(periodInput(event.id), coordinator, database as never))
+      ).toBe(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+      expect(await holdsFor(event.id)).toEqual([]);
+    });
+
+    test("refuses a new venue request", async () => {
+      const event = await cancelledEvent();
+
+      expect(
+        await conflict(
+          handleCreateVenueRequest(periodInput(event.id), coordinator, database as never)
+        )
+      ).toBe(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+      expect(
+        await database
+          .select()
+          .from(schema.venueRequests)
+          .where(eq(schema.venueRequests.eventId, event.id))
+      ).toEqual([]);
+    });
+
+    test("refuses to convert a hold into a venue request, and leaves the hold held", async () => {
+      const event = await createEvent("submitted");
+      const holdId = await addHold(event.id);
+      await requestCancellation(event.id);
+      await cancel(event.id);
+
+      expect(
+        await conflict(handleConvertVenueHold({ id: holdId }, coordinator, database as never))
+      ).toBe(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+      expect((await holdsFor(event.id)).map(hold => hold.status)).toEqual(["held"]);
+    });
+
+    test("makes a new hold wait for a cancellation in progress, then refuses it", async () => {
+      const event = await createEvent("submitted");
+      // A second connection plays the cancellation: it locks the event row as `handleCancelEvent`
+      // does and moves the event to cancelled, uncommitted. A hold that reads the event without a
+      // conflicting lock sees `submitted` and lands on the cancelled event.
+      const client = await pool.connect();
+      let holding: Promise<unknown> | undefined;
+      try {
+        await client.query("begin");
+        await client.query("select id from event_requests where id = $1 for update", [event.id]);
+        await client.query(
+          "update event_requests set status = 'cancelled', cancelled_by_id = $2, cancelled_by_name = $3, cancelled_at = now() where id = $1",
+          [event.id, coordinator.id, coordinator.name]
+        );
+        const { rows: clientRows } = await client.query<{ pid: number }>(
+          "select pg_backend_pid() as pid"
+        );
+
+        holding = handleCreateVenueHold(
+          periodInput(event.id),
           coordinator,
           database as never
-        )
-      ).rejects.toBeInstanceOf(AuthorizationError);
+        ).catch((caught: unknown) => caught);
+        // Commit the cancellation only once it blocks the hold, so the hold must read it.
+        await vi.waitFor(
+          async () => {
+            const { rows } = await pool.query<{ waiting: number }>(
+              "select count(*)::int as waiting from pg_stat_activity where wait_event_type = 'Lock' and $1::int = any(pg_blocking_pids(pid))",
+              [clientRows[0].pid]
+            );
+            expect(rows[0].waiting).toBeGreaterThan(0);
+          },
+          { timeout: 3_000, interval: 20 }
+        );
+        await client.query("commit");
+      } finally {
+        await client.query("rollback").catch(() => {});
+        client.release();
+      }
+
+      const outcome = await holding;
+      expect(outcome).toBeInstanceOf(ConflictError);
+      expect((outcome as Error).message).toBe(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+      expect(await holdsFor(event.id)).toEqual([]);
     });
 
     test("refuses an Attendee's registration and a VIP registration (AC5)", async () => {

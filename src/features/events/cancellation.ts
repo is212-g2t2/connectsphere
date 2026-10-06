@@ -14,10 +14,11 @@ interface VenuePeriod {
 
 /**
  * PTR-54 AC2, AC6: what a cancelled event still holds. Nothing is released automatically, so the
- * Coordinator sees each item until the staff concerned release it.
+ * Coordinator sees each item until the staff concerned release it. A hold carries its venue, so
+ * the list can open the venue calendar where the Coordinator releases it.
  */
 export interface OutstandingReleases {
   venueBookings: VenuePeriod[];
-  venueHolds: VenuePeriod[];
+  venueHolds: (VenuePeriod & { venueId: number })[];
   equipmentReservations: { id: string; item: string; quantity: number }[];
 }

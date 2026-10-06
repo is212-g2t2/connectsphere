@@ -265,6 +265,21 @@ describe("processing a cancellation request (PTR-54)", () => {
     expect(screen.getByRole("button", { name: "Decline request" })).toBeTruthy();
   });
 
+  it("offers only the decline for a completed event, which can no longer be cancelled", () => {
+    render(
+      <CoordinationRequestPage
+        request={{ ...withWaiting, status: "completed" }}
+        coordinators={[]}
+        user={actor}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Cancellation requested" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel event" })).toBeNull();
+    expect(screen.getByText(/This event can no longer be cancelled\./)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Decline request" })).toBeTruthy();
+  });
+
   it("offers nothing to a Coordinator the event is not assigned to", () => {
     render(
       <CoordinationRequestPage
@@ -279,7 +294,7 @@ describe("processing a cancellation request (PTR-54)", () => {
 
   it("cancels the event once the Coordinator confirms it (AC1)", async () => {
     const user = userEvent.setup();
-    cancelEvent.mockResolvedValueOnce({ outstandingReleases: null });
+    cancelEvent.mockResolvedValueOnce(undefined);
     render(<CoordinationRequestPage request={withWaiting} coordinators={[]} user={actor} />);
 
     await user.click(screen.getByRole("button", { name: "Cancel event" }));
@@ -333,6 +348,7 @@ describe("processing a cancellation request (PTR-54)", () => {
             venueHolds: [
               {
                 id: "h1",
+                venueId: 3,
                 venueName: "Room B",
                 startsAt: "2026-12-06 10:00:00",
                 endsAt: "2026-12-06 12:00:00",
@@ -349,6 +365,12 @@ describe("processing a cancellation request (PTR-54)", () => {
     const releases = screen.getByRole("region", { name: "Outstanding releases" });
     expect(within(releases).getByText(/Venue booking: Hall A/)).toBeTruthy();
     expect(within(releases).getByText(/Tentative hold: Room B/)).toBeTruthy();
+    // The Coordinator releases a hold on the venue calendar, so the item opens it.
+    expect(
+      within(releases)
+        .getByRole("link", { name: "release it on the venue calendar" })
+        .getAttribute("href")
+    ).toBe("/venues/availability");
     expect(within(releases).getByText(/Equipment reservation: Projector × 2/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Cancel event" })).toBeNull();
   });

@@ -34,7 +34,9 @@ type EventCancelledEmailProps = { eventUrl: string } & (
 
 /**
  * PTR-54 AC3, AC4, AC7: the event is cancelled. Staff are told what they still hold, because
- * nothing is released for them (AC6); Venue Staff see the booking, never the event's name (PTR-8).
+ * nothing is released for them (AC6). The Venue Staff copy names the booking and not the event, as
+ * every Venue Staff notice does (PTR-8 AC3); the bookings view it links to names the event, as
+ * PTR-37 AC1 requires.
  */
 export const EventCancelledEmail = (props: EventCancelledEmailProps) => {
   if (props.audience === "venue_staff") {
@@ -68,7 +70,7 @@ export const EventCancelledEmail = (props: EventCancelledEmailProps) => {
             : ""}
         </Text>
         <Button href={eventUrl} style={emailButton}>
-          View the event
+          {audience === "organiser" ? "View your request" : "View the event"}
         </Button>
       </Section>
     </Layout>

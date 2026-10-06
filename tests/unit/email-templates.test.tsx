@@ -385,6 +385,18 @@ describe("Email templates rendering", () => {
     expect(attendeeHtml).toContain("Community workshop");
     expect(attendeeHtml).toContain("has been cancelled");
     expect(attendeeHtml).toContain("http://localhost:3000/events/42");
+    expect(attendeeHtml).toContain("View the event");
+
+    // The Organiser's link opens their request, not the event page.
+    const organiserHtml = await render(
+      <EventCancelledEmail
+        audience="organiser"
+        eventName="Community workshop"
+        eventUrl="http://localhost:3000/event-requests/42"
+      />
+    );
+    expect(organiserHtml).toContain("View your request");
+    expect(organiserHtml).not.toContain("View the event");
 
     const venueHtml = await render(
       <EventCancelledEmail

@@ -57,6 +57,7 @@ export async function loadOutstandingReleases(
     database
       .select({
         id: venueHolds.id,
+        venueId: venueHolds.venueId,
         venueName: venues.name,
         startsAt: venueHolds.startsAt,
         endsAt: venueHolds.endsAt,
@@ -85,9 +86,10 @@ export async function loadOutstandingReleases(
 
 /**
  * The assigned Coordinator's event with its waiting cancellation request, both locked. The event
- * row lock serialises the decision with a second Coordinator action and with new bookings,
- * reservations and registrations, whose own event locks then read the new status. A missing event
- * and someone else's are refused the same way.
+ * row lock serialises the decision with a second Coordinator action and with each writer that adds
+ * to the event: booking approval, venue requests, tentative holds, hold conversion, reservations
+ * and registrations. Each of them locks the event row too, and then reads the new status. A
+ * missing event and someone else's are refused the same way.
  */
 async function lockEventWithWaitingRequest(tx: Tx, eventId: number, actor: SessionUser) {
   const event = (
@@ -121,8 +123,8 @@ function eventName(event: { eventName: string }): string {
 /**
  * PTR-54: the assigned Coordinator processes a waiting cancellation request as a cancellation. The
  * event becomes `cancelled` with who and when (AC1), and the request keeps its outcome on the
- * record (AC7). Nothing the event holds is released (AC6): the Coordinator is shown what is still
- * held (AC2), and the staff holding it, the registered Attendees and the Organiser are told
+ * record (AC7). Nothing the event holds is released (AC6): the Coordinator's page lists what is
+ * still held (AC2), and the staff holding it, the registered Attendees and the Organiser are told
  * (AC3, AC4, AC7). Everything commits together; the worker sends the emails.
  */
 export async function handleCancelEvent(data: unknown, actor: SessionUser, database: Database) {
@@ -156,7 +158,6 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       })
       .where(eq(eventCancellationRequests.id, request.id));
 
-    const outstandingReleases = await loadOutstandingReleases(tx, event.id);
     await raiseNotifications(tx, [
       ...(await staffNotices(tx, event.id, eventName(event))),
       ...(await attendeeNotices(tx, event.id, eventName(event))),
@@ -168,7 +169,7 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       },
     ]);
 
-    return { event: cancelled, outstandingReleases };
+    return cancelled;
   });
 }
 

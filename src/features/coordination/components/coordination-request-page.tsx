@@ -46,6 +46,7 @@ import {
   CLARIFICATION_FIELDS,
   CLARIFICATION_TEXT_MAX,
   ClarificationFormSchema,
+  canRequestEventCancellation,
 } from "#/features/event-requests/schema";
 import type { ClarificationField } from "#/features/event-requests/schema";
 import { useMutation } from "#/hooks/use-mutation";
@@ -198,7 +199,8 @@ export function CoordinationRequestPage({
   else if (requestingHandover) submitLabel = "Requesting…";
   else if (pendingHandover) submitLabel = "Offer to someone else";
 
-  // PTR-54: only the assigned Coordinator processes a waiting cancellation request.
+  // PTR-54: only the assigned Coordinator processes a waiting cancellation request. The cancel
+  // control itself is gated on the event's stage, so a completed event offers only the decline.
   const canProcessCancellation =
     request.assignedCoordinatorId === user.id &&
     request.status !== "cancelled" &&
@@ -217,6 +219,7 @@ export function CoordinationRequestPage({
         <CancellationDecision
           requestId={request.id}
           eventName={request.eventName.trim() || "this event"}
+          canCancel={canRequestEventCancellation(request.status)}
         />
       )}
 

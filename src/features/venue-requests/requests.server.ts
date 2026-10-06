@@ -26,6 +26,7 @@ import {
 } from "#/features/venue-requests/schema";
 import {
   assertSameVenue,
+  keyShareEvent,
   keyShareEventForRequest,
   lockVenueForRequest,
 } from "#/features/venue-requests/venue-lock.server";
@@ -456,7 +457,8 @@ export async function handleGetVenueRequestContext(
  * the only way the panel is reached.
  *
  * No overlap check runs here: only an approved booking holds a venue, and pending requests stack
- * by design; the approval path refuses the overlap (PTR-36).
+ * by design; the approval path refuses the overlap (PTR-36). A cancelled event takes no new
+ * request (PTR-54 AC9).
  */
 export async function handleCreateVenueRequest(
   data: unknown,
@@ -466,6 +468,10 @@ export async function handleCreateVenueRequest(
   const input = parseVenueRequestInput(data);
 
   const created = await database.transaction(async tx => {
+    // The event lock waits for a cancellation in progress, and a cancellation that starts later
+    // waits for this transaction to commit.
+    const locked = await keyShareEvent(tx, input.eventId);
+    if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
     if (!event) throw new AuthorizationError("Forbidden");
 

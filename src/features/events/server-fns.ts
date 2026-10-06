@@ -77,18 +77,16 @@ export const confirmEvent = createServerFn({ method: "POST" })
 /**
  * PTR-54: the assigned Coordinator cancels the event a waiting cancellation request asks for. The
  * handler re-reads the assignment and the request, so the permission says only that the caller
- * may coordinate. The answer lists what the event still holds, for the staff to release.
+ * may coordinate. The coordination page then lists what the event still holds.
  */
 export const cancelEvent = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
   .validator(parseEventRequestId)
   .handler(async ({ data, context }) => {
     const [{ db }, { handleCancelEvent }] = await loadCancelServer();
-    const { event, outstandingReleases } = await handleCancelEvent(data, context.user, db);
+    const event = await handleCancelEvent(data, context.user, db);
 
     log.info("Event cancelled", { eventId: event.id, actorId: context.user.id });
-
-    return { outstandingReleases };
   });
 
 /** PTR-54 AC8: the assigned Coordinator declines a waiting cancellation request, with a reason. */

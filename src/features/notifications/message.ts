@@ -181,8 +181,9 @@ const payloadSchemas = {
   /** PTR-53 AC3: the Organiser asked the assigned Coordinator to cancel the event. */
   event_cancellation_requested: z.object({ eventName: z.string() }),
   /**
-   * PTR-54 AC3, AC4, AC7: the event is cancelled, told to each party in their own words. Venue
-   * Staff are never shown an event's name (PTR-8), so their copy names the booking to release.
+   * PTR-54 AC3, AC4, AC7: the event is cancelled, told to each party in their own words. The Venue
+   * Staff copy names the booking to release and not the event, as every Venue Staff notice does
+   * (PTR-8 AC3). The bookings view it opens names the event, as PTR-37 AC1 requires.
    */
   event_cancelled: z.discriminatedUnion("audience", [
     z.object({
@@ -421,6 +422,7 @@ export function notificationHref(
         case "attendee":
           return `/events/${eventRequestId}`;
         case "venue_staff":
+          // The approved bookings view (PTR-37), where Venue Staff release the booking.
           return "/venue-bookings";
         case "technical_support":
           return `/equipment-requests/${eventRequestId}`;

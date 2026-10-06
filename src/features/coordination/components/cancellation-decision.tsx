@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useForm } from "@tanstack/react-form";
-import { useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import {
@@ -21,23 +21,28 @@ import { Textarea } from "#/components/ui/textarea";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import {
   CANCELLATION_DECLINE_REASON_MAX,
+  EVENT_CANCELLATION_CLOSED,
   EventCancellationDeclineInput,
 } from "#/features/event-requests/schema";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 import { cancelEvent, declineEventCancellation } from "#/features/events/server-fns";
+import { toLocalMinuteValue } from "#/features/venues/availability";
 import { useMutation } from "#/hooks/use-mutation";
 
 /**
  * PTR-54: the assigned Coordinator processes the Organiser's waiting cancellation request, either
  * by cancelling the event or by declining with a reason (AC8). The event's arrangements are not
- * released here (AC6); the page lists them once the event is cancelled.
+ * released here (AC6); the page lists them once the event is cancelled. A request can wait while
+ * the event is completed (PTR-25), and `canCancel` is then false: only the decline is offered.
  */
 export function CancellationDecision({
   requestId,
   eventName,
+  canCancel,
 }: {
   requestId: number;
   eventName: string;
+  canCancel: boolean;
 }) {
   const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -79,45 +84,54 @@ export function CancellationDecision({
           <h2 id="cancellation-decision-heading" className="display-h3">
             Cancellation requested
           </h2>
-          <p className="mt-2 body-sm text-muted-foreground">
-            The Organiser asked for this event to be cancelled. Cancelling notifies the Organiser,
-            the registered Attendees and the staff holding arrangements. Bookings, holds and
-            reservations stay held until the staff concerned release them.
-          </p>
+          {canCancel ? (
+            <p className="mt-2 body-sm text-muted-foreground">
+              The Organiser asked for this event to be cancelled. Cancelling notifies the Organiser,
+              the registered Attendees and the staff holding arrangements. Bookings, holds and
+              reservations stay held until the staff concerned release them.
+            </p>
+          ) : (
+            <p className="mt-2 body-sm text-muted-foreground">
+              The Organiser asked for this event to be cancelled. {EVENT_CANCELLATION_CLOSED}{" "}
+              Decline the request to tell the Organiser why.
+            </p>
+          )}
 
-          <div className="mt-4 flex flex-col items-start gap-2">
-            <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <AlertDialogTrigger render={<Button variant="destructive" disabled={cancelling} />}>
-                Cancel event
-              </AlertDialogTrigger>
-              <AlertDialogContent size="sm">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Cancel event</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This cancels {eventName}. You cannot undo it.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel size="sm" disabled={cancelling}>
-                    Keep event
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    size="sm"
-                    variant="destructive"
-                    disabled={cancelling}
-                    onClick={() => void cancel()}
-                  >
-                    {cancelling ? "Cancelling…" : "Cancel the event"}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-                {cancellation.status === "error" ? (
-                  <p role="alert" className="body-sm text-destructive">
-                    {cancellation.error}
-                  </p>
-                ) : null}
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
+          {canCancel && (
+            <div className="mt-4 flex flex-col items-start gap-2">
+              <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <AlertDialogTrigger render={<Button variant="destructive" disabled={cancelling} />}>
+                  Cancel event
+                </AlertDialogTrigger>
+                <AlertDialogContent size="sm">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Cancel event</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This cancels {eventName}. You cannot undo it.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel size="sm" disabled={cancelling}>
+                      Keep event
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      size="sm"
+                      variant="destructive"
+                      disabled={cancelling}
+                      onClick={() => void cancel()}
+                    >
+                      {cancelling ? "Cancelling…" : "Cancel the event"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                  {cancellation.status === "error" ? (
+                    <p role="alert" className="body-sm text-destructive">
+                      {cancellation.error}
+                    </p>
+                  ) : null}
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          )}
 
           <form
             noValidate
@@ -172,8 +186,8 @@ export function CancellationDecision({
 /** A floating venue-local period (`2026-12-05 10:00:00`) in the proposed-window wording. */
 function formatPeriod(startsAt: string, endsAt: string): string {
   return formatProposedWindow({
-    start: startsAt.slice(0, 16).replace(" ", "T"),
-    end: endsAt.slice(0, 16).replace(" ", "T"),
+    start: toLocalMinuteValue(startsAt),
+    end: toLocalMinuteValue(endsAt),
   });
 }
 
@@ -185,15 +199,30 @@ export function OutstandingReleasesList({ releases }: { releases: OutstandingRel
   const items = [
     ...releases.venueBookings.map(booking => ({
       id: `booking-${booking.id}`,
-      text: `Venue booking: ${booking.venueName}, ${formatPeriod(booking.startsAt, booking.endsAt)} — Venue Staff release it`,
+      content: `Venue booking: ${booking.venueName}, ${formatPeriod(booking.startsAt, booking.endsAt)} — Venue Staff release it`,
     })),
     ...releases.venueHolds.map(hold => ({
       id: `hold-${hold.id}`,
-      text: `Tentative hold: ${hold.venueName}, ${formatPeriod(hold.startsAt, hold.endsAt)} — you release it`,
+      content: (
+        <>
+          Tentative hold: {hold.venueName}, {formatPeriod(hold.startsAt, hold.endsAt)} —{" "}
+          <Link
+            to="/venues/availability"
+            search={{
+              venueId: hold.venueId,
+              startDate: toLocalMinuteValue(hold.startsAt).slice(0, 10),
+              endDate: toLocalMinuteValue(hold.endsAt).slice(0, 10),
+            }}
+            className="underline decoration-foreground/60 underline-offset-4 hover:decoration-foreground"
+          >
+            release it on the venue calendar
+          </Link>
+        </>
+      ),
     })),
     ...releases.equipmentReservations.map(line => ({
       id: `equipment-${line.id}`,
-      text: `Equipment reservation: ${line.item} × ${line.quantity} — Technical Support release it`,
+      content: `Equipment reservation: ${line.item} × ${line.quantity} — Technical Support release it`,
     })),
   ];
 
@@ -215,7 +244,7 @@ export function OutstandingReleasesList({ releases }: { releases: OutstandingRel
               </p>
               <ul className="mt-4 list-disc space-y-1 pl-5 body-md">
                 {items.map(item => (
-                  <li key={item.id}>{item.text}</li>
+                  <li key={item.id}>{item.content}</li>
                 ))}
               </ul>
             </>
