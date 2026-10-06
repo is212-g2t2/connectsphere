@@ -6,7 +6,10 @@ import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
-import { handleListEvents } from "#/features/events/records.server";
+import {
+  handleListAttendeeRegistrations,
+  handleListEvents,
+} from "#/features/events/records.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
 /**
@@ -509,6 +512,193 @@ describe("event list handler (PTR-8)", () => {
   });
 
   describe("the role-specific projection", () => {
+    it("shows each Attendee their own status and the amended booking", async () => {
+      const eventId = fixtures.confirmedOpen.id;
+      await database
+        .update(schema.venueRequests)
+        .set({
+          venueId: fixtureVenueId,
+          startsAt: "2026-12-09 11:30:00",
+          endsAt: "2026-12-09 14:45:00",
+        })
+        .where(eq(schema.venueRequests.id, "el-venue-confirmed-open"));
+      await database.insert(schema.eventRegistrations).values([
+        {
+          eventId,
+          attendeeId: fixtureUsers.attendeeRegistered.id,
+          status: "registered",
+        },
+        {
+          eventId,
+          attendeeId: fixtureUsers.attendee.id,
+          status: "withdrawn",
+        },
+        {
+          eventId: fixtures.confirmedClosed.id,
+          attendeeId: fixtureUsers.attendee.id,
+          status: "registered",
+        },
+      ]);
+
+      const [registeredProjection] = await handleListEvents(
+        { eventId },
+        session("attendeeRegistered"),
+        database as never
+      );
+      const [withdrawnProjection] = await handleListEvents(
+        { eventId },
+        session("attendee"),
+        database as never
+      );
+      const registeredList = await handleListAttendeeRegistrations(
+        session("attendeeRegistered"),
+        database
+      );
+      const withdrawnList = await handleListAttendeeRegistrations(session("attendee"), database);
+
+      expect(registeredProjection.event).toMatchObject({
+        registration: { status: "registered" },
+        venue: {
+          name: FIXTURE_VENUE_NAME,
+          location: "Fixture location",
+          date: "2026-12-09",
+          startTime: "11:30",
+          endTime: "14:45",
+        },
+      });
+      expect(withdrawnProjection.event.registration?.status).toBe("withdrawn");
+      expect(registeredList).toContainEqual(
+        expect.objectContaining({
+          eventId,
+          eventName: "Confirmed open event",
+          eventStatus: "confirmed",
+          registrationStatus: "registered",
+          eventDate: "2026-12-05",
+          venue: {
+            name: FIXTURE_VENUE_NAME,
+            location: "Fixture location",
+            date: "2026-12-09",
+            endDate: "2026-12-09",
+            startTime: "11:30",
+            endTime: "14:45",
+          },
+        })
+      );
+      expect(withdrawnList).toContainEqual(
+        expect.objectContaining({
+          eventId,
+          registrationStatus: "withdrawn",
+        })
+      );
+      expect(registeredList.map(registration => registration.eventId)).toEqual([
+        fixtures.closed.id,
+        eventId,
+        fixtures.review.id,
+      ]);
+      expect(withdrawnList).toContainEqual(
+        expect.objectContaining({
+          eventId: fixtures.confirmedClosed.id,
+          registrationStatus: "registered",
+        })
+      );
+    });
+
+    it("shows a registered Attendee the current venue for a cancelled event, with no places", async () => {
+      const eventId = fixtures.confirmedOpen.id;
+      await database
+        .update(schema.eventRequests)
+        .set({
+          status: "cancelled",
+          cancelledById: fixtureUsers.coordinator.id,
+          cancelledByName: fixtureUsers.coordinator.name,
+          cancelledAt: new Date(),
+        })
+        .where(eq(schema.eventRequests.id, eventId));
+      await database
+        .update(schema.venueRequests)
+        .set({
+          startsAt: "2026-12-08 11:30:00",
+          endsAt: "2026-12-08 14:45:00",
+        })
+        .where(eq(schema.venueRequests.id, "el-venue-confirmed-open"));
+      await database.insert(schema.eventRegistrations).values([
+        {
+          eventId,
+          attendeeId: fixtureUsers.attendeeRegistered.id,
+          status: "registered",
+        },
+        {
+          eventId,
+          attendeeId: fixtureUsers.attendee.id,
+          status: "withdrawn",
+        },
+        {
+          eventId: fixtures.confirmedClosed.id,
+          attendeeId: fixtureUsers.attendeeRegistered.id,
+          status: "registered",
+        },
+      ]);
+
+      const [registeredProjection] = await handleListEvents(
+        { eventId },
+        session("attendeeRegistered"),
+        database as never
+      );
+      const [withdrawnProjection] = await handleListEvents(
+        { eventId },
+        session("attendee"),
+        database as never
+      );
+      const registeredList = await handleListAttendeeRegistrations(
+        session("attendeeRegistered"),
+        database
+      );
+      const withdrawnList = await handleListAttendeeRegistrations(session("attendee"), database);
+
+      expect(registeredProjection.event).toMatchObject({
+        status: "cancelled",
+        registration: { status: "registered" },
+        places: null,
+        venue: {
+          name: FIXTURE_VENUE_2_NAME,
+          date: "2026-12-08",
+          startTime: "11:30",
+          endTime: "14:45",
+        },
+      });
+      expect(withdrawnProjection.event.registration?.status).toBe("withdrawn");
+      expect(registeredList.find(registration => registration.eventId === eventId)).toMatchObject({
+        eventName: "Confirmed open event",
+        eventStatus: "cancelled",
+        eventDate: "2026-12-05",
+        registrationStatus: "registered",
+        venue: {
+          name: FIXTURE_VENUE_2_NAME,
+          location: "Fixture location",
+          date: "2026-12-08",
+          endDate: "2026-12-08",
+          startTime: "11:30",
+          endTime: "14:45",
+        },
+      });
+      expect(withdrawnList).toContainEqual(
+        expect.objectContaining({
+          eventId,
+          registrationStatus: "withdrawn",
+        })
+      );
+      expect(registeredList.map(registration => registration.eventId)).not.toContain(
+        fixtures.main.id
+      );
+      expect(registeredList.map(registration => registration.eventId)).toEqual([
+        fixtures.closed.id,
+        fixtures.confirmedClosed.id,
+        eventId,
+        fixtures.review.id,
+      ]);
+      expect(withdrawnList.map(registration => registration.eventId)).toEqual([eventId]);
+    });
+
     it("gives an organiser the full record, their equipment and the venue request", async () => {
       const [projection] = await handleListEvents(
         { eventId: fixtures.main.id },

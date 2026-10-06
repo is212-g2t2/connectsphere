@@ -9,6 +9,7 @@ import type { EventProjection } from "#/features/events/access";
 import { RegisterAction } from "#/features/events/components/register-action";
 import { REGISTRATION_NOT_OPEN_MESSAGE, eventFullMessage } from "#/features/events/registration";
 import type { RegistrationAvailability } from "#/features/events/registration";
+import { eventSchedule } from "#/features/events/schedule";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 const MONTH_ABBR = [
@@ -50,16 +51,6 @@ function dateBlockParts(value: string): { month: string; day: string } {
   return { month, day: String(Number(match[3])) };
 }
 
-/** Whether `end` is the calendar day after `start` (`YYYY-MM-DD`), parsed as UTC so the
- * server render and the hydrated client agree. Anything not in that shape is not next-day. */
-function isNextDay(start: string, end: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.exec(start) || !/^\d{4}-\d{2}-\d{2}$/.exec(end)) return false;
-  const next = new Date(`${start}T00:00:00Z`);
-  if (Number.isNaN(next.getTime())) return false;
-  next.setUTCDate(next.getUTCDate() + 1);
-  return next.toISOString().slice(0, 10) === end;
-}
-
 /**
  * PTR-44: what an attendee sees of a confirmed event with registration on, or of a cancelled event
  * they hold a registration for (PTR-50 AC4). Only the published fields — name, description,
@@ -68,16 +59,8 @@ function isNextDay(start: string, end: string): boolean {
  */
 export function EventPage({ event }: { event: EventProjection }) {
   const { event: details } = event;
-  // A confirmed event was published against its approved booking, not the original proposal —
-  // the two can differ after a PTR-34 adjustment. Without a booking, fall back to the proposal.
-  const date = details.venue?.date ?? details.eventDate;
-  const endDate = details.venue?.endDate ?? details.endDate;
-  const startTime = details.venue?.startTime ?? details.startTime;
-  const endTime = details.venue?.endTime ?? details.endTime;
-  const spansDays = Boolean(date && endDate && endDate !== date);
-  const crossesMidnight = Boolean(
-    details.venue && isNextDay(details.venue.date, details.venue.endDate)
-  );
+  // A current approved booking takes precedence over the original proposal.
+  const { date, endDate, startTime, endTime, spansDays, crossesMidnight } = eventSchedule(details);
   const isRegistered = details.registration?.status === "registered";
   // The cancelled leg of the route's `hasAttendeePage`, so the page and the route cannot disagree.
   const isCancelled = details.status === "cancelled";
@@ -147,8 +130,8 @@ export function EventPage({ event }: { event: EventProjection }) {
             <p className="mt-6 font-semibold">Date to be confirmed</p>
           )}
 
-          {/* A cancelled event's projection has no venue. Leave the row out, so that it does not
-              say the venue is still to be confirmed. */}
+          {/* Leave the venue row out for a cancelled event. Once its booking is released, the row
+              would say that the venue is still to be confirmed. */}
           {isCancelled ? null : (
             <div className="mt-4 flex items-start gap-3">
               <span className="flex size-12 shrink-0 items-center justify-center rounded-md border border-input bg-card">

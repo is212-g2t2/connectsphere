@@ -85,7 +85,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │   │   ├── emails/       # Email templates and shared date formatting
 │   │   ├── equipment-requests/ # Equipment lines, submission to Technical Support, its arrangement work list, availability checks, and reservations
 │   │   ├── event-requests/ # Requirement capture, drafts, submission
-│   │   ├── events/       # Relationship-scoped event access
+│   │   ├── events/       # Relationship-scoped event access and attendee registration views
 │   │   ├── landing/      # Public landing view
 │   │   ├── notifications/ # The notification inbox, its queue rows and the delivery worker
 │   │   ├── venue-requests/ # Booking requests: raise, withdraw, approve, reject, release, amend, notify
@@ -95,7 +95,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
-│       ├── _authenticated/    # dashboard, settings, coordination, event-requests, events, venues, notifications
+│       ├── _authenticated/    # dashboard, settings, coordination, event-requests, events, registrations, venues, notifications
 │       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
 │       │   ├── events/ # Attendee view of a published (confirmed, registration-on) event, or of a cancelled event that the Attendee has a registration for
 │       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection

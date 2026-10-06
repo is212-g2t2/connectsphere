@@ -17,6 +17,7 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
+  eventTiming,
   getEventAccess,
   hasAttendeePage,
   isEquipmentQueueRow,
@@ -25,10 +26,11 @@ import {
   projectEvent,
 } from "#/features/events/access";
 import type {
+  AttendeeRegistrationProjection,
   EquipmentLineProjection,
-  EventConfirmation,
   EventPlaces,
   EventProjection,
+  EventVenue,
   EventVenueRequest,
   VipAttendee,
 } from "#/features/events/access";
@@ -191,6 +193,95 @@ export function connectedEventCondition(
   }
 }
 
+/**
+ * Each event's current approved booking, as the venue it shows and the venue's capacity. The
+ * earliest-created approved booking is chosen so the render is stable. The booking used at
+ * confirmation is not stored (a PTR-24 follow-up), so a booking approved after confirmation can
+ * change which venue shows.
+ */
+async function loadCurrentBookings(
+  database: Pick<Database, "select">,
+  eventIds: number[]
+): Promise<Map<number, { venue: EventVenue; maxCapacity: number }>> {
+  const current = new Map<number, { venue: EventVenue; maxCapacity: number }>();
+  if (eventIds.length === 0) return current;
+
+  const bookings = await database
+    .select({
+      eventId: venueRequests.eventId,
+      name: venues.name,
+      location: venues.location,
+      maxCapacity: venues.maxCapacity,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+    })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .where(and(inArray(venueRequests.eventId, eventIds), eq(venueRequests.status, "approved")))
+    .orderBy(venueRequests.createdAt, venueRequests.id);
+  for (const booking of bookings) {
+    if (current.has(booking.eventId)) continue;
+    current.set(booking.eventId, {
+      venue: {
+        name: booking.name,
+        location: booking.location,
+        date: booking.startsAt.slice(0, 10),
+        endDate: booking.endsAt.slice(0, 10),
+        startTime: booking.startsAt.slice(11, 16),
+        endTime: booking.endsAt.slice(11, 16),
+      },
+      maxCapacity: booking.maxCapacity,
+    });
+  }
+  return current;
+}
+
+export async function handleListAttendeeRegistrations(
+  attendee: SessionUser,
+  database: Pick<Database, "select">
+): Promise<AttendeeRegistrationProjection[]> {
+  const rows = await database
+    .select({
+      eventId: eventRequests.id,
+      eventName: eventRequests.eventName,
+      eventStatus: eventRequests.status,
+      registrationEnabled: eventRequests.registrationEnabled,
+      registrationStatus: eventRegistrations.status,
+      proposedDates: eventRequests.proposedDates,
+    })
+    .from(eventRegistrations)
+    .innerJoin(eventRequests, eq(eventRequests.id, eventRegistrations.eventId))
+    .where(and(eq(eventRegistrations.attendeeId, attendee.id), ne(eventRequests.status, "draft")));
+  const bookings = await loadCurrentBookings(
+    database,
+    rows.map(row => row.eventId)
+  );
+
+  const registrations = rows.map((row): AttendeeRegistrationProjection => {
+    const { eventDate, endDate, startTime, endTime } = eventTiming(row.proposedDates);
+    return {
+      eventId: row.eventId,
+      eventName: row.eventName,
+      eventStatus: row.eventStatus,
+      registrationEnabled: row.registrationEnabled,
+      registrationStatus: row.registrationStatus,
+      eventDate,
+      endDate,
+      startTime,
+      endTime,
+      venue: bookings.get(row.eventId)?.venue ?? null,
+    };
+  });
+
+  return registrations.toSorted((a, b) => {
+    const aDate = a.venue?.date ?? a.eventDate;
+    const bDate = b.venue?.date ?? b.eventDate;
+    if (aDate === null && bDate !== null) return 1;
+    if (aDate !== null && bDate === null) return -1;
+    return (aDate ?? "").localeCompare(bDate ?? "") || a.eventId - b.eventId;
+  });
+}
+
 export async function handleListEvents(
   data: unknown,
   user: SessionUser,
@@ -298,46 +389,21 @@ export async function handleListEvents(
       ? await loadVenueRequestOutcomesForEvents(database, requestIds)
       : new Map<number, VenueRequestOutcome>();
 
-  // PTR-24 AC3: the booking a confirmed event was confirmed against, for the roles that are
-  // shown it — the organiser, the coordinator, and any attendee (PTR-44 AC2). Only an
-  // approved booking counts; a released one leaves `venue` null.
-  const confirmedVenues = new Map<number, NonNullable<EventConfirmation["venue"]>>();
-  const venueCapacities = new Map<number, number>();
+  // PTR-24 AC3: the Organiser and the Coordinator see the current booking of a confirmed event. An
+  // Attendee sees it for every event they reach (PTR-44 AC2): the published events, and the events
+  // they registered for (PTR-46 AC2). Only confirmed events count the venue's places.
   const confirmedIds = requestRows.filter(row => row.status === "confirmed").map(row => row.id);
-  if (
-    confirmedIds.length > 0 &&
-    (role === "event_organiser" || role === "event_coordinator" || role === "attendee")
-  ) {
-    const bookings = await database
-      .select({
-        eventId: venueRequests.eventId,
-        name: venues.name,
-        location: venues.location,
-        maxCapacity: venues.maxCapacity,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-      })
-      .from(venueRequests)
-      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-      .where(
-        and(inArray(venueRequests.eventId, confirmedIds), eq(venueRequests.status, "approved"))
-      )
-      .orderBy(venueRequests.createdAt, venueRequests.id);
-    // The earliest-created approved booking is chosen so the render is stable. The booking used
-    // at confirmation is not stored (a PTR-24 follow-up), so a booking approved after
-    // confirmation can change which venue shows.
-    for (const booking of bookings) {
-      if (!confirmedVenues.has(booking.eventId)) {
-        confirmedVenues.set(booking.eventId, {
-          name: booking.name,
-          location: booking.location,
-          date: booking.startsAt.slice(0, 10),
-          endDate: booking.endsAt.slice(0, 10),
-          startTime: booking.startsAt.slice(11, 16),
-          endTime: booking.endsAt.slice(11, 16),
-        });
-        venueCapacities.set(booking.eventId, booking.maxCapacity);
-      }
+  const currentVenues = new Map<number, EventVenue>();
+  const venueCapacities = new Map<number, number>();
+  if (role === "event_organiser" || role === "event_coordinator" || role === "attendee") {
+    const confirmed = new Set(confirmedIds);
+    const bookings = await loadCurrentBookings(
+      database,
+      role === "attendee" ? requestIds : confirmedIds
+    );
+    for (const [id, booking] of bookings) {
+      currentVenues.set(id, booking.venue);
+      if (confirmed.has(id)) venueCapacities.set(id, booking.maxCapacity);
     }
   }
 
@@ -543,7 +609,7 @@ export async function handleListEvents(
           : null,
         equipment,
         venueRequest,
-        confirmedVenues.get(record.id) ?? null,
+        currentVenues.get(record.id) ?? null,
         eventPlaces(
           record.registrationCapacity,
           venueCapacities.get(record.id),

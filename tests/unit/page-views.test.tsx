@@ -88,6 +88,22 @@ const venue: Venue = {
 };
 
 describe("DashboardPage", () => {
+  it("shows My registrations to Attendees and hides it from other roles", () => {
+    const { rerender } = render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
+
+    expect(screen.getByRole("link", { name: "My registrations" })).toBeTruthy();
+
+    for (const role of [
+      "event_organiser",
+      "event_coordinator",
+      "venue_staff",
+      "technical_support_staff",
+    ]) {
+      rerender(<DashboardPage user={userWithRole(role)} events={[]} />);
+      expect(screen.queryByRole("link", { name: "My registrations" })).toBeNull();
+    }
+  });
+
   it("greets the session user and keeps the role links and the workspace", () => {
     render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
 

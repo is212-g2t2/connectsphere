@@ -278,11 +278,16 @@ describe("registering for an event (PTR-45)", () => {
 
   test("refuses a cancelled event the Attendee is registered for the same way", async () => {
     const event = await createEvent({ status: "cancelled" });
-    await database
-      .insert(schema.eventRegistrations)
-      .values({ eventId: event.id, attendeeId: attendee.id });
+    await database.insert(schema.eventRegistrations).values({
+      eventId: event.id,
+      attendeeId: attendee.id,
+      status: "registered",
+    });
 
     await expect(register(event.id)).rejects.toBeInstanceOf(AuthorizationError);
+    expect(await registrationsFor(event.id)).toMatchObject([
+      { attendeeId: attendee.id, status: "registered" },
+    ]);
   });
 
   test("refuses an event id that does not exist the same way", async () => {

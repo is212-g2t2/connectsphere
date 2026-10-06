@@ -169,9 +169,9 @@ export interface EventVenueRequest {
 }
 
 /**
- * The venue of the approved booking a confirmed event was confirmed against. Times are `HH:MM`,
- * the date is `YYYY-MM-DD`. `endDate` is the booking's end day, so a cross-midnight booking
- * renders its full range.
+ * The current approved booking of an event. The Organiser and the Coordinator see it for confirmed
+ * events. An Attendee sees it for the published events and for the events they registered for.
+ * Times are `HH:MM`, dates are `YYYY-MM-DD`, and `endDate` is the booking's end day.
  */
 export interface EventVenue {
   name: string;
@@ -180,6 +180,19 @@ export interface EventVenue {
   endDate: string;
   startTime: string;
   endTime: string;
+}
+
+export interface AttendeeRegistrationProjection {
+  eventId: number;
+  eventName: string;
+  eventStatus: EventRequestStatus;
+  registrationEnabled: boolean;
+  registrationStatus: "registered" | "withdrawn";
+  eventDate: string | null;
+  endDate: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  venue: EventVenue | null;
 }
 
 /**
@@ -329,8 +342,8 @@ export function isEquipmentArrangementsSatisfied(
 /**
  * The role-specific projection (PTR-8 criteria 3 and 4). The attendee branch carries PTR-44
  * AC2's fields — name, description, date/time, the registration period, the attendee's own
- * registration, and the venue of the approved booking the event was confirmed against (null
- * once released) — plus PTR-45's count of places and PTR-50's registration state, and no booking
+ * registration, and the current approved booking (null once released) — plus PTR-45's count of
+ * places and PTR-50's registration state, and no booking
  * decisions, equipment, or clarification threads.
  */
 export function projectEvent(
@@ -339,7 +352,7 @@ export function projectEvent(
   ownRegistration: { status: string; registeredAt: string } | null,
   equipment: EquipmentLineProjection[],
   venueRequest: EventVenueRequest | null,
-  confirmedVenue: EventConfirmation["venue"] = null,
+  currentVenue: EventConfirmation["venue"] = null,
   places: EventPlaces | null = null,
   vipRegistrations: VipAttendee[] | null = null,
   completionUnavailableReason?: string | null,
@@ -363,7 +376,7 @@ export function projectEvent(
           registration: ownRegistration,
           places,
           registrationAvailability,
-          venue: confirmedVenue,
+          venue: currentVenue,
         },
       };
 
@@ -458,7 +471,7 @@ export function projectEvent(
               ? {
                   confirmedAt: record.confirmedAt.toISOString(),
                   confirmedByName: record.confirmedByName,
-                  venue: confirmedVenue,
+                  venue: currentVenue,
                 }
               : null,
           ...(access === "coordinator" && completionUnavailableReason !== undefined
