@@ -423,6 +423,16 @@ export function canRaiseEventChangeRequest(status: EventRequestStatus): boolean 
   return !EVENT_CHANGE_REQUEST_CLOSED_STATUSES.some(closedStatus => closedStatus === status);
 }
 
+/**
+ * PTR-53 AC2: an Organiser may ask for cancellation while the event can still change. The alias
+ * is deliberate: a cancellation request is open in the same statuses as a PTR-51 change request,
+ * and a change to that set applies to both. No deadline applies.
+ */
+export const canRequestEventCancellation = canRaiseEventChangeRequest;
+export const EVENT_CANCELLATION_CLOSED = "This event can no longer be cancelled.";
+export const EVENT_CANCELLATION_ALREADY_REQUESTED =
+  "A cancellation request for this event is already waiting to be processed.";
+
 /** PTR-21 criterion 2: the plain-language label every screen shows instead of the stored code. */
 export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
   draft: "Draft",

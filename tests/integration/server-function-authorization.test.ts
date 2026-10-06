@@ -43,6 +43,7 @@ import {
   listUnassignedEventRequests,
   requireEventRequestCreate,
   replyToClarification,
+  requestEventCancellation,
   saveEventRequestDraft,
   submitEventRequest,
 } from "#/features/event-requests/server-fns";
@@ -670,6 +671,35 @@ describe("server-function authorization (PTR-69)", () => {
         signIn(role);
 
         expect(await refusalFrom(completeEvent, completeInput)).toMatchObject({ status: 403 });
+      }
+    );
+  });
+
+  // PTR-53: only an Organiser raises a cancellation request; the handler checks ownership.
+  describe("PTR-53 request event cancellation", () => {
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(requestEventCancellation, { id: 1 })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Event Organiser", async () => {
+      signIn("event_organiser");
+
+      expect((await call(requestEventCancellation, { id: 1 })).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_coordinator", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(requestEventCancellation, { id: 1 })).toMatchObject({
+          status: 403,
+        });
       }
     );
   });

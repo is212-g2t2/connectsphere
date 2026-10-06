@@ -11,9 +11,10 @@ import {
 } from "#/features/emails/components/equipment-arrangements-email";
 import { EquipmentReleasedEmail } from "#/features/emails/components/equipment-released-email";
 import { EquipmentRequestEmail } from "#/features/emails/components/equipment-request-email";
+import { EventCancellationRequestedEmail } from "#/features/emails/components/event-cancellation-email";
+import { EventChangeRequestEmail } from "#/features/emails/components/event-change-request-email";
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
-import { EventChangeRequestEmail } from "#/features/emails/components/event-change-request-email";
 import {
   EventRegisteredEmail,
   RegistrationThresholdEmail,
@@ -275,6 +276,14 @@ export function renderNotificationEmail(
         }),
       };
     }
+    case "event_cancellation_requested":
+      return {
+        subject,
+        element: createElement(EventCancellationRequestedEmail, {
+          eventName: notification.payload.eventName,
+          eventUrl: `${base}/coordination/${eventRequestId}`,
+        }),
+      };
     default: {
       const unhandled: never = notification;
       throw new Error(`No email template for notification kind "${String(unhandled)}"`);

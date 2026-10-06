@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
 import { ClarificationReplyEmail } from "#/features/emails/components/clarification-reply-email";
 import { Layout } from "#/features/emails/components/layout";
+import { EventCancellationRequestedEmail } from "#/features/emails/components/event-cancellation-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import {
   EventRegisteredEmail,
@@ -356,5 +357,16 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Registration is nearly full");
     expect(html).toContain("36 of 40 places are taken.");
     expect(html).not.toContain("can no longer register");
+  });
+
+  it("renders the cancellation request with the event and the coordination link (PTR-53 AC3)", async () => {
+    const eventUrl = "http://localhost:3000/coordination/42";
+    const html = await render(
+      <EventCancellationRequestedEmail eventName="Community workshop" eventUrl={eventUrl} />
+    );
+
+    expect(html).toContain("Community workshop");
+    expect(html).toContain("asked for this event to be cancelled");
+    expect(html).toContain(eventUrl);
   });
 });

@@ -87,6 +87,7 @@ const underReviewRequest: CoordinationRequest = {
   coordinator: { name: "Alex", email: "a@example.com" },
   clarifications: [],
   changeRequests: [],
+  cancellationRequests: [],
   pendingHandover: null,
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,

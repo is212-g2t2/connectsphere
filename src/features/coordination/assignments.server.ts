@@ -23,6 +23,7 @@ import {
 } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
 import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
 import {
   parseAssignmentInput,
@@ -134,13 +135,14 @@ export async function handleGetCoordinationRequest(
       "You no longer have coordination access to this request, or it is unavailable."
     );
 
-  const [clarifications, changeRequests] = await Promise.all([
+  const [clarifications, changeRequests, cancellationRequests] = await Promise.all([
     database
       .select()
       .from(clarificationRequests)
       .where(eq(clarificationRequests.eventRequestId, id))
       .orderBy(asc(clarificationRequests.createdAt)),
     listEventChangeRequests(id, database),
+    listEventCancellationRequests(id, database),
   ]);
 
   // PTR-110: the live offer, but only while it is still this assignment's offer — the outgoing
@@ -178,6 +180,7 @@ export async function handleGetCoordinationRequest(
     ...request,
     clarifications,
     changeRequests,
+    cancellationRequests,
     pendingHandover,
   };
 }

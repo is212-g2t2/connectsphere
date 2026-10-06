@@ -191,3 +191,26 @@ export const raiseEventChangeRequest = createServerFn({ method: "POST" })
 
     return result;
   });
+
+/**
+ * PTR-53: records the Organiser's request to cancel their event and notifies the assigned
+ * Coordinator. The event's status waits for the Coordinator (PTR-54).
+ */
+export const requestEventCancellation = createServerFn({ method: "POST" })
+  .validator(parseEventRequestId)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRequestEventCancellation }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/cancellation-requests.server"),
+    ]);
+    const result = await handleRequestEventCancellation(data, context.user, db);
+
+    log.info("Event cancellation requested", {
+      requestId: data.id,
+      cancellationRequestId: result.id,
+      organiserId: context.user.id,
+    });
+
+    return result;
+  });
