@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { isPublishedForAttendees } from "#/features/events/access";
 import {
   ALREADY_REGISTERED_MESSAGE,
   EVENT_FULL_MESSAGE,
   REGISTRATION_NOT_OPEN_MESSAGE,
+  eventFullMessage,
   placeMark,
   placeLimit,
+  registrationAvailability,
   registrationRefusal,
   venueCapacityReachedMessage,
 } from "#/features/events/registration";
@@ -126,5 +129,105 @@ describe("placeLimit (PTR-45, PTR-111)", () => {
 
   it("is never below zero, even when a smaller venue now holds fewer than the VIPs", () => {
     expect(placeLimit(40, 10, 12)).toBe(0);
+  });
+});
+
+describe("registrationAvailability (PTR-50)", () => {
+  const confirmed = { ...open, status: "confirmed" as const };
+
+  it("is open inside the period with places left", () => {
+    expect(registrationAvailability(confirmed)).toEqual({ state: "open" });
+  });
+
+  it("is not yet open before the opening minute (AC1)", () => {
+    expect(registrationAvailability({ ...confirmed, now: "2026-11-01T08:59" })).toEqual({
+      state: "not_yet_open",
+    });
+    expect(registrationAvailability({ ...confirmed, now: "2026-11-01T09:00" })).toEqual({
+      state: "open",
+    });
+  });
+
+  it("is closed from the closing minute on (AC2)", () => {
+    expect(registrationAvailability({ ...confirmed, now: "2026-12-01T17:00" })).toEqual({
+      state: "closed",
+    });
+  });
+
+  it("is full at the registration capacity (AC3)", () => {
+    expect(registrationAvailability({ ...confirmed, registeredCount: 40 })).toEqual({
+      state: "full",
+      venueCapacity: null,
+    });
+  });
+
+  it("is full when normal and VIP registrations together fill the venue, and names it (AC3)", () => {
+    expect(
+      registrationAvailability({
+        ...confirmed,
+        venueCapacity: 30,
+        registeredCount: 25,
+        vipCount: 5,
+      })
+    ).toEqual({ state: "full", venueCapacity: 30 });
+  });
+
+  it("states the closed period before a full event, as the period is the plainer reason", () => {
+    expect(
+      registrationAvailability({ ...confirmed, now: "2026-12-02T09:00", registeredCount: 40 })
+    ).toEqual({ state: "closed" });
+  });
+
+  it("is cancelled for a cancelled event, whatever the period or the places (AC4)", () => {
+    expect(registrationAvailability({ ...confirmed, status: "cancelled" })).toEqual({
+      state: "cancelled",
+    });
+    expect(
+      registrationAvailability({ ...confirmed, status: "cancelled", now: "2026-10-01T09:00" })
+    ).toEqual({ state: "cancelled" });
+  });
+
+  it("is unavailable while the event has no terms or no approved booking", () => {
+    expect(
+      registrationAvailability({
+        ...confirmed,
+        registrationCapacity: null,
+        registrationOpensAt: null,
+        registrationClosesAt: null,
+      })
+    ).toEqual({ state: "unavailable" });
+    expect(registrationAvailability({ ...confirmed, venueCapacity: null })).toEqual({
+      state: "unavailable",
+    });
+  });
+
+  it("agrees with the server: open exactly when a new registration would proceed", () => {
+    const cancelled = { ...confirmed, status: "cancelled" as const };
+    const cases = [
+      confirmed,
+      { ...confirmed, now: "2026-11-01T08:59" },
+      { ...confirmed, now: "2026-12-01T17:00" },
+      { ...confirmed, registeredCount: 40 },
+      { ...confirmed, venueCapacity: 10 },
+      { ...confirmed, venueCapacity: null },
+      { ...confirmed, registrationCapacity: null },
+      cancelled,
+      { ...cancelled, now: "2026-11-01T08:59" },
+    ];
+    for (const input of cases) {
+      // The handler refuses an unpublished event, a cancelled one included, before the refusal
+      // runs (PTR-45 AC2). The refusal alone lets the cancelled cases through.
+      const proceeds =
+        isPublishedForAttendees({ ...input, registrationEnabled: true }) &&
+        registrationRefusal(input) === null;
+      expect(registrationAvailability(input).state === "open").toBe(proceeds);
+    }
+  });
+
+  it("words a full event as the refusal does, and names the venue when it is the limit", () => {
+    expect(eventFullMessage(null)).toBe(registrationRefusal({ ...open, registeredCount: 40 }));
+    expect(eventFullMessage(30)).toBe(
+      registrationRefusal({ ...open, venueCapacity: 30, registeredCount: 25, vipCount: 5 })
+    );
   });
 });

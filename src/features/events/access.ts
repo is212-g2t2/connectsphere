@@ -1,5 +1,6 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schema";
+import type { RegistrationAvailability } from "#/features/events/registration";
 import type { VenueSuggestion } from "#/features/venue-requests/schema";
 
 export type EventAccess =
@@ -51,6 +52,14 @@ export function isPublishedForAttendees(event: {
   registrationEnabled?: boolean;
 }): boolean {
   return event.status === "confirmed" && event.registrationEnabled === true;
+}
+
+/** PTR-50 AC4: the events with an Attendee page — a published one, or one since cancelled. */
+export function hasAttendeePage(event: {
+  status: EventRequestStatus;
+  registrationEnabled?: boolean;
+}): boolean {
+  return isPublishedForAttendees(event) || event.status === "cancelled";
 }
 
 /**
@@ -264,6 +273,8 @@ export interface EventProjection {
     registration?: { status: string; registeredAt: string } | null;
     /** PTR-45 AC10: the event's normal `registered` registrations against its place limit. */
     places?: EventPlaces | null;
+    /** PTR-50: whether the Attendee can register now and, when not, why. */
+    registrationAvailability?: RegistrationAvailability | null;
     /**
      * PTR-111 AC4: the Organiser's and the Coordinator's VIP registrations, apart from the normal
      * ones. Null unless the event is published, the only state that takes them.
@@ -319,8 +330,8 @@ export function isEquipmentArrangementsSatisfied(
  * The role-specific projection (PTR-8 criteria 3 and 4). The attendee branch carries PTR-44
  * AC2's fields — name, description, date/time, the registration period, the attendee's own
  * registration, and the venue of the approved booking the event was confirmed against (null
- * once released) — plus PTR-45's count of places, and no booking decisions, equipment, or
- * clarification threads.
+ * once released) — plus PTR-45's count of places and PTR-50's registration state, and no booking
+ * decisions, equipment, or clarification threads.
  */
 export function projectEvent(
   record: EventRecord,
@@ -331,7 +342,8 @@ export function projectEvent(
   confirmedVenue: EventConfirmation["venue"] = null,
   places: EventPlaces | null = null,
   vipRegistrations: VipAttendee[] | null = null,
-  completionUnavailableReason?: string | null
+  completionUnavailableReason?: string | null,
+  registrationAvailability: RegistrationAvailability | null = null
 ): EventProjection {
   const timing = eventTiming(record.proposedDates);
 
@@ -350,6 +362,7 @@ export function projectEvent(
           registrationEnabled: record.registrationEnabled,
           registration: ownRegistration,
           places,
+          registrationAvailability,
           venue: confirmedVenue,
         },
       };

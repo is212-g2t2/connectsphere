@@ -1,3 +1,5 @@
+import type { EventRequestStatus } from "#/features/event-requests/schema";
+
 export const REGISTRATION_NOT_OPEN_MESSAGE = "Registration is not open for this event.";
 export const ALREADY_REGISTERED_MESSAGE = "You are already registered for this event.";
 export const EVENT_FULL_MESSAGE = "This event is full.";
@@ -36,14 +38,12 @@ export function placeMark(registered: number, limit: number): "full" | "nearly_f
 }
 
 /** The terms of a published event; the handler refuses an unpublished one before this runs. */
-interface RegistrationInput {
+interface RegistrationTerms {
   registrationCapacity: number | null;
   registrationOpensAt: string | null;
   registrationClosesAt: string | null;
   /** The venue's wall clock now, in the stored `YYYY-MM-DDTHH:MM` spelling. */
   now: string;
-  /** Whether the Attendee already holds a `registered` registration for the event (AC6). */
-  alreadyRegistered: boolean;
   /** The event's normal `registered` registrations only: a `withdrawn` one holds no place (AC4). */
   registeredCount: number;
   /** The event's `registered` VIP registrations, which hold venue places only (PTR-111). */
@@ -52,35 +52,81 @@ interface RegistrationInput {
   venueCapacity: number | null;
 }
 
-/**
- * PTR-45: why this registration is refused, or null when it may proceed. The window is half-open:
- * it opens at the opening minute and closes at the closing minute. Both sides use one fixed-width
- * spelling, so they compare as strings.
- */
-export function registrationRefusal(input: RegistrationInput): string | null {
-  if (input.alreadyRegistered) return ALREADY_REGISTERED_MESSAGE;
+interface RegistrationInput extends RegistrationTerms {
+  /** Whether the Attendee already holds a `registered` registration for the event (AC6). */
+  alreadyRegistered: boolean;
+}
 
-  const opens = input.registrationOpensAt;
-  const closes = input.registrationClosesAt;
-  const capacity = input.registrationCapacity;
-  if (
-    opens === null ||
-    closes === null ||
-    capacity === null ||
-    input.now < opens ||
-    input.now >= closes
-  ) {
-    return REGISTRATION_NOT_OPEN_MESSAGE;
-  }
+/**
+ * PTR-50: what an Attendee is told about registering before they try. `full` names the venue
+ * capacity when the venue is the limit (PTR-45 AC5), else null. `unavailable` covers an event with
+ * no terms or no approved booking, which the refusal answers as not open.
+ */
+export type RegistrationAvailability =
+  | { state: "open" }
+  | { state: "not_yet_open" }
+  | { state: "closed" }
+  | { state: "full"; venueCapacity: number | null }
+  | { state: "cancelled" }
+  | { state: "unavailable" };
+
+/**
+ * The one rule for a new registration, which `registrationRefusal` and `registrationAvailability`
+ * both read. The window is half-open: it opens at the opening minute and closes at the closing
+ * minute. Both sides use one fixed-width spelling, so they compare as strings. A period that has
+ * not opened or has closed comes before a full event, because it is the reason that does not
+ * change.
+ */
+function termsAvailability(
+  terms: RegistrationTerms
+): Exclude<RegistrationAvailability, { state: "cancelled" }> {
+  const opens = terms.registrationOpensAt;
+  const closes = terms.registrationClosesAt;
+  const capacity = terms.registrationCapacity;
+  if (opens === null || closes === null || capacity === null) return { state: "unavailable" };
+  if (terms.now < opens) return { state: "not_yet_open" };
+  if (terms.now >= closes) return { state: "closed" };
 
   // PTR-111 note: a confirmed event whose booking was released takes no new registrations until
   // an approved booking is recorded again, because there is no venue ceiling to hold them to.
-  if (input.venueCapacity === null) return REGISTRATION_NOT_OPEN_MESSAGE;
+  if (terms.venueCapacity === null) return { state: "unavailable" };
   // The venue is the ceiling for every registration, VIPs included (PTR-45 AC5, PTR-111 AC3), so
   // it is named when both limits are reached.
-  if (input.registeredCount + input.vipCount >= input.venueCapacity) {
-    return venueCapacityReachedMessage(input.venueCapacity);
+  if (terms.registeredCount + terms.vipCount >= terms.venueCapacity) {
+    return { state: "full", venueCapacity: terms.venueCapacity };
   }
-  if (input.registeredCount >= capacity) return EVENT_FULL_MESSAGE;
-  return null;
+  if (terms.registeredCount >= capacity) return { state: "full", venueCapacity: null };
+  return { state: "open" };
+}
+
+/** PTR-45 AC3 and AC5: the sentence for a full event, which names the venue when it is the limit. */
+export function eventFullMessage(venueCapacity: number | null): string {
+  return venueCapacity === null ? EVENT_FULL_MESSAGE : venueCapacityReachedMessage(venueCapacity);
+}
+
+/** PTR-45: why this registration is refused, or null when it may proceed. */
+export function registrationRefusal(input: RegistrationInput): string | null {
+  if (input.alreadyRegistered) return ALREADY_REGISTERED_MESSAGE;
+
+  const availability = termsAvailability(input);
+  switch (availability.state) {
+    case "open":
+      return null;
+    case "full":
+      return eventFullMessage(availability.venueCapacity);
+    default:
+      return REGISTRATION_NOT_OPEN_MESSAGE;
+  }
+}
+
+/**
+ * PTR-50: the event's registration state, from the rule `registrationRefusal` applies, so the
+ * page offers the action exactly when a new registration would proceed. A cancelled event says so
+ * first (AC4). The handler refuses a cancelled event before the refusal runs, so the refusal
+ * itself does not read the status.
+ */
+export function registrationAvailability(
+  input: RegistrationTerms & { status: EventRequestStatus }
+): RegistrationAvailability {
+  return input.status === "cancelled" ? { state: "cancelled" } : termsAvailability(input);
 }
