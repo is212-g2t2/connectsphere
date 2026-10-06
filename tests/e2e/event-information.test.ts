@@ -90,15 +90,10 @@ test("the assigned Coordinator updates an approved event, and the change is reco
     .where(eq(schema.eventInformationChanges.eventRequestId, id))
     .orderBy(asc(schema.eventInformationChanges.id));
   expect(
-    log.map(({ field, previousValue, newValue, changedById }) => ({
-      field,
-      previousValue,
-      newValue,
-      changedById,
-    }))
+    log.map(({ field, amendment, changedById }) => ({ field, amendment, changedById }))
   ).toEqual([
-    { field: "eventName", previousValue: name, newValue: renamed, changedById: COORDINATOR_ID },
-    { field: "expectedAttendance", previousValue: 40, newValue: 65, changedById: COORDINATOR_ID },
+    { field: "eventName", amendment: { from: name, to: renamed }, changedById: COORDINATOR_ID },
+    { field: "expectedAttendance", amendment: { from: 40, to: 65 }, changedById: COORDINATOR_ID },
   ]);
 });
 

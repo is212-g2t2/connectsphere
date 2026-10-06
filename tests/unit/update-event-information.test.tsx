@@ -6,13 +6,15 @@ import { CoordinationRequestPage } from "#/features/coordination/components/coor
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 
-const { updateEventInformation, invalidate, success } = vi.hoisted(() => ({
+const { updateEventInformation, invalidate, success, info, warning } = vi.hoisted(() => ({
   updateEventInformation:
     vi.fn<
       (input: { data: Record<string, unknown> }) => Promise<{ changedFields: readonly string[] }>
     >(),
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
+  info: vi.fn<(message: string) => void>(),
+  warning: vi.fn<(message: string) => void>(),
 }));
 
 vi.mock("#/features/events/server-fns", () => ({ updateEventInformation }));
@@ -24,7 +26,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn<() => void>(),
   useRouter: () => ({ navigate: vi.fn<() => void>(), invalidate }),
 }));
-vi.mock("sonner", () => ({ toast: { success } }));
+vi.mock("sonner", () => ({ toast: { success, info, warning } }));
 
 const actor = { id: "coord-a", email: "a@example.com", name: "Alex", role: "event_coordinator" };
 const coordinators = [{ id: "coord-a", name: "Alex", email: "a@example.com" }];
@@ -109,18 +111,14 @@ describe("updating event information on the coordination page (PTR-22)", () => {
     }
   );
 
-  it.each([
-    "submitted",
-    "under_review",
-    "awaiting_organiser",
-    "rejected",
-    "completed",
-    "cancelled",
-  ] satisfies EventRequestStatus[])("does not offer the update of a %s event", status => {
-    renderPage({ status });
+  it.each(["under_review", "completed", "cancelled"] satisfies EventRequestStatus[])(
+    "does not offer the update of a %s event",
+    status => {
+      renderPage({ status });
 
-    expect(screen.queryByRole("heading", { name: "Update event information" })).toBeNull();
-  });
+      expect(screen.queryByRole("heading", { name: "Update event information" })).toBeNull();
+    }
+  );
 
   it("does not offer the update to a Coordinator the event is not assigned to", () => {
     renderPage({ assignedCoordinatorId: "coord-b" });
@@ -128,9 +126,11 @@ describe("updating event information on the coordination page (PTR-22)", () => {
     expect(screen.queryByRole("heading", { name: "Update event information" })).toBeNull();
   });
 
-  it("opens the form on the recorded values and saves the change", async () => {
+  it("opens the form on the recorded values and sends only the changed field", async () => {
     updateEventInformation.mockResolvedValue({ changedFields: ["eventName"] });
     const user = await openForm();
+    const toggle = screen.getByRole("button", { name: "Cancel editing" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
 
     const name = screen.getByLabelText<HTMLInputElement>("Event name (required)");
     expect(name.value).toBe("Annual Gala");
@@ -143,16 +143,43 @@ describe("updating event information on the coordination page (PTR-22)", () => {
 
     await waitFor(() => expect(success).toHaveBeenCalledWith("Event information saved."));
     expect(updateEventInformation).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        id: 7,
-        eventName: "Annual Gala Dinner",
-        purpose: "Fundraiser",
-        expectedAttendance: 100,
-        proposedDates: [{ start: "2030-12-01T18:00", end: "2030-12-01T22:00" }],
-      }),
+      data: { id: 7, amendments: { eventName: "Annual Gala Dinner" } },
     });
     expect(invalidate).toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+    // Focus returns to the toggle, so a keyboard user keeps their place.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Edit event information" })
+    );
+  });
+
+  it("re-reads the page before it closes the form", async () => {
+    updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
+    const reload = Promise.withResolvers<void>();
+    invalidate.mockReturnValue(reload.promise);
+    const user = await openForm();
+
+    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(screen.getByLabelText("Purpose (required)")).toBeTruthy();
+    reload.resolve();
+    await waitFor(() => expect(screen.queryByLabelText("Purpose (required)")).toBeNull());
+  });
+
+  it("says the change was saved when only the re-read fails", async () => {
+    updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
+    invalidate.mockRejectedValue(new Error("offline"));
+    const user = await openForm();
+
+    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(warning).toHaveBeenCalledWith("The change was saved. Refresh this page to see it.")
+    );
+    expect(screen.queryByLabelText("Purpose (required)")).toBeNull();
   });
 
   it("says so when the save changed nothing", async () => {
@@ -161,7 +188,9 @@ describe("updating event information on the coordination page (PTR-22)", () => {
 
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
-    await waitFor(() => expect(success).toHaveBeenCalledWith("No changes to save."));
+    await waitFor(() => expect(info).toHaveBeenCalledWith("No changes to save."));
+    expect(updateEventInformation).toHaveBeenCalledWith({ data: { id: 7, amendments: {} } });
+    expect(success).not.toHaveBeenCalled();
   });
 
   it("keeps the form open and shows the server's refusal", async () => {
@@ -195,7 +224,7 @@ describe("updating event information on the coordination page (PTR-22)", () => {
   it("closes the form without saving on cancel", async () => {
     const user = await openForm();
 
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Cancel editing" }));
 
     expect(screen.queryByLabelText("Event name (required)")).toBeNull();
     expect(updateEventInformation).not.toHaveBeenCalled();

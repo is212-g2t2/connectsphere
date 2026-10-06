@@ -679,14 +679,7 @@ describe("server-function authorization (PTR-69)", () => {
   });
 
   describe("PTR-22 update event information", () => {
-    /** A complete record, so the permitted path runs the whole chain. */
-    const informationInput = {
-      id: 1,
-      eventName: "Planning forum",
-      purpose: "Agree the plan",
-      proposedDates: [{ start: "2031-03-10T09:00", end: "2031-03-10T17:00" }],
-      expectedAttendance: 80,
-    };
+    const informationInput = { id: 1, amendments: { eventName: "Planning forum" } };
 
     it("answers 401 without a session", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
@@ -714,12 +707,10 @@ describe("server-function authorization (PTR-69)", () => {
       }
     );
 
-    it("refuses a record that is missing a required field before the handler", async () => {
+    it("refuses a payload without amendments before the handler", async () => {
       signIn("event_coordinator");
 
-      expect(await messageFrom(updateEventInformation, { ...informationInput, purpose: "" })).toBe(
-        "This request is missing: Purpose"
-      );
+      expect(await messageFrom(updateEventInformation, { id: 1 })).toMatch(/expected record/);
     });
   });
 

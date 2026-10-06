@@ -2,8 +2,8 @@ import { useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { pickAmendments } from "#/features/event-requests/amendments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
-import { clarificationAmendmentKeys } from "#/features/event-requests/schema";
 import type { ClarificationField, EventRequestDraftValues } from "#/features/event-requests/schema";
 import { replyToClarification } from "#/features/event-requests/server-fns";
 
@@ -77,36 +77,4 @@ export function ClarificationReplyForm({
       )}
     </>
   );
-}
-
-/**
- * What a reply changes: one amendment per permitted field the organiser actually touched. A field
- * left at its loaded value is omitted, so a reply to a later question cannot resend the page-load
- * snapshot and revert an earlier reply's amendment. `attendeeRegistration` is one question spanning
- * four columns, so any of its fields changing sends all four as a group.
- */
-function pickAmendments(
-  values: EventRequestDraftValues,
-  permittedFields: readonly ClarificationField[],
-  changedFields: readonly string[]
-): Record<string, unknown> {
-  const changed = new Set(changedFields);
-  const amendments: Record<string, unknown> = {};
-
-  for (const field of permittedFields) {
-    const keys = clarificationAmendmentKeys(field);
-    if (!keys.some(key => changed.has(key))) continue;
-
-    if (field === "attendeeRegistration") {
-      amendments.registrationEnabled = values.registrationEnabled;
-      amendments.registrationCapacity = values.registrationCapacity ?? null;
-      amendments.registrationOpensAt = values.registrationOpensAt ?? null;
-      amendments.registrationClosesAt = values.registrationClosesAt ?? null;
-      continue;
-    }
-
-    amendments[field] = values[field] ?? null;
-  }
-
-  return amendments;
 }

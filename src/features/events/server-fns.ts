@@ -99,11 +99,13 @@ export const updateEventInformation = createServerFn({ method: "POST" })
     const [{ db }, { handleUpdateEventInformation }] = await loadUpdateServer();
     const result = await handleUpdateEventInformation(data, context.user, db);
 
-    log.info("Event information updated", {
-      eventId: data.id,
-      actorId: context.user.id,
-      changedFields: result.changedFields,
-    });
+    if (result.changedFields.length > 0) {
+      log.info("Event information updated", {
+        eventId: data.id,
+        actorId: context.user.id,
+        changedFields: result.changedFields,
+      });
+    }
 
     return result;
   });

@@ -2,8 +2,7 @@ CREATE TABLE "event_information_changes" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"event_request_id" integer NOT NULL,
 	"field" text NOT NULL,
-	"previous_value" jsonb,
-	"new_value" jsonb,
+	"amendment" jsonb NOT NULL,
 	"changed_by_id" text NOT NULL,
 	"changed_by_name" text NOT NULL,
 	"changed_at" timestamp with time zone DEFAULT now() NOT NULL

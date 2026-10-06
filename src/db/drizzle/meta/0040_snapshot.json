@@ -1,5 +1,5 @@
 {
-  "id": "d9a9be4d-039e-4f8f-96bf-1ea27bb366de",
+  "id": "8b0533e4-5209-49df-b923-05bb7cf672d0",
   "prevId": "3e7be98e-ec8d-4b11-a43b-e9f1378709f3",
   "version": "7",
   "dialect": "postgresql",
@@ -978,17 +978,11 @@
           "primaryKey": false,
           "notNull": true
         },
-        "previous_value": {
-          "name": "previous_value",
+        "amendment": {
+          "name": "amendment",
           "type": "jsonb",
           "primaryKey": false,
-          "notNull": false
-        },
-        "new_value": {
-          "name": "new_value",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "changed_by_id": {
           "name": "changed_by_id",

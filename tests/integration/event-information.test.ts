@@ -27,7 +27,7 @@ const venueStaff = member("ptr22-venue-staff", "venue_staff", "Planning Venue St
 const attendee = member("ptr22-attendee", "attendee", "Planning Attendee");
 const members = [organiser, coordinator, otherCoordinator, venueStaff, attendee];
 
-/** What the event holds before an update; every test sends it back with its own changes. */
+/** What the event holds before an update. */
 const recorded = {
   eventName: "PTR22 Planning Forum",
   purpose: "Agree the regional plan",
@@ -116,8 +116,9 @@ async function eventAt(
   return event;
 }
 
-function update(id: number, changes: Record<string, unknown>, actor: SessionUser = coordinator) {
-  return handleUpdateEventInformation({ id, ...recorded, ...changes }, actor, database as never);
+/** Sends only the changed columns, as the Coordinator's form does. */
+function update(id: number, amendments: Record<string, unknown>, actor: SessionUser = coordinator) {
+  return handleUpdateEventInformation({ id, amendments }, actor, database as never);
 }
 
 async function storedEvent(id: number) {
@@ -154,20 +155,19 @@ describe("updating event information (PTR-22)", () => {
     });
 
     const log = await changeLog(event.id);
-    expect(
-      log.map(({ field, previousValue, newValue }) => ({ field, previousValue, newValue }))
-    ).toEqual([
+    expect(log.map(({ field, amendment }) => ({ field, amendment }))).toEqual([
       {
         field: "eventName",
-        previousValue: "PTR22 Planning Forum",
-        newValue: "PTR22 Regional Planning Forum",
+        amendment: { from: "PTR22 Planning Forum", to: "PTR22 Regional Planning Forum" },
       },
       {
         field: "proposedDates",
-        previousValue: [{ end: "2031-03-10T17:00", start: "2031-03-10T09:00" }],
-        newValue: [{ end: "2031-03-11T18:00", start: "2031-03-11T09:00" }],
+        amendment: {
+          from: [{ start: "2031-03-10T09:00", end: "2031-03-10T17:00" }],
+          to: [{ start: "2031-03-11T09:00", end: "2031-03-11T18:00" }],
+        },
       },
-      { field: "expectedAttendance", previousValue: 80, newValue: 120 },
+      { field: "expectedAttendance", amendment: { from: 80, to: 120 } },
     ]);
     for (const row of log) {
       expect(row).toMatchObject({ changedById: coordinator.id, changedByName: coordinator.name });
@@ -239,19 +239,72 @@ describe("updating event information (PTR-22)", () => {
   it("writes nothing when no value changed", async () => {
     const event = await eventAt("confirmed");
 
-    const result = await update(event.id, {});
-
-    expect(result.changedFields).toEqual([]);
+    expect((await update(event.id, {})).changedFields).toEqual([]);
+    expect(
+      (
+        await update(event.id, {
+          eventName: recorded.eventName,
+          proposedDates: [{ end: "2031-03-10T17:00", start: "2031-03-10T09:00" }],
+        })
+      ).changedFields
+    ).toEqual([]);
     expect((await storedEvent(event.id)).updatedAt).toEqual(event.updatedAt);
     expect(await changeLog(event.id)).toEqual([]);
   });
 
-  it("refuses an update that clears a field the event needs, before it reads the event", async () => {
+  it("keeps the stored value of every field that the update does not carry", async () => {
     const event = await eventAt("approved");
 
-    await expect(update(event.id, { expectedAttendance: undefined })).rejects.toThrow(
+    await update(event.id, { eventName: "PTR22 Renamed in one tab" });
+    // A second form, opened before the rename, changes only the purpose.
+    await update(event.id, { purpose: "Agree the regional and local plans" });
+
+    expect(await storedEvent(event.id)).toMatchObject({
+      eventName: "PTR22 Renamed in one tab",
+      purpose: "Agree the regional and local plans",
+      description: recorded.description,
+      equipmentRequirements: recorded.equipmentRequirements,
+    });
+  });
+
+  it("writes only event information, whatever else the payload carries", async () => {
+    const event = await eventAt("approved");
+
+    await update(event.id, {
+      eventName: "PTR22 Only this changes",
+      status: "completed",
+      organiserId: otherCoordinator.id,
+      assignedCoordinatorId: otherCoordinator.id,
+    });
+
+    expect(await storedEvent(event.id)).toMatchObject({
+      eventName: "PTR22 Only this changes",
+      status: "approved",
+      organiserId: organiser.id,
+      assignedCoordinatorId: coordinator.id,
+    });
+    expect((await changeLog(event.id)).map(row => row.field)).toEqual(["eventName"]);
+  });
+
+  it("reads back a text value that looks like JSON as the text it was", async () => {
+    const event = await eventAt("approved");
+
+    await update(event.id, { eventName: "2032", purpose: "true", description: "null" });
+
+    expect((await changeLog(event.id)).map(row => row.amendment.to)).toEqual([
+      "2032",
+      "true",
+      "null",
+    ]);
+  });
+
+  it("refuses an update that clears a field the event needs", async () => {
+    const event = await eventAt("approved");
+
+    await expect(update(event.id, { expectedAttendance: null })).rejects.toThrow(
       "This request is missing: Expected attendance"
     );
+    expect((await storedEvent(event.id)).expectedAttendance).toBe(recorded.expectedAttendance);
     expect(await changeLog(event.id)).toEqual([]);
   });
 
@@ -275,14 +328,14 @@ describe("updating event information (PTR-22)", () => {
     });
     const log = await changeLog(event.id);
     expect(log.map(row => row.field)).toEqual(["attendeeRegistration", "attendeeRegistration"]);
-    expect(log[0].newValue).toEqual(terms);
-    expect(log[1]).toMatchObject({
-      previousValue: terms,
-      newValue: {
-        registrationCapacity: null,
-        registrationClosesAt: null,
+    expect(log[0].amendment.to).toEqual(terms);
+    expect(log[1].amendment).toEqual({
+      from: terms,
+      to: {
         registrationEnabled: false,
+        registrationCapacity: null,
         registrationOpensAt: null,
+        registrationClosesAt: null,
       },
     });
   });
@@ -309,10 +362,6 @@ describe("updating event information (PTR-22)", () => {
       eventName: "PTR22 Forum, renamed",
       description: "Moved to the main hall",
       expectedAttendance: 150,
-      registrationEnabled: true,
-      registrationCapacity: 60,
-      registrationOpensAt: "2031-02-01T09:00",
-      registrationClosesAt: "2031-03-01T17:00",
     });
 
     expect(

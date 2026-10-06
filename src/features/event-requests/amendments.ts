@@ -1,5 +1,10 @@
 import type { eventRequests } from "#/db/schema";
-import { clarificationAmendmentKeys } from "#/features/event-requests/schema";
+import {
+  clarificationAmendmentKeys,
+  missingFieldsMessage,
+  missingRequiredFields,
+  parseDraftInput,
+} from "#/features/event-requests/schema";
 import type {
   ClarificationAmendment,
   ClarificationAmendmentValue,
@@ -91,4 +96,58 @@ export function amendmentsBetween(
   }
 
   return amendments;
+}
+
+/**
+ * What a save changes: one amendment for each field in `fields` that the user actually touched. A
+ * field left at its loaded value is omitted, so a form opened on an older copy of the record
+ * cannot resend that copy and revert a later change. `attendeeRegistration` spans four columns,
+ * so a change to any of them sends all four as a group.
+ */
+export function pickAmendments(
+  values: EventRequestDraftValues,
+  fields: readonly ClarificationField[],
+  changedFields: readonly string[]
+): Record<string, unknown> {
+  const changed = new Set(changedFields);
+  const amendments: Record<string, unknown> = {};
+
+  for (const field of fields) {
+    const keys = clarificationAmendmentKeys(field);
+    if (!keys.some(key => changed.has(key))) continue;
+
+    if (field === "attendeeRegistration") {
+      amendments.registrationEnabled = values.registrationEnabled;
+      amendments.registrationCapacity = values.registrationCapacity ?? null;
+      amendments.registrationOpensAt = values.registrationOpensAt ?? null;
+      amendments.registrationClosesAt = values.registrationClosesAt ?? null;
+      continue;
+    }
+
+    amendments[field] = values[field] ?? null;
+  }
+
+  return amendments;
+}
+
+/**
+ * The locked row with `amendments` written over it, parsed by the draft rules. A column the row
+ * stores as null is absent to the schema. The fields a submitted event needs must stay complete,
+ * so a missing one throws the sentence that names it.
+ */
+export function amendedValues(
+  request: typeof eventRequests.$inferSelect,
+  amendments: Record<string, unknown>
+): EventRequestDraftValues {
+  const merged = { ...request, ...amendments };
+  const { id: _id, ...values } = parseDraftInput({
+    ...merged,
+    expectedAttendance: merged.expectedAttendance ?? undefined,
+    registrationCapacity: merged.registrationCapacity ?? undefined,
+    registrationOpensAt: merged.registrationOpensAt ?? undefined,
+    registrationClosesAt: merged.registrationClosesAt ?? undefined,
+  });
+  const missing = missingRequiredFields(values);
+  if (missing.length > 0) throw new Error(missingFieldsMessage(missing));
+  return values;
 }

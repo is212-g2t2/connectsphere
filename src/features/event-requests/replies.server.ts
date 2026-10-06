@@ -4,13 +4,10 @@ import { clarificationRequests, eventRequests, user } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { raiseNotifications } from "#/features/notifications/raise.server";
-import { amendmentsBetween } from "#/features/event-requests/amendments";
+import { amendedValues, amendmentsBetween } from "#/features/event-requests/amendments";
 import {
   clarificationAmendmentKeys,
-  missingFieldsMessage,
-  missingRequiredFields,
   parseClarificationReply,
-  parseDraftInput,
 } from "#/features/event-requests/schema";
 
 export async function handleReplyToClarification(
@@ -62,16 +59,7 @@ export async function handleReplyToClarification(
         "Only the fields selected for this clarification can be amended."
       );
     }
-    const merged = { ...request, ...input.amendments };
-    const { id: _id, ...values } = parseDraftInput({
-      ...merged,
-      expectedAttendance: merged.expectedAttendance ?? undefined,
-      registrationCapacity: merged.registrationCapacity ?? undefined,
-      registrationOpensAt: merged.registrationOpensAt ?? undefined,
-      registrationClosesAt: merged.registrationClosesAt ?? undefined,
-    });
-    const missing = missingRequiredFields(values);
-    if (missing.length) throw new Error(missingFieldsMessage(missing));
+    const values = amendedValues(request, input.amendments);
     const amendments = amendmentsBetween(request, values, question.permittedFields);
     const coordinator = (
       await tx

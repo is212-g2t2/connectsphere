@@ -18,7 +18,6 @@ import {
 
 import type {
   ClarificationAmendment,
-  ClarificationAmendmentValue,
   ClarificationField,
   EventRequestDraftValues,
 } from "#/features/event-requests/schema";
@@ -408,8 +407,9 @@ export const eventCancellationRequests = pgTable(
  * PTR-22 AC4: one row for each field that an event information update changed: the field, its
  * previous and new value, who made the change, and when (brief §8f). Append-only. `field` is a
  * `CLARIFICATION_FIELDS` key, so `attendeeRegistration` is one row for its four columns, as in a
- * clarification amendment. The values are `jsonb` and keep the stored shape. The actor's id and
- * name are snapshots, so an account deletion keeps the record. No screen reads the rows yet.
+ * clarification amendment. `amendment` holds `{ from, to }` in the stored shape. It is an object,
+ * because Drizzle parses a top-level `jsonb` string again on read, and "2031" would come back as
+ * a number. The actor's id and name are snapshots, so an account deletion keeps the record.
  */
 export const eventInformationChanges = pgTable(
   "event_information_changes",
@@ -419,8 +419,7 @@ export const eventInformationChanges = pgTable(
       .notNull()
       .references(() => eventRequests.id, { onDelete: "cascade" }),
     field: text("field").$type<ClarificationField>().notNull(),
-    previousValue: jsonb("previous_value").$type<ClarificationAmendmentValue>(),
-    newValue: jsonb("new_value").$type<ClarificationAmendmentValue>(),
+    amendment: jsonb("amendment").$type<Omit<ClarificationAmendment, "field">>().notNull(),
     changedById: text("changed_by_id").notNull(),
     changedByName: text("changed_by_name").notNull(),
     changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),

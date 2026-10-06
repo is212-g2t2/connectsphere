@@ -433,39 +433,6 @@ export const EVENT_CANCELLATION_CLOSED = "This event can no longer be cancelled.
 export const EVENT_CANCELLATION_ALREADY_REQUESTED =
   "A cancellation request for this event is already waiting to be processed.";
 
-/**
- * PTR-22 AC2: the stages in which the assigned Coordinator updates the event's information.
- * `planning` is the stage between approval and confirmation (brief §5 steps 6–9). Before approval
- * the Organiser amends the request through a clarification reply (PTR-19). A rejected, completed
- * or cancelled event is closed.
- */
-const EVENT_INFORMATION_EDITABLE_STATUSES = [
-  "approved",
-  "planning",
-  "confirmed",
-] as const satisfies readonly EventRequestStatus[];
-
-export function canUpdateEventInformation(status: EventRequestStatus): boolean {
-  return EVENT_INFORMATION_EDITABLE_STATUSES.some(editable => editable === status);
-}
-
-export function eventInformationLockedMessage(status: EventRequestStatus): string {
-  return `This event's information cannot be updated while its status is ${EVENT_REQUEST_STATUS_LABELS[status].toLowerCase()}.`;
-}
-
-/**
- * PTR-22: an event information update carries the event's id and every field the request form
- * captures. The values follow the draft rules, and the fields that a submission needs must stay
- * complete, as for a clarification reply.
- */
-export function parseEventInformationInput(data: unknown) {
-  const { id } = parseEventRequestId(data);
-  const values = parseDraftInput(data);
-  const missing = missingRequiredFields(values);
-  if (missing.length > 0) throw new Error(missingFieldsMessage(missing));
-  return { ...values, id };
-}
-
 /** PTR-54 AC8: the Coordinator must say why they decline a cancellation request. */
 export const CANCELLATION_DECLINE_REASON_MAX = 2000;
 export const EventCancellationDeclineInput = EventRequestIdInput.extend({
@@ -543,6 +510,37 @@ export const EVENT_REQUEST_STATUS_STAGES: Record<EventRequestStatus, EventReques
   completed: { decided: true, outcome: "approved", note: "The event has taken place." },
   cancelled: { decided: false, outcome: null, note: "Cancelled." },
 };
+
+/**
+ * PTR-22 AC2: the stages in which the assigned Coordinator updates the event's information:
+ * approved, planning and confirmed. `planning` is the stage between approval and confirmation
+ * (brief §5 steps 6–9). Before approval the Organiser amends the request through a clarification
+ * reply (PTR-19). A rejected, completed or cancelled event is closed.
+ */
+const EVENT_INFORMATION_EDITABLE_STATUSES = [
+  "approved",
+  "planning",
+  "confirmed",
+] as const satisfies readonly EventRequestStatus[];
+
+export function canUpdateEventInformation(status: EventRequestStatus): boolean {
+  return EVENT_INFORMATION_EDITABLE_STATUSES.some(editable => editable === status);
+}
+
+/**
+ * PTR-22: an event information update names the event and carries only the fields the
+ * Coordinator changed, keyed by column. The server writes them over the locked row and checks
+ * the result against the draft rules, as for a clarification reply.
+ */
+const EventInformationInput = EventRequestIdInput.extend({
+  amendments: z.record(z.string(), z.unknown()),
+});
+
+export function parseEventInformationInput(data: unknown) {
+  const parsed = EventInformationInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
 
 // ── Clarification requests (PTR-18) ─────────────────────────────────────────
 

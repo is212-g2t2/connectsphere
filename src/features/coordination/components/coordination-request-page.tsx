@@ -40,6 +40,7 @@ import {
   CancellationDecision,
   OutstandingReleasesList,
 } from "#/features/coordination/components/cancellation-decision";
+import { UpdateEventInformation } from "#/features/coordination/components/update-event-information";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import { formatInstant } from "#/features/event-requests/format";
 import {
@@ -50,7 +51,6 @@ import {
   canUpdateEventInformation,
 } from "#/features/event-requests/schema";
 import type { ClarificationField } from "#/features/event-requests/schema";
-import { UpdateEventInformation } from "#/features/events/components/update-event-information";
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -208,7 +208,8 @@ export function CoordinationRequestPage({
     request.status !== "cancelled" &&
     request.cancellationRequests.some(item => item.outcome === null);
 
-  // PTR-22 AC2: only the assigned Coordinator updates the record, and only during planning.
+  // PTR-22 AC2: only the assigned Coordinator updates the record, and only while the event is
+  // approved, planning or confirmed.
   const canUpdateInformation =
     request.assignedCoordinatorId === user.id && canUpdateEventInformation(request.status);
 

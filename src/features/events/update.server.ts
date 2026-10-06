@@ -4,11 +4,11 @@ import type { db as Db } from "#/db";
 import { eventInformationChanges, eventRequests } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { amendmentsBetween } from "#/features/event-requests/amendments";
+import { amendedValues, amendmentsBetween } from "#/features/event-requests/amendments";
 import {
   CLARIFICATION_FIELDS,
+  EVENT_REQUEST_STATUS_LABELS,
   canUpdateEventInformation,
-  eventInformationLockedMessage,
   parseEventInformationInput,
 } from "#/features/event-requests/schema";
 import type { ClarificationField } from "#/features/event-requests/schema";
@@ -25,32 +25,35 @@ const EVENT_INFORMATION_FIELDS = CLARIFICATION_FIELDS.map(field => field.key);
 
 /**
  * PTR-22 AC2/AC4: the assigned Coordinator updates an approved, planning or confirmed event. The
- * event row is locked first, so the diff and the change log are measured against the stored
- * values. Each changed field gets one change-log row, in the same transaction as the update. A
- * save that changes nothing writes nothing. Every view reads the row live, so the next read
- * shows the new values (AC3).
+ * event row is locked first, and the amendments are written over the locked values, so a field
+ * the Coordinator did not touch keeps its stored value. Each changed field gets one change-log
+ * row, in the same transaction as the update. A save that changes nothing writes nothing. Every
+ * view reads the row live, so the next read shows the new values (AC3).
  */
 export async function handleUpdateEventInformation(
   data: unknown,
   actor: SessionUser,
   database: Database
 ): Promise<{ changedFields: ClarificationField[] }> {
-  const { id, ...values } = parseEventInformationInput(data);
+  const input = parseEventInformationInput(data);
 
   return database.transaction(async tx => {
     const request = (
-      await tx.select().from(eventRequests).where(eq(eventRequests.id, id)).for("update")
+      await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
     ).at(0);
 
     // A missing event and someone else's event are refused the same way, so the refusal does not
-    // say whether the id exists.
-    if (!request || request.status === "draft" || request.assignedCoordinatorId !== actor.id) {
+    // say whether the id exists. A draft has no Coordinator, so it is refused here too.
+    if (!request || request.assignedCoordinatorId !== actor.id) {
       throw new AuthorizationError("Forbidden");
     }
     if (!canUpdateEventInformation(request.status)) {
-      throw new ConflictError(eventInformationLockedMessage(request.status));
+      throw new ConflictError(
+        `This event's information cannot be updated while its status is ${EVENT_REQUEST_STATUS_LABELS[request.status].toLowerCase()}.`
+      );
     }
 
+    const values = amendedValues(request, input.amendments);
     const changes = amendmentsBetween(request, values, EVENT_INFORMATION_FIELDS);
     if (changes.length === 0) return { changedFields: [] };
 
@@ -66,11 +69,10 @@ export async function handleUpdateEventInformation(
       .where(eq(eventRequests.id, request.id));
 
     await tx.insert(eventInformationChanges).values(
-      changes.map(change => ({
+      changes.map(({ field, from, to }) => ({
         eventRequestId: request.id,
-        field: change.field,
-        previousValue: change.from,
-        newValue: change.to,
+        field,
+        amendment: { from, to },
         changedById: actor.id,
         changedByName: actor.name?.trim() || actor.email,
       }))
