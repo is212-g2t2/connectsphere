@@ -87,14 +87,16 @@ async function loadReservableLine(
     lock: args.lock,
   });
 
-  // PTR-54 AC9: a cancelled event takes no new reservation. In the reserve path the key share
-  // waits for a cancellation holding the event row, then reads the new status.
+  // PTR-54 AC9: a cancelled event takes no new reservation. In the reserve path the row lock
+  // waits for a cancellation holding the event row, then reads the new status. It is FOR NO KEY
+  // UPDATE, not FOR KEY SHARE, because a reserve can later clear the event's arrangements
+  // completion stamp in this transaction; a key share would have to upgrade, which can deadlock.
   const eventQuery = database
     .select({ status: eventRequests.status })
     .from(eventRequests)
     .where(eq(eventRequests.id, line.eventId))
     .limit(1);
-  const event = (await (args.lock ? eventQuery.for("key share") : eventQuery)).at(0);
+  const event = (await (args.lock ? eventQuery.for("no key update") : eventQuery)).at(0);
   assertEventAcceptsActivity(event?.status);
   if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
 
