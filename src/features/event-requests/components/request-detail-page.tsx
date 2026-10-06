@@ -9,7 +9,11 @@ import {
 } from "#/features/event-requests/components/request-list-page";
 import { ClarificationReplyForm } from "#/features/event-requests/components/clarification-reply-form";
 import { EventChangeRequestForm } from "#/features/event-requests/components/event-change-request-form";
-import { RequestCancellationAction } from "#/features/event-requests/components/request-cancellation-action";
+import {
+  RequestCancellationAction,
+  UNASSIGNED_CANCELLATION_NOTE,
+  cancellationStatusNote,
+} from "#/features/event-requests/components/request-cancellation-action";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
 import {
@@ -71,6 +75,8 @@ export function EventRequestDetailPage({
   const cancellationWaiting = request.cancellationRequests.some(item => item.outcome === null);
   const canRequestCancellation =
     canRequestEventCancellation(request.status) && !cancellationWaiting;
+  // PTR-53 AC3: an unassigned event has no Coordinator to ask yet.
+  const coordinatorName = request.coordinator?.name ?? null;
 
   return (
     <Page width="page">
@@ -131,10 +137,12 @@ export function EventRequestDetailPage({
                 Request cancellation
               </h2>
               <p className="mt-2 body-sm text-muted-foreground">
-                Ask the Coordinator to cancel this event. The event stays as it is until they
-                process the request.
+                {coordinatorName === null
+                  ? `Ask for this event to be cancelled. ${UNASSIGNED_CANCELLATION_NOTE}`
+                  : `Ask ${coordinatorName} to cancel this event.`}{" "}
+                {cancellationStatusNote(coordinatorName)}
               </p>
-              <RequestCancellationAction requestId={request.id} />
+              <RequestCancellationAction requestId={request.id} coordinatorName={coordinatorName} />
             </CardContent>
           </Card>
         </section>
@@ -161,7 +169,9 @@ export function EventRequestDetailPage({
                         {formatInstant(item.createdAt)}
                       </time>
                     </div>
-                    <p className="mt-2 body-md font-medium">{cancellationOutcome(item)}</p>
+                    <p className="mt-2 body-md font-medium">
+                      {cancellationOutcome(item, coordinatorName)}
+                    </p>
                     {item.declineReason ? (
                       <div className="mt-3 border-l-2 border-border pl-4">
                         <p className="eyebrow text-muted-foreground">Reason</p>
@@ -495,10 +505,11 @@ function formatAmendmentValue(
 }
 
 /** PTR-54 AC7, AC8: what became of one cancellation request, and who decided it when. */
-function cancellationOutcome(item: EventRequestDetail["cancellationRequests"][number]): string {
-  if (item.outcome === null) {
-    return "Waiting for the Coordinator. The event's status is unchanged until then.";
-  }
+function cancellationOutcome(
+  item: EventRequestDetail["cancellationRequests"][number],
+  coordinatorName: string | null
+): string {
+  if (item.outcome === null) return `Waiting. ${cancellationStatusNote(coordinatorName)}`;
   const by = `${item.processedByName ?? "the Coordinator"} on ${formatInstant(item.processedAt)}`;
   return item.outcome === "cancelled" ? `Event cancelled by ${by}.` : `Declined by ${by}.`;
 }

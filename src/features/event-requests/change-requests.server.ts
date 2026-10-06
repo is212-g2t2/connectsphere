@@ -1,9 +1,10 @@
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventChangeRequests, eventRequests } from "#/db/schema";
-import { AuthorizationError, ConflictError } from "#/features/auth/session";
+import { eventChangeRequests } from "#/db/schema";
+import { ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { lockOwnedEvent } from "#/features/event-requests/owned-event.server";
 import {
   canRaiseEventChangeRequest,
   parseEventChangeRequestInput,
@@ -40,20 +41,7 @@ export async function handleRaiseEventChangeRequest(
   const input = parseEventChangeRequestInput(data);
 
   return database.transaction(async tx => {
-    const event = (
-      await tx
-        .select({
-          id: eventRequests.id,
-          eventName: eventRequests.eventName,
-          assignedCoordinatorId: eventRequests.assignedCoordinatorId,
-          status: eventRequests.status,
-        })
-        .from(eventRequests)
-        .where(and(eq(eventRequests.id, input.id), eq(eventRequests.organiserId, organiser.id)))
-        .for("update")
-    ).at(0);
-
-    if (!event) throw new AuthorizationError("Forbidden");
+    const event = await lockOwnedEvent(tx, input.id, organiser.id);
     if (!canRaiseEventChangeRequest(event.status)) {
       throw new ConflictError(EVENT_CHANGE_REQUEST_CLOSED);
     }

@@ -5,10 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 
-const { requestEventCancellation, invalidate, success } = vi.hoisted(() => ({
+const { requestEventCancellation, invalidate, success, warning } = vi.hoisted(() => ({
   requestEventCancellation: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
+  warning: vi.fn<(message: string) => void>(),
 }));
 
 vi.mock("#/features/event-requests/server-fns", () => ({
@@ -22,7 +23,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn<() => void>(),
   useRouter: () => ({ invalidate }),
 }));
-vi.mock("sonner", () => ({ toast: { success } }));
+vi.mock("sonner", () => ({ toast: { success, warning } }));
 
 const request: CoordinationRequest = {
   id: 7,
@@ -88,6 +89,38 @@ describe("requesting cancellation (PTR-53)", () => {
 
     expect(screen.getByRole("heading", { name: "Request cancellation" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Request cancellation" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Ask Alex to cancel this event. The event's status stays the same until Alex processes the request."
+      )
+    ).toBeTruthy();
+  });
+
+  it("offers no request on a page that has not opted in", () => {
+    render(<EventRequestDetailPage request={request} />);
+
+    expect(screen.queryByRole("button", { name: "Request cancellation" })).toBeNull();
+  });
+
+  it("says where the request goes when no Coordinator is assigned (AC3)", async () => {
+    const user = userEvent.setup();
+    const unassigned =
+      "No Coordinator is assigned yet, so the request waits in the unassigned events list.";
+    const status = "The event's status stays the same until a Coordinator processes the request.";
+    render(
+      <EventRequestDetailPage
+        request={{ ...request, assignedCoordinatorId: null, coordinator: null }}
+        showCancellationRequest
+      />
+    );
+
+    expect(
+      screen.getByText(`Ask for this event to be cancelled. ${unassigned} ${status}`)
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Request cancellation" }));
+    const dialog = screen.getByRole("alertdialog").textContent;
+    expect(dialog).toContain(`${unassigned} ${status}`);
+    expect(dialog).not.toContain("Alex");
   });
 
   it.each(["draft", "completed", "cancelled"] as const)(
@@ -109,7 +142,11 @@ describe("requesting cancellation (PTR-53)", () => {
 
     expect(screen.queryByRole("button", { name: "Request cancellation" })).toBeNull();
     const history = screen.getByRole("region", { name: "Cancellation requests" });
-    expect(within(history).getByText(/Waiting for the Coordinator/)).toBeTruthy();
+    expect(
+      within(history).getByText(
+        "Waiting. The event's status stays the same until Alex processes the request."
+      )
+    ).toBeTruthy();
     expect(screen.getByText("Planning")).toBeTruthy();
   });
 
@@ -123,11 +160,27 @@ describe("requesting cancellation (PTR-53)", () => {
 
     await waitFor(() => {
       expect(requestEventCancellation).toHaveBeenCalledWith({ data: { id: 7 } });
-      expect(success).toHaveBeenCalledWith(
-        "Cancellation requested. The Coordinator will process it."
-      );
+      expect(success).toHaveBeenCalledWith("Cancellation requested. Alex has been notified.");
       expect(invalidate).toHaveBeenCalled();
     });
+  });
+
+  it("keeps a recorded request a success when the page refresh fails", async () => {
+    const user = userEvent.setup();
+    requestEventCancellation.mockResolvedValueOnce({ id: 1 });
+    invalidate.mockRejectedValueOnce(new Error("Network down"));
+    render(<EventRequestDetailPage request={request} showCancellationRequest />);
+
+    await user.click(screen.getByRole("button", { name: "Request cancellation" }));
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    await waitFor(() => {
+      expect(warning).toHaveBeenCalledWith(
+        "Your cancellation request was saved. Refresh this page to see it."
+      );
+    });
+    expect(success).toHaveBeenCalledWith("Cancellation requested. Alex has been notified.");
+    expect(screen.queryByText("Could not request cancellation. Try again.")).toBeNull();
   });
 
   it("shows the server's refusal", async () => {
@@ -143,6 +196,11 @@ describe("requesting cancellation (PTR-53)", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(
       "This event can no longer be cancelled."
     );
+
+    // Closing the dialog keeps the refusal on the page.
+    await user.click(screen.getByRole("button", { name: "Keep event" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByText("This event can no longer be cancelled.")).toBeTruthy();
   });
 
   it("keeps each request with its outcome on the record (PTR-54 AC7, AC8)", () => {

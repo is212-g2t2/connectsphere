@@ -1,9 +1,10 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventCancellationRequests, eventRequests } from "#/db/schema";
-import { AuthorizationError, ConflictError } from "#/features/auth/session";
+import { eventCancellationRequests } from "#/db/schema";
+import { ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { lockOwnedEvent } from "#/features/event-requests/owned-event.server";
 import {
   EVENT_CANCELLATION_ALREADY_REQUESTED,
   EVENT_CANCELLATION_CLOSED,
@@ -51,20 +52,7 @@ export async function handleRequestEventCancellation(
   const input = parseEventRequestId(data);
 
   return database.transaction(async tx => {
-    const event = (
-      await tx
-        .select({
-          id: eventRequests.id,
-          eventName: eventRequests.eventName,
-          assignedCoordinatorId: eventRequests.assignedCoordinatorId,
-          status: eventRequests.status,
-        })
-        .from(eventRequests)
-        .where(and(eq(eventRequests.id, input.id), eq(eventRequests.organiserId, organiser.id)))
-        .for("update")
-    ).at(0);
-
-    if (!event) throw new AuthorizationError("Forbidden");
+    const event = await lockOwnedEvent(tx, input.id, organiser.id);
     if (!canRequestEventCancellation(event.status)) {
       throw new ConflictError(EVENT_CANCELLATION_CLOSED);
     }

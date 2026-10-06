@@ -1,5 +1,5 @@
 {
-  "id": "3158f34f-1244-4c64-b9cd-22d38640ef6c",
+  "id": "66a3df32-8eaf-4aa7-ba32-4172ad4f9dc3",
   "prevId": "a1e99a1a-e7e1-4b79-825b-6d525383ebe5",
   "version": "7",
   "dialect": "postgresql",
@@ -743,7 +743,7 @@
       "checkConstraints": {
         "event_cancellation_requests_outcome_complete": {
           "name": "event_cancellation_requests_outcome_complete",
-          "value": "(\"event_cancellation_requests\".\"outcome\" is null and \"event_cancellation_requests\".\"processed_by_id\" is null and \"event_cancellation_requests\".\"processed_by_name\" is null and \"event_cancellation_requests\".\"processed_at\" is null and \"event_cancellation_requests\".\"decline_reason\" is null) or (\"event_cancellation_requests\".\"outcome\" is not null and \"event_cancellation_requests\".\"processed_by_id\" is not null and \"event_cancellation_requests\".\"processed_by_name\" is not null and \"event_cancellation_requests\".\"processed_at\" is not null)"
+          "value": "(\"event_cancellation_requests\".\"outcome\" is null and \"event_cancellation_requests\".\"processed_by_id\" is null and \"event_cancellation_requests\".\"processed_by_name\" is null and \"event_cancellation_requests\".\"processed_at\" is null and \"event_cancellation_requests\".\"decline_reason\" is null) or (\"event_cancellation_requests\".\"outcome\" is not null and \"event_cancellation_requests\".\"processed_by_id\" is not null and btrim(\"event_cancellation_requests\".\"processed_by_id\") <> '' and \"event_cancellation_requests\".\"processed_by_name\" is not null and btrim(\"event_cancellation_requests\".\"processed_by_name\") <> '' and \"event_cancellation_requests\".\"processed_at\" is not null)"
         },
         "event_cancellation_requests_decline_has_reason": {
           "name": "event_cancellation_requests_decline_has_reason",

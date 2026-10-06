@@ -381,7 +381,7 @@ export const eventCancellationRequests = pgTable(
       .where(sql`${table.outcome} is null`),
     check(
       "event_cancellation_requests_outcome_complete",
-      sql`(${table.outcome} is null and ${table.processedById} is null and ${table.processedByName} is null and ${table.processedAt} is null and ${table.declineReason} is null) or (${table.outcome} is not null and ${table.processedById} is not null and ${table.processedByName} is not null and ${table.processedAt} is not null)`
+      sql`(${table.outcome} is null and ${table.processedById} is null and ${table.processedByName} is null and ${table.processedAt} is null and ${table.declineReason} is null) or (${table.outcome} is not null and ${table.processedById} is not null and btrim(${table.processedById}) <> '' and ${table.processedByName} is not null and btrim(${table.processedByName}) <> '' and ${table.processedAt} is not null)`
     ),
     check(
       "event_cancellation_requests_decline_has_reason",

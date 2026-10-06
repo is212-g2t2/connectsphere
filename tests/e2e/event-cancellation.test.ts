@@ -11,9 +11,12 @@ import { Pool } from "pg";
 
 import * as schema from "../../src/db/schema";
 import { waitForHydration } from "./hydration";
+import { waitForEmail } from "./mailpit";
 import { signInWithSeedPassword } from "./staff-auth";
 
 const COORDINATOR_ID = "seed-coordinator-1";
+const COORDINATOR_EMAIL = "coordinator.seed@example.com";
+const COORDINATOR_NAME = "Seeded Event Coordinator";
 const ORGANISER_EMAIL = "jane.doe@example.com";
 const ORGANISER_ID = "test-user-2";
 const ATTENDEE_ID = "user-demo-1";
@@ -114,7 +117,7 @@ async function requestCancellation(browser: Browser, id: number) {
   await organiser.getByRole("button", { name: "Request cancellation" }).click();
   await organiser.getByRole("button", { name: "Send request" }).click();
   await expect(
-    organiser.getByText("Cancellation requested. The Coordinator will process it.")
+    organiser.getByText(`Cancellation requested. ${COORDINATOR_NAME} has been notified.`)
   ).toBeVisible();
   return organiser;
 }
@@ -122,13 +125,21 @@ async function requestCancellation(browser: Browser, id: number) {
 test("the Organiser requests cancellation, and the event's status waits (PTR-53)", async ({
   browser,
 }) => {
-  const { id } = await createEvent();
+  const { id, name } = await createEvent();
 
   const organiser = await requestCancellation(browser, id);
 
   const history = organiser.getByRole("region", { name: "Cancellation requests" });
-  await expect(history.getByText(/Waiting for the Coordinator/)).toBeVisible();
+  await expect(
+    history.getByText(
+      `Waiting. The event's status stays the same until ${COORDINATOR_NAME} processes the request.`
+    )
+  ).toBeVisible();
   await expect(organiser.getByRole("button", { name: "Request cancellation" })).toHaveCount(0);
   expect(await statusOf(id)).toBe("confirmed");
   await organiser.context().close();
+
+  // AC3: the assigned Coordinator gets the request by email as well as in the inbox.
+  const body = await waitForEmail(COORDINATOR_EMAIL, `Event cancellation requested: ${name}`);
+  expect(body).toContain(name);
 });

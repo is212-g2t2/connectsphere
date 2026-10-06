@@ -9,6 +9,7 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { handleGetCoordinationRequest } from "#/features/coordination/assignments.server";
 import { handleRequestEventCancellation } from "#/features/event-requests/cancellation-requests.server";
 import {
   handleGetEventRequest,
@@ -248,12 +249,88 @@ describe("requesting an event's cancellation (PTR-53)", () => {
       expect(await requestsFor(event.id)).toHaveLength(1);
     });
 
-    test("notifies the assigned Coordinator (AC3)", async () => {
+    test("records one request when the Organiser asks twice at once", async () => {
+      const event = await createEvent("planning");
+
+      const results = await Promise.allSettled([
+        requestCancellation(event.id),
+        requestCancellation(event.id),
+      ]);
+
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const rejected = results.find(result => result.status === "rejected");
+      expect((rejected as PromiseRejectedResult).reason).toBeInstanceOf(ConflictError);
+      expect(((rejected as PromiseRejectedResult).reason as Error).message).toBe(
+        EVENT_CANCELLATION_ALREADY_REQUESTED
+      );
+      expect(await requestsFor(event.id)).toHaveLength(1);
+      expect(await notificationsFor(event.id, "event_cancellation_requested")).toHaveLength(1);
+    });
+
+    test("accepts a new request once the Coordinator has declined the last one", async () => {
+      const event = await createEvent("planning");
+      const first = await requestCancellation(event.id);
+      await database
+        .update(schema.eventCancellationRequests)
+        .set({
+          outcome: "declined",
+          declineReason: "The deposit is paid.",
+          processedById: coordinator.id,
+          processedByName: coordinator.name,
+          processedAt: new Date(),
+        })
+        .where(eq(schema.eventCancellationRequests.id, first.id));
+
+      const second = await requestCancellation(event.id);
+
+      const detail = await handleGetEventRequest({ id: event.id }, organiser, database as never);
+      expect(detail?.cancellationRequests).toEqual([
+        expect.objectContaining({ id: first.id, outcome: "declined" }),
+        expect.objectContaining({ id: second.id, outcome: null }),
+      ]);
+    });
+
+    test.each([
+      { processedById: " ", processedByName: coordinator.name },
+      { processedById: coordinator.id, processedByName: " " },
+    ])("refuses a decided request with a blank processor (%o)", async processor => {
+      const event = await createEvent("planning");
+      const request = await requestCancellation(event.id);
+
+      // Drizzle wraps the driver error, so the constraint name is on the cause, not the message.
+      await expect(
+        database
+          .update(schema.eventCancellationRequests)
+          .set({ outcome: "cancelled", processedAt: new Date(), ...processor })
+          .where(eq(schema.eventCancellationRequests.id, request.id))
+      ).rejects.toMatchObject({
+        cause: { constraint: "event_cancellation_requests_outcome_complete" },
+      });
+    });
+
+    test("shows the request on the assigned Coordinator's page", async () => {
+      const event = await createEvent("planning");
+      const request = await requestCancellation(event.id);
+
+      const view = await handleGetCoordinationRequest(
+        { id: event.id },
+        coordinator,
+        database as never
+      );
+
+      expect(view.cancellationRequests).toEqual([
+        expect.objectContaining({ id: request.id, outcome: null }),
+      ]);
+    });
+
+    test("notifies the assigned Coordinator and no one else (AC3)", async () => {
       const event = await createEvent("planning");
 
       await requestCancellation(event.id);
 
-      const [notice] = await notificationsFor(event.id, "event_cancellation_requested");
+      const notices = await notificationsFor(event.id, "event_cancellation_requested");
+      expect(notices).toHaveLength(1);
+      const [notice] = notices;
       expect(notice.recipientId).toBe(coordinator.id);
       const notification = parsed(notice);
       expect(notificationSummary(notification)).toBe(
