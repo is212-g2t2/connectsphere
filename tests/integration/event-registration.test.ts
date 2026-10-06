@@ -496,13 +496,12 @@ describe("registering for an event (PTR-45)", () => {
 
   // ── PTR-50 ─────────────────────────────────────────────────────────────────────────────────
   describe("telling the Attendee whether they can register yet (PTR-50)", () => {
-    test("names the opening time before the period opens, and says when it has closed", async () => {
+    test("says the period has not opened yet, and says when it has closed", async () => {
       const event = await createEvent();
 
       // 00:59Z is 08:59 in Singapore, a minute before the period opens.
       expect(await availability(event.id, new Date("2026-11-01T00:59:00Z"))).toEqual({
         state: "not_yet_open",
-        opensAt,
       });
       expect(await availability(event.id, insidePeriod)).toEqual({ state: "open" });
       // 09:00Z on 1 Dec is 17:00 in Singapore, the minute the period closes.
@@ -515,7 +514,10 @@ describe("registering for an event (PTR-45)", () => {
       const event = await createEvent({ capacity: 2 });
       await registerOthers(event.id, 2);
 
-      expect(await availability(event.id, insidePeriod)).toEqual({ state: "full" });
+      expect(await availability(event.id, insidePeriod)).toEqual({
+        state: "full",
+        venueCapacity: null,
+      });
       expect(await refusal(event.id)).toBe(EVENT_FULL_MESSAGE);
     });
 
@@ -526,7 +528,11 @@ describe("registering for an event (PTR-45)", () => {
         .values({ eventId: event.id, attendeeId: secondAttendee.id, vip: true });
       await registerOthers(event.id, 1);
 
-      expect(await availability(event.id, insidePeriod)).toEqual({ state: "full" });
+      expect(await availability(event.id, insidePeriod)).toEqual({
+        state: "full",
+        venueCapacity: 2,
+      });
+      expect(await refusal(event.id)).toBe(venueCapacityReachedMessage(2));
     });
 
     test("says a cancelled event is cancelled to the Attendee registered for it", async () => {

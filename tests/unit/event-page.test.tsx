@@ -282,13 +282,12 @@ function renderWith(event: Partial<EventProjection["event"]>) {
 }
 
 describe("EventPage registration availability (PTR-50)", () => {
-  it("says registration is not yet open, names the opening time, and offers no action (AC1)", () => {
-    renderWith({
-      registrationAvailability: { state: "not_yet_open", opensAt: "2026-11-01T09:00" },
-    });
+  it("says registration is not yet open, shows the opening time once, and offers no action (AC1)", () => {
+    renderWith({ registrationAvailability: { state: "not_yet_open" } });
 
     expect(screen.getByText("Registration is not yet open.")).toBeTruthy();
-    expect(screen.getByText("Registration opens 1 Nov 2026, 09:00.")).toBeTruthy();
+    expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
+    expect(screen.getAllByText(/1 Nov 2026, 09:00/)).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
   });
 
@@ -299,26 +298,52 @@ describe("EventPage registration availability (PTR-50)", () => {
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
   });
 
-  it("says the event is full and offers no action (AC3)", () => {
+  it("says the event is full in place of the count, and offers no action (AC3)", () => {
     renderWith({
-      registrationAvailability: { state: "full" },
+      registrationAvailability: { state: "full", venueCapacity: null },
       places: { registered: 40, limit: 40 },
     });
 
     expect(screen.getByText("This event is full.")).toBeTruthy();
-    expect(screen.getByText("40 / 40 registered")).toBeTruthy();
+    expect(screen.queryByText("40 / 40 registered")).toBeNull();
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
   });
 
-  it("says the event is cancelled and offers no action (AC4)", () => {
-    renderWith({ status: "cancelled", registrationAvailability: { state: "cancelled" } });
+  it("names the venue capacity when normal and VIP registrations fill the venue (AC3)", () => {
+    // VIPs added after the normal places were taken leave more registrations than places.
+    renderWith({
+      registrationAvailability: { state: "full", venueCapacity: 30 },
+      places: { registered: 2, limit: 1 },
+    });
+
+    expect(
+      screen.getByText("This event is full. The venue capacity of 30 is reached.")
+    ).toBeTruthy();
+    expect(screen.queryByText("2 / 1 registered")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+  });
+
+  it("says the event is cancelled, shows no venue row, and offers no action (AC4)", () => {
+    renderWith({
+      status: "cancelled",
+      registrationAvailability: { state: "cancelled" },
+      venue: null,
+    });
 
     expect(screen.getByText("This event is cancelled.")).toBeTruthy();
     expect(screen.getByText("Cancelled")).toBeTruthy();
+    expect(screen.queryByText("Venue to be confirmed")).toBeNull();
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
   });
 
-  it("says a registered Attendee's event is cancelled in place of the registered state (AC4)", () => {
+  it("says a cancelled event is cancelled from its status alone, as the route decides (AC4)", () => {
+    renderWith({ status: "cancelled", registrationAvailability: null });
+
+    expect(screen.getByText("This event is cancelled.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+  });
+
+  it("tells a registered Attendee of a cancelled event about their registration (AC4)", () => {
     renderWith({
       status: "cancelled",
       registration: { status: "registered", registeredAt: "2026-11-02T03:04:05.000Z" },
@@ -326,13 +351,14 @@ describe("EventPage registration availability (PTR-50)", () => {
     });
 
     expect(screen.getByText("This event is cancelled.")).toBeTruthy();
+    expect(screen.getByText("You were registered for this event.")).toBeTruthy();
     expect(screen.queryByText("You're registered")).toBeNull();
   });
 
   it("offers no action while registration is unavailable for another reason", () => {
     renderWith({ registrationAvailability: { state: "unavailable" } });
 
-    expect(screen.getByText("Registration is not open.")).toBeTruthy();
+    expect(screen.getByText("Registration is not open for this event.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
   });
 });

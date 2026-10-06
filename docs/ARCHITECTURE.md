@@ -97,7 +97,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
 │       ├── _authenticated/    # dashboard, settings, coordination, event-requests, events, venues, notifications
 │       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
-│       │   ├── events/ # Attendee view of a published (confirmed, registration-on) event
+│       │   ├── events/ # Attendee view of a published (confirmed, registration-on) event, or of a cancelled event that the Attendee has a registration for
 │       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection
 │       │   └── venue-bookings/ # Venue Staff's approved-booking release and amendment view
 │       ├── api/          # Better Auth handler, health, smoke, cron

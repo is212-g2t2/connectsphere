@@ -18,6 +18,7 @@ import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   getEventAccess,
+  hasAttendeePage,
   isEquipmentQueueRow,
   isPublishedForAttendees,
   isVenueQueueRow,
@@ -586,7 +587,7 @@ function attendeeRegistrationAvailability(
   counts: { registered: number; vips: number },
   now: string
 ): RegistrationAvailability | null {
-  if (record.status !== "confirmed" && record.status !== "cancelled") return null;
+  if (!hasAttendeePage(record)) return null;
   return registrationAvailability({
     status: record.status,
     registrationCapacity: record.registrationCapacity,

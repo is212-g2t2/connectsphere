@@ -7,7 +7,7 @@ import { EventRequestStatusBadge } from "#/features/event-requests/components/st
 import { formatLocalDateTime } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
 import { RegisterAction } from "#/features/events/components/register-action";
-import { EVENT_FULL_MESSAGE } from "#/features/events/registration";
+import { REGISTRATION_NOT_OPEN_MESSAGE, eventFullMessage } from "#/features/events/registration";
 import type { RegistrationAvailability } from "#/features/events/registration";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -61,9 +61,10 @@ function isNextDay(start: string, end: string): boolean {
 }
 
 /**
- * PTR-44: what an attendee sees of a confirmed event with registration on. Only the published
- * fields — name, description, date/time, the approved booking's venue, and the registration
- * period — so booking decisions, equipment, and clarification threads never reach this view.
+ * PTR-44: what an attendee sees of a confirmed event with registration on, or of a cancelled event
+ * they hold a registration for (PTR-50 AC4). Only the published fields — name, description,
+ * date/time, the approved booking's venue, and the registration period — so booking decisions,
+ * equipment, and clarification threads never reach this view.
  */
 export function EventPage({ event }: { event: EventProjection }) {
   const { event: details } = event;
@@ -78,6 +79,8 @@ export function EventPage({ event }: { event: EventProjection }) {
     details.venue && isNextDay(details.venue.date, details.venue.endDate)
   );
   const isRegistered = details.registration?.status === "registered";
+  // The cancelled leg of the route's `hasAttendeePage`, so the page and the route cannot disagree.
+  const isCancelled = details.status === "cancelled";
   const availability = details.registrationAvailability;
   const period =
     details.registrationOpensAt && details.registrationClosesAt ? (
@@ -144,29 +147,40 @@ export function EventPage({ event }: { event: EventProjection }) {
             <p className="mt-6 font-semibold">Date to be confirmed</p>
           )}
 
-          <div className="mt-4 flex items-start gap-3">
-            <span className="flex size-12 shrink-0 items-center justify-center rounded-md border border-input bg-card">
-              <MapPin className="size-4" />
-            </span>
-            <div className="min-w-0">
-              {details.venue ? (
-                <>
-                  <p className="font-semibold">{details.venue.name}</p>
-                  {details.venue.location ? (
-                    <p className="body-sm text-muted-foreground">{details.venue.location}</p>
-                  ) : null}
-                </>
-              ) : (
-                <p className="font-semibold">Venue to be confirmed</p>
-              )}
+          {/* A cancelled event's projection has no venue. Leave the row out, so that it does not
+              say the venue is still to be confirmed. */}
+          {isCancelled ? null : (
+            <div className="mt-4 flex items-start gap-3">
+              <span className="flex size-12 shrink-0 items-center justify-center rounded-md border border-input bg-card">
+                <MapPin className="size-4" />
+              </span>
+              <div className="min-w-0">
+                {details.venue ? (
+                  <>
+                    <p className="font-semibold">{details.venue.name}</p>
+                    {details.venue.location ? (
+                      <p className="body-sm text-muted-foreground">{details.venue.location}</p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="font-semibold">Venue to be confirmed</p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <Card className="mt-6">
             <CardContent>
               <p className="label text-muted-foreground">Registration</p>
-              {availability?.state === "cancelled" ? (
-                <p className="mt-2 font-semibold">This event is cancelled.</p>
+              {isCancelled ? (
+                <>
+                  <p className="mt-2 font-semibold">This event is cancelled.</p>
+                  {isRegistered ? (
+                    <p className="mt-1 body-sm text-muted-foreground">
+                      You were registered for this event.
+                    </p>
+                  ) : null}
+                </>
               ) : isRegistered ? (
                 <>
                   <p className="mt-2 font-semibold">You&apos;re registered</p>
@@ -176,7 +190,9 @@ export function EventPage({ event }: { event: EventProjection }) {
               ) : period ? (
                 <>
                   {period}
-                  {places}
+                  {/* VIPs can fill the venue after the normal places are taken, so a full event can
+                      show more registrations than places. The reason takes the count's place. */}
+                  {availability?.state === "full" ? null : places}
                   {availability?.state === "open" ? (
                     <RegisterAction eventId={details.id} eventName={details.name ?? "this event"} />
                   ) : (
@@ -216,20 +232,14 @@ function RegistrationUnavailable({
 }) {
   const sentence = "mt-4 body-sm font-semibold";
   switch (availability?.state) {
+    // AC1: the period line above the sentence shows the opening date and time.
     case "not_yet_open":
-      return (
-        <>
-          <p className={sentence}>Registration is not yet open.</p>
-          <p className="mt-1 body-sm text-muted-foreground">
-            Registration opens {formatLocalDateTime(availability.opensAt)}.
-          </p>
-        </>
-      );
+      return <p className={sentence}>Registration is not yet open.</p>;
     case "closed":
       return <p className={sentence}>Registration has closed.</p>;
     case "full":
-      return <p className={sentence}>{EVENT_FULL_MESSAGE}</p>;
+      return <p className={sentence}>{eventFullMessage(availability.venueCapacity)}</p>;
     default:
-      return <p className={sentence}>Registration is not open.</p>;
+      return <p className={sentence}>{REGISTRATION_NOT_OPEN_MESSAGE}</p>;
   }
 }
