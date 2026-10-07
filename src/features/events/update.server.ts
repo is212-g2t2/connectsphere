@@ -6,7 +6,7 @@ import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { amendedValues, amendmentsBetween } from "#/features/event-requests/amendments";
 import {
-  CLARIFICATION_FIELDS,
+  EVENT_INFORMATION_FIELDS,
   EVENT_REQUEST_STATUS_LABELS,
   canUpdateEventInformation,
   parseEventInformationInput,
@@ -20,8 +20,6 @@ import type { ClarificationField } from "#/features/event-requests/schema";
  */
 
 type Database = typeof Db;
-
-const EVENT_INFORMATION_FIELDS = CLARIFICATION_FIELDS.map(field => field.key);
 
 /**
  * PTR-22 AC2/AC4: the assigned Coordinator updates an approved, planning or confirmed event. The

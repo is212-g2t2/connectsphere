@@ -32,6 +32,8 @@ import {
 import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
 import {
   ATTENDANCE_MESSAGE,
+  EVENT_INFORMATION_AMENDMENTS_MESSAGE,
+  EVENT_INFORMATION_ONLY_MESSAGE,
   EVENT_REQUEST_DELETE_REFUSAL,
   EVENT_REQUEST_ID_MESSAGE,
 } from "#/features/event-requests/schema";
@@ -707,10 +709,15 @@ describe("server-function authorization (PTR-69)", () => {
       }
     );
 
-    it("refuses a payload without amendments before the handler", async () => {
+    it("refuses a payload without amendments, or with other columns, before the handler", async () => {
       signIn("event_coordinator");
 
-      expect(await messageFrom(updateEventInformation, { id: 1 })).toMatch(/expected record/);
+      expect(await messageFrom(updateEventInformation, { id: 1 })).toBe(
+        EVENT_INFORMATION_AMENDMENTS_MESSAGE
+      );
+      expect(
+        await messageFrom(updateEventInformation, { id: 1, amendments: { status: "completed" } })
+      ).toBe(EVENT_INFORMATION_ONLY_MESSAGE);
     });
   });
 

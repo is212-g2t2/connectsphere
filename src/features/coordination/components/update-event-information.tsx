@@ -7,11 +7,9 @@ import { Card, CardContent } from "#/components/ui/card";
 import { pickAmendments } from "#/features/event-requests/amendments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
-import { CLARIFICATION_FIELDS } from "#/features/event-requests/schema";
+import { EVENT_INFORMATION_FIELDS } from "#/features/event-requests/schema";
 import type { EventRequestDraft } from "#/features/event-requests/server-fns";
 import { updateEventInformation } from "#/features/events/server-fns";
-
-const EVENT_INFORMATION_FIELDS = CLARIFICATION_FIELDS.map(field => field.key);
 
 /**
  * PTR-22 AC2: the assigned Coordinator updates the information of an approved, planning or
@@ -57,6 +55,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
                 initialValues={toDraftValues(request)}
                 saveLabel="Save changes"
                 requireComplete
+                idPrefix={formId}
                 onSave={async (values, { changedFields }) => {
                   const { changedFields: saved } = await updateEventInformation({
                     data: {

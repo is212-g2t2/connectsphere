@@ -511,37 +511,6 @@ export const EVENT_REQUEST_STATUS_STAGES: Record<EventRequestStatus, EventReques
   cancelled: { decided: false, outcome: null, note: "Cancelled." },
 };
 
-/**
- * PTR-22 AC2: the stages in which the assigned Coordinator updates the event's information:
- * approved, planning and confirmed. `planning` is the stage between approval and confirmation
- * (brief §5 steps 6–9). Before approval the Organiser amends the request through a clarification
- * reply (PTR-19). A rejected, completed or cancelled event is closed.
- */
-const EVENT_INFORMATION_EDITABLE_STATUSES = [
-  "approved",
-  "planning",
-  "confirmed",
-] as const satisfies readonly EventRequestStatus[];
-
-export function canUpdateEventInformation(status: EventRequestStatus): boolean {
-  return EVENT_INFORMATION_EDITABLE_STATUSES.some(editable => editable === status);
-}
-
-/**
- * PTR-22: an event information update names the event and carries only the fields the
- * Coordinator changed, keyed by column. The server writes them over the locked row and checks
- * the result against the draft rules, as for a clarification reply.
- */
-const EventInformationInput = EventRequestIdInput.extend({
-  amendments: z.record(z.string(), z.unknown()),
-});
-
-export function parseEventInformationInput(data: unknown) {
-  const parsed = EventInformationInput.safeParse(data);
-  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
-  return parsed.data;
-}
-
 // ── Clarification requests (PTR-18) ─────────────────────────────────────────
 
 /**
@@ -649,3 +618,55 @@ export function parseClarificationReply(data: unknown) {
 export const ClarificationFormSchema = ClarificationBodyInput.pick({ body: true }).extend({
   permittedFields: ClarificationBodyInput.shape.permittedFields.unwrap(),
 });
+
+// ── Event information updates (PTR-22) ──────────────────────────────────────
+
+/**
+ * PTR-22 AC2: the stages in which the assigned Coordinator updates the event's information:
+ * approved, planning and confirmed. `planning` is the stage between approval and confirmation
+ * (brief §5 steps 6–9). Before approval the Organiser amends the request through a clarification
+ * reply (PTR-19). A rejected, completed or cancelled event is closed.
+ */
+const EVENT_INFORMATION_EDITABLE_STATUSES = [
+  "approved",
+  "planning",
+  "confirmed",
+] as const satisfies readonly EventRequestStatus[];
+
+export function canUpdateEventInformation(status: EventRequestStatus): boolean {
+  return EVENT_INFORMATION_EDITABLE_STATUSES.some(editable => editable === status);
+}
+
+/** Every field an update may change and the change log names: all the request form captures. */
+export const EVENT_INFORMATION_FIELDS = CLARIFICATION_FIELDS.map(field => field.key);
+
+/** The `event_requests` columns those fields write. */
+export const EVENT_INFORMATION_COLUMNS = EVENT_INFORMATION_FIELDS.flatMap(
+  clarificationAmendmentKeys
+);
+
+export const EVENT_INFORMATION_AMENDMENTS_MESSAGE = "Choose the event information to update";
+export const EVENT_INFORMATION_ONLY_MESSAGE = "Only event information can be updated.";
+
+/**
+ * PTR-22: an event information update names the event and carries only the columns the
+ * Coordinator changed. Any other key is refused, as a clarification reply refuses a field its
+ * question did not permit. The server writes the columns over the locked row and checks the
+ * result against the draft rules.
+ */
+const EventInformationInput = EventRequestIdInput.extend({
+  amendments: z
+    .record(z.string(), z.unknown(), { error: EVENT_INFORMATION_AMENDMENTS_MESSAGE })
+    .refine(
+      amendments => Object.keys(amendments).every(key => EVENT_INFORMATION_COLUMNS.includes(key)),
+      {
+        error: EVENT_INFORMATION_ONLY_MESSAGE,
+      }
+    ),
+});
+
+export function parseEventInformationInput(data: unknown) {
+  const parsed = EventInformationInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}

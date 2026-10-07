@@ -267,23 +267,17 @@ describe("updating event information (PTR-22)", () => {
     });
   });
 
-  it("writes only event information, whatever else the payload carries", async () => {
+  it("refuses a payload that carries anything but event information, and changes nothing", async () => {
     const event = await eventAt("approved");
 
-    await update(event.id, {
-      eventName: "PTR22 Only this changes",
-      status: "completed",
-      organiserId: otherCoordinator.id,
-      assignedCoordinatorId: otherCoordinator.id,
-    });
-
+    await expect(
+      update(event.id, { eventName: "PTR22 Not saved", status: "completed" })
+    ).rejects.toThrow("Only event information can be updated.");
     expect(await storedEvent(event.id)).toMatchObject({
-      eventName: "PTR22 Only this changes",
+      eventName: recorded.eventName,
       status: "approved",
-      organiserId: organiser.id,
-      assignedCoordinatorId: coordinator.id,
     });
-    expect((await changeLog(event.id)).map(row => row.field)).toEqual(["eventName"]);
+    expect(await changeLog(event.id)).toEqual([]);
   });
 
   it("reads back a text value that looks like JSON as the text it was", async () => {
