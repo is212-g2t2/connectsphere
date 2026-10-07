@@ -153,7 +153,7 @@ describe("updating event information on the coordination page (PTR-22)", () => {
     );
   });
 
-  it("re-reads the page before it closes the form", async () => {
+  it("re-reads the page before it closes the form, and holds the toggle until then", async () => {
     updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
     const reload = Promise.withResolvers<void>();
     invalidate.mockReturnValue(reload.promise);
@@ -164,29 +164,15 @@ describe("updating event information on the coordination page (PTR-22)", () => {
 
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
     expect(screen.getByLabelText("Purpose (required)")).toBeTruthy();
-    reload.resolve();
-    await waitFor(() => expect(screen.queryByLabelText("Purpose (required)")).toBeNull());
-  });
-
-  it("holds the toggle until the save finishes, so a reopened form is not closed by it", async () => {
-    updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
-    const reload = Promise.withResolvers<void>();
-    invalidate.mockReturnValue(reload.promise);
-    const user = await openForm();
-
-    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    // A form reopened now would be closed by this save, so the toggle waits.
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled).toBe(
       true
     );
     reload.resolve();
-    await waitFor(() =>
-      expect(
-        screen.getByRole<HTMLButtonElement>("button", { name: "Edit event information" }).disabled
-      ).toBe(false)
-    );
+    await waitFor(() => expect(screen.queryByLabelText("Purpose (required)")).toBeNull());
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Edit event information" }).disabled
+    ).toBe(false);
   });
 
   it("sends only the touched field after the page re-reads underneath the open form", async () => {
