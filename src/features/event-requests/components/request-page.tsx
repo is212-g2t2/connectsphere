@@ -20,8 +20,9 @@ const SUBMIT_FAILED = "Could not submit this request. Try again.";
  * happened yet — without the fallback, the first save after reopening would insert a second row
  * instead of updating the one that was loaded.
  *
- * Exported for `EventRequestDetailPage`, whose reply form seeds the same shape; a request detail
- * carries every draft field plus its relations, so the row is assignable as-is.
+ * Exported for `EventRequestDetailPage`, whose reply form seeds the same shape, and for the
+ * Coordinator's `UpdateEventInformation`. A request detail carries every draft field plus its
+ * relations, so the row is assignable as-is.
  */
 export function toDraftValues(row: EventRequestDraft): EventRequestDraftValues {
   return {

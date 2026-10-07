@@ -1,4 +1,4 @@
-import { Fragment, useRef } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { standardSchemaValidators, useForm } from "@tanstack/react-form";
 
 import { Button } from "#/components/ui/button";
@@ -148,6 +148,20 @@ function changedFieldNames(
   return [...names];
 }
 
+/** Tells the caller whether the form is dirty, from inside an effect so render stays pure. */
+function DirtyReporter({
+  dirty,
+  onDirtyChange,
+}: {
+  dirty: boolean;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+  return null;
+}
+
 /** The top-level field each label `missingRequiredFields` returns belongs to. */
 const MISSING_FIELD_KEYS: Partial<Record<string, string>> = {
   "Event name": "eventName",
@@ -178,10 +192,10 @@ function missingFieldPath(key: string, value: EventRequestFormValues): string {
 
 /**
  * A submission needs the PTR-10 fields complete; a draft does not, so the form shape maps a blank
- * permitted field to an absent one and the schema passes it. In reply mode that would let a cleared
- * required field reach the server, which answers with its form-level sentence above the action row.
- * This turns each missing field into a field-level error, at the control that owns it, for the
- * fields the Coordinator permitted. Locked fields are complete by construction and skipped.
+ * permitted field to an absent one and the schema passes it. In a reply or an update that would let
+ * a cleared required field reach the server, which answers with its form-level sentence above the
+ * action row. This turns each missing field into a field-level error, at the control that owns it,
+ * for the fields the caller can edit. Locked fields are complete by construction and skipped.
  */
 function missingFieldErrors(
   value: EventRequestFormValues,
@@ -205,24 +219,25 @@ function missingFieldErrors(
  * draft fields; the reply body is validated at its own field, so this widens the form validator to
  * accept a value carrying `replyBody` without restating the schema.
  *
- * In reply mode the schema alone is too lenient: it accepts a cleared permitted required field
- * because absence is valid while drafting. `missingFieldErrors` adds those omissions back as field
- * errors, merged so the schema's own issues stay put.
+ * When the record must stay complete (a reply, or an event information update), the schema alone
+ * is too lenient: it accepts a cleared required field because absence is valid while drafting.
+ * `missingFieldErrors` adds those omissions back as field errors, merged so the schema's own issues
+ * stay put.
  */
 function draftValidator({
   value,
   editable,
-  replyMode,
+  requireComplete,
 }: {
   value: EventRequestFormValues;
   editable: (field: string) => boolean;
-  replyMode: boolean;
+  requireComplete: boolean;
 }) {
   const result = standardSchemaValidators.validate<"form">(
     { value, validationSource: "form" },
     EventRequestDraftFormInput
   );
-  if (!replyMode) return result;
+  if (!requireComplete) return result;
 
   const parsed = EventRequestDraftFormInput.safeParse(value);
   if (!parsed.success) return result;
@@ -243,6 +258,8 @@ export function EventRequestForm({
   disabled = false,
   replyBody,
   idPrefix,
+  requireComplete = false,
+  onDirtyChange,
 }: {
   initialValues?: EventRequestDraftValues;
   onSave: (
@@ -262,6 +279,13 @@ export function EventRequestForm({
   /** When replying, the body is a required field of this same form, labelled as given. */
   replyBody?: { label: string };
   idPrefix?: string;
+  /**
+   * PTR-22: the record is already submitted, so a required field left blank is refused at its
+   * control rather than saved. Reply mode implies it.
+   */
+  requireComplete?: boolean;
+  /** Reports live whether any field differs from its mount default. Ignored when omitted. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   /**
    * Which control is submitting. A ref rather than state because the click and the submit are two
@@ -270,14 +294,19 @@ export function EventRequestForm({
    */
   const intent = useRef<"save" | "submit">("save");
   const replyMode = editableFields !== undefined;
+  const mustBeComplete = replyMode || requireComplete;
   const editable = (field: string) => !editableFields || editableFields.includes(field);
   const inputId = (name: string) => (idPrefix ? `${idPrefix}-${name}` : name);
 
+  // Fixed for the mount: `isDefaultValue` compares against these, and rebuilding them on a parent
+  // re-render (new row keys, a re-read record) would mark untouched fields as changed. A caller
+  // that wants new values remounts the form with a new `key`.
+  const [defaultValues] = useState(() => toDefaultFormValues(initialValues));
   const form = useForm({
-    defaultValues: toDefaultFormValues(initialValues),
+    defaultValues,
     validators: {
       onSubmit: ({ value }: { value: EventRequestFormValues }) =>
-        draftValidator({ value, editable, replyMode }),
+        draftValidator({ value, editable, requireComplete: mustBeComplete }),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -616,6 +645,12 @@ export function EventRequestForm({
     </form.Field>
   );
 
+  const dirtyReporter = onDirtyChange && (
+    <form.Subscribe selector={state => changedFieldNames(state.fieldMeta).length > 0}>
+      {dirty => <DirtyReporter dirty={dirty} onDirtyChange={onDirtyChange} />}
+    </form.Subscribe>
+  );
+
   const formError = (
     <form.Subscribe selector={state => state.errorMap.onSubmit}>
       {onSubmitError => {
@@ -664,6 +699,7 @@ export function EventRequestForm({
   if (replyMode) {
     return (
       <form noValidate onSubmit={submitForm}>
+        {dirtyReporter}
         {editableFields.length > 0 && (
           <p className="mb-6 body-sm text-muted-foreground">
             Only the fields selected by the Coordinator can be changed. Required values must remain
@@ -699,9 +735,11 @@ export function EventRequestForm({
 
   return (
     <form noValidate onSubmit={submitForm}>
+      {dirtyReporter}
       <p className="mb-6 body-sm text-muted-foreground">
-        Fields marked required must be completed. Anything left blank is saved with the draft, so
-        you can finish it later.
+        {mustBeComplete
+          ? "Fields marked required must stay complete."
+          : "Fields marked required must be completed. Anything left blank is saved with the draft, so you can finish it later."}
       </p>
 
       <FieldGroup>

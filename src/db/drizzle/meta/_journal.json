@@ -281,6 +281,13 @@
       "when": 1791247754481,
       "tag": "0039_cloudy_black_panther",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791311614526,
+      "tag": "0040_blushing_shaman",
+      "breakpoints": true
     }
   ]
 }

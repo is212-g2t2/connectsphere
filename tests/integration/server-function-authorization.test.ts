@@ -32,6 +32,8 @@ import {
 import { handleDeleteEventRequestDraft } from "#/features/event-requests/drafts.server";
 import {
   ATTENDANCE_MESSAGE,
+  EVENT_INFORMATION_AMENDMENTS_MESSAGE,
+  EVENT_INFORMATION_ONLY_MESSAGE,
   EVENT_REQUEST_DELETE_REFUSAL,
   EVENT_REQUEST_ID_MESSAGE,
 } from "#/features/event-requests/schema";
@@ -58,6 +60,7 @@ import {
   registerForEvent,
   removeVipRegistration,
   searchVipAttendees,
+  updateEventInformation,
 } from "#/features/events/server-fns";
 import { listNotifications, markNotificationsRead } from "#/features/notifications/server-fns";
 import {
@@ -675,6 +678,47 @@ describe("server-function authorization (PTR-69)", () => {
         expect(await refusalFrom(completeEvent, completeInput)).toMatchObject({ status: 403 });
       }
     );
+  });
+
+  describe("PTR-22 update event information", () => {
+    const informationInput = { id: 1, amendments: { eventName: "Planning forum" } };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(updateEventInformation, informationInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Event Coordinator", async () => {
+      signIn("event_coordinator");
+
+      expect((await call(updateEventInformation, informationInput)).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(updateEventInformation, informationInput)).toMatchObject({
+          status: 403,
+        });
+      }
+    );
+
+    it("refuses a payload without amendments, or with other columns, before the handler", async () => {
+      signIn("event_coordinator");
+
+      expect(await messageFrom(updateEventInformation, { id: 1 })).toBe(
+        EVENT_INFORMATION_AMENDMENTS_MESSAGE
+      );
+      expect(
+        await messageFrom(updateEventInformation, { id: 1, amendments: { status: "completed" } })
+      ).toBe(EVENT_INFORMATION_ONLY_MESSAGE);
+    });
   });
 
   // PTR-53: only an Organiser raises a cancellation request; the handler checks ownership.

@@ -4,105 +4,11 @@ import { clarificationRequests, eventRequests, user } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { raiseNotifications } from "#/features/notifications/raise.server";
+import { amendedValues, amendmentsBetween } from "#/features/event-requests/amendments";
 import {
   clarificationAmendmentKeys,
-  missingFieldsMessage,
-  missingRequiredFields,
   parseClarificationReply,
-  parseDraftInput,
 } from "#/features/event-requests/schema";
-import type {
-  ClarificationAmendment,
-  ClarificationAmendmentValue,
-  ClarificationField,
-  EventRequestDraftValues,
-} from "#/features/event-requests/schema";
-
-/**
- * JSON with object keys in a fixed order. `jsonb` reorders keys when it stores them, so a plain
- * `JSON.stringify` of the locked row and of the freshly parsed values can differ on key order
- * alone; sorting here compares the values, not how Postgres laid them out. An explicit `undefined`
- * becomes `null`, matching how an absent value returns from the row; a missing key stays missing.
- */
-function normalisedForComparison(value: unknown): ClarificationAmendmentValue {
-  if (Array.isArray(value)) return value.map(normalisedForComparison);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-        .map(([key, entry]): [string, ClarificationAmendmentValue] => [
-          key,
-          normalisedForComparison(entry),
-        ])
-    );
-  }
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return value;
-  }
-  return null;
-}
-
-function sameValue(left: unknown, right: unknown): boolean {
-  return (
-    JSON.stringify(normalisedForComparison(left)) === JSON.stringify(normalisedForComparison(right))
-  );
-}
-
-/**
- * PTR-19: what a reply actually changed, measured against the locked row. A field the question
- * permits but the reply leaves identical produces no entry, so a client that re-sends every
- * permitted value cannot pad the history. `attendeeRegistration` is one entry covering its four
- * columns.
- */
-function clarificationAmendments(
-  request: typeof eventRequests.$inferSelect,
-  values: EventRequestDraftValues,
-  permittedFields: readonly ClarificationField[]
-): ClarificationAmendment[] {
-  const amendments: ClarificationAmendment[] = [];
-  const seen = new Set<ClarificationField>();
-
-  for (const field of permittedFields) {
-    if (seen.has(field)) continue;
-    seen.add(field);
-
-    if (field === "attendeeRegistration") {
-      const from = {
-        registrationEnabled: request.registrationEnabled,
-        registrationCapacity: request.registrationCapacity,
-        registrationOpensAt: request.registrationOpensAt,
-        registrationClosesAt: request.registrationClosesAt,
-      };
-      const to = {
-        registrationEnabled: values.registrationEnabled,
-        registrationCapacity: values.registrationCapacity,
-        registrationOpensAt: values.registrationOpensAt,
-        registrationClosesAt: values.registrationClosesAt,
-      };
-      if (!sameValue(from, to)) {
-        amendments.push({
-          field,
-          from: normalisedForComparison(from),
-          to: normalisedForComparison(to),
-        });
-      }
-      continue;
-    }
-    // A permitted field this build no longer knows about maps to no column, so it cannot differ.
-    if (!clarificationAmendmentKeys(field).includes(field)) continue;
-    const from = request[field];
-    const to = values[field];
-    if (!sameValue(from, to)) {
-      amendments.push({
-        field,
-        from: normalisedForComparison(from),
-        to: normalisedForComparison(to),
-      });
-    }
-  }
-
-  return amendments;
-}
 
 export async function handleReplyToClarification(
   data: unknown,
@@ -153,17 +59,8 @@ export async function handleReplyToClarification(
         "Only the fields selected for this clarification can be amended."
       );
     }
-    const merged = { ...request, ...input.amendments };
-    const { id: _id, ...values } = parseDraftInput({
-      ...merged,
-      expectedAttendance: merged.expectedAttendance ?? undefined,
-      registrationCapacity: merged.registrationCapacity ?? undefined,
-      registrationOpensAt: merged.registrationOpensAt ?? undefined,
-      registrationClosesAt: merged.registrationClosesAt ?? undefined,
-    });
-    const missing = missingRequiredFields(values);
-    if (missing.length) throw new Error(missingFieldsMessage(missing));
-    const amendments = clarificationAmendments(request, values, question.permittedFields);
+    const values = amendedValues(request, input.amendments);
+    const amendments = amendmentsBetween(request, values, question.permittedFields);
     const coordinator = (
       await tx
         .select({ id: user.id })

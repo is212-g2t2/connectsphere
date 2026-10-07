@@ -16,6 +16,11 @@ export function getRouter() {
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
+    // PTR-22 AC3: a revisit waits for its loaders, so a page never renders a cached value that a
+    // later change replaced. The default (`background`) shows the cached copy first. The cost: a
+    // revisit is no longer instant, and with `defaultPreloadStaleTime: 0` a finished hover
+    // preload is fetched again on the click. A preload still in flight is reused.
+    defaultStaleReloadMode: "blocking",
   });
 
   // Initialize Sentry on the client only (not during SSR)

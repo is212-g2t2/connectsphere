@@ -590,6 +590,30 @@ describe("EventRequestForm", () => {
     );
   });
 
+  it("reports only the touched field after a re-render hands the form a new copy of its record", async () => {
+    const user = userEvent.setup();
+    const onSave = makeOnSave();
+    const draftForm = (values: EventRequestDraftValues) => (
+      <EventRequestForm initialValues={values} onSave={onSave} />
+    );
+    const { rerender } = render(draftForm(initialValues));
+
+    fill("Room-layout preference (optional)", "Boardroom");
+    rerender(
+      draftForm({
+        ...initialValues,
+        eventName: "Renamed elsewhere",
+        proposedDates: initialValues.proposedDates.map(window => ({ ...window })),
+        equipmentRequirements: initialValues.equipmentRequirements.map(line => ({ ...line })),
+      })
+    );
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    // The defaults are fixed for the mount, so neither the new copy nor its rows count as changes.
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][1].changedFields).toEqual(["roomLayoutPreference"]);
+  });
+
   it("starts a freshly mounted reply form from the snapshot it is given", () => {
     render(
       <EventRequestForm
@@ -605,5 +629,28 @@ describe("EventRequestForm", () => {
       initialValues.roomLayoutPreference
     );
     expect(inputValue("Your reply (required)")).toBe("");
+  });
+
+  it("reports through onDirtyChange once a field differs from its mount default", async () => {
+    const onDirtyChange = vi.fn<(dirty: boolean) => void>();
+    render(
+      <EventRequestForm
+        initialValues={initialValues}
+        onSave={makeOnSave()}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+
+    fill("Event name (required)", "Renamed workshop");
+
+    await waitFor(() => {
+      expect(onDirtyChange).toHaveBeenCalledWith(true);
+    });
+
+    fill("Event name (required)", initialValues.eventName);
+
+    await waitFor(() => {
+      expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    });
   });
 });
