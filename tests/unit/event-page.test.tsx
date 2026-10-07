@@ -202,7 +202,10 @@ describe("EventPage (PTR-44)", () => {
       <EventPage
         event={{
           ...projection,
-          event: { ...projection.event, places: { registered: 36, limit: 40 } },
+          event: {
+            ...projection.event,
+            places: { registered: 36, limit: 40, vip: 0, capacity: 40 },
+          },
         }}
       />
     );

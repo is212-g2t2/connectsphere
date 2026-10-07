@@ -28,6 +28,7 @@ const EXPECTED: Record<
     equipmentReserve: boolean;
     equipmentRelease: boolean;
     vipManage: boolean;
+    eventRegistrationRead: boolean;
   }
 > = {
   attendee: {
@@ -44,6 +45,7 @@ const EXPECTED: Record<
     equipmentReserve: false,
     equipmentRelease: false,
     vipManage: false,
+    eventRegistrationRead: false,
   },
   event_organiser: {
     eventRegister: false,
@@ -59,6 +61,7 @@ const EXPECTED: Record<
     equipmentReserve: false,
     equipmentRelease: false,
     vipManage: true,
+    eventRegistrationRead: true,
   },
   event_coordinator: {
     eventRegister: false,
@@ -74,6 +77,7 @@ const EXPECTED: Record<
     equipmentReserve: false,
     equipmentRelease: false,
     vipManage: true,
+    eventRegistrationRead: true,
   },
   venue_staff: {
     eventRegister: false,
@@ -89,6 +93,7 @@ const EXPECTED: Record<
     equipmentReserve: false,
     equipmentRelease: false,
     vipManage: false,
+    eventRegistrationRead: false,
   },
   technical_support_staff: {
     eventRegister: false,
@@ -104,6 +109,7 @@ const EXPECTED: Record<
     equipmentReserve: true,
     equipmentRelease: true,
     vipManage: false,
+    eventRegistrationRead: false,
   },
 };
 
@@ -122,6 +128,7 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PT
     expect(can(role, { equipment: ["reserve"] })).toBe(EXPECTED[role].equipmentReserve);
     expect(can(role, { equipment: ["release"] })).toBe(EXPECTED[role].equipmentRelease);
     expect(can(role, { vip_registration: ["manage"] })).toBe(EXPECTED[role].vipManage);
+    expect(can(role, { event_registration: ["read"] })).toBe(EXPECTED[role].eventRegistrationRead);
   });
 
   describe("fails closed", () => {

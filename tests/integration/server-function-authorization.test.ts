@@ -52,6 +52,7 @@ import {
   completeEvent,
   confirmEvent,
   listEvents,
+  listEventRegistrations,
   registerForEvent,
   removeVipRegistration,
   searchVipAttendees,
@@ -803,6 +804,30 @@ describe("server-function authorization (PTR-69)", () => {
       // The relationship scoping is data rather than a role permission, so no 403 is owed here;
       // `tests/integration/event-access.test.ts` runs the handler that decides per row.
       expect((await call(listEvents, {}, "GET")).error).toBeUndefined();
+    });
+  });
+
+  describe("event registrations (PTR-48)", () => {
+    it("answers 401 to an unauthenticated call, before validating", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(
+        await refusalFrom(listEventRegistrations, { data: { id: "not-a-number" } }, "GET")
+      ).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("refuses a role without event_registration:read before validating", async () => {
+      signIn("attendee");
+
+      expect(
+        await refusalFrom(listEventRegistrations, { data: { id: "not-a-number" } }, "GET")
+      ).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
     });
   });
 

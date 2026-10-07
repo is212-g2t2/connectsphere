@@ -179,7 +179,9 @@ export interface EventVenue {
  */
 export interface EventPlaces {
   registered: number;
+  vip: number;
   limit: number;
+  capacity: number;
 }
 
 /**
@@ -408,6 +410,7 @@ export function projectEvent(
           layout: record.roomLayoutPreference,
           accessibilityRequirements: record.accessibilityRequirements,
           requiredFacilities: record.venueRequirements,
+          places,
           // PTR-39 AC4: the Coordinator sees Technical Support's notes and reasons, the Organiser
           // sees the state alone.
           equipment: equipment.map(line => ({
