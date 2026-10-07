@@ -168,6 +168,58 @@ describe("updating event information on the coordination page (PTR-22)", () => {
     await waitFor(() => expect(screen.queryByLabelText("Purpose (required)")).toBeNull());
   });
 
+  it("holds the toggle until the save finishes, so a reopened form is not closed by it", async () => {
+    updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
+    const reload = Promise.withResolvers<void>();
+    invalidate.mockReturnValue(reload.promise);
+    const user = await openForm();
+
+    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled).toBe(
+      true
+    );
+    reload.resolve();
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Edit event information" }).disabled
+      ).toBe(false)
+    );
+  });
+
+  it("sends only the touched field after the page re-reads underneath the open form", async () => {
+    updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
+    const user = userEvent.setup();
+    const { rerender } = renderPage({
+      equipmentRequirements: [{ type: "Projector", quantity: 1 }],
+    });
+    await user.click(screen.getByRole("button", { name: "Edit event information" }));
+
+    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    // Another panel's action re-reads the page: a new copy of the record, a new name from a
+    // second tab, and the same dates and equipment.
+    rerender(
+      <CoordinationRequestPage
+        request={{
+          ...approved,
+          eventName: "Annual Gala Dinner",
+          proposedDates: [{ start: "2030-12-01T18:00", end: "2030-12-01T22:00" }],
+          equipmentRequirements: [{ type: "Projector", quantity: 1 }],
+        }}
+        coordinators={coordinators}
+        user={actor}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(updateEventInformation).toHaveBeenCalled());
+    expect(updateEventInformation).toHaveBeenCalledWith({
+      data: { id: 7, amendments: { purpose: "Fundraiser dinner" } },
+    });
+  });
+
   it("says the change was saved when only the re-read fails", async () => {
     updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
     invalidate.mockRejectedValue(new Error("offline"));

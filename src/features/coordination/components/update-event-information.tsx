@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
@@ -23,6 +24,8 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
   const formId = useId();
   const toggle = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(false);
+  // The toggle waits for a save, so a reopened form is never closed by the earlier save.
+  const [saving, setSaving] = useState(false);
 
   return (
     <section className="mt-8" aria-labelledby="update-information-heading">
@@ -42,6 +45,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
               type="button"
               size="sm"
               variant={editing ? "outline" : "default"}
+              disabled={saving}
               aria-expanded={editing}
               aria-controls={editing ? formId : undefined}
               onClick={() => setEditing(open => !open)}
@@ -57,19 +61,31 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
                 requireComplete
                 idPrefix={formId}
                 onSave={async (values, { changedFields }) => {
-                  const { changedFields: saved } = await updateEventInformation({
-                    data: {
-                      id: request.id,
-                      amendments: pickAmendments(values, EVENT_INFORMATION_FIELDS, changedFields),
-                    },
-                  });
+                  setSaving(true);
+                  let saved: readonly string[];
+                  try {
+                    ({ changedFields: saved } = await updateEventInformation({
+                      data: {
+                        id: request.id,
+                        amendments: pickAmendments(values, EVENT_INFORMATION_FIELDS, changedFields),
+                      },
+                    }));
+                  } catch (error) {
+                    setSaving(false);
+                    throw error;
+                  }
                   try {
                     await router.invalidate();
                   } catch {
                     // The update committed; only the re-read failed.
                     toast.warning("The change was saved. Refresh this page to see it.");
                   }
-                  setEditing(false);
+                  // One commit re-enables the toggle and closes the form, so the toggle can take
+                  // focus at once.
+                  flushSync(() => {
+                    setSaving(false);
+                    setEditing(false);
+                  });
                   toggle.current?.focus();
                   if (saved.length === 0) toast.info("No changes to save.");
                   else toast.success("Event information saved.");

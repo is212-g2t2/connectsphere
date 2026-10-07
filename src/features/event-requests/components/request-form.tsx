@@ -1,4 +1,4 @@
-import { Fragment, useRef } from "react";
+import { Fragment, useRef, useState } from "react";
 import { standardSchemaValidators, useForm } from "@tanstack/react-form";
 
 import { Button } from "#/components/ui/button";
@@ -280,8 +280,12 @@ export function EventRequestForm({
   const editable = (field: string) => !editableFields || editableFields.includes(field);
   const inputId = (name: string) => (idPrefix ? `${idPrefix}-${name}` : name);
 
+  // Fixed for the mount: `isDefaultValue` compares against these, and rebuilding them on a parent
+  // re-render (new row keys, a re-read record) would mark untouched fields as changed. A caller
+  // that wants new values remounts the form with a new `key`.
+  const [defaultValues] = useState(() => toDefaultFormValues(initialValues));
   const form = useForm({
-    defaultValues: toDefaultFormValues(initialValues),
+    defaultValues,
     validators: {
       onSubmit: ({ value }: { value: EventRequestFormValues }) =>
         draftValidator({ value, editable, requireComplete: replyMode || requireComplete }),
