@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { standardSchemaValidators, useForm } from "@tanstack/react-form";
 
 import { Button } from "#/components/ui/button";
@@ -148,6 +148,20 @@ function changedFieldNames(
   return [...names];
 }
 
+/** Tells the caller whether the form is dirty, from inside an effect so render stays pure. */
+function DirtyReporter({
+  dirty,
+  onDirtyChange,
+}: {
+  dirty: boolean;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+  return null;
+}
+
 /** The top-level field each label `missingRequiredFields` returns belongs to. */
 const MISSING_FIELD_KEYS: Partial<Record<string, string>> = {
   "Event name": "eventName",
@@ -245,6 +259,7 @@ export function EventRequestForm({
   replyBody,
   idPrefix,
   requireComplete = false,
+  onDirtyChange,
 }: {
   initialValues?: EventRequestDraftValues;
   onSave: (
@@ -269,6 +284,8 @@ export function EventRequestForm({
    * control rather than saved. Reply mode implies it.
    */
   requireComplete?: boolean;
+  /** Reports live whether any field differs from its mount default. Ignored when omitted. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   /**
    * Which control is submitting. A ref rather than state because the click and the submit are two
@@ -277,6 +294,7 @@ export function EventRequestForm({
    */
   const intent = useRef<"save" | "submit">("save");
   const replyMode = editableFields !== undefined;
+  const mustBeComplete = replyMode || requireComplete;
   const editable = (field: string) => !editableFields || editableFields.includes(field);
   const inputId = (name: string) => (idPrefix ? `${idPrefix}-${name}` : name);
 
@@ -288,7 +306,7 @@ export function EventRequestForm({
     defaultValues,
     validators: {
       onSubmit: ({ value }: { value: EventRequestFormValues }) =>
-        draftValidator({ value, editable, requireComplete: replyMode || requireComplete }),
+        draftValidator({ value, editable, requireComplete: mustBeComplete }),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -627,6 +645,12 @@ export function EventRequestForm({
     </form.Field>
   );
 
+  const dirtyReporter = onDirtyChange && (
+    <form.Subscribe selector={state => changedFieldNames(state.fieldMeta).length > 0}>
+      {dirty => <DirtyReporter dirty={dirty} onDirtyChange={onDirtyChange} />}
+    </form.Subscribe>
+  );
+
   const formError = (
     <form.Subscribe selector={state => state.errorMap.onSubmit}>
       {onSubmitError => {
@@ -675,6 +699,7 @@ export function EventRequestForm({
   if (replyMode) {
     return (
       <form noValidate onSubmit={submitForm}>
+        {dirtyReporter}
         {editableFields.length > 0 && (
           <p className="mb-6 body-sm text-muted-foreground">
             Only the fields selected by the Coordinator can be changed. Required values must remain
@@ -710,8 +735,9 @@ export function EventRequestForm({
 
   return (
     <form noValidate onSubmit={submitForm}>
+      {dirtyReporter}
       <p className="mb-6 body-sm text-muted-foreground">
-        {requireComplete
+        {mustBeComplete
           ? "Fields marked required must stay complete."
           : "Fields marked required must be completed. Anything left blank is saved with the draft, so you can finish it later."}
       </p>

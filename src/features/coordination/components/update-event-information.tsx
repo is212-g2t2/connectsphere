@@ -4,6 +4,16 @@ import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "#/components/ui/alert-dialog";
 import { Card, CardContent } from "#/components/ui/card";
 import { pickAmendments } from "#/features/event-requests/amendments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
@@ -28,35 +38,55 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
   const [editing, setEditing] = useState(false);
   // The toggle waits for a save, so a reopened form is never closed by the earlier save.
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  function discardEdits() {
+    // Close both at once so focus can move straight to the toggle.
+    flushSync(() => {
+      setConfirmOpen(false);
+      setEditing(false);
+      setDirty(false);
+    });
+    toggle.current?.focus();
+  }
 
   async function save(
     values: EventRequestDraftValues,
-    { changedFields }: EventRequestFormSubmitContext
+    { changedFields: touchedFields }: EventRequestFormSubmitContext
   ) {
     setSaving(true);
     try {
       const result = await updateEventInformation({
         data: {
           id: request.id,
-          amendments: pickAmendments(values, EVENT_INFORMATION_FIELDS, changedFields),
+          amendments: pickAmendments(values, EVENT_INFORMATION_FIELDS, touchedFields),
         },
       });
-      try {
-        await router.invalidate();
-      } catch {
-        // The update committed; only the re-read failed.
-        toast.warning("The change was saved. Refresh this page to see it.");
+      let reloadFailed = false;
+      if (result.changedFields.length > 0) {
+        try {
+          await router.invalidate();
+        } catch {
+          // The update committed; only the re-read failed.
+          reloadFailed = true;
+          toast.warning("The change was saved. Refresh this page to see it.");
+        }
       }
       // One commit re-enables the toggle and closes the form, so the toggle can take focus at once.
       flushSync(() => {
         setSaving(false);
         setEditing(false);
+        setDirty(false);
       });
       toggle.current?.focus();
       if (result.changedFields.length === 0) toast.info("No changes to save.");
-      else toast.success("Event information saved.");
+      else if (!reloadFailed) toast.success("Event information saved.");
     } catch (error) {
-      // The form shows the refusal; the toggle is usable again.
+      // The toast outlives the panel when the re-read unmounts it; the form keeps its own
+      // message when it survives. The toggle waits for the re-read so a reopen never sits stale.
+      if (error instanceof Error && error.message) toast.error(error.message);
+      await router.invalidate().catch(() => {});
       setSaving(false);
       throw error;
     }
@@ -83,7 +113,10 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
               disabled={saving}
               aria-expanded={editing}
               aria-controls={editing ? formId : undefined}
-              onClick={() => setEditing(open => !open)}
+              onClick={() => {
+                if (editing && dirty) setConfirmOpen(true);
+                else setEditing(open => !open);
+              }}
             >
               {editing ? "Cancel editing" : "Edit event information"}
             </Button>
@@ -96,9 +129,24 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
                 requireComplete
                 idPrefix={formId}
                 onSave={save}
+                onDirtyChange={setDirty}
               />
             </div>
           )}
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogContent size="sm" finalFocus={toggle}>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+                <AlertDialogDescription>Your unsaved edits will be lost.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel size="sm">Keep editing</AlertDialogCancel>
+                <AlertDialogAction size="sm" variant="destructive" onClick={discardEdits}>
+                  Discard changes
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </CardContent>
       </Card>
     </section>

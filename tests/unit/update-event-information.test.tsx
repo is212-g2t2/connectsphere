@@ -6,7 +6,7 @@ import { CoordinationRequestPage } from "#/features/coordination/components/coor
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 
-const { updateEventInformation, invalidate, success, info, warning } = vi.hoisted(() => ({
+const { updateEventInformation, invalidate, success, info, warning, error } = vi.hoisted(() => ({
   updateEventInformation:
     vi.fn<
       (input: { data: Record<string, unknown> }) => Promise<{ changedFields: readonly string[] }>
@@ -15,6 +15,7 @@ const { updateEventInformation, invalidate, success, info, warning } = vi.hoiste
   success: vi.fn<(message: string) => void>(),
   info: vi.fn<(message: string) => void>(),
   warning: vi.fn<(message: string) => void>(),
+  error: vi.fn<(message: string) => void>(),
 }));
 
 vi.mock("#/features/events/server-fns", () => ({ updateEventInformation }));
@@ -26,7 +27,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn<() => void>(),
   useRouter: () => ({ navigate: vi.fn<() => void>(), invalidate }),
 }));
-vi.mock("sonner", () => ({ toast: { success, info, warning } }));
+vi.mock("sonner", () => ({ toast: { success, info, warning, error } }));
 
 const actor = { id: "coord-a", email: "a@example.com", name: "Alex", role: "event_coordinator" };
 const coordinators = [{ id: "coord-a", name: "Alex", email: "a@example.com" }];
@@ -217,6 +218,7 @@ describe("updating event information on the coordination page (PTR-22)", () => {
     await waitFor(() =>
       expect(warning).toHaveBeenCalledWith("The change was saved. Refresh this page to see it.")
     );
+    expect(success).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("Purpose (required)")).toBeNull();
   });
 
@@ -228,6 +230,7 @@ describe("updating event information on the coordination page (PTR-22)", () => {
 
     await waitFor(() => expect(info).toHaveBeenCalledWith("No changes to save."));
     expect(updateEventInformation).toHaveBeenCalledWith({ data: { id: 7, amendments: {} } });
+    expect(invalidate).not.toHaveBeenCalled();
     expect(success).not.toHaveBeenCalled();
   });
 
@@ -235,9 +238,25 @@ describe("updating event information on the coordination page (PTR-22)", () => {
     updateEventInformation.mockRejectedValue(
       new Error("This event's information cannot be updated while its status is completed.")
     );
+    const reload = Promise.withResolvers<void>();
+    invalidate.mockReturnValue(reload.promise);
     const user = await openForm();
 
     await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    // The toast lands at once; the inline message waits for the re-read the toggle is waiting on.
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith(
+        "This event's information cannot be updated while its status is completed."
+      )
+    );
+    expect(invalidate).toHaveBeenCalled();
+    // A reopened form would sit on stale props, so the toggle waits for the re-read.
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled).toBe(
+      true
+    );
+
+    reload.resolve();
 
     expect(
       await screen.findByText(
@@ -246,7 +265,11 @@ describe("updating event information on the coordination page (PTR-22)", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeTruthy();
     expect(success).not.toHaveBeenCalled();
-    expect(invalidate).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled
+      ).toBe(false)
+    );
   });
 
   it("refuses a cleared required field at its control without calling the server", async () => {
@@ -266,5 +289,29 @@ describe("updating event information on the coordination page (PTR-22)", () => {
 
     expect(screen.queryByLabelText("Event name (required)")).toBeNull();
     expect(updateEventInformation).not.toHaveBeenCalled();
+  });
+
+  it("confirms before discarding edits on cancel", async () => {
+    const user = await openForm();
+
+    await user.type(screen.getByLabelText("Event name (required)"), " Dinner");
+    await user.click(screen.getByRole("button", { name: "Cancel editing" }));
+
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Discard unsaved changes?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    const name = screen.getByLabelText<HTMLInputElement>("Event name (required)");
+    expect(name).toBeTruthy();
+    expect(name.value).toBe("Annual Gala Dinner");
+    await user.click(screen.getByRole("button", { name: "Cancel editing" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    await waitFor(() => expect(screen.queryByLabelText("Event name (required)")).toBeNull());
+    expect(updateEventInformation).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Edit event information" })
+    );
   });
 });

@@ -45,4 +45,17 @@ describe("event request amendments", () => {
       { field: "eventName", from: "Planning forum", to: "Regional forum" },
     ]);
   });
+
+  it("refuses a cleared required field with a 409, not a 500", () => {
+    let error: unknown;
+    try {
+      amendedValues(row, { expectedAttendance: null });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toMatchObject({
+      status: 409,
+      message: "This request is missing: Expected attendance",
+    });
+  });
 });

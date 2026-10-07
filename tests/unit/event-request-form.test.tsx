@@ -630,4 +630,27 @@ describe("EventRequestForm", () => {
     );
     expect(inputValue("Your reply (required)")).toBe("");
   });
+
+  it("reports through onDirtyChange once a field differs from its mount default", async () => {
+    const onDirtyChange = vi.fn<(dirty: boolean) => void>();
+    render(
+      <EventRequestForm
+        initialValues={initialValues}
+        onSave={makeOnSave()}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+
+    fill("Event name (required)", "Renamed workshop");
+
+    await waitFor(() => {
+      expect(onDirtyChange).toHaveBeenCalledWith(true);
+    });
+
+    fill("Event name (required)", initialValues.eventName);
+
+    await waitFor(() => {
+      expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    });
+  });
 });

@@ -173,6 +173,8 @@ describe("updating event information (PTR-22)", () => {
       expect(row).toMatchObject({ changedById: coordinator.id, changedByName: coordinator.name });
       expect(row.changedAt).toBeInstanceOf(Date);
     }
+    // One save stamps every row with the same apply time.
+    expect(new Set(log.map(row => row.changedAt.getTime())).size).toBe(1);
   });
 
   it.each(["planning", "confirmed"] as const)("saves an update of a %s event", async status => {
@@ -282,9 +284,10 @@ describe("updating event information (PTR-22)", () => {
   it("refuses an update that clears a field the event needs", async () => {
     const event = await eventAt("approved");
 
-    await expect(update(event.id, { expectedAttendance: null })).rejects.toThrow(
-      "This request is missing: Expected attendance"
-    );
+    await expect(update(event.id, { expectedAttendance: null })).rejects.toMatchObject({
+      status: 409,
+      message: "This request is missing: Expected attendance",
+    });
     expect((await storedEvent(event.id)).expectedAttendance).toBe(recorded.expectedAttendance);
     expect(await changeLog(event.id)).toEqual([]);
   });

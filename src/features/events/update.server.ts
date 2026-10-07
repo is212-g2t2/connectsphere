@@ -13,11 +13,9 @@ import {
 } from "#/features/event-requests/schema";
 import type { ClarificationField } from "#/features/event-requests/schema";
 
-/**
- * Server-only on purpose, and named for it: `#/db/schema` is a value import here, so this is
- * reached through a dynamic `import()` inside `.handler()` in `server-fns.ts`. The middleware
- * pipeline has already verified the session and `event_request:coordinate`.
- */
+// Server-only on purpose, and named for it: `#/db/schema` is a value import here, so this is
+// reached through a dynamic `import()` inside `.handler()` in `server-fns.ts`. The middleware
+// pipeline has already verified the session and `event_request:coordinate`.
 
 type Database = typeof Db;
 
@@ -66,6 +64,7 @@ export async function handleUpdateEventInformation(
       })
       .where(eq(eventRequests.id, request.id));
 
+    const appliedAt = new Date();
     await tx.insert(eventInformationChanges).values(
       changes.map(({ field, from, to }) => ({
         eventRequestId: request.id,
@@ -73,6 +72,9 @@ export async function handleUpdateEventInformation(
         amendment: { from, to },
         changedById: actor.id,
         changedByName: actor.name?.trim() || actor.email,
+        // `now()` defaults to the transaction timestamp, which predates a wait on the row lock,
+        // so overlapping saves could be logged out of order.
+        changedAt: appliedAt,
       }))
     );
 

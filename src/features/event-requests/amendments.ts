@@ -1,4 +1,5 @@
 import type { eventRequests } from "#/db/schema";
+import { ConflictError } from "#/features/auth/session";
 import {
   clarificationAmendmentKeys,
   missingFieldsMessage,
@@ -148,6 +149,7 @@ export function amendedValues(
     registrationClosesAt: merged.registrationClosesAt ?? undefined,
   });
   const missing = missingRequiredFields(values);
-  if (missing.length > 0) throw new Error(missingFieldsMessage(missing));
+  // A status-carrying refusal, so `withSession` answers 409 instead of a 500.
+  if (missing.length > 0) throw new ConflictError(missingFieldsMessage(missing));
   return values;
 }
