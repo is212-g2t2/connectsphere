@@ -1,14 +1,18 @@
 import { eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventInformationChanges, eventRequests } from "#/db/schema";
+import { eventChangeRequests, eventInformationChanges, eventRequests } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { amendedValues, amendmentsBetween } from "#/features/event-requests/amendments";
+import { lockWaitingChangeRequest } from "#/features/event-requests/change-requests.server";
 import {
+  CHANGE_REQUEST_APPLY_NO_CHANGE_MESSAGE,
+  EVENT_CHANGE_REQUEST_CLOSED,
   EVENT_INFORMATION_FIELDS,
   EVENT_REQUEST_STATUS_LABELS,
   SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE,
+  canApplyEventChangeRequest,
   canUpdateEventInformation,
   parseEventInformationInput,
   significantFields,
@@ -41,6 +45,11 @@ export interface EventInformationUpdated {
  * PTR-23: a significant change (AC1) is refused until the Coordinator acknowledges the warning
  * that names what the event holds (AC2), and once saved it tells the staff holding a booking or a
  * reservation (AC5). The arrangements themselves are not touched (AC3).
+ *
+ * PTR-52: a save that carries `changeRequestId` applies the Organiser's waiting change request. It
+ * is open in every status the request could be raised in, it must change something, and the
+ * request is marked applied and the Organiser told in the same transaction (AC2, AC5). Nothing
+ * else moves (AC4).
  */
 export async function handleUpdateEventInformation(
   data: unknown,
@@ -50,24 +59,16 @@ export async function handleUpdateEventInformation(
   const input = parseEventInformationInput(data);
 
   return database.transaction(async tx => {
-    const request = (
-      await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
-    ).at(0);
-
-    // A missing event and someone else's event are refused the same way, so the refusal does not
-    // say whether the id exists. A draft has no Coordinator, so it is refused here too.
-    if (!request || request.assignedCoordinatorId !== actor.id) {
-      throw new AuthorizationError("Forbidden");
-    }
-    if (!canUpdateEventInformation(request.status)) {
-      throw new ConflictError(
-        `This event's information cannot be updated while its status is ${EVENT_REQUEST_STATUS_LABELS[request.status].toLowerCase()}.`
-      );
-    }
+    const { request, changeRequest } = await lockForUpdate(tx, input, actor);
 
     const values = amendedValues(request, input.amendments);
     const changes = amendmentsBetween(request, values, EVENT_INFORMATION_FIELDS);
-    if (changes.length === 0) return { changedFields: [], notified: 0 };
+    if (changes.length === 0) {
+      // "Applied" means the record changed; a request the record already satisfies is declined
+      // with that as the reason instead.
+      if (changeRequest) throw new ConflictError(CHANGE_REQUEST_APPLY_NO_CHANGE_MESSAGE);
+      return { changedFields: [], notified: 0 };
+    }
 
     // Decided on what actually changed, not on what the form touched: a field typed over and
     // restored is no change. The refusal rolls the locked row back untouched.
@@ -114,10 +115,74 @@ export async function handleUpdateEventInformation(
             actorName || "The Coordinator"
           )
         : [];
+    if (changeRequest) {
+      await tx
+        .update(eventChangeRequests)
+        .set({
+          outcome: "applied",
+          processedById: actor.id,
+          processedByName: actorName,
+          processedAt: appliedAt,
+        })
+        .where(eq(eventChangeRequests.id, changeRequest.id));
+      notices.push({
+        recipientId: request.organiserId,
+        eventRequestId: request.id,
+        kind: "event_change_processed",
+        payload: {
+          outcome: "applied",
+          eventName: values.eventName.trim() || "Untitled request",
+          whatShouldChange: changeRequest.whatShouldChange,
+        },
+      });
+    }
     await raiseNotifications(tx, notices);
 
-    return { changedFields: changes.map(change => change.field), notified: notices.length };
+    return {
+      changedFields: changes.map(change => change.field),
+      // The Organiser's notice is not a holder's (PTR-23 AC5), so the toast's count leaves it out.
+      notified: notices.length - (changeRequest ? 1 : 0),
+    };
   });
+}
+
+/**
+ * The event row, locked, and the waiting change request this save applies, if any. A direct edit
+ * (PTR-22) is refused outside approved, planning and confirmed; an apply (PTR-52) is open wherever
+ * the request could be raised, and refuses a closed event with the request's own message. A missing
+ * event and someone else's event are refused the same way, so the refusal does not say whether the
+ * id exists. A draft has no Coordinator, so it is refused here too.
+ */
+async function lockForUpdate(
+  tx: Tx,
+  input: ReturnType<typeof parseEventInformationInput>,
+  actor: SessionUser
+) {
+  if (input.changeRequestId !== undefined) {
+    const { event, changeRequest } = await lockWaitingChangeRequest(
+      tx,
+      input.id,
+      input.changeRequestId,
+      actor
+    );
+    if (!canApplyEventChangeRequest(event.status)) {
+      throw new ConflictError(EVENT_CHANGE_REQUEST_CLOSED);
+    }
+    return { request: event, changeRequest };
+  }
+
+  const request = (
+    await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
+  ).at(0);
+  if (!request || request.assignedCoordinatorId !== actor.id) {
+    throw new AuthorizationError("Forbidden");
+  }
+  if (!canUpdateEventInformation(request.status)) {
+    throw new ConflictError(
+      `This event's information cannot be updated while its status is ${EVENT_REQUEST_STATUS_LABELS[request.status].toLowerCase()}.`
+    );
+  }
+  return { request, changeRequest: null };
 }
 
 /**

@@ -56,6 +56,7 @@ import {
   completeEvent,
   confirmEvent,
   declineEventCancellation,
+  declineEventChangeRequest,
   listEvents,
   listEventArrangements,
   listEventRegistrations,
@@ -810,6 +811,56 @@ describe("server-function authorization (PTR-69)", () => {
     expect(await messageFrom(declineEventCancellation, { id: 1, reason: " " })).toBe(
       "Enter a reason for declining"
     );
+  });
+
+  // PTR-52: only an Event Coordinator declines a change request; the handler checks the assignment
+  // and the request. Applying one runs through `updateEventInformation` above.
+  describe("PTR-52 decline event change request", () => {
+    const declineInput = { id: 1, changeRequestId: 3, reason: "The hall holds 80 at most." };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(declineEventChangeRequest, declineInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Event Coordinator", async () => {
+      signIn("event_coordinator");
+
+      expect((await call(declineEventChangeRequest, declineInput)).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(declineEventChangeRequest, declineInput)).toMatchObject({
+          status: 403,
+        });
+      }
+    );
+
+    it("refuses a decline without a request id or a reason before the handler (AC2)", async () => {
+      signIn("event_coordinator");
+
+      expect(await messageFrom(declineEventChangeRequest, { id: 1, reason: "Too late" })).toBe(
+        "Choose a change request"
+      );
+      expect(
+        await messageFrom(declineEventChangeRequest, { id: 1, changeRequestId: 3, reason: " " })
+      ).toBe("Enter a reason for declining");
+      expect(
+        await messageFrom(updateEventInformation, {
+          id: 1,
+          amendments: {},
+          changeRequestId: "3",
+        })
+      ).toBe("Choose a change request");
+    });
   });
 
   // PTR-45 AC1: no guest registration path, and no role but the Attendee registers.

@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "#/components/ui/alert-dialog";
 import { Card, CardContent } from "#/components/ui/card";
+import type { ApplyingChangeRequest } from "#/features/coordination/components/change-request-decisions";
 import { pickAmendments } from "#/features/event-requests/amendments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import type { EventRequestFormSubmitContext } from "#/features/event-requests/components/request-form";
@@ -48,12 +49,34 @@ interface SignificantChangeWarning {
  * PTR-23: a change to a significant field (AC1) first reads what the event holds and shows the
  * warning (AC2, AC3); the save goes ahead only once the Coordinator confirms it. An ordinary edit
  * saves at once (AC4). The server refuses a significant change sent without the confirmation.
+ *
+ * PTR-52: with `applying` set, the form is open on the Organiser's change request, pinned above
+ * it, and the save carries the request's id so the server marks it applied and tells the Organiser
+ * in the same transaction (AC2, AC5). The caller shows the form in that mode in every status the
+ * request could be raised in. `onApplyEnd` is called when the save lands or the form is closed.
  */
-export function UpdateEventInformation({ request }: { request: EventRequestDraft }) {
+export function UpdateEventInformation({
+  request,
+  applying = null,
+  onApplyEnd,
+}: {
+  request: EventRequestDraft;
+  applying?: ApplyingChangeRequest | null;
+  onApplyEnd?: () => void;
+}) {
   const router = useRouter();
   const formId = useId();
   const toggle = useRef<HTMLButtonElement>(null);
-  const [editing, setEditing] = useState(false);
+  const applyingHeading = useRef<HTMLHeadingElement>(null);
+  const [editingSelf, setEditingSelf] = useState(false);
+  // An apply opens the form from the decisions card, so the request's own state cannot close it;
+  // the form is open for either reason.
+  const editing = applying !== null || editingSelf;
+  const applyingId = applying?.id;
+  // The decisions card sits above; the reader lands on the pinned request, not where they were.
+  useEffect(() => {
+    if (applyingId !== undefined) applyingHeading.current?.focus();
+  }, [applyingId]);
   // The toggle waits for a save, so a reopened form is never closed by the earlier save.
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -66,12 +89,17 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
   // fades out. `warningOpen` says whether it shows.
   const [warningOpen, setWarningOpen] = useState(false);
 
+  function closeForm() {
+    setEditingSelf(false);
+    setDirty(false);
+    onApplyEnd?.();
+  }
+
   function discardEdits() {
     // Close both at once so focus can move straight to the toggle.
     flushSync(() => {
       setConfirmOpen(false);
-      setEditing(false);
-      setDirty(false);
+      closeForm();
     });
     toggle.current?.focus();
   }
@@ -113,6 +141,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
           id: request.id,
           amendments: pickAmendments(values, EVENT_INFORMATION_FIELDS, touchedFields),
           ...(significant.length > 0 ? { acknowledgeSignificant: true } : {}),
+          ...(applying ? { changeRequestId: applying.id } : {}),
         },
       });
       let reloadFailed = false;
@@ -128,16 +157,17 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
       // One commit re-enables the toggle and closes the form, so the toggle can take focus at once.
       flushSync(() => {
         setSaving(false);
-        setEditing(false);
-        setDirty(false);
+        closeForm();
       });
       toggle.current?.focus();
       if (result.changedFields.length === 0) toast.info("No changes to save.");
       else if (!reloadFailed) {
+        const staff =
+          result.notified > 0 ? " The staff holding its arrangements will be notified." : "";
         toast.success(
-          result.notified > 0
-            ? "Event information saved. The staff holding its arrangements will be notified."
-            : "Event information saved."
+          applying
+            ? `Change request applied. The Organiser will be notified.${staff}`
+            : `Event information saved.${staff}`
         );
       }
     } catch (error) {
@@ -175,7 +205,8 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
               aria-controls={editing ? formId : undefined}
               onClick={() => {
                 if (editing && dirty) setConfirmOpen(true);
-                else setEditing(open => !open);
+                else if (editing) closeForm();
+                else setEditingSelf(true);
               }}
             >
               {editing ? "Cancel editing" : "Edit event information"}
@@ -183,10 +214,36 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
           </div>
           {editing && (
             <div id={formId} className="mt-4 max-w-3xl">
+              {applying && (
+                <div className="mb-6 rounded-md border border-border bg-muted/40 p-4">
+                  <h3 ref={applyingHeading} tabIndex={-1} className="display-h3 outline-none">
+                    Applying the Organiser&apos;s change request
+                  </h3>
+                  <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <dt className="eyebrow text-muted-foreground">What should change</dt>
+                      <dd className="mt-2 body-md font-medium whitespace-pre-line">
+                        {applying.whatShouldChange}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="eyebrow text-muted-foreground">Requested new value</dt>
+                      <dd className="mt-2 body-md font-medium whitespace-pre-line">
+                        {applying.requestedValue}
+                      </dd>
+                    </div>
+                  </dl>
+                  <p className="mt-3 body-sm text-muted-foreground">
+                    Make the change in the form, then save. The request is marked applied with the
+                    save, and the Organiser is told.
+                  </p>
+                </div>
+              )}
               <EventRequestForm
+                key={applying ? `apply-${applying.id}` : "edit"}
                 initialValues={toDraftValues(request)}
-                saveLabel="Save changes"
-                busyLabel={saving ? "Saving…" : "Save changes"}
+                saveLabel={applying ? "Save and mark applied" : "Save changes"}
+                busyLabel={saving ? "Saving…" : applying ? "Save and mark applied" : "Save changes"}
                 requireComplete
                 idPrefix={formId}
                 onSave={save}

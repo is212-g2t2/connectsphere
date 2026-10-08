@@ -16,7 +16,10 @@ import {
   EventCancellationRequestedEmail,
   EventCancelledEmail,
 } from "#/features/emails/components/event-cancellation-email";
-import { EventChangeRequestEmail } from "#/features/emails/components/event-change-request-email";
+import {
+  EventChangeProcessedEmail,
+  EventChangeRequestEmail,
+} from "#/features/emails/components/event-change-request-email";
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { EventSignificantChangeEmail } from "#/features/emails/components/event-significant-change-email";
@@ -339,6 +342,14 @@ export function renderNotificationEmail(
         element: createElement(EventSignificantChangeEmail, {
           ...notification.payload,
           arrangementUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    case "event_change_processed":
+      return {
+        subject,
+        element: createElement(EventChangeProcessedEmail, {
+          ...notification.payload,
+          eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     default: {

@@ -37,6 +37,8 @@ export const NOTIFICATION_KINDS = [
   "registration_closed",
   /** PTR-23 AC5: a significant change was saved on an event holding the recipient's arrangement. */
   "event_significant_change",
+  /** PTR-52 AC5: the Coordinator applied or declined the Organiser's change request. */
+  "event_change_processed",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -246,6 +248,24 @@ const payloadSchemas = {
       actorName: z.string(),
     }),
   ]),
+  /**
+   * PTR-52 AC5: what became of the Organiser's change request. A decline always carries the
+   * Coordinator's reason; an applied request points the Organiser at the record, which now shows
+   * the new values.
+   */
+  event_change_processed: z.discriminatedUnion("outcome", [
+    z.object({
+      outcome: z.literal("applied"),
+      eventName: z.string(),
+      whatShouldChange: z.string(),
+    }),
+    z.object({
+      outcome: z.literal("declined"),
+      eventName: z.string(),
+      whatShouldChange: z.string(),
+      reason: z.string().min(1),
+    }),
+  ]),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -338,6 +358,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("event_significant_change"),
     payload: payloadSchemas.event_significant_change,
   }),
+  z.object({
+    kind: z.literal("event_change_processed"),
+    payload: payloadSchemas.event_change_processed,
+  }),
 ]);
 
 /**
@@ -417,6 +441,8 @@ export function notificationSummary(notification: NotificationPayload): string {
       return notification.payload.audience === "venue_staff"
         ? `Event details changed for the booking at ${notification.payload.venueName}`
         : `Event details changed: ${notification.payload.eventName}`;
+    case "event_change_processed":
+      return `Change request ${notification.payload.outcome}: ${notification.payload.eventName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -512,6 +538,8 @@ export function notificationHref(
       return notification.payload.audience === "venue_staff"
         ? "/venue-bookings"
         : `/events/${eventRequestId}`;
+    case "event_change_processed":
+      return `/events/${eventRequestId}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -563,6 +591,7 @@ export function notificationReachable(
     case "registration_opened":
     case "registration_closed":
     case "event_significant_change":
+    case "event_change_processed":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

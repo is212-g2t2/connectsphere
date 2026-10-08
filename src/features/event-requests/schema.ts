@@ -443,7 +443,9 @@ export const CHANGE_REQUEST_APPLY_NO_CHANGE_MESSAGE =
 /** PTR-52 AC2: the Coordinator must say why they decline a change request. */
 export const CHANGE_REQUEST_DECLINE_REASON_MAX = 2000;
 export const EventChangeRequestDeclineInput = EventRequestIdInput.extend({
-  changeRequestId: z.int32({ error: CHANGE_REQUEST_ID_MESSAGE }).positive(CHANGE_REQUEST_ID_MESSAGE),
+  changeRequestId: z
+    .int32({ error: CHANGE_REQUEST_ID_MESSAGE })
+    .positive(CHANGE_REQUEST_ID_MESSAGE),
   reason: z
     .string()
     .trim()

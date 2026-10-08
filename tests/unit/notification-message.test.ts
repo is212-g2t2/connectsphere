@@ -119,6 +119,7 @@ const validPayloads = {
     changedFields: ["proposedDates"],
     actorName: "Alex",
   },
+  event_change_processed: { outcome: "applied", eventName: "Gala", whatShouldChange: "Date" },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parses or fails the test with the kind named, so a bad fixture is not a silent null. */
@@ -309,6 +310,28 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     ).toBeNull();
   });
 
+  it("tells the Organiser the outcome of a change request, with the reason for a decline (PTR-52 AC5)", () => {
+    const applied = parse("event_change_processed", validPayloads.event_change_processed);
+    expect(notificationSummary(applied)).toBe("Change request applied: Gala");
+    expect(notificationHref({ ...applied, eventRequestId: 7 })).toBe("/events/7");
+
+    const declined = parse("event_change_processed", {
+      outcome: "declined",
+      eventName: "Gala",
+      whatShouldChange: "Date",
+      reason: "The venue is only free that day.",
+    });
+    expect(notificationSummary(declined)).toBe("Change request declined: Gala");
+    // A decline without its reason is malformed.
+    expect(
+      parseNotificationPayload("event_change_processed", {
+        outcome: "declined",
+        eventName: "Gala",
+        whatShouldChange: "Date",
+      })
+    ).toBeNull();
+  });
+
   it("names the booking to Venue Staff and the event to Technical Support for a significant change, and refuses an ordinary field (PTR-23 AC5)", () => {
     const venue = parse("event_significant_change", {
       audience: "venue_staff",
@@ -365,6 +388,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       event_cancellation_declined: "/events/7",
       registration_place_freed: "/events/7",
       event_significant_change: "/events/7",
+      event_change_processed: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {
