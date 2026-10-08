@@ -140,9 +140,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
       // message when it survives. The toggle waits for the re-read so a reopen never sits stale.
       if (error instanceof Error && error.message) toast.error(error.message);
       await router.invalidate().catch(() => {});
-      flushSync(() => setSaving(false));
-      // The warning closed over a disabled save button, so focus had nowhere to return to.
-      if (significant.length > 0) toggle.current?.focus();
+      setSaving(false);
       throw error;
     }
   }
@@ -159,7 +157,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
               <p className="mt-2 body-sm text-muted-foreground">
                 A saved change replaces the recorded value for everyone with access to this event. A
                 change to the dates and times, expected attendance, venue requirements or equipment
-                requirements is warned about before it is saved.
+                requirements needs your confirmation before it is saved.
               </p>
             </div>
             <Button
@@ -216,7 +214,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
  * PTR-23 AC2, AC3: the warning before a significant change is saved. It names every booking,
  * tentative hold and reservation the event holds, or says that it holds none, and that saving
  * changes, cancels and releases none of them. "Save anyway" settles the promise with true; the
- * dialog's own close (Go back, Escape, the backdrop) settles it with false. Base UI's close runs
+ * dialog's own close (Go back, Escape) settles it with false. Base UI's close runs
  * only for its own close paths, so the two never settle the same promise twice.
  */
 function SignificantChangeDialog({ warning }: { warning: SignificantChangeWarning | null }) {

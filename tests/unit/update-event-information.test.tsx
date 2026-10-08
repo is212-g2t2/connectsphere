@@ -490,6 +490,30 @@ describe("warning before a significant change (PTR-23)", () => {
     });
   });
 
+  it("keeps the form open and shows the refusal when the confirmed save is refused", async () => {
+    listEventArrangements.mockResolvedValue(nothingHeld);
+    updateEventInformation.mockRejectedValue(
+      new Error("This event's information cannot be updated while its status is completed.")
+    );
+    invalidate.mockResolvedValue(undefined);
+    const user = await editAttendance();
+
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
+
+    expect(
+      await screen.findByText(
+        "This event's information cannot be updated while its status is completed."
+      )
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeTruthy();
+    expect(success).not.toHaveBeenCalled();
+    // The closed warning returns focus to the save button it interrupted, as after "Go back".
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save changes" }))
+    );
+  });
+
   it("keeps the form open and shows the failure when the arrangements cannot be read", async () => {
     listEventArrangements.mockRejectedValue(new Error("Forbidden"));
     await editAttendance();
