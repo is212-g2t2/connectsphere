@@ -99,6 +99,16 @@ const validPayloads = {
     limit: 40,
     audience: "organiser",
   },
+  registration_opened: {
+    eventName: "Gala",
+    opensAt: "2026-10-12 14:00:00",
+    audience: "organiser",
+  },
+  registration_closed: {
+    eventName: "Gala",
+    closesAt: "2026-10-12 17:00:00",
+    audience: "organiser",
+  },
   event_cancellation_requested: { eventName: "Gala" },
   event_cancelled: { audience: "organiser", eventName: "Gala" },
   event_cancellation_declined: { eventName: "Gala", reason: "The deposit is paid." },
@@ -180,6 +190,12 @@ describe("notification summaries (PTR-55 AC2)", () => {
     expect(
       notificationSummary(parse("registration_place_freed", validPayloads.registration_place_freed))
     ).toBe("A place has been freed for Gala");
+    expect(
+      notificationSummary(parse("registration_opened", validPayloads.registration_opened))
+    ).toBe("Registration has opened for Gala");
+    expect(
+      notificationSummary(parse("registration_closed", validPayloads.registration_closed))
+    ).toBe("Registration has closed for Gala");
   });
 });
 
@@ -243,6 +259,18 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     });
     expect(notificationHref({ ...organiser, eventRequestId: 7 })).toBe("/event-requests/7");
     expect(notificationHref({ ...coordinator, eventRequestId: 7 })).toBe("/coordination/7");
+
+    const opened = { eventName: "Gala", opensAt: "2026-10-12 14:00:00" };
+    const orgOpened = parse("registration_opened", { ...opened, audience: "organiser" });
+    const coordOpened = parse("registration_opened", { ...opened, audience: "coordinator" });
+    expect(notificationHref({ ...orgOpened, eventRequestId: 7 })).toBe("/event-requests/7");
+    expect(notificationHref({ ...coordOpened, eventRequestId: 7 })).toBe("/coordination/7");
+
+    const closed = { eventName: "Gala", closesAt: "2026-10-12 17:00:00" };
+    const orgClosed = parse("registration_closed", { ...closed, audience: "organiser" });
+    const coordClosed = parse("registration_closed", { ...closed, audience: "coordinator" });
+    expect(notificationHref({ ...orgClosed, eventRequestId: 7 })).toBe("/event-requests/7");
+    expect(notificationHref({ ...coordClosed, eventRequestId: 7 })).toBe("/coordination/7");
   });
 
   it("sends the freed place notice to the page each recipient reads (PTR-47 AC4)", () => {
@@ -297,6 +325,8 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       equipment_requested: "/equipment-requests/7",
       event_registered: "/events/7",
       registration_threshold_reached: "/event-requests/7",
+      registration_opened: "/event-requests/7",
+      registration_closed: "/event-requests/7",
       event_cancellation_requested: "/coordination/7",
       event_cancelled: "/event-requests/7",
       event_cancellation_declined: "/event-requests/7",

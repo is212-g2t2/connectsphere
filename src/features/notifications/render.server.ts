@@ -23,6 +23,7 @@ import {
   EventRegisteredEmail,
   RegistrationPlaceFreedEmail,
   RegistrationThresholdEmail,
+  RegistrationWindowEmail,
 } from "#/features/emails/components/event-registration-email";
 import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
 import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
@@ -278,6 +279,19 @@ export function renderNotificationEmail(
           registered,
           limit,
           eventUrl: `${base}/${path}/${eventRequestId}`,
+        }),
+      };
+    }
+    case "registration_opened":
+    case "registration_closed": {
+      const isOpened = notification.kind === "registration_opened";
+      return {
+        subject,
+        element: createElement(RegistrationWindowEmail, {
+          eventName: notification.payload.eventName,
+          boundary: isOpened ? "opened" : "closed",
+          time: isOpened ? notification.payload.opensAt : notification.payload.closesAt,
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     }
