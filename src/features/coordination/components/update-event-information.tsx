@@ -19,21 +19,23 @@ import { pickAmendments } from "#/features/event-requests/amendments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import type { EventRequestFormSubmitContext } from "#/features/event-requests/components/request-form";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
-import { formatProposedWindow } from "#/features/event-requests/format";
+import { formatVenuePeriod } from "#/features/event-requests/format";
 import {
   EVENT_INFORMATION_FIELDS,
-  clarificationFieldLabel,
+  significantFieldPhrase,
   significantFields,
 } from "#/features/event-requests/schema";
 import type { EventRequestDraftValues, SignificantField } from "#/features/event-requests/schema";
 import type { EventRequestDraft } from "#/features/event-requests/server-fns";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 import { listEventArrangements, updateEventInformation } from "#/features/events/server-fns";
-import { toLocalMinuteValue } from "#/features/venues/availability";
 
 /**
  * PTR-23 AC2, AC3: the warning that waits for the Coordinator's answer before a significant
- * change is sent. `resolve(true)` saves; `resolve(false)` returns to the form with its edits.
+ * change is sent. The save has to stay inside the form's own submit, which owns the submitting
+ * flag and the error message, so the submit awaits a promise that the dialog settles rather than
+ * handing the values to a second action: `resolve(true)` saves; `resolve(false)` returns to the
+ * form with its edits.
  */
 interface SignificantChangeWarning {
   fields: SignificantField[];
@@ -61,6 +63,9 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // From the arrangements read until the Coordinator answers the warning: the toggle waits, so
+  // the form cannot be discarded under a warning that would still save its edits.
+  const [confirming, setConfirming] = useState(false);
   const [warning, setWarning] = useState<SignificantChangeWarning | null>(null);
 
   function discardEdits() {
@@ -81,11 +86,17 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
     // judges again on what actually changed.
     const significant = significantFields(touchedFields);
     if (significant.length > 0) {
-      const arrangements = await listEventArrangements({ data: { id: request.id } });
-      const proceed = await new Promise<boolean>(resolve => {
-        setWarning({ fields: significant, arrangements, resolve });
-      });
-      setWarning(null);
+      setConfirming(true);
+      let proceed = false;
+      try {
+        const arrangements = await listEventArrangements({ data: { id: request.id } });
+        proceed = await new Promise<boolean>(resolve => {
+          setWarning({ fields: significant, arrangements, resolve });
+        });
+      } finally {
+        setWarning(null);
+        setConfirming(false);
+      }
       // The form keeps its edits; nothing was sent.
       if (!proceed) return;
     }
@@ -120,7 +131,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
       else if (!reloadFailed) {
         toast.success(
           result.notified > 0
-            ? "Event information saved. The staff holding its arrangements have been notified."
+            ? "Event information saved. The staff holding its arrangements will be notified."
             : "Event information saved."
         );
       }
@@ -129,7 +140,9 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
       // message when it survives. The toggle waits for the re-read so a reopen never sits stale.
       if (error instanceof Error && error.message) toast.error(error.message);
       await router.invalidate().catch(() => {});
-      setSaving(false);
+      flushSync(() => setSaving(false));
+      // The warning closed over a disabled save button, so focus had nowhere to return to.
+      if (significant.length > 0) toggle.current?.focus();
       throw error;
     }
   }
@@ -146,8 +159,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
               <p className="mt-2 body-sm text-muted-foreground">
                 A saved change replaces the recorded value for everyone with access to this event. A
                 change to the dates and times, expected attendance, venue requirements or equipment
-                requirements is significant: you are warned first, and the staff holding a booking
-                or reservation are told.
+                requirements is warned about before it is saved.
               </p>
             </div>
             <Button
@@ -155,7 +167,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
               type="button"
               size="sm"
               variant={editing ? "outline" : "default"}
-              disabled={saving}
+              disabled={saving || confirming}
               aria-expanded={editing}
               aria-controls={editing ? formId : undefined}
               onClick={() => {
@@ -171,6 +183,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
               <EventRequestForm
                 initialValues={toDraftValues(request)}
                 saveLabel="Save changes"
+                busyLabel={saving ? "Saving…" : "Save changes"}
                 requireComplete
                 idPrefix={formId}
                 onSave={save}
@@ -199,19 +212,12 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
   );
 }
 
-/** A floating venue-local period (`2026-12-05 10:00:00`) in the proposed-window wording. */
-function formatPeriod(startsAt: string, endsAt: string): string {
-  return formatProposedWindow({
-    start: toLocalMinuteValue(startsAt),
-    end: toLocalMinuteValue(endsAt),
-  });
-}
-
 /**
  * PTR-23 AC2, AC3: the warning before a significant change is saved. It names every booking,
  * tentative hold and reservation the event holds, or says that it holds none, and that saving
- * changes, cancels and re-statuses none of them. Closing the dialog in any way other than
- * "Save anyway" returns to the form.
+ * changes, cancels and releases none of them. "Save anyway" settles the promise with true; the
+ * dialog's own close (Go back, Escape, the backdrop) settles it with false. Base UI's close runs
+ * only for its own close paths, so the two never settle the same promise twice.
  */
 function SignificantChangeDialog({ warning }: { warning: SignificantChangeWarning | null }) {
   const arrangements = warning?.arrangements;
@@ -219,11 +225,11 @@ function SignificantChangeDialog({ warning }: { warning: SignificantChangeWarnin
     ? [
         ...arrangements.venueBookings.map(booking => ({
           id: `booking-${booking.id}`,
-          content: `Venue booking: ${booking.venueName}, ${formatPeriod(booking.startsAt, booking.endsAt)}`,
+          content: `Venue booking: ${booking.venueName}, ${formatVenuePeriod(booking.startsAt, booking.endsAt)}`,
         })),
         ...arrangements.venueHolds.map(hold => ({
           id: `hold-${hold.id}`,
-          content: `Tentative hold: ${hold.venueName}, ${formatPeriod(hold.startsAt, hold.endsAt)}`,
+          content: `Tentative hold: ${hold.venueName}, ${formatVenuePeriod(hold.startsAt, hold.endsAt)}`,
         })),
         ...arrangements.equipmentReservations.map(line => ({
           id: `equipment-${line.id}`,
@@ -234,9 +240,7 @@ function SignificantChangeDialog({ warning }: { warning: SignificantChangeWarnin
   const staffHold =
     arrangements !== undefined &&
     (arrangements.venueBookings.length > 0 || arrangements.equipmentReservations.length > 0);
-  const changed = new Intl.ListFormat("en-GB", { type: "conjunction" }).format(
-    (warning?.fields ?? []).map(field => clarificationFieldLabel(field).toLowerCase())
-  );
+  const changed = significantFieldPhrase(warning?.fields ?? []);
 
   return (
     <AlertDialog
@@ -245,19 +249,17 @@ function SignificantChangeDialog({ warning }: { warning: SignificantChangeWarnin
         if (!open) warning?.resolve(false);
       }}
     >
-      <AlertDialogContent>
-        <AlertDialogHeader>
+      {/* The list can be long (an event may hold many lines), so the popup scrolls within the viewport. */}
+      <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+        <AlertDialogHeader className="place-items-start text-left">
           <AlertDialogTitle>This is a significant change</AlertDialogTitle>
           <AlertDialogDescription>
-            Changing the {changed} affects what has already been arranged for this event. Saving
-            changes, cancels or re-statuses none of the arrangements: revisit each one yourself.
+            {items.length === 0
+              ? `This event holds no venue booking, tentative hold or equipment reservation, so there is nothing to revisit for the new ${changed}.`
+              : `The arrangements below were made for the event's current ${changed}. Saving does not change, cancel or release any of them: review each one yourself.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {items.length === 0 ? (
-          <p className="body-sm text-muted-foreground">
-            This event holds no venue booking, tentative hold or equipment reservation.
-          </p>
-        ) : (
+        {items.length > 0 && (
           <div className="space-y-3">
             <ul
               aria-label="Arrangements this event holds"
@@ -269,8 +271,8 @@ function SignificantChangeDialog({ warning }: { warning: SignificantChangeWarnin
             </ul>
             {staffHold && (
               <p className="body-sm text-muted-foreground">
-                The Venue Staff holding a booking and the Technical Support holding a reservation
-                will be told what changed.
+                The Venue Staff and Technical Support who still hold one of these will be told what
+                changed.
               </p>
             )}
           </div>

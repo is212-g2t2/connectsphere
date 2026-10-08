@@ -88,7 +88,7 @@ test("the assigned Coordinator updates an approved event, and the change is reco
   const dialog = page.getByRole("alertdialog");
   await expect(dialog.getByText("This is a significant change")).toBeVisible();
   await expect(
-    dialog.getByText("This event holds no venue booking, tentative hold or equipment reservation.")
+    dialog.getByText(/holds no venue booking, tentative hold or equipment reservation/)
   ).toBeVisible();
   await dialog.getByRole("button", { name: "Save anyway" }).click();
 
@@ -214,7 +214,7 @@ test("a significant change names the booking the event holds, leaves it as it is
 
     await expect(
       page.getByText(
-        "Event information saved. The staff holding its arrangements have been notified."
+        "Event information saved. The staff holding its arrangements will be notified."
       )
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Save changes" })).toHaveCount(0);
@@ -247,8 +247,8 @@ test("a significant change names the booking the event holds, leaves it as it is
       },
     ]);
   } finally {
-    await database.delete(schema.eventRequests).where(eq(schema.eventRequests.id, id));
-    created.length = 0;
+    // The event itself is `afterEach`'s; the booking goes first so the venue can.
+    await database.delete(schema.venueRequests).where(eq(schema.venueRequests.id, bookingId));
     await database.delete(schema.venues).where(eq(schema.venues.id, venue.id));
   }
 });

@@ -1,7 +1,7 @@
 import { Button, Section, Text } from "@react-email/components";
 
 import { formatDate, formatTime } from "#/features/emails/format";
-import { clarificationFieldLabel } from "#/features/event-requests/schema";
+import { significantFieldPhrase } from "#/features/event-requests/schema";
 import type { SignificantField } from "#/features/event-requests/schema";
 
 import { emailButton, emailHeading, emailText } from "./email-styles";
@@ -16,13 +16,6 @@ type EventSignificantChangeEmailProps = {
   | { audience: "venue_staff"; venueName: string; startsAt: string; endsAt: string }
 );
 
-/** The changed fields' form labels as one phrase: "proposed dates and times and expected attendance". */
-function changedFieldLabels(fields: readonly SignificantField[]): string {
-  return new Intl.ListFormat("en-GB", { type: "conjunction" }).format(
-    fields.map(field => clarificationFieldLabel(field).toLowerCase())
-  );
-}
-
 /**
  * PTR-23 AC5: the Coordinator saved a significant change on an event whose arrangement the
  * recipient holds. Nothing is released or re-statused by the change (AC3); the recipient looks at
@@ -31,7 +24,7 @@ function changedFieldLabels(fields: readonly SignificantField[]): string {
  */
 export const EventSignificantChangeEmail = (props: EventSignificantChangeEmailProps) => {
   const { changedFields, actorName, arrangementUrl } = props;
-  const changed = changedFieldLabels(changedFields);
+  const changed = significantFieldPhrase(changedFields);
 
   if (props.audience === "venue_staff") {
     const { venueName, startsAt, endsAt } = props;
@@ -44,8 +37,8 @@ export const EventSignificantChangeEmail = (props: EventSignificantChangeEmailPr
             {formatDate(startsAt)}, {formatTime(startsAt)}–{formatTime(endsAt)}.
           </Text>
           <Text style={emailText}>
-            The booking is unchanged and still held. Check that it still suits the event, and talk
-            to the Coordinator if it does not.
+            The booking is unchanged and still held. Open it to compare it with the event&apos;s new
+            details, and talk to the Coordinator if it no longer suits.
           </Text>
           <Button href={arrangementUrl} style={emailButton}>
             View venue bookings
@@ -64,8 +57,8 @@ export const EventSignificantChangeEmail = (props: EventSignificantChangeEmailPr
           {actorName} changed the {changed} of <strong>{eventName}</strong>.
         </Text>
         <Text style={emailText}>
-          Its equipment reservations are unchanged and still held. Check that they still suit the
-          event, and talk to the Coordinator if they do not.
+          Its equipment reservations are unchanged and still held. Open the request to compare them
+          with the event&apos;s new details, and talk to the Coordinator if they no longer suit.
         </Text>
         <Button href={arrangementUrl} style={emailButton}>
           View the event

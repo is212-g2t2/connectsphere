@@ -76,8 +76,8 @@ export async function loadOutstandingReleases(
 }
 
 export interface ArrangementHolders {
-  /** Each approved booking with the Venue Staff member who settled it, or null if their account has gone. */
-  bookings: { staffId: string | null; venueName: string; startsAt: string; endsAt: string }[];
+  /** Each approved booking that still has the Venue Staff member who settled it. */
+  bookings: { staffId: string; venueName: string; startsAt: string; endsAt: string }[];
   /** Each Technical Support member holding at least one reservation, once. */
   reservationStaffIds: string[];
 }
@@ -116,16 +116,18 @@ export async function loadArrangementHolders(
   ]);
 
   return {
-    bookings,
+    bookings: bookings.flatMap(({ staffId, ...booking }) =>
+      staffId === null ? [] : [{ staffId, ...booking }]
+    ),
     reservationStaffIds: lines.flatMap(({ staffId }) => (staffId === null ? [] : [staffId])),
   };
 }
 
 /**
  * PTR-23 AC3: what the event holds, for the warning the Coordinator reads before a significant
- * change is saved. Only the assigned Coordinator may read it, and a missing event, a draft and
- * someone else's event are refused the same way, as the update itself refuses them. Reading never
- * changes an arrangement.
+ * change is saved. Only the assigned Coordinator may read it. A missing event and someone else's
+ * event are refused the same way, so the refusal does not say whether the id exists; a draft has
+ * no Coordinator, so it is refused here too. Reading never changes an arrangement.
  */
 export async function handleListEventArrangements(
   data: unknown,

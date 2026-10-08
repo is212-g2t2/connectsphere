@@ -705,5 +705,12 @@ export function significantFields(fields: readonly string[]): SignificantField[]
   return SIGNIFICANT_FIELDS.filter(field => fields.includes(field));
 }
 
+/** The changed fields' labels as one phrase for the warning and the notices: "proposed dates and times and expected attendance". */
+export function significantFieldPhrase(fields: readonly SignificantField[]): string {
+  return new Intl.ListFormat("en-GB", { type: "conjunction" }).format(
+    fields.map(field => clarificationFieldLabel(field).toLowerCase())
+  );
+}
+
 export const SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE =
   "This change is significant. Review the arrangements it affects, then save again.";

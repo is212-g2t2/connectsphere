@@ -106,7 +106,6 @@ export const updateEventInformation = createServerFn({ method: "POST" })
         eventId: data.id,
         actorId: context.user.id,
         changedFields: result.changedFields,
-        significantFields: result.significantFields,
         notified: result.notified,
       });
     }

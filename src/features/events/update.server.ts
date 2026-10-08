@@ -27,9 +27,7 @@ type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 export interface EventInformationUpdated {
   changedFields: ClarificationField[];
-  /** PTR-23 AC1: the changed fields that made this a significant change; empty for an ordinary edit. */
-  significantFields: SignificantField[];
-  /** PTR-23 AC5: how many staff holding an arrangement were told. */
+  /** PTR-23 AC5: how many staff holding an arrangement were told; 0 for an ordinary edit. */
   notified: number;
 }
 
@@ -69,7 +67,7 @@ export async function handleUpdateEventInformation(
 
     const values = amendedValues(request, input.amendments);
     const changes = amendmentsBetween(request, values, EVENT_INFORMATION_FIELDS);
-    if (changes.length === 0) return { changedFields: [], significantFields: [], notified: 0 };
+    if (changes.length === 0) return { changedFields: [], notified: 0 };
 
     // Decided on what actually changed, not on what the form touched: a field typed over and
     // restored is no change. The refusal rolls the locked row back untouched.
@@ -90,28 +88,34 @@ export async function handleUpdateEventInformation(
       .where(eq(eventRequests.id, request.id));
 
     const appliedAt = new Date();
+    const actorName = actor.name?.trim() || actor.email;
     await tx.insert(eventInformationChanges).values(
       changes.map(({ field, from, to }) => ({
         eventRequestId: request.id,
         field,
         amendment: { from, to },
         changedById: actor.id,
-        changedByName: actor.name?.trim() || actor.email,
+        changedByName: actorName,
         // `now()` defaults to the transaction timestamp, which predates a wait on the row lock,
         // so overlapping saves could be logged out of order.
         changedAt: appliedAt,
       }))
     );
 
+    // The event's name as it now is, so a notice never names an event by a name the same save
+    // replaced.
     const notices =
-      significant.length > 0 ? await significantChangeNotices(tx, request, significant, actor) : [];
+      significant.length > 0
+        ? await significantChangeNotices(
+            tx,
+            { id: request.id, eventName: values.eventName },
+            significant,
+            actorName
+          )
+        : [];
     await raiseNotifications(tx, notices);
 
-    return {
-      changedFields: changes.map(change => change.field),
-      significantFields: significant,
-      notified: notices.length,
-    };
+    return { changedFields: changes.map(change => change.field), notified: notices.length };
   });
 }
 
@@ -124,16 +128,13 @@ export async function handleUpdateEventInformation(
 async function significantChangeNotices(
   tx: Tx,
   event: { id: number; eventName: string },
-  changedFields: readonly SignificantField[],
-  actor: SessionUser
+  changedFields: SignificantField[],
+  actorName: string
 ): Promise<NewNotification[]> {
   const { bookings, reservationStaffIds } = await loadArrangementHolders(tx, event.id);
-  const actorName = actor.name?.trim() || actor.email;
-  const fields = [...changedFields];
 
   const notices: NewNotification[] = [];
   for (const { staffId, venueName, startsAt, endsAt } of bookings) {
-    if (!staffId) continue;
     notices.push({
       recipientId: staffId,
       eventRequestId: event.id,
@@ -143,7 +144,7 @@ async function significantChangeNotices(
         venueName,
         startsAt,
         endsAt,
-        changedFields: fields,
+        changedFields,
         actorName,
       },
     });
@@ -156,7 +157,7 @@ async function significantChangeNotices(
       payload: {
         audience: "technical_support",
         eventName: event.eventName.trim() || "Untitled event",
-        changedFields: fields,
+        changedFields,
         actorName,
       },
     });

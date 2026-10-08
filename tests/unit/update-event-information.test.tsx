@@ -11,7 +11,6 @@ const { updateEventInformation, listEventArrangements, invalidate, success, info
     updateEventInformation: vi.fn<
       (input: { data: Record<string, unknown> }) => Promise<{
         changedFields: readonly string[];
-        significantFields: readonly string[];
         notified: number;
       }>
     >(),
@@ -85,9 +84,9 @@ const approved: CoordinationRequest = {
   equipmentArrangementsCompletedById: null,
 };
 
-/** The server's answer to an ordinary save: nothing significant, no one told. */
+/** The server's answer to an ordinary save: no one told. */
 function saved(changedFields: readonly string[]) {
-  return { changedFields, significantFields: [], notified: 0 };
+  return { changedFields, notified: 0 };
 }
 
 const nothingHeld: OutstandingReleases = {
@@ -334,7 +333,6 @@ describe("warning before a significant change (PTR-23)", () => {
     listEventArrangements.mockResolvedValue(held);
     updateEventInformation.mockResolvedValue({
       changedFields: ["expectedAttendance"],
-      significantFields: ["expectedAttendance"],
       notified: 2,
     });
     const user = await editAttendance();
@@ -344,8 +342,10 @@ describe("warning before a significant change (PTR-23)", () => {
     expect(
       within(dialog).getByRole("heading", { name: "This is a significant change" })
     ).toBeTruthy();
-    expect(within(dialog).getByText(/Changing the expected attendance affects/)).toBeTruthy();
-    expect(within(dialog).getByText(/changes, cancels or re-statuses none/)).toBeTruthy();
+    expect(
+      within(dialog).getByText(/made for the event's current expected attendance/)
+    ).toBeTruthy();
+    expect(within(dialog).getByText(/does not change, cancel or release any of them/)).toBeTruthy();
     const items = within(dialog)
       .getAllByRole("listitem")
       .map(item => item.textContent);
@@ -355,14 +355,24 @@ describe("warning before a significant change (PTR-23)", () => {
       "Equipment reservation: Projector × 2",
     ]);
     expect(within(dialog).getByText(/will be told what changed/)).toBeTruthy();
-    // Nothing is sent while the warning waits.
+    // Nothing is sent while the warning waits, and the form says so: the save button reads
+    // "Save changes", not "Saving…", and the toggle cannot discard the form under the warning.
     expect(updateEventInformation).not.toHaveBeenCalled();
+    // The form sits inert behind the modal, so the queries look through `aria-hidden`.
+    const hidden = { hidden: true };
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Save changes", ...hidden }).disabled
+    ).toBe(true);
+    expect(screen.queryByRole("button", { name: "Saving…", ...hidden })).toBeNull();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing", ...hidden }).disabled
+    ).toBe(true);
 
     await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
 
     await waitFor(() =>
       expect(success).toHaveBeenCalledWith(
-        "Event information saved. The staff holding its arrangements have been notified."
+        "Event information saved. The staff holding its arrangements will be notified."
       )
     );
     expect(updateEventInformation).toHaveBeenCalledWith({
@@ -376,7 +386,6 @@ describe("warning before a significant change (PTR-23)", () => {
     listEventArrangements.mockResolvedValue(nothingHeld);
     updateEventInformation.mockResolvedValue({
       changedFields: ["expectedAttendance"],
-      significantFields: ["expectedAttendance"],
       notified: 0,
     });
     const user = await editAttendance();
@@ -384,7 +393,7 @@ describe("warning before a significant change (PTR-23)", () => {
     const dialog = await screen.findByRole("alertdialog");
     expect(
       within(dialog).getByText(
-        "This event holds no venue booking, tentative hold or equipment reservation."
+        /holds no venue booking, tentative hold or equipment reservation, so there is nothing to revisit/
       )
     ).toBeTruthy();
     expect(within(dialog).queryByRole("list")).toBeNull();
@@ -398,15 +407,26 @@ describe("warning before a significant change (PTR-23)", () => {
     });
   });
 
-  it("returns to the form with its edits when the Coordinator goes back", async () => {
+  it.each([
+    [
+      "Go back",
+      (user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) =>
+        user.click(within(dialog).getByRole("button", { name: "Go back" })),
+    ],
+    ["Escape", (user: ReturnType<typeof userEvent.setup>) => user.keyboard("{Escape}")],
+  ])("returns to the form with its edits on %s", async (_, dismiss) => {
     listEventArrangements.mockResolvedValue(held);
     const user = await editAttendance();
 
     const dialog = await screen.findByRole("alertdialog");
-    await user.click(within(dialog).getByRole("button", { name: "Go back" }));
+    await dismiss(user, dialog);
 
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(updateEventInformation).not.toHaveBeenCalled();
+    // Focus returns to the save button the warning interrupted.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save changes" }))
+    );
     expect(screen.getByLabelText<HTMLInputElement>("Expected attendance (required)").value).toBe(
       "150"
     );
@@ -423,7 +443,6 @@ describe("warning before a significant change (PTR-23)", () => {
     listEventArrangements.mockResolvedValue(nothingHeld);
     updateEventInformation.mockResolvedValue({
       changedFields: ["purpose", "proposedDates", "expectedAttendance"],
-      significantFields: ["proposedDates", "expectedAttendance"],
       notified: 0,
     });
     const user = await openForm();
@@ -438,9 +457,7 @@ describe("warning before a significant change (PTR-23)", () => {
 
     const dialog = await screen.findByRole("alertdialog");
     expect(
-      within(dialog).getByText(
-        /Changing the proposed dates and times and expected attendance affects/
-      )
+      within(dialog).getByText(/new proposed dates and times and expected attendance/)
     ).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
 

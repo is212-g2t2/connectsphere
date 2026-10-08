@@ -128,7 +128,6 @@ async function staffNotices(
 
   const notices: NewNotification[] = [];
   for (const { staffId, venueName, startsAt, endsAt } of bookings) {
-    if (!staffId) continue;
     notices.push({
       recipientId: staffId,
       eventRequestId: eventId,

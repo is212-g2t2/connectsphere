@@ -70,6 +70,10 @@ let year = 2070;
 beforeAll(async () => {
   pool = new Pool({ connectionString: process.env.DATABASE_URL });
   database = drizzle(pool, { schema });
+  // A line from an earlier run still references the equipment type, so the events go first.
+  await database
+    .delete(schema.eventRequests)
+    .where(eq(schema.eventRequests.organiserId, organiser.id));
   await database.insert(schema.user).values(members);
   // The global setup seeds the venue catalogue.
   venueId = (await database.select({ id: schema.venues.id }).from(schema.venues).limit(1))[0].id;
@@ -90,6 +94,10 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  // The last test's lines still reference the equipment type, so the events go first.
+  await database
+    .delete(schema.eventRequests)
+    .where(eq(schema.eventRequests.organiserId, organiser.id));
   await database
     .delete(schema.equipmentTypes)
     .where(eq(schema.equipmentTypes.name, EQUIPMENT_TYPE));
@@ -534,7 +542,7 @@ describe("warning before a significant change (PTR-23)", () => {
       registrationClosesAt: "2031-03-01T17:00",
     });
 
-    expect(result).toMatchObject({ significantFields: [], notified: 0 });
+    expect(result.notified).toBe(0);
     expect(result.changedFields).toEqual([
       "eventName",
       "roomLayoutPreference",
@@ -553,11 +561,7 @@ describe("warning before a significant change (PTR-23)", () => {
       purpose: "Agree the regional plan, again",
     });
 
-    expect(result).toMatchObject({
-      changedFields: ["purpose"],
-      significantFields: [],
-      notified: 0,
-    });
+    expect(result).toEqual({ changedFields: ["purpose"], notified: 0 });
   });
 
   it("saves an acknowledged significant change, logs it, and tells the Venue Staff on each booking and each Technical Support member once (AC5)", async () => {
@@ -576,7 +580,6 @@ describe("warning before a significant change (PTR-23)", () => {
 
     expect(result).toEqual({
       changedFields: ["eventName", "proposedDates", "expectedAttendance"],
-      significantFields: ["proposedDates", "expectedAttendance"],
       notified: 3,
     });
     expect(await storedEvent(event.id)).toMatchObject({
@@ -618,47 +621,49 @@ describe("warning before a significant change (PTR-23)", () => {
         recipientId: technicalSupport.id,
         payload: {
           audience: "technical_support",
-          eventName: recorded.eventName,
+          // The name as the same save left it, not the one it replaced.
+          eventName: "PTR23 Renamed",
           changedFields: ["proposedDates", "expectedAttendance"],
           actorName: coordinator.name,
         },
       },
     ]);
     // The Venue Staff copy never names the event (PTR-8).
-    expect(JSON.stringify(notices[0].payload)).not.toContain(recorded.eventName);
+    for (const name of [recorded.eventName, "PTR23 Renamed"]) {
+      expect(JSON.stringify(notices[0].payload)).not.toContain(name);
+    }
   });
 
-  it("changes, cancels and re-statuses no arrangement (AC3)", async () => {
+  it("changes, cancels and releases no arrangement (AC3)", async () => {
     const event = await eventAt("confirmed");
     const bookingId = await addBooking(event.id);
     const holdId = await addHold(event.id);
     const lineId = await addReservedLine(event.id, 3);
+    const arrangements = () =>
+      Promise.all([
+        database.select().from(schema.venueRequests).where(eq(schema.venueRequests.id, bookingId)),
+        database.select().from(schema.venueHolds).where(eq(schema.venueHolds.id, holdId)),
+        database
+          .select()
+          .from(schema.equipmentRequests)
+          .where(eq(schema.equipmentRequests.id, lineId)),
+        database
+          .select()
+          .from(schema.equipmentReservations)
+          .where(eq(schema.equipmentReservations.equipmentRequestId, lineId)),
+      ]);
+    const before = await arrangements();
 
     await updateAcknowledged(event.id, {
       proposedDates: [{ start: "2031-04-01T09:00", end: "2031-04-01T18:00" }],
       equipmentRequirements: [{ type: "Projector", quantity: 4 }],
     });
 
-    const [booking] = await database
-      .select()
-      .from(schema.venueRequests)
-      .where(eq(schema.venueRequests.id, bookingId));
-    const [hold] = await database
-      .select()
-      .from(schema.venueHolds)
-      .where(eq(schema.venueHolds.id, holdId));
-    const [line] = await database
-      .select()
-      .from(schema.equipmentRequests)
-      .where(eq(schema.equipmentRequests.id, lineId));
-    const [reservation] = await database
-      .select()
-      .from(schema.equipmentReservations)
-      .where(eq(schema.equipmentReservations.equipmentRequestId, lineId));
-    expect(booking.status).toBe("approved");
-    expect(hold.status).toBe("held");
-    expect(line).toMatchObject({ arrangementStatus: "reserved", quantity: 3 });
-    expect(reservation.quantity).toBe(3);
+    // Every column of every row, not only the status: nothing is amended, released or re-dated.
+    expect(await arrangements()).toEqual(before);
+    expect(before[0][0].status).toBe("approved");
+    expect(before[1][0].status).toBe("held");
+    expect(before[2][0]).toMatchObject({ arrangementStatus: "reserved", quantity: 3 });
     expect((await storedEvent(event.id)).status).toBe("confirmed");
   });
 
@@ -683,7 +688,7 @@ describe("warning before a significant change (PTR-23)", () => {
 
     const result = await updateAcknowledged(event.id, { purpose: "Agree the plan" });
 
-    expect(result).toEqual({ changedFields: ["purpose"], significantFields: [], notified: 0 });
+    expect(result).toEqual({ changedFields: ["purpose"], notified: 0 });
     expect(await significantChangeNotices(event.id)).toEqual([]);
   });
 
