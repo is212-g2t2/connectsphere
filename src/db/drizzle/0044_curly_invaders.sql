@@ -1,0 +1,9 @@
+CREATE TYPE "public"."event_change_outcome" AS ENUM('applied', 'declined');--> statement-breakpoint
+ALTER TYPE "public"."notification_kind" ADD VALUE 'event_change_processed';--> statement-breakpoint
+ALTER TABLE "event_change_requests" ADD COLUMN "outcome" "event_change_outcome";--> statement-breakpoint
+ALTER TABLE "event_change_requests" ADD COLUMN "decline_reason" text;--> statement-breakpoint
+ALTER TABLE "event_change_requests" ADD COLUMN "processed_by_id" text;--> statement-breakpoint
+ALTER TABLE "event_change_requests" ADD COLUMN "processed_by_name" text;--> statement-breakpoint
+ALTER TABLE "event_change_requests" ADD COLUMN "processed_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "event_change_requests" ADD CONSTRAINT "event_change_requests_outcome_complete" CHECK (("event_change_requests"."outcome" is null and "event_change_requests"."processed_by_id" is null and "event_change_requests"."processed_by_name" is null and "event_change_requests"."processed_at" is null and "event_change_requests"."decline_reason" is null) or ("event_change_requests"."outcome" is not null and "event_change_requests"."processed_by_id" is not null and btrim("event_change_requests"."processed_by_id") <> '' and "event_change_requests"."processed_by_name" is not null and btrim("event_change_requests"."processed_by_name") <> '' and "event_change_requests"."processed_at" is not null));--> statement-breakpoint
+ALTER TABLE "event_change_requests" ADD CONSTRAINT "event_change_requests_decline_has_reason" CHECK (("event_change_requests"."outcome"::text = 'declined' and coalesce("event_change_requests"."decline_reason", '') ~ '[^[:space:]]') or ("event_change_requests"."outcome" is distinct from 'declined' and "event_change_requests"."decline_reason" is null));

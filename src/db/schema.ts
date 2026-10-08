@@ -322,10 +322,15 @@ export const clarificationRequests = pgTable(
   ]
 );
 
+/** PTR-52: what the Coordinator did with a change request. Null while the request waits. */
+export const eventChangeOutcome = pgEnum("event_change_outcome", ["applied", "declined"]);
+
 /**
- * PTR-51: an Organiser's requested post-submission change. The request is append-only here; PTR-52
- * processes it later. Keeping the requested value outside `event_requests` ensures that raising a
- * request cannot change the event's recorded information.
+ * PTR-51: an Organiser's requested post-submission change. The request text is append-only, and
+ * keeping the requested value outside `event_requests` ensures that raising a request cannot change
+ * the event's recorded information. PTR-52 writes the outcome once: `applied` when the Coordinator
+ * saves the event through the request, `declined` with a reason. The processor's id and name are
+ * snapshots, like the decision's. Several requests may wait at once.
  */
 export const eventChangeRequests = pgTable(
   "event_change_requests",
@@ -340,9 +345,23 @@ export const eventChangeRequests = pgTable(
     whatShouldChange: text("what_should_change").notNull(),
     requestedValue: text("requested_value").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    outcome: eventChangeOutcome("outcome"),
+    /** PTR-52 AC2: why the Coordinator declined; required for a decline, absent otherwise. */
+    declineReason: text("decline_reason"),
+    processedById: text("processed_by_id"),
+    processedByName: text("processed_by_name"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
   },
   table => [
     index("event_change_requests_event_request_id_idx").on(table.eventRequestId),
+    check(
+      "event_change_requests_outcome_complete",
+      sql`(${table.outcome} is null and ${table.processedById} is null and ${table.processedByName} is null and ${table.processedAt} is null and ${table.declineReason} is null) or (${table.outcome} is not null and ${table.processedById} is not null and btrim(${table.processedById}) <> '' and ${table.processedByName} is not null and btrim(${table.processedByName}) <> '' and ${table.processedAt} is not null)`
+    ),
+    check(
+      "event_change_requests_decline_has_reason",
+      sql`(${table.outcome}::text = 'declined' and coalesce(${table.declineReason}, '') ~ '[^[:space:]]') or (${table.outcome} is distinct from 'declined' and ${table.declineReason} is null)`
+    ),
     check(
       "event_change_requests_what_should_change_present",
       sql`btrim(${table.whatShouldChange}) <> '' and char_length(${table.whatShouldChange}) <= 2000`
@@ -887,6 +906,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "registration_closed",
   /** PTR-23 AC5: a significant change was saved on an event holding the recipient's arrangement. */
   "event_significant_change",
+  /** PTR-52 AC5: the Coordinator applied or declined the Organiser's change request. */
+  "event_change_processed",
 ]);
 
 export const notifications = pgTable(

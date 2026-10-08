@@ -423,6 +423,43 @@ export function canRaiseEventChangeRequest(status: EventRequestStatus): boolean 
   return !EVENT_CHANGE_REQUEST_CLOSED_STATUSES.some(closedStatus => closedStatus === status);
 }
 
+export const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.";
+
+// ── Processing a change request (PTR-52) ────────────────────────────────────
+
+/**
+ * PTR-52 AC2: a change request is applied by saving the event through the PTR-22 edit path with
+ * the request attached, and it is applied in every status the request could be raised in, so the
+ * alias is deliberate. A direct edit without a request keeps `canUpdateEventInformation`'s gate.
+ */
+export const canApplyEventChangeRequest = canRaiseEventChangeRequest;
+
+export const CHANGE_REQUEST_ID_MESSAGE = "Choose a change request";
+export const CHANGE_REQUEST_NOT_WAITING_MESSAGE =
+  "This change request is not waiting to be processed.";
+export const CHANGE_REQUEST_APPLY_NO_CHANGE_MESSAGE =
+  "Make the requested change before applying it, or decline it with a reason.";
+
+/** PTR-52 AC2: the Coordinator must say why they decline a change request. */
+export const CHANGE_REQUEST_DECLINE_REASON_MAX = 2000;
+export const EventChangeRequestDeclineInput = EventRequestIdInput.extend({
+  changeRequestId: z.int32({ error: CHANGE_REQUEST_ID_MESSAGE }).positive(CHANGE_REQUEST_ID_MESSAGE),
+  reason: z
+    .string()
+    .trim()
+    .min(1, "Enter a reason for declining")
+    .max(
+      CHANGE_REQUEST_DECLINE_REASON_MAX,
+      `The reason must be ${CHANGE_REQUEST_DECLINE_REASON_MAX} characters or fewer`
+    ),
+});
+
+export function parseEventChangeRequestDeclineInput(data: unknown) {
+  const parsed = EventChangeRequestDeclineInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+
 /**
  * PTR-53 AC2: an Organiser may ask for cancellation while the event can still change. The alias
  * is deliberate: a cancellation request is open in the same statuses as a PTR-51 change request,
@@ -674,6 +711,14 @@ const EventInformationInput = EventRequestIdInput.extend({
    * Absent on an ordinary edit, which needs no warning.
    */
   acknowledgeSignificant: z.boolean().optional(),
+  /**
+   * PTR-52 AC2: the Organiser's change request this save applies. The request is marked applied
+   * in the same transaction and the Organiser is told. Absent on a direct edit.
+   */
+  changeRequestId: z
+    .int32({ error: CHANGE_REQUEST_ID_MESSAGE })
+    .positive(CHANGE_REQUEST_ID_MESSAGE)
+    .optional(),
 });
 
 export function parseEventInformationInput(data: unknown) {
