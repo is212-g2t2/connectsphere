@@ -319,16 +319,17 @@ describe("updating event information (PTR-22)", () => {
   });
 });
 
-describe("warning before a significant change (PTR-23)", () => {
-  async function editAttendance() {
-    const user = await openForm();
-    const attendance = screen.getByLabelText("Expected attendance (required)");
-    await user.clear(attendance);
-    await user.type(attendance, "150");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    return user;
-  }
+/** Opens the form and submits a changed expected attendance, a significant field. */
+async function editAttendance() {
+  const user = await openForm();
+  const attendance = screen.getByLabelText("Expected attendance (required)");
+  await user.clear(attendance);
+  await user.type(attendance, "150");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  return user;
+}
 
+describe("warning before a significant change (PTR-23)", () => {
   it("names every booking, hold and reservation the event holds, then saves with the acknowledgement (AC2, AC3)", async () => {
     listEventArrangements.mockResolvedValue(held);
     updateEventInformation.mockResolvedValue({
