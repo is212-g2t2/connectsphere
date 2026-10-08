@@ -11,12 +11,14 @@ import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
 import { handleRegisterForEvent } from "#/features/events/register.server";
+import { handleWithdrawFromEvent } from "#/features/events/withdraw.server";
 import {
   ALREADY_REGISTERED_MESSAGE,
   EVENT_FULL_MESSAGE,
   REGISTRATION_NOT_OPEN_MESSAGE,
   venueCapacityReachedMessage,
 } from "#/features/events/registration";
+import { NOT_REGISTERED_MESSAGE } from "#/features/events/withdrawal";
 import { notificationSummary, parseNotificationPayload } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
@@ -185,8 +187,17 @@ describe("registering for an event (PTR-45)", () => {
   const register = (eventId: number, as: SessionUser = attendee, now = insidePeriod) =>
     handleRegisterForEvent({ id: eventId }, as, database as never, now);
 
+  const withdraw = (eventId: number, as: SessionUser = attendee) =>
+    handleWithdrawFromEvent({ id: eventId }, as, database as never);
+
   async function refusal(eventId: number, as: SessionUser = attendee, now = insidePeriod) {
     const error = await register(eventId, as, now).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConflictError);
+    return (error as Error).message;
+  }
+
+  async function withdrawRefusal(eventId: number, as: SessionUser = attendee) {
+    const error = await withdraw(eventId, as).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ConflictError);
     return (error as Error).message;
   }
@@ -555,6 +566,120 @@ describe("registering for an event (PTR-45)", () => {
 
       expect(await availability(event.id, insidePeriod)).toEqual({ state: "cancelled" });
       await expect(register(event.id)).rejects.toBeInstanceOf(AuthorizationError);
+    });
+  });
+
+  // ── PTR-47: withdrawing from an event ──────────────────────────────────────────────────────
+  describe("withdrawing from an event (PTR-47)", () => {
+    test("withdraws an active registration and marks it withdrawn (AC1)", async () => {
+      const event = await createEvent();
+      await register(event.id, attendee);
+
+      await withdraw(event.id, attendee);
+
+      const rows = await registrationsFor(event.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ attendeeId: attendee.id, status: "withdrawn" });
+    });
+
+    test("refuses withdrawal if the Attendee holds no registration", async () => {
+      const event = await createEvent();
+
+      expect(await withdrawRefusal(event.id, attendee)).toBe(NOT_REGISTERED_MESSAGE);
+    });
+
+    test("refuses withdrawal if the registration is already withdrawn", async () => {
+      const event = await createEvent();
+      await register(event.id, attendee);
+      await withdraw(event.id, attendee);
+
+      expect(await withdrawRefusal(event.id, attendee)).toBe(NOT_REGISTERED_MESSAGE);
+    });
+
+    test("withdrawal frees the place so registration capacity is decremented (AC2)", async () => {
+      const event = await createEvent({ capacity: 2 });
+      await register(event.id, attendee);
+      await register(event.id, secondAttendee);
+
+      // Event is full
+      expect(await refusal(event.id, thirdAttendee)).toBe(EVENT_FULL_MESSAGE);
+
+      // Attendee withdraws
+      await withdraw(event.id, attendee);
+
+      // Place is freed: third attendee can register (AC2, AC3)
+      const res = await register(event.id, thirdAttendee);
+      expect(res.status).toBe("registered");
+
+      const rows = await registrationsFor(event.id);
+      const active = rows.filter(r => r.status === "registered");
+      expect(active).toHaveLength(2);
+      expect(active.map(r => r.attendeeId).toSorted()).toEqual(
+        [secondAttendee.id, thirdAttendee.id].toSorted()
+      );
+    });
+
+    test("notifies Organiser and Coordinator when withdrawal occurs on an event at registration capacity (AC4)", async () => {
+      const event = await createEvent({ capacity: 2 });
+      await register(event.id, attendee);
+      await register(event.id, secondAttendee);
+
+      // Event was full at capacity (2 of 2). Now attendee withdraws.
+      await withdraw(event.id, attendee);
+
+      const notices = await notificationsFor(event.id, "registration_place_freed");
+      expect(notices).toHaveLength(2);
+      expect(
+        notices.map(notice => ({ recipientId: notice.recipientId, payload: notice.payload }))
+      ).toEqual(
+        expect.arrayContaining([
+          {
+            recipientId: organiser.id,
+            payload: {
+              eventName: event.eventName,
+              limit: 2,
+              audience: "organiser",
+            },
+          },
+          {
+            recipientId: coordinator.id,
+            payload: {
+              eventName: event.eventName,
+              limit: 2,
+              audience: "coordinator",
+            },
+          },
+        ])
+      );
+
+      const parsed = parseNotificationPayload(notices[0].kind, notices[0].payload);
+      if (!parsed) throw new Error("registration_place_freed did not parse");
+      expect(notificationSummary(parsed)).toBe(`A place has been freed for ${event.eventName}`);
+    });
+
+    test("does not notify Organiser and Coordinator if event was not at capacity when withdrawal happened", async () => {
+      const event = await createEvent({ capacity: 10 });
+      await register(event.id, attendee);
+
+      await withdraw(event.id, attendee);
+
+      const notices = await notificationsFor(event.id, "registration_place_freed");
+      expect(notices).toHaveLength(0);
+    });
+
+    test("withdrawn registration is not re-created on re-register; returns existing row to registered (AC5)", async () => {
+      const event = await createEvent();
+      await register(event.id, attendee);
+      await withdraw(event.id, attendee);
+
+      // Re-register
+      const reResult = await register(event.id, attendee);
+      expect(reResult.status).toBe("registered");
+
+      const rows = await registrationsFor(event.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe("registered");
+      expect(rows[0].attendeeId).toBe(attendee.id);
     });
   });
 });

@@ -7,6 +7,7 @@ import { EventRequestStatusBadge } from "#/features/event-requests/components/st
 import { formatLocalDateTime } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
 import { RegisterAction } from "#/features/events/components/register-action";
+import { WithdrawAction } from "#/features/events/components/withdraw-action";
 import { REGISTRATION_NOT_OPEN_MESSAGE, eventFullMessage } from "#/features/events/registration";
 import type { RegistrationAvailability } from "#/features/events/registration";
 import { eventSchedule } from "#/features/events/schedule";
@@ -169,6 +170,7 @@ export function EventPage({ event }: { event: EventProjection }) {
                   <p className="mt-2 font-semibold">You&apos;re registered</p>
                   {period}
                   {places}
+                  <WithdrawAction eventId={details.id} eventName={details.name ?? "this event"} />
                 </>
               ) : period ? (
                 <>

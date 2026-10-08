@@ -30,6 +30,8 @@ export const NOTIFICATION_KINDS = [
   "event_cancellation_requested",
   "event_cancelled",
   "event_cancellation_declined",
+  /** PTR-47 AC4: a withdrawal freed a place from an event that was at its registration capacity. */
+  "registration_place_freed",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -199,6 +201,16 @@ const payloadSchemas = {
   ]),
   /** PTR-54 AC8: the Coordinator declined the Organiser's cancellation request, with a reason. */
   event_cancellation_declined: z.object({ eventName: z.string(), reason: z.string() }),
+  /**
+   * PTR-47 AC4: a withdrawal freed a place from an event that had been at its registration
+   * capacity. `limit` is the place limit at the time; `audience` selects the link the inbox
+   * opens (Organiser's event-requests page, Coordinator's coordination page).
+   */
+  registration_place_freed: z.object({
+    eventName: z.string(),
+    limit: z.number(),
+    audience: z.enum(["organiser", "coordinator"]),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -275,6 +287,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("event_cancellation_declined"),
     payload: payloadSchemas.event_cancellation_declined,
   }),
+  z.object({
+    kind: z.literal("registration_place_freed"),
+    payload: payloadSchemas.registration_place_freed,
+  }),
 ]);
 
 /**
@@ -344,6 +360,8 @@ export function notificationSummary(notification: NotificationPayload): string {
         : `Event cancelled: ${notification.payload.eventName}`;
     case "event_cancellation_declined":
       return `Cancellation request declined: ${notification.payload.eventName}`;
+    case "registration_place_freed":
+      return `A place has been freed for ${notification.payload.eventName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -431,6 +449,11 @@ export function notificationHref(
           throw new Error(`No event_cancelled href for "${String(unhandled)}"`);
         }
       }
+    case "registration_place_freed":
+      // The Organiser opens the event-requests page; the Coordinator opens the coordination page.
+      return notification.payload.audience === "coordinator"
+        ? `/coordination/${eventRequestId}`
+        : `/event-requests/${eventRequestId}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -478,6 +501,7 @@ export function notificationReachable(
     case "event_cancellation_requested":
     case "event_cancelled":
     case "event_cancellation_declined":
+    case "registration_place_freed":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

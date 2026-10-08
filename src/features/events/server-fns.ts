@@ -37,6 +37,10 @@ async function loadRegisterServer() {
   return Promise.all([import("#/db"), import("#/features/events/register.server")]);
 }
 
+async function loadWithdrawServer() {
+  return Promise.all([import("#/db"), import("#/features/events/withdraw.server")]);
+}
+
 async function loadCompleteServer() {
   return Promise.all([import("#/db"), import("#/features/events/complete.server")]);
 }
@@ -155,6 +159,20 @@ export const registerForEvent = createServerFn({ method: "POST" })
     log.info("Event registration recorded", { eventId: data.id, attendeeId: context.user.id });
 
     return registration;
+  });
+
+/**
+ * PTR-47: an Attendee withdraws from an event they are registered for.
+ * Middleware ensures session and Attendee role (event:register permission).
+ */
+export const withdrawFromEvent = createServerFn({ method: "POST" })
+  .middleware([requireEventRegister])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleWithdrawFromEvent }] = await loadWithdrawServer();
+    await handleWithdrawFromEvent(data, context.user, db);
+
+    log.info("Event registration withdrawn", { eventId: data.id, attendeeId: context.user.id });
   });
 
 /**

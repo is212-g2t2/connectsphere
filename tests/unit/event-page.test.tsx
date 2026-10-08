@@ -190,6 +190,7 @@ describe("EventPage (PTR-44)", () => {
     expect(screen.getByText("You're registered")).toBeTruthy();
     expect(screen.getByText("Opens 1 Nov 2026, 09:00 – closes 1 Dec 2026, 17:00")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Withdraw registration" })).toBeTruthy();
   });
 
   it("offers the register action to an attendee who holds no registration (PTR-45)", () => {

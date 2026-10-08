@@ -85,3 +85,34 @@ export const RegistrationThresholdEmail = ({
     </Layout>
   );
 };
+
+interface RegistrationPlaceFreedEmailProps {
+  eventName: string;
+  /** The place limit at the time of the withdrawal. */
+  limit: number;
+  eventUrl: string;
+}
+
+/**
+ * PTR-47 AC4: a place was freed from an event that had been at its registration capacity.
+ * Sent to the Organiser and the assigned Coordinator so they know the event can accept one
+ * more Attendee.
+ */
+export const RegistrationPlaceFreedEmail = ({
+  eventName,
+  limit,
+  eventUrl,
+}: RegistrationPlaceFreedEmailProps) => (
+  <Layout previewText={`A place has been freed for ${eventName}`}>
+    <Section>
+      <Text style={emailHeading}>A place has been freed</Text>
+      <Text style={emailText}>
+        An Attendee has withdrawn from <strong>{eventName}</strong>. The event now has space for one
+        more registration (limit: {limit}).
+      </Text>
+      <Button href={eventUrl} style={emailButton}>
+        View the event
+      </Button>
+    </Section>
+  </Layout>
+);

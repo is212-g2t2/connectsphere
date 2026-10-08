@@ -102,6 +102,7 @@ const validPayloads = {
   event_cancellation_requested: { eventName: "Gala" },
   event_cancelled: { audience: "organiser", eventName: "Gala" },
   event_cancellation_declined: { eventName: "Gala", reason: "The deposit is paid." },
+  registration_place_freed: { eventName: "Gala", limit: 40, audience: "organiser" },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parses or fails the test with the kind named, so a bad fixture is not a silent null. */
@@ -176,6 +177,9 @@ describe("notification summaries (PTR-55 AC2)", () => {
         })
       )
     ).toBe("Registration is nearly full for Gala");
+    expect(
+      notificationSummary(parse("registration_place_freed", validPayloads.registration_place_freed))
+    ).toBe("A place has been freed for Gala");
   });
 });
 
@@ -241,6 +245,17 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     expect(notificationHref({ ...coordinator, eventRequestId: 7 })).toBe("/coordination/7");
   });
 
+  it("sends the freed place notice to the page each recipient reads (PTR-47 AC4)", () => {
+    const freed = { eventName: "Gala", limit: 40 };
+    const organiser = parse("registration_place_freed", { ...freed, audience: "organiser" });
+    const coordinator = parse("registration_place_freed", {
+      ...freed,
+      audience: "coordinator",
+    });
+    expect(notificationHref({ ...organiser, eventRequestId: 7 })).toBe("/event-requests/7");
+    expect(notificationHref({ ...coordinator, eventRequestId: 7 })).toBe("/coordination/7");
+  });
+
   it("sends each party told of a cancellation to the surface they act on (PTR-54)", () => {
     expect(hrefFor({ audience: "attendee", eventName: "Gala" })).toBe("/events/7");
     expect(hrefFor({ audience: "technical_support", eventName: "Gala" })).toBe(
@@ -285,6 +300,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       event_cancellation_requested: "/coordination/7",
       event_cancelled: "/event-requests/7",
       event_cancellation_declined: "/event-requests/7",
+      registration_place_freed: "/event-requests/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

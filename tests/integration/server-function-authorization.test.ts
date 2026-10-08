@@ -61,6 +61,7 @@ import {
   removeVipRegistration,
   searchVipAttendees,
   updateEventInformation,
+  withdrawFromEvent,
 } from "#/features/events/server-fns";
 import { listNotifications, markNotificationsRead } from "#/features/notifications/server-fns";
 import {
@@ -822,6 +823,43 @@ describe("server-function authorization (PTR-69)", () => {
       signIn("attendee");
 
       const { error } = await call(registerForEvent, { id: "not-a-number" });
+
+      expect(error).toBeInstanceOf(Error);
+    });
+  });
+
+  // PTR-47: only an Attendee withdraws from an event.
+  describe("PTR-47 withdraw from an event", () => {
+    const withdrawInput = { id: 1 };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(withdrawFromEvent, withdrawInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Attendee", async () => {
+      signIn("attendee");
+
+      expect((await call(withdrawFromEvent, withdrawInput)).error).toBeUndefined();
+    });
+
+    it.each(["event_organiser", "event_coordinator", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(withdrawFromEvent, withdrawInput)).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("rejects a malformed id before the handler", async () => {
+      signIn("attendee");
+
+      const { error } = await call(withdrawFromEvent, { id: "not-a-number" });
 
       expect(error).toBeInstanceOf(Error);
     });

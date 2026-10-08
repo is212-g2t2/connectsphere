@@ -168,6 +168,52 @@ test.describe("Event access", () => {
     ).toBeVisible();
   });
 
+  test("lets an attendee cancel or confirm withdrawal, then register again (PTR-47)", async ({
+    page,
+  }) => {
+    const email = `e2e-events-withdraw-${Date.now()}@example.com`;
+    const password = "Password123!";
+
+    await page.goto("/signup");
+    await waitForHydration(page);
+    await page.locator("#name").fill("E2E Withdrawing Attendee");
+    await page.locator("#email").fill(email);
+    await page.locator("#password").fill(password);
+    await page.locator("#confirmPassword").fill(password);
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await page.goto("/dashboard");
+    await page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME }).click();
+    await expect(page).toHaveURL(/\/events\/\d+/);
+    await waitForHydration(page);
+    await page.getByRole("button", { name: "Register" }).click();
+    await expect(page.getByText("You're registered")).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole("button", { name: "Withdraw registration" }).click();
+    await expect(
+      page.getByText(
+        `Are you sure you want to withdraw from ${ATTENDEE_DEMO_EVENT_NAME}? Your place will be freed and given to someone else.`
+      )
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByText("You're registered")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Withdraw registration" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Withdraw registration" }).click();
+    await page.getByRole("button", { name: "Confirm withdrawal" }).click();
+    await expect(page.getByRole("button", { name: "Register" })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText("You're registered")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Register" }).click();
+    await expect(page.getByText("You're registered")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: "Withdraw registration" })).toBeVisible();
+  });
+
   test("gives the assigned coordinator their event", async ({ page }) => {
     await signInAsSeeded(page, "coordinator.seed@example.com");
     await page.goto("/dashboard");

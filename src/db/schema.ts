@@ -879,6 +879,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "event_cancellation_requested",
   "event_cancelled",
   "event_cancellation_declined",
+  /** PTR-47 AC4: a withdrawal freed a place from an event at its registration capacity. */
+  "registration_place_freed",
 ]);
 
 export const notifications = pgTable(
