@@ -13,6 +13,7 @@ import {
   EventRegisteredEmail,
   RegistrationPlaceFreedEmail,
   RegistrationThresholdEmail,
+  RegistrationWindowEmail,
 } from "#/features/emails/components/event-registration-email";
 import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
 import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
@@ -379,6 +380,38 @@ describe("Email templates rendering", () => {
     expect(html).toContain("http://localhost:3000/event-requests/12");
   });
 
+  it("renders RegistrationWindowEmail when opened", async () => {
+    const html = await render(
+      <RegistrationWindowEmail
+        eventName="Open Day"
+        boundary="opened"
+        time="2026-12-05 10:00:00"
+        eventUrl="http://localhost:3000/event-requests/12"
+      />
+    );
+
+    expect(html).toContain("Registration has opened");
+    expect(html).toContain("Registration for");
+    expect(html).toContain("Open Day");
+    expect(html).toContain("opened on 5 December 2026 at 10:00.");
+    expect(html).toContain("http://localhost:3000/event-requests/12");
+  });
+
+  it("renders RegistrationWindowEmail when closed", async () => {
+    const html = await render(
+      <RegistrationWindowEmail
+        eventName="Open Day"
+        boundary="closed"
+        time="2026-12-05 16:00:00"
+        eventUrl="http://localhost:3000/coordination/12"
+      />
+    );
+
+    expect(html).toContain("Registration has closed");
+    expect(html).toContain("Open Day");
+    expect(html).toContain("registration closed on 5 December 2026 at 16:00.");
+    expect(html).toContain("http://localhost:3000/coordination/12");
+  });
   it("renders the cancellation request with the event and the coordination link (PTR-53 AC3)", async () => {
     const eventUrl = "http://localhost:3000/coordination/42";
     const html = await render(

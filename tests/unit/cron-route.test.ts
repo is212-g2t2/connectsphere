@@ -1,16 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Route } from "#/routes/api/cron/notifications";
 
-const { mockEnv, mockDeliver } = vi.hoisted(() => {
+const { mockEnv, mockDeliver, mockSweep } = vi.hoisted(() => {
   const env: { CRON_TOKEN?: string } = {};
   return {
     mockEnv: env,
     mockDeliver: vi.fn<(database: unknown) => Promise<unknown>>(),
+    mockSweep: vi.fn<(database: unknown) => Promise<number>>(),
   };
 });
 
 vi.mock("#/env", () => ({ env: mockEnv }));
 vi.mock("#/db", () => ({ db: {} }));
+vi.mock("#/features/events/registration-boundaries.server", () => ({
+  sweepRegistrationWindows: mockSweep,
+}));
 vi.mock("#/features/notifications/deliver.server", () => ({
   deliverPendingNotifications: mockDeliver,
 }));
@@ -68,11 +72,30 @@ describe("POST /api/cron/notifications", () => {
 
   it("runs one delivery batch and answers with its result when the token matches", async () => {
     mockDeliver.mockResolvedValue({ sent: 2, failed: 1, pending: 3 });
+    mockSweep.mockResolvedValue(5);
 
     const response = await getPostHandler()({ request: cronRequest("Bearer cron-token") });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ sent: 2, failed: 1, pending: 3 });
+    await expect(response.json()).resolves.toEqual({ raised: 5, sent: 2, failed: 1, pending: 3 });
+    expect(mockSweep).toHaveBeenCalledOnce();
+    expect(mockDeliver).toHaveBeenCalledOnce();
+  });
+
+  it("answers with raised: 'failed' and proceeds with delivery if the sweep throws", async () => {
+    mockDeliver.mockResolvedValue({ sent: 1, failed: 0, pending: 0 });
+    mockSweep.mockRejectedValue(new Error("Database connection lost"));
+
+    const response = await getPostHandler()({ request: cronRequest("Bearer cron-token") });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      raised: "failed",
+      sent: 1,
+      failed: 0,
+      pending: 0,
+    });
+    expect(mockSweep).toHaveBeenCalledOnce();
     expect(mockDeliver).toHaveBeenCalledOnce();
   });
 });

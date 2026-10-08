@@ -19,11 +19,22 @@ export const Route = createFileRoute("/api/cron/notifications")({
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }
 
-        const [{ db }, { deliverPendingNotifications }] = await Promise.all([
-          import("#/db"),
-          import("#/features/notifications/deliver.server"),
-        ]);
-        return Response.json(await deliverPendingNotifications(db));
+        const [{ db }, { deliverPendingNotifications }, { sweepRegistrationWindows }] =
+          await Promise.all([
+            import("#/db"),
+            import("#/features/notifications/deliver.server"),
+            import("#/features/events/registration-boundaries.server"),
+          ]);
+
+        let raised: number | "failed" = 0;
+        try {
+          raised = await sweepRegistrationWindows(db);
+        } catch (error) {
+          logger.getChild("cron").error("Registration sweep failed", { error });
+          raised = "failed";
+        }
+        const delivered = await deliverPendingNotifications(db);
+        return Response.json({ raised, ...delivered });
       },
     },
   },

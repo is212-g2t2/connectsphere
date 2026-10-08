@@ -32,6 +32,8 @@ export const NOTIFICATION_KINDS = [
   "event_cancellation_declined",
   /** PTR-47 AC4: a withdrawal freed a place from an event that was at its registration capacity. */
   "registration_place_freed",
+  "registration_opened",
+  "registration_closed",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -211,6 +213,16 @@ const payloadSchemas = {
     limit: z.number(),
     audience: z.enum(["organiser", "coordinator"]),
   }),
+  registration_opened: z.object({
+    eventName: z.string(),
+    opensAt: z.string(),
+    audience: z.enum(["organiser", "coordinator"]),
+  }),
+  registration_closed: z.object({
+    eventName: z.string(),
+    closesAt: z.string(),
+    audience: z.enum(["organiser", "coordinator"]),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -291,6 +303,14 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("registration_place_freed"),
     payload: payloadSchemas.registration_place_freed,
   }),
+  z.object({
+    kind: z.literal("registration_opened"),
+    payload: payloadSchemas.registration_opened,
+  }),
+  z.object({
+    kind: z.literal("registration_closed"),
+    payload: payloadSchemas.registration_closed,
+  }),
 ]);
 
 /**
@@ -362,6 +382,10 @@ export function notificationSummary(notification: NotificationPayload): string {
       return `Cancellation request declined: ${notification.payload.eventName}`;
     case "registration_place_freed":
       return `A place has been freed for ${notification.payload.eventName}`;
+    case "registration_opened":
+      return `Registration has opened for ${notification.payload.eventName}`;
+    case "registration_closed":
+      return `Registration has closed for ${notification.payload.eventName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -426,7 +450,9 @@ export function notificationHref(
       return `/events/${eventRequestId}`;
     case "registration_threshold_reached":
     case "registration_place_freed":
-      // The Organiser opens the event-requests page; the Coordinator opens the coordination page.
+    // The Organiser opens the event-requests page; the Coordinator opens the coordination page.
+    case "registration_opened":
+    case "registration_closed":
       return notification.payload.audience === "coordinator"
         ? `/coordination/${eventRequestId}`
         : `/event-requests/${eventRequestId}`;
@@ -499,6 +525,8 @@ export function notificationReachable(
     case "event_cancelled":
     case "event_cancellation_declined":
     case "registration_place_freed":
+    case "registration_opened":
+    case "registration_closed":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

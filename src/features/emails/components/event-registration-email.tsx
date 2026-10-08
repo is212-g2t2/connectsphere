@@ -116,3 +116,47 @@ export const RegistrationPlaceFreedEmail = ({
     </Section>
   </Layout>
 );
+
+interface RegistrationWindowEmailProps {
+  eventName: string;
+  boundary: "opened" | "closed";
+  time: string;
+  eventUrl: string;
+}
+
+/** PTR-49: the registration window opened or closed for an event. */
+export const RegistrationWindowEmail = ({
+  eventName,
+  boundary,
+  time,
+  eventUrl,
+}: RegistrationWindowEmailProps) => {
+  const isOpened = boundary === "opened";
+  const heading = isOpened ? "Registration has opened" : "Registration has closed";
+  const period = `${formatDate(time)} at ${formatTime(time)}`;
+
+  return (
+    <Layout previewText={`${heading} for ${eventName}`}>
+      <Section>
+        <Text style={emailHeading}>{heading}</Text>
+        <Text style={emailText}>
+          {isOpened ? (
+            <>
+              {"Registration for "}
+              <strong>{eventName}</strong>
+              {` opened on ${period}.`}
+            </>
+          ) : (
+            <>
+              <strong>{eventName}'s</strong>
+              {` registration closed on ${period}.`}
+            </>
+          )}
+        </Text>
+        <Button href={eventUrl} style={emailButton}>
+          View the event
+        </Button>
+      </Section>
+    </Layout>
+  );
+};
