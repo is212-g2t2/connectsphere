@@ -51,6 +51,10 @@ async function loadUpdateServer() {
   return Promise.all([import("#/db"), import("#/features/events/update.server")]);
 }
 
+async function loadArrangementsServer() {
+  return Promise.all([import("#/db"), import("#/features/events/arrangements.server")]);
+}
+
 const requireEventRegister = requirePermission({ event: ["register"] });
 const requireVipRegistrationManage = requirePermission({ vip_registration: ["manage"] });
 
@@ -102,10 +106,25 @@ export const updateEventInformation = createServerFn({ method: "POST" })
         eventId: data.id,
         actorId: context.user.id,
         changedFields: result.changedFields,
+        significantFields: result.significantFields,
+        notified: result.notified,
       });
     }
 
     return result;
+  });
+
+/**
+ * PTR-23 AC3: what an event holds, read before a significant change is saved so the warning can
+ * name each booking, hold and reservation. The handler re-reads the assignment, so the permission
+ * says only that the caller may coordinate. Reading changes nothing.
+ */
+export const listEventArrangements = createServerFn({ method: "GET" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleListEventArrangements }] = await loadArrangementsServer();
+    return handleListEventArrangements(data, context.user, db);
   });
 
 /**

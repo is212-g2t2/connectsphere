@@ -19,6 +19,7 @@ import {
 import { EventChangeRequestEmail } from "#/features/emails/components/event-change-request-email";
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
+import { EventSignificantChangeEmail } from "#/features/emails/components/event-significant-change-email";
 import {
   EventRegisteredEmail,
   RegistrationPlaceFreedEmail,
@@ -331,6 +332,15 @@ export function renderNotificationEmail(
         }),
       };
     }
+    case "event_significant_change":
+      // The link is the surface where the recipient's arrangement is, the same one the inbox opens.
+      return {
+        subject,
+        element: createElement(EventSignificantChangeEmail, {
+          ...notification.payload,
+          arrangementUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
     default: {
       const unhandled: never = notification;
       throw new Error(`No email template for notification kind "${String(unhandled)}"`);

@@ -1,16 +1,7 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import {
-  equipmentRequests,
-  equipmentReservations,
-  eventCancellationRequests,
-  eventRegistrations,
-  eventRequests,
-  venueHolds,
-  venueRequests,
-  venues,
-} from "#/db/schema";
+import { eventCancellationRequests, eventRegistrations, eventRequests } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
@@ -19,8 +10,8 @@ import {
   parseEventCancellationDeclineInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
+import { loadArrangementHolders } from "#/features/events/arrangements.server";
 import { NO_CANCELLATION_REQUEST_MESSAGE } from "#/features/events/cancellation";
-import type { OutstandingReleases } from "#/features/events/cancellation";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 
@@ -32,57 +23,6 @@ import type { NewNotification } from "#/features/notifications/raise.server";
 
 type Database = typeof Db;
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
-
-/**
- * PTR-54 AC2, AC6: the approved bookings, the held tentative holds and the reserved equipment of
- * an event, each still waiting for the staff concerned to release it. The Coordinator's page reads
- * this for a cancelled event, so an item leaves the list as soon as it is released.
- */
-export async function loadOutstandingReleases(
-  database: Pick<Database, "select">,
-  eventId: number
-): Promise<OutstandingReleases> {
-  const [venueBookings, venueHoldRows, equipmentRows] = await Promise.all([
-    database
-      .select({
-        id: venueRequests.id,
-        venueName: venues.name,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-      })
-      .from(venueRequests)
-      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-      .where(and(eq(venueRequests.eventId, eventId), eq(venueRequests.status, "approved")))
-      .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id)),
-    database
-      .select({
-        id: venueHolds.id,
-        venueId: venueHolds.venueId,
-        venueName: venues.name,
-        startsAt: venueHolds.startsAt,
-        endsAt: venueHolds.endsAt,
-      })
-      .from(venueHolds)
-      .innerJoin(venues, eq(venues.id, venueHolds.venueId))
-      .where(and(eq(venueHolds.eventId, eventId), eq(venueHolds.status, "held")))
-      .orderBy(asc(venueHolds.startsAt), asc(venueHolds.id)),
-    database
-      .select({
-        id: equipmentRequests.id,
-        item: equipmentRequests.item,
-        quantity: equipmentReservations.quantity,
-      })
-      .from(equipmentReservations)
-      .innerJoin(
-        equipmentRequests,
-        eq(equipmentRequests.id, equipmentReservations.equipmentRequestId)
-      )
-      .where(eq(equipmentRequests.eventId, eventId))
-      .orderBy(asc(equipmentRequests.id)),
-  ]);
-
-  return { venueBookings, venueHolds: venueHoldRows, equipmentReservations: equipmentRows };
-}
 
 /**
  * The assigned Coordinator's event with its waiting cancellation request, both locked. The event
@@ -184,26 +124,7 @@ async function staffNotices(
   eventId: number,
   name: string
 ): Promise<NewNotification[]> {
-  const [bookings, lines] = await Promise.all([
-    tx
-      .select({
-        staffId: venueRequests.assignedStaffId,
-        venueName: venues.name,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-      })
-      .from(venueRequests)
-      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-      .where(and(eq(venueRequests.eventId, eventId), eq(venueRequests.status, "approved"))),
-    tx
-      .selectDistinct({ staffId: equipmentRequests.assignedStaffId })
-      .from(equipmentReservations)
-      .innerJoin(
-        equipmentRequests,
-        eq(equipmentRequests.id, equipmentReservations.equipmentRequestId)
-      )
-      .where(eq(equipmentRequests.eventId, eventId)),
-  ]);
+  const { bookings, reservationStaffIds } = await loadArrangementHolders(tx, eventId);
 
   const notices: NewNotification[] = [];
   for (const { staffId, venueName, startsAt, endsAt } of bookings) {
@@ -215,8 +136,7 @@ async function staffNotices(
       payload: { audience: "venue_staff", venueName, startsAt, endsAt },
     });
   }
-  for (const { staffId } of lines) {
-    if (!staffId) continue;
+  for (const staffId of reservationStaffIds) {
     notices.push({
       recipientId: staffId,
       eventRequestId: eventId,

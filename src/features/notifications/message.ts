@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ARRANGEMENT_STATES } from "#/features/equipment-requests/schema";
+import { SIGNIFICANT_FIELDS } from "#/features/event-requests/schema";
 
 /**
  * PTR-55: the notification kinds the application raises. The Postgres enum in
@@ -34,6 +35,8 @@ export const NOTIFICATION_KINDS = [
   "registration_place_freed",
   "registration_opened",
   "registration_closed",
+  /** PTR-23 AC5: a significant change was saved on an event whose arrangements the recipient holds. */
+  "event_significant_change",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -222,6 +225,27 @@ const payloadSchemas = {
     closesAt: z.string(),
     audience: z.enum(["organiser", "coordinator"]),
   }),
+  /**
+   * PTR-23 AC5: which significant fields changed, told to the staff holding an arrangement. The
+   * Venue Staff copy names the booking and not the event, as every Venue Staff notice does
+   * (PTR-8 AC3); the Technical Support copy names the event their reservation is for.
+   */
+  event_significant_change: z.discriminatedUnion("audience", [
+    z.object({
+      audience: z.literal("venue_staff"),
+      venueName: z.string(),
+      startsAt: z.string(),
+      endsAt: z.string(),
+      changedFields: z.array(z.enum(SIGNIFICANT_FIELDS)).min(1),
+      actorName: z.string(),
+    }),
+    z.object({
+      audience: z.literal("technical_support"),
+      eventName: z.string(),
+      changedFields: z.array(z.enum(SIGNIFICANT_FIELDS)).min(1),
+      actorName: z.string(),
+    }),
+  ]),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -310,6 +334,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("registration_closed"),
     payload: payloadSchemas.registration_closed,
   }),
+  z.object({
+    kind: z.literal("event_significant_change"),
+    payload: payloadSchemas.event_significant_change,
+  }),
 ]);
 
 /**
@@ -385,6 +413,10 @@ export function notificationSummary(notification: NotificationPayload): string {
       return `Registration has opened for ${notification.payload.eventName}`;
     case "registration_closed":
       return `Registration has closed for ${notification.payload.eventName}`;
+    case "event_significant_change":
+      return notification.payload.audience === "venue_staff"
+        ? `Event details changed for the booking at ${notification.payload.venueName}`
+        : `Event details changed: ${notification.payload.eventName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -474,6 +506,12 @@ export function notificationHref(
           throw new Error(`No event_cancelled href for "${String(unhandled)}"`);
         }
       }
+    case "event_significant_change":
+      // Each holder opens the surface where their arrangement is: the bookings view (PTR-37) or
+      // the event page, which carries the equipment work list (PTR-39).
+      return notification.payload.audience === "venue_staff"
+        ? "/venue-bookings"
+        : `/events/${eventRequestId}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -524,6 +562,7 @@ export function notificationReachable(
     case "registration_place_freed":
     case "registration_opened":
     case "registration_closed":
+    case "event_significant_change":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

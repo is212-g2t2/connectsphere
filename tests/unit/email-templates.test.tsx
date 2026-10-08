@@ -9,6 +9,7 @@ import {
   EventCancelledEmail,
 } from "#/features/emails/components/event-cancellation-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
+import { EventSignificantChangeEmail } from "#/features/emails/components/event-significant-change-email";
 import {
   EventRegisteredEmail,
   RegistrationPlaceFreedEmail,
@@ -468,6 +469,44 @@ describe("Email templates rendering", () => {
       />
     );
     expect(techHtml).toContain("release");
+  });
+
+  it("renders the significant change to each holder, naming the booking to Venue Staff and the event to Technical Support (PTR-23 AC5)", async () => {
+    const venueHtml = await render(
+      <EventSignificantChangeEmail
+        audience="venue_staff"
+        venueName="Seminar Room 2A"
+        startsAt="2026-12-05 10:00:00"
+        endsAt="2026-12-05 16:00:00"
+        changedFields={["proposedDates", "expectedAttendance"]}
+        actorName="Alex Tan"
+        arrangementUrl="http://localhost:3000/venue-bookings"
+      />
+    );
+    expect(venueHtml).toContain("Alex Tan");
+    expect(venueHtml).toContain("proposed dates and times and expected attendance");
+    expect(venueHtml).toContain("Seminar Room 2A");
+    expect(venueHtml).toContain("5 December 2026");
+    expect(venueHtml).toContain("10:00");
+    expect(venueHtml).toContain("still held");
+    expect(venueHtml).toContain("http://localhost:3000/venue-bookings");
+    expect(venueHtml).toContain("View venue bookings");
+
+    const techHtml = await render(
+      <EventSignificantChangeEmail
+        audience="technical_support"
+        eventName="Community workshop"
+        changedFields={["equipmentRequirements"]}
+        actorName="Alex Tan"
+        arrangementUrl="http://localhost:3000/events/42"
+      />
+    );
+    expect(techHtml).toContain("Community workshop");
+    expect(techHtml).toContain("equipment requirements");
+    expect(techHtml).not.toContain("and equipment requirements");
+    expect(techHtml).toContain("reservations are unchanged");
+    expect(techHtml).toContain("http://localhost:3000/events/42");
+    expect(techHtml).toContain("View the event");
   });
 
   it("renders the declined cancellation request with the reason (PTR-54 AC8)", async () => {

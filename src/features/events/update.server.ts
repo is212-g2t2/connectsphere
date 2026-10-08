@@ -8,16 +8,30 @@ import { amendedValues, amendmentsBetween } from "#/features/event-requests/amen
 import {
   EVENT_INFORMATION_FIELDS,
   EVENT_REQUEST_STATUS_LABELS,
+  SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE,
   canUpdateEventInformation,
   parseEventInformationInput,
+  significantFields,
 } from "#/features/event-requests/schema";
-import type { ClarificationField } from "#/features/event-requests/schema";
+import type { ClarificationField, SignificantField } from "#/features/event-requests/schema";
+import { loadArrangementHolders } from "#/features/events/arrangements.server";
+import { raiseNotifications } from "#/features/notifications/raise.server";
+import type { NewNotification } from "#/features/notifications/raise.server";
 
 // Server-only on purpose, and named for it: `#/db/schema` is a value import here, so this is
 // reached through a dynamic `import()` inside `.handler()` in `server-fns.ts`. The middleware
 // pipeline has already verified the session and `event_request:coordinate`.
 
 type Database = typeof Db;
+type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+export interface EventInformationUpdated {
+  changedFields: ClarificationField[];
+  /** PTR-23 AC1: the changed fields that made this a significant change; empty for an ordinary edit. */
+  significantFields: SignificantField[];
+  /** PTR-23 AC5: how many staff holding an arrangement were told. */
+  notified: number;
+}
 
 /**
  * PTR-22 AC2/AC4: the assigned Coordinator updates an approved, planning or confirmed event. The
@@ -25,12 +39,16 @@ type Database = typeof Db;
  * the Coordinator did not touch keeps its stored value. Each changed field gets one change-log
  * row, in the same transaction as the update. A save that changes nothing writes nothing. Every
  * view reads the row live, so the next read shows the new values (AC3).
+ *
+ * PTR-23: a significant change (AC1) is refused until the Coordinator acknowledges the warning
+ * that names what the event holds (AC2), and once saved it tells the staff holding a booking or a
+ * reservation (AC5). The arrangements themselves are not touched (AC3).
  */
 export async function handleUpdateEventInformation(
   data: unknown,
   actor: SessionUser,
   database: Database
-): Promise<{ changedFields: ClarificationField[] }> {
+): Promise<EventInformationUpdated> {
   const input = parseEventInformationInput(data);
 
   return database.transaction(async tx => {
@@ -51,7 +69,14 @@ export async function handleUpdateEventInformation(
 
     const values = amendedValues(request, input.amendments);
     const changes = amendmentsBetween(request, values, EVENT_INFORMATION_FIELDS);
-    if (changes.length === 0) return { changedFields: [] };
+    if (changes.length === 0) return { changedFields: [], significantFields: [], notified: 0 };
+
+    // Decided on what actually changed, not on what the form touched: a field typed over and
+    // restored is no change. The refusal rolls the locked row back untouched.
+    const significant = significantFields(changes.map(change => change.field));
+    if (significant.length > 0 && input.acknowledgeSignificant !== true) {
+      throw new ConflictError(SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE);
+    }
 
     await tx
       .update(eventRequests)
@@ -78,6 +103,63 @@ export async function handleUpdateEventInformation(
       }))
     );
 
-    return { changedFields: changes.map(change => change.field) };
+    const notices =
+      significant.length > 0 ? await significantChangeNotices(tx, request, significant, actor) : [];
+    await raiseNotifications(tx, notices);
+
+    return {
+      changedFields: changes.map(change => change.field),
+      significantFields: significant,
+      notified: notices.length,
+    };
   });
+}
+
+/**
+ * PTR-23 AC5: the Venue Staff on each approved booking and each Technical Support member holding
+ * a reservation are told which significant fields changed. The Venue Staff copy names the booking,
+ * never the event (PTR-8). A tentative hold is the Coordinator's own and names no one. The rows
+ * commit with the update; the worker sends the emails.
+ */
+async function significantChangeNotices(
+  tx: Tx,
+  event: { id: number; eventName: string },
+  changedFields: readonly SignificantField[],
+  actor: SessionUser
+): Promise<NewNotification[]> {
+  const { bookings, reservationStaffIds } = await loadArrangementHolders(tx, event.id);
+  const actorName = actor.name?.trim() || actor.email;
+  const fields = [...changedFields];
+
+  const notices: NewNotification[] = [];
+  for (const { staffId, venueName, startsAt, endsAt } of bookings) {
+    if (!staffId) continue;
+    notices.push({
+      recipientId: staffId,
+      eventRequestId: event.id,
+      kind: "event_significant_change",
+      payload: {
+        audience: "venue_staff",
+        venueName,
+        startsAt,
+        endsAt,
+        changedFields: fields,
+        actorName,
+      },
+    });
+  }
+  for (const staffId of reservationStaffIds) {
+    notices.push({
+      recipientId: staffId,
+      eventRequestId: event.id,
+      kind: "event_significant_change",
+      payload: {
+        audience: "technical_support",
+        eventName: event.eventName.trim() || "Untitled event",
+        changedFields: fields,
+        actorName,
+      },
+    });
+  }
+  return notices;
 }

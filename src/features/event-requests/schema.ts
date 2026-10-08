@@ -543,6 +543,11 @@ export const CLARIFICATION_FIELDS = [
 ] as const;
 export type ClarificationField = (typeof CLARIFICATION_FIELDS)[number]["key"];
 
+/** The form label of a field, for the change history, the significant-change warning and its notices. */
+export function clarificationFieldLabel(field: ClarificationField): string {
+  return CLARIFICATION_FIELDS.find(candidate => candidate.key === field)?.label ?? field;
+}
+
 /** The four columns a reply to the one `attendeeRegistration` question may amend as a group. */
 export const ATTENDEE_REGISTRATION_AMENDMENT_KEYS = [
   "registrationEnabled",
@@ -663,6 +668,12 @@ const EventInformationInput = EventRequestIdInput.extend({
         error: EVENT_INFORMATION_ONLY_MESSAGE,
       }
     ),
+  /**
+   * PTR-23 AC2: the Coordinator has read the warning that names what the event holds. The server
+   * refuses a significant change without it, so the warning cannot be skipped by a direct call.
+   * Absent on an ordinary edit, which needs no warning.
+   */
+  acknowledgeSignificant: z.boolean().optional(),
 });
 
 export function parseEventInformationInput(data: unknown) {
@@ -670,3 +681,29 @@ export function parseEventInformationInput(data: unknown) {
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;
 }
+
+// ── Significant changes (PTR-23) ────────────────────────────────────────────
+
+/**
+ * PTR-23 AC1: the fields whose change is significant. The proposed dates carry the event's date,
+ * its times and so its duration. The venue bookings, tentative holds and equipment reservations an
+ * event holds were made against these four, so a change to one of them warns the Coordinator
+ * before it is saved (AC2) and tells the staff holding an arrangement after (AC5). A change to any
+ * other field is ordinary and saves as before (AC4).
+ */
+export const SIGNIFICANT_FIELDS = [
+  "proposedDates",
+  "expectedAttendance",
+  "venueRequirements",
+  "equipmentRequirements",
+] as const satisfies readonly ClarificationField[];
+
+export type SignificantField = (typeof SIGNIFICANT_FIELDS)[number];
+
+/** The significant fields among `fields`, in the order `SIGNIFICANT_FIELDS` lists them. */
+export function significantFields(fields: readonly string[]): SignificantField[] {
+  return SIGNIFICANT_FIELDS.filter(field => fields.includes(field));
+}
+
+export const SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE =
+  "This change is significant. Review the arrangements it affects, then save again.";
