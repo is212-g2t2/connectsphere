@@ -1,1 +1,4 @@
 * text=auto eol=lf
+
+# drizzle-kit output: journal and cumulative schema snapshots
+src/db/drizzle/meta/** linguist-generated
