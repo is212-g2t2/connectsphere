@@ -222,7 +222,10 @@ describe("EventPage (PTR-44)", () => {
       <EventPage
         event={{
           ...projection,
-          event: { ...projection.event, places: { registered: 36, limit: 40 } },
+          event: {
+            ...projection.event,
+            places: { registered: 36, limit: 40, vip: 0, capacity: 40 },
+          },
         }}
       />
     );
@@ -320,7 +323,7 @@ describe("EventPage registration availability (PTR-50)", () => {
   it("says the event is full in place of the count, and offers no action (AC3)", () => {
     renderWith({
       registrationAvailability: { state: "full", venueCapacity: null },
-      places: { registered: 40, limit: 40 },
+      places: { registered: 40, vip: 0, limit: 40, capacity: 40 },
     });
 
     expect(screen.getByText("This event is full.")).toBeTruthy();
@@ -332,7 +335,7 @@ describe("EventPage registration availability (PTR-50)", () => {
     // VIPs added after the normal places were taken leave more registrations than places.
     renderWith({
       registrationAvailability: { state: "full", venueCapacity: 30 },
-      places: { registered: 2, limit: 1 },
+      places: { registered: 2, vip: 1, limit: 1, capacity: 1 },
     });
 
     expect(

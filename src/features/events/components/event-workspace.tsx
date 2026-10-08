@@ -22,6 +22,7 @@ import { ConfirmEventAction } from "#/features/events/components/confirm-event-a
 import { CompleteEventAction } from "#/features/events/components/complete-event-action";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { VipRegistrations } from "#/features/events/components/vip-registrations";
+import { AttendeeRegistrations } from "#/features/events/components/attendee-registrations";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
 import { arrangementStateLabel, canGiveBackUnits } from "#/features/equipment-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
@@ -243,6 +244,25 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                       }`}
                     />
                   </dl>
+                )}
+
+                {/* PTR-48: Organiser/Coordinator view of registration capacities and list */}
+                {event.places && (
+                  <div className="mt-5 border-t border-border pt-4">
+                    <div className="flex items-baseline justify-between gap-4">
+                      <p className="body-sm font-medium">Attendee registrations</p>
+                      <p className="body-sm text-muted-foreground">
+                        {`${event.places.registered} / ${event.places.limit} registered` +
+                          (event.places.vip > 0 ? ` (${event.places.vip} VIP)` : "")}
+                      </p>
+                    </div>
+                    <div className="mt-3">
+                      <AttendeeRegistrations
+                        eventId={event.id}
+                        registeredCount={event.places.registered}
+                      />
+                    </div>
+                  </div>
                 )}
 
                 {/* PTR-111: the Organiser and the assigned Coordinator manage a published event's VIPs. */}
