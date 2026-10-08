@@ -20,6 +20,7 @@ const statement = {
   event_request: ["create", "coordinate"],
   venue: ["create", "update", "read", "search"],
   venue_request: ["request", "read", "decide"],
+  event_registration: ["read"],
   /** PTR-41 `reserve` commits units to a line; PTR-42 `release` gives some or all of them back. */
   equipment: ["reserve", "release"],
   /**
@@ -63,10 +64,15 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   // PTR-45 AC1: registration is the Attendee's function alone, so there is no guest path and no
   // other role registers. The handler re-reads which events the Attendee may register for.
   attendee: ac.newRole({ event: ["register"] }),
-  event_organiser: ac.newRole({ event_request: ["create"], vip_registration: ["manage"] }),
+  event_organiser: ac.newRole({
+    event_request: ["create"],
+    vip_registration: ["manage"],
+    event_registration: ["read"],
+  }),
   event_coordinator: ac.newRole({
     event_request: ["coordinate"],
     vip_registration: ["manage"],
+    event_registration: ["read"],
     venue: ["read", "search"],
     venue_request: ["request"],
     equipment_request: ["manage", "submit"],

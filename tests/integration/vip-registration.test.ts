@@ -627,7 +627,7 @@ describe("VIP registrations (PTR-111)", () => {
       sixthGuest,
       database as never
     );
-    expect(attendeeView.event.places).toEqual({ registered: 1, limit: 2 });
+    expect(attendeeView.event.places).toEqual({ registered: 1, vip: 2, limit: 2, capacity: 4 });
     expect(attendeeView.event).not.toHaveProperty("vipRegistrations");
   });
 
