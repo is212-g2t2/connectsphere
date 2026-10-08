@@ -33,7 +33,6 @@ import {
   parseVipSearchInput,
 } from "#/features/events/schema";
 import { raiseNotifications } from "#/features/notifications/raise.server";
-import type { NewNotification } from "#/features/notifications/raise.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 
 /**
@@ -288,7 +287,7 @@ export async function handleRemoveVipRegistration(
  * The event row. Every registration write locks it before it counts; `no key update` does not
  * block the key-share locks that foreign-key inserts take on the event row.
  */
-async function readEvent(
+export async function readEvent(
   database: Pick<Database, "select">,
   eventId: number,
   { lock = false }: { lock?: boolean } = {}
@@ -310,7 +309,7 @@ async function readEvent(
   return (await (lock ? query.for("no key update") : query)).at(0);
 }
 
-type EventRow = NonNullable<Awaited<ReturnType<typeof readEvent>>>;
+export type EventRow = NonNullable<Awaited<ReturnType<typeof readEvent>>>;
 
 /**
  * PTR-111: the published event that the caller manages VIPs for. Only its Organiser and its
@@ -326,8 +325,26 @@ function requireManagedEvent(event: EventRow | undefined, actor: SessionUser): E
   return event;
 }
 
-function eventName(event: EventRow): string {
+export function eventName(event: EventRow): string {
   return event.eventName.trim() || "Untitled event";
+}
+
+type StakeholderRecipient = { recipientId: string; audience: "organiser" | "coordinator" };
+
+/**
+ * Who hears a registration notification: the Organiser always, and the assigned Coordinator when
+ * the event has one. Each carries their own audience, so the inbox links each party to their page.
+ * `announcePlaceMark` below and `announceFreedPlace` in `withdraw.server.ts` build their notices
+ * from this list instead of repeating the rule.
+ */
+export function stakeholderRecipients(event: EventRow): StakeholderRecipient[] {
+  const recipients: StakeholderRecipient[] = [
+    { recipientId: event.organiserId, audience: "organiser" },
+  ];
+  if (event.assignedCoordinatorId) {
+    recipients.push({ recipientId: event.assignedCoordinatorId, audience: "coordinator" });
+  }
+  return recipients;
 }
 
 /**
@@ -355,24 +372,15 @@ async function announcePlaceMark(
     .limit(1);
   if (told.length > 0) return;
 
-  const threshold = { eventName: eventName(event), registered, limit };
-  const notices: NewNotification[] = [
-    {
-      recipientId: event.organiserId,
+  await raiseNotifications(
+    tx,
+    stakeholderRecipients(event).map(({ recipientId, audience }) => ({
+      recipientId,
       eventRequestId: event.id,
       kind: "registration_threshold_reached",
-      payload: { ...threshold, audience: "organiser" },
-    },
-  ];
-  if (event.assignedCoordinatorId) {
-    notices.push({
-      recipientId: event.assignedCoordinatorId,
-      eventRequestId: event.id,
-      kind: "registration_threshold_reached",
-      payload: { ...threshold, audience: "coordinator" },
-    });
-  }
-  await raiseNotifications(tx, notices);
+      payload: { eventName: eventName(event), registered, limit, audience },
+    }))
+  );
 }
 
 /** Whether the Attendee holds a `registered` registration for the event, of either kind. */
@@ -395,7 +403,7 @@ async function isRegistered(
 }
 
 /** The venue the event page shows: the earliest approved booking, as `records.server` picks it. */
-async function approvedBooking(database: Pick<Database, "select">, eventId: number) {
+export async function approvedBooking(database: Pick<Database, "select">, eventId: number) {
   return (
     await database
       .select({
@@ -413,7 +421,7 @@ async function approvedBooking(database: Pick<Database, "select">, eventId: numb
   ).at(0);
 }
 
-async function countRegistrations(database: Pick<Database, "select">, eventId: number) {
+export async function countRegistrations(database: Pick<Database, "select">, eventId: number) {
   const [counts] = await database
     .select(registrationCounts)
     .from(eventRegistrations)

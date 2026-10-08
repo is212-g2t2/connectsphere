@@ -21,6 +21,7 @@ import { EventConfirmedEmail } from "#/features/emails/components/event-confirme
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import {
   EventRegisteredEmail,
+  RegistrationPlaceFreedEmail,
   RegistrationThresholdEmail,
 } from "#/features/emails/components/event-registration-email";
 import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
@@ -306,6 +307,17 @@ export function renderNotificationEmail(
           eventUrl: `${base}/event-requests/${eventRequestId}`,
         }),
       };
+    case "registration_place_freed": {
+      const { eventName, limit } = notification.payload;
+      return {
+        subject,
+        element: createElement(RegistrationPlaceFreedEmail, {
+          eventName,
+          limit,
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    }
     default: {
       const unhandled: never = notification;
       throw new Error(`No email template for notification kind "${String(unhandled)}"`);

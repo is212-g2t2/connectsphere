@@ -7,6 +7,7 @@ import { EventRequestStatusBadge } from "#/features/event-requests/components/st
 import { formatLocalDateTime } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
 import { RegisterAction } from "#/features/events/components/register-action";
+import { WithdrawAction } from "#/features/events/components/withdraw-action";
 import { REGISTRATION_NOT_OPEN_MESSAGE, eventFullMessage } from "#/features/events/registration";
 import type { RegistrationAvailability } from "#/features/events/registration";
 import { eventSchedule } from "#/features/events/schedule";
@@ -64,6 +65,8 @@ export function EventPage({ event }: { event: EventProjection }) {
   const isRegistered = details.registration?.status === "registered";
   // The cancelled leg of the route's `hasAttendeePage`, so the page and the route cannot disagree.
   const isCancelled = details.status === "cancelled";
+  // Completed events take no activity writes, so the page offers no withdrawal for one.
+  const isCompleted = details.status === "completed";
   const availability = details.registrationAvailability;
   const period =
     details.registrationOpensAt && details.registrationClosesAt ? (
@@ -169,6 +172,9 @@ export function EventPage({ event }: { event: EventProjection }) {
                   <p className="mt-2 font-semibold">You&apos;re registered</p>
                   {period}
                   {places}
+                  {!isCompleted ? (
+                    <WithdrawAction eventId={details.id} eventName={details.name ?? "this event"} />
+                  ) : null}
                 </>
               ) : period ? (
                 <>

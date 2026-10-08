@@ -11,6 +11,7 @@ import {
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import {
   EventRegisteredEmail,
+  RegistrationPlaceFreedEmail,
   RegistrationThresholdEmail,
 } from "#/features/emails/components/event-registration-email";
 import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
@@ -361,6 +362,21 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Registration is nearly full");
     expect(html).toContain("36 of 40 places are taken.");
     expect(html).not.toContain("can no longer register");
+  });
+
+  it("renders RegistrationPlaceFreedEmail with event, limit and review link (PTR-47 AC4)", async () => {
+    const html = await render(
+      <RegistrationPlaceFreedEmail
+        eventName="Open Day"
+        limit={40}
+        eventUrl="http://localhost:3000/event-requests/12"
+      />
+    );
+
+    expect(html).toContain("A place has been freed");
+    expect(html).toContain("Open Day");
+    expect(html.replaceAll("<!-- -->", "")).toContain("one more place free (limit: 40)");
+    expect(html).toContain("http://localhost:3000/event-requests/12");
   });
 
   it("renders the cancellation request with the event and the coordination link (PTR-53 AC3)", async () => {
