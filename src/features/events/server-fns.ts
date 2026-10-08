@@ -14,6 +14,9 @@ import {
 } from "#/features/events/schema";
 import { logger } from "#/lib/logger";
 
+/** PTR-48: one Attendee row of `listEventRegistrations`, shared with the dialog that renders it. */
+export type { EventRegistrationRow } from "#/features/events/access";
+
 const requireEventRegistrationRead = requirePermission({ event_registration: ["read"] });
 
 const log = logger.getChild("events");

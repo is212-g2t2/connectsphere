@@ -246,20 +246,22 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                   </dl>
                 )}
 
-                {/* PTR-48: Organiser/Coordinator view of registration capacities and list */}
-                {event.places && (
+                {/* PTR-48: the event's Organiser and Coordinator see the registration count and list.
+                    The attendee projection also carries `places` (PTR-45), so the block is gated on
+                    the caller's access rather than the field's presence. */}
+                {(access === "organiser" || access === "coordinator") && event.places && (
                   <div className="mt-5 border-t border-border pt-4">
                     <div className="flex items-baseline justify-between gap-4">
                       <p className="body-sm font-medium">Attendee registrations</p>
                       <p className="body-sm text-muted-foreground">
-                        {`${event.places.registered} / ${event.places.limit} registered` +
+                        {`${event.places.registered} / ${event.places.capacity} registered` +
                           (event.places.vip > 0 ? ` (${event.places.vip} VIP)` : "")}
                       </p>
                     </div>
                     <div className="mt-3">
                       <AttendeeRegistrations
                         eventId={event.id}
-                        registeredCount={event.places.registered}
+                        registeredCount={event.places.registered + event.places.vip}
                       />
                     </div>
                   </div>

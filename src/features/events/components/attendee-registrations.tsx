@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,27 @@ import {
 } from "#/components/ui/dialog";
 import { Button } from "#/components/ui/button";
 import { listEventRegistrations } from "#/features/events/server-fns";
+import type { EventRegistrationRow } from "#/features/events/server-fns";
 
+/** The server's named refusal for this list, worded for the caller. Any other fault is generic. */
+const FORBIDDEN_MESSAGE = "You do not have permission to view these Attendees.";
+
+function refusalOf(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return message === "Forbidden" ? FORBIDDEN_MESSAGE : "";
+}
+
+type LoadState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "done"; attendees: EventRegistrationRow[] }
+  | { status: "error"; message: string };
+
+/**
+ * PTR-48: the Attendees registered for an event, for its Organiser and its assigned Coordinator.
+ * The list is read on the interaction that needs it — when the dialog opens — not from an effect,
+ * matching `VipSearch.runSearch` in `vip-registrations.tsx`.
+ */
 export function AttendeeRegistrations({
   eventId,
   registeredCount,
@@ -17,83 +37,84 @@ export function AttendeeRegistrations({
   registeredCount: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [attendees, setAttendees] = useState<
-    { attendeeId: string; name: string; email: string; vip: boolean; registeredAt: string }[] | null
-  >(null);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<LoadState>({ status: "idle" });
 
-  useEffect(() => {
-    if (open && attendees === null && !error) {
-      listEventRegistrations({ data: { id: eventId } })
-        .then(res => {
-          setAttendees(res);
-          return null;
-        })
-        .catch(err => {
-          setError(err.message || "Failed to load attendees");
-        });
+  async function load() {
+    setState({ status: "loading" });
+    try {
+      const attendees = await listEventRegistrations({ data: { id: eventId } });
+      setState({ status: "done", attendees });
+    } catch (error) {
+      setState({
+        status: "error",
+        message: refusalOf(error) || "Could not load the Attendees. Try again.",
+      });
     }
-  }, [open, eventId, attendees, error]);
+  }
 
-  const vips = attendees?.filter(a => a.vip) ?? [];
-  const standard = attendees?.filter(a => !a.vip) ?? [];
+  const attendees = state.status === "done" ? state.attendees : null;
+  const vips = attendees?.filter(attendee => attendee.vip) ?? [];
+  const standard = attendees?.filter(attendee => !attendee.vip) ?? [];
 
   return (
     <Dialog
       open={open}
       onOpenChange={isOpen => {
         setOpen(isOpen);
-        if (isOpen) {
-          setAttendees(null);
-          setError(null);
-        }
+        if (isOpen) void load();
       }}
     >
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>View Attendees</DialogTrigger>
+      <DialogTrigger render={<Button variant="outline" size="sm" />}>View attendees</DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Attendees ({attendees ? attendees.length : registeredCount})</DialogTitle>
         </DialogHeader>
         <div className="max-h-[60vh] overflow-y-auto space-y-4">
-          {error ? (
-            <p className="text-destructive text-sm">{error}</p>
+          {state.status === "error" ? (
+            <p role="alert" className="body-sm text-destructive">
+              {state.message}
+            </p>
           ) : attendees === null ? (
-            <p className="text-muted-foreground text-sm">Loading...</p>
+            <p className="body-sm text-muted-foreground">Loading…</p>
           ) : attendees.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No attendees registered.</p>
+            <p className="body-sm text-muted-foreground">No Attendees are registered.</p>
           ) : (
             <>
               {vips.length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-sm mb-2 text-primary">
-                    VIP Attendees ({vips.length})
-                  </h4>
-                  <ul className="space-y-2">
+                <section aria-labelledby={`attendee-registrations-vips-${eventId}`}>
+                  <p
+                    id={`attendee-registrations-vips-${eventId}`}
+                    className="body-sm font-medium text-primary"
+                  >
+                    VIP attendees ({vips.length})
+                  </p>
+                  <ul className="mt-3 space-y-3">
                     {vips.map(attendee => (
-                      <li key={attendee.attendeeId} className="text-sm">
-                        <span className="font-medium">{attendee.name || "Unnamed Attendee"}</span>
-                        <br />
-                        <span className="text-muted-foreground">{attendee.email}</span>
+                      <li key={attendee.attendeeId} className="body-sm">
+                        <p className="font-medium">{attendee.name || "Unnamed Attendee"}</p>
+                        <p className="break-all text-muted-foreground">{attendee.email}</p>
                       </li>
                     ))}
                   </ul>
-                </div>
+                </section>
               )}
               {standard.length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-sm mb-2">
-                    Standard Attendees ({standard.length})
-                  </h4>
-                  <ul className="space-y-2">
+                <section aria-labelledby={`attendee-registrations-standard-${eventId}`}>
+                  <p
+                    id={`attendee-registrations-standard-${eventId}`}
+                    className="body-sm font-medium"
+                  >
+                    Standard attendees ({standard.length})
+                  </p>
+                  <ul className="mt-3 space-y-3">
                     {standard.map(attendee => (
-                      <li key={attendee.attendeeId} className="text-sm">
-                        <span className="font-medium">{attendee.name || "Unnamed Attendee"}</span>
-                        <br />
-                        <span className="text-muted-foreground">{attendee.email}</span>
+                      <li key={attendee.attendeeId} className="body-sm">
+                        <p className="font-medium">{attendee.name || "Unnamed Attendee"}</p>
+                        <p className="break-all text-muted-foreground">{attendee.email}</p>
                       </li>
                     ))}
                   </ul>
-                </div>
+                </section>
               )}
             </>
           )}

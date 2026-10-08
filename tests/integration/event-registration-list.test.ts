@@ -120,9 +120,8 @@ describe("list event registrations (PTR-48)", () => {
   test("AC2: lists active attendees including VIPs, excluding withdrawn, for the Organiser", async () => {
     const list = await handleListEventRegistrations({ id: eventId }, organiser, database as never);
     expect(list).toHaveLength(3);
-    expect(list.map(a => a.attendeeId).toSorted()).toEqual(
-      [attendee.id, secondAttendee.id, thirdAttendee.id].toSorted()
-    );
+    // Ordered by registration time, then attendee id for a stable order.
+    expect(list.map(a => a.attendeeId)).toEqual([attendee.id, secondAttendee.id, thirdAttendee.id]);
 
     const third = list.find(a => a.attendeeId === thirdAttendee.id);
     expect(third?.vip).toBe(true);
@@ -147,6 +146,12 @@ describe("list event registrations (PTR-48)", () => {
     ).rejects.toThrow(AuthorizationError);
     await expect(
       handleListEventRegistrations({ id: eventId }, anotherOrganiser, database as never)
+    ).rejects.toThrow(AuthorizationError);
+  });
+
+  test("AC3: refuses a missing event the same way as a foreign one, with no existence oracle", async () => {
+    await expect(
+      handleListEventRegistrations({ id: 999_999_999 }, organiser, database as never)
     ).rejects.toThrow(AuthorizationError);
   });
 });

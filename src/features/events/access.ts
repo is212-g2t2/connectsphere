@@ -196,8 +196,11 @@ export interface AttendeeRegistrationProjection {
 }
 
 /**
- * How many places a published event has taken: its normal `registered` registrations against the
- * place limit, the lower of its registration capacity and the venue places its VIPs leave.
+ * How many places a published event has taken and how many it has. `registered` counts the normal
+ * registrations against `capacity`, the registration capacity PTR-48 shows the Organiser and the
+ * Coordinator. `limit` is the lower of that capacity and the venue places its `vip` registrations
+ * leave, which PTR-45 shows an Attendee; the VIPs are counted separately because they take venue
+ * places only.
  */
 export interface EventPlaces {
   registered: number;
@@ -214,6 +217,18 @@ export interface VipAttendee {
   attendeeId: string;
   name: string;
   email: string;
+}
+
+/**
+ * PTR-48: one Attendee registered for an event, as its Organiser and assigned Coordinator read the
+ * list. `registeredAt` is serialized to an ISO string for the client.
+ */
+export interface EventRegistrationRow {
+  attendeeId: string;
+  name: string;
+  email: string;
+  vip: boolean;
+  registeredAt: string;
 }
 
 /**

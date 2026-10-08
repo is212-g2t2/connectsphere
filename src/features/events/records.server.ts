@@ -14,7 +14,7 @@ import {
 } from "#/db/schema";
 import { user as userTable } from "#/db/auth-schema";
 import { RoleSchema } from "#/features/auth/schema/role";
-import { AuthorizationError, NotFoundError } from "#/features/auth/session";
+import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   eventTiming,
@@ -30,6 +30,7 @@ import type {
   EquipmentLineProjection,
   EventPlaces,
   EventProjection,
+  EventRegistrationRow,
   EventVenue,
   EventVenueRequest,
   VipAttendee,
@@ -283,6 +284,11 @@ export async function handleListAttendeeRegistrations(
   });
 }
 
+/** The roles that read the places of events they manage: the Organiser and the Coordinator. */
+function isOrganiserOrCoordinator(role: string | null): boolean {
+  return role === "event_organiser" || role === "event_coordinator";
+}
+
 export async function handleListEvents(
   data: unknown,
   user: SessionUser,
@@ -396,7 +402,7 @@ export async function handleListEvents(
   const confirmedIds = requestRows.filter(row => row.status === "confirmed").map(row => row.id);
   const currentVenues = new Map<number, EventVenue>();
   const venueCapacities = new Map<number, number>();
-  if (role === "event_organiser" || role === "event_coordinator" || role === "attendee") {
+  if (role === "attendee" || isOrganiserOrCoordinator(role)) {
     const confirmed = new Set(confirmedIds);
     const bookings = await loadCurrentBookings(
       database,
@@ -408,11 +414,11 @@ export async function handleListEvents(
     }
   }
 
-  // PTR-45 AC10: an attendee sees how many places each confirmed event has taken. The VIPs
-  // (PTR-111) are counted apart, because they take venue places only.
+  // PTR-45 AC10: an Attendee sees how many places each confirmed event has taken. PTR-48 adds the
+  // event's Organiser and assigned Coordinator to that view. The VIPs (PTR-111) are counted apart,
+  // because they take venue places only.
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
-    (role === "attendee" || role === "event_organiser" || role === "event_coordinator") &&
-      confirmedIds.length > 0
+    (role === "attendee" || isOrganiserOrCoordinator(role)) && confirmedIds.length > 0
       ? (
           await database
             .select({ eventId: eventRegistrations.eventId, ...registrationCounts })
@@ -431,7 +437,7 @@ export async function handleListEvents(
   // PTR-111 AC4: the Organiser and the assigned Coordinator see each published event's VIP
   // registrations apart from the normal ones.
   const vipRegistrations = new Map<number, VipAttendee[]>();
-  if (role === "event_organiser" || role === "event_coordinator") {
+  if (isOrganiserOrCoordinator(role)) {
     for (const row of requestRows) {
       if (isPublishedForAttendees(row)) vipRegistrations.set(row.id, []);
     }
@@ -674,15 +680,15 @@ export async function handleListEventRegistrations(
   data: unknown,
   user: SessionUser,
   database: Database
-) {
+): Promise<EventRegistrationRow[]> {
   const { id: eventId } = parseEventRequestId(data);
   const event = await database.query.eventRequests.findFirst({
     where: eq(eventRequests.id, eventId),
     columns: { organiserId: true, assignedCoordinatorId: true },
   });
-  if (!event) throw new NotFoundError("Event not found");
-
-  if (event.organiserId !== user.id && event.assignedCoordinatorId !== user.id) {
+  // A missing event and a foreign event refuse identically, so the status does not say whether
+  // the id exists. Sibling handlers `requireManagedEvent` and `handleRegisterForEvent` do the same.
+  if (!event || (event.organiserId !== user.id && event.assignedCoordinatorId !== user.id)) {
     throw new AuthorizationError("Forbidden");
   }
 
@@ -698,13 +704,10 @@ export async function handleListEventRegistrations(
     .innerJoin(userTable, eq(eventRegistrations.attendeeId, userTable.id))
     .where(
       and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.status, "registered"))
-    );
+    )
+    .orderBy(eventRegistrations.registeredAt, eventRegistrations.attendeeId);
 
-  results.sort((a, b) => {
-    const aDate = a.registeredAt.toISOString();
-    const bDate = b.registeredAt.toISOString();
-    return aDate.localeCompare(bDate) || a.attendeeId.localeCompare(b.attendeeId);
-  });
-
-  return results.map(a => Object.assign({}, a, { registeredAt: a.registeredAt.toISOString() }));
+  return results.map(row =>
+    Object.assign({}, row, { registeredAt: row.registeredAt.toISOString() })
+  );
 }
