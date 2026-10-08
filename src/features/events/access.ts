@@ -196,12 +196,15 @@ export interface AttendeeRegistrationProjection {
 }
 
 /**
- * How many places a published event has taken: its normal `registered` registrations against the
- * place limit, the lower of its registration capacity and the venue places its VIPs leave.
+ * How many places a published event has taken: its normal `registered` registrations and its
+ * `vip` registrations against the place `limit`, the lower of its registration `capacity` and
+ * the venue places its VIPs leave.
  */
 export interface EventPlaces {
   registered: number;
+  vip: number;
   limit: number;
+  capacity: number;
 }
 
 /**
@@ -212,6 +215,15 @@ export interface VipAttendee {
   attendeeId: string;
   name: string;
   email: string;
+}
+
+/** One row of the organiser/coordinator attendee list, with its VIP place and ISO timestamp. */
+export interface RegisteredAttendee {
+  attendeeId: string;
+  name: string;
+  email: string;
+  vip: boolean;
+  registeredAt: string;
 }
 
 /**
@@ -434,6 +446,7 @@ export function projectEvent(
           layout: record.roomLayoutPreference,
           accessibilityRequirements: record.accessibilityRequirements,
           requiredFacilities: record.venueRequirements,
+          places,
           // PTR-39 AC4: the Coordinator sees Technical Support's notes and reasons, the Organiser
           // sees the state alone.
           equipment: equipment.map(line => ({

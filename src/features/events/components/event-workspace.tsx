@@ -22,6 +22,7 @@ import { ConfirmEventAction } from "#/features/events/components/confirm-event-a
 import { CompleteEventAction } from "#/features/events/components/complete-event-action";
 import { EventRequirements } from "#/features/events/components/event-requirements";
 import { VipRegistrations } from "#/features/events/components/vip-registrations";
+import { AttendeeRegistrations } from "#/features/events/components/attendee-registrations";
 import { EquipmentPanel } from "#/features/equipment-requests/components/equipment-panel";
 import { arrangementStateLabel, canGiveBackUnits } from "#/features/equipment-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
@@ -245,12 +246,46 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                   </dl>
                 )}
 
+                {/* PTR-48: Organiser/Coordinator view of registration capacities and list */}
+                {(access === "organiser" || access === "coordinator") && event.places && (
+                  <div className="mt-5 border-t border-border pt-4">
+                    <div className="flex items-baseline justify-between gap-4">
+                      <p className="body-sm font-medium">Attendee registrations</p>
+                      <p className="body-sm text-muted-foreground">
+                        {`${event.places.registered} / ${event.places.capacity} registered` +
+                          (event.places.vip > 0 ? ` (+${event.places.vip} VIP)` : "")}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* PTR-111: the Organiser and the assigned Coordinator manage a published event's VIPs. */}
                 {event.vipRegistrations && (
                   <div className="mt-5 border-t border-border pt-4">
                     <VipRegistrations eventId={event.id} vips={event.vipRegistrations} />
                   </div>
                 )}
+
+                {(access === "organiser" || access === "coordinator") &&
+                  event.places &&
+                  (event.places.registered + event.places.vip <= 10 ? (
+                    <div className="mt-5 border-t border-border pt-4">
+                      <AttendeeRegistrations
+                        key={`${event.places.registered}-${event.places.vip}`}
+                        eventId={event.id}
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-5 border-t border-border pt-4">
+                      <Link
+                        to="/events/$eventId/attendees"
+                        params={{ eventId: String(event.id) }}
+                        className={buttonVariants({ variant: "outline", size: "sm" })}
+                      >
+                        View all attendees
+                      </Link>
+                    </div>
+                  ))}
 
                 {/* PTR-38: coordinator gets the editable panel; technical_support and organiser keep the read-only list. */}
                 {access === "coordinator" && event.equipment !== undefined && (

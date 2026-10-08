@@ -8,7 +8,7 @@ import { EventId } from "#/features/events/schema";
 import { listEvents } from "#/features/events/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
-export const Route = createFileRoute("/_authenticated/events/$eventId")({
+export const Route = createFileRoute("/_authenticated/events/$eventId/")({
   head: () => createSeoHead({ title: "Event — ConnectSphere", noindex: true }),
   beforeLoad: ({ context }) => {
     if (context.user.role !== "attendee") {

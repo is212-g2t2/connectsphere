@@ -229,6 +229,28 @@
 
   /* Modal scrims: the one place a raw black fills a surface. */
   --color-overlay: rgb(0 0 0 / 0.1);
+
+  /* The accordion panel's open and close animation, used by components/ui/accordion.tsx. */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--accordion-panel-height, auto);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--accordion-panel-height, auto);
+    }
+    to {
+      height: 0;
+    }
+  }
 }
 
 html,

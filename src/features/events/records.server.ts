@@ -40,6 +40,7 @@ import type { RegistrationAvailability } from "#/features/events/registration";
 import { completionRefusalForEvent } from "#/features/events/completion";
 import type { VenueRequestOutcome } from "#/features/venue-requests/records.server";
 import { parseEventListInput } from "#/features/events/schema";
+import { parseEventRequestId } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { loadVenueRequestOutcomesForEvents } from "#/features/venue-requests/records.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
@@ -407,10 +408,11 @@ export async function handleListEvents(
     }
   }
 
-  // PTR-45 AC10: an attendee sees how many places each confirmed event has taken. The VIPs
-  // (PTR-111) are counted apart, because they take venue places only.
+  // PTR-45 AC10: an attendee, the organiser, and the coordinator see how many places each
+  // confirmed event has taken. The VIPs (PTR-111) are counted apart, because they take venue places only.
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
-    role === "attendee" && confirmedIds.length > 0
+    (role === "attendee" || role === "event_organiser" || role === "event_coordinator") &&
+      confirmedIds.length > 0
       ? (
           await database
             .select({ eventId: eventRegistrations.eventId, ...registrationCounts })
@@ -639,7 +641,9 @@ function eventPlaces(
   if (registrationCapacity === null || venueCapacity === undefined) return null;
   return {
     registered: counts.registered,
+    vip: counts.vips,
     limit: placeLimit(registrationCapacity, venueCapacity, counts.vips),
+    capacity: registrationCapacity,
   };
 }
 
@@ -664,4 +668,35 @@ function attendeeRegistrationAvailability(
     vipCount: counts.vips,
     venueCapacity: venueCapacity ?? null,
   });
+}
+
+export async function handleListEventRegistrations(
+  data: unknown,
+  user: SessionUser,
+  database: Database
+) {
+  const { id: eventId } = parseEventRequestId(data);
+  const event = await database.query.eventRequests.findFirst({
+    where: eq(eventRequests.id, eventId),
+    columns: { organiserId: true, assignedCoordinatorId: true },
+  });
+  if (!event || (event.organiserId !== user.id && event.assignedCoordinatorId !== user.id))
+    throw new AuthorizationError("Forbidden");
+
+  const results = await database
+    .select({
+      attendeeId: eventRegistrations.attendeeId,
+      name: userTable.name,
+      email: userTable.email,
+      vip: eventRegistrations.vip,
+      registeredAt: eventRegistrations.registeredAt,
+    })
+    .from(eventRegistrations)
+    .innerJoin(userTable, eq(eventRegistrations.attendeeId, userTable.id))
+    .where(
+      and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.status, "registered"))
+    )
+    .orderBy(eventRegistrations.registeredAt, eventRegistrations.attendeeId);
+
+  return results.map(a => Object.assign({}, a, { registeredAt: a.registeredAt.toISOString() }));
 }

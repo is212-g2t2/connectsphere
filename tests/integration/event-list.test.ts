@@ -1125,7 +1125,7 @@ describe("event list handler (PTR-8)", () => {
         database as never
       );
 
-      expect(projection.event.places).toEqual({ registered: 1, limit: 40 });
+      expect(projection.event.places).toEqual({ registered: 1, vip: 0, limit: 40, capacity: 60 });
     });
 
     it("keeps the earliest-created approved booking when a later one exists (determinism)", async () => {

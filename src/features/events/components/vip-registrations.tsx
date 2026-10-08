@@ -1,7 +1,23 @@
 import { useRef, useState } from "react";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
+import { PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
+
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "#/components/ui/accordion";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "#/components/ui/dialog";
 
 import {
   AlertDialog,
@@ -62,28 +78,45 @@ function refusalOf(error: unknown): string {
  * the venue places when a VIP is added, and its refusal names the venue capacity (AC3).
  */
 export function VipRegistrations({ eventId, vips }: { eventId: number; vips: VipAttendee[] }) {
-  const headingId = `vip-registrations-${eventId}`;
+  const count = vips.length;
 
   return (
-    <section aria-labelledby={headingId}>
-      <div className="flex items-baseline justify-between gap-4">
-        <p id={headingId} className="body-sm font-medium">
-          VIP registrations
-        </p>
-        <p className="body-sm text-muted-foreground">
-          {vips.length === 1 ? "1 VIP" : `${vips.length} VIPs`}
-        </p>
+    <section aria-label="VIP registrations">
+      <div className="flex items-start justify-between gap-2">
+        <Accordion className="min-w-0 flex-1">
+          <AccordionItem value="vip-registrations">
+            <AccordionTrigger>
+              {count === 1 ? "VIP registrations (1)" : `VIP registrations (${count})`}
+            </AccordionTrigger>
+            <AccordionContent>
+              {vips.length > 0 && (
+                <ul className="mt-3 space-y-3">
+                  {vips.map(vip => (
+                    <VipRow key={vip.attendeeId} eventId={eventId} vip={vip} />
+                  ))}
+                </ul>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+        {/* Beside the trigger, never inside it: a trigger renders a button, which cannot nest. */}
+        <Dialog>
+          <DialogTrigger
+            render={
+              <Button size="icon-sm" variant="outline" aria-label="Add a VIP">
+                <PlusIcon />
+              </Button>
+            }
+          />
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add a VIP</DialogTitle>
+              <DialogDescription>Search for an Attendee account to add as a VIP.</DialogDescription>
+            </DialogHeader>
+            <VipSearch eventId={eventId} inputId={`vip-registrations-${eventId}-search`} />
+          </DialogContent>
+        </Dialog>
       </div>
-
-      {vips.length > 0 && (
-        <ul className="mt-3 space-y-3">
-          {vips.map(vip => (
-            <VipRow key={vip.attendeeId} eventId={eventId} vip={vip} />
-          ))}
-        </ul>
-      )}
-
-      <VipSearch eventId={eventId} inputId={`${headingId}-search`} />
     </section>
   );
 }
@@ -190,13 +223,13 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
           >
             {field => (
               <Field data-invalid={field.state.meta.errors.length > 0}>
-                <FieldLabel htmlFor={inputId}>Add a VIP</FieldLabel>
+                <FieldLabel htmlFor={inputId}>Search attendees</FieldLabel>
                 <Input
                   ref={input}
                   id={inputId}
                   type="search"
                   autoComplete="off"
-                  placeholder="Name or email"
+                  placeholder="Search by name or email"
                   maxLength={VIP_SEARCH_MAX_LENGTH}
                   aria-describedby={hintId}
                   aria-invalid={field.state.meta.errors.length > 0}
@@ -328,15 +361,15 @@ function VipRow({ eventId, vip }: { eventId: number; vip: VipAttendee }) {
           <AlertDialogTrigger
             render={
               <Button
-                size="sm"
+                size="icon-sm"
                 variant="outline"
                 disabled={removing}
                 aria-label={`Remove VIP registration: ${vip.name}`}
-              />
+              >
+                <Trash2Icon />
+              </Button>
             }
-          >
-            Remove
-          </AlertDialogTrigger>
+          />
           <AlertDialogContent size="sm">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove VIP registration</AlertDialogTitle>

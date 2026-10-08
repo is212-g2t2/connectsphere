@@ -14,6 +14,8 @@ import {
 } from "#/features/events/schema";
 import { logger } from "#/lib/logger";
 
+const requireEventRegistrationRead = requirePermission({ event_registration: ["read"] });
+
 const log = logger.getChild("events");
 
 /**
@@ -235,4 +237,16 @@ export const completeEvent = createServerFn({ method: "POST" })
     log.info("Event completed", { eventId: event.id, actorId: context.user.id });
 
     return event;
+  });
+
+/**
+ * PTR-48: lists the attendees registered for an event.
+ * Only the event's Organiser or assigned Coordinator can view this list.
+ */
+export const listEventRegistrations = createServerFn({ method: "GET" })
+  .middleware([requireEventRegistrationRead])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleListEventRegistrations }] = await loadServer();
+    return await handleListEventRegistrations(data, context.user, db);
   });

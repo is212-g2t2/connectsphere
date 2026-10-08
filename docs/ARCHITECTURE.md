@@ -324,6 +324,7 @@ erDiagram
 | `equipment:reserve`         |    —     |        —        |         —         |      —      |           ✅            |
 | `equipment:release`         |    —     |        —        |         —         |      —      |           ✅            |
 | `vip_registration:manage`   |    —     |       ✅        |        ✅         |      —      |            —            |
+| `event_registration:read`   |    —     |       ✅        |        ✅         |      —      |            —            |
 
 ### Enforcing it
 

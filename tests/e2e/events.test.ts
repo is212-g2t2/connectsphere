@@ -233,9 +233,12 @@ test.describe("Event access", () => {
 
     const vips = page.getByRole("region", { name: "VIP registrations" });
     await expect(vips).toBeVisible({ timeout: 10_000 });
-    await vips.getByRole("searchbox", { name: "Add a VIP" }).fill("demo@example");
+    // The search form lives in the dialog the + button opens, outside the region's DOM.
+    await vips.getByRole("button", { name: "Add a VIP" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("searchbox", { name: "Search attendees" }).fill("demo@example");
 
-    await expect(vips.getByRole("button", { name: "Add Demo User as a VIP" })).toBeVisible({
+    await expect(dialog.getByRole("button", { name: "Add Demo User as a VIP" })).toBeVisible({
       timeout: 10_000,
     });
   });

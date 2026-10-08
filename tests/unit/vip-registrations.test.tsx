@@ -63,10 +63,22 @@ const card = (vipRegistrations: VipAttendee[] | null): EventProjection => ({
   },
 });
 
+/** Opens the VIP accordion, whose rows mount only once expanded. */
+async function openSection(user: { click: (element: Element) => Promise<void> }) {
+  await user.click(screen.getByRole("button", { name: /^VIP registrations \(\d+\)$/ }));
+}
+
+/** Opens the "Add a VIP" dialog, which holds the search form. */
+async function openAddDialog(user: { click: (element: Element) => Promise<void> }) {
+  await user.click(screen.getByRole("button", { name: "Add a VIP" }));
+}
+
 /** Types into the search box of an event with no VIPs yet. */
 async function searchFor(text: string) {
   const user = userEvent.setup();
   render(<VipRegistrations eventId={12} vips={[]} />);
+  await openSection(user);
+  await openAddDialog(user);
   await user.type(searchbox(), text);
   return user;
 }
@@ -82,13 +94,14 @@ async function addAda() {
 async function removeAda() {
   const user = userEvent.setup();
   render(<VipRegistrations eventId={12} vips={[ada]} />);
+  await openSection(user);
   await user.click(screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" }));
   const dialog = await screen.findByRole("alertdialog");
   await user.click(within(dialog).getByRole("button", { name: "Remove" }));
   return dialog;
 }
 
-const searchbox = () => screen.getByRole("searchbox", { name: "Add a VIP" });
+const searchbox = () => screen.getByRole("searchbox", { name: "Search attendees" });
 
 describe("VipRegistrations (PTR-111)", () => {
   beforeEach(() => {
@@ -96,10 +109,14 @@ describe("VipRegistrations (PTR-111)", () => {
     invalidate.mockResolvedValue();
   });
 
-  it("lists the VIPs and counts them apart (AC4)", () => {
+  it("lists the VIPs and counts them apart (AC4)", async () => {
+    const user = userEvent.setup();
     render(<VipRegistrations eventId={12} vips={[ada, alan]} />);
 
-    expect(screen.getByText("2 VIPs")).toBeTruthy();
+    expect(screen.queryByText("ada@x.test")).toBeNull();
+    await openSection(user);
+
+    expect(screen.getByRole("button", { name: "VIP registrations (2)" })).toBeTruthy();
     const rows = screen.getAllByRole("listitem");
     expect(rows.map(row => within(row).getByText(/@x\.test$/).textContent)).toEqual([
       "ada@x.test",
@@ -123,6 +140,8 @@ describe("VipRegistrations (PTR-111)", () => {
     try {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<VipRegistrations eventId={12} vips={[]} />);
+      await openSection(user);
+      await openAddDialog(user);
 
       await user.type(searchbox(), " a ");
       act(() => {
@@ -141,6 +160,8 @@ describe("VipRegistrations (PTR-111)", () => {
     try {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<VipRegistrations eventId={12} vips={[]} />);
+      await openSection(user);
+      await openAddDialog(user);
 
       await user.type(searchbox(), "ada{Enter}");
       expect(await screen.findByRole("button", { name: "Add Ada Lovelace as a VIP" })).toBeTruthy();
@@ -322,9 +343,27 @@ describe("VipRegistrations (PTR-111)", () => {
     expect(invalidate).toHaveBeenCalled();
   });
 
+  it('keeps the search form in an "Add a VIP" dialog and icon-only add/remove buttons', async () => {
+    const user = userEvent.setup();
+    render(<VipRegistrations eventId={12} vips={[ada]} />);
+
+    expect(screen.queryByRole("searchbox", { name: "Search attendees" })).toBeNull();
+    await openSection(user);
+
+    // The open dialog inerts the page behind it, so assert the bin first.
+    const remove = screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" });
+    expect(remove.querySelector("svg")).toBeTruthy();
+
+    const add = screen.getByRole("button", { name: "Add a VIP" });
+    expect(add.querySelector("svg")).toBeTruthy();
+    await user.click(add);
+    expect(screen.getByRole("searchbox", { name: "Search attendees" })).toBeTruthy();
+  });
+
   it("removes nothing when the removal is cancelled", async () => {
     const user = userEvent.setup();
     render(<VipRegistrations eventId={12} vips={[ada]} />);
+    await openSection(user);
 
     await user.click(screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" }));
     await user.click(
