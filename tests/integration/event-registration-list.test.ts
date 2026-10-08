@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
-import { AuthorizationError } from "#/features/auth/session";
+import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEventRegistrations } from "#/features/events/records.server";
 
@@ -148,5 +148,16 @@ describe("list event registrations (PTR-48)", () => {
     await expect(
       handleListEventRegistrations({ id: eventId }, anotherOrganiser, database as never)
     ).rejects.toThrow(AuthorizationError);
+  });
+
+  test("missing event refuses with Forbidden, not NotFound", async () => {
+    const refusal = await handleListEventRegistrations(
+      { id: 2147483647 },
+      organiser,
+      database as never
+    ).catch(caught => caught);
+    expect(refusal).toBeInstanceOf(AuthorizationError);
+    expect(refusal).not.toBeInstanceOf(NotFoundError);
+    expect(refusal.message).toBe("Forbidden");
   });
 });

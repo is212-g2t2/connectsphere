@@ -247,20 +247,14 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                 )}
 
                 {/* PTR-48: Organiser/Coordinator view of registration capacities and list */}
-                {event.places && (
+                {(access === "organiser" || access === "coordinator") && event.places && (
                   <div className="mt-5 border-t border-border pt-4">
                     <div className="flex items-baseline justify-between gap-4">
                       <p className="body-sm font-medium">Attendee registrations</p>
                       <p className="body-sm text-muted-foreground">
-                        {`${event.places.registered} / ${event.places.limit} registered` +
-                          (event.places.vip > 0 ? ` (${event.places.vip} VIP)` : "")}
+                        {`${event.places.registered} / ${event.places.capacity} registered` +
+                          (event.places.vip > 0 ? ` (+${event.places.vip} VIP)` : "")}
                       </p>
-                    </div>
-                    <div className="mt-3">
-                      <AttendeeRegistrations
-                        eventId={event.id}
-                        registeredCount={event.places.registered}
-                      />
                     </div>
                   </div>
                 )}
@@ -271,6 +265,27 @@ export function EventWorkspace({ events }: { events: EventProjection[] }) {
                     <VipRegistrations eventId={event.id} vips={event.vipRegistrations} />
                   </div>
                 )}
+
+                {(access === "organiser" || access === "coordinator") &&
+                  event.places &&
+                  (event.places.registered + event.places.vip <= 10 ? (
+                    <div className="mt-5 border-t border-border pt-4">
+                      <AttendeeRegistrations
+                        key={`${event.places.registered}-${event.places.vip}`}
+                        eventId={event.id}
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-5 border-t border-border pt-4">
+                      <Link
+                        to="/events/$eventId/attendees"
+                        params={{ eventId: String(event.id) }}
+                        className={buttonVariants({ variant: "outline", size: "sm" })}
+                      >
+                        View all attendees
+                      </Link>
+                    </div>
+                  ))}
 
                 {/* PTR-38: coordinator gets the editable panel; technical_support and organiser keep the read-only list. */}
                 {access === "coordinator" && event.equipment !== undefined && (

@@ -14,7 +14,7 @@ import {
 } from "#/db/schema";
 import { user as userTable } from "#/db/auth-schema";
 import { RoleSchema } from "#/features/auth/schema/role";
-import { AuthorizationError, NotFoundError } from "#/features/auth/session";
+import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   eventTiming,
@@ -408,8 +408,8 @@ export async function handleListEvents(
     }
   }
 
-  // PTR-45 AC10: an attendee sees how many places each confirmed event has taken. The VIPs
-  // (PTR-111) are counted apart, because they take venue places only.
+  // PTR-45 AC10: an attendee, the organiser, and the coordinator see how many places each
+  // confirmed event has taken. The VIPs (PTR-111) are counted apart, because they take venue places only.
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
     (role === "attendee" || role === "event_organiser" || role === "event_coordinator") &&
       confirmedIds.length > 0
@@ -680,11 +680,8 @@ export async function handleListEventRegistrations(
     where: eq(eventRequests.id, eventId),
     columns: { organiserId: true, assignedCoordinatorId: true },
   });
-  if (!event) throw new NotFoundError("Event not found");
-
-  if (event.organiserId !== user.id && event.assignedCoordinatorId !== user.id) {
+  if (!event || (event.organiserId !== user.id && event.assignedCoordinatorId !== user.id))
     throw new AuthorizationError("Forbidden");
-  }
 
   const results = await database
     .select({
@@ -698,13 +695,8 @@ export async function handleListEventRegistrations(
     .innerJoin(userTable, eq(eventRegistrations.attendeeId, userTable.id))
     .where(
       and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.status, "registered"))
-    );
-
-  results.sort((a, b) => {
-    const aDate = a.registeredAt.toISOString();
-    const bDate = b.registeredAt.toISOString();
-    return aDate.localeCompare(bDate) || a.attendeeId.localeCompare(b.attendeeId);
-  });
+    )
+    .orderBy(eventRegistrations.registeredAt, eventRegistrations.attendeeId);
 
   return results.map(a => Object.assign({}, a, { registeredAt: a.registeredAt.toISOString() }));
 }
