@@ -56,10 +56,6 @@ async function loadArrangementsServer() {
   return Promise.all([import("#/db"), import("#/features/events/arrangements.server")]);
 }
 
-async function loadChangeRequestsServer() {
-  return Promise.all([import("#/db"), import("#/features/event-requests/change-requests.server")]);
-}
-
 const requireEventRegister = requirePermission({ event: ["register"] });
 const requireVipRegistrationManage = requirePermission({ vip_registration: ["manage"] });
 
@@ -156,7 +152,7 @@ export const declineEventChangeRequest = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
   .validator(parseEventChangeRequestDeclineInput)
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleDeclineEventChangeRequest }] = await loadChangeRequestsServer();
+    const [{ db }, { handleDeclineEventChangeRequest }] = await loadUpdateServer();
     const declined = await handleDeclineEventChangeRequest(data, context.user, db);
 
     log.info("Event change request declined", {

@@ -15,15 +15,18 @@ import {
   AlertDialogTitle,
 } from "#/components/ui/alert-dialog";
 import { Card, CardContent } from "#/components/ui/card";
-import type { ApplyingChangeRequest } from "#/features/coordination/components/change-request-decisions";
 import { pickAmendments } from "#/features/event-requests/amendments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import type { EventRequestFormSubmitContext } from "#/features/event-requests/components/request-form";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
 import { formatVenuePeriod } from "#/features/event-requests/format";
-import { EVENT_INFORMATION_FIELDS, significantFields } from "#/features/event-requests/schema";
-import type { EventRequestDraftValues } from "#/features/event-requests/schema";
-import type { EventRequestDraft } from "#/features/event-requests/server-fns";
+import {
+  EVENT_INFORMATION_FIELDS,
+  significantFieldPhrase,
+  significantFields,
+} from "#/features/event-requests/schema";
+import type { EventRequestDraftValues, SignificantField } from "#/features/event-requests/schema";
+import type { EventRequestDetail, EventRequestDraft } from "#/features/event-requests/server-fns";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 import { listEventArrangements, updateEventInformation } from "#/features/events/server-fns";
 
@@ -53,16 +56,23 @@ interface SignificantChangeWarning {
  * PTR-52: with `applying` set, the form is open on the Organiser's change request, pinned above
  * it, and the save carries the request's id so the server marks it applied and tells the Organiser
  * in the same transaction (AC2, AC5). The caller shows the form in that mode in every status the
- * request could be raised in. `onApplyEnd` is called when the save lands or the form is closed.
+ * request could be raised in, derives `applying` from the live record so a request processed
+ * elsewhere closes the form on the next read, and is told through `onApplyEnd` when the save lands
+ * or the form is closed. `onDirtyChange` lets it hold other applies while edits are unsaved.
  */
 export function UpdateEventInformation({
   request,
-  applying = null,
+  applying,
   onApplyEnd,
+  onDirtyChange,
 }: {
   request: EventRequestDraft;
-  applying?: ApplyingChangeRequest | null;
-  onApplyEnd?: () => void;
+  applying: Pick<
+    EventRequestDetail["changeRequests"][number],
+    "id" | "whatShouldChange" | "requestedValue"
+  > | null;
+  onApplyEnd: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const router = useRouter();
   const formId = useId();
@@ -80,6 +90,7 @@ export function UpdateEventInformation({
   // The toggle waits for a save, so a reopened form is never closed by the earlier save.
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const saveLabel = applying ? "Save and mark applied" : "Save changes";
   const [confirmOpen, setConfirmOpen] = useState(false);
   // From the arrangements read until the Coordinator answers the warning: the toggle waits, so
   // the form cannot be discarded under a warning that would still save its edits.
@@ -89,19 +100,25 @@ export function UpdateEventInformation({
   // fades out. `warningOpen` says whether it shows.
   const [warningOpen, setWarningOpen] = useState(false);
 
+  function reportDirty(next: boolean) {
+    setDirty(next);
+    onDirtyChange?.(next);
+  }
+
   function closeForm() {
     setEditingSelf(false);
-    setDirty(false);
-    onApplyEnd?.();
+    reportDirty(false);
+    if (applying) onApplyEnd();
   }
 
   function discardEdits() {
-    // Close both at once so focus can move straight to the toggle.
+    // Close both at once so focus can move straight to the toggle. An apply came from the
+    // decisions card, and `onApplyEnd` returns focus there instead.
     flushSync(() => {
       setConfirmOpen(false);
       closeForm();
     });
-    toggle.current?.focus();
+    if (!applying) toggle.current?.focus();
   }
 
   async function save(
@@ -159,7 +176,7 @@ export function UpdateEventInformation({
         setSaving(false);
         closeForm();
       });
-      toggle.current?.focus();
+      if (!applying) toggle.current?.focus();
       if (result.changedFields.length === 0) toast.info("No changes to save.");
       else if (!reloadFailed) {
         const staff =
@@ -187,7 +204,7 @@ export function UpdateEventInformation({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 id="update-information-heading" className="display-h3">
-                Update event information
+                {applying ? "Apply the change request" : "Update event information"}
               </h2>
               <p className="mt-2 body-sm text-muted-foreground">
                 A saved change replaces the recorded value for everyone with access to this event. A
@@ -209,7 +226,7 @@ export function UpdateEventInformation({
                 else setEditingSelf(true);
               }}
             >
-              {editing ? "Cancel editing" : "Edit event information"}
+              {applying ? "Cancel applying" : editing ? "Cancel editing" : "Edit event information"}
             </Button>
           </div>
           {editing && (
@@ -242,12 +259,12 @@ export function UpdateEventInformation({
               <EventRequestForm
                 key={applying ? `apply-${applying.id}` : "edit"}
                 initialValues={toDraftValues(request)}
-                saveLabel={applying ? "Save and mark applied" : "Save changes"}
-                busyLabel={saving ? "Saving…" : applying ? "Save and mark applied" : "Save changes"}
+                saveLabel={saveLabel}
+                busyLabel={saving ? "Saving…" : saveLabel}
                 requireComplete
                 idPrefix={formId}
                 onSave={save}
-                onDirtyChange={setDirty}
+                onDirtyChange={reportDirty}
               />
             </div>
           )}

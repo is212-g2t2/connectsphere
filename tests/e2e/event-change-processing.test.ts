@@ -111,7 +111,13 @@ test("the Coordinator applies a change request through the event information for
   const { id, name, requestId } = await createEventWithRequest("Event name", "Add Dinner");
 
   const coordinator = await openAs(browser, COORDINATOR_EMAIL, "/coordination");
-  await expect(coordinator.getByText("1 change request waiting")).toBeVisible();
+  // Scoped to this event's row: a sibling test may leave another waiting request on the list.
+  await expect(
+    coordinator
+      .getByRole("listitem")
+      .filter({ hasText: name })
+      .getByText("1 change request waiting")
+  ).toBeVisible();
   await coordinator.getByRole("link", { name }).click();
   await waitForHydration(coordinator);
 
@@ -155,14 +161,10 @@ test("the Coordinator declines a change request with a reason, and the Organiser
 
   const coordinator = await openAs(browser, COORDINATOR_EMAIL, `/coordination/${id}`);
   await coordinator.getByRole("button", { name: "Decline change request #1" }).click();
-  await coordinator
-    .getByRole("button", { name: "Send the reason and decline change request #1" })
-    .click();
+  await coordinator.getByRole("button", { name: "Decline request #1 with this reason" }).click();
   await expect(coordinator.getByText("Enter a reason for declining")).toBeVisible();
   await coordinator.getByLabel("Reason for declining").fill("The hall holds 80 at most.");
-  await coordinator
-    .getByRole("button", { name: "Send the reason and decline change request #1" })
-    .click();
+  await coordinator.getByRole("button", { name: "Decline request #1 with this reason" }).click();
 
   await expect(
     coordinator.getByText("Change request declined. The Organiser will be notified.")

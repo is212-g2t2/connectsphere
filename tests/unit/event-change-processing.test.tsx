@@ -59,14 +59,11 @@ const coordinators = [{ id: "coord-a", name: "Alex", email: "a@example.com" }];
 
 const waiting = {
   id: 31,
-  eventRequestId: 7,
-  organiserId: "org",
   whatShouldChange: "Expected attendance",
   requestedValue: "150 attendees",
   createdAt: new Date("2026-09-17T02:00:00Z"),
   outcome: null,
   declineReason: null,
-  processedById: null,
   processedByName: null,
   processedAt: null,
 };
@@ -76,7 +73,6 @@ const applied = {
   whatShouldChange: "Event name",
   requestedValue: "Annual Gala Dinner",
   outcome: "applied" as const,
-  processedById: "coord-a",
   processedByName: "Alex",
   processedAt: new Date("2026-09-18T02:00:00Z"),
 };
@@ -257,16 +253,17 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
 
-    // The form opens on the request, with the request text pinned and focused. The text now shows
-    // three times: the decisions card, the pinned request, and the record further down.
+    // The form opens on the request, with the request text pinned and focused.
     const pinned = screen.getByRole("heading", { name: "Applying the Organiser's change request" });
     expect(document.activeElement).toBe(pinned);
-    expect(screen.getAllByText("150 attendees")).toHaveLength(3);
-    const applyButton = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Apply change request #1",
-    });
-    expect(applyButton.textContent).toBe("Applying below");
-    expect(applyButton.disabled).toBe(true);
+    expect(within(pinned.parentElement as HTMLElement).getByText("150 attendees")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Apply the change request" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel applying" })).toBeTruthy();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #1" }).disabled
+    ).toBe(true);
+    expect(screen.getByText("Being applied in the form below.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Decline change request #1" })).toBeNull();
     const name = screen.getByLabelText("Event name (required)");
     await user.clear(name);
     await user.type(name, "Annual Gala Dinner");
@@ -282,7 +279,10 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     });
     expect(invalidate).toHaveBeenCalled();
     expect(screen.queryByLabelText("Event name (required)")).toBeNull();
-    expect(screen.getByRole("button", { name: "Apply change request #1" })).toBeTruthy();
+    // The re-read will take the applied request off the card; focus goes back to the card.
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Change requests awaiting your decision" })
+    );
   });
 
   it("warns before applying a significant change, exactly as a direct edit does (AC3)", async () => {
@@ -338,17 +338,124 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     expect(success).not.toHaveBeenCalled();
   });
 
-  it("closes the pinned request when the Coordinator cancels editing", async () => {
+  it("closes the pinned request when the Coordinator cancels applying, and returns to the decisions card", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
-    await user.click(screen.getByRole("button", { name: "Cancel editing" }));
+    await user.click(screen.getByRole("button", { name: "Cancel applying" }));
 
     expect(screen.queryByLabelText("Event name (required)")).toBeNull();
     expect(screen.getByRole("button", { name: "Apply change request #1" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Edit event information" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit event information" })).toBeTruthy();
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Change requests awaiting your decision" })
+    );
     expect(updateEventInformation).not.toHaveBeenCalled();
+  });
+
+  it("returns focus to the decisions card when the apply form closes on an event with no direct edit", async () => {
+    const user = userEvent.setup();
+    renderPage({
+      status: "submitted",
+      decidedByCoordinatorId: null,
+      decidedByCoordinatorName: null,
+      decidedAt: null,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
+    expect(screen.getByRole("heading", { name: "Apply the change request" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Cancel applying" }));
+
+    expect(screen.queryByRole("heading", { name: "Apply the change request" })).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Change requests awaiting your decision" })
+    );
+  });
+
+  it("holds every apply while the form has unsaved edits, so no edit is lost to a switch", async () => {
+    const user = userEvent.setup();
+    renderPage({ changeRequests: [waiting, { ...waiting, id: 34, whatShouldChange: "Date" }] });
+
+    await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
+    ).toBe(false);
+    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
+    ).toBe(true);
+    // Discarding the edits frees the other apply again.
+    await user.click(screen.getByRole("button", { name: "Cancel applying" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
+      ).toBe(false)
+    );
+  });
+
+  it("closes the pinned request when the record shows it processed elsewhere", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderPage();
+    await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
+    expect(screen.getByRole("heading", { name: "Apply the change request" })).toBeTruthy();
+
+    // A page re-read after another tab declined the request.
+    rerender(
+      <CoordinationRequestPage
+        request={{ ...request, changeRequests: [declined] }}
+        coordinators={coordinators}
+        user={actor}
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Apply the change request" })).toBeNull();
+  });
+
+  it("names the arrangements the event holds in the warning on an apply, and tells the holders too (AC3)", async () => {
+    listEventArrangements.mockResolvedValue({
+      venueBookings: [
+        {
+          id: "booking-1",
+          venueName: "Harbour Hall",
+          startsAt: "2030-12-01 18:00:00",
+          endsAt: "2030-12-01 22:00:00",
+        },
+      ],
+      venueHolds: [],
+      equipmentReservations: [{ id: "line-1", item: "Projector", quantity: 2 }],
+    });
+    updateEventInformation.mockResolvedValue({
+      changedFields: ["expectedAttendance"],
+      notified: 2,
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
+    const attendance = screen.getByLabelText("Expected attendance (required)");
+    await user.clear(attendance);
+    await user.type(attendance, "150");
+    await user.click(screen.getByRole("button", { name: "Save and mark applied" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(
+      within(dialog)
+        .getAllByRole("listitem")
+        .map(item => item.textContent)
+    ).toEqual([
+      "Venue booking: Harbour Hall, 1 Dec 2030, 18:00 – 22:00",
+      "Equipment reservation: Projector × 2",
+    ]);
+    await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
+
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith(
+        "Change request applied. The Organiser will be notified. The staff holding its arrangements will be notified."
+      )
+    );
   });
 
   it("requires a reason to decline, then sends it and tells the Organiser (AC2, AC5)", async () => {
@@ -357,17 +464,17 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     renderPage();
 
     await user.click(screen.getByRole("button", { name: "Decline change request #1" }));
-    await user.click(
-      screen.getByRole("button", { name: "Send the reason and decline change request #1" })
-    );
+    // The reason takes focus, and the toggle gives way to the form's own cancel.
+    const reason = screen.getByLabelText("Reason for declining");
+    expect(document.activeElement).toBe(reason);
+    expect(screen.queryByRole("button", { name: "Decline change request #1" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Decline request #1 with this reason" }));
 
     expect(await screen.findByText("Enter a reason for declining")).toBeTruthy();
     expect(declineEventChangeRequest).not.toHaveBeenCalled();
 
-    await user.type(screen.getByLabelText("Reason for declining"), "The hall holds 80 at most.");
-    await user.click(
-      screen.getByRole("button", { name: "Send the reason and decline change request #1" })
-    );
+    await user.type(reason, "The hall holds 80 at most.");
+    await user.click(screen.getByRole("button", { name: "Decline request #1 with this reason" }));
 
     await waitFor(() =>
       expect(success).toHaveBeenCalledWith(
@@ -378,6 +485,25 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       data: { id: 7, changeRequestId: 31, reason: "The hall holds 80 at most." },
     });
     expect(invalidate).toHaveBeenCalled();
+    // The re-read takes the item away; focus lands on the card's heading.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { name: "Change requests awaiting your decision" })
+      )
+    );
+  });
+
+  it("closes the reason form without declining on cancel", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Decline change request #1" }));
+    await user.type(screen.getByLabelText("Reason for declining"), "Draft reason");
+    await user.click(screen.getByRole("button", { name: "Cancel declining change request #1" }));
+
+    expect(screen.queryByLabelText("Reason for declining")).toBeNull();
+    expect(screen.getByRole("button", { name: "Decline change request #1" })).toBeTruthy();
+    expect(declineEventChangeRequest).not.toHaveBeenCalled();
   });
 
   it("shows the server's refusal of a decline", async () => {
@@ -389,9 +515,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
 
     await user.click(screen.getByRole("button", { name: "Decline change request #1" }));
     await user.type(screen.getByLabelText("Reason for declining"), "Too late.");
-    await user.click(
-      screen.getByRole("button", { name: "Send the reason and decline change request #1" })
-    );
+    await user.click(screen.getByRole("button", { name: "Decline request #1 with this reason" }));
 
     expect(
       await screen.findByText("This change request is not waiting to be processed.")

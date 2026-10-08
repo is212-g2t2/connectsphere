@@ -10,10 +10,7 @@ import {
   handleGetCoordinationRequest,
   handleListAssignedEventRequests,
 } from "#/features/coordination/assignments.server";
-import {
-  handleDeclineEventChangeRequest,
-  handleRaiseEventChangeRequest,
-} from "#/features/event-requests/change-requests.server";
+import { handleRaiseEventChangeRequest } from "#/features/event-requests/change-requests.server";
 import { handleGetEventRequest } from "#/features/event-requests/drafts.server";
 import {
   CHANGE_REQUEST_APPLY_NO_CHANGE_MESSAGE,
@@ -22,7 +19,10 @@ import {
   SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE,
 } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import { handleUpdateEventInformation } from "#/features/events/update.server";
+import {
+  handleDeclineEventChangeRequest,
+  handleUpdateEventInformation,
+} from "#/features/events/update.server";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -37,8 +37,14 @@ const organiser = member("ptr52-organiser", "event_organiser", "Change Organiser
 const coordinator = member("ptr52-coordinator", "event_coordinator", "Change Coordinator");
 const otherCoordinator = member("ptr52-other", "event_coordinator", "Other Coordinator");
 const venueStaff = member("ptr52-venue-staff", "venue_staff", "Change Venue Staff");
+const technicalSupport = member(
+  "ptr52-tech-support",
+  "technical_support_staff",
+  "Change Technical Support"
+);
 const attendee = member("ptr52-attendee", "attendee", "Change Attendee");
-const members = [organiser, coordinator, otherCoordinator, venueStaff, attendee];
+const members = [organiser, coordinator, otherCoordinator, venueStaff, technicalSupport, attendee];
+const EQUIPMENT_TYPE = "PTR52 Projector";
 
 const recorded = {
   eventName: "PTR52 Planning Forum",
@@ -58,13 +64,26 @@ const recorded = {
 let pool: Pool;
 let database: Database;
 let venueId: number;
+let equipmentTypeId: number;
 let year = 2080;
 
 beforeAll(async () => {
   pool = new Pool({ connectionString: process.env.DATABASE_URL });
   database = drizzle(pool, { schema });
+  // A line from an earlier run still references the equipment type, so the events go first.
+  await database
+    .delete(schema.eventRequests)
+    .where(eq(schema.eventRequests.organiserId, organiser.id));
   await database.insert(schema.user).values(members);
   venueId = (await database.select({ id: schema.venues.id }).from(schema.venues).limit(1))[0].id;
+  await database
+    .delete(schema.equipmentTypes)
+    .where(eq(schema.equipmentTypes.name, EQUIPMENT_TYPE));
+  const [type] = await database
+    .insert(schema.equipmentTypes)
+    .values({ name: EQUIPMENT_TYPE, quantityHeld: 50 })
+    .returning({ id: schema.equipmentTypes.id });
+  equipmentTypeId = type.id;
 });
 
 beforeEach(async () => {
@@ -77,6 +96,9 @@ afterAll(async () => {
   await database
     .delete(schema.eventRequests)
     .where(eq(schema.eventRequests.organiserId, organiser.id));
+  await database
+    .delete(schema.equipmentTypes)
+    .where(eq(schema.equipmentTypes.name, EQUIPMENT_TYPE));
   await database.delete(schema.user).where(
     inArray(
       schema.user.id,
@@ -389,10 +411,35 @@ describe("processing a change request (PTR-52)", () => {
     await database
       .insert(schema.eventRegistrations)
       .values({ eventId: event.id, attendeeId: attendee.id });
+    const lineId = crypto.randomUUID();
+    await database.insert(schema.equipmentRequests).values({
+      id: lineId,
+      eventId: event.id,
+      equipmentTypeId,
+      assignedStaffId: technicalSupport.id,
+      item: EQUIPMENT_TYPE,
+      quantity: 2,
+      arrangementStatus: "reserved",
+    });
+    await database.insert(schema.equipmentReservations).values({
+      id: crypto.randomUUID(),
+      equipmentRequestId: lineId,
+      equipmentTypeId,
+      quantity: 2,
+      ...nextWindow(),
+    });
     const snapshot = () =>
       Promise.all([
         database.select().from(schema.venueRequests).where(eq(schema.venueRequests.id, bookingId)),
         database.select().from(schema.venueHolds).where(eq(schema.venueHolds.id, holdId)),
+        database
+          .select()
+          .from(schema.equipmentRequests)
+          .where(eq(schema.equipmentRequests.id, lineId)),
+        database
+          .select()
+          .from(schema.equipmentReservations)
+          .where(eq(schema.equipmentReservations.equipmentRequestId, lineId)),
         database
           .select()
           .from(schema.eventRegistrations)
@@ -400,10 +447,50 @@ describe("processing a change request (PTR-52)", () => {
       ]);
     const before = await snapshot();
 
-    await apply(event.id, request.id, { expectedAttendance: 120 }, coordinator, true);
+    const result = await apply(
+      event.id,
+      request.id,
+      { expectedAttendance: 120 },
+      coordinator,
+      true
+    );
 
     expect(await snapshot()).toEqual(before);
     expect((await storedEvent(event.id)).status).toBe("confirmed");
+    // The holders are told as for any significant change (PTR-23 AC5), and counted apart from
+    // the Organiser's own notice.
+    expect(result.notified).toBe(2);
+    const holderNotices = await database
+      .select({ recipientId: schema.notifications.recipientId })
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.eventRequestId, event.id),
+          eq(schema.notifications.kind, "event_significant_change")
+        )
+      );
+    expect(holderNotices.map(notice => notice.recipientId).toSorted()).toEqual(
+      [venueStaff.id, technicalSupport.id].toSorted()
+    );
+    expect(await organiserNotices(event.id)).toHaveLength(1);
+  });
+
+  it("lets exactly one of two concurrent applies on the same request win", async () => {
+    const event = await eventAt("approved");
+    const request = await raise(event.id, "Purpose");
+
+    const outcomes = await Promise.allSettled([
+      apply(event.id, request.id, { purpose: "First" }),
+      apply(event.id, request.id, { purpose: "Second" }),
+    ]);
+
+    expect(outcomes.map(outcome => outcome.status).toSorted()).toEqual(["fulfilled", "rejected"]);
+    const rejected = outcomes.find(outcome => outcome.status === "rejected");
+    expect(rejected).toMatchObject({
+      reason: { status: 409, message: CHANGE_REQUEST_NOT_WAITING_MESSAGE },
+    });
+    expect((await changeRequestRow(request.id)).outcome).toBe("applied");
+    expect(await organiserNotices(event.id)).toHaveLength(1);
   });
 
   it("refuses a request that is not this event's, already processed, or missing (AC2)", async () => {
