@@ -1,11 +1,14 @@
-import { and, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { db as Db } from "#/db";
 import { eventRequests, notifications } from "#/db/schema";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
+import { stakeholderRecipients } from "#/features/events/register.server";
 
 type Database = typeof Db;
+
+type BoundaryKind = "registration_opened" | "registration_closed";
 
 /**
  * PTR-49: raises registration_opened and registration_closed notifications for
@@ -17,16 +20,15 @@ export async function sweepRegistrationWindows(
   now: Date = new Date()
 ): Promise<number> {
   const nowMinute = toLocalMinuteValue(venueLocalTimestamp(now));
-  // 7d ceiling: stops historical backfills on deploy from firing.
+  // Catch-up ceiling: only windows whose close is at/after this horizon are swept.
   const limitDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const limitMinute = toLocalMinuteValue(venueLocalTimestamp(limitDate));
-  let raisedCount = 0;
 
-  await db.transaction(async tx => {
-    // Serialize overlapping cron runs, else both pass deduplication check and double-insert
+  return db.transaction(async tx => {
+    // Serialize overlapping cron runs, else both pass the check and double-insert.
+    // (49, 0) is this worker's space, distinct from the venue locks' single-int keys.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(49, 0)`);
 
-    // We need to fetch confirmed events with registrationEnabled = true
     const events = await tx
       .select({
         id: eventRequests.id,
@@ -42,15 +44,14 @@ export async function sweepRegistrationWindows(
         and(
           eq(eventRequests.status, "confirmed"),
           eq(eventRequests.registrationEnabled, true),
-          isNotNull(eventRequests.registrationOpensAt),
-          isNotNull(eventRequests.registrationClosesAt),
+          lte(eventRequests.registrationOpensAt, nowMinute),
           gte(eventRequests.registrationClosesAt, limitMinute)
         )
       );
 
     const notificationsToRaise: NewNotification[] = [];
 
-    // Amendment gap: once-per-event-kind-recipient means shifted windows don't re-notify
+    // Dedupe keyed event:kind:recipient: a shifted or re-opened window does not re-notify.
     const existingNotifs = new Set<string>();
     if (events.length > 0) {
       const rows = await tx
@@ -74,12 +75,24 @@ export async function sweepRegistrationWindows(
       }
     }
 
-    const hasNotif = (
-      eventId: number,
-      kind: "registration_opened" | "registration_closed",
-      recipientId: string
-    ) => {
+    const hasNotif = (eventId: number, kind: BoundaryKind, recipientId: string) => {
       return existingNotifs.has(`${eventId}:${kind}:${recipientId}`);
+    };
+
+    const raiseBoundary = (
+      event: (typeof events)[number],
+      kind: BoundaryKind,
+      build: (recipientId: string, audience: "organiser" | "coordinator") => NewNotification,
+      active: boolean
+    ) => {
+      if (!active) return;
+      const handled = new Set<string>();
+      for (const { recipientId, audience } of stakeholderRecipients(event)) {
+        if (handled.has(recipientId)) continue;
+        handled.add(recipientId);
+        if (hasNotif(event.id, kind, recipientId)) continue;
+        notificationsToRaise.push(build(recipientId, audience));
+      }
     };
 
     for (const event of events) {
@@ -90,75 +103,37 @@ export async function sweepRegistrationWindows(
 
       // Compare at second precision: a 12:00:30 confirmation must not pass a 12:00 close.
       const confirmedLocalInstant = venueLocalTimestamp(confirmedAt).replace(" ", "T");
-      const hasOpened = opensAt <= nowMinute && confirmedLocalInstant < closesAt;
-      const isClosed = closesAt <= nowMinute && confirmedLocalInstant < closesAt;
+      const confirmedBeforeClose = confirmedLocalInstant < closesAt;
+      const hasOpened = opensAt <= nowMinute && confirmedBeforeClose;
+      const isClosed = closesAt <= nowMinute && confirmedBeforeClose;
 
       // Boundary notice tracks the registration window only; released approved bookings
       // (venueCapacity null => unavailable) are checked at registration by registrationAvailability.
-      if (hasOpened) {
-        // Raise registration_opened
-        const payload = {
-          eventName: event.eventName,
-          opensAt,
-        };
-
-        if (!hasNotif(event.id, "registration_opened", event.organiserId)) {
-          notificationsToRaise.push({
-            recipientId: event.organiserId,
-            eventRequestId: event.id,
-            kind: "registration_opened",
-            payload: { ...payload, audience: "organiser" },
-          });
-        }
-
-        if (
-          event.assignedCoordinatorId &&
-          event.assignedCoordinatorId !== event.organiserId &&
-          !hasNotif(event.id, "registration_opened", event.assignedCoordinatorId)
-        ) {
-          notificationsToRaise.push({
-            recipientId: event.assignedCoordinatorId,
-            eventRequestId: event.id,
-            kind: "registration_opened",
-            payload: { ...payload, audience: "coordinator" },
-          });
-        }
-      }
-
-      if (isClosed) {
-        // Raise registration_closed
-        const payload = {
-          eventName: event.eventName,
-          closesAt,
-        };
-
-        if (!hasNotif(event.id, "registration_closed", event.organiserId)) {
-          notificationsToRaise.push({
-            recipientId: event.organiserId,
-            eventRequestId: event.id,
-            kind: "registration_closed",
-            payload: { ...payload, audience: "organiser" },
-          });
-        }
-
-        if (
-          event.assignedCoordinatorId &&
-          event.assignedCoordinatorId !== event.organiserId &&
-          !hasNotif(event.id, "registration_closed", event.assignedCoordinatorId)
-        ) {
-          notificationsToRaise.push({
-            recipientId: event.assignedCoordinatorId,
-            eventRequestId: event.id,
-            kind: "registration_closed",
-            payload: { ...payload, audience: "coordinator" },
-          });
-        }
-      }
+      raiseBoundary(
+        event,
+        "registration_opened",
+        (recipientId, audience) => ({
+          recipientId,
+          eventRequestId: event.id,
+          kind: "registration_opened",
+          payload: { eventName: event.eventName, opensAt, audience },
+        }),
+        hasOpened
+      );
+      raiseBoundary(
+        event,
+        "registration_closed",
+        (recipientId, audience) => ({
+          recipientId,
+          eventRequestId: event.id,
+          kind: "registration_closed",
+          payload: { eventName: event.eventName, closesAt, audience },
+        }),
+        isClosed
+      );
     }
 
     await raiseNotifications(tx, notificationsToRaise);
-    raisedCount += notificationsToRaise.length;
+    return notificationsToRaise.length;
   });
-
-  return raisedCount;
 }

@@ -334,10 +334,12 @@ type StakeholderRecipient = { recipientId: string; audience: "organiser" | "coor
 /**
  * Who hears a registration notification: the Organiser always, and the assigned Coordinator when
  * the event has one. Each carries their own audience, so the inbox links each party to their page.
- * `announcePlaceMark` below and `announceFreedPlace` in `withdraw.server.ts` build their notices
- * from this list instead of repeating the rule.
+ * `announcePlaceMark` below, `announceFreedPlace` in `withdraw.server.ts`, and the
+ * registration-boundary sweep build their notices from this list instead of repeating the rule.
  */
-export function stakeholderRecipients(event: EventRow): StakeholderRecipient[] {
+export function stakeholderRecipients(
+  event: Pick<EventRow, "organiserId" | "assignedCoordinatorId">
+): StakeholderRecipient[] {
   const recipients: StakeholderRecipient[] = [
     { recipientId: event.organiserId, audience: "organiser" },
   ];

@@ -109,8 +109,7 @@ describe("registration boundaries sweep (PTR-49)", () => {
     const notifs = await database
       .select({ kind: schema.notifications.kind, payload: schema.notifications.payload })
       .from(schema.notifications)
-      .where(eq(schema.notifications.eventRequestId, eventId))
-      .orderBy(schema.notifications.recipientId);
+      .where(eq(schema.notifications.eventRequestId, eventId));
 
     expect(notifs).toHaveLength(2);
     expect(notifs).toEqual(
@@ -160,8 +159,7 @@ describe("registration boundaries sweep (PTR-49)", () => {
     const notifs = await database
       .select({ kind: schema.notifications.kind, payload: schema.notifications.payload })
       .from(schema.notifications)
-      .where(eq(schema.notifications.eventRequestId, eventId))
-      .orderBy(schema.notifications.kind, schema.notifications.recipientId);
+      .where(eq(schema.notifications.eventRequestId, eventId));
 
     expect(notifs).toHaveLength(4);
 
@@ -201,8 +199,7 @@ describe("registration boundaries sweep (PTR-49)", () => {
     const notifs = await database
       .select({ kind: schema.notifications.kind, payload: schema.notifications.payload })
       .from(schema.notifications)
-      .where(eq(schema.notifications.eventRequestId, eventId))
-      .orderBy(schema.notifications.recipientId);
+      .where(eq(schema.notifications.eventRequestId, eventId));
 
     expect(notifs).toHaveLength(0);
   });
@@ -221,8 +218,7 @@ describe("registration boundaries sweep (PTR-49)", () => {
     const notifs = await database
       .select({ kind: schema.notifications.kind, payload: schema.notifications.payload })
       .from(schema.notifications)
-      .where(eq(schema.notifications.eventRequestId, eventId))
-      .orderBy(schema.notifications.recipientId);
+      .where(eq(schema.notifications.eventRequestId, eventId));
 
     expect(notifs).toHaveLength(0);
   });
@@ -250,6 +246,24 @@ describe("registration boundaries sweep (PTR-49)", () => {
     const now = new Date("2030-01-01T10:05:00+08:00");
     const count = await sweepRegistrationWindows(database as never, now);
     expect(count).toBe(0);
+  });
+
+  test("TC07b (AC4): does not raise anything if the event was cancelled before the boundary", async () => {
+    const eventId = await createEvent({
+      opensAt: "2030-01-01T10:00",
+      closesAt: "2030-01-01T12:00",
+      status: "cancelled",
+    });
+
+    const now = new Date("2030-01-01T10:05:00+08:00");
+    const count = await sweepRegistrationWindows(database as never, now);
+
+    expect(count).toBe(0);
+    const notifs = await database
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.eventRequestId, eventId));
+    expect(notifs).toHaveLength(0);
   });
 
   test("TC08: raises only for organiser if coordinator is not assigned", async () => {

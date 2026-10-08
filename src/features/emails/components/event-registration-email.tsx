@@ -133,25 +133,16 @@ export const RegistrationWindowEmail = ({
 }: RegistrationWindowEmailProps) => {
   const isOpened = boundary === "opened";
   const heading = isOpened ? "Registration has opened" : "Registration has closed";
-  const period = `${formatDate(time)} at ${formatTime(time)}`;
+  // Non-breaking spaces keep the date whole at narrow widths.
+  const period = `${formatDate(time).replaceAll(" ", "\u00A0")} at ${formatTime(time)}`;
 
   return (
     <Layout previewText={`${heading} for ${eventName}`}>
       <Section>
         <Text style={emailHeading}>{heading}</Text>
         <Text style={emailText}>
-          {isOpened ? (
-            <>
-              {"Registration for "}
-              <strong>{eventName}</strong>
-              {` opened on ${period}.`}
-            </>
-          ) : (
-            <>
-              <strong>{eventName}'s</strong>
-              {` registration closed on ${period}.`}
-            </>
-          )}
+          <strong>{eventName}'s</strong>
+          {` registration ${isOpened ? "opened" : "closed"} on ${period}.`}
         </Text>
         <Button href={eventUrl} style={emailButton}>
           View the event

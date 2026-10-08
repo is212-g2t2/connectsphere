@@ -290,11 +290,8 @@ export function renderNotificationEmail(
         element: createElement(RegistrationWindowEmail, {
           eventName: notification.payload.eventName,
           boundary: isOpened ? "opened" : "closed",
-          time:
-            notification.kind === "registration_opened"
-              ? notification.payload.opensAt
-              : notification.payload.closesAt,
-          eventUrl: `${base}${notificationHref(notification)}`,
+          time: isOpened ? notification.payload.opensAt : notification.payload.closesAt,
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     }

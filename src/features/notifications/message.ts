@@ -450,9 +450,9 @@ export function notificationHref(
       return `/events/${eventRequestId}`;
     case "registration_threshold_reached":
     case "registration_place_freed":
-    // The Organiser opens the event-requests page; the Coordinator opens the coordination page.
     case "registration_opened":
     case "registration_closed":
+      // The Organiser opens the event-requests page; the Coordinator opens the coordination page.
       return notification.payload.audience === "coordinator"
         ? `/coordination/${eventRequestId}`
         : `/event-requests/${eventRequestId}`;

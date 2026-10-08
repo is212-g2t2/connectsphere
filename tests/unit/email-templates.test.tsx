@@ -391,9 +391,8 @@ describe("Email templates rendering", () => {
     );
 
     expect(html).toContain("Registration has opened");
-    expect(html).toContain("Registration for");
     expect(html).toContain("Open Day");
-    expect(html).toContain("opened on 5 December 2026 at 10:00.");
+    expect(html).toContain("registration opened on 5\u00A0December\u00A02026 at 10:00.");
     expect(html).toContain("http://localhost:3000/event-requests/12");
   });
 
@@ -409,7 +408,7 @@ describe("Email templates rendering", () => {
 
     expect(html).toContain("Registration has closed");
     expect(html).toContain("Open Day");
-    expect(html).toContain("registration closed on 5 December 2026 at 16:00.");
+    expect(html).toContain("registration closed on 5\u00A0December\u00A02026 at 16:00.");
     expect(html).toContain("http://localhost:3000/coordination/12");
   });
   it("renders the cancellation request with the event and the coordination link (PTR-53 AC3)", async () => {
