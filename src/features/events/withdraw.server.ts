@@ -1,11 +1,14 @@
 import { and, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRegistrations, eventRequests, venueRequests, venues } from "#/db/schema";
+import { eventRegistrations, vipRegistrationChanges } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { parseEventRequestId } from "#/features/event-requests/schema";
-import { registrationCounts } from "#/features/events/register.server";
+import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
+import { assertEventAcceptsActivity } from "#/features/events/completion";
+import { approvedBooking, countRegistrations, readEvent } from "#/features/events/register.server";
+import type { EventRow } from "#/features/events/register.server";
 import { placeLimit } from "#/features/events/registration";
 import { NOT_REGISTERED_MESSAGE } from "#/features/events/withdrawal";
 import { raiseNotifications } from "#/features/notifications/raise.server";
@@ -35,15 +38,17 @@ export async function handleWithdrawFromEvent(
   data: unknown,
   actor: SessionUser,
   database: Database
-): Promise<void> {
+): Promise<boolean> {
   const input = parseEventRequestId(data);
 
-  await database.transaction(async tx => {
+  return database.transaction(async tx => {
     // Lock the event row so concurrent registrations queue on it while we adjust the count.
     const event = await readEvent(tx, input.id, { lock: true });
 
     // A missing event and an unpublished one are refused with Forbidden so id existence is not leaked.
     if (!event || event.status === "draft") throw new AuthorizationError("Forbidden");
+    assertEventAcceptsActivity(event.status);
+    if (event.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
 
     // Flip the registration from `registered` to `withdrawn`. Nothing happens when the row does
     // not exist or is already `withdrawn` — the returning array is empty and the refusal fires.
@@ -57,8 +62,18 @@ export async function handleWithdrawFromEvent(
           eq(eventRegistrations.status, "registered")
         )
       )
-      .returning({ eventId: eventRegistrations.eventId });
+      .returning({ eventId: eventRegistrations.eventId, vip: eventRegistrations.vip });
     if (updated.length === 0) throw new ConflictError(NOT_REGISTERED_MESSAGE);
+    if (updated[0].vip) {
+      await tx.insert(vipRegistrationChanges).values({
+        eventId: event.id,
+        attendeeId: actor.id,
+        change: "removed",
+        actorId: actor.id,
+      });
+    }
+
+    let placeFreedAtCapacity = false;
 
     // AC4: was the event at its registration capacity before the withdrawal? If so, notify.
     // Count after the update: one fewer registered place means this withdrawal freed one.
@@ -71,8 +86,11 @@ export async function handleWithdrawFromEvent(
       // meaning the count was at the limit before this registration was withdrawn.
       if (registered === limit - 1) {
         await announceFreedPlace(tx, event, limit);
+        placeFreedAtCapacity = true;
       }
     }
+
+    return placeFreedAtCapacity;
   });
 }
 
@@ -104,51 +122,4 @@ async function announceFreedPlace(
     });
   }
   await raiseNotifications(tx, notices);
-}
-
-/** The event row. Lock taken before any capacity-affecting write (same pattern as register). */
-async function readEvent(
-  database: Pick<Database, "select">,
-  eventId: number,
-  { lock = false }: { lock?: boolean } = {}
-) {
-  const query = database
-    .select({
-      id: eventRequests.id,
-      organiserId: eventRequests.organiserId,
-      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
-      eventName: eventRequests.eventName,
-      status: eventRequests.status,
-      registrationEnabled: eventRequests.registrationEnabled,
-      registrationCapacity: eventRequests.registrationCapacity,
-    })
-    .from(eventRequests)
-    .where(eq(eventRequests.id, eventId));
-  return (await (lock ? query.for("no key update") : query)).at(0);
-}
-
-type EventRow = NonNullable<Awaited<ReturnType<typeof readEvent>>>;
-
-async function approvedBooking(database: Pick<Database, "select">, eventId: number) {
-  return (
-    await database
-      .select({
-        venueCapacity: venues.maxCapacity,
-      })
-      .from(venueRequests)
-      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-      .where(and(eq(venueRequests.eventId, eventId), eq(venueRequests.status, "approved")))
-      .orderBy(venueRequests.createdAt, venueRequests.id)
-      .limit(1)
-  ).at(0);
-}
-
-async function countRegistrations(database: Pick<Database, "select">, eventId: number) {
-  const [counts] = await database
-    .select(registrationCounts)
-    .from(eventRegistrations)
-    .where(
-      and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.status, "registered"))
-    );
-  return counts;
 }

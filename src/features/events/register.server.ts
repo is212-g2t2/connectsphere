@@ -288,7 +288,7 @@ export async function handleRemoveVipRegistration(
  * The event row. Every registration write locks it before it counts; `no key update` does not
  * block the key-share locks that foreign-key inserts take on the event row.
  */
-async function readEvent(
+export async function readEvent(
   database: Pick<Database, "select">,
   eventId: number,
   { lock = false }: { lock?: boolean } = {}
@@ -310,7 +310,7 @@ async function readEvent(
   return (await (lock ? query.for("no key update") : query)).at(0);
 }
 
-type EventRow = NonNullable<Awaited<ReturnType<typeof readEvent>>>;
+export type EventRow = NonNullable<Awaited<ReturnType<typeof readEvent>>>;
 
 /**
  * PTR-111: the published event that the caller manages VIPs for. Only its Organiser and its
@@ -395,7 +395,7 @@ async function isRegistered(
 }
 
 /** The venue the event page shows: the earliest approved booking, as `records.server` picks it. */
-async function approvedBooking(database: Pick<Database, "select">, eventId: number) {
+export async function approvedBooking(database: Pick<Database, "select">, eventId: number) {
   return (
     await database
       .select({
@@ -413,7 +413,7 @@ async function approvedBooking(database: Pick<Database, "select">, eventId: numb
   ).at(0);
 }
 
-async function countRegistrations(database: Pick<Database, "select">, eventId: number) {
+export async function countRegistrations(database: Pick<Database, "select">, eventId: number) {
   const [counts] = await database
     .select(registrationCounts)
     .from(eventRegistrations)

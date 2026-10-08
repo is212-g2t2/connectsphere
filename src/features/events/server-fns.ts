@@ -170,9 +170,10 @@ export const withdrawFromEvent = createServerFn({ method: "POST" })
   .validator(parseEventRequestId)
   .handler(async ({ data, context }) => {
     const [{ db }, { handleWithdrawFromEvent }] = await loadWithdrawServer();
-    await handleWithdrawFromEvent(data, context.user, db);
+    const placeFreedAtCapacity = await handleWithdrawFromEvent(data, context.user, db);
 
     log.info("Event registration withdrawn", { eventId: data.id, attendeeId: context.user.id });
+    return placeFreedAtCapacity;
   });
 
 /**

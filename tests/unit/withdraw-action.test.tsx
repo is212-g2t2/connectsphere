@@ -3,10 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WithdrawAction } from "#/features/events/components/withdraw-action";
-import { NOT_REGISTERED_MESSAGE } from "#/features/events/withdrawal";
+import {
+  NOT_REGISTERED_MESSAGE,
+  PLACE_FREED_AT_CAPACITY_MESSAGE,
+  PLACE_FREED_MESSAGE,
+} from "#/features/events/withdrawal";
 
 const { withdrawFromEvent, invalidate, success } = vi.hoisted(() => ({
-  withdrawFromEvent: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
+  withdrawFromEvent: vi.fn<(input: { data: { id: number } }) => Promise<boolean>>(),
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
 }));
@@ -57,14 +61,23 @@ describe("WithdrawAction (PTR-47)", () => {
   });
 
   it("withdraws the Attendee when confirmed, notifies with toast and reloads (AC1)", async () => {
-    withdrawFromEvent.mockResolvedValue(undefined);
+    withdrawFromEvent.mockResolvedValue(false);
     const user = await openModal();
 
     await user.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
 
     await waitFor(() => expect(withdrawFromEvent).toHaveBeenCalledWith({ data: { id: 12 } }));
-    await waitFor(() => expect(success).toHaveBeenCalledWith("You have withdrawn from Open Day."));
+    await waitFor(() => expect(success).toHaveBeenCalledWith(PLACE_FREED_MESSAGE));
     expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("tells the Attendee when the withdrawal frees a place at capacity", async () => {
+    withdrawFromEvent.mockResolvedValue(true);
+    const user = await openModal();
+
+    await user.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+
+    await waitFor(() => expect(success).toHaveBeenCalledWith(PLACE_FREED_AT_CAPACITY_MESSAGE));
   });
 
   it("shows named refusal when not registered", async () => {

@@ -9,6 +9,8 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
+import { COMPLETED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/completion";
 import { handleListEvents } from "#/features/events/records.server";
 import { handleRegisterForEvent } from "#/features/events/register.server";
 import { handleWithdrawFromEvent } from "#/features/events/withdraw.server";
@@ -575,7 +577,7 @@ describe("registering for an event (PTR-45)", () => {
       const event = await createEvent();
       await register(event.id, attendee);
 
-      await withdraw(event.id, attendee);
+      expect(await withdraw(event.id, attendee)).toBe(false);
 
       const rows = await registrationsFor(event.id);
       expect(rows).toHaveLength(1);
@@ -595,6 +597,67 @@ describe("registering for an event (PTR-45)", () => {
 
       expect(await withdrawRefusal(event.id, attendee)).toBe(NOT_REGISTERED_MESSAGE);
     });
+
+    test("logs an Attendee withdrawing their VIP registration as a removal by that Attendee", async () => {
+      const event = await createEvent();
+      await database.insert(schema.eventRegistrations).values({
+        eventId: event.id,
+        attendeeId: attendee.id,
+        status: "registered",
+        vip: true,
+      });
+
+      await withdraw(event.id, attendee);
+
+      const rows = await registrationsFor(event.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ attendeeId: attendee.id, status: "withdrawn", vip: true });
+      const changes = await database
+        .select()
+        .from(schema.vipRegistrationChanges)
+        .where(
+          and(
+            eq(schema.vipRegistrationChanges.eventId, event.id),
+            eq(schema.vipRegistrationChanges.attendeeId, attendee.id)
+          )
+        );
+      expect(changes).toHaveLength(1);
+      expect(changes[0]).toMatchObject({
+        change: "removed",
+        actorId: attendee.id,
+      });
+    });
+
+    test.each([
+      ["completed", COMPLETED_EVENT_ACTIVITY_MESSAGE],
+      ["cancelled", CANCELLED_EVENT_ACTIVITY_MESSAGE],
+    ] as const)(
+      "refuses withdrawal from a %s event without changing the registration",
+      async (status, message) => {
+        const event = status === "cancelled" ? await createEvent({ status }) : await createEvent();
+        if (status === "completed") {
+          await database
+            .update(schema.eventRequests)
+            .set({
+              status,
+              completedById: coordinator.id,
+              completedByName: coordinator.name,
+              completedAt: new Date(),
+            })
+            .where(eq(schema.eventRequests.id, event.id));
+        }
+        await database.insert(schema.eventRegistrations).values({
+          eventId: event.id,
+          attendeeId: attendee.id,
+          status: "registered",
+        });
+
+        expect(await withdrawRefusal(event.id, attendee)).toBe(message);
+        expect(await registrationsFor(event.id)).toMatchObject([
+          { attendeeId: attendee.id, status: "registered" },
+        ]);
+      }
+    );
 
     test("withdrawal frees the place so registration capacity is decremented (AC2)", async () => {
       const event = await createEvent({ capacity: 2 });
@@ -625,7 +688,7 @@ describe("registering for an event (PTR-45)", () => {
       await register(event.id, secondAttendee);
 
       // Event was full at capacity (2 of 2). Now attendee withdraws.
-      await withdraw(event.id, attendee);
+      expect(await withdraw(event.id, attendee)).toBe(true);
 
       const notices = await notificationsFor(event.id, "registration_place_freed");
       expect(notices).toHaveLength(2);

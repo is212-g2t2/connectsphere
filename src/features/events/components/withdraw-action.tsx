@@ -15,7 +15,11 @@ import {
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
 import { withdrawFromEvent } from "#/features/events/server-fns";
-import { NOT_REGISTERED_MESSAGE } from "#/features/events/withdrawal";
+import {
+  NOT_REGISTERED_MESSAGE,
+  PLACE_FREED_AT_CAPACITY_MESSAGE,
+  PLACE_FREED_MESSAGE,
+} from "#/features/events/withdrawal";
 import { useMutation } from "#/hooks/use-mutation";
 
 export function WithdrawAction({ eventId, eventName }: { eventId: number; eventName: string }) {
@@ -23,15 +27,16 @@ export function WithdrawAction({ eventId, eventName }: { eventId: number; eventN
   const [open, setOpen] = useState(false);
 
   const [state, withdraw, withdrawing] = useMutation(async () => {
+    let placeFreedAtCapacity = false;
     try {
-      await withdrawFromEvent({ data: { id: eventId } });
+      placeFreedAtCapacity = await withdrawFromEvent({ data: { id: eventId } });
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       await router.invalidate();
       throw message === NOT_REGISTERED_MESSAGE ? error : new Error();
     }
     setOpen(false);
-    toast.success(`You have withdrawn from ${eventName}.`);
+    toast.success(placeFreedAtCapacity ? PLACE_FREED_AT_CAPACITY_MESSAGE : PLACE_FREED_MESSAGE);
     await router.invalidate();
   }, "Could not withdraw from this event. Try again.");
 
