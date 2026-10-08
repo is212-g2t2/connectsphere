@@ -197,8 +197,6 @@ function ChangeRequestDecision({
               type="button"
               size="sm"
               variant="outline"
-              aria-expanded={declining}
-              aria-controls={formId}
               aria-label={`Decline ${label}`}
               onClick={() => setDeclining(true)}
             >

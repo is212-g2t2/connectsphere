@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -83,10 +83,30 @@ export function UpdateEventInformation({
   // the form is open for either reason.
   const editing = applying !== null || editingSelf;
   const applyingId = applying?.id;
+  // An apply replaces a direct edit that was open, so the form never falls back to "edit" mode
+  // with the apply's typing in it once the request is processed elsewhere. Adjusted as the prop
+  // changes, during render, as React prescribes for state that follows a prop.
+  const [lastApplyingId, setLastApplyingId] = useState(applyingId);
+  if (lastApplyingId !== applyingId) {
+    setLastApplyingId(applyingId);
+    if (applyingId !== undefined) setEditingSelf(false);
+  }
   // The decisions card sits above; the reader lands on the pinned request, not where they were.
   useEffect(() => {
     if (applyingId !== undefined) applyingHeading.current?.focus();
   }, [applyingId]);
+  // The caller holds other applies while this form has unsaved edits (PTR-52). A form closed
+  // from outside — the request processed elsewhere, the page re-read — reports clean on its way
+  // out, so nothing stays held after it is gone. The latest listener is kept in a ref so the
+  // unmount cleanup never re-fires on a render.
+  const dirtyListener = useRef(onDirtyChange);
+  useEffect(() => {
+    dirtyListener.current = onDirtyChange;
+  });
+  useEffect(() => {
+    if (!editing) dirtyListener.current?.(false);
+  }, [editing]);
+  useEffect(() => () => dirtyListener.current?.(false), []);
   // The toggle waits for a save, so a reopened form is never closed by the earlier save.
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -100,10 +120,10 @@ export function UpdateEventInformation({
   // fades out. `warningOpen` says whether it shows.
   const [warningOpen, setWarningOpen] = useState(false);
 
-  function reportDirty(next: boolean) {
+  const reportDirty = useCallback((next: boolean) => {
     setDirty(next);
-    onDirtyChange?.(next);
-  }
+    dirtyListener.current?.(next);
+  }, []);
 
   function closeForm() {
     setEditingSelf(false);

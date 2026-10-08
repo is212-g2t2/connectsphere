@@ -396,6 +396,67 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     );
   });
 
+  it("frees the other applies when a dirty apply form is closed by the record, and never falls back to a direct edit", async () => {
+    const second = { ...waiting, id: 34, whatShouldChange: "Date" };
+    const user = userEvent.setup();
+    const { rerender } = renderPage({
+      status: "submitted",
+      decidedByCoordinatorId: null,
+      decidedByCoordinatorName: null,
+      decidedAt: null,
+      changeRequests: [waiting, second],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
+    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
+    ).toBe(true);
+
+    // Another tab declined #1; the page re-read with #2 still waiting.
+    rerender(
+      <CoordinationRequestPage
+        request={{
+          ...request,
+          status: "submitted",
+          decidedByCoordinatorId: null,
+          decidedByCoordinatorName: null,
+          decidedAt: null,
+          changeRequests: [{ ...declined, id: 31 }, second],
+        }}
+        coordinators={coordinators}
+        user={actor}
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Apply the change request" })).toBeNull();
+    expect(screen.queryByLabelText("Purpose (required)")).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
+      ).toBe(false)
+    );
+  });
+
+  it("drops an open direct edit when an apply starts, so an external close cannot remount it on the apply's typing", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Edit event information" }));
+    await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
+    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    rerender(
+      <CoordinationRequestPage
+        request={{ ...request, changeRequests: [declined] }}
+        coordinators={coordinators}
+        user={actor}
+      />
+    );
+
+    expect(screen.queryByLabelText("Purpose (required)")).toBeNull();
+    expect(screen.getByRole("button", { name: "Edit event information" })).toBeTruthy();
+  });
+
   it("closes the pinned request when the record shows it processed elsewhere", async () => {
     const user = userEvent.setup();
     const { rerender } = renderPage();
