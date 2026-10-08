@@ -88,7 +88,7 @@ export const RegistrationThresholdEmail = ({
 
 interface RegistrationPlaceFreedEmailProps {
   eventName: string;
-  /** The place limit at the time of the withdrawal. */
+  /** The place limit after the withdrawal. */
   limit: number;
   eventUrl: string;
 }
@@ -107,8 +107,8 @@ export const RegistrationPlaceFreedEmail = ({
     <Section>
       <Text style={emailHeading}>A place has been freed</Text>
       <Text style={emailText}>
-        An Attendee has withdrawn from <strong>{eventName}</strong>. The event now has space for one
-        more registration (limit: {limit}).
+        An Attendee has withdrawn from <strong>{eventName}</strong>. The event now has one more
+        place free (limit: {limit}).
       </Text>
       <Button href={eventUrl} style={emailButton}>
         View the event

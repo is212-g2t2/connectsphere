@@ -65,6 +65,8 @@ export function EventPage({ event }: { event: EventProjection }) {
   const isRegistered = details.registration?.status === "registered";
   // The cancelled leg of the route's `hasAttendeePage`, so the page and the route cannot disagree.
   const isCancelled = details.status === "cancelled";
+  // Completed events take no activity writes, so the page offers no withdrawal for one.
+  const isCompleted = details.status === "completed";
   const availability = details.registrationAvailability;
   const period =
     details.registrationOpensAt && details.registrationClosesAt ? (
@@ -170,7 +172,9 @@ export function EventPage({ event }: { event: EventProjection }) {
                   <p className="mt-2 font-semibold">You&apos;re registered</p>
                   {period}
                   {places}
-                  <WithdrawAction eventId={details.id} eventName={details.name ?? "this event"} />
+                  {!isCompleted ? (
+                    <WithdrawAction eventId={details.id} eventName={details.name ?? "this event"} />
+                  ) : null}
                 </>
               ) : period ? (
                 <>

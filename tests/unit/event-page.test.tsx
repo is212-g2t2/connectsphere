@@ -193,6 +193,24 @@ describe("EventPage (PTR-44)", () => {
     expect(screen.getByRole("button", { name: "Withdraw registration" })).toBeTruthy();
   });
 
+  it("offers no withdrawal from a completed event the attendee holds a registration for", () => {
+    render(
+      <EventPage
+        event={{
+          ...projection,
+          event: {
+            ...projection.event,
+            status: "completed",
+            registration: { status: "registered", registeredAt: "2026-11-02T03:04:05.000Z" },
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByText("You're registered")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Withdraw registration" })).toBeNull();
+  });
+
   it("offers the register action to an attendee who holds no registration (PTR-45)", () => {
     render(<EventPage event={projection} />);
 

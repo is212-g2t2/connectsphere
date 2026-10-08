@@ -375,9 +375,7 @@ describe("Email templates rendering", () => {
 
     expect(html).toContain("A place has been freed");
     expect(html).toContain("Open Day");
-    expect(html.replaceAll("<!-- -->", "")).toContain(
-      "space for one more registration (limit: 40)"
-    );
+    expect(html.replaceAll("<!-- -->", "")).toContain("one more place free (limit: 40)");
     expect(html).toContain("http://localhost:3000/event-requests/12");
   });
 

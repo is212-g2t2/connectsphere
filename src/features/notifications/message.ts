@@ -425,6 +425,8 @@ export function notificationHref(
     case "event_registered":
       return `/events/${eventRequestId}`;
     case "registration_threshold_reached":
+    case "registration_place_freed":
+      // The Organiser opens the event-requests page; the Coordinator opens the coordination page.
       return notification.payload.audience === "coordinator"
         ? `/coordination/${eventRequestId}`
         : `/event-requests/${eventRequestId}`;
@@ -449,11 +451,6 @@ export function notificationHref(
           throw new Error(`No event_cancelled href for "${String(unhandled)}"`);
         }
       }
-    case "registration_place_freed":
-      // The Organiser opens the event-requests page; the Coordinator opens the coordination page.
-      return notification.payload.audience === "coordinator"
-        ? `/coordination/${eventRequestId}`
-        : `/event-requests/${eventRequestId}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);

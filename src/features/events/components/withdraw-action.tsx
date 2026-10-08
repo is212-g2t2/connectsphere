@@ -16,11 +16,13 @@ import {
 import { Button } from "#/components/ui/button";
 import { withdrawFromEvent } from "#/features/events/server-fns";
 import {
-  NOT_REGISTERED_MESSAGE,
+  isWithdrawalRefusal,
   PLACE_FREED_AT_CAPACITY_MESSAGE,
   PLACE_FREED_MESSAGE,
 } from "#/features/events/withdrawal";
 import { useMutation } from "#/hooks/use-mutation";
+
+const GENERIC_WITHDRAW_FAILURE = "Could not withdraw from this event. Try again.";
 
 export function WithdrawAction({ eventId, eventName }: { eventId: number; eventName: string }) {
   const router = useRouter();
@@ -33,12 +35,19 @@ export function WithdrawAction({ eventId, eventName }: { eventId: number; eventN
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       await router.invalidate();
-      throw message === NOT_REGISTERED_MESSAGE ? error : new Error();
+      throw isWithdrawalRefusal(message) ? error : new Error(GENERIC_WITHDRAW_FAILURE);
     }
     setOpen(false);
     toast.success(placeFreedAtCapacity ? PLACE_FREED_AT_CAPACITY_MESSAGE : PLACE_FREED_MESSAGE);
     await router.invalidate();
-  }, "Could not withdraw from this event. Try again.");
+  }, GENERIC_WITHDRAW_FAILURE);
+
+  const refusal =
+    state.status === "error" ? (
+      <p role="alert" className="body-sm text-destructive">
+        {state.error}
+      </p>
+    ) : null;
 
   return (
     <div className="mt-4 flex flex-col items-start gap-2">
@@ -54,10 +63,10 @@ export function WithdrawAction({ eventId, eventName }: { eventId: number; eventN
           <AlertDialogHeader>
             <AlertDialogTitle>Withdraw registration</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to withdraw from {eventName}? Your place will be freed and given
-              to someone else.
+              Are you sure you want to withdraw from {eventName}? Your place will be freed.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {open && refusal}
           <AlertDialogFooter>
             <AlertDialogCancel size="sm" disabled={withdrawing}>
               Cancel
@@ -68,21 +77,11 @@ export function WithdrawAction({ eventId, eventName }: { eventId: number; eventN
               disabled={withdrawing}
               onClick={() => void withdraw()}
             >
-              {withdrawing ? "Withdrawing…" : "Confirm withdrawal"}
+              {withdrawing ? "Withdrawing…" : "Withdraw"}
             </AlertDialogAction>
           </AlertDialogFooter>
-          {open && state.status === "error" ? (
-            <p role="alert" className="body-sm text-destructive">
-              {state.error}
-            </p>
-          ) : null}
         </AlertDialogContent>
       </AlertDialog>
-      {!open && state.status === "error" ? (
-        <p role="alert" className="body-sm text-destructive">
-          {state.error}
-        </p>
-      ) : null}
     </div>
   );
 }

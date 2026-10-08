@@ -2,17 +2,22 @@ import { and, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRegistrations, vipRegistrationChanges } from "#/db/schema";
-import { AuthorizationError, ConflictError } from "#/features/auth/session";
+import { ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { assertEventAcceptsActivity } from "#/features/events/completion";
-import { approvedBooking, countRegistrations, readEvent } from "#/features/events/register.server";
+import {
+  approvedBooking,
+  countRegistrations,
+  eventName,
+  readEvent,
+  stakeholderRecipients,
+} from "#/features/events/register.server";
 import type { EventRow } from "#/features/events/register.server";
 import { placeLimit } from "#/features/events/registration";
 import { NOT_REGISTERED_MESSAGE } from "#/features/events/withdrawal";
 import { raiseNotifications } from "#/features/notifications/raise.server";
-import type { NewNotification } from "#/features/notifications/raise.server";
 
 /**
  * Server-only on purpose, and named for it: `#/db/schema` is a value import here. Reached via a
@@ -25,7 +30,7 @@ type Database = typeof Db;
 /**
  * PTR-47: an Attendee withdraws a `registered` registration. The event row lock (AC2: first-come-
  * first-served on register, same row) serialises any concurrent registration and this withdrawal,
- * so the capacity check that follows the update is consistent.
+ * so the capacity count before the flip is consistent.
  *
  * AC1: only a `registered` registration can be withdrawn; a `withdrawn` or absent row is refused.
  * AC2: the withdrawal frees the place, so it no longer counts against capacity.
@@ -45,13 +50,22 @@ export async function handleWithdrawFromEvent(
     // Lock the event row so concurrent registrations queue on it while we adjust the count.
     const event = await readEvent(tx, input.id, { lock: true });
 
-    // A missing event and an unpublished one are refused with Forbidden so id existence is not leaked.
-    if (!event || event.status === "draft") throw new AuthorizationError("Forbidden");
-    assertEventAcceptsActivity(event.status);
-    if (event.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+    // A missing event and a draft one answer exactly as an event the caller holds no registration
+    // for, so a probe cannot tell from the refusal whether the id exists.
+    if (!event || event.status === "draft") throw new ConflictError(NOT_REGISTERED_MESSAGE);
+
+    // AC4 counts come from before the flip: a withdrawn VIP row drops `vips` and can raise the
+    // limit while `registered` stands still, so counting after would blame the VIP for a freed
+    // place the event never lost.
+    const booking = await approvedBooking(tx, event.id);
+    const capacity = event.registrationCapacity;
+    const countsBefore =
+      booking && capacity !== null ? await countRegistrations(tx, event.id) : null;
 
     // Flip the registration from `registered` to `withdrawn`. Nothing happens when the row does
     // not exist or is already `withdrawn` — the returning array is empty and the refusal fires.
+    // The caller's own row resolves before the status gates, so a caller with no registration
+    // learns nothing about the event's status from the refusal.
     const updated = await tx
       .update(eventRegistrations)
       .set({ status: "withdrawn" })
@@ -64,6 +78,11 @@ export async function handleWithdrawFromEvent(
       )
       .returning({ eventId: eventRegistrations.eventId, vip: eventRegistrations.vip });
     if (updated.length === 0) throw new ConflictError(NOT_REGISTERED_MESSAGE);
+
+    // Completed events take no activity writes, the project-wide rule `assertEventAcceptsActivity`
+    // owns; cancelled events neither. Both run after the flip, so the thrown error rolls it back.
+    assertEventAcceptsActivity(event.status);
+    if (event.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     if (updated[0].vip) {
       await tx.insert(vipRegistrationChanges).values({
         eventId: event.id,
@@ -75,17 +94,20 @@ export async function handleWithdrawFromEvent(
 
     let placeFreedAtCapacity = false;
 
-    // AC4: was the event at its registration capacity before the withdrawal? If so, notify.
-    // Count after the update: one fewer registered place means this withdrawal freed one.
-    const booking = await approvedBooking(tx, event.id);
-    const capacity = event.registrationCapacity;
-    if (booking && capacity !== null) {
-      const { registered, vips } = await countRegistrations(tx, event.id);
-      const limit = placeLimit(capacity, booking.venueCapacity, vips);
-      // The withdrawal freed a place exactly when the post-withdrawal count equals limit - 1,
-      // meaning the count was at the limit before this registration was withdrawn.
-      if (registered === limit - 1) {
-        await announceFreedPlace(tx, event, limit);
+    // AC4: was the event at its registration capacity before the withdrawal? The after-values
+    // follow from the flipped row: a VIP leaves `registered` standing and drops `vips` by one.
+    if (booking && capacity !== null && countsBefore !== null) {
+      const withdrawingVip = updated[0].vip;
+      const registeredBefore = countsBefore.registered;
+      const vipsBefore = countsBefore.vips;
+      const registeredAfter = withdrawingVip ? registeredBefore : registeredBefore - 1;
+      const vipsAfter = withdrawingVip ? vipsBefore - 1 : vipsBefore;
+      const limitBefore = placeLimit(capacity, booking.venueCapacity, vipsBefore);
+      const limitAfter = placeLimit(capacity, booking.venueCapacity, vipsAfter);
+      // The withdrawal freed a place exactly when the normal registrations stood at the limit
+      // before and stand below it after.
+      if (registeredBefore >= limitBefore && registeredAfter < limitAfter) {
+        await announceFreedPlace(tx, event, limitAfter);
         placeFreedAtCapacity = true;
       }
     }
@@ -96,30 +118,17 @@ export async function handleWithdrawFromEvent(
 
 /**
  * PTR-47 AC4: tells the Organiser, and the assigned Coordinator when there is one, that a place
- * was freed from an event that had been at its registration capacity. Matching the same pattern
- * `announcePlaceMark` uses in `register.server.ts` to target the correct stakeholders.
+ * was freed from an event that had been at its registration capacity. The recipients come from
+ * `stakeholderRecipients`, the same builder `announcePlaceMark` uses.
  */
-async function announceFreedPlace(
-  tx: Pick<Database, "select" | "insert">,
-  event: EventRow,
-  limit: number
-) {
-  const eventName = event.eventName.trim() || "Untitled event";
-  const notices: NewNotification[] = [
-    {
-      recipientId: event.organiserId,
+async function announceFreedPlace(tx: Pick<Database, "insert">, event: EventRow, limit: number) {
+  await raiseNotifications(
+    tx,
+    stakeholderRecipients(event).map(({ recipientId, audience }) => ({
+      recipientId,
       eventRequestId: event.id,
       kind: "registration_place_freed",
-      payload: { eventName, limit, audience: "organiser" },
-    },
-  ];
-  if (event.assignedCoordinatorId) {
-    notices.push({
-      recipientId: event.assignedCoordinatorId,
-      eventRequestId: event.id,
-      kind: "registration_place_freed",
-      payload: { eventName, limit, audience: "coordinator" },
-    });
-  }
-  await raiseNotifications(tx, notices);
+      payload: { eventName: eventName(event), limit, audience },
+    }))
+  );
 }

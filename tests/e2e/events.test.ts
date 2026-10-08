@@ -195,7 +195,7 @@ test.describe("Event access", () => {
     await page.getByRole("button", { name: "Withdraw registration" }).click();
     await expect(
       page.getByText(
-        `Are you sure you want to withdraw from ${ATTENDEE_DEMO_EVENT_NAME}? Your place will be freed and given to someone else.`
+        `Are you sure you want to withdraw from ${ATTENDEE_DEMO_EVENT_NAME}? Your place will be freed.`
       )
     ).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
@@ -203,7 +203,7 @@ test.describe("Event access", () => {
     await expect(page.getByRole("button", { name: "Withdraw registration" })).toBeVisible();
 
     await page.getByRole("button", { name: "Withdraw registration" }).click();
-    await page.getByRole("button", { name: "Confirm withdrawal" }).click();
+    await page.getByRole("button", { name: "Withdraw", exact: true }).click();
     await expect(page.getByRole("button", { name: "Register" })).toBeVisible({
       timeout: 10_000,
     });

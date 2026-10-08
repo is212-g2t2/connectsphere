@@ -308,14 +308,13 @@ export function renderNotificationEmail(
         }),
       };
     case "registration_place_freed": {
-      const { eventName, limit, audience } = notification.payload;
-      const path = audience === "coordinator" ? "coordination" : "event-requests";
+      const { eventName, limit } = notification.payload;
       return {
         subject,
         element: createElement(RegistrationPlaceFreedEmail, {
           eventName,
           limit,
-          eventUrl: `${base}/${path}/${eventRequestId}`,
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     }

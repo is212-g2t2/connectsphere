@@ -659,6 +659,42 @@ describe("registering for an event (PTR-45)", () => {
       }
     );
 
+    test("a caller with no registration on a completed event is told they hold none", async () => {
+      const event = await createEvent();
+      await database
+        .update(schema.eventRequests)
+        .set({
+          status: "completed",
+          completedById: coordinator.id,
+          completedByName: coordinator.name,
+          completedAt: new Date(),
+        })
+        .where(eq(schema.eventRequests.id, event.id));
+
+      expect(await withdrawRefusal(event.id, thirdAttendee)).toBe(NOT_REGISTERED_MESSAGE);
+    });
+
+    test("a missing and a draft id are told the same as an event the caller holds none for", async () => {
+      const event = await createEvent();
+      await database
+        .update(schema.eventRequests)
+        .set({
+          status: "draft",
+          submittedAt: null,
+          assignedCoordinatorId: null,
+          decidedByCoordinatorId: null,
+          decidedByCoordinatorName: null,
+          decidedAt: null,
+          confirmedById: null,
+          confirmedByName: null,
+          confirmedAt: null,
+        })
+        .where(eq(schema.eventRequests.id, event.id));
+
+      expect(await withdrawRefusal(event.id, thirdAttendee)).toBe(NOT_REGISTERED_MESSAGE);
+      expect(await withdrawRefusal(999_999_999, thirdAttendee)).toBe(NOT_REGISTERED_MESSAGE);
+    });
+
     test("withdrawal frees the place so registration capacity is decremented (AC2)", async () => {
       const event = await createEvent({ capacity: 2 });
       await register(event.id, attendee);
@@ -728,6 +764,64 @@ describe("registering for an event (PTR-45)", () => {
 
       const notices = await notificationsFor(event.id, "registration_place_freed");
       expect(notices).toHaveLength(0);
+    });
+
+    test("a VIP self-withdrawal with room to spare notifies nobody (AC4)", async () => {
+      // Nine normal places against a limit of ten: the event is genuinely not full.
+      const event = await createEvent({ capacity: 10 });
+      await registerOthers(event.id, 9);
+      await database.insert(schema.eventRegistrations).values({
+        eventId: event.id,
+        attendeeId: attendee.id,
+        status: "registered",
+        vip: true,
+      });
+
+      expect(await withdraw(event.id, attendee)).toBe(false);
+
+      expect(await notificationsFor(event.id, "registration_place_freed")).toEqual([]);
+    });
+
+    test("a VIP self-withdrawal that frees a venue-bound place notifies with the raised limit (AC4)", async () => {
+      // The two-place venue holds one VIP and one normal place: full at the venue. The VIP's
+      // withdrawal raises the normal limit from one to two, so the notice carries the after-value.
+      const event = await createEvent({ capacity: 10, bookedVenue: smallVenueId });
+      await register(event.id, secondAttendee);
+      await database.insert(schema.eventRegistrations).values({
+        eventId: event.id,
+        attendeeId: attendee.id,
+        status: "registered",
+        vip: true,
+      });
+
+      expect(await withdraw(event.id, attendee)).toBe(true);
+
+      const notices = await notificationsFor(event.id, "registration_place_freed");
+      expect(notices).toHaveLength(2);
+      const limits = notices.map(notice => {
+        const parsed = parseNotificationPayload(notice.kind, notice.payload);
+        if (!parsed || parsed.kind !== "registration_place_freed") {
+          throw new Error("registration_place_freed did not parse");
+        }
+        return parsed.payload.limit;
+      });
+      expect(limits).toEqual([2, 2]);
+    });
+
+    test("an over-capacity withdrawal frees no place and notifies nobody (AC4)", async () => {
+      // A registration capacity can be lowered under a standing count; a withdrawal that leaves
+      // the count at or over the limit frees no place.
+      const event = await createEvent({ capacity: 10 });
+      await register(event.id, attendee);
+      await registerOthers(event.id, 2);
+      await database
+        .update(schema.eventRequests)
+        .set({ registrationCapacity: 1 })
+        .where(eq(schema.eventRequests.id, event.id));
+
+      expect(await withdraw(event.id, attendee)).toBe(false);
+
+      expect(await notificationsFor(event.id, "registration_place_freed")).toEqual([]);
     });
 
     test("withdrawn registration is not re-created on re-register; returns existing row to registered (AC5)", async () => {
