@@ -129,6 +129,7 @@ const owned = (overrides: Record<string, unknown> = {}) =>
     status: "submitted",
     assignedCoordinatorId: viewer.id,
     assignedAt: new Date("2026-09-16T02:00:00Z"),
+    coordinator: { ...viewer },
     ...overrides,
   });
 
@@ -269,6 +270,24 @@ describe("request section", () => {
     expect(screen.getByRole("heading", { name: "Request details" })).toBeTruthy();
     expect(screen.getByText("Ravi Kumar")).toBeTruthy();
     expect(screen.getByText("Not yet assigned")).toBeTruthy();
+  });
+
+  it("marks an assigned-but-orphaned coordinator as unavailable in the record", () => {
+    renderSection(
+      triageData(
+        coordinationRequest({
+          ...record,
+          status: "submitted",
+          assignedCoordinatorId: viewer.id,
+          assignedAt: new Date("2026-09-16T02:00:00Z"),
+          coordinator: null,
+        })
+      ),
+      "request"
+    );
+
+    expect(screen.getByText("Assigned coordinator unavailable")).toBeTruthy();
+    expect(screen.queryByText("Not yet assigned")).toBeNull();
   });
 
   it("hides the record once the request is decided", () => {
@@ -441,6 +460,43 @@ describe("assignment section", () => {
     expect(screen.queryByRole("button", { name: "Assign to me" })).toBeNull();
   });
 
+  it("requests a handover with the expected coordinator", async () => {
+    renderSection(eventData("planning", owned({ status: "planning" })), "assignment");
+    await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Hand over" }));
+    await waitFor(() =>
+      expect(requestEventHandover).toHaveBeenCalledWith({
+        data: { id: 7, coordinatorId: "coord-b", expectedCoordinatorId: viewer.id },
+      })
+    );
+    expect(success).toHaveBeenCalledWith("Handover requested.");
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("replaces a waiting handover with the expected coordinator", async () => {
+    renderSection(
+      eventData(
+        "planning",
+        owned({
+          status: "planning",
+          pendingHandover: { requestedAt: new Date("2026-09-20T02:00:00Z"), toName: "Bailey" },
+        })
+      ),
+      "assignment"
+    );
+    await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Offer to someone else" }));
+    await waitFor(() =>
+      expect(requestEventHandover).toHaveBeenCalledWith({
+        data: { id: 7, coordinatorId: "coord-b", expectedCoordinatorId: viewer.id },
+      })
+    );
+    expect(success).toHaveBeenCalledWith("Handover requested.");
+    expect(invalidate).toHaveBeenCalled();
+  });
+
   it("keeps the assignment form in a compact readable column", () => {
     const { container } = renderSection(triageData(coordinationRequest()), "assignment");
     const compact = container.querySelector(".max-w-md, .max-w-lg");
@@ -467,8 +523,21 @@ describe("assignment section", () => {
     renderSection(eventData("planning", owned({ status: "planning" })), "assignment");
 
     expect(screen.getByText("Ravi Kumar")).toBeTruthy();
-    expect(screen.getByText("Not yet assigned")).toBeTruthy();
+    expect(screen.getByText("Myself")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "me@example.com" })).toBeTruthy();
     expect(screen.getByText(/Assigned on/)).toBeTruthy();
+    expect(screen.queryByText("Not yet assigned")).toBeNull();
+  });
+
+  it("marks an assigned-but-orphaned coordinator as unavailable", () => {
+    renderSection(
+      eventData("planning", owned({ status: "planning", coordinator: null })),
+      "assignment"
+    );
+
+    expect(screen.getByText("Assigned coordinator unavailable")).toBeTruthy();
+    expect(screen.getByText(/Assigned on/)).toBeTruthy();
+    expect(screen.queryByText("Not yet assigned")).toBeNull();
   });
 
   it("shows the unassigned state in the summary", () => {

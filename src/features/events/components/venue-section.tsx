@@ -97,7 +97,7 @@ function VenueBody({ data }: { data: EventPageData }) {
               <EventRequirements event={source.requirements} className="mt-2">
                 {venueRequest && (
                   <>
-                    <Detail
+                    <VenueDetail
                       label="Venue request"
                       value={
                         <span className="flex flex-wrap items-center gap-2">
@@ -120,7 +120,7 @@ function VenueBody({ data }: { data: EventPageData }) {
                     />
                     {venueRequest.rejection && (
                       <>
-                        <Detail
+                        <VenueDetail
                           label={
                             venueRequest.status === "rejected"
                               ? "Rejected booking"
@@ -130,7 +130,7 @@ function VenueBody({ data }: { data: EventPageData }) {
                             venueRequest.rejection.date
                           )}, ${venueRequest.rejection.startTime}–${venueRequest.rejection.endTime}`}
                         />
-                        <Detail
+                        <VenueDetail
                           label="Rejection reason"
                           value={
                             <span className="whitespace-pre-line">
@@ -139,7 +139,7 @@ function VenueBody({ data }: { data: EventPageData }) {
                           }
                         />
                         {venueRequest.rejection.suggestion && (
-                          <Detail
+                          <VenueDetail
                             label="Suggested alternative"
                             value={formatVenueSuggestion(
                               venueRequest.rejection.suggestion,
@@ -159,13 +159,13 @@ function VenueBody({ data }: { data: EventPageData }) {
                     )}
                     {venueRequest.release && (
                       <>
-                        <Detail
+                        <VenueDetail
                           label="Released booking"
                           value={`${venueRequest.release.venueName}, ${formatLocalDate(
                             venueRequest.release.date
                           )}, ${venueRequest.release.startTime}–${venueRequest.release.endTime}`}
                         />
-                        <Detail
+                        <VenueDetail
                           label="Release reason"
                           value={
                             <span className="whitespace-pre-line">
@@ -174,7 +174,10 @@ function VenueBody({ data }: { data: EventPageData }) {
                           }
                         />
                         {venueRequest.release.changedByName && (
-                          <Detail label="Released by" value={venueRequest.release.changedByName} />
+                          <VenueDetail
+                            label="Released by"
+                            value={venueRequest.release.changedByName}
+                          />
                         )}
                       </>
                     )}
@@ -191,8 +194,8 @@ function VenueBody({ data }: { data: EventPageData }) {
               <dl className="mt-2 space-y-3 body-sm" aria-label="Confirmation">
                 {source.confirmation.venue ? (
                   <>
-                    <Detail label="Confirmed venue" value={source.confirmation.venue.name} />
-                    <Detail
+                    <VenueDetail label="Confirmed venue" value={source.confirmation.venue.name} />
+                    <VenueDetail
                       label="Confirmed date and time"
                       value={`${formatLocalDate(source.confirmation.venue.date)}, ${
                         source.confirmation.venue.startTime
@@ -200,12 +203,12 @@ function VenueBody({ data }: { data: EventPageData }) {
                     />
                   </>
                 ) : (
-                  <Detail
+                  <VenueDetail
                     label="Venue booking"
                     value="The booking has been released. The Coordinator will follow up."
                   />
                 )}
-                <Detail
+                <VenueDetail
                   label="Confirmed"
                   value={`${formatInstant(new Date(source.confirmation.confirmedAt))} by ${
                     source.confirmation.confirmedByName
@@ -233,11 +236,11 @@ function VenueBody({ data }: { data: EventPageData }) {
 }
 
 /** One labelled row beside the shared requirements: the card's pending request. */
-function Detail({ label, value }: { label: string; value: ReactNode }) {
+function VenueDetail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="eyebrow text-muted-foreground">{label}</dt>
-      <dd className="mt-2 min-w-0 body-sm text-foreground">{value}</dd>
+      <dd className="mt-1 min-w-0 body-sm text-foreground">{value}</dd>
     </div>
   );
 }
@@ -261,20 +264,32 @@ export function venueSections(data: EventPageData): EventSectionDef[] {
     ];
   }
   if (data.event.access !== "organiser" && data.event.access !== "coordinator") return [];
-  const { status, venueRequest } = data.event.event;
-  const settled = status === "approved" || status === "planning" || status === "confirmed";
-  const adjusting =
-    REVIEW_STATUSES.some(candidate => candidate === status) &&
-    (venueRequest?.status ?? null) === "rejected";
   // The search action lives in this block, so hiding the block for a searchable status would
   // strand the action. The body gates the link itself on the same statuses.
-  const searchable =
-    data.event.access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(status);
   return [
     {
       id: "venue",
       label: "Venue",
-      visible: () => settled || adjusting || searchable,
+      visible: inner => {
+        const source = venueSource(inner);
+        if (!source) return false;
+        const { access, status, venueRequest } = source;
+        const settled = status === "approved" || status === "planning" || status === "confirmed";
+        const adjusting =
+          REVIEW_STATUSES.some(candidate => candidate === status) &&
+          (venueRequest?.status ?? null) === "rejected";
+        const searchable = access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(status);
+        if (!settled && !adjusting && !searchable) return false;
+        const hasActions =
+          source.searchable &&
+          access === "coordinator" &&
+          SEARCHABLE_EVENT_STATUSES.includes(status);
+        return (
+          hasEventRequirements(source.requirements, venueRequest !== null) ||
+          source.confirmation !== null ||
+          hasActions
+        );
+      },
       render: body => <VenueBody data={body} />,
     },
   ];

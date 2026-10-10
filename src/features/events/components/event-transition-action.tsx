@@ -59,7 +59,13 @@ export function EventTransitionAction({
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       const refusal = message.startsWith(refusalHeading);
-      if (!refusal || invalidateOnRefusal) await router.invalidate();
+      if (!refusal || invalidateOnRefusal) {
+        try {
+          await router.invalidate();
+        } catch {
+          // A failed refresh must not mask the original refusal or failure.
+        }
+      }
       throw refusal ? error : new Error();
     }
     try {

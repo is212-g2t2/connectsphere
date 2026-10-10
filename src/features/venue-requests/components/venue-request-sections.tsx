@@ -31,7 +31,10 @@ export function venueRequestSections(data: EventPageData): EventSectionDef[] {
     {
       id: "decision",
       label: "Record a decision",
-      visible: () => venueDecision !== null && data.event.event.status !== "cancelled",
+      visible: inner =>
+        venueDecision !== null &&
+        inner.kind === "event" &&
+        inner.event.event.status !== "cancelled",
       render: inner => <DecisionBody data={inner} />,
     },
   ];

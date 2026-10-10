@@ -108,6 +108,16 @@ describe("organiserRequestSections", () => {
 
     expect(section?.visible(data)).toBe(false);
   });
+
+  it("hides the requests section without its request", () => {
+    cleanup();
+    const data = page("confirmed", null as unknown as EventRequestDetail);
+    const section = organiserRequestSections(data).find(candidate => candidate.id === "requests");
+
+    expect(section?.visible(data)).toBe(false);
+    render(<>{section?.render(data)}</>);
+    expect(screen.queryByRole("heading", { name: "Requests & messages" })).toBeNull();
+  });
   it("offers the reply form only while the request waits on the organiser", () => {
     renderRequests("awaiting_organiser", { ...base, clarifications: [openClarification] });
     expect(screen.getByLabelText(/Your reply/)).toBeTruthy();

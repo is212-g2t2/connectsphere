@@ -20,7 +20,7 @@ import { venueRequestSections } from "#/features/venue-requests/components/venue
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
-/** The section map for one event access, in jump-nav order. */
+/** The section map for one event access, in section map order. */
 export function eventSections(data: EventPageData): EventSectionDef[] {
   if (data.kind === "triage") {
     return [...coordinatorSections(data), ...venueSections(data)].filter(section =>
@@ -118,7 +118,10 @@ function SectionStack({ data, sections }: { data: EventPageData; sections: Event
             </section>
           ))}
         </div>
-        <aside aria-label="Actions" className="min-w-0 space-y-8 split:sticky split:top-28">
+        <aside
+          aria-label="Actions"
+          className="order-first min-w-0 space-y-8 split:order-none split:sticky split:top-28"
+        >
           {railSections.map(section => (
             <section
               key={section.id}

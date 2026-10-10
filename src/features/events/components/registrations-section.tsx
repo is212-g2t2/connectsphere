@@ -1,9 +1,12 @@
 import { useCallback } from "react";
+import { useRouter } from "@tanstack/react-router";
 
+import { Button } from "#/components/ui/button";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import { AttendeeTable } from "#/features/events/components/attendee-table";
 import { AddVipDialog, RemoveVipButton } from "#/features/events/components/vip-registrations";
+import type { RegisteredAttendee } from "#/features/events/access";
 
 /** The stages with a registration record to show: venue settled onward. */
 const REGISTRATION_STATUSES: readonly EventRequestStatus[] = [
@@ -20,10 +23,10 @@ export function hasRegistrationRecord(status: EventRequestStatus): boolean {
 /** The shared attendee list: places count and every registration in one table, always visible. */
 function RegistrationsBody({ data }: { data: Extract<EventPageData, { kind: "event" }> }) {
   const { event } = data.event;
-  const attendees = data.attendees ?? [];
+  const router = useRouter();
   // Stable across renders, so the table keeps its column identity and its search and filter.
   const rowActions = useCallback(
-    (attendee: (typeof attendees)[number]) =>
+    (attendee: RegisteredAttendee) =>
       attendee.vip ? (
         <RemoveVipButton
           eventId={event.id}
@@ -49,11 +52,28 @@ function RegistrationsBody({ data }: { data: Extract<EventPageData, { kind: "eve
       </div>
 
       <div className="mt-4">
-        <AttendeeTable
-          attendees={attendees}
-          tableActions={<AddVipDialog eventId={event.id} />}
-          rowActions={rowActions}
-        />
+        {data.attendees === null ? (
+          <p role="alert" className="body-sm text-destructive">
+            Could not load the registrations.{" "}
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              onClick={() => {
+                // A failed refetch leaves the alert in place; the click only retries the load.
+                void router.invalidate().catch(() => undefined);
+              }}
+            >
+              Try again
+            </Button>
+          </p>
+        ) : (
+          <AttendeeTable
+            attendees={data.attendees ?? []}
+            tableActions={<AddVipDialog eventId={event.id} />}
+            rowActions={rowActions}
+          />
+        )}
       </div>
     </div>
   );

@@ -31,7 +31,6 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
  */
 export function organiserRequestSections(data: EventPageData): EventSectionDef[] {
   if (data.kind !== "event" || data.event.access !== "organiser") return [];
-  const { status } = data.event.event;
   return [
     {
       id: "decision",
@@ -46,7 +45,11 @@ export function organiserRequestSections(data: EventPageData): EventSectionDef[]
     {
       id: "requests",
       label: "Requests & messages",
-      visible: () => status !== "draft",
+      visible: inner =>
+        inner.kind === "event" &&
+        inner.event.event.status !== "draft" &&
+        inner.organiserRequest !== null &&
+        inner.organiserRequest !== undefined,
       render: inner => <RequestsBody data={inner} />,
     },
   ];
@@ -65,22 +68,26 @@ function DecisionBody({ data }: { data: EventPageData }) {
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
           <div>
             <dt className="eyebrow text-muted-foreground">Decision</dt>
-            <dd className="mt-1 font-medium text-foreground">
+            <dd className="mt-1 body-sm font-medium text-foreground">
               {stage.outcome === "approved" ? "Approved" : "Rejected"}
             </dd>
           </div>
           <div>
             <dt className="eyebrow text-muted-foreground">Decided by</dt>
-            <dd className="mt-1 font-medium text-foreground">{request.decidedByCoordinatorName}</dd>
+            <dd className="mt-1 body-sm font-medium text-foreground">
+              {request.decidedByCoordinatorName}
+            </dd>
           </div>
           <div>
             <dt className="eyebrow text-muted-foreground">Decided at</dt>
-            <dd className="mt-1 font-medium text-foreground">{formatInstant(request.decidedAt)}</dd>
+            <dd className="mt-1 body-sm font-medium text-foreground">
+              {formatInstant(request.decidedAt)}
+            </dd>
           </div>
           {request.decisionReason && (
             <div>
               <dt className="eyebrow text-muted-foreground">Reason</dt>
-              <dd className="mt-1 font-medium whitespace-pre-line text-foreground">
+              <dd className="mt-1 body-sm font-medium whitespace-pre-line text-foreground">
                 {request.decisionReason}
               </dd>
             </div>
@@ -174,7 +181,7 @@ function CoordinatorContact({ request }: { request: EventRequestDetail }) {
         <dl className="grid gap-6 sm:grid-cols-2">
           <div>
             <dt className="eyebrow text-muted-foreground">Coordinator</dt>
-            <dd className="mt-2 body-md font-medium whitespace-pre-line">
+            <dd className="mt-1 body-sm font-medium whitespace-pre-line">
               {request.coordinator ? (
                 <>
                   {request.coordinator.name}

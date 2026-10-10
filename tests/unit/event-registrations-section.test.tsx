@@ -156,4 +156,15 @@ describe("registrations section", () => {
 
     expect(screen.getByText("No attendees registered.")).toBeTruthy();
   });
+
+  it("offers a retry when the attendee list fails to load", async () => {
+    const user = userEvent.setup();
+    renderRegistrations(page({ attendees: null }));
+
+    expect(screen.getByRole("alert").textContent).toContain("Could not load the registrations.");
+    expect(screen.queryByRole("table")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
 });

@@ -68,7 +68,39 @@ describe("EventDetailPage", () => {
   it("renders the organiser staff header with the venue and the section nav", () => {
     const { container } = render(
       <EventDetailPage
-        data={{ kind: "event", viewerId: "viewer-1", event: projection("organiser") }}
+        data={
+          {
+            kind: "event",
+            viewerId: "viewer-1",
+            event: projection("organiser", { expectedAttendance: 60 }),
+            organiserRequest: {
+              id: 1042,
+              status: "confirmed",
+              purpose: "Welcome new members.",
+              proposedDates: [{ start: "2026-11-04T10:00", end: "2026-11-04T16:00" }],
+              expectedAttendance: 60,
+              description: "An open day for new members.",
+              eventType: "Open day",
+              venueRequirements: "Step-free access, PA system",
+              roomLayoutPreference: "Mixed seating",
+              accessibilityRequirements: "Step-free access throughout",
+              equipmentRequirements: [],
+              specialArrangements: "None",
+              registrationEnabled: false,
+              registrationCapacity: null,
+              registrationOpensAt: null,
+              registrationClosesAt: null,
+              coordinator: { name: "Jonas Weber", email: "jonas@example.com" },
+              clarifications: [],
+              changeRequests: [],
+              cancellationRequests: [],
+              submittedAt: new Date("2026-09-20T00:00:00Z"),
+              decidedAt: new Date("2026-09-28T09:41:00.000Z"),
+              decidedByCoordinatorName: "Jonas Weber",
+              decisionReason: null,
+            },
+          } as unknown as EventPageData
+        }
       />
     );
 

@@ -38,17 +38,30 @@ describe("eventSections", () => {
   });
 
   it("lists the organiser sections in order for a confirmed event", () => {
-    expect(ids(page("organiser", { name: "Open Day" }))).toEqual([
+    const data = {
+      kind: "event",
+      event: projection("organiser", { name: "Open Day", expectedAttendance: 60 }),
+      viewerId: "viewer-1",
+      organiserRequest: { status: "confirmed" },
+    } as unknown as EventPageData;
+    expect(ids(data)).toEqual([
       "venue",
       "registrations",
       "equipment",
+      "decision",
       "requests",
       "details",
     ]);
   });
 
-  it("hides venue, registrations and equipment from a rejected organiser event", () => {
-    expect(ids(page("organiser", { status: "rejected" }))).toEqual(["requests", "details"]);
+  it("hides venue, registrations and equipment from a submitted organiser event", () => {
+    const data = {
+      kind: "event",
+      event: projection("organiser", { status: "submitted" }),
+      viewerId: "viewer-1",
+      organiserRequest: { status: "submitted" },
+    } as unknown as EventPageData;
+    expect(ids(data)).toEqual(["requests", "details"]);
   });
 
   it("shows the recorded decision for a decided organiser event", () => {
@@ -114,8 +127,18 @@ describe("eventSections", () => {
     expect(ids(page("organiser", { status: "submitted" }))).not.toContain("venue");
   });
 
+  it("hides the venue block from a bare settled organiser event", () => {
+    expect(ids(page("organiser", { status: "confirmed" }))).not.toContain("venue");
+  });
+
   it("shows confirm and update sections for a planning coordinator event", () => {
-    const found = ids(page("coordinator", { status: "planning" }));
+    const data = {
+      kind: "event",
+      event: projection("coordinator", { status: "planning" }),
+      viewerId: "viewer-1",
+      coordination: { request: {}, coordinators: [] },
+    } as unknown as EventPageData;
+    const found = ids(data);
 
     expect(found).toContain("confirm");
     expect(found).toContain("details");
@@ -178,7 +201,13 @@ describe("eventSections", () => {
   });
 
   it("renders complete last, after the event-information section", () => {
-    const found = ids(page("coordinator", { status: "confirmed" }));
+    const data = {
+      kind: "event",
+      event: projection("coordinator", { status: "confirmed" }),
+      viewerId: "viewer-1",
+      coordination: { request: {}, coordinators: [] },
+    } as unknown as EventPageData;
+    const found = ids(data);
 
     expect(found.at(-1)).toBe("complete");
     expect(found.indexOf("details")).toBeLessThan(found.indexOf("complete"));

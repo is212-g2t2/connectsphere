@@ -119,4 +119,22 @@ describe("event information section", () => {
     expect(screen.getByRole("heading", { name: "Update event information" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit event information" })).toBeTruthy();
   });
+
+  it("stays hidden and renders nothing without its request", () => {
+    const organiserBase = organiserPage();
+    if (organiserBase.kind !== "event") throw new Error("fixture must be an event page");
+    const withoutOrganiserRequest: EventPageData = { ...organiserBase, organiserRequest: null };
+    const organiserDefs = eventInformationSections(withoutOrganiserRequest);
+    expect(organiserDefs).toHaveLength(1);
+    expect(organiserDefs[0].visible(withoutOrganiserRequest)).toBe(false);
+    expect(organiserDefs[0].render(withoutOrganiserRequest)).toBeNull();
+
+    const coordinatorBase = coordinatorPage();
+    if (coordinatorBase.kind !== "event") throw new Error("fixture must be an event page");
+    const withoutCoordination: EventPageData = { ...coordinatorBase, coordination: null };
+    const coordinatorDefs = eventInformationSections(withoutCoordination);
+    expect(coordinatorDefs).toHaveLength(1);
+    expect(coordinatorDefs[0].visible(withoutCoordination)).toBe(false);
+    expect(coordinatorDefs[0].render(withoutCoordination)).toBeNull();
+  });
 });

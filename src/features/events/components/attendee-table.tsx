@@ -74,7 +74,7 @@ const baseColumns: Array<ColumnDef<typeof features, RegisteredAttendee>> = [
   {
     accessorKey: "email",
     header: "Email",
-    cell: info => <span className="break-all">{info.getValue<string>()}</span>,
+    cell: info => <span className="break-words">{info.getValue<string>()}</span>,
     enableColumnFilter: false,
   },
   {

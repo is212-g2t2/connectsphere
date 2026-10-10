@@ -93,12 +93,24 @@ function OrganiserInformation({ request }: { request: EventRequestDetail }) {
 export function eventInformationSections(data: EventPageData): EventSectionDef[] {
   if (data.kind !== "event") return [];
   if (data.event.access !== "organiser" && data.event.access !== "coordinator") return [];
-  const { access, event } = data.event;
+  const { access } = data.event;
   return [
     {
       id: "details",
       label: access === "coordinator" ? "Update event information" : "Event information",
-      visible: () => access === "organiser" || canUpdateEventInformation(event.status),
+      visible: inner => {
+        if (inner.kind !== "event") return false;
+        if (inner.event.access === "organiser") {
+          return inner.organiserRequest !== null && inner.organiserRequest !== undefined;
+        }
+        if (inner.event.access === "coordinator") {
+          return (
+            canUpdateEventInformation(inner.event.event.status) &&
+            inner.coordination?.request !== undefined
+          );
+        }
+        return false;
+      },
       render: body => {
         if (body.kind !== "event") return null;
         if (body.event.access === "coordinator") {

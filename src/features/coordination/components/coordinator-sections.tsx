@@ -138,6 +138,9 @@ function isAssignedView(data: EventPageData, request: CoordinationRequest): bool
  * The Coordinator's review flow: the request record, the decision, the clarification thread,
  * change requests, the assignment, and a waiting cancellation request. Triage renders the record
  * and the assignment only — the review flow needs an assignee, so it stays on the event view.
+ *
+ * Gating contract: SectionStack shows only sections whose `visible()` passes, while each body
+ * still null-checks its own empty state — tests render bodies directly and bypass `visible()`.
  */
 export function coordinatorSections(data: EventPageData): EventSectionDef[] {
   const status = coordinationStatus(data);
@@ -272,6 +275,8 @@ function RequestDetailsBody({ data }: { data: EventPageData }) {
                         {request.coordinator.email}
                       </a>
                     </>
+                  ) : request.assignedCoordinatorId ? (
+                    <span className="text-muted-foreground">Assigned coordinator unavailable</span>
                   ) : (
                     <span className="text-muted-foreground">Not yet assigned</span>
                   )
@@ -369,16 +374,20 @@ function TakeUpBlock({ request }: { request: CoordinationRequest }) {
   const [review, takeUpReview, takingUp] = useMutation(async () => {
     await takeUpEventRequestForReview({ data: { id: request.id } });
     toast.success("Request taken up for review.");
-    await router.invalidate();
+    try {
+      await router.invalidate();
+    } catch {
+      // The take-up already committed; a missed refresh must not mask it as an error.
+    }
   }, "Could not take up this request for review. Try again.");
 
   return (
     <section aria-labelledby="review-heading">
       <Card>
         <CardContent>
-          <h2 id="review-heading" className="display-h3">
+          <h3 id="review-heading" className="display-h3">
             Take up for review
-          </h2>
+          </h3>
           <p className="mt-2 body-sm text-muted-foreground">
             Move this request into review once you&apos;re ready to assess it.
           </p>
@@ -415,7 +424,6 @@ function DecideBlock({ request }: { request: CoordinationRequest }) {
         });
         await decideEventRequest({ data: input });
         toast.success(input.decision === "approved" ? "Request approved." : "Request rejected.");
-        await router.invalidate();
       } catch (error) {
         formApi.setErrorMap({
           onSubmit: {
@@ -424,6 +432,12 @@ function DecideBlock({ request }: { request: CoordinationRequest }) {
               error instanceof Error ? error.message : "Could not record this decision. Try again.",
           },
         });
+        return;
+      }
+      try {
+        await router.invalidate();
+      } catch {
+        // The decision already committed; a missed refresh must not mask it as an error.
       }
     },
   });
@@ -437,9 +451,9 @@ function DecideBlock({ request }: { request: CoordinationRequest }) {
     <section aria-labelledby="decision-heading">
       <Card>
         <CardContent>
-          <h2 id="decision-heading" className="display-h3">
+          <h3 id="decision-heading" className="display-h3">
             Record a decision
-          </h2>
+          </h3>
           <p className="mt-2 body-sm text-muted-foreground">
             A reason is required for rejection and optional for approval. The Organiser will be
             notified of the outcome.
@@ -518,7 +532,6 @@ function ClarifyBlock({ request }: { request: CoordinationRequest }) {
         });
         toast.success("Clarification request sent.");
         clarificationForm.reset();
-        await router.invalidate();
       } catch (error) {
         formApi.setErrorMap({
           onSubmit: {
@@ -529,6 +542,12 @@ function ClarifyBlock({ request }: { request: CoordinationRequest }) {
                 : "Could not send clarification request. Try again.",
           },
         });
+        return;
+      }
+      try {
+        await router.invalidate();
+      } catch {
+        // The request already sent; a missed refresh must not mask it as an error.
       }
     },
   });
@@ -537,9 +556,9 @@ function ClarifyBlock({ request }: { request: CoordinationRequest }) {
     <section aria-labelledby="clarification-heading">
       <Card>
         <CardContent>
-          <h2 id="clarification-heading" className="display-h3">
+          <h3 id="clarification-heading" className="display-h3">
             Request clarification
-          </h2>
+          </h3>
           <p className="mt-2 body-sm text-muted-foreground">
             Ask the Organiser for more details before recording a decision.
           </p>
@@ -699,6 +718,8 @@ function AssignmentSummary({ request }: { request: CoordinationRequest }) {
                     {request.coordinator.email}
                   </a>
                 </>
+              ) : request.assignedCoordinatorId !== null ? (
+                <span className="text-muted-foreground">Assigned coordinator unavailable</span>
               ) : (
                 <span className="text-muted-foreground">Not yet assigned</span>
               )
@@ -745,7 +766,11 @@ function AssignmentForm({
       },
     });
     toast.success("Assignment recorded.");
-    await onAssigned();
+    try {
+      await onAssigned();
+    } catch {
+      // The assignment already committed; a missed refresh must not mask it as an error.
+    }
   }, "Could not assign this request. Try again.");
 
   // PTR-110: an assigned request is offered, not moved. The outgoing Coordinator keeps the
@@ -761,7 +786,11 @@ function AssignmentForm({
         },
       });
       toast.success("Handover requested.");
-      await onAssigned();
+      try {
+        await onAssigned();
+      } catch {
+        // The offer already recorded; a missed refresh must not mask it as an error.
+      }
     },
     "Could not request this handover. Try again."
   );

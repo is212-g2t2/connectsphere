@@ -45,7 +45,7 @@ export type EventPageData =
       coordinators: Coordinator[];
     };
 
-/** One stacked block of the staff event page: its jump-nav entry, its gate, and its body. */
+/** One stacked block of the staff event page: its section map entry, its gate, and its body. */
 export interface EventSectionDef {
   id: string;
   label: string;

@@ -147,6 +147,15 @@ describe("venueRequestSections", () => {
     ).toEqual(["request"]);
   });
 
+  it("gates the decision block on the visible data, not the built data", () => {
+    const sections = venueRequestSections(page({ pending, status: "planning" }));
+    const decision = sections.find(section => section.id === "decision");
+    expect(decision).toBeDefined();
+
+    expect(decision?.visible(page({ pending, status: "cancelled" }))).toBe(false);
+    expect(decision?.visible(page({ pending, status: "planning" }))).toBe(true);
+  });
+
   it("shows the rejection reason and the suggested alternative", () => {
     const data = page({
       venueRequest: {
