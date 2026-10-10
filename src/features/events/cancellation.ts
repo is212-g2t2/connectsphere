@@ -15,7 +15,8 @@ interface VenuePeriod {
 /**
  * PTR-54 AC2, AC6: what a cancelled event still holds. Nothing is released automatically, so the
  * Coordinator sees each item until the staff concerned release it. A hold carries its venue, so
- * the list can open the venue calendar where the Coordinator releases it.
+ * the list can open the venue calendar where the Coordinator releases it. PTR-23 AC3 reads the same
+ * shape for a live event: the warning before a significant change names what the event holds.
  */
 export interface OutstandingReleases {
   venueBookings: VenuePeriod[];

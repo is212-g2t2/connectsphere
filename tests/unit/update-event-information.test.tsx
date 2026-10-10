@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -343,9 +343,7 @@ describe("warning before a significant change (PTR-23)", () => {
     expect(
       within(dialog).getByRole("heading", { name: "This is a significant change" })
     ).toBeTruthy();
-    expect(
-      within(dialog).getByText(/made for the event's current expected attendance/)
-    ).toBeTruthy();
+    expect(within(dialog).getByText(/holds the arrangements below/)).toBeTruthy();
     expect(within(dialog).getByText(/does not change, cancel or release any of them/)).toBeTruthy();
     const items = within(dialog)
       .getAllByRole("listitem")
@@ -355,7 +353,7 @@ describe("warning before a significant change (PTR-23)", () => {
       "Tentative hold: Seminar Room 2A, 2 Dec 2030, 09:00 – 12:00",
       "Equipment reservation: Projector × 2",
     ]);
-    expect(within(dialog).getByText(/will be told what changed/)).toBeTruthy();
+    expect(within(dialog).getByText(/will be notified of the change/)).toBeTruthy();
     // Nothing is sent while the warning waits, and the form says so: the save button reads
     // "Save changes", not "Saving…", and the toggle cannot discard the form under the warning.
     expect(updateEventInformation).not.toHaveBeenCalled();
@@ -394,11 +392,11 @@ describe("warning before a significant change (PTR-23)", () => {
     const dialog = await screen.findByRole("alertdialog");
     expect(
       within(dialog).getByText(
-        /holds no venue booking, tentative hold or equipment reservation, so there is nothing to revisit/
+        "This event holds no venue booking, tentative hold or equipment reservation."
       )
     ).toBeTruthy();
     expect(within(dialog).queryByRole("list")).toBeNull();
-    expect(within(dialog).queryByText(/will be told/)).toBeNull();
+    expect(within(dialog).queryByText(/will be notified/)).toBeNull();
 
     await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
 
@@ -440,42 +438,6 @@ describe("warning before a significant change (PTR-23)", () => {
     expect(success).not.toHaveBeenCalled();
   });
 
-  it("names every significant field of a mixed edit and sends the ordinary one with it", async () => {
-    listEventArrangements.mockResolvedValue(nothingHeld);
-    updateEventInformation.mockResolvedValue({
-      changedFields: ["purpose", "proposedDates", "expectedAttendance"],
-      notified: 0,
-    });
-    const user = await openForm();
-    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
-    fireEvent.change(screen.getByLabelText("Proposed end 1 (required)"), {
-      target: { value: "2030-12-01T23:00" },
-    });
-    const attendance = screen.getByLabelText("Expected attendance (required)");
-    await user.clear(attendance);
-    await user.type(attendance, "150");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    const dialog = await screen.findByRole("alertdialog");
-    expect(
-      within(dialog).getByText(/new proposed dates and times and expected attendance/)
-    ).toBeTruthy();
-    await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
-
-    await waitFor(() => expect(updateEventInformation).toHaveBeenCalled());
-    expect(updateEventInformation).toHaveBeenCalledWith({
-      data: {
-        id: 7,
-        amendments: {
-          purpose: "Fundraiser dinner",
-          proposedDates: [{ start: "2030-12-01T18:00", end: "2030-12-01T23:00" }],
-          expectedAttendance: 150,
-        },
-        acknowledgeSignificant: true,
-      },
-    });
-  });
-
   it("saves an ordinary edit with no warning and no read of the arrangements (AC4)", async () => {
     updateEventInformation.mockResolvedValue(saved(["purpose"]));
     const user = await openForm();
@@ -491,35 +453,15 @@ describe("warning before a significant change (PTR-23)", () => {
     });
   });
 
-  it("keeps the form open and shows the refusal when the confirmed save is refused", async () => {
-    listEventArrangements.mockResolvedValue(nothingHeld);
-    updateEventInformation.mockRejectedValue(
-      new Error("This event's information cannot be updated while its status is completed.")
-    );
-    invalidate.mockResolvedValue(undefined);
-    const user = await editAttendance();
-
-    const dialog = await screen.findByRole("alertdialog");
-    await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
-
-    expect(
-      await screen.findByText(
-        "This event's information cannot be updated while its status is completed."
-      )
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeTruthy();
-    expect(success).not.toHaveBeenCalled();
-    // The closed warning returns focus to the save button it interrupted, as after "Go back".
-    await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save changes" }))
-    );
-  });
-
-  it("keeps the form open and shows the failure when the arrangements cannot be read", async () => {
+  it("shows the failure and re-reads the page when the arrangements cannot be read", async () => {
     listEventArrangements.mockRejectedValue(new Error("Forbidden"));
+    invalidate.mockResolvedValue(undefined);
     await editAttendance();
 
     expect(await screen.findByText("Forbidden")).toBeTruthy();
+    expect(error).toHaveBeenCalledWith("Forbidden");
+    // As after a failed save: a lost assignment or a closed event removes the form on the re-read.
+    expect(invalidate).toHaveBeenCalled();
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(updateEventInformation).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeTruthy();

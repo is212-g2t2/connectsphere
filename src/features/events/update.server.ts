@@ -27,7 +27,7 @@ type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 export interface EventInformationUpdated {
   changedFields: ClarificationField[];
-  /** PTR-23 AC5: how many staff holding an arrangement were told; 0 for an ordinary edit. */
+  /** PTR-23 AC5: how many notices went to staff holding an arrangement; 0 for an ordinary edit. */
   notified: number;
 }
 
@@ -88,14 +88,14 @@ export async function handleUpdateEventInformation(
       .where(eq(eventRequests.id, request.id));
 
     const appliedAt = new Date();
-    const actorName = actor.name?.trim() || actor.email;
+    const actorName = actor.name?.trim();
     await tx.insert(eventInformationChanges).values(
       changes.map(({ field, from, to }) => ({
         eventRequestId: request.id,
         field,
         amendment: { from, to },
         changedById: actor.id,
-        changedByName: actorName,
+        changedByName: actorName || actor.email,
         // `now()` defaults to the transaction timestamp, which predates a wait on the row lock,
         // so overlapping saves could be logged out of order.
         changedAt: appliedAt,
@@ -110,7 +110,8 @@ export async function handleUpdateEventInformation(
             tx,
             { id: request.id, eventName: values.eventName },
             significant,
-            actorName
+            // A role word, never the address: the notice goes to staff outside the event's team.
+            actorName || "The Coordinator"
           )
         : [];
     await raiseNotifications(tx, notices);

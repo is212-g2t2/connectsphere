@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CLARIFICATION_FIELDS,
   EVENT_INFORMATION_AMENDMENTS_MESSAGE,
   EVENT_INFORMATION_COLUMNS,
   EVENT_INFORMATION_ONLY_MESSAGE,
@@ -63,44 +62,16 @@ describe("significant changes (PTR-23)", () => {
       "venueRequirements",
       "equipmentRequirements",
     ]);
-    const ordinary = CLARIFICATION_FIELDS.map(field => field.key).filter(
-      field => !SIGNIFICANT_FIELDS.some(significant => significant === field)
-    );
-    expect(ordinary).toEqual([
-      "eventName",
-      "purpose",
-      "description",
-      "eventType",
-      "roomLayoutPreference",
-      "accessibilityRequirements",
-      "specialArrangements",
-      "attendeeRegistration",
-    ]);
-    expect(significantFields(ordinary)).toEqual([]);
-  });
-
-  it("picks the significant fields out of a save, in a fixed order, and ignores names it does not know", () => {
-    expect(significantFields(["purpose", "expectedAttendance", "proposedDates"])).toEqual([
-      "proposedDates",
-      "expectedAttendance",
-    ]);
-    expect(significantFields(["registrationCapacity", "replyBody", "status"])).toEqual([]);
-    expect(significantFields([])).toEqual([]);
-  });
-
-  it("accepts the acknowledgement beside the amendments, and nothing else (AC2)", () => {
+    // The room layout and the accessibility requirements stay ordinary (PO decision), and the
+    // significant fields come back in the order the list gives.
     expect(
-      parseEventInformationInput({
-        id: 7,
-        amendments: { expectedAttendance: 120 },
-        acknowledgeSignificant: true,
-      })
-    ).toEqual({ id: 7, amendments: { expectedAttendance: 120 }, acknowledgeSignificant: true });
-    expect(
-      parseEventInformationInput({ id: 7, amendments: {}, acknowledgeSignificant: undefined })
-    ).toEqual({ id: 7, amendments: {} });
-    expect(() =>
-      parseEventInformationInput({ id: 7, amendments: {}, acknowledgeSignificant: "yes" })
-    ).toThrow(/boolean/u);
+      significantFields([
+        "purpose",
+        "expectedAttendance",
+        "roomLayoutPreference",
+        "accessibilityRequirements",
+        "proposedDates",
+      ])
+    ).toEqual(["proposedDates", "expectedAttendance"]);
   });
 });

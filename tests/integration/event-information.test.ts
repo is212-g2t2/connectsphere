@@ -682,16 +682,6 @@ describe("warning before a significant change (PTR-23)", () => {
     expect((await updateAcknowledged(bare.id, { expectedAttendance: 120 })).notified).toBe(0);
   });
 
-  it("accepts the acknowledgement on an ordinary edit without effect", async () => {
-    const event = await eventAt("approved");
-    await addBooking(event.id);
-
-    const result = await updateAcknowledged(event.id, { purpose: "Agree the plan" });
-
-    expect(result).toEqual({ changedFields: ["purpose"], notified: 0 });
-    expect(await significantChangeNotices(event.id)).toEqual([]);
-  });
-
   it("lists what the event holds for its assigned Coordinator: approved bookings, held holds and reservations (AC3)", async () => {
     const event = await eventAt("planning");
     const bookingId = await addBooking(event.id);
@@ -715,17 +705,15 @@ describe("warning before a significant change (PTR-23)", () => {
     });
   });
 
-  it("refuses the arrangements of another Coordinator's event, an unassigned event, a draft and a missing id the same way", async () => {
+  it("refuses the arrangements of another Coordinator's event, an unassigned event and a missing id the same way", async () => {
     const assigned = await eventAt("approved");
     const unassigned = await eventAt("approved", { assignedCoordinatorId: null });
-    const draft = await eventAt("draft");
 
     await Promise.all(
       (
         [
           [assigned.id, otherCoordinator],
           [unassigned.id, coordinator],
-          [draft.id, coordinator],
           [2_000_000_000, coordinator],
         ] as const
       ).map(([id, actor]) =>

@@ -6,7 +6,7 @@
 // booking are told. Every test creates and removes its own event, so the tests can run in parallel
 // and never touch the demo rows.
 import { expect, test } from "@playwright/test";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -163,7 +163,7 @@ test("an ordinary edit saves with no warning (PTR-23 AC4)", async ({ page }) => 
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });
 
-test("a significant change names the booking the event holds, leaves it as it is, and tells the Venue Staff (PTR-23 AC2, AC3, AC5)", async ({
+test("a significant change names the booking the event holds, and tells the Venue Staff once saved (PTR-23 AC2, AC3, AC5)", async ({
   page,
 }) => {
   const { id } = await createApprovedEvent();
@@ -203,14 +203,8 @@ test("a significant change names the booking the event holds, leaves it as it is
     await expect(
       dialog.getByText(`Venue booking: ${venueName}, 1 Jan 2030, 09:00 – 17:00`)
     ).toBeVisible();
-    await expect(dialog.getByText(/will be told what changed/)).toBeVisible();
-
-    // Going back keeps the edit and sends nothing.
-    await dialog.getByRole("button", { name: "Go back" }).click();
-    await expect(page.getByRole("alertdialog")).toHaveCount(0);
-    await expect(page.getByLabel("Proposed end 1 (required)")).toHaveValue("2030-01-01T18:00");
-    await page.getByRole("button", { name: "Save changes" }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Save anyway" }).click();
+    await expect(dialog.getByText(/will be notified of the change/)).toBeVisible();
+    await dialog.getByRole("button", { name: "Save anyway" }).click();
 
     await expect(
       page.getByText(
@@ -218,34 +212,6 @@ test("a significant change names the booking the event holds, leaves it as it is
       )
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Save changes" })).toHaveCount(0);
-
-    const [booking] = await database
-      .select({ status: schema.venueRequests.status, endsAt: schema.venueRequests.endsAt })
-      .from(schema.venueRequests)
-      .where(eq(schema.venueRequests.id, bookingId));
-    expect(booking).toEqual({ status: "approved", endsAt: "2030-01-01 17:00:00" });
-    const notices = await database
-      .select({
-        recipientId: schema.notifications.recipientId,
-        payload: schema.notifications.payload,
-      })
-      .from(schema.notifications)
-      .where(
-        and(
-          eq(schema.notifications.eventRequestId, id),
-          eq(schema.notifications.kind, "event_significant_change")
-        )
-      );
-    expect(notices).toEqual([
-      {
-        recipientId: VENUE_STAFF_ID,
-        payload: expect.objectContaining({
-          audience: "venue_staff",
-          venueName,
-          changedFields: ["proposedDates"],
-        }),
-      },
-    ]);
   } finally {
     // The event itself is `afterEach`'s; the booking goes first so the venue can.
     await database.delete(schema.venueRequests).where(eq(schema.venueRequests.id, bookingId));

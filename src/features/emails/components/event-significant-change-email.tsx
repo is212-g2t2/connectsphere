@@ -18,8 +18,8 @@ type EventSignificantChangeEmailProps = {
 
 /**
  * PTR-23 AC5: the Coordinator saved a significant change on an event whose arrangement the
- * recipient holds. Nothing is released or re-statused by the change (AC3); the recipient looks at
- * what they hold against the new details. The Venue Staff copy names the booking and not the event,
+ * recipient holds. Nothing is released or re-statused by the change (AC3); the recipient checks
+ * that what they hold still suits the event. The Venue Staff copy names the booking and not the event,
  * as every Venue Staff notice does (PTR-8 AC3).
  */
 export const EventSignificantChangeEmail = (props: EventSignificantChangeEmailProps) => {
@@ -37,8 +37,8 @@ export const EventSignificantChangeEmail = (props: EventSignificantChangeEmailPr
             {formatDate(startsAt)}, {formatTime(startsAt)}–{formatTime(endsAt)}.
           </Text>
           <Text style={emailText}>
-            The booking is unchanged and still held. Open it to compare it with the event&apos;s new
-            details, and talk to the Coordinator if it no longer suits.
+            The booking is unchanged and still held. Check that it still suits the event, and talk
+            to the Coordinator if it does not.
           </Text>
           <Button href={arrangementUrl} style={emailButton}>
             View venue bookings
@@ -57,8 +57,8 @@ export const EventSignificantChangeEmail = (props: EventSignificantChangeEmailPr
           {actorName} changed the {changed} of <strong>{eventName}</strong>.
         </Text>
         <Text style={emailText}>
-          Its equipment reservations are unchanged and still held. Open the request to compare them
-          with the event&apos;s new details, and talk to the Coordinator if they no longer suit.
+          Its equipment reservations are unchanged and still held. Check that they still suit the
+          event, and talk to the Coordinator if they do not.
         </Text>
         <Button href={arrangementUrl} style={emailButton}>
           View the event

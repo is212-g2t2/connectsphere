@@ -20,12 +20,8 @@ import { EventRequestForm } from "#/features/event-requests/components/request-f
 import type { EventRequestFormSubmitContext } from "#/features/event-requests/components/request-form";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
 import { formatVenuePeriod } from "#/features/event-requests/format";
-import {
-  EVENT_INFORMATION_FIELDS,
-  significantFieldPhrase,
-  significantFields,
-} from "#/features/event-requests/schema";
-import type { EventRequestDraftValues, SignificantField } from "#/features/event-requests/schema";
+import { EVENT_INFORMATION_FIELDS, significantFields } from "#/features/event-requests/schema";
+import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import type { EventRequestDraft } from "#/features/event-requests/server-fns";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 import { listEventArrangements, updateEventInformation } from "#/features/events/server-fns";
@@ -38,7 +34,6 @@ import { listEventArrangements, updateEventInformation } from "#/features/events
  * form with its edits.
  */
 interface SignificantChangeWarning {
-  fields: SignificantField[];
   arrangements: OutstandingReleases;
   resolve: (proceed: boolean) => void;
 }
@@ -67,6 +62,9 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
   // the form cannot be discarded under a warning that would still save its edits.
   const [confirming, setConfirming] = useState(false);
   const [warning, setWarning] = useState<SignificantChangeWarning | null>(null);
+  // The warning keeps its content after it closes, so the dialog does not rewrite itself while it
+  // fades out. `warningOpen` says whether it shows.
+  const [warningOpen, setWarningOpen] = useState(false);
 
   function discardEdits() {
     // Close both at once so focus can move straight to the toggle.
@@ -91,10 +89,17 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
       try {
         const arrangements = await listEventArrangements({ data: { id: request.id } });
         proceed = await new Promise<boolean>(resolve => {
-          setWarning({ fields: significant, arrangements, resolve });
+          setWarning({ arrangements, resolve });
+          setWarningOpen(true);
         });
+      } catch (error) {
+        // As a failed save does: the page re-reads, so a lost assignment or a closed event
+        // removes the form instead of leaving it to fail on every retry.
+        if (error instanceof Error && error.message) toast.error(error.message);
+        await router.invalidate().catch(() => {});
+        throw error;
       } finally {
-        setWarning(null);
+        setWarningOpen(false);
         setConfirming(false);
       }
       // The form keeps its edits; nothing was sent.
@@ -203,7 +208,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <SignificantChangeDialog warning={warning} />
+          <SignificantChangeDialog warning={warning} open={warningOpen} />
         </CardContent>
       </Card>
     </section>
@@ -214,10 +219,16 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
  * PTR-23 AC2, AC3: the warning before a significant change is saved. It names every booking,
  * tentative hold and reservation the event holds, or says that it holds none, and that saving
  * changes, cancels and releases none of them. "Save anyway" settles the promise with true; the
- * dialog's own close (Go back, Escape) settles it with false. Base UI's close runs
- * only for its own close paths, so the two never settle the same promise twice.
+ * dialog's own close (Go back, Escape) settles it with false. Base UI's close runs only for its
+ * own close paths, so the two never settle the same promise twice.
  */
-function SignificantChangeDialog({ warning }: { warning: SignificantChangeWarning | null }) {
+function SignificantChangeDialog({
+  warning,
+  open,
+}: {
+  warning: SignificantChangeWarning | null;
+  open: boolean;
+}) {
   const arrangements = warning?.arrangements;
   const items = arrangements
     ? [
@@ -238,23 +249,23 @@ function SignificantChangeDialog({ warning }: { warning: SignificantChangeWarnin
   const staffHold =
     arrangements !== undefined &&
     (arrangements.venueBookings.length > 0 || arrangements.equipmentReservations.length > 0);
-  const changed = significantFieldPhrase(warning?.fields ?? []);
 
   return (
     <AlertDialog
-      open={warning !== null}
-      onOpenChange={open => {
-        if (!open) warning?.resolve(false);
+      open={open}
+      onOpenChange={next => {
+        if (!next) warning?.resolve(false);
       }}
     >
-      {/* The list can be long (an event may hold many lines), so the popup scrolls within the viewport. */}
+      {/* The list can be long (an event may hold many lines), so the popup scrolls inside the
+          viewport. */}
       <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <AlertDialogHeader className="place-items-start text-left">
           <AlertDialogTitle>This is a significant change</AlertDialogTitle>
           <AlertDialogDescription>
             {items.length === 0
-              ? `This event holds no venue booking, tentative hold or equipment reservation, so there is nothing to revisit for the new ${changed}.`
-              : `The arrangements below were made for the event's current ${changed}. Saving does not change, cancel or release any of them: review each one yourself.`}
+              ? "This event holds no venue booking, tentative hold or equipment reservation."
+              : "This event holds the arrangements below. Saving does not change, cancel or release any of them: review each one yourself."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {items.length > 0 && (
@@ -269,8 +280,8 @@ function SignificantChangeDialog({ warning }: { warning: SignificantChangeWarnin
             </ul>
             {staffHold && (
               <p className="body-sm text-muted-foreground">
-                The Venue Staff and Technical Support who still hold one of these will be told what
-                changed.
+                The Venue Staff and Technical Support who still hold one of these will be notified
+                of the change.
               </p>
             )}
           </div>

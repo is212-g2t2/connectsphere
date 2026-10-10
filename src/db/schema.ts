@@ -885,7 +885,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "registration_opened",
   /** PTR-49 AC2: a confirmed event's registration period closed. */
   "registration_closed",
-  /** PTR-23 AC5: a significant change was saved on an event whose arrangements the recipient holds. */
+  /** PTR-23 AC5: a significant change was saved on an event holding the recipient's arrangement. */
   "event_significant_change",
 ]);
 

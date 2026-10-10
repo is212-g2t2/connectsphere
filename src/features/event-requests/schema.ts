@@ -543,7 +543,7 @@ export const CLARIFICATION_FIELDS = [
 ] as const;
 export type ClarificationField = (typeof CLARIFICATION_FIELDS)[number]["key"];
 
-/** The form label of a field, for the change history, the significant-change warning and its notices. */
+/** The form label of a field, for the change history and the significant-change notices. */
 export function clarificationFieldLabel(field: ClarificationField): string {
   return CLARIFICATION_FIELDS.find(candidate => candidate.key === field)?.label ?? field;
 }
@@ -686,10 +686,10 @@ export function parseEventInformationInput(data: unknown) {
 
 /**
  * PTR-23 AC1: the fields whose change is significant. The proposed dates carry the event's date,
- * its times and so its duration. The venue bookings, tentative holds and equipment reservations an
- * event holds were made against these four, so a change to one of them warns the Coordinator
- * before it is saved (AC2) and tells the staff holding an arrangement after (AC5). A change to any
- * other field is ordinary and saves as before (AC4).
+ * its times and so its duration. A change to one of these four warns the Coordinator before it is
+ * saved (AC2) and tells the staff holding an arrangement after (AC5). A change to any other field,
+ * the room layout and the accessibility requirements included, is ordinary and saves as before
+ * (AC4).
  */
 export const SIGNIFICANT_FIELDS = [
   "proposedDates",
@@ -705,7 +705,10 @@ export function significantFields(fields: readonly string[]): SignificantField[]
   return SIGNIFICANT_FIELDS.filter(field => fields.includes(field));
 }
 
-/** The changed fields' labels as one phrase for the warning and the notices: "proposed dates and times and expected attendance". */
+/**
+ * The changed fields' labels as one phrase for the notices: "proposed dates and times and expected
+ * attendance".
+ */
 export function significantFieldPhrase(fields: readonly SignificantField[]): string {
   return new Intl.ListFormat("en-GB", { type: "conjunction" }).format(
     fields.map(field => clarificationFieldLabel(field).toLowerCase())

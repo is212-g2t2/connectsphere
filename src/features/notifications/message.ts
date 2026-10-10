@@ -35,7 +35,7 @@ export const NOTIFICATION_KINDS = [
   "registration_place_freed",
   "registration_opened",
   "registration_closed",
-  /** PTR-23 AC5: a significant change was saved on an event whose arrangements the recipient holds. */
+  /** PTR-23 AC5: a significant change was saved on an event holding the recipient's arrangement. */
   "event_significant_change",
 ] as const;
 
