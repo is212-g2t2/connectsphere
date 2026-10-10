@@ -413,30 +413,46 @@ describe("warning before a significant change (PTR-23)", () => {
         user.click(within(dialog).getByRole("button", { name: "Go back" })),
     ],
     ["Escape", (user: ReturnType<typeof userEvent.setup>) => user.keyboard("{Escape}")],
-  ])("returns to the form with its edits on %s", async (_, dismiss) => {
-    listEventArrangements.mockResolvedValue(held);
-    const user = await editAttendance();
+  ])(
+    "returns to the form with its edits on %s, and a second save asks again",
+    async (_, dismiss) => {
+      listEventArrangements.mockResolvedValue(held);
+      const user = await editAttendance();
 
-    const dialog = await screen.findByRole("alertdialog");
-    await dismiss(user, dialog);
+      const dialog = await screen.findByRole("alertdialog");
+      await dismiss(user, dialog);
 
-    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-    expect(updateEventInformation).not.toHaveBeenCalled();
-    // Focus returns to the save button the warning interrupted.
-    await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save changes" }))
-    );
-    expect(screen.getByLabelText<HTMLInputElement>("Expected attendance (required)").value).toBe(
-      "150"
-    );
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save changes" }).disabled).toBe(
-      false
-    );
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled).toBe(
-      false
-    );
-    expect(success).not.toHaveBeenCalled();
-  });
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+      expect(updateEventInformation).not.toHaveBeenCalled();
+      // Focus returns to the save button the warning interrupted.
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save changes" }))
+      );
+      expect(screen.getByLabelText<HTMLInputElement>("Expected attendance (required)").value).toBe(
+        "150"
+      );
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save changes" }).disabled).toBe(
+        false
+      );
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled
+      ).toBe(false);
+      expect(success).not.toHaveBeenCalled();
+
+      // The second save reads again and shows that answer, not the dismissed one.
+      listEventArrangements.mockResolvedValue(nothingHeld);
+      updateEventInformation.mockResolvedValue({
+        changedFields: ["expectedAttendance"],
+        notified: 0,
+      });
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
+      const second = await screen.findByRole("alertdialog");
+      expect(within(second).getByText(/holds no venue booking/)).toBeTruthy();
+      await user.click(within(second).getByRole("button", { name: "Save anyway" }));
+      await waitFor(() => expect(updateEventInformation).toHaveBeenCalledTimes(1));
+      expect(listEventArrangements).toHaveBeenCalledTimes(2);
+    }
+  );
 
   it("saves an ordinary edit with no warning and no read of the arrangements (AC4)", async () => {
     updateEventInformation.mockResolvedValue(saved(["purpose"]));

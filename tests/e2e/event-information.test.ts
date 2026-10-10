@@ -3,7 +3,7 @@
 // PTR-22: the assigned Coordinator updates an approved event's information from the event page,
 // the change log records it, and the Organiser sees only the new value. PTR-23: a change to a
 // significant field is warned about first, naming what the event holds, and the staff holding a
-// booking are told. Every test creates and removes its own event, so the tests can run in parallel
+// booking are notified. Every test creates and removes its own event, so the tests can run in parallel
 // and never touch the demo rows.
 import { expect, test } from "@playwright/test";
 import { asc, eq, inArray } from "drizzle-orm";
@@ -163,7 +163,7 @@ test("an ordinary edit saves with no warning (PTR-23 AC4)", async ({ page }) => 
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });
 
-test("a significant change names the booking the event holds, and tells the Venue Staff once saved (PTR-23 AC2, AC3, AC5)", async ({
+test("a significant change names the booking the event holds, and saves on confirmation with its holders notified (PTR-23 AC2, AC3, AC5)", async ({
   page,
 }) => {
   const { id } = await createApprovedEvent();

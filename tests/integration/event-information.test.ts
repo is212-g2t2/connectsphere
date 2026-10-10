@@ -564,6 +564,17 @@ describe("warning before a significant change (PTR-23)", () => {
     expect(result).toEqual({ changedFields: ["purpose"], notified: 0 });
   });
 
+  it("names a Coordinator with a blank name by role in the notices and by email in the change log", async () => {
+    const event = await eventAt("approved");
+    await addBooking(event.id);
+
+    await update(event.id, { expectedAttendance: 120 }, { ...coordinator, name: "  " }, true);
+
+    const [notice] = await significantChangeNotices(event.id);
+    expect(notice.payload).toMatchObject({ actorName: "The Coordinator" });
+    expect((await changeLog(event.id)).map(row => row.changedByName)).toEqual([coordinator.email]);
+  });
+
   it("saves an acknowledged significant change, logs it, and tells the Venue Staff on each booking and each Technical Support member once (AC5)", async () => {
     const event = await eventAt("confirmed");
     const firstBooking = await addBooking(event.id);

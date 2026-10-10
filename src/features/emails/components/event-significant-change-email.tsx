@@ -1,7 +1,7 @@
 import { Button, Section, Text } from "@react-email/components";
 
 import { formatDate, formatTime } from "#/features/emails/format";
-import { significantFieldPhrase } from "#/features/event-requests/schema";
+import { clarificationFieldLabel } from "#/features/event-requests/schema";
 import type { SignificantField } from "#/features/event-requests/schema";
 
 import { emailButton, emailHeading, emailText } from "./email-styles";
@@ -16,11 +16,18 @@ type EventSignificantChangeEmailProps = {
   | { audience: "venue_staff"; venueName: string; startsAt: string; endsAt: string }
 );
 
+/** The changed fields' labels as one phrase: "proposed dates and times and expected attendance". */
+function significantFieldPhrase(fields: readonly SignificantField[]): string {
+  return new Intl.ListFormat("en-GB", { type: "conjunction" }).format(
+    fields.map(field => clarificationFieldLabel(field).toLowerCase())
+  );
+}
+
 /**
  * PTR-23 AC5: the Coordinator saved a significant change on an event whose arrangement the
  * recipient holds. Nothing is released or re-statused by the change (AC3); the recipient checks
- * that what they hold still suits the event. The Venue Staff copy names the booking and not the event,
- * as every Venue Staff notice does (PTR-8 AC3).
+ * that what they hold still suits the event. The Venue Staff copy names the booking and not the
+ * event, as every Venue Staff notice does (PTR-8 AC3).
  */
 export const EventSignificantChangeEmail = (props: EventSignificantChangeEmailProps) => {
   const { changedFields, actorName, arrangementUrl } = props;
