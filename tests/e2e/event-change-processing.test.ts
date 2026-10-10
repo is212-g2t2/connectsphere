@@ -151,6 +151,58 @@ test("the Coordinator applies a change request through the event information for
   await expect(organiser.getByText(/Applied by Seeded Event Coordinator on/)).toBeVisible();
 });
 
+test("the Coordinator confirms the significant-change warning when applying an attendance change (AC3)", async ({
+  browser,
+}) => {
+  const { id, name, requestId } = await createEventWithRequest(
+    "Expected attendance",
+    "80 attendees"
+  );
+
+  const coordinator = await openAs(browser, COORDINATOR_EMAIL, "/coordination");
+  // Scoped to this event's row: a sibling test may leave another waiting request on the list.
+  await expect(
+    coordinator
+      .getByRole("listitem")
+      .filter({ hasText: name })
+      .getByText("1 change request waiting")
+  ).toBeVisible();
+  await coordinator.getByRole("link", { name }).click();
+  await waitForHydration(coordinator);
+
+  await coordinator.getByRole("button", { name: "Apply change request #1" }).click();
+  await expect(
+    coordinator.getByRole("heading", { name: "Applying the Organiser's change request" })
+  ).toBeVisible();
+  await coordinator.getByLabel("Expected attendance (required)").fill("80");
+  await coordinator.getByRole("button", { name: "Save and mark applied" }).click();
+
+  // Expected attendance is significant, so the warning comes first; the event holds nothing.
+  const dialog = coordinator.getByRole("alertdialog");
+  await expect(dialog.getByText("This is a significant change")).toBeVisible();
+  await expect(
+    dialog.getByText(/holds no venue booking, tentative hold or equipment reservation/)
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Save anyway" }).click();
+
+  await expect(
+    coordinator.getByText("Change request applied. The Organiser will be notified.")
+  ).toBeVisible();
+  await expect(
+    coordinator.getByRole("region", { name: "Change requests awaiting your decision" })
+  ).toHaveCount(0);
+  expect(await outcomeOf(requestId)).toEqual({ outcome: "applied", declineReason: null });
+  const [event] = await database
+    .select({ expectedAttendance: schema.eventRequests.expectedAttendance })
+    .from(schema.eventRequests)
+    .where(eq(schema.eventRequests.id, id));
+  expect(event?.expectedAttendance).toBe(80);
+
+  const organiser = await openAs(browser, ORGANISER_EMAIL, `/events/${id}`);
+  await expect(organiser.getByRole("heading", { level: 1, name })).toBeVisible();
+  await expect(organiser.getByText(/Applied by Seeded Event Coordinator on/)).toBeVisible();
+});
+
 test("the Coordinator declines a change request with a reason, and the Organiser sees why (AC2, AC5)", async ({
   browser,
 }) => {

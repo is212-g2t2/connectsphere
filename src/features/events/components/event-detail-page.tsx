@@ -194,10 +194,15 @@ export function EventDetailPage({ data }: { data: EventPageData }) {
       </div>
 
       <div className="mt-6">
-        {/* The Coordinator applies a change request across two sections (PTR-52). */}
-        <ChangeRequestApplyProvider>
+        {/* The apply bridges two coordinator-only sections (PTR-52), so only that access
+            mounts the provider. */}
+        {access === "coordinator" ? (
+          <ChangeRequestApplyProvider>
+            <SectionStack data={data} sections={sections} />
+          </ChangeRequestApplyProvider>
+        ) : (
           <SectionStack data={data} sections={sections} />
-        </ChangeRequestApplyProvider>
+        )}
       </div>
     </Page>
   );

@@ -109,7 +109,14 @@ export function ClarificationThread({
   );
 }
 
-export function ChangeRequestHistory({ request }: { request: EventRequestDetail }) {
+export function ChangeRequestHistory({
+  request,
+  viewerIsCoordinator,
+}: {
+  request: EventRequestDetail;
+  /** The assigned Coordinator reads "Waiting for your decision."; everyone else reads the name. */
+  viewerIsCoordinator: boolean;
+}) {
   const coordinatorName = request.coordinator?.name ?? null;
   return (
     <section aria-labelledby="change-requests-heading">
@@ -135,7 +142,7 @@ export function ChangeRequestHistory({ request }: { request: EventRequestDetail 
                   <Detail term="Requested new value">{item.requestedValue}</Detail>
                 </dl>
                 <p className="mt-3 body-md font-medium">
-                  {changeRequestOutcome(item, coordinatorName)}
+                  {changeRequestOutcome(item, coordinatorName, viewerIsCoordinator)}
                 </p>
                 {item.declineReason ? (
                   <div className="mt-3 border-l-2 border-border pl-4">
@@ -300,17 +307,18 @@ function formatAmendmentValue(
 /** PTR-52 AC5: what became of one change request, and who processed it when. */
 function changeRequestOutcome(
   item: EventRequestDetail["changeRequests"][number],
-  coordinatorName: string | null
+  coordinatorName: string | null,
+  viewerIsCoordinator: boolean
 ): string {
   if (item.outcome === null) {
-    return coordinatorName === null
-      ? "Waiting for a Coordinator to be assigned."
-      : `Waiting for ${coordinatorName} to process it.`;
+    if (coordinatorName === null) return "Waiting for a Coordinator to be assigned.";
+    if (viewerIsCoordinator) return "Waiting for your decision.";
+    return `Waiting for ${coordinatorName} to process it.`;
   }
-  const by = `${item.processedByName ?? "the Coordinator"} on ${formatInstant(item.processedAt)}`;
-  return item.outcome === "applied"
-    ? `Applied by ${by}. The event information shows the new values.`
-    : `Declined by ${by}.`;
+  if (item.outcome === "applied") {
+    return `Applied by ${processedBy(item)}. The event information shows the new values.`;
+  }
+  return `Declined by ${processedBy(item)}.`;
 }
 
 /** PTR-54 AC7, AC8: what became of one cancellation request, and who decided it when. */
@@ -319,6 +327,11 @@ function cancellationOutcome(
   coordinatorName: string | null
 ): string {
   if (item.outcome === null) return `Waiting. ${cancellationStatusNote(coordinatorName)}`;
-  const by = `${item.processedByName ?? "the Coordinator"} on ${formatInstant(item.processedAt)}`;
-  return item.outcome === "cancelled" ? `Event cancelled by ${by}.` : `Declined by ${by}.`;
+  if (item.outcome === "cancelled") return `Event cancelled by ${processedBy(item)}.`;
+  return `Declined by ${processedBy(item)}.`;
+}
+
+/** Who processed a decided request and when, shared by the change and cancellation records. */
+function processedBy(item: { processedByName: string | null; processedAt: Date | null }): string {
+  return `${item.processedByName ?? "the Coordinator"} on ${formatInstant(item.processedAt)}`;
 }

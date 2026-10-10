@@ -172,7 +172,7 @@ export function CoordinationPage({
                     <Badge variant="progress">Handover to {request.handoverTo} pending</Badge>
                   ) : null}
                   {request.changeRequestsWaiting > 0 ? (
-                    <Badge variant="progress">
+                    <Badge variant="secondary">
                       {request.changeRequestsWaiting === 1
                         ? "1 change request waiting"
                         : `${request.changeRequestsWaiting} change requests waiting`}

@@ -122,7 +122,9 @@ function RequestsBody({ data }: { data: EventPageData }) {
       <div className="mt-4 space-y-8">
         <ClarificationThread request={request} replyable />
 
-        {request.changeRequests.length > 0 && <ChangeRequestHistory request={request} />}
+        {request.changeRequests.length > 0 && (
+          <ChangeRequestHistory request={request} viewerIsCoordinator={false} />
+        )}
 
         {request.cancellationRequests.length > 0 && (
           <CancellationRequestHistory request={request} />

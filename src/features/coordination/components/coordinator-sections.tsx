@@ -662,13 +662,23 @@ function ChangesBody({ data }: { data: EventPageData }) {
   if (!request || request.changeRequests.length === 0) return null;
   const processing =
     isAssignedView(data, request) && request.changeRequests.some(item => item.outcome === null);
+  // While the decisions card shows the waiting requests, the history below keeps only the
+  // decided ones so no request renders twice. The Organiser's record keeps the full list.
+  const history = processing
+    ? { ...request, changeRequests: request.changeRequests.filter(item => item.outcome !== null) }
+    : request;
   return (
     <div className="space-y-8">
       {processing && <ChangeRequestDecisions request={request} />}
       {processing && !canUpdateEventInformation(request.status) && (
         <CoordinatorInformationForm request={request} />
       )}
-      <ChangeRequestHistory request={request} />
+      {history.changeRequests.length > 0 && (
+        <ChangeRequestHistory
+          request={history}
+          viewerIsCoordinator={isAssignedView(data, request)}
+        />
+      )}
     </div>
   );
 }

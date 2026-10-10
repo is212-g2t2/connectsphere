@@ -312,7 +312,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #1" }).disabled
     ).toBe(true);
-    expect(screen.getByText("Being applied in the form below.")).toBeTruthy();
+    expect(screen.getByText("Being applied in the event information form.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Decline change request #1" })).toBeNull();
     const name = screen.getByLabelText("Event name (required)");
     await user.clear(name);
@@ -622,7 +622,16 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
 
 /** The Organiser's event page, whose requests section carries the same record. */
 function organiserPage(overrides: Partial<CoordinationRequest> = {}): EventPageData {
-  const organiserRequest = { ...request, ...overrides };
+  // The organiser read carries no organiser contact or coordinator-only projections;
+  // without those keys the record renders as the Organiser sees it.
+  const {
+    organiser: _organiser,
+    pendingHandover: _handover,
+    outstandingReleases: _releases,
+    venueRequest: _venue,
+    ...view
+  } = request;
+  const organiserRequest = { ...view, ...overrides };
   return {
     kind: "event",
     viewerId: "org",

@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { createContext, useContext, useId, useMemo, useRef, useState } from "react";
+import type { ReactNode, RefObject } from "react";
 import { flushSync } from "react-dom";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
@@ -21,6 +21,7 @@ import {
 } from "#/features/event-requests/schema";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import { declineEventChangeRequest } from "#/features/events/server-fns";
+import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 type ChangeRequest = EventRequestDetail["changeRequests"][number];
 
@@ -35,6 +36,15 @@ export function focusChangeRequests() {
     document.getElementById(CHANGE_REQUEST_DECISIONS_HEADING_ID) ??
     document.getElementById("change-requests-heading")
   )?.focus();
+}
+
+/** Moves focus to the pinned request the apply form holds, in whichever section it opened. */
+function focusApplyingForm() {
+  const pinned = document
+    .getElementById("update-information-heading")
+    ?.closest("section")
+    ?.querySelector("h3");
+  if (pinned instanceof HTMLElement) pinned.focus();
 }
 
 /**
@@ -113,9 +123,9 @@ export function CoordinatorInformationForm({ request }: { request: CoordinationR
 export function ChangeRequestDecisions({ request }: { request: CoordinationRequest }) {
   const { applying, setApplyingId, informationDirty } = useChangeRequestApply(request);
   const canApply = canApplyEventChangeRequest(request.status);
-  const waiting = request.changeRequests
-    .map((item, index) => ({ item, number: index + 1 }))
-    .filter(({ item }) => item.outcome === null);
+  const waiting = request.changeRequests.flatMap((item, index) =>
+    item.outcome === null ? [{ item, number: index + 1 }] : []
+  );
   if (waiting.length === 0) return null;
 
   return (
@@ -172,14 +182,155 @@ function ChangeRequestDecision({
   applyDisabled: boolean;
   onApply: (request: ChangeRequest) => void;
 }) {
+  const [declining, setDeclining] = useState(false);
+  // The toggle unmounts with the form, so cancel returns focus to it once it is back.
+  const declineToggleRef = useRef<HTMLButtonElement>(null);
+  const applyHintId = useId();
+
+  const label = `change request #${number}`;
+
+  function handleCancelDeclining() {
+    flushSync(() => setDeclining(false));
+    declineToggleRef.current?.focus();
+  }
+
+  return (
+    <li className="py-4 first:pt-0 last:pb-0">
+      <div className="flex items-center justify-between">
+        <span className="eyebrow text-muted-foreground">Change request #{number}</span>
+        <time dateTime={item.createdAt.toISOString()} className="body-sm text-muted-foreground">
+          {formatInstant(item.createdAt)}
+        </time>
+      </div>
+      <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+        <div>
+          <dt className="eyebrow text-muted-foreground">What should change</dt>
+          <dd className="mt-2 body-sm font-medium whitespace-pre-line">{item.whatShouldChange}</dd>
+        </div>
+        <div>
+          <dt className="eyebrow text-muted-foreground">Requested new value</dt>
+          <dd className="mt-2 body-sm font-medium whitespace-pre-line">{item.requestedValue}</dd>
+        </div>
+      </dl>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <DecisionActions
+          canApply={canApply}
+          applying={applying}
+          declining={declining}
+          applyDisabled={applyDisabled}
+          applyHintId={applyHintId}
+          label={label}
+          declineToggleRef={declineToggleRef}
+          onApply={() => onApply(item)}
+          onDecline={() => setDeclining(true)}
+        />
+      </div>
+      {declining && (
+        <DeclineRequestForm
+          requestId={requestId}
+          item={item}
+          number={number}
+          onCancel={handleCancelDeclining}
+        />
+      )}
+    </li>
+  );
+}
+
+/** One row's Apply and Decline, or the link to the request already being applied. */
+function DecisionActions({
+  canApply,
+  applying,
+  declining,
+  applyDisabled,
+  applyHintId,
+  label,
+  declineToggleRef,
+  onApply,
+  onDecline,
+}: {
+  canApply: boolean;
+  applying: boolean;
+  declining: boolean;
+  applyDisabled: boolean;
+  applyHintId: string;
+  label: string;
+  declineToggleRef: RefObject<HTMLButtonElement | null>;
+  onApply: () => void;
+  onDecline: () => void;
+}) {
+  function applyButton(disabled: boolean) {
+    if (!canApply) return null;
+    return (
+      <>
+        <Button
+          type="button"
+          size="sm"
+          disabled={disabled}
+          aria-label={`Apply ${label}`}
+          aria-describedby={applyDisabled ? applyHintId : undefined}
+          onClick={onApply}
+        >
+          Apply
+        </Button>
+        {applyDisabled && (
+          <p id={applyHintId} className="body-sm text-muted-foreground">
+            Save or discard the open edits to apply another request.
+          </p>
+        )}
+      </>
+    );
+  }
+
+  if (applying) {
+    return (
+      <>
+        {applyButton(true)}
+        <a
+          href="#update-information-heading"
+          onClick={event => {
+            event.preventDefault();
+            focusApplyingForm();
+          }}
+          className={`body-sm ${NAV_LINK_CLASSNAME}`}
+        >
+          Being applied in the event information form.
+        </a>
+      </>
+    );
+  }
+  if (declining) return applyButton(true);
+  return (
+    <>
+      {applyButton(applyDisabled)}
+      <Button
+        ref={declineToggleRef}
+        type="button"
+        size="sm"
+        variant="outline"
+        aria-label={`Decline ${label}`}
+        onClick={onDecline}
+      >
+        Decline
+      </Button>
+    </>
+  );
+}
+
+/** The decline reason, mounted only while one row asks for it. */
+function DeclineRequestForm({
+  requestId,
+  item,
+  number,
+  onCancel,
+}: {
+  requestId: number;
+  item: ChangeRequest;
+  number: number;
+  onCancel: () => void;
+}) {
   const router = useRouter();
   const formId = useId();
-  const [declining, setDeclining] = useState(false);
-  const reason = useRef<HTMLTextAreaElement>(null);
-  // The toggle that opened the form is gone with it, so the reason takes focus in its place.
-  useEffect(() => {
-    if (declining) reason.current?.focus();
-  }, [declining]);
   const declineForm = useForm({
     defaultValues: { reason: "" },
     validators: {
@@ -217,118 +368,66 @@ function ChangeRequestDecision({
 
   const label = `change request #${number}`;
   return (
-    <li className="py-4 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between">
-        <span className="eyebrow text-muted-foreground">Change request #{number}</span>
-        <time dateTime={item.createdAt.toISOString()} className="body-sm text-muted-foreground">
-          {formatInstant(item.createdAt)}
-        </time>
-      </div>
-      <dl className="mt-3 grid gap-4 sm:grid-cols-2">
-        <div>
-          <dt className="eyebrow text-muted-foreground">What should change</dt>
-          <dd className="mt-2 body-md font-medium whitespace-pre-line">{item.whatShouldChange}</dd>
-        </div>
-        <div>
-          <dt className="eyebrow text-muted-foreground">Requested new value</dt>
-          <dd className="mt-2 body-md font-medium whitespace-pre-line">{item.requestedValue}</dd>
-        </div>
-      </dl>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        {canApply && (
-          <Button
-            type="button"
-            size="sm"
-            disabled={applying || applyDisabled || declining}
-            aria-label={`Apply ${label}`}
-            onClick={() => onApply(item)}
-          >
-            Apply
-          </Button>
+    <form
+      id={formId}
+      noValidate
+      className="mt-4 space-y-4"
+      onSubmit={event => {
+        event.preventDefault();
+        void declineForm.handleSubmit();
+      }}
+    >
+      <declineForm.Field name="reason">
+        {field => (
+          <Field data-invalid={field.state.meta.errors.length > 0}>
+            <FieldLabel htmlFor={`${formId}-reason`}>Reason for declining</FieldLabel>
+            <Textarea
+              // oxlint-disable-next-line jsx-a11y/no-autofocus -- the decline form opens on demand; focus lands on its reason field
+              autoFocus
+              id={`${formId}-reason`}
+              rows={3}
+              maxLength={CHANGE_REQUEST_DECLINE_REASON_MAX}
+              value={field.state.value}
+              aria-invalid={field.state.meta.errors.length > 0}
+              onChange={event => field.handleChange(event.target.value)}
+              onBlur={field.handleBlur}
+            />
+            <FieldError errors={field.state.meta.errors} />
+          </Field>
         )}
-        {applying ? (
-          <output className="body-sm text-muted-foreground">
-            Being applied in the form below.
-          </output>
-        ) : (
-          !declining && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              aria-label={`Decline ${label}`}
-              onClick={() => setDeclining(true)}
-            >
-              Decline
-            </Button>
-          )
+      </declineForm.Field>
+      <declineForm.Subscribe selector={state => [state.isSubmitting, state.errorMap.onSubmit]}>
+        {([isSubmitting, onSubmitError]) => (
+          <>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                type="submit"
+                size="sm"
+                variant="destructive"
+                disabled={Boolean(isSubmitting)}
+                aria-label={`Decline request #${number} with this reason`}
+              >
+                {isSubmitting ? "Declining…" : "Decline request"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={Boolean(isSubmitting)}
+                aria-label={`Cancel declining ${label}`}
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+            </div>
+            {typeof onSubmitError === "string" ? (
+              <p role="alert" className="body-sm text-destructive">
+                {onSubmitError}
+              </p>
+            ) : null}
+          </>
         )}
-      </div>
-      {declining && (
-        <form
-          id={formId}
-          noValidate
-          className="mt-4 space-y-4"
-          onSubmit={event => {
-            event.preventDefault();
-            void declineForm.handleSubmit();
-          }}
-        >
-          <declineForm.Field name="reason">
-            {field => (
-              <Field data-invalid={field.state.meta.errors.length > 0}>
-                <FieldLabel htmlFor={`${formId}-reason`}>Reason for declining</FieldLabel>
-                <Textarea
-                  ref={reason}
-                  id={`${formId}-reason`}
-                  rows={3}
-                  maxLength={CHANGE_REQUEST_DECLINE_REASON_MAX}
-                  value={field.state.value}
-                  aria-invalid={field.state.meta.errors.length > 0}
-                  onChange={event => field.handleChange(event.target.value)}
-                  onBlur={field.handleBlur}
-                />
-                <FieldError errors={field.state.meta.errors} />
-              </Field>
-            )}
-          </declineForm.Field>
-          <declineForm.Subscribe selector={state => [state.isSubmitting, state.errorMap.onSubmit]}>
-            {([isSubmitting, onSubmitError]) => (
-              <>
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant="destructive"
-                    disabled={Boolean(isSubmitting)}
-                    aria-label={`Decline request #${number} with this reason`}
-                  >
-                    {isSubmitting ? "Declining…" : "Decline request"}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={Boolean(isSubmitting)}
-                    aria-label={`Cancel declining ${label}`}
-                    onClick={() => {
-                      declineForm.reset();
-                      setDeclining(false);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-                {typeof onSubmitError === "string" ? (
-                  <p role="alert" className="body-sm text-destructive">
-                    {onSubmitError}
-                  </p>
-                ) : null}
-              </>
-            )}
-          </declineForm.Subscribe>
-        </form>
-      )}
-    </li>
+      </declineForm.Subscribe>
+    </form>
   );
 }

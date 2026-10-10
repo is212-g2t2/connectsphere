@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventChangeRequests, eventInformationChanges, eventRequests } from "#/db/schema";
@@ -60,7 +60,30 @@ export async function handleUpdateEventInformation(
   const input = parseEventInformationInput(data);
 
   return database.transaction(async tx => {
-    const { request, changeRequest } = await lockForUpdate(tx, input, actor);
+    let request: typeof eventRequests.$inferSelect;
+    let changeRequest: typeof eventChangeRequests.$inferSelect | null;
+    if (input.changeRequestId !== undefined) {
+      const locked = await lockWaitingChangeRequest(tx, input.id, input.changeRequestId, actor);
+      if (!canApplyEventChangeRequest(locked.event.status)) {
+        throw new ConflictError(EVENT_CHANGE_REQUEST_CLOSED);
+      }
+      request = locked.event;
+      changeRequest = locked.changeRequest;
+    } else {
+      const direct = (
+        await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
+      ).at(0);
+      if (!direct || direct.assignedCoordinatorId !== actor.id) {
+        throw new AuthorizationError("Forbidden");
+      }
+      if (!canUpdateEventInformation(direct.status)) {
+        throw new ConflictError(
+          `This event's information cannot be updated while its status is ${EVENT_REQUEST_STATUS_LABELS[direct.status].toLowerCase()}.`
+        );
+      }
+      request = direct;
+      changeRequest = null;
+    }
 
     const values = amendedValues(request, input.amendments);
     const changes = amendmentsBetween(request, values, EVENT_INFORMATION_FIELDS);
@@ -115,9 +138,8 @@ export async function handleUpdateEventInformation(
             actorName || "The Coordinator"
           )
         : [];
-    const organiserNotices: NewNotification[] = [];
     if (changeRequest) {
-      await tx
+      const applied = await tx
         .update(eventChangeRequests)
         .set({
           outcome: "applied",
@@ -125,62 +147,34 @@ export async function handleUpdateEventInformation(
           processedByName: actorName,
           processedAt: appliedAt,
         })
-        .where(eq(eventChangeRequests.id, changeRequest.id));
-      organiserNotices.push({
-        recipientId: request.organiserId,
-        eventRequestId: request.id,
-        kind: "event_change_processed",
-        payload: {
-          outcome: "applied",
-          eventName: values.eventName.trim() || "Untitled request",
-          whatShouldChange: changeRequest.whatShouldChange,
-        },
-      });
+        .where(
+          and(eq(eventChangeRequests.id, changeRequest.id), isNull(eventChangeRequests.outcome))
+        )
+        .returning({ id: eventChangeRequests.id });
+      if (applied.length === 0) throw new ConflictError(CHANGE_REQUEST_NOT_WAITING_MESSAGE);
     }
-    await raiseNotifications(tx, [...notices, ...organiserNotices]);
+    await raiseNotifications(
+      tx,
+      changeRequest
+        ? [
+            ...notices,
+            {
+              recipientId: request.organiserId,
+              eventRequestId: request.id,
+              kind: "event_change_processed",
+              payload: {
+                outcome: "applied",
+                eventName: values.eventName.trim() || "Untitled request",
+                whatShouldChange: changeRequest.whatShouldChange,
+              },
+            },
+          ]
+        : notices
+    );
 
     // The toast counts the holders told (PTR-23 AC5); the Organiser's notice is not one of them.
     return { changedFields: changes.map(change => change.field), notified: notices.length };
   });
-}
-
-/**
- * The event row, locked, and the waiting change request this save applies, if any. A direct edit
- * (PTR-22) is refused outside approved, planning and confirmed; an apply (PTR-52) is open wherever
- * the request could be raised, and refuses a closed event with the request's own message. A missing
- * event and someone else's event are refused the same way, so the refusal does not say whether the
- * id exists. A draft has no Coordinator, so it is refused here too.
- */
-async function lockForUpdate(
-  tx: Tx,
-  input: ReturnType<typeof parseEventInformationInput>,
-  actor: SessionUser
-) {
-  if (input.changeRequestId !== undefined) {
-    const { event, changeRequest } = await lockWaitingChangeRequest(
-      tx,
-      input.id,
-      input.changeRequestId,
-      actor
-    );
-    if (!canApplyEventChangeRequest(event.status)) {
-      throw new ConflictError(EVENT_CHANGE_REQUEST_CLOSED);
-    }
-    return { request: event, changeRequest };
-  }
-
-  const request = (
-    await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
-  ).at(0);
-  if (!request || request.assignedCoordinatorId !== actor.id) {
-    throw new AuthorizationError("Forbidden");
-  }
-  if (!canUpdateEventInformation(request.status)) {
-    throw new ConflictError(
-      `This event's information cannot be updated while its status is ${EVENT_REQUEST_STATUS_LABELS[request.status].toLowerCase()}.`
-    );
-  }
-  return { request, changeRequest: null };
 }
 
 /**
@@ -240,7 +234,7 @@ export async function handleDeclineEventChangeRequest(
       actor
     );
 
-    const [declined] = await tx
+    const declined = await tx
       .update(eventChangeRequests)
       .set({
         outcome: "declined",
@@ -249,8 +243,9 @@ export async function handleDeclineEventChangeRequest(
         processedByName: actor.name?.trim() || actor.email,
         processedAt: new Date(),
       })
-      .where(eq(eventChangeRequests.id, changeRequest.id))
+      .where(and(eq(eventChangeRequests.id, changeRequest.id), isNull(eventChangeRequests.outcome)))
       .returning();
+    if (declined.length === 0) throw new ConflictError(CHANGE_REQUEST_NOT_WAITING_MESSAGE);
     await raiseNotifications(tx, [
       {
         recipientId: event.organiserId,
@@ -265,7 +260,7 @@ export async function handleDeclineEventChangeRequest(
       },
     ]);
 
-    return declined;
+    return declined[0];
   });
 }
 
