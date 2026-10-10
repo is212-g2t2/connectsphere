@@ -1,23 +1,29 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UpdateEventInformation } from "#/features/coordination/components/update-event-information";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
+import type { OutstandingReleases } from "#/features/events/cancellation";
 
-const { updateEventInformation, invalidate, success, info, warning, error } = vi.hoisted(() => ({
-  updateEventInformation:
-    vi.fn<
-      (input: { data: Record<string, unknown> }) => Promise<{ changedFields: readonly string[] }>
+const { updateEventInformation, listEventArrangements, invalidate, success, info, warning, error } =
+  vi.hoisted(() => ({
+    updateEventInformation: vi.fn<
+      (input: { data: Record<string, unknown> }) => Promise<{
+        changedFields: readonly string[];
+        notified: number;
+      }>
     >(),
-  invalidate: vi.fn<() => Promise<void>>(),
-  success: vi.fn<(message: string) => void>(),
-  info: vi.fn<(message: string) => void>(),
-  warning: vi.fn<(message: string) => void>(),
-  error: vi.fn<(message: string) => void>(),
-}));
+    listEventArrangements:
+      vi.fn<(input: { data: { id: number } }) => Promise<OutstandingReleases>>(),
+    invalidate: vi.fn<() => Promise<void>>(),
+    success: vi.fn<(message: string) => void>(),
+    info: vi.fn<(message: string) => void>(),
+    warning: vi.fn<(message: string) => void>(),
+    error: vi.fn<(message: string) => void>(),
+  }));
 
-vi.mock("#/features/events/server-fns", () => ({ updateEventInformation }));
+vi.mock("#/features/events/server-fns", () => ({ updateEventInformation, listEventArrangements }));
 vi.mock("#/features/coordination/server-fns", () => ({}));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -78,6 +84,38 @@ const approved: CoordinationRequest = {
   equipmentArrangementsCompletedById: null,
 };
 
+/** The server's answer to an ordinary save: no one told. */
+function saved(changedFields: readonly string[]) {
+  return { changedFields, notified: 0 };
+}
+
+const nothingHeld: OutstandingReleases = {
+  venueBookings: [],
+  venueHolds: [],
+  equipmentReservations: [],
+};
+
+const held: OutstandingReleases = {
+  venueBookings: [
+    {
+      id: "booking-1",
+      venueName: "Harbour Hall",
+      startsAt: "2030-12-01 18:00:00",
+      endsAt: "2030-12-01 22:00:00",
+    },
+  ],
+  venueHolds: [
+    {
+      id: "hold-1",
+      venueId: 3,
+      venueName: "Seminar Room 2A",
+      startsAt: "2030-12-02 09:00:00",
+      endsAt: "2030-12-02 12:00:00",
+    },
+  ],
+  equipmentReservations: [{ id: "line-1", item: "Projector", quantity: 2 }],
+};
+
 function renderPage(request: Partial<CoordinationRequest> = {}) {
   return render(<UpdateEventInformation request={{ ...approved, ...request }} />);
 }
@@ -95,7 +133,7 @@ beforeEach(() => {
 
 describe("updating event information (PTR-22)", () => {
   it("opens the form on the recorded values and sends only the changed field", async () => {
-    updateEventInformation.mockResolvedValue({ changedFields: ["eventName"] });
+    updateEventInformation.mockResolvedValue(saved(["eventName"]));
     const user = await openForm();
     const toggle = screen.getByRole("button", { name: "Cancel editing" });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
@@ -122,7 +160,7 @@ describe("updating event information (PTR-22)", () => {
   });
 
   it("re-reads the page before it closes the form, and holds the toggle until then", async () => {
-    updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
+    updateEventInformation.mockResolvedValue(saved(["purpose"]));
     const reload = Promise.withResolvers<void>();
     invalidate.mockReturnValue(reload.promise);
     const user = await openForm();
@@ -144,7 +182,7 @@ describe("updating event information (PTR-22)", () => {
   });
 
   it("sends only the touched field after the page re-reads underneath the open form", async () => {
-    updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
+    updateEventInformation.mockResolvedValue(saved(["purpose"]));
     const user = userEvent.setup();
     const { rerender } = renderPage({
       equipmentRequirements: [{ type: "Projector", quantity: 1 }],
@@ -173,7 +211,7 @@ describe("updating event information (PTR-22)", () => {
   });
 
   it("says the change was saved when only the re-read fails", async () => {
-    updateEventInformation.mockResolvedValue({ changedFields: ["purpose"] });
+    updateEventInformation.mockResolvedValue(saved(["purpose"]));
     invalidate.mockRejectedValue(new Error("offline"));
     const user = await openForm();
 
@@ -188,7 +226,7 @@ describe("updating event information (PTR-22)", () => {
   });
 
   it("says so when the save changed nothing", async () => {
-    updateEventInformation.mockResolvedValue({ changedFields: [] });
+    updateEventInformation.mockResolvedValue(saved([]));
     const user = await openForm();
 
     await user.click(screen.getByRole("button", { name: "Save changes" }));
@@ -278,5 +316,170 @@ describe("updating event information (PTR-22)", () => {
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Edit event information" })
     );
+  });
+});
+
+/** Opens the form and submits a changed expected attendance, a significant field. */
+async function editAttendance() {
+  const user = await openForm();
+  const attendance = screen.getByLabelText("Expected attendance (required)");
+  await user.clear(attendance);
+  await user.type(attendance, "150");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  return user;
+}
+
+describe("warning before a significant change (PTR-23)", () => {
+  it("names every booking, hold and reservation the event holds, then saves with the acknowledgement (AC2, AC3)", async () => {
+    listEventArrangements.mockResolvedValue(held);
+    updateEventInformation.mockResolvedValue({
+      changedFields: ["expectedAttendance"],
+      notified: 2,
+    });
+    const user = await editAttendance();
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(listEventArrangements).toHaveBeenCalledWith({ data: { id: 7 } });
+    expect(
+      within(dialog).getByRole("heading", { name: "This is a significant change" })
+    ).toBeTruthy();
+    expect(within(dialog).getByText(/holds the arrangements below/)).toBeTruthy();
+    expect(within(dialog).getByText(/does not change, cancel or release any of them/)).toBeTruthy();
+    const items = within(dialog)
+      .getAllByRole("listitem")
+      .map(item => item.textContent);
+    expect(items).toEqual([
+      "Venue booking: Harbour Hall, 1 Dec 2030, 18:00 – 22:00",
+      "Tentative hold: Seminar Room 2A, 2 Dec 2030, 09:00 – 12:00",
+      "Equipment reservation: Projector × 2",
+    ]);
+    expect(within(dialog).getByText(/will be notified of the change/)).toBeTruthy();
+    // Nothing is sent while the warning waits, and the form says so: the save button reads
+    // "Save changes", not "Saving…", and the toggle cannot discard the form under the warning.
+    expect(updateEventInformation).not.toHaveBeenCalled();
+    // The form sits inert behind the modal, so the queries look through `aria-hidden`.
+    const hidden = { hidden: true };
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Save changes", ...hidden }).disabled
+    ).toBe(true);
+    expect(screen.queryByRole("button", { name: "Saving…", ...hidden })).toBeNull();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing", ...hidden }).disabled
+    ).toBe(true);
+
+    await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
+
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith(
+        "Event information saved. The staff holding its arrangements will be notified."
+      )
+    );
+    expect(updateEventInformation).toHaveBeenCalledWith({
+      data: { id: 7, amendments: { expectedAttendance: 150 }, acknowledgeSignificant: true },
+    });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+  });
+
+  it("says when the event holds nothing, and still asks before saving (AC3)", async () => {
+    listEventArrangements.mockResolvedValue(nothingHeld);
+    updateEventInformation.mockResolvedValue({
+      changedFields: ["expectedAttendance"],
+      notified: 0,
+    });
+    const user = await editAttendance();
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(
+      within(dialog).getByText(
+        "This event holds no venue booking, tentative hold or equipment reservation."
+      )
+    ).toBeTruthy();
+    expect(within(dialog).queryByRole("list")).toBeNull();
+    expect(within(dialog).queryByText(/will be notified/)).toBeNull();
+
+    await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
+
+    await waitFor(() => expect(success).toHaveBeenCalledWith("Event information saved."));
+    expect(updateEventInformation).toHaveBeenCalledWith({
+      data: { id: 7, amendments: { expectedAttendance: 150 }, acknowledgeSignificant: true },
+    });
+  });
+
+  it.each([
+    [
+      "Go back",
+      (user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) =>
+        user.click(within(dialog).getByRole("button", { name: "Go back" })),
+    ],
+    ["Escape", (user: ReturnType<typeof userEvent.setup>) => user.keyboard("{Escape}")],
+  ])(
+    "returns to the form with its edits on %s, and a second save asks again",
+    async (_, dismiss) => {
+      listEventArrangements.mockResolvedValue(held);
+      const user = await editAttendance();
+
+      const dialog = await screen.findByRole("alertdialog");
+      await dismiss(user, dialog);
+
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+      expect(updateEventInformation).not.toHaveBeenCalled();
+      // Focus returns to the save button the warning interrupted.
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save changes" }))
+      );
+      expect(screen.getByLabelText<HTMLInputElement>("Expected attendance (required)").value).toBe(
+        "150"
+      );
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save changes" }).disabled).toBe(
+        false
+      );
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled
+      ).toBe(false);
+      expect(success).not.toHaveBeenCalled();
+
+      // The second save reads again and shows that answer, not the dismissed one.
+      listEventArrangements.mockResolvedValue(nothingHeld);
+      updateEventInformation.mockResolvedValue({
+        changedFields: ["expectedAttendance"],
+        notified: 0,
+      });
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
+      const second = await screen.findByRole("alertdialog");
+      expect(within(second).getByText(/holds no venue booking/)).toBeTruthy();
+      await user.click(within(second).getByRole("button", { name: "Save anyway" }));
+      await waitFor(() => expect(updateEventInformation).toHaveBeenCalledTimes(1));
+      expect(listEventArrangements).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it("saves an ordinary edit with no warning and no read of the arrangements (AC4)", async () => {
+    updateEventInformation.mockResolvedValue(saved(["purpose"]));
+    const user = await openForm();
+
+    await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(success).toHaveBeenCalledWith("Event information saved."));
+    expect(listEventArrangements).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(updateEventInformation).toHaveBeenCalledWith({
+      data: { id: 7, amendments: { purpose: "Fundraiser dinner" } },
+    });
+  });
+
+  it("shows the failure and re-reads the page when the arrangements cannot be read", async () => {
+    listEventArrangements.mockRejectedValue(new Error("Forbidden"));
+    invalidate.mockResolvedValue(undefined);
+    await editAttendance();
+
+    expect(await screen.findByText("Forbidden")).toBeTruthy();
+    expect(error).toHaveBeenCalledWith("Forbidden");
+    // As after a failed save: a lost assignment or a closed event removes the form on the re-read.
+    expect(invalidate).toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(updateEventInformation).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeTruthy();
   });
 });

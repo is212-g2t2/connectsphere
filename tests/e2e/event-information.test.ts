@@ -1,14 +1,17 @@
 // oxlint-disable node/no-process-env
 //
 // PTR-22: the assigned Coordinator updates an approved event's information from the event page,
-// the change log records it, and the Organiser sees only the new value. Every test creates
-// and removes its own event, so the tests can run in parallel and never touch the demo rows.
+// the change log records it, and the Organiser sees only the new value. PTR-23: a change to a
+// significant field is warned about first, naming what the event holds, and the staff holding a
+// booking are notified. Every test creates and removes its own event, so the tests can run in parallel
+// and never touch the demo rows.
 import { expect, test } from "@playwright/test";
 import { asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "../../src/db/schema";
+import { DEFAULT_OPERATING_HOURS } from "../../src/features/venues/schema";
 import { waitForHydration } from "./hydration";
 import { signInWithSeedPassword } from "./staff-auth";
 
@@ -16,6 +19,7 @@ const COORDINATOR_EMAIL = "coordinator.seed@example.com";
 const COORDINATOR_ID = "seed-coordinator-1";
 const ORGANISER_EMAIL = "jane.doe@example.com";
 const ORGANISER_ID = "test-user-2";
+const VENUE_STAFF_ID = "seed-venue-staff-1";
 
 let pool: Pool;
 let database: ReturnType<typeof drizzle<typeof schema>>;
@@ -80,7 +84,15 @@ test("the assigned Coordinator updates an approved event, and the change is reco
   await page.getByLabel("Expected attendance (required)").fill("65");
   await page.getByRole("button", { name: "Save changes" }).click();
 
-  await expect(page.getByText("Event information saved.")).toBeVisible();
+  // PTR-23: the attendance is significant, so the warning comes first; the event holds nothing.
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog.getByText("This is a significant change")).toBeVisible();
+  await expect(
+    dialog.getByText(/holds no venue booking, tentative hold or equipment reservation/)
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Save anyway" }).click();
+
+  await expect(page.getByText("Event information saved.", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: renamed })).toBeVisible();
   await expect(page.getByRole("button", { name: "Save changes" })).toHaveCount(0);
 
@@ -134,4 +146,75 @@ test("the Organiser never sees the previous value on a return visit (AC3)", asyn
     () => (window as unknown as { seenHeadings: string[] }).seenHeadings
   );
   expect(seen).not.toContain(name);
+});
+
+test("an ordinary edit saves with no warning (PTR-23 AC4)", async ({ page }) => {
+  const { id } = await createApprovedEvent();
+
+  await signInWithSeedPassword(page, COORDINATOR_EMAIL);
+  await page.goto(`/events/${id}`);
+  await waitForHydration(page);
+
+  await page.getByRole("button", { name: "Edit event information" }).click();
+  await page.getByLabel("Purpose (required)").fill("Plan the forum and the dinner");
+  await page.getByRole("button", { name: "Save changes" }).click();
+
+  await expect(page.getByText("Event information saved.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+});
+
+test("a significant change names the booking the event holds, and saves on confirmation with its holders notified (PTR-23 AC2, AC3, AC5)", async ({
+  page,
+}) => {
+  const { id } = await createApprovedEvent();
+  const venueName = `PTR-23 Hall ${crypto.randomUUID().slice(0, 8)}`;
+  const [venue] = await database
+    .insert(schema.venues)
+    .values({
+      name: venueName,
+      location: "PTR-23 Wing",
+      maxCapacity: 200,
+      operatingHours: DEFAULT_OPERATING_HOURS,
+    })
+    .returning({ id: schema.venues.id });
+  const bookingId = crypto.randomUUID();
+  await database.insert(schema.venueRequests).values({
+    id: bookingId,
+    eventId: id,
+    venueId: venue.id,
+    requestedById: COORDINATOR_ID,
+    assignedStaffId: VENUE_STAFF_ID,
+    startsAt: "2030-01-01 09:00:00",
+    endsAt: "2030-01-01 17:00:00",
+    status: "approved",
+  });
+
+  try {
+    await signInWithSeedPassword(page, COORDINATOR_EMAIL);
+    await page.goto(`/events/${id}`);
+    await waitForHydration(page);
+
+    await page.getByRole("button", { name: "Edit event information" }).click();
+    await page.getByLabel("Proposed end 1 (required)").fill("2030-01-01T18:00");
+    await page.getByRole("button", { name: "Save changes" }).click();
+
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog.getByText("This is a significant change")).toBeVisible();
+    await expect(
+      dialog.getByText(`Venue booking: ${venueName}, 1 Jan 2030, 09:00 – 17:00`)
+    ).toBeVisible();
+    await expect(dialog.getByText(/will be notified of the change/)).toBeVisible();
+    await dialog.getByRole("button", { name: "Save anyway" }).click();
+
+    await expect(
+      page.getByText(
+        "Event information saved. The staff holding its arrangements will be notified."
+      )
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save changes" })).toHaveCount(0);
+  } finally {
+    // The event itself is `afterEach`'s; the booking goes first so the venue can.
+    await database.delete(schema.venueRequests).where(eq(schema.venueRequests.id, bookingId));
+    await database.delete(schema.venues).where(eq(schema.venues.id, venue.id));
+  }
 });

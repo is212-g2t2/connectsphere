@@ -25,7 +25,7 @@ import { AuthorizationError, ConflictError, NotFoundError } from "#/features/aut
 import type { SessionUser } from "#/features/auth/session";
 import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
 import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
-import { loadOutstandingReleases } from "#/features/events/cancel.server";
+import { loadOutstandingReleases } from "#/features/events/arrangements.server";
 import { loadVenueRequestForEvent } from "#/features/venue-requests/records.server";
 import {
   parseAssignmentInput,

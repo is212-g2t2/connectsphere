@@ -113,6 +113,12 @@ const validPayloads = {
   event_cancelled: { audience: "organiser", eventName: "Gala" },
   event_cancellation_declined: { eventName: "Gala", reason: "The deposit is paid." },
   registration_place_freed: { eventName: "Gala", limit: 40, audience: "organiser" },
+  event_significant_change: {
+    audience: "technical_support",
+    eventName: "Gala",
+    changedFields: ["proposedDates"],
+    actorName: "Alex",
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parses or fails the test with the kind named, so a bad fixture is not a silent null. */
@@ -303,6 +309,35 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     ).toBeNull();
   });
 
+  it("names the booking to Venue Staff and the event to Technical Support for a significant change, and refuses an ordinary field (PTR-23 AC5)", () => {
+    const venue = parse("event_significant_change", {
+      audience: "venue_staff",
+      venueName: "Harbour Hall",
+      startsAt: "2026-10-12 14:00:00",
+      endsAt: "2026-10-12 17:00:00",
+      changedFields: ["proposedDates", "expectedAttendance"],
+      actorName: "Alex",
+    });
+    expect(notificationSummary(venue)).toBe(
+      "Event details changed for the booking at Harbour Hall"
+    );
+    expect(notificationSummary(venue)).not.toContain("Gala");
+    expect(notificationHref({ ...venue, eventRequestId: 7 })).toBe("/venue-bookings");
+
+    const tech = parse("event_significant_change", validPayloads.event_significant_change);
+    expect(notificationSummary(tech)).toBe("Event details changed: Gala");
+    expect(notificationHref({ ...tech, eventRequestId: 7 })).toBe("/events/7");
+
+    for (const changedFields of [[], ["purpose"]]) {
+      expect(
+        parseNotificationPayload("event_significant_change", {
+          ...validPayloads.event_significant_change,
+          changedFields,
+        })
+      ).toBeNull();
+    }
+  });
+
   it("sends every kind to its default surface with no facts", () => {
     const expected: Record<NotificationKind, string | null> = {
       venue_booking_requested: null,
@@ -329,6 +364,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       event_cancelled: "/events/7",
       event_cancellation_declined: "/events/7",
       registration_place_freed: "/events/7",
+      event_significant_change: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

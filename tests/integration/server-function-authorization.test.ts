@@ -57,6 +57,7 @@ import {
   confirmEvent,
   declineEventCancellation,
   listEvents,
+  listEventArrangements,
   listEventRegistrations,
   registerForEvent,
   removeVipRegistration,
@@ -712,6 +713,34 @@ describe("server-function authorization (PTR-69)", () => {
         await messageFrom(updateEventInformation, { id: 1, amendments: { status: "completed" } })
       ).toBe(EVENT_INFORMATION_ONLY_MESSAGE);
     });
+  });
+
+  describe("PTR-23 list event arrangements", () => {
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(listEventArrangements, { id: 1 })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Event Coordinator", async () => {
+      signIn("event_coordinator");
+
+      expect((await call(listEventArrangements, { id: 1 })).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(listEventArrangements, { id: 1 })).toMatchObject({
+          status: 403,
+        });
+      }
+    );
   });
 
   // PTR-53: only an Organiser raises a cancellation request; the handler checks ownership.

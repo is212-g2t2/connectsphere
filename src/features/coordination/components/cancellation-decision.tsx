@@ -18,7 +18,7 @@ import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Textarea } from "#/components/ui/textarea";
-import { formatProposedWindow } from "#/features/event-requests/format";
+import { formatVenuePeriod } from "#/features/event-requests/format";
 import {
   CANCELLATION_DECLINE_REASON_MAX,
   EVENT_CANCELLATION_CLOSED,
@@ -183,14 +183,6 @@ export function CancellationDecision({
   );
 }
 
-/** A floating venue-local period (`2026-12-05 10:00:00`) in the proposed-window wording. */
-function formatPeriod(startsAt: string, endsAt: string): string {
-  return formatProposedWindow({
-    start: toLocalMinuteValue(startsAt),
-    end: toLocalMinuteValue(endsAt),
-  });
-}
-
 /**
  * PTR-54 AC2, AC6: what the cancelled event still holds. The list is read when the page loads, so
  * an item leaves it once Venue Staff, Technical Support or the Coordinator release it.
@@ -199,13 +191,13 @@ export function OutstandingReleasesList({ releases }: { releases: OutstandingRel
   const items = [
     ...releases.venueBookings.map(booking => ({
       id: `booking-${booking.id}`,
-      content: `Venue booking: ${booking.venueName}, ${formatPeriod(booking.startsAt, booking.endsAt)} — Venue Staff release it`,
+      content: `Venue booking: ${booking.venueName}, ${formatVenuePeriod(booking.startsAt, booking.endsAt)} — Venue Staff release it`,
     })),
     ...releases.venueHolds.map(hold => ({
       id: `hold-${hold.id}`,
       content: (
         <>
-          Tentative hold: {hold.venueName}, {formatPeriod(hold.startsAt, hold.endsAt)} —{" "}
+          Tentative hold: {hold.venueName}, {formatVenuePeriod(hold.startsAt, hold.endsAt)} —{" "}
           <Link
             to="/venues/availability"
             search={{

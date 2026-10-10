@@ -2,7 +2,10 @@ import { Card, CardContent } from "#/components/ui/card";
 import { ClarificationReplyForm } from "#/features/event-requests/components/clarification-reply-form";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
 import { cancellationStatusNote } from "#/features/event-requests/components/request-cancellation-action";
-import { CLARIFICATION_FIELDS, clarificationAmendmentKeys } from "#/features/event-requests/schema";
+import {
+  clarificationAmendmentKeys,
+  clarificationFieldLabel,
+} from "#/features/event-requests/schema";
 import type {
   ClarificationAmendmentValue,
   ClarificationField,
@@ -212,14 +215,6 @@ function replyValuesSignature(
   const keys = new Set(permittedFields.flatMap(clarificationAmendmentKeys));
   const subset = Object.fromEntries(Object.entries(values).filter(([key]) => keys.has(key)));
   return JSON.stringify(subset);
-}
-
-const CLARIFICATION_FIELD_LABELS = new Map(
-  CLARIFICATION_FIELDS.map(field => [field.key, field.label])
-);
-
-function clarificationFieldLabel(field: ClarificationField): string {
-  return CLARIFICATION_FIELD_LABELS.get(field) ?? field;
 }
 
 /** A `jsonb` value is plain JSON, so an object is narrowed by hand before its keys are read. */

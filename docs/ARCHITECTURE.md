@@ -85,7 +85,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │   │   ├── emails/       # Email templates and shared date formatting
 │   │   ├── equipment-requests/ # Equipment lines, submission to Technical Support, its arrangement work list, availability checks, and reservations
 │   │   ├── event-requests/ # Requirement capture, drafts, submission
-│   │   ├── events/       # Relationship-scoped event access and attendee registration views
+│   │   ├── events/       # Relationship-scoped event access, attendee registration views, event information updates, and the bookings, holds and reservations an event holds
 │   │   ├── landing/      # Public landing view
 │   │   ├── notifications/ # The notification inbox, its queue rows and the delivery worker
 │   │   ├── venue-requests/ # Booking requests: raise, withdraw, approve, reject, release, amend, notify

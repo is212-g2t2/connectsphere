@@ -1,3 +1,5 @@
+import { toLocalMinuteValue } from "#/features/venues/availability";
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
@@ -60,4 +62,15 @@ export function formatInstant(value: Date | null): string {
         timeStyle: "short",
         timeZone: "Asia/Singapore",
       }).format(value);
+}
+
+/**
+ * A floating venue-local period (`2026-12-05 10:00:00`, the `mode: "string"` shape a booking or
+ * a hold reads back) in the proposed-window wording: `5 Dec 2026, 10:00 – 16:00`.
+ */
+export function formatVenuePeriod(startsAt: string, endsAt: string): string {
+  return formatProposedWindow({
+    start: toLocalMinuteValue(startsAt),
+    end: toLocalMinuteValue(endsAt),
+  });
 }
