@@ -26,6 +26,7 @@ import type { SessionUser } from "#/features/auth/session";
 import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
 import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
 import { loadOutstandingReleases } from "#/features/events/cancel.server";
+import { loadVenueRequestForEvent } from "#/features/venue-requests/records.server";
 import {
   parseAssignmentInput,
   parseDecisionInput,
@@ -131,12 +132,11 @@ export async function handleGetCoordinationRequest(
       )
     );
   const request = rows.at(0);
-  if (!request)
-    throw new AuthorizationError(
-      "You no longer have coordination access to this request, or it is unavailable."
-    );
+  // "Forbidden" is the refusal the event page's triage fallback reads: a hidden, foreign, or
+  // nonexistent request answers the same 404, and the message carries no request data.
+  if (!request) throw new AuthorizationError("Forbidden");
 
-  const [clarifications, changeRequests, cancellationRequests, outstandingReleases] =
+  const [clarifications, changeRequests, cancellationRequests, outstandingReleases, venueRequest] =
     await Promise.all([
       database
         .select()
@@ -147,6 +147,8 @@ export async function handleGetCoordinationRequest(
       listEventCancellationRequests(id, database),
       // PTR-54 AC2: what a cancelled event still holds, read live so a release takes it off.
       request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
+      // The triage venue section reads the event's live venue request from here.
+      loadVenueRequestForEvent(database, id),
     ]);
 
   // PTR-110: the live offer, but only while it is still this assignment's offer — the outgoing
@@ -187,6 +189,7 @@ export async function handleGetCoordinationRequest(
     cancellationRequests,
     outstandingReleases,
     pendingHandover,
+    venueRequest,
   };
 }
 

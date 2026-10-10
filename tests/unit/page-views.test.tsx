@@ -9,8 +9,6 @@ import { VenueDetailPage } from "#/features/venues/components/venue-detail-page"
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import type { SessionUser } from "#/features/auth/session";
-import type { VenueRequestRejection } from "#/features/events/access";
-import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
 
@@ -88,294 +86,40 @@ const venue: Venue = {
 };
 
 describe("DashboardPage", () => {
-  it("shows My registrations to Attendees and hides it from other roles", () => {
-    const { rerender } = render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
+  it("heads the page with the dashboard eyebrow and the events title, without a greeting", () => {
+    render(<DashboardPage events={[]} />);
 
-    expect(screen.getByRole("link", { name: "My registrations" })).toBeTruthy();
-
-    for (const role of [
-      "event_organiser",
-      "event_coordinator",
-      "venue_staff",
-      "technical_support_staff",
-    ]) {
-      rerender(<DashboardPage user={userWithRole(role)} events={[]} />);
-      expect(screen.queryByRole("link", { name: "My registrations" })).toBeNull();
-    }
+    expect(screen.getByText("Dashboard")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your events" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Welcome/ })).toBeNull();
   });
 
-  it("greets the session user and keeps the role links and the workspace", () => {
-    render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
-
-    expect(screen.getByRole("heading", { name: "Welcome, Casey" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Your connected events" })).toBeTruthy();
-    // The session card is gone, and account settings moved to the header.
-    expect(screen.queryByText("Your ConnectSphere home")).toBeNull();
-    expect(screen.queryByText("Active")).toBeNull();
-    expect(screen.queryByRole("link", { name: "Account settings" })).toBeNull();
-  });
-
-  it("shows the workspace links the role may reach", () => {
-    render(<DashboardPage user={userWithRole("venue_staff")} events={[]} />);
-
-    expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Venue calendar" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Booking requests" })).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
-  });
-
-  it("hides every role-gated control from an attendee", () => {
-    render(<DashboardPage user={userWithRole("attendee")} events={[]} />);
-
-    expect(screen.queryByRole("link", { name: "Venues" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Venue calendar" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Booking requests" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
-  });
-
-  it("renders the loaded events, redacted to the access they carry", () => {
+  it("renders one card per connected event with its access eyebrow and title", () => {
     render(
       <DashboardPage
-        user={userWithRole("venue_staff")}
         events={[
           {
-            access: "venue_staff",
+            access: "organiser",
             event: {
               id: 7,
-              status: "submitted",
-              eventDate: "2026-10-01",
-              startTime: "09:00",
-              endTime: "17:00",
-              expectedAttendance: 120,
-              layout: "Theatre seating",
-              requiredFacilities: "Projector",
-              venueRequest: { status: "pending" },
-            },
-          },
-        ]}
-      />
-    );
-
-    expect(screen.getByText("venue staff access")).toBeTruthy();
-    // The venue staff projection carries no name, so the fallback title is what it shows.
-    expect(screen.getByRole("heading", { name: "Venue request" })).toBeTruthy();
-    expect(screen.getByText("Expected attendance")).toBeTruthy();
-    expect(screen.getByText("120")).toBeTruthy();
-    // The free-text layout reads back as the layout it names, parsed rather than raw.
-    expect(screen.getByText("Theatre")).toBeTruthy();
-    expect(screen.getByText("Pending")).toBeTruthy();
-    // PTR-36 criterion 4: no overlap, no conflict badge.
-    expect(screen.queryByText("Conflicting booking")).toBeNull();
-    expect(screen.queryByText("Conflicting hold")).toBeNull();
-  });
-
-  it("flags a venue request that overlaps an approved booking (PTR-36 AC4)", () => {
-    render(
-      <DashboardPage
-        user={userWithRole("venue_staff")}
-        events={[
-          {
-            access: "venue_staff",
-            event: {
-              id: 7,
-              status: "submitted",
-              eventDate: "2026-10-01",
-              startTime: "09:00",
-              endTime: "17:00",
-              venueRequest: { status: "pending", conflict: "booking" },
-            },
-          },
-        ]}
-      />
-    );
-
-    expect(screen.getByText("Pending")).toBeTruthy();
-    expect(screen.getByText("Conflicting booking")).toBeTruthy();
-  });
-
-  it.each([
-    {
-      name: "the reason and the suggested alternative",
-      rejection: {
-        venueId: 5,
-        venueName: "Main Hall",
-        date: "2026-10-05",
-        startTime: "09:00",
-        endTime: "12:00",
-        reason: "Closed for floor resurfacing",
-        suggestion: {
-          venueName: "Harbour Hall",
-          date: "2027-04-21",
-          startTime: "10:00",
-          endTime: "13:30",
-        },
-        suggestedVenueId: 9,
-      },
-      shown: [
-        "Main Hall, 5 Oct 2026, 09:00–12:00",
-        "Closed for floor resurfacing",
-        "Harbour Hall, 21 Apr 2027, 10:00–13:30",
-      ],
-      suggested: true,
-    },
-    {
-      name: "only the reason when no suggestion was given",
-      rejection: {
-        venueId: 6,
-        venueName: "Small Room",
-        date: "2026-11-02",
-        startTime: "14:00",
-        endTime: "15:00",
-        reason: "Fully booked",
-        suggestion: null,
-        suggestedVenueId: null,
-      },
-      shown: ["Small Room, 2 Nov 2026, 14:00–15:00", "Fully booked"],
-      suggested: false,
-    },
-  ])(
-    "shows a Coordinator the rejection with $name (PTR-34 AC3)",
-    ({ rejection, shown, suggested }) => {
-      render(
-        <DashboardPage
-          user={userWithRole("event_coordinator")}
-          events={[
-            {
-              access: "coordinator",
-              event: {
-                id: 7,
-                name: "Annual dinner",
-                status: "submitted",
-                eventDate: "2026-10-01",
-                startTime: "09:00",
-                endTime: "17:00",
-                venueRequest: { status: "rejected", rejection },
-              },
-            },
-          ]}
-        />
-      );
-
-      expect(screen.getByText("Rejected")).toBeTruthy();
-      expect(screen.queryByText("Pending")).toBeNull();
-      for (const text of shown) expect(screen.getByText(text)).toBeTruthy();
-      expect(screen.queryByText("Suggested alternative") !== null).toBe(suggested);
-    }
-  );
-
-  it("shows a Coordinator why and by whom a booking was released (PTR-37)", () => {
-    render(
-      <DashboardPage
-        user={userWithRole("event_coordinator")}
-        events={[
-          {
-            access: "coordinator",
-            event: {
-              id: 8,
               name: "Annual dinner",
+              description: "A dinner for the organisers.",
               status: "submitted",
               eventDate: "2026-10-01",
               startTime: "09:00",
               endTime: "17:00",
-              venueRequest: {
-                status: "released",
-                release: {
-                  venueName: "Main Hall",
-                  date: "2026-10-05",
-                  startTime: "09:00",
-                  endTime: "12:00",
-                  reason: "Air-conditioning failure",
-                  changedByName: "Venue Staff A",
-                },
-              },
             },
           },
-        ]}
-      />
-    );
-
-    expect(screen.getByText("Released")).toBeTruthy();
-    expect(screen.getByText("Main Hall, 5 Oct 2026, 09:00–12:00")).toBeTruthy();
-    expect(screen.getByText("Air-conditioning failure")).toBeTruthy();
-    expect(screen.getByText("Venue Staff A")).toBeTruthy();
-  });
-
-  it("lets a Coordinator start venue search from an assigned event", () => {
-    render(
-      <DashboardPage
-        user={userWithRole("event_coordinator")}
-        events={[
-          {
-            access: "coordinator",
-            event: {
-              id: 41,
-              status: "submitted",
-              name: "Annual summit",
-              eventDate: "2026-10-01",
-              startTime: "09:00",
-              endTime: "17:00",
-            },
-          },
-        ]}
-      />
-    );
-
-    expect(screen.getByRole("link", { name: "Find venues for this event" })).toBeTruthy();
-  });
-
-  it("does not offer the venue search once an event is past finding one (PTR-30)", () => {
-    render(
-      <DashboardPage
-        user={userWithRole("event_coordinator")}
-        events={[
-          {
-            access: "coordinator",
-            event: {
-              id: 41,
-              status: "confirmed",
-              name: "Annual summit",
-              eventDate: "2026-10-01",
-              startTime: "09:00",
-              endTime: "17:00",
-            },
-          },
-        ]}
-      />
-    );
-
-    expect(screen.queryByRole("link", { name: "Find venues for this event" })).toBeNull();
-  });
-
-  /** The route's `pendingComponent`: the dashboard's shape while `listEvents` is in flight. */
-  it("shows the dashboard's loading shape while the loader is pending", () => {
-    const { container } = render(<DashboardPageSkeleton />);
-
-    expect(screen.getByRole("status").textContent).toBe("Loading your dashboard…");
-    expect(container.querySelector("main")?.getAttribute("aria-busy")).toBe("true");
-    // The slimmed dashboard: the greeting plus the connected-events grid, with no session
-    // summary and no settings link.
-    expect(container.querySelector("section")).not.toBeNull();
-    expect(container.querySelector("dl")).toBeNull();
-  });
-
-  it("links an attendee card to the event page (PTR-44)", () => {
-    render(
-      <DashboardPage
-        user={userWithRole("attendee")}
-        events={[
           {
             access: "attendee",
             event: {
               id: 12,
               name: "Open Day",
-              description: "An open day for new members.",
+              status: "confirmed",
+              registrationEnabled: true,
               eventDate: "2026-12-05",
               startTime: "10:00",
               endTime: "15:00",
-              status: "confirmed",
-              registrationEnabled: true,
-              registrationOpensAt: "2026-11-01T09:00",
-              registrationClosesAt: "2026-12-01T17:00",
               registration: null,
               venue: null,
             },
@@ -384,60 +128,47 @@ describe("DashboardPage", () => {
       />
     );
 
+    expect(screen.getByText("organiser access")).toBeTruthy();
+    expect(screen.getByText("attendee access")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Annual dinner" }).getAttribute("href")).toBe(
+      "/events/7"
+    );
     expect(screen.getByRole("link", { name: "Open Day" }).getAttribute("href")).toBe("/events/12");
   });
 
-  it("keeps a registered non-confirmed event as an unlinked card (PTR-8 AC4 vs PTR-44 AC5)", () => {
-    render(
-      <DashboardPage
-        user={userWithRole("attendee")}
-        events={[
-          {
-            access: "attendee",
-            event: {
-              id: 13,
-              name: "Under review gathering",
-              description: "Awaiting confirmation.",
-              eventDate: "2026-12-05",
-              startTime: "10:00",
-              endTime: "15:00",
-              status: "under_review",
-              registrationEnabled: true,
-              registration: { status: "registered", registeredAt: "2026-11-02T03:04:05.000Z" },
-              venue: null,
-            },
-          },
-        ]}
-      />
-    );
+  it("shows the empty state when no events are connected", () => {
+    render(<DashboardPage events={[]} />);
 
-    expect(screen.getByRole("heading", { name: "Under review gathering" })).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Under review gathering" })).toBeNull();
-    expect(screen.getByText("Registered")).toBeTruthy();
+    expect(screen.getByText("No events yet")).toBeTruthy();
+    expect(screen.getByText("No events are currently connected to your account.")).toBeTruthy();
   });
 
-  it("leaves a staff card's event name unlinked (PTR-44: the page is for attendees)", () => {
-    render(
-      <DashboardPage
-        user={userWithRole("event_organiser")}
-        events={[
-          {
-            access: "organiser",
-            event: {
-              id: 7,
-              name: "Annual dinner",
-              status: "submitted",
-              eventDate: "2026-10-01",
-              startTime: "09:00",
-              endTime: "17:00",
-            },
-          },
-        ]}
-      />
-    );
+  it("carries no role links — navigation lives in the site header", () => {
+    render(<DashboardPage events={[]} />);
 
-    expect(screen.getByRole("heading", { name: "Annual dinner" })).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Annual dinner" })).toBeNull();
+    for (const name of [
+      "My registrations",
+      "Event requests",
+      "Coordination",
+      "Venues",
+      "Venue calendar",
+      "Booking requests",
+      "Approved bookings",
+      "Equipment requests",
+    ]) {
+      expect(screen.queryByRole("link", { name })).toBeNull();
+    }
+  });
+
+  /** The route's `pendingComponent`: the dashboard's shape while `listEvents` is in flight. */
+  it("shows the dashboard's loading shape while the loader is pending", () => {
+    const { container } = render(<DashboardPageSkeleton />);
+
+    expect(screen.getByRole("status").textContent).toBe("Loading your dashboard…");
+    expect(container.querySelector("main")?.getAttribute("aria-busy")).toBe("true");
+    // The card-only dashboard: the header plus the card grid, with no workspace section.
+    expect(container.querySelector("section")).toBeNull();
+    expect(container.querySelector("dl")).toBeNull();
   });
 });
 
@@ -700,124 +431,5 @@ describe("VenueDetailPage", () => {
     );
 
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Venue request" }));
-  });
-});
-
-const adjustLink = () => screen.queryByRole("link", { name: /^Adjust request at / });
-
-const card = (
-  venueRequest: { status: string; rejection?: VenueRequestRejection },
-  overrides: { access?: "coordinator" | "organiser"; status?: EventRequestStatus } = {}
-) => (
-  <DashboardPage
-    user={userWithRole(overrides.access === "organiser" ? "event_organiser" : "event_coordinator")}
-    events={[
-      {
-        access: overrides.access ?? "coordinator",
-        event: {
-          id: 7,
-          name: "Annual dinner",
-          status: overrides.status ?? "submitted",
-          eventDate: "2026-10-01",
-          startTime: "09:00",
-          endTime: "17:00",
-          venueRequest,
-        },
-      },
-    ]}
-  />
-);
-
-describe("adjusting a rejected venue request (PTR-35)", () => {
-  const rejection: VenueRequestRejection = {
-    venueId: 5,
-    venueName: "Main Hall",
-    date: "2026-10-05",
-    startTime: "09:00",
-    endTime: "12:00",
-    reason: "Closed for floor resurfacing",
-    suggestion: null,
-    suggestedVenueId: null,
-  };
-  it("opens the suggested venue with the suggested window (AC1)", () => {
-    render(
-      card({
-        status: "rejected",
-        rejection: {
-          ...rejection,
-          suggestion: {
-            venueName: "Harbour Hall",
-            date: "2027-04-21",
-            startTime: "10:00",
-            endTime: "13:30",
-          },
-          suggestedVenueId: 9,
-        },
-      })
-    );
-
-    const link = screen.getByRole("link", { name: "Adjust request at Harbour Hall" });
-    expect(link.getAttribute("href")).toBe(
-      "/venues/9?eventId=7&date=2027-04-21&startTime=10%3A00&endTime=13%3A30"
-    );
-  });
-
-  it("opens the refused venue with its own window when nothing was suggested", () => {
-    render(card({ status: "rejected", rejection }));
-
-    expect(
-      screen.getByRole("link", { name: "Adjust request at Main Hall" }).getAttribute("href")
-    ).toBe("/venues/5?eventId=7&date=2026-10-05&startTime=09%3A00&endTime=12%3A00");
-  });
-
-  it("falls back to the refused venue and window for whatever was not suggested", () => {
-    render(
-      card({
-        status: "rejected",
-        rejection: {
-          ...rejection,
-          suggestion: { venueName: null, date: "2026-10-06", startTime: null, endTime: null },
-        },
-      })
-    );
-
-    expect(
-      screen.getByRole("link", { name: "Adjust request at Main Hall" }).getAttribute("href")
-    ).toBe("/venues/5?eventId=7&date=2026-10-06&startTime=09%3A00&endTime=12%3A00");
-  });
-
-  it("takes the suggested times with the refused venue and date when only times were suggested", () => {
-    render(
-      card({
-        status: "rejected",
-        rejection: {
-          ...rejection,
-          suggestion: { venueName: null, date: null, startTime: "10:00", endTime: "13:30" },
-        },
-      })
-    );
-
-    expect(
-      screen.getByRole("link", { name: "Adjust request at Main Hall" }).getAttribute("href")
-    ).toBe("/venues/5?eventId=7&date=2026-10-05&startTime=10%3A00&endTime=13%3A30");
-  });
-
-  it("offers the link only to the Coordinator, and only while the event is still submitted", () => {
-    const { unmount } = render(card({ status: "rejected", rejection }, { access: "organiser" }));
-    expect(adjustLink()).toBeNull();
-    unmount();
-
-    render(card({ status: "rejected", rejection }, { status: "confirmed" }));
-    expect(screen.getByText("Closed for floor resurfacing")).toBeTruthy();
-    expect(adjustLink()).toBeNull();
-  });
-
-  it("keeps the rejection on the card beside a pending adjusted request, without a second link (AC3)", () => {
-    render(card({ status: "pending", rejection }));
-
-    expect(screen.getByText("Pending")).toBeTruthy();
-    expect(screen.getByText("Previously rejected booking")).toBeTruthy();
-    expect(screen.getByText("Closed for floor resurfacing")).toBeTruthy();
-    expect(adjustLink()).toBeNull();
   });
 });

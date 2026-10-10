@@ -82,11 +82,14 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
     });
 
     await signInAsStaff(page, "venue_staff");
-    await page.goto(`/venue-requests/${requestId}`);
+    await page.goto(`/events/${eventId}`);
     await waitForHydration(page);
 
+    const decision = page.locator("section#decision");
+    await expect(decision).toBeVisible();
+
     // AC1: a rejection without a reason is refused before anything is sent.
-    await page.getByRole("button", { name: "Reject request" }).click();
+    await decision.getByRole("button", { name: "Reject request" }).click();
     await expect(page.getByText("Enter a reason to reject this request")).toBeVisible();
     expect(
       (
@@ -104,13 +107,13 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
     await page.getByLabel("Suggested date").fill("2037-10-14");
     await page.getByLabel("Suggested start time").fill("10:00");
     await page.getByLabel("Suggested end time").fill("13:30");
-    await page.getByRole("button", { name: "Reject request" }).click();
+    await decision.getByRole("button", { name: "Reject request" }).click();
 
     await expect(page.getByText(`Booking rejected for ${venueName}.`)).toBeVisible();
-    await expect(page).toHaveURL(/\/venue-requests$/);
-    await expect(
-      page.getByRole("link", { name: `Open request for ${venueName}, 13 Oct 2037, 09:00` })
-    ).toHaveCount(0);
+    // The page refreshes in place: no navigation back to a queue, and the decision is gone.
+    // The event page stays with the settled outcome; only the decision block drops out.
+    await expect(page).toHaveURL(new RegExp(`/events/${eventId}$`));
+    await expect(page.locator("section#decision")).toHaveCount(0);
 
     const [row] = await database
       .select()
@@ -125,21 +128,31 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
       suggestedEndTime: "13:30:00",
     });
 
-    // AC5: a rejected request is no longer a page Venue Staff can open.
-    await page.goto(`/venue-requests/${requestId}`);
+    // AC5: the decided request leaves the actionable queue: the decision block is gone
+    // (asserted above) and the dashboard card is now the settled record linking to it.
+    await page.goto("/dashboard");
     await waitForHydration(page);
-    await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
-
-    // AC3: the requesting Coordinator finds the rejection on the event, with reason and suggestion.
-    // Better Auth refuses a second sign-in that carries the first session's cookie and no Origin.
+    await page.getByRole("link", { name: venueName, exact: true }).click();
+    await waitForHydration(page);
+    await expect(page).toHaveURL(new RegExp(`/events/${eventId}$`));
+    const outcome = page.locator("section#request");
+    await expect(outcome.getByText("Request declined.")).toBeVisible();
+    await expect(outcome.getByText(reason)).toBeVisible();
+    await expect(outcome.getByText(`${alternativeName}, 14 Oct 2037, 10:00–13:30`)).toBeVisible();
+    // AC3: the requesting Coordinator finds the rejection on the event page, with reason and
+    // suggestion. Better Auth refuses a second sign-in that carries the first session's cookie
+    // and no Origin.
     await page.context().clearCookies();
     await signInAsStaff(page, "event_coordinator");
     await page.goto("/dashboard");
     await waitForHydration(page);
-    await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
-    await expect(page.getByText("Rejected", { exact: true })).toBeVisible();
-    await expect(page.getByText(reason)).toBeVisible();
-    await expect(page.getByText(`${alternativeName}, 14 Oct 2037, 10:00–13:30`)).toBeVisible();
+    await page.getByRole("link", { name: eventName, exact: true }).click();
+    await waitForHydration(page);
+    await expect(page).toHaveURL(new RegExp(`/events/${eventId}$`));
+    const venue = page.locator("section#venue");
+    await expect(venue.getByText("Rejected", { exact: true })).toBeVisible();
+    await expect(venue.getByText(reason)).toBeVisible();
+    await expect(venue.getByText(`${alternativeName}, 14 Oct 2037, 10:00–13:30`)).toBeVisible();
   } finally {
     await database.delete(schema.venueRequests).where(eq(schema.venueRequests.id, requestId));
     if (eventId !== undefined) {

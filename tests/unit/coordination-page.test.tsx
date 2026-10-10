@@ -29,8 +29,8 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     children: React.ReactNode;
     to: string;
-    params?: { requestId: string };
-  }) => <a href={params ? to.replace("$requestId", params.requestId) : to}>{children}</a>,
+    params?: { eventId: string };
+  }) => <a href={params ? to.replace("$eventId", params.eventId) : to}>{children}</a>,
   useRouter: () => ({
     navigate: vi.fn<() => void>(),
     invalidate,
@@ -128,7 +128,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
     );
 
     expect(screen.getByRole("link", { name: "Annual dinner" }).getAttribute("href")).toBe(
-      "/coordination/7"
+      "/events/7"
     );
     expect(screen.getByText("Jane Doe")).toBeTruthy();
 

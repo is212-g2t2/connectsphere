@@ -18,7 +18,7 @@ async function signUp(page: Page, role?: "event_organiser"): Promise<void> {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
-/** Signs an organiser up and lands on the form, via the list every organiser journey starts from. */
+/** Signs an organiser up and lands on the form, via the header every organiser journey starts from. */
 async function openNewRequest(page: Page): Promise<void> {
   await signUp(page, "event_organiser");
   await page.goto("/dashboard");
@@ -167,7 +167,7 @@ test.describe("Event request drafts", () => {
     await expect(page.getByRole("heading", { name: "Edit event request" })).toHaveCount(0);
 
     await page.goto("/dashboard");
-    await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Event requests", exact: true })).toHaveCount(0);
   });
 });
@@ -239,10 +239,12 @@ test.describe("Event request list (PTR-14)", () => {
     await expect(workshop).toContainText("Draft");
 
     await dinner.getByRole("link", { name: "Annual dinner" }).click();
+    // A submitted request opens on the universal event page, not a detail route.
+    await expect(page).toHaveURL(/\/events\/\d+/);
     await expect(page.getByRole("heading", { name: "Annual dinner" })).toBeVisible();
     await expect(page.getByText("Thank the volunteers")).toBeVisible();
     await expect(page.getByText("1 Dec 2030, 18:00 – 22:00")).toBeVisible();
-    await expect(page.getByText(/Submitted on/)).toBeVisible();
+    await expect(page.getByLabel("Status: Submitted")).toBeVisible();
     await expect(page.getByRole("button", { name: "Save draft" })).toHaveCount(0);
   });
 
@@ -253,7 +255,8 @@ test.describe("Event request list (PTR-14)", () => {
     await expect(page.getByText("Draft saved.")).toBeVisible();
     await page.getByRole("link", { name: "Back to event requests" }).click();
     const href = (await page.getByRole("link", { name: "Mine" }).getAttribute("href")) ?? "";
-    expect(href).toMatch(/\/event-requests\/\d+$/);
+    // A draft links back to its reopen route; a submitted one would link to its event page.
+    expect(href).toMatch(/\/event-requests\/reopenDraft\/\d+$/);
 
     // A second organiser, same browser context but a fresh session.
     await page.context().clearCookies();
@@ -336,11 +339,15 @@ test.describe("Coordinator assignment (PTR-15)", () => {
     await expect(row).toContainText("Seeded Event Coordinator");
 
     await row.getByRole("link", { name: "Board retreat" }).click();
-    await expect(page.getByText("Seeded Event Coordinator")).toBeVisible();
-    await expect(page.getByRole("link", { name: "coordinator.seed@example.com" })).toHaveAttribute(
-      "href",
-      "mailto:coordinator.seed@example.com"
+    // The Coordinator contact reads in the request messages' contact card. The name also
+    // shows in the cancellation note, so read the contact row itself.
+    const record = page.getByRole("region", { name: "Requests & messages" });
+    await expect(record.locator("dd", { hasText: "Seeded Event Coordinator" })).toContainText(
+      "Seeded Event Coordinator"
     );
+    await expect(
+      record.getByRole("link", { name: "coordinator.seed@example.com" })
+    ).toHaveAttribute("href", "mailto:coordinator.seed@example.com");
   });
 
   test("gives a Coordinator the coordination page and refuses it to an organiser", async ({

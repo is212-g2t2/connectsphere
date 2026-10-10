@@ -236,14 +236,14 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       const organiserItems = await handleListNotifications(session("organiser"), database);
       expect(organiserItems[0]).toMatchObject({
         summary: "Event confirmed: Notification Gala",
-        href: `/event-requests/${eventId}`,
+        href: `/events/${eventId}`,
       });
       expect(Number.isNaN(Date.parse(organiserItems[0].createdAt))).toBe(false);
 
       const coordinatorItems = await handleListNotifications(session("coordinator"), database);
       expect(coordinatorItems[0]).toMatchObject({
         summary: "Clarification replied: Notification Gala",
-        href: `/coordination/${eventId}`,
+        href: `/events/${eventId}`,
       });
     });
 
@@ -322,7 +322,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       const pendingItems = await handleListNotifications(session("venueStaff"), database);
       expect(pendingItems[0]).toMatchObject({
         summary: "Venue booking requested: Notification Hall",
-        href: `/venue-requests/${venueRequestId}`,
+        href: `/events/${eventId}`,
       });
       expect(JSON.stringify(pendingItems)).not.toContain("Notification Gala");
 

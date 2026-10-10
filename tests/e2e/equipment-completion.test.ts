@@ -6,7 +6,7 @@
 // - Drizzle + pg for test data
 // - signInAsStaff() for authentication
 // - waitForHydration() after navigation
-// - /equipment-requests/:id for Technical Support
+// - /events/:id for Technical Support
 //
 // Email delivery is covered by the PTR-43 integration test, which mocks sendEmail directly.
 // This E2E file focuses on the actual user-facing behaviour.
@@ -37,7 +37,7 @@ const REASON_REQUIRED = "Give a reason for marking this line unavailable";
 
 const RESERVED_REFUSAL = "This line holds a reservation and its state cannot be changed.";
 
-const equipmentUrl = (id: number) => `/equipment-requests/${id}`;
+const equipmentUrl = (id: number) => `/events/${id}`;
 
 test.beforeAll(async () => {
   if (!process.env.DATABASE_URL) {
@@ -446,11 +446,11 @@ test.describe("AC3: Coordinator sees the equipment outcome", () => {
     const coordinatorPage = await coordinatorContext.newPage();
     try {
       await signInAsStaff(coordinatorPage, "event_coordinator");
-      await coordinatorPage.goto("/dashboard");
+      await coordinatorPage.goto(`/events/${target.id}`);
       await waitForHydration(coordinatorPage);
-      const card = coordinatorPage.locator("[data-slot=card]").filter({ hasText: target.name });
-      await expect(card.getByText("Unavailable")).toBeVisible();
-      await expect(card.getByText("Reason: Out for repair")).toBeVisible();
+      const section = coordinatorPage.locator("section#equipment");
+      await expect(section.getByText("Unavailable")).toBeVisible();
+      await expect(section.getByText("Reason: Out for repair")).toBeVisible();
     } finally {
       await coordinatorContext.close();
     }

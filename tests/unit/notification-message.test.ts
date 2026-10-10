@@ -205,10 +205,10 @@ const hrefFor = (payload: unknown) =>
 describe("notification hrefs (PTR-55 AC4)", () => {
   const requested = parse("venue_booking_requested", requestedPayload);
 
-  it("points at the pending detail while the request waits, and the bookings list once approved", () => {
+  it("points at the event page while the request waits, and the bookings list once approved", () => {
     expect(
       notificationHref({ ...requested, eventRequestId: 7 }, { venueRequestStatus: "pending" })
-    ).toBe("/venue-requests/request-1");
+    ).toBe("/events/7");
     expect(
       notificationHref({ ...requested, eventRequestId: 7 }, { venueRequestStatus: "approved" })
     ).toBe("/venue-bookings");
@@ -226,7 +226,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     expect(notificationHref({ ...handover, eventRequestId: 7 }, { handoverPending: true })).toBe(
       "/coordination"
     );
-    expect(notificationHref({ ...handover, eventRequestId: 7 })).toBe("/coordination/7");
+    expect(notificationHref({ ...handover, eventRequestId: 7 })).toBe("/events/7");
   });
 
   it("sends each kind to the surface that reads it", () => {
@@ -235,7 +235,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       question: "q",
       body: "b",
     });
-    expect(notificationHref({ ...replied, eventRequestId: 7 })).toBe("/coordination/7");
+    expect(notificationHref({ ...replied, eventRequestId: 7 })).toBe("/events/7");
 
     const confirmed = parse("event_confirmed", {
       eventName: "Gala",
@@ -244,10 +244,10 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       endsAt: "2026-10-12 17:00:00",
       equipment: [],
     });
-    expect(notificationHref({ ...confirmed, eventRequestId: 7 })).toBe("/event-requests/7");
+    expect(notificationHref({ ...confirmed, eventRequestId: 7 })).toBe("/events/7");
 
     const equipment = parse("equipment_requested", { eventName: "Gala", lines: [] });
-    expect(notificationHref({ ...equipment, eventRequestId: 7 })).toBe("/equipment-requests/7");
+    expect(notificationHref({ ...equipment, eventRequestId: 7 })).toBe("/events/7");
   });
 
   it("sends the capacity notice to the page each recipient reads (PTR-45 AC8)", () => {
@@ -257,20 +257,20 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       ...full,
       audience: "coordinator",
     });
-    expect(notificationHref({ ...organiser, eventRequestId: 7 })).toBe("/event-requests/7");
-    expect(notificationHref({ ...coordinator, eventRequestId: 7 })).toBe("/coordination/7");
+    expect(notificationHref({ ...organiser, eventRequestId: 7 })).toBe("/events/7");
+    expect(notificationHref({ ...coordinator, eventRequestId: 7 })).toBe("/events/7");
 
     const opened = { eventName: "Gala", opensAt: "2026-10-12 14:00:00" };
     const orgOpened = parse("registration_opened", { ...opened, audience: "organiser" });
     const coordOpened = parse("registration_opened", { ...opened, audience: "coordinator" });
-    expect(notificationHref({ ...orgOpened, eventRequestId: 7 })).toBe("/event-requests/7");
-    expect(notificationHref({ ...coordOpened, eventRequestId: 7 })).toBe("/coordination/7");
+    expect(notificationHref({ ...orgOpened, eventRequestId: 7 })).toBe("/events/7");
+    expect(notificationHref({ ...coordOpened, eventRequestId: 7 })).toBe("/events/7");
 
     const closed = { eventName: "Gala", closesAt: "2026-10-12 17:00:00" };
     const orgClosed = parse("registration_closed", { ...closed, audience: "organiser" });
     const coordClosed = parse("registration_closed", { ...closed, audience: "coordinator" });
-    expect(notificationHref({ ...orgClosed, eventRequestId: 7 })).toBe("/event-requests/7");
-    expect(notificationHref({ ...coordClosed, eventRequestId: 7 })).toBe("/coordination/7");
+    expect(notificationHref({ ...orgClosed, eventRequestId: 7 })).toBe("/events/7");
+    expect(notificationHref({ ...coordClosed, eventRequestId: 7 })).toBe("/events/7");
   });
 
   it("sends the freed place notice to the page each recipient reads (PTR-47 AC4)", () => {
@@ -280,15 +280,13 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       ...freed,
       audience: "coordinator",
     });
-    expect(notificationHref({ ...organiser, eventRequestId: 7 })).toBe("/event-requests/7");
-    expect(notificationHref({ ...coordinator, eventRequestId: 7 })).toBe("/coordination/7");
+    expect(notificationHref({ ...organiser, eventRequestId: 7 })).toBe("/events/7");
+    expect(notificationHref({ ...coordinator, eventRequestId: 7 })).toBe("/events/7");
   });
 
   it("sends each party told of a cancellation to the surface they act on (PTR-54)", () => {
     expect(hrefFor({ audience: "attendee", eventName: "Gala" })).toBe("/events/7");
-    expect(hrefFor({ audience: "technical_support", eventName: "Gala" })).toBe(
-      "/equipment-requests/7"
-    );
+    expect(hrefFor({ audience: "technical_support", eventName: "Gala" })).toBe("/events/7");
     expect(
       hrefFor({
         audience: "venue_staff",
@@ -308,29 +306,29 @@ describe("notification hrefs (PTR-55 AC4)", () => {
   it("sends every kind to its default surface with no facts", () => {
     const expected: Record<NotificationKind, string | null> = {
       venue_booking_requested: null,
-      handover_requested: "/coordination/7",
-      clarification_requested: "/event-requests/7",
-      handover_accepted: "/event-requests/7",
-      event_decided: "/event-requests/7",
-      event_confirmed: "/event-requests/7",
-      venue_booking_approved: "/coordination/7",
-      venue_booking_rejected: "/coordination/7",
-      venue_booking_changed: "/coordination/7",
-      clarification_replied: "/coordination/7",
-      event_change_requested: "/coordination/7",
-      handover_declined: "/coordination/7",
-      equipment_arrangements_completed: "/coordination/7",
-      equipment_unavailable: "/coordination/7",
-      equipment_released: "/coordination/7",
-      equipment_requested: "/equipment-requests/7",
+      handover_requested: "/events/7",
+      clarification_requested: "/events/7",
+      handover_accepted: "/events/7",
+      event_decided: "/events/7",
+      event_confirmed: "/events/7",
+      venue_booking_approved: "/events/7",
+      venue_booking_rejected: "/events/7",
+      venue_booking_changed: "/events/7",
+      clarification_replied: "/events/7",
+      event_change_requested: "/events/7",
+      handover_declined: "/events/7",
+      equipment_arrangements_completed: "/events/7",
+      equipment_unavailable: "/events/7",
+      equipment_released: "/events/7",
+      equipment_requested: "/events/7",
       event_registered: "/events/7",
-      registration_threshold_reached: "/event-requests/7",
-      registration_opened: "/event-requests/7",
-      registration_closed: "/event-requests/7",
-      event_cancellation_requested: "/coordination/7",
-      event_cancelled: "/event-requests/7",
-      event_cancellation_declined: "/event-requests/7",
-      registration_place_freed: "/event-requests/7",
+      registration_threshold_reached: "/events/7",
+      registration_opened: "/events/7",
+      registration_closed: "/events/7",
+      event_cancellation_requested: "/events/7",
+      event_cancelled: "/events/7",
+      event_cancellation_declined: "/events/7",
+      registration_place_freed: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

@@ -129,7 +129,7 @@ describe("event access", () => {
           notes: "Private note",
         },
       ],
-      { status: "pending" }
+      { id: "vr-9", status: "pending", venueName: "Hall A" }
     );
     expect(result.event).toMatchObject({
       eventDate: "2026-10-01",
@@ -139,13 +139,50 @@ describe("event access", () => {
       layout: "Theatre",
       accessibilityRequirements: "Step-free access",
       requiredFacilities: "Projector",
-      venueRequest: { status: "pending" },
+      venueRequest: { status: "pending", venueName: "Hall A" },
     });
     expect(result.event).not.toHaveProperty("name");
     expect(result.event).not.toHaveProperty("description");
     expect(result.event).not.toHaveProperty("equipment");
   });
 
+  it("carries a venue staff member's settled request with its outcome", () => {
+    for (const venueRequest of [
+      { id: "vr-9", status: "approved", venueName: "Hall A" },
+      {
+        id: "vr-9",
+        status: "rejected",
+        venueName: "Hall A",
+        rejection: {
+          venueId: 5,
+          venueName: "Hall A",
+          date: "2026-10-10",
+          startTime: "09:00",
+          endTime: "12:00",
+          reason: "Closed for floor resurfacing",
+          suggestion: null,
+          suggestedVenueId: null,
+        },
+      },
+      {
+        id: "vr-9",
+        status: "released",
+        venueName: "Hall A",
+        release: {
+          venueName: "Hall A",
+          date: "2026-10-10",
+          startTime: "09:00",
+          endTime: "12:00",
+          reason: "Air-conditioning failure",
+          changedByName: null,
+        },
+      },
+    ] as const) {
+      const result = projectEvent(request, "venue_staff", null, [], venueRequest);
+      expect(result.event.venueRequest).toEqual(venueRequest);
+      expect(result.event).not.toHaveProperty("name");
+    }
+  });
   it("redacts technical support responses to equipment fields", () => {
     const result = projectEvent(
       request,
@@ -164,7 +201,7 @@ describe("event access", () => {
     );
     expect(result.event.equipment).toHaveLength(1);
     expect(result.event.name).toBe("ConnectSphere Demo");
-    expect(result.event).not.toHaveProperty("description");
+    expect(result.event.description).toBe("A demo event");
   });
 
   describe("arrangement notes and reasons (PTR-39 AC4)", () => {
@@ -279,7 +316,11 @@ describe("event access", () => {
   );
 
   it.each(["organiser", "coordinator"] as const)("projects the full record for the %s", access => {
-    const result = projectEvent(request, access, null, [], { status: "pending" });
+    const result = projectEvent(request, access, null, [], {
+      id: "vr-9",
+      status: "pending",
+      venueName: "Hall A",
+    });
 
     expect(result.event).toMatchObject({
       name: "ConnectSphere Demo",
@@ -293,7 +334,9 @@ describe("event access", () => {
 
 describe("projectEvent with a rejected venue request (PTR-34 AC3)", () => {
   const rejected = {
+    id: "vr-5",
     status: "rejected",
+    venueName: "Main Hall",
     rejection: {
       venueId: 5,
       venueName: "Main Hall",

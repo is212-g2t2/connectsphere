@@ -2,9 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CoordinationRequestPage } from "#/features/coordination/components/coordination-request-page";
+import { UpdateEventInformation } from "#/features/coordination/components/update-event-information";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
-import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 const { updateEventInformation, invalidate, success, info, warning, error } = vi.hoisted(() => ({
   updateEventInformation:
@@ -28,9 +27,6 @@ vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ navigate: vi.fn<() => void>(), invalidate }),
 }));
 vi.mock("sonner", () => ({ toast: { success, info, warning, error } }));
-
-const actor = { id: "coord-a", email: "a@example.com", name: "Alex", role: "event_coordinator" };
-const coordinators = [{ id: "coord-a", name: "Alex", email: "a@example.com" }];
 
 const approved: CoordinationRequest = {
   id: 7,
@@ -76,19 +72,14 @@ const approved: CoordinationRequest = {
   cancellationRequests: [],
   outstandingReleases: null,
   pendingHandover: null,
+  venueRequest: null,
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,
   equipmentArrangementsCompletedById: null,
 };
 
 function renderPage(request: Partial<CoordinationRequest> = {}) {
-  return render(
-    <CoordinationRequestPage
-      request={{ ...approved, ...request }}
-      coordinators={coordinators}
-      user={actor}
-    />
-  );
+  return render(<UpdateEventInformation request={{ ...approved, ...request }} />);
 }
 
 async function openForm() {
@@ -102,31 +93,7 @@ beforeEach(() => {
   vi.resetAllMocks();
 });
 
-describe("updating event information on the coordination page (PTR-22)", () => {
-  it.each(["approved", "planning", "confirmed"] as const)(
-    "offers the update to the assigned Coordinator of a %s event",
-    status => {
-      renderPage({ status });
-
-      expect(screen.getByRole("heading", { name: "Update event information" })).toBeTruthy();
-    }
-  );
-
-  it.each(["under_review", "completed", "cancelled"] satisfies EventRequestStatus[])(
-    "does not offer the update of a %s event",
-    status => {
-      renderPage({ status });
-
-      expect(screen.queryByRole("heading", { name: "Update event information" })).toBeNull();
-    }
-  );
-
-  it("does not offer the update to a Coordinator the event is not assigned to", () => {
-    renderPage({ assignedCoordinatorId: "coord-b" });
-
-    expect(screen.queryByRole("heading", { name: "Update event information" })).toBeNull();
-  });
-
+describe("updating event information (PTR-22)", () => {
   it("opens the form on the recorded values and sends only the changed field", async () => {
     updateEventInformation.mockResolvedValue({ changedFields: ["eventName"] });
     const user = await openForm();
@@ -188,15 +155,13 @@ describe("updating event information on the coordination page (PTR-22)", () => {
     // Another panel's action re-reads the page: a new copy of the record, a new name from a
     // second tab, and the same dates and equipment.
     rerender(
-      <CoordinationRequestPage
+      <UpdateEventInformation
         request={{
           ...approved,
           eventName: "Annual Gala Dinner",
           proposedDates: [{ start: "2030-12-01T18:00", end: "2030-12-01T22:00" }],
           equipmentRequirements: [{ type: "Projector", quantity: 1 }],
         }}
-        coordinators={coordinators}
-        user={actor}
       />
     );
     await user.click(screen.getByRole("button", { name: "Save changes" }));

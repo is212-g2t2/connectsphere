@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { standardSchemaValidators, useForm } from "@tanstack/react-form";
+import { Trash2Icon } from "lucide-react";
 
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
@@ -419,6 +420,7 @@ export function EventRequestForm({
             <Button
               type="button"
               variant="outline"
+              className="self-start"
               disabled={!editable("proposedDates")}
               onClick={() => field.pushValue({ key: crypto.randomUUID(), start: "", end: "" })}
             >
@@ -525,6 +527,7 @@ export function EventRequestForm({
           ) : (
             <Textarea
               id={inputId(field.name)}
+              rows={3}
               disabled={!editable(name)}
               value={field.state.value}
               onBlur={field.handleBlur}
@@ -545,7 +548,7 @@ export function EventRequestForm({
           <FieldSet>
             <FieldLegend>Equipment requirements (optional)</FieldLegend>
             {field.state.value.map((equipment, index) => (
-              <div key={equipment.key} className="grid gap-4 sm:grid-cols-2">
+              <div key={equipment.key} className="grid grid-cols-[1fr_96px_auto] items-end gap-3">
                 {(["type", "quantity"] as const).map(part => (
                   <form.Field key={part} name={`equipmentRequirements[${index}].${part}`}>
                     {partField => (
@@ -569,18 +572,20 @@ export function EventRequestForm({
                 ))}
                 <Button
                   type="button"
+                  size="icon-sm"
                   variant="outline"
-                  className="justify-self-start"
+                  aria-label={`Remove equipment ${index + 1}`}
                   disabled={!editable("equipmentRequirements")}
                   onClick={() => field.removeValue(index)}
                 >
-                  Remove equipment {index + 1}
+                  <Trash2Icon />
                 </Button>
               </div>
             ))}
             <Button
               type="button"
               variant="outline"
+              className="self-start"
               disabled={!editable("equipmentRequirements")}
               onClick={() => field.pushValue({ key: crypto.randomUUID(), type: "", quantity: "" })}
             >
@@ -701,7 +706,7 @@ export function EventRequestForm({
       <form noValidate onSubmit={submitForm}>
         {dirtyReporter}
         {editableFields.length > 0 && (
-          <p className="mb-6 body-sm text-muted-foreground">
+          <p className="mb-4 body-sm text-muted-foreground">
             Only the fields selected by the Coordinator can be changed. Required values must remain
             complete.
           </p>
@@ -736,7 +741,7 @@ export function EventRequestForm({
   return (
     <form noValidate onSubmit={submitForm}>
       {dirtyReporter}
-      <p className="mb-6 body-sm text-muted-foreground">
+      <p className="mb-4 body-sm text-muted-foreground">
         {mustBeComplete
           ? "Fields marked required must stay complete."
           : "Fields marked required must be completed. Anything left blank is saved with the draft, so you can finish it later."}

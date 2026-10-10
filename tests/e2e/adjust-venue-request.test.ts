@@ -93,12 +93,17 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     await signInAsStaff(page, "event_coordinator");
     await page.goto("/dashboard");
     await waitForHydration(page);
-    const card = page.locator("[data-slot=card]").filter({ hasText: eventName });
-    await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
-    await expect(card.getByText(reason)).toBeVisible();
+    // The dashboard card carries no actions; its link opens the event page.
+    await page.getByRole("link", { name: eventName, exact: true }).click();
+    await waitForHydration(page);
+    await expect(page).toHaveURL(new RegExp(`/events/${eventId}$`));
+
+    const venue = page.locator("section#venue");
+    await expect(venue.getByText("Rejected", { exact: true })).toBeVisible();
+    await expect(venue.getByText(reason)).toBeVisible();
 
     // AC1: the suggestion opens the suggested venue with the window already filled in.
-    await card.getByRole("link", { name: `Adjust request at ${suggestedName}` }).click();
+    await venue.getByRole("link", { name: `Adjust request at ${suggestedName}` }).click();
     await waitForHydration(page);
     await expect(page).toHaveURL(new RegExp(`/venues/${venueIds[1]}\\?`));
     await expect(page.getByRole("heading", { name: suggestedName })).toBeVisible();
@@ -120,11 +125,11 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     expect(rows.map(row => row.status).toSorted()).toEqual(["pending", "rejected"]);
     expect(rows.find(row => row.status === "pending")?.venueId).toBe(venueIds[1]);
 
-    // AC3 and AC4: the card shows the pending request and still the original rejection; the
-    // event is still submitted.
-    await page.goto("/dashboard");
+    // AC3 and AC4: the event page shows the pending request and still the original
+    // rejection; the event is still submitted.
+    await page.goto(`/events/${eventId}`);
     await waitForHydration(page);
-    const reloaded = page.locator("[data-slot=card]").filter({ hasText: eventName });
+    const reloaded = page.locator("section#venue");
     await expect(reloaded.getByText("Pending", { exact: true })).toBeVisible();
     await expect(reloaded.getByText("Previously rejected booking")).toBeVisible();
     await expect(reloaded.getByText(reason)).toBeVisible();

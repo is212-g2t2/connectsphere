@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests, user, venueRequests, venues } from "#/db/schema";
@@ -203,6 +203,7 @@ async function loadConflictKind(
 function summarizePendingVenueRequest(
   row: {
     id: string;
+    eventId: number;
     venueId: number;
     venueName: string;
     startsAt: string;
@@ -213,6 +214,9 @@ function summarizePendingVenueRequest(
 ) {
   return {
     id: row.id,
+    // The venue-request route is now a shim onto the event page, so every row carries the event
+    // it forwards to.
+    eventId: row.eventId,
     // The reject form's suggestion picker needs this to exclude the venue being rejected.
     venueId: row.venueId,
     venueName: row.venueName,
@@ -221,95 +225,6 @@ function summarizePendingVenueRequest(
     submittedAt: row.submittedAt,
     conflict,
   };
-}
-
-// ponytail: single batched read replaces N+1 conflict lookups per row; re-batch per venue if the
-// pending queue grows large.
-async function pendingConflictKinds(
-  database: Database,
-  rows: readonly { id: string; venueId: number; startsAt: string; endsAt: string }[]
-): Promise<Map<string, "booking" | "hold">> {
-  if (rows.length === 0) return new Map();
-
-  const venueIds = [...new Set(rows.map(row => row.venueId))];
-  const minStart = rows.reduce(
-    (min, row) => (row.startsAt < min ? row.startsAt : min),
-    rows[0].startsAt
-  );
-  const maxEnd = rows.reduce((max, row) => (row.endsAt > max ? row.endsAt : max), rows[0].endsAt);
-
-  const [bookings, holds] = await Promise.all([
-    database
-      .select({
-        venueId: venueRequests.venueId,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-      })
-      .from(venueRequests)
-      .where(
-        and(
-          eq(venueRequests.status, "approved"),
-          inArray(venueRequests.venueId, venueIds),
-          lt(venueRequests.startsAt, maxEnd),
-          gt(venueRequests.endsAt, minStart)
-        )
-      ),
-    loadVenueHolds(database, venueIds, minStart, maxEnd),
-  ]);
-
-  const conflicts = new Map<string, "booking" | "hold">();
-  for (const row of rows) {
-    // The raw booking read keeps the database's `"YYYY-MM-DD HH:MM:SS"` spelling, matching the
-    // row; `loadVenueHolds` normalises to the `T` spelling, so the row is normalised for it too.
-    if (
-      bookings.some(
-        booking =>
-          booking.venueId === row.venueId &&
-          booking.startsAt < row.endsAt &&
-          booking.endsAt > row.startsAt
-      )
-    ) {
-      conflicts.set(row.id, "booking");
-      continue;
-    }
-    const startsAt = row.startsAt.replace(" ", "T");
-    const endsAt = row.endsAt.replace(" ", "T");
-    if (
-      holds.some(
-        hold => hold.venueId === row.venueId && hold.startsAt < endsAt && hold.endsAt > startsAt
-      )
-    ) {
-      conflicts.set(row.id, "hold");
-    }
-  }
-  return conflicts;
-}
-
-/**
- * PTR-32 AC1–AC2 and AC5: the shared Venue Staff queue. The status filter and submission ordering
- * live in the reader rather than in the table component, so every caller receives all pending rows
- * (including multiple rows for one event) in one stable order. Conflict detection batches every
- * pending row through `pendingConflictKinds`, one approved-only read plus one active-hold read for
- * the whole queue rather than per-row loaders; pending and withdrawn rows never become bookings and
- * a touching boundary remains available.
- */
-export async function handleListPendingVenueRequests(database: Database) {
-  const rows = await database
-    .select({
-      id: venueRequests.id,
-      venueId: venueRequests.venueId,
-      venueName: venues.name,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-      submittedAt: venueRequests.createdAt,
-    })
-    .from(venueRequests)
-    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .where(eq(venueRequests.status, "pending"))
-    .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id));
-
-  const conflicts = await pendingConflictKinds(database, rows);
-  return rows.map(row => summarizePendingVenueRequest(row, conflicts.get(row.id) ?? null));
 }
 
 /**
@@ -323,6 +238,7 @@ export async function handleGetPendingVenueRequest(data: unknown, database: Data
   const rows = await database
     .select({
       id: venueRequests.id,
+      eventId: venueRequests.eventId,
       venueId: venueRequests.venueId,
       venueName: venues.name,
       startsAt: venueRequests.startsAt,

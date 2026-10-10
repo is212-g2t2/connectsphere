@@ -501,7 +501,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       expect(notificationSummary(notification)).toBe(
         `Event cancellation requested: ${event.eventName}`
       );
-      expect(notificationHref(notification)).toBe(`/coordination/${event.id}`);
+      expect(notificationHref(notification)).toBe(`/events/${event.id}`);
       expect(renderNotificationEmail(notification).subject).toBe(
         `Event cancellation requested: ${event.eventName}`
       );
@@ -687,7 +687,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
         audience: "technical_support",
         eventName: event.eventName,
       });
-      expect(notificationHref(parsed(techNotice))).toBe(`/equipment-requests/${event.id}`);
+      expect(notificationHref(parsed(techNotice))).toBe(`/events/${event.id}`);
       expect(renderNotificationEmail(parsed(techNotice)).subject).toBe(
         `Event cancelled: ${event.eventName}`
       );
@@ -750,7 +750,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       );
       expect(notices).toHaveLength(1);
       expect(notices[0].payload).toEqual({ audience: "organiser", eventName: event.eventName });
-      expect(notificationHref(parsed(notices[0]))).toBe(`/event-requests/${event.id}`);
+      expect(notificationHref(parsed(notices[0]))).toBe(`/events/${event.id}`);
 
       const detail = await handleGetEventRequest({ id: event.id }, organiser, database as never);
       expect(detail?.cancellationRequests).toEqual([
@@ -778,7 +778,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       expect(notificationSummary(notification)).toBe(
         `Cancellation request declined: ${event.eventName}`
       );
-      expect(notificationHref(notification)).toBe(`/event-requests/${event.id}`);
+      expect(notificationHref(notification)).toBe(`/events/${event.id}`);
       expect(renderNotificationEmail(notification).subject).toBe(
         `Cancellation request declined: ${event.eventName}`
       );

@@ -162,7 +162,11 @@ export interface VenueRequestRelease {
  * adjusted request is still on the record.
  */
 export interface EventVenueRequest {
+  /** The venue_requests row id (text), so the venue-staff decision can load its detail. */
+  id: string;
   status: string;
+  /** The venue-staff card titles the card with this when the projection carries it. */
+  venueName?: string | null;
   conflict?: "booking" | "hold";
   rejection?: VenueRequestRejection;
   release?: VenueRequestRelease;
@@ -300,11 +304,6 @@ export interface EventProjection {
     places?: EventPlaces | null;
     /** PTR-50: whether the Attendee can register now and, when not, why. */
     registrationAvailability?: RegistrationAvailability | null;
-    /**
-     * PTR-111 AC4: the Organiser's and the Coordinator's VIP registrations, apart from the normal
-     * ones. Null unless the event is published, the only state that takes them.
-     */
-    vipRegistrations?: VipAttendee[] | null;
     venue?: EventVenue | null;
     venueRequest?: EventVenueRequest | null;
     equipment?: EquipmentLineProjection[];
@@ -366,7 +365,6 @@ export function projectEvent(
   venueRequest: EventVenueRequest | null,
   currentVenue: EventConfirmation["venue"] = null,
   places: EventPlaces | null = null,
-  vipRegistrations: VipAttendee[] | null = null,
   completionUnavailableReason?: string | null,
   registrationAvailability: RegistrationAvailability | null = null
 ): EventProjection {
@@ -416,6 +414,7 @@ export function projectEvent(
         event: {
           id: record.id,
           name: record.name,
+          description: record.description,
           ...timing,
           status: record.status,
           equipment,
@@ -478,7 +477,6 @@ export function projectEvent(
                 ),
               }
             : {}),
-          vipRegistrations,
           confirmation:
             record.status === "confirmed" && record.confirmedAt && record.confirmedByName
               ? {

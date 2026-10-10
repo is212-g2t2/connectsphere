@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
+import { Info } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -15,6 +16,7 @@ import {
   AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip";
 import { useMutation } from "#/hooks/use-mutation";
 
 interface EventTransitionActionProps {
@@ -80,40 +82,63 @@ export function EventTransitionAction({
 
   return (
     <div className="flex flex-col items-start gap-2">
-      <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <AlertDialogTrigger
-          render={
-            <Button
-              size="sm"
-              disabled={transitioning || Boolean(disabledReason)}
-              aria-label={`${triggerLabel}: ${eventName}`}
-              aria-describedby={disabledReason ? reasonId : undefined}
-            />
-          }
-        >
-          {transitioning ? pendingLabel : triggerLabel}
-        </AlertDialogTrigger>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{dialogTitle}</AlertDialogTitle>
-            <AlertDialogDescription>{dialogDescription}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel size="sm" disabled={transitioning}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction size="sm" disabled={transitioning} onClick={() => void transition()}>
-              {transitioning ? pendingLabel : actionLabel}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-          {/* One copy at a time: two live role="alert" nodes would announce twice. */}
-          {dialogOpen && refusal}
-        </AlertDialogContent>
-      </AlertDialog>
+      <div className="flex items-center gap-1.5">
+        <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <AlertDialogTrigger
+            render={
+              <Button
+                size="sm"
+                disabled={transitioning || Boolean(disabledReason)}
+                aria-label={`${triggerLabel}: ${eventName}`}
+                aria-describedby={disabledReason ? reasonId : undefined}
+              />
+            }
+          >
+            {transitioning ? pendingLabel : triggerLabel}
+          </AlertDialogTrigger>
+          <AlertDialogContent size="sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{dialogTitle}</AlertDialogTitle>
+              <AlertDialogDescription>{dialogDescription}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel size="sm" disabled={transitioning}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                size="sm"
+                disabled={transitioning}
+                onClick={() => void transition()}
+              >
+                {transitioning ? pendingLabel : actionLabel}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+            {/* One copy at a time: two live role="alert" nodes would announce twice. */}
+            {dialogOpen && refusal}
+          </AlertDialogContent>
+        </AlertDialog>
+        {disabledReason && (
+          <Tooltip>
+            <TooltipTrigger
+              delay={0}
+              render={
+                <button
+                  type="button"
+                  aria-label={`${triggerLabel} is disabled: ${disabledReason}`}
+                  className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              }
+            >
+              <Info className="size-4" />
+            </TooltipTrigger>
+            <TooltipContent>{disabledReason}</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
       {disabledReason && (
-        <p id={reasonId} className="body-sm text-muted-foreground">
+        <span id={reasonId} className="sr-only">
           {disabledReason}
-        </p>
+        </span>
       )}
       {!dialogOpen && refusal}
     </div>

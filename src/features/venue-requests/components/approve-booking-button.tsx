@@ -64,8 +64,15 @@ function isApprovalConflict(message: string): boolean {
  */
 export function ApproveBookingButton({
   request,
+  onDecided,
 }: {
   request: Pick<PendingVenueRequest, "id" | "venueName" | "startsAt" | "endsAt" | "conflict">;
+  /**
+   * Where a decided request goes. The queue and the old detail page return to the queue; the
+   * universal event page stays put and reloads its loader instead, since the request leaves
+   * `pending` and the decision block drops out on refetch.
+   */
+  onDecided?: () => Promise<void> | void;
 }) {
   const router = useRouter();
   const [state, approve, approving] = useMutation(async () => {
@@ -79,7 +86,8 @@ export function ApproveBookingButton({
     toast.success(
       `Booking approved for ${request.venueName} from ${formatLocalDateTime(request.startsAt)}.`
     );
-    await router.navigate({ to: "/venue-requests" });
+    if (onDecided) await onDecided();
+    else await router.navigate({ to: "/dashboard" });
   }, "Could not approve this request. Try again.");
 
   return (

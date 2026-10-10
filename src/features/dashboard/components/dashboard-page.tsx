@@ -1,73 +1,32 @@
-import { Link } from "@tanstack/react-router";
-
 import { Page, PageHeader } from "#/components/layout/page";
-import { can } from "#/features/auth/permissions";
-import type { SessionUser } from "#/features/auth/session";
-import { NAV_LINK_CLASSNAME } from "#/lib/utils";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#/components/ui/empty";
 import type { EventProjection } from "#/features/events/access";
-import { EventWorkspace } from "#/features/events/components/event-workspace";
+import { EventCard } from "#/features/events/components/event-card";
 
 /**
- * The signed-in home view. The session user and the connected events arrive as props rather than
+ * The signed-in home view: one card per connected event. The events arrive as props rather than
  * through `Route.useRouteContext()` so the page renders in a unit test without a router (PTR-75),
  * and the events come from the dashboard loader, which calls the `listEvents` server function.
  */
-export function DashboardPage({ user, events }: { user: SessionUser; events: EventProjection[] }) {
+export function DashboardPage({ events }: { events: EventProjection[] }) {
   return (
     <Page width="wide">
-      <PageHeader eyebrow="Dashboard" title={`Welcome, ${user.name?.trim() || user.email}`} />
+      <PageHeader eyebrow="Dashboard" title="Your events" />
 
-      <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3">
-        {can(user.role, { event: ["register"] }) && (
-          <Link to="/registrations" className={NAV_LINK_CLASSNAME}>
-            My registrations
-          </Link>
-        )}
-
-        {can(user.role, { event_request: ["create"] }) && (
-          <Link to="/event-requests" className={NAV_LINK_CLASSNAME}>
-            Event requests
-          </Link>
-        )}
-
-        {can(user.role, { event_request: ["coordinate"] }) && (
-          <Link to="/coordination" className={NAV_LINK_CLASSNAME}>
-            Coordination
-          </Link>
-        )}
-
-        {can(user.role, { venue: ["read"] }) && (
-          <Link to="/venues" className={NAV_LINK_CLASSNAME}>
-            Venues
-          </Link>
-        )}
-
-        {can(user.role, { venue: ["read"] }) && (
-          <Link to="/venues/availability" className={NAV_LINK_CLASSNAME}>
-            Venue calendar
-          </Link>
-        )}
-
-        {can(user.role, { venue_request: ["read"] }) && (
-          <Link to="/venue-requests" className={NAV_LINK_CLASSNAME}>
-            Booking requests
-          </Link>
-        )}
-
-        {can(user.role, { venue_request: ["decide"] }) && (
-          <Link to="/venue-bookings" className={NAV_LINK_CLASSNAME}>
-            Approved bookings
-          </Link>
-        )}
-
-        {can(user.role, { equipment_request: ["read"] }) && (
-          <Link to="/equipment-requests" className={NAV_LINK_CLASSNAME}>
-            Equipment requests
-          </Link>
-        )}
-      </div>
-
-      <EventWorkspace events={events} />
+      {events.length === 0 ? (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>No events yet</EmptyTitle>
+            <EmptyDescription>No events are currently connected to your account.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-2">
+          {events.map(projection => (
+            <EventCard key={projection.event.id} event={projection} />
+          ))}
+        </div>
+      )}
     </Page>
   );
 }

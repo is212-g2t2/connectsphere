@@ -1,4 +1,16 @@
-import { and, eq, exists, gt, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
+import {
+  and,
+  eq,
+  exists,
+  getTableColumns,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -17,22 +29,18 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
-  eventTiming,
   getEventAccess,
   hasAttendeePage,
   isEquipmentQueueRow,
-  isPublishedForAttendees,
   isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
 import type {
-  AttendeeRegistrationProjection,
   EquipmentLineProjection,
   EventPlaces,
   EventProjection,
   EventVenue,
   EventVenueRequest,
-  VipAttendee,
 } from "#/features/events/access";
 import { registrationCounts } from "#/features/events/register.server";
 import { placeLimit, registrationAvailability } from "#/features/events/registration";
@@ -237,52 +245,6 @@ async function loadCurrentBookings(
   return current;
 }
 
-export async function handleListAttendeeRegistrations(
-  attendee: SessionUser,
-  database: Pick<Database, "select">
-): Promise<AttendeeRegistrationProjection[]> {
-  const rows = await database
-    .select({
-      eventId: eventRequests.id,
-      eventName: eventRequests.eventName,
-      eventStatus: eventRequests.status,
-      registrationEnabled: eventRequests.registrationEnabled,
-      registrationStatus: eventRegistrations.status,
-      proposedDates: eventRequests.proposedDates,
-    })
-    .from(eventRegistrations)
-    .innerJoin(eventRequests, eq(eventRequests.id, eventRegistrations.eventId))
-    .where(and(eq(eventRegistrations.attendeeId, attendee.id), ne(eventRequests.status, "draft")));
-  const bookings = await loadCurrentBookings(
-    database,
-    rows.map(row => row.eventId)
-  );
-
-  const registrations = rows.map((row): AttendeeRegistrationProjection => {
-    const { eventDate, endDate, startTime, endTime } = eventTiming(row.proposedDates);
-    return {
-      eventId: row.eventId,
-      eventName: row.eventName,
-      eventStatus: row.eventStatus,
-      registrationEnabled: row.registrationEnabled,
-      registrationStatus: row.registrationStatus,
-      eventDate,
-      endDate,
-      startTime,
-      endTime,
-      venue: bookings.get(row.eventId)?.venue ?? null,
-    };
-  });
-
-  return registrations.toSorted((a, b) => {
-    const aDate = a.venue?.date ?? a.eventDate;
-    const bDate = b.venue?.date ?? b.eventDate;
-    if (aDate === null && bDate !== null) return 1;
-    if (aDate !== null && bDate === null) return -1;
-    return (aDate ?? "").localeCompare(bDate ?? "") || a.eventId - b.eventId;
-  });
-}
-
 export async function handleListEvents(
   data: unknown,
   user: SessionUser,
@@ -317,8 +279,9 @@ export async function handleListEvents(
   const requestIds = requestRows.map(row => row.id);
   const [venueRows, equipmentRows, registrationRows] = await Promise.all([
     database
-      .select()
+      .select({ ...getTableColumns(venueRequests), venueName: venues.name })
       .from(venueRequests)
+      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
       .where(inArray(venueRequests.eventId, requestIds))
       .orderBy(venueRequests.id),
     database
@@ -384,11 +347,14 @@ export async function handleListEvents(
   }
 
   // Rejections and releases are shown only to the assigned Coordinator, so no other role pays for
-  // the lookup. `venue-requests` owns which row is the event's live operational outcome.
+  // the lookup. Venue Staff get their own settled rows the same way, scoped to their assignment.
+  // `venue-requests` owns which row is the event's live operational outcome.
   const venueRequestOutcomes: ReadonlyMap<number, VenueRequestOutcome> =
     role === "event_coordinator"
       ? await loadVenueRequestOutcomesForEvents(database, requestIds)
-      : new Map<number, VenueRequestOutcome>();
+      : role === "venue_staff"
+        ? await loadVenueRequestOutcomesForEvents(database, requestIds, user.id)
+        : new Map<number, VenueRequestOutcome>();
 
   // PTR-24 AC3: the Organiser and the Coordinator see the current booking of a confirmed event. An
   // Attendee sees it for every event they reach (PTR-44 AC2): the published events, and the events
@@ -427,35 +393,6 @@ export async function handleListEvents(
         ).map(row => [row.eventId, { registered: row.registered, vips: row.vips }])
       : []
   );
-
-  // PTR-111 AC4: the Organiser and the assigned Coordinator see each published event's VIP
-  // registrations apart from the normal ones.
-  const vipRegistrations = new Map<number, VipAttendee[]>();
-  if (role === "event_organiser" || role === "event_coordinator") {
-    for (const row of requestRows) {
-      if (isPublishedForAttendees(row)) vipRegistrations.set(row.id, []);
-    }
-  }
-  if (vipRegistrations.size > 0) {
-    const vipRows = await database
-      .select({
-        eventId: eventRegistrations.eventId,
-        attendeeId: eventRegistrations.attendeeId,
-        name: userTable.name,
-        email: userTable.email,
-      })
-      .from(eventRegistrations)
-      .innerJoin(userTable, eq(userTable.id, eventRegistrations.attendeeId))
-      .where(
-        and(
-          inArray(eventRegistrations.eventId, [...vipRegistrations.keys()]),
-          eq(eventRegistrations.vip, true),
-          eq(eventRegistrations.status, "registered")
-        )
-      )
-      .orderBy(eventRegistrations.registeredAt, eventRegistrations.attendeeId);
-    for (const { eventId: id, ...vip } of vipRows) vipRegistrations.get(id)?.push(vip);
-  }
 
   // PTR-36 criterion 4: which pending requests overlap an approved booking for the same venue.
   // A self-join rather than a per-request read, and deliberately not scoped to `venueRows`: the
@@ -584,18 +521,51 @@ export async function handleListEvents(
     }
     // The assigned Coordinator sees the current rejection or release outcome. With a request
     // pending, the last rejection still rides along — but when more than one request is pending
-    // it is not necessarily the one the rejection answered.
-    const outcome = access === "coordinator" ? (venueRequestOutcomes.get(record.id) ?? null) : null;
+    // it is not necessarily the one the rejection answered. Venue Staff see only their own
+    // settled outcome, and never beside a pending request (their pending card carries no reason).
+    const outcome =
+      access === "coordinator" || access === "venue_staff"
+        ? (venueRequestOutcomes.get(record.id) ?? null)
+        : null;
     const conflictKind = pendingRequest ? conflictKinds.get(pendingRequest.id) : undefined;
+    // A settled request stays on the Venue Staff card after it is decided: the newest row
+    // assigned to them that is neither pending nor withdrawn. A rejection or release arrives as
+    // the outcome above; an approval carries no outcome, so it is built from the row itself.
+    let ownSettled: (typeof venueRows)[number] | null = null;
+    if (access === "venue_staff" && !pendingRequest) {
+      for (const row of venueRows) {
+        if (row.eventId !== record.id || row.assignedStaffId !== user.id) continue;
+        if (row.status === "pending" || row.status === "withdrawn") continue;
+        if (
+          !ownSettled ||
+          row.updatedAt.getTime() > ownSettled.updatedAt.getTime() ||
+          (row.updatedAt.getTime() === ownSettled.updatedAt.getTime() && row.id > ownSettled.id)
+        ) {
+          ownSettled = row;
+        }
+      }
+    }
+    const settledRequest: EventVenueRequest | null =
+      access === "venue_staff" && ownSettled
+        ? outcome && outcome.id === ownSettled.id
+          ? { ...outcome }
+          : { id: ownSettled.id, status: ownSettled.status, venueName: ownSettled.venueName }
+        : null;
     const venueRequest: EventVenueRequest | null = pendingRequest
       ? {
+          id: pendingRequest.id,
           status: pendingRequest.status,
+          venueName: pendingRequest.venueName,
           ...(conflictKind ? { conflict: conflictKind } : {}),
-          ...(outcome?.status === "rejected" ? { rejection: outcome.rejection } : {}),
+          ...(access === "coordinator" && outcome?.status === "rejected"
+            ? { rejection: outcome.rejection }
+            : {}),
         }
-      : outcome
-        ? outcome
-        : null;
+      : access === "venue_staff"
+        ? settledRequest
+        : outcome
+          ? { ...outcome }
+          : null;
 
     return [
       projectEvent(
@@ -617,7 +587,6 @@ export async function handleListEvents(
           venueCapacities.get(record.id),
           registeredCounts.get(record.id) ?? { registered: 0, vips: 0 }
         ),
-        vipRegistrations.get(record.id) ?? null,
         completionUnavailableReasons.get(record.id),
         access === "attendee"
           ? attendeeRegistrationAvailability(

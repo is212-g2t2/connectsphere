@@ -87,7 +87,7 @@ test.describe("Reset password journey", () => {
     await page.locator("#password").fill(newPassword);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.waitForURL("/dashboard", { timeout: 10_000 });
-    await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
   });
 });
 

@@ -16,7 +16,6 @@ import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
   handleGetPendingVenueRequest,
-  handleListPendingVenueRequests,
 } from "#/features/venue-requests/requests.server";
 import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venues/records.server";
 import { handleListEvents } from "#/features/events/records.server";
@@ -1000,7 +999,12 @@ describe("tentative venue holds (PTR-109)", () => {
         session(users.coordinatorA),
         database as never
       );
-      expect(projection.event.venueRequest).toEqual({ status: "pending", conflict: "hold" });
+      expect(projection.event.venueRequest).toEqual({
+        id: expect.any(String),
+        status: "pending",
+        conflict: "hold",
+        venueName: "PTR-109 Auditorium",
+      });
     });
 
     it("suppresses canConvert once the event+venue already has a pending request", async () => {
@@ -1044,9 +1048,6 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      const queue = await handleListPendingVenueRequests(database as never);
-      expect(queue.find(row => row.id === request.id)?.conflict).toBe("hold");
-
       const detail = await handleGetPendingVenueRequest({ id: request.id }, database as never);
       expect(detail?.conflict).toBe("hold");
     });
@@ -1068,9 +1069,6 @@ describe("tentative venue holds (PTR-109)", () => {
         session(users.coordinatorB),
         database as never
       );
-
-      const queue = await handleListPendingVenueRequests(database as never);
-      expect(queue.find(row => row.id === request.id)?.conflict).toBe("booking");
 
       const detail = await handleGetPendingVenueRequest({ id: request.id }, database as never);
       expect(detail?.conflict).toBe("booking");

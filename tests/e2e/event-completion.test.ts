@@ -79,16 +79,16 @@ async function createConfirmedEvent(endsAt: string) {
 test("the Coordinator explicitly completes an ended confirmed event", async ({ page }) => {
   const event = await createConfirmedEvent("2020-03-10 12:30:00");
   await signInWithSeedPassword(page, COORDINATOR_EMAIL);
-  await page.goto("/dashboard");
+  await page.goto(`/events/${event.id}`);
   await waitForHydration(page);
 
-  const card = page.locator("[data-slot=card]").filter({ hasText: event.name });
-  await card.getByRole("button", { name: `Complete event: ${event.name}` }).click();
+  await page.getByRole("button", { name: `Complete event: ${event.name}` }).click();
   await page.getByRole("button", { name: "Complete", exact: true }).click();
 
+  // The completion reports through the action's success toast.
   await expect(page.getByText("Event completed.")).toBeVisible();
-  await expect(card.getByText("Completed", { exact: true })).toBeVisible();
-  await expect(card.getByRole("button", { name: `Complete event: ${event.name}` })).toHaveCount(0);
+  await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: `Complete event: ${event.name}` })).toHaveCount(0);
   const [saved] = await database
     .select()
     .from(schema.eventRequests)
@@ -100,10 +100,15 @@ test("the Coordinator explicitly completes an ended confirmed event", async ({ p
 test("the action explains that a confirmed event has not ended", async ({ page }) => {
   const event = await createConfirmedEvent("2100-03-10 12:30:00");
   await signInWithSeedPassword(page, COORDINATOR_EMAIL);
-  await page.goto("/dashboard");
+  await page.goto(`/events/${event.id}`);
   await waitForHydration(page);
 
-  const card = page.locator("[data-slot=card]").filter({ hasText: event.name });
-  await expect(card.getByRole("button", { name: `Complete event: ${event.name}` })).toBeDisabled();
-  await expect(card.getByText("The event end date and time has not passed.")).toBeVisible();
+  const trigger = page.getByRole("button", { name: `Complete event: ${event.name}` });
+  await expect(trigger).toBeDisabled();
+
+  // The reason lives on the info icon beside the disabled button, not the button itself.
+  await page.getByRole("button", { name: "Complete event is disabled:" }).hover();
+  await expect(page.locator('[data-slot="tooltip-content"]')).toContainText(
+    "The event end date and time has not passed."
+  );
 });

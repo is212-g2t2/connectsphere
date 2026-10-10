@@ -278,13 +278,21 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       session(users.organiser),
       database as never
     );
-    expect(organiserCard.event.venueRequest).toEqual({ status: "pending" });
+    expect(organiserCard.event.venueRequest).toEqual({
+      id: expect.any(String),
+      status: "pending",
+      venueName: "PTR-35 Suggested Room",
+    });
     const [staffCard] = await handleListEvents(
       { eventId },
       session(users.venueStaff),
       database as never
     );
-    expect(staffCard.event.venueRequest).toEqual({ status: "pending" });
+    expect(staffCard.event.venueRequest).toEqual({
+      id: expect.any(String),
+      status: "pending",
+      venueName: "PTR-35 Suggested Room",
+    });
   });
 
   it("surfaces no rejection once a later request is approved", async () => {

@@ -21,6 +21,7 @@ import {
 } from "#/features/venue-requests/schema";
 import { rejectVenueRequest } from "#/features/venue-requests/server-fns";
 import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
+import type { VenueOption } from "#/features/events/page-data";
 
 /** What the inputs hold. Field names match `VenueRejectionInput`, so an issue lands on its field. */
 interface FormValues {
@@ -74,9 +75,16 @@ const SUGGESTION_INPUTS = [
 export function RejectBookingForm({
   request,
   venues,
+  onDecided,
 }: {
   request: Pick<PendingVenueRequest, "id" | "venueId" | "venueName">;
-  venues: readonly { id: number; name: string }[];
+  venues: readonly VenueOption[];
+  /**
+   * Where a decided request goes. The old detail page returns to the queue; the universal event
+   * page stays put and reloads its loader instead, since the request leaves `pending` and the
+   * decision block drops out on refetch.
+   */
+  onDecided?: () => Promise<void> | void;
 }) {
   // The venue being rejected is never a sensible suggestion in its own place — at a minimum a
   // "fully booked" rejection must not offer the same room back as the alternative.
@@ -104,12 +112,16 @@ export function RejectBookingForm({
 
         // Someone else already settled this row: reloading the loader turns it into `notFound()`,
         // which would unmount this form before it could show why the submit failed. Toast instead
-        // and return to the queue rather than flashing an error the router immediately replaces.
+        // and return to the dashboard rather than flashing an error the router immediately replaces.
         const alreadySettled =
           message === VENUE_REQUEST_REJECTED_MESSAGE || message === VENUE_REQUEST_DECIDED_MESSAGE;
         if (alreadySettled) {
           toast.error(message);
-          await router.navigate({ to: "/venue-requests" });
+          if (onDecided) {
+            await onDecided();
+            return;
+          }
+          await router.navigate({ to: "/dashboard" });
           await router.invalidate();
           return;
         }
@@ -124,7 +136,11 @@ export function RejectBookingForm({
         return;
       }
       toast.success(`Booking rejected for ${request.venueName}.`);
-      await router.navigate({ to: "/venue-requests" });
+      if (onDecided) {
+        await onDecided();
+        return;
+      }
+      await router.navigate({ to: "/dashboard" });
       await router.invalidate();
     },
   });

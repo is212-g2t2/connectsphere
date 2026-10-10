@@ -1319,7 +1319,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
             eventRequestId: request.id,
           } as never).element
         )
-      ).toContain(`/event-requests/${request.id}`);
+      ).toContain(`/events/${request.id}`);
     });
 
     it("declines a handover: the event stays with the outgoing Coordinator, the answer is recorded, and the outgoing notification is queued (AC4)", async () => {
@@ -1368,7 +1368,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
             eventRequestId: request.id,
           } as never).element
         )
-      ).toContain(`/coordination/${request.id}`);
+      ).toContain(`/events/${request.id}`);
       await expect(
         handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
       ).rejects.toMatchObject({ status: 409 });

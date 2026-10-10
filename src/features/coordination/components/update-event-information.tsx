@@ -122,7 +122,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
             </Button>
           </div>
           {editing && (
-            <div id={formId} className="mt-6">
+            <div id={formId} className="mt-4 max-w-3xl">
               <EventRequestForm
                 initialValues={toDraftValues(request)}
                 saveLabel="Save changes"

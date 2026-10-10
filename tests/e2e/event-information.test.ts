@@ -1,7 +1,7 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-22: the assigned Coordinator updates an approved event's information from the coordination
-// page, the change log records it, and the Organiser sees only the new value. Every test creates
+// PTR-22: the assigned Coordinator updates an approved event's information from the event page,
+// the change log records it, and the Organiser sees only the new value. Every test creates
 // and removes its own event, so the tests can run in parallel and never touch the demo rows.
 import { expect, test } from "@playwright/test";
 import { asc, eq, inArray } from "drizzle-orm";
@@ -72,7 +72,7 @@ test("the assigned Coordinator updates an approved event, and the change is reco
   const renamed = `${name} (renamed)`;
 
   await signInWithSeedPassword(page, COORDINATOR_EMAIL);
-  await page.goto(`/coordination/${id}`);
+  await page.goto(`/events/${id}`);
   await waitForHydration(page);
 
   await page.getByRole("button", { name: "Edit event information" }).click();
@@ -102,17 +102,21 @@ test("the Organiser never sees the previous value on a return visit (AC3)", asyn
   const renamed = `${name} (renamed)`;
 
   await signInWithSeedPassword(page, ORGANISER_EMAIL);
-  await page.goto(`/event-requests/${id}`);
+  await page.goto(`/events/${id}`);
   await waitForHydration(page);
   await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
 
-  // The router now holds the detail page's data. Leave it, then let the update land.
-  await page.getByRole("link", { name: "Back to event requests" }).click();
+  // The router holds the event page's data. Leave it, then let the update land and reload, so
+  // the dashboard re-reads the list instead of showing its cached copy.
+  await page.getByRole("link", { name: "Back to dashboard" }).click();
   await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
   await database
     .update(schema.eventRequests)
     .set({ eventName: renamed })
     .where(eq(schema.eventRequests.id, id));
+  await page.reload();
+  await waitForHydration(page);
+  await expect(page.getByRole("link", { name: renamed, exact: true })).toBeVisible();
 
   // Record every page heading from here on, so a cached copy shown for one frame still counts.
   await page.evaluate(() => {
@@ -123,7 +127,7 @@ test("the Organiser never sees the previous value on a return visit (AC3)", asyn
       if (heading) seen.push(heading);
     }).observe(document.body, { subtree: true, childList: true, characterData: true });
   });
-  await page.getByRole("link", { name, exact: true }).click();
+  await page.getByRole("link", { name: renamed, exact: true }).click();
 
   await expect(page.getByRole("heading", { level: 1, name: renamed })).toBeVisible();
   const seen = await page.evaluate(

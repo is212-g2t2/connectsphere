@@ -37,37 +37,35 @@ async function signUpAsOrganiser(page: Page): Promise<void> {
  * handler and middleware boundaries.
  */
 test.describe("Event access", () => {
-  test("redirects a signed-out visitor from registrations to login", async ({ page }) => {
+  test("answers not found for the removed registrations route", async ({ page }) => {
     await page.goto("/registrations");
 
-    await expect(page).toHaveURL(/\/login/);
-    await expect(page.getByRole("heading", { name: "My registrations" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your events" })).toHaveCount(0);
   });
 
-  test("redirects an organiser from registrations to the dashboard", async ({ page }) => {
+  test("answers not found for the removed registrations route when signed in", async ({ page }) => {
     await signUpAsOrganiser(page);
     await page.goto("/registrations");
 
-    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "My registrations" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "My registrations" })).toHaveCount(0);
   });
 
-  test("shows the signed-in Attendee their registrations", async ({ page }) => {
+  test("shows the signed-in Attendee their registration on the dashboard", async ({ page }) => {
     await signInAsSeeded(page, "john.doe@example.com");
-    await page.goto("/registrations");
+    // The registrations route is gone: the Attendee's registration reads as a card on the
+    // dashboard.
+    await page.goto("/dashboard");
 
-    await expect(page.getByRole("heading", { name: "My registrations" })).toBeVisible();
-    const registrations = page.getByRole("list", { name: "Event registrations" });
-    const registration = registrations
-      .getByRole("listitem")
-      .filter({ hasText: ATTENDEE_DEMO_EVENT_NAME });
-    await expect(registration).toBeVisible();
-    await expect(registration.getByLabel("Your registration: Registered")).toBeVisible();
-    await expect(registration.getByText(/\d{1,2} [A-Z][a-z]{2} \d{4}/)).toBeVisible();
-    await expect(registration.getByText(/\d{2}:\d{2}–\d{2}:\d{2}/)).toBeVisible();
-    await expect(registration.getByText(ATTENDEE_DEMO_VENUE_NAME)).toBeVisible();
-    await expect(registration.getByText("Level 2, ConnectSphere Marina Centre")).toBeVisible();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
+    await expect(page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
+    await expect(page.getByLabel("Your registration: Registered").first()).toBeVisible();
+    // Structure, not hardcoded dates: the seed moves its window on every run. The card carries
+    // no venue, so only the date and time read here; the venue stays on the event page.
+    await expect(page.getByText(/\d{1,2} [A-Z][a-z]{2} \d{4}/).first()).toBeVisible();
+    await expect(page.getByText(/\d{2}:\d{2}–\d{2}:\d{2}/).first()).toBeVisible();
   });
 
   test("renders the connected-events workspace for a signed-in attendee", async ({ page }) => {
@@ -90,7 +88,7 @@ test.describe("Event access", () => {
     // The seed's attendee demo is a confirmed event with registration on, so a
     // brand-new attendee sees it as "attendee access".
     await expect(page.getByText("attendee access").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("heading", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
+    await expect(page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
   });
 
   test("opens a confirmed event and shows only its published details", async ({ page }) => {
@@ -219,28 +217,43 @@ test.describe("Event access", () => {
     await page.goto("/dashboard");
 
     await expect(page.getByText("coordinator access").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toBeVisible();
+    await expect(page.getByRole("link", { name: DEMO_EVENT_NAME })).toBeVisible();
   });
 
-  // PTR-111: the run finds a seeded Attendee but adds no VIP. A VIP on the seeded Open Day would
-  // take one of its 40 venue places, which the PTR-45 run above counts at the same time.
-  test("shows the assigned coordinator the VIP section, and finds an Attendee to add (PTR-111)", async ({
-    page,
-  }) => {
+  // PTR-111: the run adds a seeded Attendee as a VIP and removes the registration again, so
+  // the net places on the seeded Open Day do not move for the PTR-45 run counting them. The
+  // registrations section holds the one attendee table: Add VIP, search, add, then remove by bin.
+  test("adds and removes a VIP through the registrations table (PTR-111)", async ({ page }) => {
     await signInAsSeeded(page, "coordinator.seed@example.com");
     await page.goto("/dashboard");
     await waitForHydration(page);
 
-    const vips = page.getByRole("region", { name: "VIP registrations" });
-    await expect(vips).toBeVisible({ timeout: 10_000 });
-    // The search form lives in the dialog the + button opens, outside the region's DOM.
-    await vips.getByRole("button", { name: "Add a VIP" }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.getByRole("searchbox", { name: "Search attendees" }).fill("demo@example");
+    await page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME }).click();
+    await expect(page).toHaveURL(/\/events\/\d+/);
 
-    await expect(dialog.getByRole("button", { name: "Add Demo User as a VIP" })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Registrations" })).toBeVisible({
       timeout: 10_000,
     });
+    // One view only: the old separate VIP list is gone.
+    await expect(page.getByLabel("VIP registrations")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Add VIP" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("searchbox", { name: "Search attendees" }).fill("demo@example");
+    await dialog.getByRole("button", { name: "Add Demo User as a VIP" }).click();
+    // The dialog stays open for further additions, inerting the page behind it.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+
+    const table = page.getByRole("table");
+    await expect(table.getByRole("cell", { name: "Demo User", exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(table.getByText("VIP").first()).toBeVisible();
+
+    await table.getByRole("button", { name: "Remove VIP registration: Demo User" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
+    await expect(table.getByRole("cell", { name: "Demo User", exact: true })).toHaveCount(0);
   });
 
   test("gives the organiser the event they created", async ({ page }) => {
@@ -248,7 +261,7 @@ test.describe("Event access", () => {
     await page.goto("/dashboard");
 
     await expect(page.getByText("organiser access").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toBeVisible();
+    await expect(page.getByRole("link", { name: DEMO_EVENT_NAME })).toBeVisible();
   });
 
   test("gives venue staff their request and withholds the rest of the event", async ({ page }) => {
@@ -256,25 +269,30 @@ test.describe("Event access", () => {
     await page.goto("/dashboard");
 
     await expect(page.getByText("venue staff access").first()).toBeVisible({ timeout: 10_000 });
-    // PTR-31 AC2: timing, attendance, layout, accessibility and facilities — never the name.
-    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
+    // PTR-31 AC2: timing, attendance, layout, accessibility and facilities — never the name. The
+    // card is titled by the venue, and the event name appears nowhere on the dashboard.
+    await expect(page.getByRole("link", { name: "Harbour Hall" })).toBeVisible();
     await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toHaveCount(0);
-    // Scoped to the venue-request detail row: the pending state is a status pill, not raw text.
-    await expect(
-      page.locator("dl", { hasText: "Venue request" }).getByText("Pending", { exact: true })
-    ).toBeVisible();
+    await expect(page.getByText(DEMO_EVENT_NAME)).toHaveCount(0);
+    // The event status reads as a pill; the venue request's own pending state lives on the event
+    // page's request section.
+    await expect(page.getByLabel("Status: Submitted")).toBeVisible();
   });
 
-  test("gives technical support the equipment for their event", async ({ page }) => {
+  test("gives technical support their event, with the equipment on its page", async ({ page }) => {
     await signInAsSeeded(page, "tech.support.seed@example.com");
     await page.goto("/dashboard");
 
     await expect(page.getByText("technical support access").first()).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toBeVisible();
-    await expect(page.getByText("Equipment arrangements")).toBeVisible();
-    await expect(page.getByText("Projector")).toBeVisible();
+    await expect(page.getByRole("link", { name: DEMO_EVENT_NAME })).toBeVisible();
+    await expect(page.getByText("Equipment arrangements")).toHaveCount(0);
+
+    await page.getByRole("link", { name: DEMO_EVENT_NAME }).click();
+    await expect(page).toHaveURL(/\/events\/\d+/);
+    await expect(page.getByRole("heading", { name: "Equipment lines" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Projector/ })).toBeVisible();
   });
 
   test("shows an unrelated organiser no events at all", async ({ page }) => {

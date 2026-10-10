@@ -38,14 +38,8 @@ export const requireVenueRequest = requirePermission({ venue_request: ["request"
 /** PTR-32: Venue Staff may read the shared pending queue without gaining the approval verb. */
 export const requireVenueRequestRead = requirePermission({ venue_request: ["read"] });
 
-export const listPendingVenueRequests = createServerFn({ method: "GET" })
-  .middleware([requireVenueRequestRead])
-  .handler(async () => {
-    const [{ db }, { handleListPendingVenueRequests }] = await loadServer();
-    return handleListPendingVenueRequests(db);
-  });
-
-export type PendingVenueRequest = Awaited<ReturnType<typeof listPendingVenueRequests>>[number];
+/** A pending row as the queue table and the decision controls read it. */
+export type PendingVenueRequest = Omit<PendingVenueRequestDetail, "requirements">;
 
 export const getPendingVenueRequest = createServerFn({ method: "GET" })
   .validator(parseVenueRequestId)

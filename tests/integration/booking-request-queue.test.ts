@@ -5,10 +5,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
-import {
-  handleGetPendingVenueRequest,
-  handleListPendingVenueRequests,
-} from "#/features/venue-requests/requests.server";
+import { handleGetPendingVenueRequest } from "#/features/venue-requests/requests.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
 const organiser = {
@@ -197,42 +194,6 @@ describe("pending booking request reader (PTR-32)", () => {
     ]);
   });
 
-  it("returns exactly the pending rows in submission order, tie-breaking by id, and flags only strict approved overlaps", async () => {
-    const requests = await handleListPendingVenueRequests(database as never);
-    const pendingIds = [
-      "ptr32-pending-overlap",
-      "ptr32-pending-tie-a",
-      "ptr32-pending-tie-b",
-      "ptr32-pending-boundary",
-    ];
-
-    // AC4: neither this suite's `approved` nor `withdrawn` fixture may appear in the queue. Other
-    // suites seed their own legitimate pending rows (e.g. `demo-venue-request-1`), so the strict
-    // order assertions run over only this suite's `ptr32-` fixtures.
-    const receivedIds = requests.map(request => request.id);
-    expect(receivedIds).not.toContain("ptr32-approved-booking");
-    expect(receivedIds).not.toContain("ptr32-withdrawn");
-
-    const ours = requests.filter(request => request.id.startsWith("ptr32-"));
-    expect(ours.map(request => request.id)).toEqual(pendingIds);
-    expect(ours.map(request => request.conflict)).toEqual(["booking", null, null, null]);
-
-    // Identical `createdAt`, so only the ascending-id tie-break can order these two.
-    const tied = ours.filter(
-      request => request.submittedAt.getTime() === new Date("2037-04-02T02:00:00Z").getTime()
-    );
-    expect(tied.map(request => request.id)).toEqual(["ptr32-pending-tie-a", "ptr32-pending-tie-b"]);
-
-    expect(ours[0]).toMatchObject({
-      venueName: VENUE_NAMES[0],
-      startsAt: "2037-05-10T10:00",
-      endsAt: "2037-05-10T11:00",
-      submittedAt: new Date("2037-04-02T01:00:00Z"),
-    });
-    expect(ours[0]).not.toHaveProperty("eventName");
-    expect(ours[0]).not.toHaveProperty("conflictingEvent");
-  });
-
   it("maps the live PTR-31 requirement fields and returns null once the request leaves pending", async () => {
     const detail = await handleGetPendingVenueRequest(
       { id: "ptr32-pending-overlap" },
@@ -266,11 +227,6 @@ describe("pending booking request reader (PTR-32)", () => {
       database as never
     );
     expect(detailAfterWithdraw).toBeNull();
-  });
-
-  it("lists a pending row assigned to another Venue Staff member (shared queue)", async () => {
-    const requests = await handleListPendingVenueRequests(database as never);
-    expect(requests.map(request => request.id)).toContain("ptr32assigned-pending");
   });
 
   it("surfaces 'Not yet chosen' when the event has no complete proposed window", async () => {

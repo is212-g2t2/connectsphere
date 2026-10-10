@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EventProjection } from "#/features/events/access";
-import { EventPage } from "#/features/events/components/event-page";
+import { AttendeeEventPage } from "#/features/events/components/attendee-event-page";
 
 /**
  * PTR-44: the attendee event view renders without a router, like the other page views
@@ -46,9 +46,9 @@ const projection: EventProjection = {
   },
 };
 
-describe("EventPage (PTR-44)", () => {
+describe("AttendeeEventPage (PTR-44)", () => {
   it("shows the published fields for an attendee projection (AC2)", () => {
-    render(<EventPage event={projection} />);
+    render(<AttendeeEventPage event={projection} />);
 
     expect(screen.getByRole("heading", { name: "ConnectSphere Open Day" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "About Event" })).toBeTruthy();
@@ -67,7 +67,7 @@ describe("EventPage (PTR-44)", () => {
   });
 
   it("shows the description under About Event and no Location section", () => {
-    render(<EventPage event={projection} />);
+    render(<AttendeeEventPage event={projection} />);
 
     expect(screen.getByRole("region", { name: "About Event" })).toBeTruthy();
     expect(screen.getByText("An open day for new members.")).toBeTruthy();
@@ -78,7 +78,9 @@ describe("EventPage (PTR-44)", () => {
 
   it("hides About Event when the event carries no description", () => {
     render(
-      <EventPage event={{ ...projection, event: { ...projection.event, description: "" } }} />
+      <AttendeeEventPage
+        event={{ ...projection, event: { ...projection.event, description: "" } }}
+      />
     );
 
     expect(screen.queryByRole("region", { name: "About Event" })).toBeNull();
@@ -86,7 +88,7 @@ describe("EventPage (PTR-44)", () => {
 
   it("shows a date range when the event runs over several days", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{
           ...projection,
           event: { ...projection.event, venue: null, endDate: "2026-12-07" },
@@ -100,7 +102,7 @@ describe("EventPage (PTR-44)", () => {
 
   it("shows the published booking window when it differs from the proposal", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{
           ...projection,
           event: {
@@ -125,7 +127,7 @@ describe("EventPage (PTR-44)", () => {
 
   it("shows a date range when the booking runs past midnight", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{
           ...projection,
           event: {
@@ -150,7 +152,7 @@ describe("EventPage (PTR-44)", () => {
 
   it("shows a plain time for a multi-day booking that does not cross midnight into the next day", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{
           ...projection,
           event: {
@@ -176,7 +178,7 @@ describe("EventPage (PTR-44)", () => {
 
   it("shows the registered state when the attendee holds a registration", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{
           ...projection,
           event: {
@@ -195,7 +197,7 @@ describe("EventPage (PTR-44)", () => {
 
   it("offers no withdrawal from a completed event the attendee holds a registration for", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{
           ...projection,
           event: {
@@ -212,14 +214,14 @@ describe("EventPage (PTR-44)", () => {
   });
 
   it("offers the register action to an attendee who holds no registration (PTR-45)", () => {
-    render(<EventPage event={projection} />);
+    render(<AttendeeEventPage event={projection} />);
 
     expect(screen.getByRole("button", { name: "Register" })).toBeTruthy();
   });
 
   it("shows the places taken against the place limit (PTR-45 AC10)", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{
           ...projection,
           event: {
@@ -235,7 +237,7 @@ describe("EventPage (PTR-44)", () => {
 
   it("shows no count while the event has no confirmed venue to limit it", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{ ...projection, event: { ...projection.event, venue: null, places: null } }}
       />
     );
@@ -245,7 +247,7 @@ describe("EventPage (PTR-44)", () => {
 
   it("shows the period without the registered state once the registration no longer holds", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{
           ...projection,
           event: {
@@ -263,7 +265,7 @@ describe("EventPage (PTR-44)", () => {
 
   it("says registration details are to be confirmed when the event carries no terms", () => {
     render(
-      <EventPage
+      <AttendeeEventPage
         event={{
           ...projection,
           event: {
@@ -280,7 +282,9 @@ describe("EventPage (PTR-44)", () => {
   });
 
   it("shows a plain fallback when no venue is currently booked (AC3: no invented venue)", () => {
-    render(<EventPage event={{ ...projection, event: { ...projection.event, venue: null } }} />);
+    render(
+      <AttendeeEventPage event={{ ...projection, event: { ...projection.event, venue: null } }} />
+    );
 
     expect(screen.getByText("Venue to be confirmed")).toBeTruthy();
     expect(screen.queryByText("Seminar Room 2A")).toBeNull();
@@ -288,7 +292,7 @@ describe("EventPage (PTR-44)", () => {
   });
 
   it("shows no booking decisions, equipment, or clarification threads (AC3)", () => {
-    const { container } = render(<EventPage event={projection} />);
+    const { container } = render(<AttendeeEventPage event={projection} />);
 
     // No confirmation record either: the status pill above is the only "Confirmed" on the page.
     expect(screen.getAllByText("Confirmed")).toHaveLength(1);
@@ -300,10 +304,12 @@ describe("EventPage (PTR-44)", () => {
 });
 
 function renderWith(event: Partial<EventProjection["event"]>) {
-  return render(<EventPage event={{ ...projection, event: { ...projection.event, ...event } }} />);
+  return render(
+    <AttendeeEventPage event={{ ...projection, event: { ...projection.event, ...event } }} />
+  );
 }
 
-describe("EventPage registration availability (PTR-50)", () => {
+describe("AttendeeEventPage registration availability (PTR-50)", () => {
   it("says registration is not yet open, shows the opening time once, and offers no action (AC1)", () => {
     renderWith({ registrationAvailability: { state: "not_yet_open" } });
 

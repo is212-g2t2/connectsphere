@@ -255,30 +255,39 @@ async function countLines(item: string) {
 // UI helpers
 // ---------------------------------------------------------------------------
 
-async function openDashboardAs(page: Page, email: string) {
+async function demoEventId(): Promise<number> {
+  const { rows } = await pool.query(`select id from event_requests where event_name = $1`, [
+    DEMO_EVENT,
+  ]);
+  return rows[0].id as number;
+}
+
+async function openEventPageAs(page: Page, email: string) {
   await signInWithSeedPassword(page, email);
-  await page.goto(DASHBOARD_PATH);
+  await page.goto(`/events/${await demoEventId()}`);
   await waitForHydration(page);
 }
 
 const card = (page: Page) => page.locator("[data-slot=card]").filter({ hasText: DEMO_EVENT });
 
-// A recorded equipment line in the list. Scoped to list items with an exact match, because the card
-// also shows the request's free-text equipment requirements (e.g. "Projector, PA system"), which
+const equipment = (page: Page) => page.locator("section#equipment");
+
+// A recorded equipment line in the list. Scoped to list items with an exact match, because the
+// section also shows the request's free-text equipment requirements elsewhere on the page, which
 // would otherwise make getByText("Projector") ambiguous (strict mode violation).
 const lineItem = (page: Page, item: string) =>
-  card(page).getByRole("listitem").getByText(item, { exact: true });
+  equipment(page).getByRole("listitem").getByText(item, { exact: true });
 
 const submitButton = (page: Page) =>
-  card(page).getByRole("button", { name: "Submit to Technical Support" });
+  equipment(page).getByRole("button", { name: "Submit to Technical Support" });
 
 async function addLine(page: Page, item: string, quantity: string, notes = "") {
-  const c = card(page);
-  await c.getByRole("button", { name: "Add line" }).first().click();
-  await c.getByLabel("Equipment type (required)").fill(item);
-  await c.getByLabel("Quantity (required)").fill(quantity);
-  if (notes) await c.getByLabel("Technical notes").fill(notes);
-  await c.getByRole("button", { name: "Add line" }).last().click();
+  const panel = equipment(page);
+  await panel.getByRole("button", { name: "Add line" }).first().click();
+  await panel.getByLabel("Equipment type (required)").fill(item);
+  await panel.getByLabel("Quantity (required)").fill(quantity);
+  if (notes) await panel.getByLabel("Technical notes").fill(notes);
+  await panel.getByRole("button", { name: "Add line" }).last().click();
 }
 
 async function submitThroughDialog(page: Page) {
@@ -295,41 +304,41 @@ async function submitThroughDialog(page: Page) {
 test.describe("Coordinator equipment panel", () => {
   test.beforeEach(async ({ page }) => {
     await resetDemoEvent("approved");
-    await openDashboardAs(page, USERS.coordinator);
+    await openEventPageAs(page, USERS.coordinator);
   });
 
   test("AC1: records several lines with notes", async ({ page }) => {
     await addLine(page, "Projector", "1", "HDMI adapter");
     await expect(lineItem(page, "Projector")).toBeVisible();
-    await expect(card(page).getByText("HDMI adapter")).toBeVisible();
+    await expect(equipment(page).getByText("HDMI adapter")).toBeVisible();
 
     await addLine(page, "Microphone", "2");
     await expect(lineItem(page, "Microphone")).toBeVisible();
-    await expect(card(page).getByText("× 2")).toBeVisible();
+    await expect(equipment(page).getByText("× 2")).toBeVisible();
   });
 
   test("AC3: non-positive / fractional / blank quantities are refused", async ({ page }) => {
-    const c = card(page);
+    const panel = equipment(page);
     // oxlint-disable no-await-in-loop
     for (const bad of ["0", "-1", "1.5", ""]) {
-      if (!(await c.getByLabel("Quantity (required)").isVisible())) {
-        await c.getByRole("button", { name: "Add line" }).first().click();
+      if (!(await panel.getByLabel("Quantity (required)").isVisible())) {
+        await panel.getByRole("button", { name: "Add line" }).first().click();
       }
-      await c.getByLabel("Equipment type (required)").fill("Projector");
-      await c.getByLabel("Quantity (required)").fill(bad);
-      await c.getByRole("button", { name: "Add line" }).last().click();
+      await panel.getByLabel("Equipment type (required)").fill("Projector");
+      await panel.getByLabel("Quantity (required)").fill(bad);
+      await panel.getByRole("button", { name: "Add line" }).last().click();
 
       // Form stays open and nothing was added.
-      await expect(c.getByLabel("Quantity (required)")).toBeVisible();
-      await expect(c.getByText("Projector ×")).toHaveCount(0);
-      await expect(c.getByText(EMPTY_STATE_MESSAGE)).toHaveCount(0); // form open, empty-state hidden
+      await expect(panel.getByLabel("Quantity (required)")).toBeVisible();
+      await expect(panel.getByText("Projector ×")).toHaveCount(0);
+      await expect(panel.getByText(EMPTY_STATE_MESSAGE)).toHaveCount(0); // form open, empty-state hidden
     }
     // oxlint-enable no-await-in-loop
     expect(await countLines("Projector")).toBe(0);
 
-    await c.getByLabel("Quantity (required)").fill("3");
-    await c.getByRole("button", { name: "Add line" }).last().click();
-    await expect(c.getByText("× 3")).toBeVisible();
+    await panel.getByLabel("Quantity (required)").fill("3");
+    await panel.getByRole("button", { name: "Add line" }).last().click();
+    await expect(panel.getByText("× 3")).toBeVisible();
   });
 
   test("AC4: edit persists after reload; remove can be cancelled then confirmed", async ({
@@ -338,11 +347,11 @@ test.describe("Coordinator equipment panel", () => {
     await addLine(page, "Projector", "1");
 
     await page.getByRole("button", { name: "Edit Projector" }).click();
-    await card(page).getByLabel("Quantity (required)").fill("4");
-    await card(page).getByRole("button", { name: "Save changes" }).click();
+    await equipment(page).getByLabel("Quantity (required)").fill("4");
+    await equipment(page).getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByText("Equipment line updated.")).toBeVisible();
     await page.reload();
-    await expect(card(page).getByText("× 4")).toBeVisible();
+    await expect(equipment(page).getByText("× 4")).toBeVisible();
 
     // Cancel keeps the line.
     await page.getByRole("button", { name: "Remove Projector" }).click();
@@ -352,13 +361,13 @@ test.describe("Coordinator equipment panel", () => {
     // Confirm removes it, leaving exactly one empty-state message.
     await page.getByRole("button", { name: "Remove Projector" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
-    await expect(card(page).getByText(EMPTY_STATE_MESSAGE)).toHaveCount(1);
+    await expect(equipment(page).getByText(EMPTY_STATE_MESSAGE)).toHaveCount(1);
   });
 
   test("AC5: submit is disabled with no lines", async ({ page }) => {
     const submit = submitButton(page);
     await expect(submit).toBeDisabled();
-    await expect(card(page).getByText(EMPTY_STATE_MESSAGE)).toBeVisible();
+    await expect(equipment(page).getByText(EMPTY_STATE_MESSAGE)).toBeVisible();
 
     await addLine(page, "Projector", "1");
     await expect(submit).toBeEnabled();
@@ -383,26 +392,26 @@ test.describe("Coordinator equipment panel", () => {
     await submitThroughDialog(page);
 
     await expect(submitButton(page)).toBeDisabled();
-    await expect(card(page).getByText(SUBMITTED_CAPTION)).toBeVisible();
+    await expect(equipment(page).getByText(SUBMITTED_CAPTION)).toBeVisible();
     // Post-submit freeze: no add, edit or remove controls, but the disabled Submit stays.
-    await expect(card(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
-    await expect(card(page).getByRole("button", { name: /Edit / })).toHaveCount(0);
-    await expect(card(page).getByRole("button", { name: /Remove / })).toHaveCount(0);
+    await expect(equipment(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
+    await expect(equipment(page).getByRole("button", { name: /Edit / })).toHaveCount(0);
+    await expect(equipment(page).getByRole("button", { name: /Remove / })).toHaveCount(0);
 
     await page.reload();
-    await expect(card(page)).toBeVisible();
+    await expect(equipment(page)).toBeVisible();
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await expect(submitButton(page)).toBeDisabled();
-    await expect(card(page).getByText(SUBMITTED_CAPTION)).toBeVisible();
-    await expect(card(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
+    await expect(equipment(page).getByText(SUBMITTED_CAPTION)).toBeVisible();
+    await expect(equipment(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
   });
 
   test("double-clicking Save creates one line", async ({ page }) => {
-    const c = card(page);
-    await c.getByRole("button", { name: "Add line" }).first().click();
-    await c.getByLabel("Equipment type (required)").fill("Projector");
-    await c.getByLabel("Quantity (required)").fill("1");
-    await c.getByRole("button", { name: "Add line" }).last().dblclick();
+    const panel = equipment(page);
+    await panel.getByRole("button", { name: "Add line" }).first().click();
+    await panel.getByLabel("Equipment type (required)").fill("Projector");
+    await panel.getByLabel("Quantity (required)").fill("1");
+    await panel.getByRole("button", { name: "Add line" }).last().dblclick();
 
     await expect(lineItem(page, "Projector")).toBeVisible();
     // Poll so a slow second insert can't sneak in after the check.
@@ -417,27 +426,26 @@ test.describe("Coordinator equipment panel", () => {
 test.describe("Read-only states and other roles", () => {
   // oxlint-disable no-await-in-loop
   for (const status of ["submitted", "under_review"]) {
-    test(`coordinator: no edit controls on a ${status} event`, async ({ page }) => {
+    test(`coordinator: no equipment section on a ${status} event`, async ({ page }) => {
       await resetDemoEvent(status);
-      await openDashboardAs(page, USERS.coordinator);
+      await openEventPageAs(page, USERS.coordinator);
 
-      await expect(card(page)).toBeVisible(); // make sure the card rendered before asserting absence
-      await expect(card(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
-      await expect(
-        card(page).getByRole("button", { name: "Submit to Technical Support" })
-      ).toHaveCount(0);
+      // The page rendered (the event name is the level-1 heading), but with no lines the
+      // equipment section drops out, so there is nothing to edit or submit.
+      await expect(page.getByRole("heading", { level: 1, name: DEMO_EVENT })).toBeVisible();
+      await expect(page.locator("section#equipment")).toHaveCount(0);
     });
   }
 
   test("organiser cannot edit equipment", async ({ page }) => {
     await resetDemoEvent("approved");
-    await openDashboardAs(page, USERS.organiser);
+    await openEventPageAs(page, USERS.organiser);
 
-    await expect(card(page)).toBeVisible();
-    await expect(card(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
+    await expect(equipment(page).getByRole("heading", { name: "Equipment" })).toBeVisible();
+    await expect(equipment(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
   });
 
-  test("technical support sees a read-only list", async ({ page }) => {
+  test("technical support finds the line in the event page lines section", async ({ page }) => {
     await resetDemoEvent("approved");
     // The demo row is assigned to seed-tech-support-1, so it is connected. Re-create one line.
     await pool.query(
@@ -447,27 +455,29 @@ test.describe("Read-only states and other roles", () => {
       [DEMO_EVENT]
     );
     await signInAsStaff(page, "technical_support_staff");
-    await page.goto(DASHBOARD_PATH);
+    await page.goto(`/events/${await demoEventId()}`);
+    await waitForHydration(page);
 
-    await expect(card(page).getByText("Equipment arrangements")).toBeVisible();
-    await expect(lineItem(page, "Projector")).toBeVisible();
-    await expect(card(page).getByText("× 1")).toBeVisible();
-    await expect(card(page).getByText("HDMI adapter included")).toBeVisible();
-    await expect(card(page).getByText("Requested")).toBeVisible();
-    await expect(card(page).getByRole("button", { name: /Add line|Submit/ })).toHaveCount(0);
+    const lines = page.locator("section#lines");
+    await expect(lines.getByRole("heading", { name: "Equipment lines" })).toBeVisible();
+    const line = lines.getByRole("listitem", { name: "Projector" });
+    await expect(line.getByText("× 1")).toBeVisible();
+    await expect(line.getByText("HDMI adapter included")).toBeVisible();
+    await expect(line.getByLabel("Arrangement state for Projector")).toContainText("Requested");
+    await expect(page.getByRole("button", { name: /Add line|Submit/ })).toHaveCount(0);
   });
 
   test("venue staff see no equipment", async ({ page }) => {
     await resetDemoEvent("approved");
     await signInAsStaff(page, "venue_staff");
     await page.goto(DASHBOARD_PATH);
+    await waitForHydration(page);
 
     // Wait for the dashboard to finish rendering before asserting that something is absent.
-    await expect(page.getByRole("main")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
     // Positive proof the venue workspace rendered, so the absence below is meaningful.
     await expect(page.getByText("venue staff access").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
-    await expect(page.getByText(/Equipment (requirements|arrangements)/)).toHaveCount(0);
+    await expect(page.getByText(/Equipment (requirements|arrangements|lines)/)).toHaveCount(0);
   });
 });
 
@@ -475,8 +485,9 @@ test.describe("Read-only states and other roles", () => {
 // Submitted queue across roles
 // ---------------------------------------------------------------------------
 
-// End-to-end AC5: a line submitted by the Coordinator with no assignee reaches the shared
-// Technical Support queue, so a staffer with no prior assignment sees the event.
+// End-to-end AC5: a line submitted by the Coordinator with no assignee reaches Technical
+// Support, so a staffer with no prior assignment sees the event: the dashboard card leads into
+// the event page lines section.
 test("AC5: a submitted event appears for a Technical Support user with no prior assignment", async ({
   page,
   browser,
@@ -485,7 +496,7 @@ test("AC5: a submitted event appears for a Technical Support user with no prior 
   browser: Browser;
 }) => {
   await resetDemoEvent("approved");
-  await openDashboardAs(page, USERS.coordinator);
+  await openEventPageAs(page, USERS.coordinator);
   await addLine(page, "Speaker", "2", "Wall mounts");
   await submitThroughDialog(page);
   await expect(page.getByText(SUBMIT_TOAST)).toBeVisible();
@@ -495,12 +506,17 @@ test("AC5: a submitted event appears for a Technical Support user with no prior 
   try {
     await signInAsStaff(techPage, "technical_support_staff");
     await techPage.goto(DASHBOARD_PATH);
+    await waitForHydration(techPage);
 
-    await expect(card(techPage)).toBeVisible();
-    await expect(card(techPage).getByText("Equipment arrangements")).toBeVisible();
-    await expect(lineItem(techPage, "Speaker")).toBeVisible();
-    await expect(card(techPage).getByText("× 2")).toBeVisible();
-    await expect(card(techPage).getByText("Wall mounts")).toBeVisible();
+    // The dashboard card carries no equipment detail; its link opens the event page.
+    await expect(card(techPage).getByRole("link", { name: DEMO_EVENT })).toBeVisible();
+    await card(techPage).getByRole("link", { name: DEMO_EVENT }).click();
+    await waitForHydration(techPage);
+
+    const lines = techPage.locator("section#lines");
+    await expect(lines.getByRole("heading", { name: "Equipment lines" })).toBeVisible();
+    await expect(lines.getByRole("listitem", { name: "Speaker" })).toContainText("× 2");
+    await expect(lines.getByRole("listitem", { name: "Speaker" })).toContainText("Wall mounts");
   } finally {
     await techContext.close();
   }

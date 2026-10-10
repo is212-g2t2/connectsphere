@@ -1,9 +1,8 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-41: Technical Support reserves equipment from the dashboard's "Your connected events"
-// workspace and from the equipment review page. Every test creates its own type, venue, booking
-// and event through its own pool and removes them again, so it never touches the shared demo rows
-// and can run in parallel.
+// PTR-41: Technical Support reserves equipment from the event page lines section. Every test
+// creates its own type, venue, booking and event through its own pool and removes them again,
+// so it never touches the shared demo rows and can run in parallel.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -124,24 +123,23 @@ async function addBooking(eventId: number, [start, end]: [string, string]) {
   });
 }
 
-async function openDashboard(page: Page) {
+async function openEventPage(page: Page, eventId: number) {
   await signInAsStaff(page, "technical_support_staff");
-  await page.goto("/dashboard");
+  await page.goto(`/events/${eventId}`);
   await waitForHydration(page);
 }
 
-const cardFor = (page: Page, name: string) =>
-  page.locator("[data-slot=card]").filter({ hasText: name });
+const lineFor = (page: Page, item: string) => page.getByRole("listitem", { name: item });
 
-async function reserve(page: Page, eventName: string, item: string, quantity: string) {
-  const card = cardFor(page, eventName);
-  await expect(card).toBeVisible();
-  await card.getByRole("button", { name: `Reserve equipment for ${item}` }).click();
+async function openAndReserve(page: Page, eventId: number, item: string, quantity: string) {
+  await openEventPage(page, eventId);
+  const line = lineFor(page, item);
+  await line.getByRole("button", { name: `Reserve equipment for ${item}` }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText(/available for/)).toBeVisible();
   await dialog.getByLabel("Total units to reserve").fill(quantity);
   await dialog.getByRole("button", { name: "Confirm reservation" }).click();
-  return { card, dialog };
+  return { line, dialog };
 }
 
 test("reserving the full quantity marks the line reserved and shows the count", async ({
@@ -151,37 +149,25 @@ test("reserving the full quantity marks the line reserved and shows the count", 
   const target = await createEvent(type.name, type.id, 2);
   await addBooking(target.id, ["10:00", "12:00"]);
 
-  await openDashboard(page);
-  const { card, dialog } = await reserve(page, target.name, target.item, "2");
+  const { line, dialog } = await openAndReserve(page, target.id, target.item, "2");
 
   await expect(dialog.getByText(/5 units available for/)).toBeVisible();
-  await expect(card.getByText("Reserved", { exact: true })).toBeVisible();
-  await expect(card.getByText("2 reserved")).toBeVisible();
+  await expect(line.getByText("2 reserved")).toBeVisible();
 
   await page.reload();
   await waitForHydration(page);
-  const reloaded = cardFor(page, target.name);
-  await expect(reloaded.getByText("Reserved", { exact: true })).toBeVisible();
-  await expect(reloaded.getByText("2 reserved")).toBeVisible();
+  await expect(lineFor(page, target.item).getByText("2 reserved")).toBeVisible();
 });
 
-test("reserving from the review page shows the reservation on the line", async ({ page }) => {
+test("the reserved line locks its arrangement state", async ({ page }) => {
   const type = await createType(5);
   const target = await createEvent(type.name, type.id, 2);
   await addBooking(target.id, ["10:00", "12:00"]);
 
-  await signInAsStaff(page, "technical_support_staff");
-  await page.goto(`/equipment-requests/${target.id}`);
-  await waitForHydration(page);
-
-  const line = page.getByRole("listitem", { name: target.item });
-  await line.getByRole("button", { name: `Reserve equipment for ${target.item}` }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText(/5 units available for/)).toBeVisible();
-  await dialog.getByLabel("Total units to reserve").fill("2");
-  await dialog.getByRole("button", { name: "Confirm reservation" }).click();
+  const { line } = await openAndReserve(page, target.id, target.item, "2");
 
   await expect(line.getByText("2 reserved")).toBeVisible();
+  await expect(line.getByLabel(`Arrangement state for ${target.item}`)).toBeDisabled();
 });
 
 test("refuses a request exceeding what is available, naming the shortfall", async ({ page }) => {
@@ -189,10 +175,9 @@ test("refuses a request exceeding what is available, naming the shortfall", asyn
   const target = await createEvent(type.name, type.id, 2);
   await addBooking(target.id, ["10:00", "12:00"]);
 
-  await openDashboard(page);
-  const { dialog, card } = await reserve(page, target.name, target.item, "2");
+  const { dialog, line } = await openAndReserve(page, target.id, target.item, "2");
 
   await expect(dialog.getByRole("alert")).toContainText("shortfall of 1");
   await dialog.getByRole("button", { name: "Cancel" }).click();
-  await expect(card.getByText("Requested")).toBeVisible();
+  await expect(line.getByLabel(`Arrangement state for ${target.item}`)).toContainText("Requested");
 });

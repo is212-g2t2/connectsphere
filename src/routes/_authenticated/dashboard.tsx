@@ -8,8 +8,6 @@ import { createSeoHead } from "#/lib/seo";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => createSeoHead({ title: "Dashboard — ConnectSphere", noindex: true }),
   loader: () => listEvents({ data: {} }),
-  component: () => (
-    <DashboardPage user={Route.useRouteContext().user} events={Route.useLoaderData()} />
-  ),
+  component: () => <DashboardPage events={Route.useLoaderData()} />,
   pendingComponent: DashboardPageSkeleton,
 });
