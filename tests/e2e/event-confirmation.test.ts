@@ -115,19 +115,14 @@ const statusOf = async (id: number) =>
   (await database.select().from(schema.eventRequests).where(eq(schema.eventRequests.id, id)))[0]
     .status;
 
-const cardFor = (page: Page, name: string) =>
-  page.locator("[data-slot=card]").filter({ hasText: name });
-
-async function openCoordinatorDashboard(page: Page) {
+async function openEventPage(page: Page, id: number) {
   await signInWithSeedPassword(page, COORDINATOR_EMAIL);
-  await page.goto("/dashboard");
+  await page.goto(`/events/${id}`);
   await waitForHydration(page);
 }
 
-async function confirmFromCard(page: Page, name: string) {
-  await cardFor(page, name)
-    .getByRole("button", { name: `Confirm event: ${name}` })
-    .click();
+async function confirmFromPage(page: Page, name: string) {
+  await page.getByRole("button", { name: `Confirm event: ${name}` }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
 }
 
@@ -140,24 +135,24 @@ test.describe("AC1: confirming", () => {
         { item: "Microphone", arrangementStatus: "not_required" },
       ],
     });
-    await openCoordinatorDashboard(page);
+    await openEventPage(page, id);
 
-    await confirmFromCard(page, name);
+    await confirmFromPage(page, name);
 
     await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
-    const card = cardFor(page, name);
-    await expect(card.getByText("Confirmed venue")).toBeVisible();
-    await expect(card.getByText(venueName)).toBeVisible();
-    await expect(card.getByRole("button", { name: `Confirm event: ${name}` })).toHaveCount(0);
+    const venue = page.locator("section#venue");
+    await expect(venue.getByText("Confirmed venue")).toBeVisible();
+    await expect(venue.getByText(venueName)).toBeVisible();
+    await expect(page.getByRole("button", { name: `Confirm event: ${name}` })).toHaveCount(0);
     expect(await statusOf(id)).toBe("confirmed");
   });
 
   // AC5
   test("confirms on the venue booking alone when no equipment is recorded", async ({ page }) => {
     const { id, name } = await createEvent({ booking: "approved" });
-    await openCoordinatorDashboard(page);
+    await openEventPage(page, id);
 
-    await confirmFromCard(page, name);
+    await confirmFromPage(page, name);
 
     await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
     expect(await statusOf(id)).toBe("confirmed");
@@ -173,9 +168,9 @@ test.describe("AC2: refusal", () => {
         { item: "Speaker", arrangementStatus: "reserved" },
       ],
     });
-    await openCoordinatorDashboard(page);
+    await openEventPage(page, id);
 
-    await confirmFromCard(page, name);
+    await confirmFromPage(page, name);
 
     // The dialog stays open on a refusal, so the named items show inside it.
     const alert = page.getByRole("alertdialog").getByRole("alert");
@@ -189,28 +184,31 @@ test.describe("AC2: refusal", () => {
 
 test.describe("AC3 and AC4: the Organiser", () => {
   test("sees the confirmed arrangements and is emailed", async ({ page, browser }) => {
-    const { name } = await createEvent({
+    const { id, name } = await createEvent({
       booking: "approved",
       lines: [{ item: "Projector", arrangementStatus: "reserved" }],
     });
-    await openCoordinatorDashboard(page);
-    await confirmFromCard(page, name);
+    await openEventPage(page, id);
+    await confirmFromPage(page, name);
     await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
 
     const organiserContext = await browser.newContext();
     const organiserPage = await organiserContext.newPage();
     try {
       await signInWithSeedPassword(organiserPage, ORGANISER_EMAIL);
-      await organiserPage.goto("/dashboard");
+      await organiserPage.goto(`/events/${id}`);
       await waitForHydration(organiserPage);
 
-      const card = cardFor(organiserPage, name);
-      await expect(card.getByText("Confirmed", { exact: true }).first()).toBeVisible();
-      await expect(card.getByText(venueName)).toBeVisible();
-      await expect(card.getByText("09:00–12:30")).toBeVisible();
-      await expect(card.getByText("Projector")).toBeVisible();
+      await expect(organiserPage.getByText("Confirmed", { exact: true }).first()).toBeVisible();
+      const venue = organiserPage.locator("section#venue");
+      await expect(venue.getByText(venueName)).toBeVisible();
+      await expect(venue.getByText("09:00–12:30")).toBeVisible();
+      const equipment = organiserPage.locator("section#equipment");
+      await expect(equipment.getByText("Projector")).toBeVisible();
       // Equipment is shown as a state, never with Technical Support's own notes.
-      await expect(card.getByRole("button", { name: `Confirm event: ${name}` })).toHaveCount(0);
+      await expect(
+        organiserPage.getByRole("button", { name: `Confirm event: ${name}` })
+      ).toHaveCount(0);
     } finally {
       await organiserContext.close();
     }

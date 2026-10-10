@@ -116,7 +116,7 @@ async function openAs(browser: Browser, email: string, path: string): Promise<Pa
 }
 
 async function requestCancellation(browser: Browser, id: number) {
-  const organiser = await openAs(browser, ORGANISER_EMAIL, `/event-requests/${id}`);
+  const organiser = await openAs(browser, ORGANISER_EMAIL, `/events/${id}`);
   await organiser.getByRole("button", { name: "Request cancellation" }).click();
   await organiser.getByRole("button", { name: "Send request" }).click();
   await expect(
@@ -153,7 +153,7 @@ test("the Coordinator cancels the event, sees what is still held, and the Attend
   const { id, name } = await createEvent();
   await (await requestCancellation(browser, id)).context().close();
 
-  const coordinator = await openAs(browser, COORDINATOR_EMAIL, `/coordination/${id}`);
+  const coordinator = await openAs(browser, COORDINATOR_EMAIL, `/events/${id}`);
   await coordinator.getByRole("button", { name: "Cancel event" }).click();
   await coordinator.getByRole("button", { name: "Cancel the event" }).click();
   await expect(
@@ -175,13 +175,13 @@ test("the Coordinator declines with a reason, and the Organiser sees it (PTR-54 
   const { id } = await createEvent();
   await (await requestCancellation(browser, id)).context().close();
 
-  const coordinator = await openAs(browser, COORDINATOR_EMAIL, `/coordination/${id}`);
+  const coordinator = await openAs(browser, COORDINATOR_EMAIL, `/events/${id}`);
   await coordinator.getByLabel("Reason for declining").fill("The venue deposit is paid.");
   await coordinator.getByRole("button", { name: "Decline request" }).click();
   await expect(coordinator.getByText("Cancellation request declined.")).toBeVisible();
   await coordinator.context().close();
 
-  const organiser = await openAs(browser, ORGANISER_EMAIL, `/event-requests/${id}`);
+  const organiser = await openAs(browser, ORGANISER_EMAIL, `/events/${id}`);
   const history = organiser.getByRole("region", { name: "Cancellation requests" });
   await expect(history.getByText(/Declined by/)).toBeVisible();
   await expect(history.getByText("The venue deposit is paid.")).toBeVisible();

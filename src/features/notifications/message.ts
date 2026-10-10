@@ -173,8 +173,8 @@ const payloadSchemas = {
   }),
   /**
    * PTR-45 AC8 and AC9: the registration that took the event to 90% of its place limit, or to the
-   * limit itself; `registered` against `limit` says which. The Organiser and the Coordinator
-   * open different pages for one event, so `audience` records which page the row links to.
+   * limit itself; `registered` against `limit` says which. Every audience opens the same
+   * universal event page, so `audience` only records who the notice went to.
    */
   registration_threshold_reached: z.object({
     eventName: z.string(),
@@ -205,8 +205,7 @@ const payloadSchemas = {
   event_cancellation_declined: z.object({ eventName: z.string(), reason: z.string() }),
   /**
    * PTR-47 AC4: a withdrawal freed a place from an event that had been at its registration
-   * capacity. `limit` is the place limit at the time; `audience` selects the link the inbox
-   * opens (Organiser's event-requests page, Coordinator's coordination page).
+   * capacity. `limit` is the place limit at the time; `audience` records who the notice went to.
    */
   registration_place_freed: z.object({
     eventName: z.string(),
@@ -402,7 +401,7 @@ export interface NotificationHrefFacts {
 
 /**
  * PTR-55 criterion 4: where opening the notification leads, for the surface the recipient can
- * actually read. A pending venue request links to its detail page, an approved booking to the
+ * actually read. A pending venue request links to its event page, an approved booking to the
  * bookings list, and any other venue status to nothing. The reachability check runs first; an
  * unreadable subject never gets here.
  */
@@ -414,14 +413,14 @@ export function notificationHref(
   switch (notification.kind) {
     case "venue_booking_requested": {
       const status = facts.venueRequestStatus ?? null;
-      // A pending request has its own detail page, and an approved booking is listed on the
-      // bookings page. Any other status (rejected, released, withdrawn, or a row that has since
-      // gone) has no surface that still shows this request; the notification keeps its summary
-      // and drops the link rather than pointing at a list that cannot contain it. An approved
-      // booking links to /venue-bookings, which lists only upcoming bookings, so a booking whose
-      // period has already started may not appear there; the notification still points at the
-      // bookings surface rather than a per-booking route that does not exist.
-      if (status === "pending") return `/venue-requests/${notification.payload.venueRequestId}`;
+      // A pending request is decided on its event page, and an approved booking is listed on
+      // the bookings page. Any other status (rejected, released, withdrawn, or a row that has
+      // since gone) has no surface that still shows this request; the notification keeps its
+      // summary and drops the link rather than pointing at a list that cannot contain it. An
+      // approved booking links to /venue-bookings, which lists only upcoming bookings, so a
+      // booking whose period has already started may not appear there; the notification still
+      // points at the bookings surface rather than a per-booking route that does not exist.
+      if (status === "pending") return `/events/${eventRequestId}`;
       if (status === "approved") return "/venue-bookings";
       return null;
     }
@@ -434,44 +433,42 @@ export function notificationHref(
     case "equipment_arrangements_completed":
     case "equipment_unavailable":
     case "equipment_released":
-      return `/coordination/${eventRequestId}`;
+      return `/events/${eventRequestId}`;
     case "handover_requested":
       // While the offer is live the event page refuses the not-yet-assigned Coordinator, so the
       // notification points at the coordination dashboard where accept/decline sits.
-      return facts.handoverPending ? "/coordination" : `/coordination/${eventRequestId}`;
+      return facts.handoverPending ? "/coordination" : `/events/${eventRequestId}`;
     case "clarification_requested":
     case "handover_accepted":
     case "event_decided":
     case "event_confirmed":
-      return `/event-requests/${eventRequestId}`;
+      return `/events/${eventRequestId}`;
     case "equipment_requested":
-      return `/equipment-requests/${eventRequestId}`;
+      return `/events/${eventRequestId}`;
     case "event_registered":
       return `/events/${eventRequestId}`;
     case "registration_threshold_reached":
     case "registration_place_freed":
     case "registration_opened":
     case "registration_closed":
-      // The Organiser opens the event-requests page; the Coordinator opens the coordination page.
-      return notification.payload.audience === "coordinator"
-        ? `/coordination/${eventRequestId}`
-        : `/event-requests/${eventRequestId}`;
+      // Every audience opens the same universal event page now.
+      return `/events/${eventRequestId}`;
     case "event_cancellation_requested":
-      return `/coordination/${eventRequestId}`;
+      return `/events/${eventRequestId}`;
     case "event_cancellation_declined":
-      return `/event-requests/${eventRequestId}`;
+      return `/events/${eventRequestId}`;
     case "event_cancelled":
       // Each party opens the surface where they act on the cancellation (PTR-54 AC6).
       switch (notification.payload.audience) {
         case "organiser":
-          return `/event-requests/${eventRequestId}`;
+          return `/events/${eventRequestId}`;
         case "attendee":
           return `/events/${eventRequestId}`;
         case "venue_staff":
           // The approved bookings view (PTR-37), where Venue Staff release the booking.
           return "/venue-bookings";
         case "technical_support":
-          return `/equipment-requests/${eventRequestId}`;
+          return `/events/${eventRequestId}`;
         default: {
           const unhandled: never = notification.payload;
           throw new Error(`No event_cancelled href for "${String(unhandled)}"`);

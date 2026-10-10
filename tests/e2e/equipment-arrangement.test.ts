@@ -1,8 +1,9 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-39: the Technical Support work list, the request detail, and the Coordinator seeing the
-// result. Every test creates and removes its own event, so it never touches the shared demo row
-// that equipment-requests.spec.ts snapshots and restores, and the tests can run in parallel.
+// PTR-39: the dashboard card leading into the event page, the Technical Support lines section,
+// and the Coordinator seeing the result. Every test creates and removes its own event, so it
+// never touches the shared demo row that equipment-requests.spec.ts snapshots and restores,
+// and the tests can run in parallel.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { eq, inArray } from "drizzle-orm";
@@ -109,7 +110,7 @@ const lineFor = (eventId: number, item: string) =>
 
 async function openRequest(page: Page, eventId: number) {
   await signInAsStaff(page, "technical_support_staff");
-  await page.goto(`/equipment-requests/${eventId}`);
+  await page.goto(`/events/${eventId}`);
   await waitForHydration(page);
 }
 
@@ -126,32 +127,51 @@ async function saveLine(page: Page, item: string) {
     .click();
 }
 
-test.describe("AC1: the work list", () => {
-  test("lists a submitted request on the work list", async ({ page }) => {
-    const { name } = await createEvent([{ item: "Projector", quantity: 2 }]);
+test.describe("AC1: the dashboard card", () => {
+  test("a submitted request surfaces on the dashboard and leads into the event page", async ({
+    page,
+  }) => {
+    const { id, name } = await createEvent([{ item: "Projector", quantity: 2 }]);
     await signInAsStaff(page, "technical_support_staff");
 
+    // The work list route is gone: it answers 404. The submitted request surfaces on the
+    // dashboard instead.
     await page.goto("/equipment-requests");
+    await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
+    await page.goto("/dashboard");
+    await waitForHydration(page);
 
-    await expect(page.getByRole("heading", { name: "Equipment requests" })).toBeVisible();
+    const card = page.locator("[data-slot=card]").filter({ hasText: name });
+    await expect(card.getByRole("link", { name })).toBeVisible();
+    await card.getByRole("link", { name }).click();
+    await waitForHydration(page);
+
+    await expect(page).toHaveURL(new RegExp(`/events/${id}$`));
     await expect(
-      page.getByRole("link", { name: `Open equipment request for ${name}` })
+      page.locator("section#lines").getByRole("heading", { name: "Equipment lines" })
     ).toBeVisible();
+    await expect(lineItem(page, "Projector")).toContainText("× 2");
   });
 });
 
-test.describe("AC2: the request detail", () => {
-  test("opens a listed request and shows every line", async ({ page }) => {
+test.describe("AC2: the event page lines", () => {
+  test("opens the event from the dashboard and shows every line", async ({ page }) => {
     const { id, name } = await createEvent([
       { item: "Projector", quantity: 2, notes: "Needs HDMI" },
       { item: "Microphone", quantity: 4 },
     ]);
     await signInAsStaff(page, "technical_support_staff");
-    await page.goto("/equipment-requests");
+    await page.goto("/dashboard");
+    await waitForHydration(page);
 
-    await page.getByRole("link", { name: `Open equipment request for ${name}` }).click();
+    await page
+      .locator("[data-slot=card]")
+      .filter({ hasText: name })
+      .getByRole("link", { name })
+      .click();
+    await waitForHydration(page);
 
-    await expect(page).toHaveURL(new RegExp(`/equipment-requests/${id}$`));
+    await expect(page).toHaveURL(new RegExp(`/events/${id}$`));
     await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
     await expect(page.getByText("1 Jan 2030")).toBeVisible();
     await expect(page.getByText("09:00–17:00")).toBeVisible();
@@ -165,12 +185,12 @@ test.describe("AC2: the request detail", () => {
     const { id, name } = await createEvent([{ item: "Projector" }], false);
     await signInAsStaff(page, "technical_support_staff");
 
-    await page.goto(`/equipment-requests/${id}`);
+    await page.goto(`/events/${id}`);
     await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
     await expect(page.getByText(name)).toHaveCount(0);
 
     // An id that does not exist is refused the same way, so neither confirms anything.
-    await page.goto("/equipment-requests/2147483000");
+    await page.goto("/events/2147483000");
     await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
   });
 });
@@ -255,7 +275,7 @@ test.describe("AC3: updating a line", () => {
 
 test.describe("AC4: what the Coordinator sees", () => {
   test("the Coordinator sees what Technical Support saved", async ({ page, browser }) => {
-    const { id, name } = await createEvent([{ item: "Projector" }, { item: "Microphone" }]);
+    const { id } = await createEvent([{ item: "Projector" }, { item: "Microphone" }]);
     await openRequest(page, id);
     await chooseState(page, "Projector", "Unavailable");
     await lineItem(page, "Projector")
@@ -273,12 +293,15 @@ test.describe("AC4: what the Coordinator sees", () => {
     const coordinatorPage = await coordinatorContext.newPage();
     try {
       await signInWithSeedPassword(coordinatorPage, COORDINATOR_EMAIL);
-      await coordinatorPage.goto("/dashboard");
+      await coordinatorPage.goto(`/events/${id}`);
+      await waitForHydration(coordinatorPage);
 
-      const card = coordinatorPage.locator("[data-slot=card]").filter({ hasText: name });
-      await expect(card.getByText("Unavailable")).toBeVisible();
-      await expect(card.getByText("Reason: Loaned out")).toBeVisible();
-      await expect(card.getByText("Technical Support note: Battery pack included")).toBeVisible();
+      const section = coordinatorPage.locator("section#equipment");
+      await expect(section.getByText("Unavailable")).toBeVisible();
+      await expect(section.getByText("Reason: Loaned out")).toBeVisible();
+      await expect(
+        section.getByText("Technical Support note: Battery pack included")
+      ).toBeVisible();
     } finally {
       await coordinatorContext.close();
     }

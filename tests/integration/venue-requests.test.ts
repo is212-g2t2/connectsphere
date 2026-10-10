@@ -25,8 +25,8 @@ import {
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
+  handleGetPendingVenueRequest,
   handleGetVenueRequestContext,
-  handleListPendingVenueRequests,
   handleRejectVenueRequest,
   handleWithdrawVenueRequest,
 } from "#/features/venue-requests/requests.server";
@@ -442,8 +442,8 @@ describe("venue request handlers (PTR-31)", () => {
       );
       expect(visible.map(row => row?.access)).toEqual(["venue_staff", "venue_staff"]);
       expect(visible.map(row => row?.event.venueRequest)).toEqual([
-        { status: "pending" },
-        { status: "pending" },
+        { id: expect.any(String), status: "pending", venueName: "PTR-31 Request Hall" },
+        { id: expect.any(String), status: "pending", venueName: "PTR-31 Request Hall" },
       ]);
 
       await handleWithdrawVenueRequest(
@@ -1633,8 +1633,8 @@ describe("venue request handlers (PTR-31)", () => {
         suggestedStartTime: null,
         suggestedEndTime: null,
       });
-      const queue = await handleListPendingVenueRequests(database as never);
-      expect(queue.map(queued => queued.id)).not.toContain(request.id);
+      const queue = await handleGetPendingVenueRequest({ id: request.id }, database as never);
+      expect(queue).toBeNull();
     });
 
     it("trims the reason it stores (AC1)", async () => {
@@ -1893,8 +1893,8 @@ describe("venue request handlers (PTR-31)", () => {
       const replacement = await raiseRequest(eventId, "13:00", "15:00");
 
       expect(replacement.status).toBe("pending");
-      const queue = await handleListPendingVenueRequests(database as never);
-      expect(queue.map(queued => queued.id)).toContain(replacement.id);
+      const queued = await handleGetPendingVenueRequest({ id: replacement.id }, database as never);
+      expect(queued?.id).toBe(replacement.id);
     });
 
     it("does not hold the venue for a rejected request (AC5)", async () => {

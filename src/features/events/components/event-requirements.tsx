@@ -40,6 +40,15 @@ function requirementPairs(event: EventRequirementFields): Requirement[] {
 }
 
 /**
+ * Whether the requirements block would render anything: any requirement pair, or extra rows
+ * the host adds (its venue request and any rejection). Hosts use it to skip their eyebrow
+ * when the block is empty.
+ */
+export function hasEventRequirements(event: EventRequirementFields, hasExtra: boolean): boolean {
+  return hasExtra || requirementPairs(event).length > 0;
+}
+
+/**
  * The one requirements treatment the request panel and the dashboard's event cards share: four
  * labelled facts from the event's fields, and nothing when the event is bare. `className` is the
  * host's outer spacing, and `children` is the extra rows a card adds (its venue request and any rejection).
@@ -61,7 +70,7 @@ export function EventRequirements({
       {items.map(item => (
         <div key={item.label}>
           <dt className="eyebrow text-muted-foreground">{item.label}</dt>
-          <dd className="mt-1 font-medium whitespace-pre-line text-foreground">{item.value}</dd>
+          <dd className="mt-1 body-sm whitespace-pre-line text-foreground">{item.value}</dd>
         </div>
       ))}
       {children}

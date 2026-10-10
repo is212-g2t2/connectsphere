@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-42: Technical Support reduces or releases a reservation from the equipment review page.
+// PTR-42: Technical Support reduces or releases a reservation from the event page lines section.
 // Every test creates its own type, venue, booking and event through its own pool and removes
 // them again, so it never touches the shared demo rows.
 import { expect, test } from "@playwright/test";
@@ -134,7 +134,7 @@ test("[PTR-42][AC1][AC4] reducing then releasing returns the line to Requested a
   const target = await createReservedEvent(3, 3);
 
   await signInAsStaff(page, "technical_support_staff");
-  await page.goto(`/equipment-requests/${target.id}`);
+  await page.goto(`/events/${target.id}`);
   await waitForHydration(page);
 
   const line = page.getByRole("listitem", { name: target.item });
@@ -191,7 +191,7 @@ test("[PTR-42][AC1] releasing with a reason marks the line Unavailable and shows
   const target = await createReservedEvent(2, 2);
 
   await signInAsStaff(page, "technical_support_staff");
-  await page.goto(`/equipment-requests/${target.id}`);
+  await page.goto(`/events/${target.id}`);
   await waitForHydration(page);
 
   const line = page.getByRole("listitem", { name: target.item });

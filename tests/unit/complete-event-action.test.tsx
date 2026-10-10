@@ -75,7 +75,8 @@ describe("CompleteEventAction (PTR-25)", () => {
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
-  it("disables the action and explains why the event is not eligible", () => {
+  it("disables the action and shows the reason on the info icon tooltip", async () => {
+    const user = userEvent.setup();
     render(
       <CompleteEventAction
         eventId={7}
@@ -86,8 +87,31 @@ describe("CompleteEventAction (PTR-25)", () => {
 
     const trigger = screen.getByRole("button", { name: "Complete event: Demo Day" });
     expect(trigger).toHaveProperty("disabled", true);
-    const reason = screen.getByText(EVENT_HAS_NOT_ENDED_MESSAGE);
-    expect(reason.getAttribute("id")).toBeTruthy();
-    expect(trigger.getAttribute("aria-describedby")).toBe(reason.getAttribute("id"));
+    expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull();
+
+    await user.hover(
+      screen.getByRole("button", {
+        name: `Complete event is disabled: ${EVENT_HAS_NOT_ENDED_MESSAGE}`,
+      })
+    );
+
+    const tooltip = await screen.findByText(EVENT_HAS_NOT_ENDED_MESSAGE, {
+      selector: '[data-slot="tooltip-content"]',
+    });
+    expect(tooltip.textContent).toContain(EVENT_HAS_NOT_ENDED_MESSAGE);
+    const describedBy = trigger.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy as string)?.textContent).toContain(
+      EVENT_HAS_NOT_ENDED_MESSAGE
+    );
+  });
+
+  it("shows no info icon when the action is enabled", () => {
+    render(<CompleteEventAction eventId={7} eventName="Demo Day" />);
+
+    expect(
+      screen.getByRole("button", { name: "Complete event: Demo Day" }).hasAttribute("disabled")
+    ).toBe(false);
+    expect(document.querySelector('[data-slot="tooltip-trigger"]')).toBeNull();
   });
 });

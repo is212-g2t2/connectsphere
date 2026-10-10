@@ -4,9 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Header } from "#/components/layout/header";
 import type { SessionUser } from "#/features/auth/session";
 
-const { useRouteContext } = vi.hoisted(() => ({
+const { useRouteContext, useLocation } = vi.hoisted(() => ({
   useRouteContext:
     vi.fn<(opts: { from: string }) => { user: SessionUser | null; unreadNotifications: number }>(),
+  useLocation: vi.fn<() => { pathname: string }>(() => ({ pathname: "/" })),
 }));
 
 const { signOut, toast } = vi.hoisted(() => ({
@@ -23,6 +24,7 @@ vi.mock("@tanstack/react-router", () => ({
     children: React.ReactNode;
     to: string;
     "aria-label"?: string;
+    "aria-current"?: "page" | undefined;
     title?: string;
     className?: string;
   }) => (
@@ -31,6 +33,7 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useRouteContext,
+  useLocation,
 }));
 
 // Deliberately without `useSession`: a header that still reached for it would throw on render
@@ -50,6 +53,7 @@ const user: SessionUser = {
 beforeEach(() => {
   vi.clearAllMocks();
   useRouteContext.mockReturnValue({ user, unreadNotifications: 0 });
+  useLocation.mockReturnValue({ pathname: "/" });
 });
 
 async function openAccountMenu(visitor: ReturnType<typeof userEvent.setup>) {
@@ -119,6 +123,112 @@ describe("Header component", () => {
 
     expect(screen.queryByRole("button", { name: "Account menu" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Notifications" })).toBeNull();
+  });
+
+  it("renders no section links for an attendee", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "attendee" },
+      unreadNotifications: 0,
+    });
+
+    render(<Header />);
+
+    expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
+  });
+
+  it("keeps the role nav scrollable on narrow screens", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "event_coordinator" },
+      unreadNotifications: 0,
+    });
+
+    render(<Header />);
+
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(nav.getAttribute("class")).not.toContain("hidden");
+    expect(nav.getAttribute("class")).toContain("overflow-x-auto");
+  });
+
+  it("marks the link matching the current location", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "event_coordinator" },
+      unreadNotifications: 0,
+    });
+    useLocation.mockReturnValue({ pathname: "/coordination" });
+
+    render(<Header />);
+
+    expect(screen.getByRole("link", { name: "Coordination" }).getAttribute("aria-current")).toBe(
+      "page"
+    );
+    expect(screen.getByRole("link", { name: "Venues" }).getAttribute("aria-current")).toBeNull();
+  });
+});
+
+describe("Header role links", () => {
+  it("renders Event requests for an event organiser", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "event_organiser" },
+      unreadNotifications: 0,
+    });
+
+    render(<Header />);
+
+    expect(screen.getByRole("link", { name: "Event requests" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Coordination" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Venues" })).toBeNull();
+  });
+
+  it("renders Coordination, Venues, and Venue calendar for an event coordinator", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "event_coordinator" },
+      unreadNotifications: 0,
+    });
+
+    render(<Header />);
+
+    expect(screen.getByRole("link", { name: "Coordination" }).getAttribute("href")).toBe(
+      "/coordination"
+    );
+    expect(screen.getByRole("link", { name: "Venues" }).getAttribute("href")).toBe("/venues");
+    expect(screen.getByRole("link", { name: "Venue calendar" }).getAttribute("href")).toBe(
+      "/venues/availability"
+    );
+    expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
+  });
+
+  it("renders Venues, Venue calendar, and Approved bookings for venue staff", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "venue_staff" },
+      unreadNotifications: 0,
+    });
+
+    render(<Header />);
+
+    expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Venue calendar" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Approved bookings" }).getAttribute("href")).toBe(
+      "/venue-bookings"
+    );
+    expect(screen.queryByRole("link", { name: "Coordination" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
+  });
+
+  it("renders Venues and Venue calendar for technical support staff", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "technical_support_staff" },
+      unreadNotifications: 0,
+    });
+
+    render(<Header />);
+
+    expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Venue calendar" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Coordination" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
   });
 });
 

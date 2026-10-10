@@ -18,21 +18,14 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authenticated/notifications'
-import { Route as AuthenticatedRegistrationsRouteImport } from './routes/_authenticated/registrations'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiSmokeRouteImport } from './routes/api/smoke'
 import { Route as AuthenticatedCoordinationIndexRouteImport } from './routes/_authenticated/coordination/index'
-import { Route as AuthenticatedCoordinationRequestIdRouteImport } from './routes/_authenticated/coordination/$requestId'
-import { Route as AuthenticatedEquipmentRequestsIndexRouteImport } from './routes/_authenticated/equipment-requests/index'
-import { Route as AuthenticatedEquipmentRequestsEventIdRouteImport } from './routes/_authenticated/equipment-requests/$eventId'
 import { Route as AuthenticatedEventRequestsIndexRouteImport } from './routes/_authenticated/event-requests/index'
-import { Route as AuthenticatedEventRequestsRequestIdRouteImport } from './routes/_authenticated/event-requests/$requestId'
 import { Route as AuthenticatedEventRequestsNewRouteImport } from './routes/_authenticated/event-requests/new'
 import { Route as AuthenticatedEventsEventIdRouteRouteImport } from './routes/_authenticated/events/$eventId/route'
 import { Route as AuthenticatedVenueBookingsIndexRouteImport } from './routes/_authenticated/venue-bookings/index'
-import { Route as AuthenticatedVenueRequestsIndexRouteImport } from './routes/_authenticated/venue-requests/index'
-import { Route as AuthenticatedVenueRequestsRequestIdRouteImport } from './routes/_authenticated/venue-requests/$requestId'
 import { Route as AuthenticatedVenuesIndexRouteImport } from './routes/_authenticated/venues/index'
 import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authenticated/venues/$venueId'
 import { Route as AuthenticatedVenuesAvailabilityRouteImport } from './routes/_authenticated/venues/availability'
@@ -41,7 +34,6 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronNotificationsRouteImport } from './routes/api/cron/notifications'
 import { Route as AuthenticatedEventRequestsReopenDraftIdRouteImport } from './routes/_authenticated/event-requests/reopenDraft.$id'
 import { Route as AuthenticatedEventsEventIdIndexRouteImport } from './routes/_authenticated/events/$eventId/index'
-import { Route as AuthenticatedEventsEventIdAttendeesRouteImport } from './routes/_authenticated/events/$eventId/attendees'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -88,12 +80,6 @@ const AuthenticatedNotificationsRoute =
     path: '/notifications',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedRegistrationsRoute =
-  AuthenticatedRegistrationsRouteImport.update({
-    id: '/registrations',
-    path: '/registrations',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -115,34 +101,10 @@ const AuthenticatedCoordinationIndexRoute =
     path: '/coordination/',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedCoordinationRequestIdRoute =
-  AuthenticatedCoordinationRequestIdRouteImport.update({
-    id: '/coordination/$requestId',
-    path: '/coordination/$requestId',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedEquipmentRequestsIndexRoute =
-  AuthenticatedEquipmentRequestsIndexRouteImport.update({
-    id: '/equipment-requests/',
-    path: '/equipment-requests/',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedEquipmentRequestsEventIdRoute =
-  AuthenticatedEquipmentRequestsEventIdRouteImport.update({
-    id: '/equipment-requests/$eventId',
-    path: '/equipment-requests/$eventId',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const AuthenticatedEventRequestsIndexRoute =
   AuthenticatedEventRequestsIndexRouteImport.update({
     id: '/event-requests/',
     path: '/event-requests/',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedEventRequestsRequestIdRoute =
-  AuthenticatedEventRequestsRequestIdRouteImport.update({
-    id: '/event-requests/$requestId',
-    path: '/event-requests/$requestId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedEventRequestsNewRoute =
@@ -161,18 +123,6 @@ const AuthenticatedVenueBookingsIndexRoute =
   AuthenticatedVenueBookingsIndexRouteImport.update({
     id: '/venue-bookings/',
     path: '/venue-bookings/',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedVenueRequestsIndexRoute =
-  AuthenticatedVenueRequestsIndexRouteImport.update({
-    id: '/venue-requests/',
-    path: '/venue-requests/',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedVenueRequestsRequestIdRoute =
-  AuthenticatedVenueRequestsRequestIdRouteImport.update({
-    id: '/venue-requests/$requestId',
-    path: '/venue-requests/$requestId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedVenuesIndexRoute =
@@ -220,12 +170,6 @@ const AuthenticatedEventsEventIdIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedEventsEventIdRouteRoute,
   } as any)
-const AuthenticatedEventsEventIdAttendeesRoute =
-  AuthenticatedEventsEventIdAttendeesRouteImport.update({
-    id: '/attendees',
-    path: '/attendees',
-    getParentRoute: () => AuthenticatedEventsEventIdRouteRoute,
-  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -236,29 +180,21 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/notifications': typeof AuthenticatedNotificationsRoute
-  '/registrations': typeof AuthenticatedRegistrationsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
   '/events/$eventId': typeof AuthenticatedEventsEventIdRouteRouteWithChildren
-  '/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
-  '/equipment-requests/$eventId': typeof AuthenticatedEquipmentRequestsEventIdRoute
-  '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
-  '/venue-requests/$requestId': typeof AuthenticatedVenueRequestsRequestIdRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/coordination/': typeof AuthenticatedCoordinationIndexRoute
-  '/equipment-requests/': typeof AuthenticatedEquipmentRequestsIndexRoute
   '/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/venue-bookings/': typeof AuthenticatedVenueBookingsIndexRoute
-  '/venue-requests/': typeof AuthenticatedVenueRequestsIndexRoute
   '/venues/': typeof AuthenticatedVenuesIndexRoute
   '/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
-  '/events/$eventId/attendees': typeof AuthenticatedEventsEventIdAttendeesRoute
   '/events/$eventId/': typeof AuthenticatedEventsEventIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -270,28 +206,20 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/notifications': typeof AuthenticatedNotificationsRoute
-  '/registrations': typeof AuthenticatedRegistrationsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
-  '/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
-  '/equipment-requests/$eventId': typeof AuthenticatedEquipmentRequestsEventIdRoute
-  '/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
-  '/venue-requests/$requestId': typeof AuthenticatedVenueRequestsRequestIdRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/coordination': typeof AuthenticatedCoordinationIndexRoute
-  '/equipment-requests': typeof AuthenticatedEquipmentRequestsIndexRoute
   '/event-requests': typeof AuthenticatedEventRequestsIndexRoute
   '/venue-bookings': typeof AuthenticatedVenueBookingsIndexRoute
-  '/venue-requests': typeof AuthenticatedVenueRequestsIndexRoute
   '/venues': typeof AuthenticatedVenuesIndexRoute
   '/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
-  '/events/$eventId/attendees': typeof AuthenticatedEventsEventIdAttendeesRoute
   '/events/$eventId': typeof AuthenticatedEventsEventIdIndexRoute
 }
 export interface FileRoutesById {
@@ -305,29 +233,21 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/notifications': typeof AuthenticatedNotificationsRoute
-  '/_authenticated/registrations': typeof AuthenticatedRegistrationsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/smoke': typeof ApiSmokeRoute
   '/_authenticated/events/$eventId': typeof AuthenticatedEventsEventIdRouteRouteWithChildren
-  '/_authenticated/coordination/$requestId': typeof AuthenticatedCoordinationRequestIdRoute
-  '/_authenticated/equipment-requests/$eventId': typeof AuthenticatedEquipmentRequestsEventIdRoute
-  '/_authenticated/event-requests/$requestId': typeof AuthenticatedEventRequestsRequestIdRoute
   '/_authenticated/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
-  '/_authenticated/venue-requests/$requestId': typeof AuthenticatedVenueRequestsRequestIdRoute
   '/_authenticated/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/_authenticated/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
   '/_authenticated/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/_authenticated/coordination/': typeof AuthenticatedCoordinationIndexRoute
-  '/_authenticated/equipment-requests/': typeof AuthenticatedEquipmentRequestsIndexRoute
   '/_authenticated/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
   '/_authenticated/venue-bookings/': typeof AuthenticatedVenueBookingsIndexRoute
-  '/_authenticated/venue-requests/': typeof AuthenticatedVenueRequestsIndexRoute
   '/_authenticated/venues/': typeof AuthenticatedVenuesIndexRoute
   '/_authenticated/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
-  '/_authenticated/events/$eventId/attendees': typeof AuthenticatedEventsEventIdAttendeesRoute
   '/_authenticated/events/$eventId/': typeof AuthenticatedEventsEventIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -341,29 +261,21 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/dashboard'
     | '/notifications'
-    | '/registrations'
     | '/settings'
     | '/api/health'
     | '/api/smoke'
     | '/events/$eventId'
-    | '/coordination/$requestId'
-    | '/equipment-requests/$eventId'
-    | '/event-requests/$requestId'
     | '/event-requests/new'
-    | '/venue-requests/$requestId'
     | '/venues/$venueId'
     | '/venues/availability'
     | '/venues/new'
     | '/api/auth/$'
     | '/api/cron/notifications'
     | '/coordination/'
-    | '/equipment-requests/'
     | '/event-requests/'
     | '/venue-bookings/'
-    | '/venue-requests/'
     | '/venues/'
     | '/event-requests/reopenDraft/$id'
-    | '/events/$eventId/attendees'
     | '/events/$eventId/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -375,28 +287,20 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/dashboard'
     | '/notifications'
-    | '/registrations'
     | '/settings'
     | '/api/health'
     | '/api/smoke'
-    | '/coordination/$requestId'
-    | '/equipment-requests/$eventId'
-    | '/event-requests/$requestId'
     | '/event-requests/new'
-    | '/venue-requests/$requestId'
     | '/venues/$venueId'
     | '/venues/availability'
     | '/venues/new'
     | '/api/auth/$'
     | '/api/cron/notifications'
     | '/coordination'
-    | '/equipment-requests'
     | '/event-requests'
     | '/venue-bookings'
-    | '/venue-requests'
     | '/venues'
     | '/event-requests/reopenDraft/$id'
-    | '/events/$eventId/attendees'
     | '/events/$eventId'
   id:
     | '__root__'
@@ -409,29 +313,21 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/_authenticated/dashboard'
     | '/_authenticated/notifications'
-    | '/_authenticated/registrations'
     | '/_authenticated/settings'
     | '/api/health'
     | '/api/smoke'
     | '/_authenticated/events/$eventId'
-    | '/_authenticated/coordination/$requestId'
-    | '/_authenticated/equipment-requests/$eventId'
-    | '/_authenticated/event-requests/$requestId'
     | '/_authenticated/event-requests/new'
-    | '/_authenticated/venue-requests/$requestId'
     | '/_authenticated/venues/$venueId'
     | '/_authenticated/venues/availability'
     | '/_authenticated/venues/new'
     | '/api/auth/$'
     | '/api/cron/notifications'
     | '/_authenticated/coordination/'
-    | '/_authenticated/equipment-requests/'
     | '/_authenticated/event-requests/'
     | '/_authenticated/venue-bookings/'
-    | '/_authenticated/venue-requests/'
     | '/_authenticated/venues/'
     | '/_authenticated/event-requests/reopenDraft/$id'
-    | '/_authenticated/events/$eventId/attendees'
     | '/_authenticated/events/$eventId/'
   fileRoutesById: FileRoutesById
 }
@@ -514,13 +410,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedNotificationsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/registrations': {
-      id: '/_authenticated/registrations'
-      path: '/registrations'
-      fullPath: '/registrations'
-      preLoaderRoute: typeof AuthenticatedRegistrationsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -549,39 +438,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCoordinationIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/coordination/$requestId': {
-      id: '/_authenticated/coordination/$requestId'
-      path: '/coordination/$requestId'
-      fullPath: '/coordination/$requestId'
-      preLoaderRoute: typeof AuthenticatedCoordinationRequestIdRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/equipment-requests/': {
-      id: '/_authenticated/equipment-requests/'
-      path: '/equipment-requests'
-      fullPath: '/equipment-requests/'
-      preLoaderRoute: typeof AuthenticatedEquipmentRequestsIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/equipment-requests/$eventId': {
-      id: '/_authenticated/equipment-requests/$eventId'
-      path: '/equipment-requests/$eventId'
-      fullPath: '/equipment-requests/$eventId'
-      preLoaderRoute: typeof AuthenticatedEquipmentRequestsEventIdRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/event-requests/': {
       id: '/_authenticated/event-requests/'
       path: '/event-requests'
       fullPath: '/event-requests/'
       preLoaderRoute: typeof AuthenticatedEventRequestsIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/event-requests/$requestId': {
-      id: '/_authenticated/event-requests/$requestId'
-      path: '/event-requests/$requestId'
-      fullPath: '/event-requests/$requestId'
-      preLoaderRoute: typeof AuthenticatedEventRequestsRequestIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/event-requests/new': {
@@ -603,20 +464,6 @@ declare module '@tanstack/react-router' {
       path: '/venue-bookings'
       fullPath: '/venue-bookings/'
       preLoaderRoute: typeof AuthenticatedVenueBookingsIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/venue-requests/': {
-      id: '/_authenticated/venue-requests/'
-      path: '/venue-requests'
-      fullPath: '/venue-requests/'
-      preLoaderRoute: typeof AuthenticatedVenueRequestsIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/venue-requests/$requestId': {
-      id: '/_authenticated/venue-requests/$requestId'
-      path: '/venue-requests/$requestId'
-      fullPath: '/venue-requests/$requestId'
-      preLoaderRoute: typeof AuthenticatedVenueRequestsRequestIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/venues/': {
@@ -675,25 +522,15 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedEventsEventIdIndexRouteImport
       parentRoute: typeof AuthenticatedEventsEventIdRouteRoute
     }
-    '/_authenticated/events/$eventId/attendees': {
-      id: '/_authenticated/events/$eventId/attendees'
-      path: '/attendees'
-      fullPath: '/events/$eventId/attendees'
-      preLoaderRoute: typeof AuthenticatedEventsEventIdAttendeesRouteImport
-      parentRoute: typeof AuthenticatedEventsEventIdRouteRoute
-    }
   }
 }
 
 interface AuthenticatedEventsEventIdRouteRouteChildren {
-  AuthenticatedEventsEventIdAttendeesRoute: typeof AuthenticatedEventsEventIdAttendeesRoute
   AuthenticatedEventsEventIdIndexRoute: typeof AuthenticatedEventsEventIdIndexRoute
 }
 
 const AuthenticatedEventsEventIdRouteRouteChildren: AuthenticatedEventsEventIdRouteRouteChildren =
   {
-    AuthenticatedEventsEventIdAttendeesRoute:
-      AuthenticatedEventsEventIdAttendeesRoute,
     AuthenticatedEventsEventIdIndexRoute: AuthenticatedEventsEventIdIndexRoute,
   }
 
@@ -705,22 +542,15 @@ const AuthenticatedEventsEventIdRouteRouteWithChildren =
 interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedNotificationsRoute: typeof AuthenticatedNotificationsRoute
-  AuthenticatedRegistrationsRoute: typeof AuthenticatedRegistrationsRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedEventsEventIdRouteRoute: typeof AuthenticatedEventsEventIdRouteRouteWithChildren
-  AuthenticatedCoordinationRequestIdRoute: typeof AuthenticatedCoordinationRequestIdRoute
-  AuthenticatedEquipmentRequestsEventIdRoute: typeof AuthenticatedEquipmentRequestsEventIdRoute
-  AuthenticatedEventRequestsRequestIdRoute: typeof AuthenticatedEventRequestsRequestIdRoute
   AuthenticatedEventRequestsNewRoute: typeof AuthenticatedEventRequestsNewRoute
-  AuthenticatedVenueRequestsRequestIdRoute: typeof AuthenticatedVenueRequestsRequestIdRoute
   AuthenticatedVenuesVenueIdRoute: typeof AuthenticatedVenuesVenueIdRoute
   AuthenticatedVenuesAvailabilityRoute: typeof AuthenticatedVenuesAvailabilityRoute
   AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
   AuthenticatedCoordinationIndexRoute: typeof AuthenticatedCoordinationIndexRoute
-  AuthenticatedEquipmentRequestsIndexRoute: typeof AuthenticatedEquipmentRequestsIndexRoute
   AuthenticatedEventRequestsIndexRoute: typeof AuthenticatedEventRequestsIndexRoute
   AuthenticatedVenueBookingsIndexRoute: typeof AuthenticatedVenueBookingsIndexRoute
-  AuthenticatedVenueRequestsIndexRoute: typeof AuthenticatedVenueRequestsIndexRoute
   AuthenticatedVenuesIndexRoute: typeof AuthenticatedVenuesIndexRoute
   AuthenticatedEventRequestsReopenDraftIdRoute: typeof AuthenticatedEventRequestsReopenDraftIdRoute
 }
@@ -728,28 +558,16 @@ interface AuthenticatedRouteChildren {
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedNotificationsRoute: AuthenticatedNotificationsRoute,
-  AuthenticatedRegistrationsRoute: AuthenticatedRegistrationsRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedEventsEventIdRouteRoute:
     AuthenticatedEventsEventIdRouteRouteWithChildren,
-  AuthenticatedCoordinationRequestIdRoute:
-    AuthenticatedCoordinationRequestIdRoute,
-  AuthenticatedEquipmentRequestsEventIdRoute:
-    AuthenticatedEquipmentRequestsEventIdRoute,
-  AuthenticatedEventRequestsRequestIdRoute:
-    AuthenticatedEventRequestsRequestIdRoute,
   AuthenticatedEventRequestsNewRoute: AuthenticatedEventRequestsNewRoute,
-  AuthenticatedVenueRequestsRequestIdRoute:
-    AuthenticatedVenueRequestsRequestIdRoute,
   AuthenticatedVenuesVenueIdRoute: AuthenticatedVenuesVenueIdRoute,
   AuthenticatedVenuesAvailabilityRoute: AuthenticatedVenuesAvailabilityRoute,
   AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
   AuthenticatedCoordinationIndexRoute: AuthenticatedCoordinationIndexRoute,
-  AuthenticatedEquipmentRequestsIndexRoute:
-    AuthenticatedEquipmentRequestsIndexRoute,
   AuthenticatedEventRequestsIndexRoute: AuthenticatedEventRequestsIndexRoute,
   AuthenticatedVenueBookingsIndexRoute: AuthenticatedVenueBookingsIndexRoute,
-  AuthenticatedVenueRequestsIndexRoute: AuthenticatedVenueRequestsIndexRoute,
   AuthenticatedVenuesIndexRoute: AuthenticatedVenuesIndexRoute,
   AuthenticatedEventRequestsReopenDraftIdRoute:
     AuthenticatedEventRequestsReopenDraftIdRoute,

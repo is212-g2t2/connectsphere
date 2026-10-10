@@ -8,7 +8,7 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { handleListEvents } from "#/features/events/records.server";
+import { handleListEventRegistrations, handleListEvents } from "#/features/events/records.server";
 import {
   handleAddVipRegistration,
   handleRegisterForEvent,
@@ -604,7 +604,7 @@ describe("VIP registrations (PTR-111)", () => {
   });
 
   // ── AC4 and the place limit ────────────────────────────────────────────────────────────────
-  test("shows the Organiser and the Coordinator the VIPs apart, and the Attendee the places they leave", async () => {
+  test("marks the VIPs in the registrations the Organiser and the Coordinator read, and the Attendee sees the places they leave", async () => {
     const event = await createEvent({ capacity: 4 });
     await fillNormal(event.id, [fifthGuest]);
     await addVip(event.id, guest);
@@ -613,12 +613,13 @@ describe("VIP registrations (PTR-111)", () => {
     await addVip(event.id, thirdGuest);
 
     for (const caller of [organiser, coordinator]) {
-      // oxlint-disable-next-line eslint/no-await-in-loop -- one projection at a time
-      const [projection] = await handleListEvents({ eventId: event.id }, caller, database as never);
-      expect(projection.event.vipRegistrations).toEqual([
-        { attendeeId: guest.id, name: guest.name, email: guest.email },
-        { attendeeId: thirdGuest.id, name: thirdGuest.name, email: thirdGuest.email },
+      // oxlint-disable-next-line eslint/no-await-in-loop -- one read at a time
+      const rows = await handleListEventRegistrations({ id: event.id }, caller, database as never);
+      expect(rows.filter(row => row.vip).map(row => row.attendeeId)).toEqual([
+        guest.id,
+        thirdGuest.id,
       ]);
+      expect(rows.map(row => row.attendeeId)).toEqual([fifthGuest.id, guest.id, thirdGuest.id]);
     }
 
     // The two VIPs leave two of the four venue places; the one normal registration has taken one.
@@ -631,7 +632,7 @@ describe("VIP registrations (PTR-111)", () => {
     expect(attendeeView.event).not.toHaveProperty("vipRegistrations");
   });
 
-  test("gives no VIP list for an event that is not published", async () => {
+  test("carries no separate VIP list on the projection (VIPs read from the registrations)", async () => {
     const event = await createEvent({ status: "approved" });
 
     const [projection] = await handleListEvents(
@@ -640,7 +641,7 @@ describe("VIP registrations (PTR-111)", () => {
       database as never
     );
 
-    expect(projection.event.vipRegistrations).toBeNull();
+    expect(projection.event).not.toHaveProperty("vipRegistrations");
   });
 
   test("tells the Organiser that registration is full at the places the VIPs leave", async () => {

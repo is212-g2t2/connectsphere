@@ -2,7 +2,7 @@
 // oxlint-disable node/no-process-env, no-await-in-loop
 import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, inArray } from "drizzle-orm";
@@ -60,15 +60,15 @@ async function seedAssignedRequest(
   return request;
 }
 
-test("redirects unauthenticated visitors from the coordination detail", async ({ page }) => {
+test("answers not found for the removed coordination detail", async ({ page }) => {
   await page.goto("/coordination/1");
-  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
 });
 
 test("answers not found for a junk request id instead of the error boundary", async ({ page }) => {
   const coordinator = await register(page, "event_coordinator", "Junk Id Coordinator");
   try {
-    await page.goto("/coordination/abc");
+    await page.goto("/events/abc");
     await expect(page.getByText(/not found/i)).toBeVisible();
   } finally {
     await database.delete(schema.user).where(eq(schema.user.id, coordinator.id));
@@ -144,19 +144,20 @@ test("hands an event over only once the incoming Coordinator accepts", async ({
       .where(eq(schema.eventRequests.id, request.id));
     expect(stored.assignedCoordinatorId).toBe(incoming.id);
 
-    // Access moves on both sides.
-    await page.goto(`/coordination/${request.id}`);
-    await expect(
-      page.getByText(
-        "You no longer have coordination access to this request, or it is unavailable."
-      )
-    ).toBeVisible();
-    await incomingPage.goto(`/coordination/${request.id}`);
+    // Access moves on both sides: the outgoing Coordinator's event page is now a 404.
+    await page.goto(`/events/${request.id}`);
+    await expect(page.getByText(/not found/i)).toBeVisible();
+    await incomingPage.goto(`/events/${request.id}`);
     await expect(incomingPage.getByRole("heading", { name: eventName })).toBeVisible();
 
-    // The Organiser reads the new Coordinator and both notifications are delivered.
-    await organiserPage.goto(`/event-requests/${request.id}`);
-    await expect(organiserPage.getByRole("link", { name: incoming.email })).toBeVisible();
+    // The Organiser reads the new Coordinator and both notifications are delivered. The
+    // address shows in the messages contact card, so read it there.
+    await organiserPage.goto(`/events/${request.id}`);
+    await expect(
+      organiserPage
+        .getByRole("region", { name: "Requests & messages" })
+        .getByRole("link", { name: incoming.email })
+    ).toBeVisible();
     const requestEmail = await waitForEmail(incoming.email, `Handover requested: ${eventName}`);
     expect(requestEmail).toContain(outgoing.name);
     expect(requestEmail).toContain(eventName);
@@ -195,7 +196,7 @@ test("declines a handover and leaves the event with the outgoing Coordinator", a
     });
     const eventName = request.eventName;
 
-    await page.goto(`/coordination/${request.id}`);
+    await page.goto(`/events/${request.id}`);
     await waitForHydration(page);
     await page.locator("#coordinatorId").click();
     await page.getByRole("option", { name: incoming.email }).click();
@@ -257,12 +258,18 @@ test("picks up unassigned events for yourself or a named Coordinator", async ({
       await waitForHydration(page);
       if (target.id === actor.id) {
         await page.getByRole("button", { name: "Assign to me" }).click();
+        // Claiming re-reads the event page in place: the triage view flips to the assigned one.
+        // The flip is also the sync point for the reads below — without it they race the commit.
+        await expect(page.getByRole("heading", { name: "Hand over this request" })).toBeVisible();
       } else {
         await page.locator("#coordinatorId").click();
         await page.getByRole("option", { name: target.name }).click();
         await page.getByRole("button", { name: "Assign Coordinator", exact: true }).click();
+        // The request now belongs to someone else, so the actor's event page is a 404 — the
+        // same access move the handover test asserts. The 404 syncs the reads below.
+        await expect(page.getByText(/not found/i)).toBeVisible();
       }
-      await expect(page).toHaveURL(/\/coordination\/?$/);
+      await expect(page).toHaveURL(new RegExp(`/events/${request.id}$`));
       const [stored] = await database
         .select()
         .from(schema.eventRequests)
@@ -297,8 +304,8 @@ test("lists a submitted request assigned to the Coordinator", async ({ page }) =
   }
 });
 
-function fieldValue(page: Page, term: string) {
-  return page.locator("dt", { hasText: term }).locator("xpath=following-sibling::dd[1]");
+function fieldValue(scope: Page | Locator, term: string) {
+  return scope.locator("dt", { hasText: term }).locator("xpath=following-sibling::dd[1]");
 }
 
 test("Organiser amends the concerned fields, replies, and notifies the Coordinator", async ({
@@ -334,7 +341,7 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
     const question = "Please confirm attendance and the room layout.";
     const reply = "We expect 120 guests.\nPlease use a Classroom layout.";
 
-    await page.goto(`/coordination/${request.id}`);
+    await page.goto(`/events/${request.id}`);
     await waitForHydration(page);
     await page.getByLabel("What needs clarification").fill(question);
     await page.getByRole("checkbox", { name: "Expected attendance", exact: true }).check();
@@ -343,7 +350,7 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
     await expect(page.getByText(question, { exact: true })).toBeVisible();
     await expect(page.getByText("Awaiting organiser", { exact: true })).toBeVisible();
 
-    await organiserPage.goto(`/event-requests/${request.id}`);
+    await organiserPage.goto(`/events/${request.id}`);
     await waitForHydration(organiserPage);
     await expect(organiserPage.getByLabel("Event name (required)")).toBeDisabled();
     await expect(organiserPage.getByLabel("Purpose (required)")).toBeDisabled();
@@ -354,7 +361,9 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
     await expect(organiserPage.getByText("Under review", { exact: true })).toBeVisible();
     await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();
     await expect(organiserPage.getByRole("button", { name: "Send reply" })).toHaveCount(0);
-    await expect(fieldValue(organiserPage, "Expected attendance")).toHaveText("120");
+    // The record reads in the information section; the venue section carries the same fields.
+    const record = organiserPage.getByRole("region", { name: "Event information" });
+    await expect(fieldValue(record, "Expected attendance")).toHaveText("120");
     // PTR-19: the reply records what changed, with the before and after the Coordinator can read.
     await expect(organiserPage.getByText("Expected attendance: 100 → 120")).toBeVisible();
     await expect(
@@ -364,11 +373,15 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
     const email = await waitForEmail(coordinator.email, `Clarification replied: ${eventName}`);
     expect(email).toContain(question);
     expect(email).toContain("We expect 120 guests.");
-    expect(email).toContain(`/coordination/${request.id}`);
+    expect(email).toContain(`/events/${request.id}`);
     await page.reload();
     await expect(page.getByText(question, { exact: true })).toBeVisible();
     await expect(page.getByText(reply, { exact: true })).toBeVisible();
-    await expect(fieldValue(page, "Room-layout preference")).toHaveText("Classroom");
+    // The Coordinator reads the shared requirements: the venue section labels the layout
+    // "Layout" rather than the request form's "Room-layout preference".
+    await expect(fieldValue(page.getByRole("region", { name: "Venue" }), "Layout")).toHaveText(
+      "Classroom"
+    );
     await expect(page.getByRole("button", { name: "Send reply", exact: true })).toHaveCount(0);
     await organiserPage.reload();
     await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();
@@ -436,7 +449,7 @@ test("a reply to a second question never reverts the first reply's amendment", a
     const [firstQuestion, secondQuestion] = clarifications;
     if (!firstQuestion || !secondQuestion) throw new Error("Expected two clarifications");
 
-    await organiserPage.goto(`/event-requests/${request.id}`);
+    await organiserPage.goto(`/events/${request.id}`);
     await waitForHydration(organiserPage);
     await expect(organiserPage.getByLabel("Your reply")).toHaveCount(2);
 
@@ -470,7 +483,12 @@ test("a reply to a second question never reverts the first reply's amendment", a
     await expect(
       organiserPage.getByText("Confirm the guest count.", { exact: true })
     ).toBeVisible();
-    await expect(fieldValue(organiserPage, "Expected attendance")).toHaveText("120");
+    await expect(
+      fieldValue(
+        organiserPage.getByRole("region", { name: "Event information" }),
+        "Expected attendance"
+      )
+    ).toHaveText("120");
 
     const [stored] = await database
       .select()
@@ -483,47 +501,68 @@ test("a reply to a second question never reverts the first reply's amendment", a
   }
 });
 
-test("shows every organiser-supplied field on an assigned request", async ({ page }) => {
+test("shows every organiser-supplied field on the event page", async ({ page }) => {
   const ids: string[] = [];
   try {
-    const coordinator = await register(page, "event_coordinator", "Detail Coordinator");
-    ids.push(coordinator.id);
-    const request = await seedAssignedRequest(ids, coordinator.id, {
-      eventName: `Full Detail ${randomUUID()}`,
-      purpose: "Quarterly town hall",
-      description: "All-staff briefing with Q&A",
-      eventType: "Town hall",
-      expectedAttendance: 150,
-      venueRequirements: "Auditorium with stage",
-      roomLayoutPreference: "Theatre",
-      accessibilityRequirements: "Wheelchair-accessible seating",
-      specialArrangements: "Live captioning",
-      proposedDates: [{ start: "2026-10-05T09:00", end: "2026-10-05T11:00" }],
-      equipmentRequirements: [{ type: "Projector", quantity: 2 }],
-      registrationEnabled: true,
-      registrationCapacity: 150,
-      registrationOpensAt: "2024-05-01T09:00",
-      registrationClosesAt: "2024-05-10T17:00",
+    // The read-only record lives on the organiser's event page now; the Coordinator's details
+    // section is the edit form, shown only once the event is approved.
+    const organiser = await register(page, "event_organiser", "Detail Organiser");
+    ids.push(organiser.id);
+    const coordinatorId = randomUUID();
+    await database.insert(schema.user).values({
+      id: coordinatorId,
+      name: "Detail Coordinator",
+      email: `${coordinatorId}@example.invalid`,
+      role: "event_coordinator",
     });
+    ids.push(coordinatorId);
+    const eventName = `Full Detail ${randomUUID()}`;
+    const [request] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: organiser.id,
+        eventName,
+        status: "submitted",
+        submittedAt: new Date(),
+        assignedCoordinatorId: coordinatorId,
+        assignedAt: new Date(),
+        purpose: "Quarterly town hall",
+        description: "All-staff briefing with Q&A",
+        eventType: "Town hall",
+        expectedAttendance: 150,
+        venueRequirements: "Auditorium with stage",
+        roomLayoutPreference: "Theatre",
+        accessibilityRequirements: "Wheelchair-accessible seating",
+        specialArrangements: "Live captioning",
+        proposedDates: [{ start: "2026-10-05T09:00", end: "2026-10-05T11:00" }],
+        equipmentRequirements: [{ type: "Projector", quantity: 2 }],
+        registrationEnabled: true,
+        registrationCapacity: 150,
+        registrationOpensAt: "2024-05-01T09:00",
+        registrationClosesAt: "2024-05-10T17:00",
+      })
+      .returning({ id: schema.eventRequests.id });
 
-    await page.goto(`/coordination/${request.id}`);
-    await expect(page.getByRole("heading", { name: request.eventName })).toBeVisible();
-    await expect(fieldValue(page, "Purpose")).toHaveText("Quarterly town hall");
-    await expect(fieldValue(page, "Description")).toHaveText("All-staff briefing with Q&A");
-    await expect(fieldValue(page, "Type of event")).toHaveText("Town hall");
-    await expect(fieldValue(page, "Expected attendance")).toHaveText("150");
-    await expect(fieldValue(page, "Venue requirements")).toHaveText("Auditorium with stage");
-    await expect(fieldValue(page, "Room-layout preference")).toHaveText("Theatre");
-    await expect(fieldValue(page, "Accessibility requirements")).toHaveText(
+    await page.goto(`/events/${request.id}`);
+    await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
+    // The read-only record lives in the information section; the venue section repeats its fields.
+    const record = page.getByRole("region", { name: "Event information" });
+    await expect(fieldValue(record, "Purpose")).toHaveText("Quarterly town hall");
+    await expect(fieldValue(record, "Description")).toHaveText("All-staff briefing with Q&A");
+    await expect(fieldValue(record, "Type of event")).toHaveText("Town hall");
+    await expect(fieldValue(record, "Expected attendance")).toHaveText("150");
+    await expect(fieldValue(record, "Venue requirements")).toHaveText("Auditorium with stage");
+    await expect(fieldValue(record, "Room-layout preference")).toHaveText("Theatre");
+    await expect(fieldValue(record, "Accessibility requirements")).toHaveText(
       "Wheelchair-accessible seating"
     );
-    await expect(fieldValue(page, "Special arrangements")).toHaveText("Live captioning");
-    await expect(fieldValue(page, "Proposed dates and times")).toHaveText(
+    await expect(fieldValue(record, "Special arrangements")).toHaveText("Live captioning");
+    await expect(fieldValue(record, "Proposed dates and times")).toHaveText(
       "5 Oct 2026, 09:00 – 11:00"
     );
-    await expect(fieldValue(page, "Equipment requirements")).toHaveText("Projector × 2");
-    await expect(fieldValue(page, "Attendee registration")).toContainText("Capacity 150");
-    await expect(fieldValue(page, "Attendee registration")).toContainText(
+    await expect(fieldValue(record, "Equipment requirements")).toHaveText("Projector × 2");
+    await expect(fieldValue(record, "Attendee registration")).toContainText("Capacity 150");
+    await expect(fieldValue(record, "Attendee registration")).toContainText(
       "Opens 1 May 2024, 09:00, closes 10 May 2024, 17:00"
     );
   } finally {
@@ -538,11 +577,13 @@ test("takes an assigned request up for review", async ({ page }) => {
     ids.push(coordinator.id);
     const request = await seedAssignedRequest(ids, coordinator.id);
 
-    await page.goto(`/coordination/${request.id}`);
+    await page.goto(`/events/${request.id}`);
     await waitForHydration(page);
     await page.getByRole("button", { name: "Take up for review" }).click();
-    await expect(page).toHaveURL(/\/coordination\/?$/);
-    await expect(page.getByRole("link", { name: request.eventName })).toBeVisible();
+    // Taking up re-reads the event page in place: the review section moves on to the decision.
+    await expect(page).toHaveURL(new RegExp(`/events/${request.id}$`));
+    await expect(page.getByRole("button", { name: "Take up for review" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Record a decision" })).toBeVisible();
 
     const [stored] = await database
       .select()
@@ -564,7 +605,7 @@ test("hides the take-up-for-review action once already under review", async ({ p
       status: "under_review",
     });
 
-    await page.goto(`/coordination/${request.id}`);
+    await page.goto(`/events/${request.id}`);
     await expect(page.getByRole("heading", { name: request.eventName })).toBeVisible();
     await expect(page.getByRole("button", { name: "Take up for review" })).toHaveCount(0);
   } finally {
@@ -598,13 +639,16 @@ test("rejects an under-review request, records the decision and notifies the Org
       })
       .returning();
 
-    await page.goto(`/coordination/${request.id}`);
+    await page.goto(`/events/${request.id}`);
     await waitForHydration(page);
     await page.getByRole("button", { name: "Reject request" }).click();
     await expect(page.getByRole("alert")).toHaveText("Enter a reason to reject this request");
     await page.getByLabel("Decision reason").fill("The requested venue is unavailable.");
     await page.getByRole("button", { name: "Reject request" }).click();
-    await expect(page).toHaveURL(/\/coordination\/?$/);
+    // The decision re-reads the event page in place; the review section drops out with it.
+    await expect(page).toHaveURL(new RegExp(`/events/${request.id}$`));
+    await expect(page.getByRole("button", { name: "Reject request" })).toHaveCount(0);
+    await expect(page.getByLabel("Status: Rejected")).toBeVisible();
 
     const [stored] = await database
       .select()
@@ -618,16 +662,13 @@ test("rejects an under-review request, records the decision and notifies the Org
     });
     expect(stored.decidedAt).toBeInstanceOf(Date);
 
-    await organiserPage.goto(`/event-requests/${request.id}`);
-    await expect(organiserPage.getByRole("heading", { name: "Recorded decision" })).toBeVisible();
-    await expect(fieldValue(organiserPage, "Decision")).toHaveText("Rejected");
-    await expect(fieldValue(organiserPage, "Reason")).toHaveText(
-      "The requested venue is unavailable."
-    );
-    await expect(fieldValue(organiserPage, "Decided by")).toHaveText(coordinator.name);
-    const decidedAt = fieldValue(organiserPage, "Decided at").locator("time");
-    await expect(decidedAt).toBeVisible();
-    await expect(decidedAt).toHaveAttribute("datetime", stored.decidedAt?.toISOString() ?? "");
+    await organiserPage.goto(`/events/${request.id}`);
+    // The organiser reads the rejection in the recorded decision; the notification carries it too.
+    await expect(organiserPage.getByLabel("Status: Rejected")).toBeVisible();
+    const decision = organiserPage.getByRole("region", { name: "Recorded decision" });
+    await expect(decision.getByText("Rejected", { exact: true })).toBeVisible();
+    await expect(decision.getByText("The requested venue is unavailable.")).toBeVisible();
+    await expect(decision.getByText(coordinator.name)).toBeVisible();
 
     const notification = await waitForEmail(
       organiser.email,
@@ -662,12 +703,9 @@ test("does not list or expose another Coordinator's assigned request", async ({
     await page.goto("/coordination");
     await expect(page.getByRole("link", { name: request.eventName })).toHaveCount(0);
 
-    await page.goto(`/coordination/${request.id}`);
-    await expect(
-      page.getByText(
-        "You no longer have coordination access to this request, or it is unavailable."
-      )
-    ).toBeVisible();
+    await page.goto(`/events/${request.id}`);
+    // A request assigned to someone else is a 404, the same as a missing one.
+    await expect(page.getByText(/not found/i)).toBeVisible();
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
     await otherContext.close();

@@ -51,10 +51,7 @@ test.describe("Auth Lifecycle Loop", () => {
     await page.waitForURL("/dashboard", { timeout: 10_000 });
 
     // 4. Verify landing on /dashboard
-    await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible({
-      timeout: 10_000,
-    });
-    await expect(page.getByRole("heading", { name: /welcome, e2e user/i })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible({
       timeout: 10_000,
     });
 

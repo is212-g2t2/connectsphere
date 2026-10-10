@@ -89,13 +89,23 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
               {requests.map(request => (
                 <TableRow key={request.id}>
                   <TableCell>
-                    <Link
-                      to="/event-requests/$requestId"
-                      params={{ requestId: String(request.id) }}
-                      className={NAV_LINK_CLASSNAME}
-                    >
-                      {request.eventName.trim() || UNTITLED_REQUEST}
-                    </Link>
+                    {request.status === "draft" ? (
+                      <Link
+                        to="/event-requests/reopenDraft/$id"
+                        params={{ id: String(request.id) }}
+                        className={NAV_LINK_CLASSNAME}
+                      >
+                        {request.eventName.trim() || UNTITLED_REQUEST}
+                      </Link>
+                    ) : (
+                      <Link
+                        to="/events/$eventId"
+                        params={{ eventId: String(request.id) }}
+                        className={NAV_LINK_CLASSNAME}
+                      >
+                        {request.eventName.trim() || UNTITLED_REQUEST}
+                      </Link>
+                    )}
                   </TableCell>
                   <TableCell>{formatFirstProposedDate(request.proposedDates)}</TableCell>
                   <TableCell>

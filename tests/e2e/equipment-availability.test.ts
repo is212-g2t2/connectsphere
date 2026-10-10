@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-40: the availability check on the Technical Support equipment review page. Every test
+// PTR-40: the availability check in the Technical Support section of the event page. Every test
 // creates its own type, venue, booking and event through its own pool and removes them again, so
 // it never touches the shared demo rows and can run in parallel.
 import { expect, test } from "@playwright/test";
@@ -122,7 +122,7 @@ async function addBooking(eventId: number, [start, end]: [string, string]) {
 
 async function openRequest(page: Page, eventId: number) {
   await signInAsStaff(page, "technical_support_staff");
-  await page.goto(`/equipment-requests/${eventId}`);
+  await page.goto(`/events/${eventId}`);
   await waitForHydration(page);
 }
 

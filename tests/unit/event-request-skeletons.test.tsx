@@ -1,7 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { EventRequestDetailPageSkeleton } from "#/features/event-requests/components/request-detail-page-skeleton";
 import { EventRequestListPageSkeleton } from "#/features/event-requests/components/request-list-page-skeleton";
 import { EventRequestsPageSkeleton } from "#/features/event-requests/components/request-page-skeleton";
 
@@ -21,21 +20,6 @@ describe("EventRequestListPageSkeleton", () => {
 
     // The header row plus one row per placeholder in the table.
     expect(container.querySelectorAll("div.divide-y > div")).toHaveLength(4);
-  });
-});
-
-describe("EventRequestDetailPageSkeleton", () => {
-  it("draws the loading shell with the recorded fields grid", () => {
-    const { container } = render(<EventRequestDetailPageSkeleton />);
-
-    const main = container.querySelector("main");
-    expect(main?.className).toContain("max-w-page");
-    expect(main?.getAttribute("aria-busy")).toBe("true");
-    expect(screen.getByRole("status").textContent).toBe("Loading this event request…");
-
-    expect(container.querySelectorAll('[data-slot="card"]')).toHaveLength(1);
-    expect(container.querySelectorAll("dl > div")).toHaveLength(12);
-    expect(container.querySelectorAll('dl > div[class*="sm:col-span-2"]')).toHaveLength(8);
   });
 });
 

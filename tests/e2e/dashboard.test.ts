@@ -7,7 +7,7 @@ test.describe("Protected routes (Signed Out)", () => {
   test("redirects unauthenticated user to login", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/login/);
-    await expect(page.getByRole("heading", { name: /welcome,/i })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Your events" })).toHaveCount(0);
   });
 
   test("redirects unauthenticated settings to login", async ({ page }) => {
@@ -47,7 +47,9 @@ test.describe("Settings after sign-up", () => {
 
     // Sign-up signs the user straight in, so the dashboard is reachable without a sign-in step.
     await page.goto("/dashboard");
-    await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible({
+      timeout: 10_000,
+    });
   }
 
   /**

@@ -117,7 +117,7 @@ test("[PTR-55] reads notifications, follows one, and sees no data for an event o
     await expect(page.getByText("Elsewhere")).toHaveCount(0);
 
     await items.first().getByRole("link").click();
-    await expect(page).toHaveURL(new RegExp(`/event-requests/${reachableEvent.id}$`));
+    await expect(page).toHaveURL(new RegExp(`/events/${reachableEvent.id}$`));
   } finally {
     await database
       .delete(schema.notifications)

@@ -121,7 +121,7 @@ export function renderNotificationEmail(
         element: createElement(ClarificationRequestEmail, {
           eventName,
           body,
-          eventRequestUrl: `${base}/event-requests/${eventRequestId}`,
+          eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     }
@@ -133,7 +133,7 @@ export function renderNotificationEmail(
           eventName,
           question,
           body,
-          eventRequestUrl: `${base}/coordination/${eventRequestId}`,
+          eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     }
@@ -145,7 +145,7 @@ export function renderNotificationEmail(
           eventName,
           whatShouldChange,
           requestedValue,
-          eventRequestUrl: `${base}/coordination/${eventRequestId}`,
+          eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     }
@@ -167,7 +167,7 @@ export function renderNotificationEmail(
         element: createElement(HandoverAcceptedEmail, {
           eventName,
           coordinatorName,
-          eventRequestUrl: `${base}/event-requests/${eventRequestId}`,
+          eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     }
@@ -178,7 +178,7 @@ export function renderNotificationEmail(
         element: createElement(HandoverDeclinedEmail, {
           eventName,
           coordinatorName,
-          eventRequestUrl: `${base}/coordination/${eventRequestId}`,
+          eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     }
@@ -190,7 +190,7 @@ export function renderNotificationEmail(
           eventName,
           decision,
           reason,
-          eventRequestUrl: `${base}/event-requests/${eventRequestId}`,
+          eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     }
@@ -205,7 +205,7 @@ export function renderNotificationEmail(
           startTime: formatTime(startsAt),
           endTime: formatTime(endsAt),
           equipment,
-          eventUrl: `${base}/event-requests/${eventRequestId}`,
+          eventUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     }
@@ -270,15 +270,14 @@ export function renderNotificationEmail(
       };
     }
     case "registration_threshold_reached": {
-      const { eventName, registered, limit, audience } = notification.payload;
-      const path = audience === "coordinator" ? "coordination" : "event-requests";
+      const { eventName, registered, limit } = notification.payload;
       return {
         subject,
         element: createElement(RegistrationThresholdEmail, {
           eventName,
           registered,
           limit,
-          eventUrl: `${base}/${path}/${eventRequestId}`,
+          eventUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     }
@@ -300,7 +299,7 @@ export function renderNotificationEmail(
         subject,
         element: createElement(EventCancellationRequestedEmail, {
           eventName: notification.payload.eventName,
-          eventUrl: `${base}/coordination/${eventRequestId}`,
+          eventUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     case "event_cancelled":
@@ -318,7 +317,7 @@ export function renderNotificationEmail(
         element: createElement(EventCancellationDeclinedEmail, {
           eventName: notification.payload.eventName,
           reason: notification.payload.reason,
-          eventUrl: `${base}/event-requests/${eventRequestId}`,
+          eventUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     case "registration_place_freed": {

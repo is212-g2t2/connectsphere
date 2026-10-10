@@ -95,7 +95,7 @@ test.describe("Venue records", () => {
     await expect(page.getByRole("heading", { name: "Venues" })).toHaveCount(0);
 
     await page.goto("/dashboard");
-    await expect(page.getByRole("heading", { name: /welcome,/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Venues", exact: true })).toHaveCount(0);
   });
 

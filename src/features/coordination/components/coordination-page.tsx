@@ -161,8 +161,8 @@ export function CoordinationPage({
               <li key={request.id} className="py-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Link
-                    to="/coordination/$requestId"
-                    params={{ requestId: String(request.id) }}
+                    to="/events/$eventId"
+                    params={{ eventId: String(request.id) }}
                     className={NAV_LINK_CLASSNAME}
                   >
                     {request.eventName.trim() || UNTITLED_REQUEST}
@@ -204,8 +204,8 @@ export function CoordinationPage({
                   <TableRow key={request.id}>
                     <TableCell>
                       <Link
-                        to="/coordination/$requestId"
-                        params={{ requestId: String(request.id) }}
+                        to="/events/$eventId"
+                        params={{ eventId: String(request.id) }}
                         className={NAV_LINK_CLASSNAME}
                       >
                         {request.eventName.trim() || UNTITLED_REQUEST}

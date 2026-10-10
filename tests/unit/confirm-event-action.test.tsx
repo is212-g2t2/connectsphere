@@ -67,4 +67,18 @@ describe("ConfirmEventAction (PTR-24)", () => {
     const [alert] = await screen.findAllByRole("alert", { hidden: true });
     expect(alert.textContent).toContain("Could not confirm this event. Try again.");
   });
+
+  it("keeps the server refusal when the refetch fails during it", async () => {
+    confirmEvent.mockRejectedValue(
+      new Error(confirmationRefusalMessage(["There is no approved venue booking."]))
+    );
+    invalidate.mockRejectedValueOnce(new Error("loader failed"));
+
+    await openAndConfirm();
+
+    const [alert] = await screen.findAllByRole("alert", { hidden: true });
+    expect(alert.textContent).toContain("There is no approved venue booking.");
+    expect(alert.textContent).not.toContain("Could not confirm this event. Try again.");
+    expect(success).not.toHaveBeenCalled();
+  });
 });

@@ -31,11 +31,11 @@ describe("Email templates rendering", () => {
         eventName="Community workshop"
         question={'Can you use <script>alert("question")</script>?'}
         body={'Yes.\n<img src=x onerror="alert(1)">'}
-        eventRequestUrl="http://localhost:3000/coordination/42"
+        eventRequestUrl="http://localhost:3000/events/42"
       />
     );
     expect(html).toContain("Clarification replied");
-    expect(html).toContain("http://localhost:3000/coordination/42");
+    expect(html).toContain("http://localhost:3000/events/42");
     expect(html).toContain("&lt;script&gt;");
     expect(html).toContain("&lt;img");
     expect(html).not.toContain("<script>");
@@ -78,7 +78,7 @@ describe("Email templates rendering", () => {
   });
 
   it("renders the event decision, rejection reason, and request link", async () => {
-    const eventRequestUrl = "http://localhost:3000/event-requests/42";
+    const eventRequestUrl = "http://localhost:3000/events/42";
     const html = await render(
       <EventDecisionEmail
         eventName="Community workshop"
@@ -115,14 +115,14 @@ describe("Email templates rendering", () => {
       <HandoverAcceptedEmail
         eventName="Community workshop"
         coordinatorName="Bailey"
-        eventRequestUrl="http://localhost:3000/event-requests/42"
+        eventRequestUrl="http://localhost:3000/events/42"
       />
     );
 
     expect(html).toContain("A new Coordinator for your event");
     expect(html).toContain("Bailey");
     expect(html).toContain("Community workshop");
-    expect(html).toContain("http://localhost:3000/event-requests/42");
+    expect(html).toContain("http://localhost:3000/events/42");
   });
 
   it("renders the declined handover with the incoming Coordinator and the outgoing one's request (PTR-110 AC4)", async () => {
@@ -130,7 +130,7 @@ describe("Email templates rendering", () => {
       <HandoverDeclinedEmail
         eventName="Community workshop"
         coordinatorName="Bailey"
-        eventRequestUrl="http://localhost:3000/coordination/42"
+        eventRequestUrl="http://localhost:3000/events/42"
       />
     );
 
@@ -138,13 +138,13 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Bailey");
     expect(html).toContain("Community workshop");
     expect(html).toContain("You remain its Event Coordinator.");
-    expect(html).toContain("http://localhost:3000/coordination/42");
+    expect(html).toContain("http://localhost:3000/events/42");
   });
 
   it("renders ClarificationRequestEmail with the event name, clarification body, and action button", async () => {
     const eventName = "Tech Innovation Summit";
     const body = "Please clarify how many projectors and microphones you will need.";
-    const eventRequestUrl = "http://localhost:3000/event-requests/42";
+    const eventRequestUrl = "http://localhost:3000/events/42";
 
     const html = await render(
       <ClarificationRequestEmail
@@ -340,14 +340,14 @@ describe("Email templates rendering", () => {
         eventName="Open Day"
         registered={40}
         limit={40}
-        eventUrl="http://localhost:3000/coordination/12"
+        eventUrl="http://localhost:3000/events/12"
       />
     );
 
     expect(html).toContain("Registration is full");
     expect(html).toContain("Open Day");
     expect(html).toContain("40 of 40 places are taken. Attendees can no longer register.");
-    expect(html).toContain("http://localhost:3000/coordination/12");
+    expect(html).toContain("http://localhost:3000/events/12");
   });
 
   it("renders RegistrationThresholdEmail as nearly full below the limit (PTR-45 AC9)", async () => {
@@ -356,7 +356,7 @@ describe("Email templates rendering", () => {
         eventName="Open Day"
         registered={36}
         limit={40}
-        eventUrl="http://localhost:3000/event-requests/12"
+        eventUrl="http://localhost:3000/events/12"
       />
     );
 
@@ -370,14 +370,14 @@ describe("Email templates rendering", () => {
       <RegistrationPlaceFreedEmail
         eventName="Open Day"
         limit={40}
-        eventUrl="http://localhost:3000/event-requests/12"
+        eventUrl="http://localhost:3000/events/12"
       />
     );
 
     expect(html).toContain("A place has been freed");
     expect(html).toContain("Open Day");
     expect(html.replaceAll("<!-- -->", "")).toContain("one more place free (limit: 40)");
-    expect(html).toContain("http://localhost:3000/event-requests/12");
+    expect(html).toContain("http://localhost:3000/events/12");
   });
 
   it("renders RegistrationWindowEmail when opened", async () => {
@@ -386,14 +386,14 @@ describe("Email templates rendering", () => {
         eventName="Open Day"
         boundary="opened"
         time="2026-12-05 10:00:00"
-        eventUrl="http://localhost:3000/event-requests/12"
+        eventUrl="http://localhost:3000/events/12"
       />
     );
 
     expect(html).toContain("Registration has opened");
     expect(html).toContain("Open Day");
     expect(html).toContain("registration opened on 5\u00A0December\u00A02026 at 10:00.");
-    expect(html).toContain("http://localhost:3000/event-requests/12");
+    expect(html).toContain("http://localhost:3000/events/12");
   });
 
   it("renders RegistrationWindowEmail when closed", async () => {
@@ -402,17 +402,17 @@ describe("Email templates rendering", () => {
         eventName="Open Day"
         boundary="closed"
         time="2026-12-05 16:00:00"
-        eventUrl="http://localhost:3000/coordination/12"
+        eventUrl="http://localhost:3000/events/12"
       />
     );
 
     expect(html).toContain("Registration has closed");
     expect(html).toContain("Open Day");
     expect(html).toContain("registration closed on 5\u00A0December\u00A02026 at 16:00.");
-    expect(html).toContain("http://localhost:3000/coordination/12");
+    expect(html).toContain("http://localhost:3000/events/12");
   });
   it("renders the cancellation request with the event and the coordination link (PTR-53 AC3)", async () => {
-    const eventUrl = "http://localhost:3000/coordination/42";
+    const eventUrl = "http://localhost:3000/events/42";
     const html = await render(
       <EventCancellationRequestedEmail eventName="Community workshop" eventUrl={eventUrl} />
     );
@@ -440,7 +440,7 @@ describe("Email templates rendering", () => {
       <EventCancelledEmail
         audience="organiser"
         eventName="Community workshop"
-        eventUrl="http://localhost:3000/event-requests/42"
+        eventUrl="http://localhost:3000/events/42"
       />
     );
     expect(organiserHtml).toContain("View your request");
@@ -464,7 +464,7 @@ describe("Email templates rendering", () => {
       <EventCancelledEmail
         audience="technical_support"
         eventName="Community workshop"
-        eventUrl="http://localhost:3000/equipment-requests/42"
+        eventUrl="http://localhost:3000/events/42"
       />
     );
     expect(techHtml).toContain("release");
@@ -475,12 +475,12 @@ describe("Email templates rendering", () => {
       <EventCancellationDeclinedEmail
         eventName="Community workshop"
         reason="The deposit is non-refundable."
-        eventUrl="http://localhost:3000/event-requests/42"
+        eventUrl="http://localhost:3000/events/42"
       />
     );
 
     expect(html).toContain("Community workshop");
     expect(html).toContain("The deposit is non-refundable.");
-    expect(html).toContain("http://localhost:3000/event-requests/42");
+    expect(html).toContain("http://localhost:3000/events/42");
   });
 });

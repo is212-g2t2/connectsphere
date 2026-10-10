@@ -2,9 +2,8 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { EventProjection, VipAttendee } from "#/features/events/access";
-import { EventWorkspace } from "#/features/events/components/event-workspace";
-import { VipRegistrations } from "#/features/events/components/vip-registrations";
+import type { VipAttendee } from "#/features/events/access";
+import { AddVipDialog, RemoveVipButton } from "#/features/events/components/vip-registrations";
 import { VIP_SEARCH_MESSAGE } from "#/features/events/schema";
 import {
   NOT_A_VIP_MESSAGE,
@@ -50,34 +49,15 @@ vi.mock("sonner", () => ({ toast: { success, error: failure } }));
 const ada: VipAttendee = { attendeeId: "ada", name: "Ada Lovelace", email: "ada@x.test" };
 const alan: VipAttendee = { attendeeId: "alan", name: "Alan Turing", email: "alan@x.test" };
 
-const card = (vipRegistrations: VipAttendee[] | null): EventProjection => ({
-  access: "organiser",
-  event: {
-    id: 12,
-    name: "Gala",
-    eventDate: "2030-01-01",
-    startTime: "09:00",
-    endTime: "17:00",
-    status: "confirmed",
-    vipRegistrations,
-  },
-});
-
-/** Opens the VIP accordion, whose rows mount only once expanded. */
-async function openSection(user: { click: (element: Element) => Promise<void> }) {
-  await user.click(screen.getByRole("button", { name: /^VIP registrations \(\d+\)$/ }));
-}
-
-/** Opens the "Add a VIP" dialog, which holds the search form. */
+/** Opens the "Add VIP" dialog, which holds the search form. */
 async function openAddDialog(user: { click: (element: Element) => Promise<void> }) {
-  await user.click(screen.getByRole("button", { name: "Add a VIP" }));
+  await user.click(screen.getByRole("button", { name: "Add VIP" }));
 }
 
-/** Types into the search box of an event with no VIPs yet. */
+/** Types into the search box of the add dialog. */
 async function searchFor(text: string) {
   const user = userEvent.setup();
-  render(<VipRegistrations eventId={12} vips={[]} />);
-  await openSection(user);
+  render(<AddVipDialog eventId={12} />);
   await openAddDialog(user);
   await user.type(searchbox(), text);
   return user;
@@ -93,8 +73,7 @@ async function addAda() {
 /** Opens Ada's removal dialog and confirms it. */
 async function removeAda() {
   const user = userEvent.setup();
-  render(<VipRegistrations eventId={12} vips={[ada]} />);
-  await openSection(user);
+  render(<RemoveVipButton eventId={12} vip={ada} />);
   await user.click(screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" }));
   const dialog = await screen.findByRole("alertdialog");
   await user.click(within(dialog).getByRole("button", { name: "Remove" }));
@@ -103,25 +82,19 @@ async function removeAda() {
 
 const searchbox = () => screen.getByRole("searchbox", { name: "Search attendees" });
 
-describe("VipRegistrations (PTR-111)", () => {
+describe("AddVipDialog (PTR-111)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     invalidate.mockResolvedValue();
   });
 
-  it("lists the VIPs and counts them apart (AC4)", async () => {
+  it("keeps the search form in an Add VIP dialog", async () => {
     const user = userEvent.setup();
-    render(<VipRegistrations eventId={12} vips={[ada, alan]} />);
+    render(<AddVipDialog eventId={12} />);
 
-    expect(screen.queryByText("ada@x.test")).toBeNull();
-    await openSection(user);
-
-    expect(screen.getByRole("button", { name: "VIP registrations (2)" })).toBeTruthy();
-    const rows = screen.getAllByRole("listitem");
-    expect(rows.map(row => within(row).getByText(/@x\.test$/).textContent)).toEqual([
-      "ada@x.test",
-      "alan@x.test",
-    ]);
+    expect(screen.queryByRole("searchbox", { name: "Search attendees" })).toBeNull();
+    await openAddDialog(user);
+    expect(screen.getByRole("searchbox", { name: "Search attendees" })).toBeTruthy();
   });
 
   it("searches once the typing pauses, not on each keystroke, and says how many match", async () => {
@@ -139,8 +112,7 @@ describe("VipRegistrations (PTR-111)", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(<VipRegistrations eventId={12} vips={[]} />);
-      await openSection(user);
+      render(<AddVipDialog eventId={12} />);
       await openAddDialog(user);
 
       await user.type(searchbox(), " a ");
@@ -159,8 +131,7 @@ describe("VipRegistrations (PTR-111)", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(<VipRegistrations eventId={12} vips={[]} />);
-      await openSection(user);
+      render(<AddVipDialog eventId={12} />);
       await openAddDialog(user);
 
       await user.type(searchbox(), "ada{Enter}");
@@ -330,6 +301,20 @@ describe("VipRegistrations (PTR-111)", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(VIPS_CLOSED_MESSAGE);
     expect(invalidate).toHaveBeenCalled();
   });
+});
+
+describe("RemoveVipButton (PTR-111)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    invalidate.mockResolvedValue();
+  });
+
+  it("renders an icon-only bin button", () => {
+    render(<RemoveVipButton eventId={12} vip={ada} />);
+
+    const remove = screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" });
+    expect(remove.querySelector("svg")).toBeTruthy();
+  });
 
   it("removes a VIP once confirmed, tells the caller and reloads the event (AC6)", async () => {
     removeVipRegistration.mockResolvedValue();
@@ -343,27 +328,9 @@ describe("VipRegistrations (PTR-111)", () => {
     expect(invalidate).toHaveBeenCalled();
   });
 
-  it('keeps the search form in an "Add a VIP" dialog and icon-only add/remove buttons', async () => {
-    const user = userEvent.setup();
-    render(<VipRegistrations eventId={12} vips={[ada]} />);
-
-    expect(screen.queryByRole("searchbox", { name: "Search attendees" })).toBeNull();
-    await openSection(user);
-
-    // The open dialog inerts the page behind it, so assert the bin first.
-    const remove = screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" });
-    expect(remove.querySelector("svg")).toBeTruthy();
-
-    const add = screen.getByRole("button", { name: "Add a VIP" });
-    expect(add.querySelector("svg")).toBeTruthy();
-    await user.click(add);
-    expect(screen.getByRole("searchbox", { name: "Search attendees" })).toBeTruthy();
-  });
-
   it("removes nothing when the removal is cancelled", async () => {
     const user = userEvent.setup();
-    render(<VipRegistrations eventId={12} vips={[ada]} />);
-    await openSection(user);
+    render(<RemoveVipButton eventId={12} vip={ada} />);
 
     await user.click(screen.getByRole("button", { name: "Remove VIP registration: Ada Lovelace" }));
     await user.click(
@@ -395,19 +362,5 @@ describe("VipRegistrations (PTR-111)", () => {
       "Could not remove this VIP registration. Try again."
     );
     expect(failure).not.toHaveBeenCalled();
-  });
-});
-
-describe("the workspace card's VIP section (PTR-111)", () => {
-  it("shows the section on a published event", () => {
-    render(<EventWorkspace events={[card([ada])]} />);
-
-    expect(screen.getByRole("region", { name: "VIP registrations" })).toBeTruthy();
-  });
-
-  it("leaves it out when the event takes no VIPs", () => {
-    render(<EventWorkspace events={[card(null)]} />);
-
-    expect(screen.queryByRole("region", { name: "VIP registrations" })).toBeNull();
   });
 });

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { SEED_STAFF_PASSWORD } from "../../scripts/seed";
 import { waitForHydration } from "./hydration";
 
 const password = "HeaderSession123!";
@@ -97,3 +98,72 @@ test.describe("Header session", () => {
     await expect(page.getByRole("heading", { name: /account/i })).toBeVisible();
   });
 });
+
+/**
+ * The dashboard is cards only; each role's sections moved to the site header. The header is
+ * server-rendered, so the signed-in sections are asserted on the hydrated page per role.
+ */
+test.describe("Role sections nav", () => {
+  test("organiser sees Event requests only", async ({ page }) => {
+    const nav = await sectionLinks(page, "jane.doe@example.com");
+    await expect(nav.getByRole("link", { name: "Event requests" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Coordination" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Venues" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Venue calendar" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Approved bookings" })).toHaveCount(0);
+  });
+
+  test("coordinator sees Coordination, Venues, and Venue calendar", async ({ page }) => {
+    const nav = await sectionLinks(page, "coordinator.seed@example.com");
+    await expect(nav.getByRole("link", { name: "Event requests" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Coordination" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Venues" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Venue calendar" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Approved bookings" })).toHaveCount(0);
+  });
+
+  test("venue staff sees Venues, Venue calendar, and Approved bookings", async ({ page }) => {
+    const nav = await sectionLinks(page, "venue.staff.seed@example.com");
+    await expect(nav.getByRole("link", { name: "Event requests" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Coordination" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Venues" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Venue calendar" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Approved bookings" })).toBeVisible();
+  });
+
+  test("technical support sees Venues and Venue calendar", async ({ page }) => {
+    const nav = await sectionLinks(page, "tech.support.seed@example.com");
+    await expect(nav.getByRole("link", { name: "Event requests" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Coordination" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Venues" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Venue calendar" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Approved bookings" })).toHaveCount(0);
+  });
+
+  test("attendee sees no sections", async ({ page }) => {
+    await signInAsSeeded(page, "john.doe@example.com");
+    await page.goto("/dashboard");
+    await waitForHydration(page);
+    await expect(page.locator('nav[aria-label="Primary"]')).toHaveCount(0);
+  });
+
+  test("visitor sees no sections", async ({ page }) => {
+    await page.goto("/");
+    await waitForHydration(page);
+    await expect(page.locator('nav[aria-label="Primary"]')).toHaveCount(0);
+  });
+});
+
+async function signInAsSeeded(page: Page, email: string): Promise<void> {
+  const response = await page.request.post("/api/auth/sign-in/email", {
+    data: { email, password: SEED_STAFF_PASSWORD },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
+async function sectionLinks(page: Page, email: string) {
+  await signInAsSeeded(page, email);
+  await page.goto("/dashboard");
+  await waitForHydration(page);
+  return page.locator('nav[aria-label="Primary"]');
+}

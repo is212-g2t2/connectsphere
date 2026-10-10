@@ -191,7 +191,7 @@ describe("Organiser clarification replies", () => {
     expect(html).toContain("PTR19 Test Event");
     expect(html).toContain("Please confirm attendance and layout.");
     expect(html).toContain(input.body);
-    expect(html).toContain(`/coordination/${request.id}`);
+    expect(html).toContain(`/events/${request.id}`);
     // The stale assignee gets nothing.
     expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(0);
   });

@@ -5,21 +5,6 @@ import { PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "#/components/ui/accordion";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "#/components/ui/dialog";
-
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -31,6 +16,14 @@ import {
   AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "#/components/ui/dialog";
 import { Field, FieldDescription, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import type { VipAttendee } from "#/features/events/access";
@@ -73,51 +66,30 @@ function refusalOf(error: unknown): string {
 }
 
 /**
- * PTR-111: the VIP registrations of a published event, for its Organiser and its assigned
- * Coordinator. The VIPs are counted apart from the normal registrations (AC4). The server checks
+ * PTR-111: the dialog that adds a VIP registration to a published event, for its Organiser and
+ * its assigned Coordinator. The registrations section renders it beside the attendee table's
+ * filters. The VIPs are counted apart from the normal registrations (AC4). The server checks
  * the venue places when a VIP is added, and its refusal names the venue capacity (AC3).
  */
-export function VipRegistrations({ eventId, vips }: { eventId: number; vips: VipAttendee[] }) {
-  const count = vips.length;
-
+export function AddVipDialog({ eventId }: { eventId: number }) {
   return (
-    <section aria-label="VIP registrations">
-      <div className="flex items-start justify-between gap-2">
-        <Accordion className="min-w-0 flex-1">
-          <AccordionItem value="vip-registrations">
-            <AccordionTrigger>
-              {count === 1 ? "VIP registrations (1)" : `VIP registrations (${count})`}
-            </AccordionTrigger>
-            <AccordionContent>
-              {vips.length > 0 && (
-                <ul className="mt-3 space-y-3">
-                  {vips.map(vip => (
-                    <VipRow key={vip.attendeeId} eventId={eventId} vip={vip} />
-                  ))}
-                </ul>
-              )}
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-        {/* Beside the trigger, never inside it: a trigger renders a button, which cannot nest. */}
-        <Dialog>
-          <DialogTrigger
-            render={
-              <Button size="icon-sm" variant="outline" aria-label="Add a VIP">
-                <PlusIcon />
-              </Button>
-            }
-          />
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add a VIP</DialogTitle>
-              <DialogDescription>Search for an Attendee account to add as a VIP.</DialogDescription>
-            </DialogHeader>
-            <VipSearch eventId={eventId} inputId={`vip-registrations-${eventId}-search`} />
-          </DialogContent>
-        </Dialog>
-      </div>
-    </section>
+    <Dialog>
+      <DialogTrigger
+        render={
+          <Button size="sm" aria-label="Add VIP">
+            <PlusIcon />
+            Add VIP
+          </Button>
+        }
+      />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add a VIP</DialogTitle>
+          <DialogDescription>Search for an Attendee account to add as a VIP.</DialogDescription>
+        </DialogHeader>
+        <VipSearch eventId={eventId} inputId={`vip-add-${eventId}-search`} />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -326,10 +298,11 @@ function CandidateRow({
 }
 
 /**
- * AC6: one VIP registration and its removal. The removal frees a venue place that a normal
- * registration can take at once, so it is confirmed first.
+ * AC6: the removal of one VIP registration. The removal frees a venue place that a normal
+ * registration can take at once, so it is confirmed first. The registrations section renders it
+ * as the action of a VIP attendee row.
  */
-function VipRow({ eventId, vip }: { eventId: number; vip: VipAttendee }) {
+export function RemoveVipButton({ eventId, vip }: { eventId: number; vip: VipAttendee }) {
   const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [state, remove, removing] = useMutation(async () => {
@@ -351,54 +324,46 @@ function VipRow({ eventId, vip }: { eventId: number; vip: VipAttendee }) {
   }, "Could not remove this VIP registration. Try again.");
 
   return (
-    <li className="body-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="font-medium">{vip.name}</p>
-          <p className="break-all text-muted-foreground">{vip.email}</p>
-        </div>
-        <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <AlertDialogTrigger
-            render={
-              <Button
-                size="icon-sm"
-                variant="outline"
-                disabled={removing}
-                aria-label={`Remove VIP registration: ${vip.name}`}
-              >
-                <Trash2Icon />
-              </Button>
-            }
-          />
-          <AlertDialogContent size="sm">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Remove VIP registration</AlertDialogTitle>
-              <AlertDialogDescription>
-                {vip.name} will no longer hold a place at the venue, and a normal registration can
-                take it.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel size="sm" disabled={removing}>
-                Cancel
-              </AlertDialogCancel>
-              <AlertDialogAction
-                size="sm"
-                variant="destructive"
-                disabled={removing}
-                onClick={() => void remove()}
-              >
-                {removing ? "Removing…" : "Remove"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-            {state.status === "error" ? (
-              <p role="alert" className="body-sm text-destructive">
-                {state.error}
-              </p>
-            ) : null}
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    </li>
+    <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <AlertDialogTrigger
+        render={
+          <Button
+            size="icon-sm"
+            variant="outline"
+            disabled={removing}
+            aria-label={`Remove VIP registration: ${vip.name}`}
+          >
+            <Trash2Icon />
+          </Button>
+        }
+      />
+      <AlertDialogContent size="sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove VIP registration</AlertDialogTitle>
+          <AlertDialogDescription>
+            {vip.name} will no longer hold a place at the venue, and a normal registration can take
+            it.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel size="sm" disabled={removing}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            size="sm"
+            variant="destructive"
+            disabled={removing}
+            onClick={() => void remove()}
+          >
+            {removing ? "Removing…" : "Remove"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+        {state.status === "error" ? (
+          <p role="alert" className="body-sm text-destructive">
+            {state.error}
+          </p>
+        ) : null}
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

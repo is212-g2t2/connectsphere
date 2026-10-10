@@ -67,10 +67,14 @@ test("[PTR-29][AC5] search launched from an event opens with its requirements pr
   await signInAsStaff(page, "event_coordinator");
   await page.goto("/dashboard");
   await waitForHydration(page);
-  const demoEvent = page
-    .getByRole("heading", { name: DEMO_EVENT_NAME, exact: true })
-    .locator("xpath=ancestor::*[@data-slot='card'][1]");
-  await demoEvent.getByRole("link", { name: "Find venues for this event", exact: true }).click();
+  // Dashboard cards link to the event page; the search entry lives in its venue section now.
+  await page.getByRole("link", { name: DEMO_EVENT_NAME, exact: true }).click();
+  await expect(page).toHaveURL(/\/events\/\d+/);
+  await waitForHydration(page);
+  await page
+    .locator("section#venue")
+    .getByRole("link", { name: "Find venues for this event", exact: true })
+    .click();
 
   await expect(page.getByText(`Prefilled from ${DEMO_EVENT_NAME}`, { exact: true })).toBeVisible();
   await expect(page.getByLabel("Date", { exact: true })).not.toHaveValue("");
@@ -92,10 +96,13 @@ test("[PTR-30][AC2][AC3][AC5] the venues that do not suit the event say why", as
   await signInAsStaff(page, "event_coordinator");
   await page.goto("/dashboard");
   await waitForHydration(page);
-  const demoEvent = page
-    .getByRole("heading", { name: DEMO_EVENT_NAME, exact: true })
-    .locator("xpath=ancestor::*[@data-slot='card'][1]");
-  await demoEvent.getByRole("link", { name: "Find venues for this event", exact: true }).click();
+  await page.getByRole("link", { name: DEMO_EVENT_NAME, exact: true }).click();
+  await expect(page).toHaveURL(/\/events\/\d+/);
+  await waitForHydration(page);
+  await page
+    .locator("section#venue")
+    .getByRole("link", { name: "Find venues for this event", exact: true })
+    .click();
   await expect(page.getByText(`Prefilled from ${DEMO_EVENT_NAME}`, { exact: true })).toBeVisible();
 
   const unsuitable = page.getByRole("region", { name: "Not suitable" });

@@ -2,10 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
-import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import {
-  ASSIGNED_ON_SUBMIT,
   EventRequestListPage,
   NOT_YET_ASSIGNED,
   UNTITLED_REQUEST,
@@ -31,7 +28,16 @@ vi.mock("@tanstack/react-router", () => ({
     to: string;
     params?: Record<string, string>;
   }) => (
-    <a href={params ? to.replace("$requestId", params.requestId).replace("$id", params.id) : to}>
+    <a
+      href={
+        params
+          ? to
+              .replace("$requestId", params.requestId)
+              .replace("$id", params.id)
+              .replace("$eventId", params.eventId)
+          : to
+      }
+    >
       {children}
     </a>
   ),
@@ -130,10 +136,15 @@ describe("EventRequestListPage (PTR-14)", () => {
     expect(rows).toHaveLength(2);
 
     expect(within(rows[0]).getByRole("link", { name: "Annual dinner" }).getAttribute("href")).toBe(
-      "/event-requests/42"
+      "/events/42"
     );
     expect(within(rows[0]).getByText("1 Dec 2030, 18:00")).toBeTruthy();
     expect(within(rows[0]).getByText("Submitted")).toBeTruthy();
+
+    // A draft has no event page yet, so its name links straight to the reopen route.
+    expect(
+      within(rows[1]).getByRole("link", { name: "Community workshop" }).getAttribute("href")
+    ).toBe("/event-requests/reopenDraft/41");
 
     expect(within(rows[1]).getByRole("link", { name: "Community workshop" })).toBeTruthy();
     expect(within(rows[1]).getByText("18 Nov 2030, 09:30")).toBeTruthy();
@@ -223,116 +234,5 @@ describe("EventRequestListPage draft actions (PTR-12)", () => {
     );
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
     expect(screen.queryByText("Delete this draft?")).toBeNull();
-  });
-});
-
-describe("EventRequestDetailPage (PTR-14 AC4)", () => {
-  it("shows every recorded field of a submitted request, read-only", () => {
-    render(<EventRequestDetailPage request={submitted} />);
-
-    expect(screen.getByRole("heading", { name: "Annual dinner" })).toBeTruthy();
-    expect(screen.getByText("Submitted")).toBeTruthy();
-    // 10:00 UTC is 18:00 in Singapore; a zone-dependent render would fail on any other machine.
-    expect(screen.getByText("14 Sept 2026, 18:00").tagName).toBe("TIME");
-    for (const text of [
-      "Thank the volunteers",
-      "1 Dec 2030, 18:00 – 22:00",
-      "120",
-      "Dinner",
-      "Near MRT",
-      "Banquet",
-      "Step-free access",
-      "Vegetarian option",
-      "Wireless microphone × 2",
-      "Capacity 100",
-      "Seeded Event Coordinator",
-    ]) {
-      expect(screen.getByText(text)).toBeTruthy();
-    }
-    // PTR-15 criterion 3: the contact route, not only the name.
-    expect(
-      screen.getByRole("link", { name: "coordinator.seed@example.com" }).getAttribute("href")
-    ).toBe("mailto:coordinator.seed@example.com");
-    expect(screen.getByText(/Opens 1 Nov 2030, 09:00, closes 20 Nov 2030, 17:00/)).toBeTruthy();
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
-  });
-
-  it("shows a bare draft with its gaps named rather than blank", () => {
-    render(<EventRequestDetailPage request={base} />);
-
-    expect(screen.getByRole("heading", { name: UNTITLED_REQUEST })).toBeTruthy();
-    expect(screen.getByText(/Saved as a draft/)).toBeTruthy();
-    expect(screen.getAllByText("None recorded").length).toBeGreaterThanOrEqual(8);
-    expect(screen.getByText("Not required")).toBeTruthy();
-    expect(screen.getByText(ASSIGNED_ON_SUBMIT)).toBeTruthy();
-  });
-
-  it("shows a recorded decision, reason, Coordinator and time (PTR-20 AC3)", () => {
-    render(
-      <EventRequestDetailPage
-        request={{
-          ...submitted,
-          status: "rejected",
-          decisionReason: "The requested room is unavailable.",
-          decidedByCoordinatorId: "seed-coordinator-1",
-          decidedByCoordinatorName: "Seeded Event Coordinator",
-          decidedAt: new Date("2026-09-16T03:30:00Z"),
-        }}
-      />
-    );
-
-    const decisionCard = screen
-      .getByRole("heading", { name: "Recorded decision" })
-      .closest('[data-slot="card"]');
-    expect(decisionCard).toBeTruthy();
-    const decision = within(decisionCard as HTMLElement);
-    expect(decision.getByText("Rejected")).toBeTruthy();
-    expect(decision.getByText("The requested room is unavailable.")).toBeTruthy();
-    expect(decision.getByText("Seeded Event Coordinator")).toBeTruthy();
-    expect(decision.getByText("16 Sept 2026, 11:30").tagName).toBe("TIME");
-  });
-});
-
-describe("EventRequestDetailPage stages (PTR-21 AC2)", () => {
-  const decided = {
-    decidedByCoordinatorId: "seed-coordinator-1",
-    decidedByCoordinatorName: "Seeded Event Coordinator",
-    decidedAt: new Date("2026-09-16T03:30:00Z"),
-  };
-
-  it.each([
-    ["planning", "Approved and being planned."],
-    ["confirmed", "Confirmed and going ahead."],
-    ["completed", "The event has taken place."],
-  ] as const)("describes %s as a decided stage with its decision shown", (status, note) => {
-    render(<EventRequestDetailPage request={{ ...submitted, status, ...decided }} />);
-    expect(screen.getByLabelText(`Status: ${EVENT_REQUEST_STATUS_LABELS[status]}`)).toBeTruthy();
-    expect(screen.getByText(/Decision recorded on/).textContent).toContain(note);
-    const card = within(
-      screen
-        .getByRole("heading", { name: "Recorded decision" })
-        .closest("[data-slot='card']") as HTMLElement
-    );
-    expect(card.getByText("Approved")).toBeTruthy();
-    expect(card.getByText("Seeded Event Coordinator")).toBeTruthy();
-  });
-
-  it("describes a cancellation before any decision as submitted and cancelled, with no decision card", () => {
-    render(<EventRequestDetailPage request={{ ...submitted, status: "cancelled" }} />);
-    expect(screen.getByText(/Submitted on/).textContent).toContain("Cancelled.");
-    expect(screen.queryByRole("heading", { name: "Recorded decision" })).toBeNull();
-  });
-
-  it("keeps the decision on a cancellation made after one, without calling the cancellation the decision", () => {
-    render(<EventRequestDetailPage request={{ ...submitted, status: "cancelled", ...decided }} />);
-    expect(screen.getByText(/Decision recorded on/).textContent).toContain("Cancelled.");
-    const card = within(
-      screen
-        .getByRole("heading", { name: "Recorded decision" })
-        .closest("[data-slot='card']") as HTMLElement
-    );
-    expect(card.getByText("Cancelled after a recorded decision")).toBeTruthy();
-    expect(card.getByText("Seeded Event Coordinator")).toBeTruthy();
   });
 });
