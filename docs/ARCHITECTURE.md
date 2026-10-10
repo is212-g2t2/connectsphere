@@ -95,11 +95,8 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │   └── routes/           # Routing only: wiring, guards, loaders, metadata
 │       ├── __root.tsx    # Metadata, session resolution, shell, error boundaries
 │       ├── _authenticated.tsx # Session boundary: children require a sign-in
-│       ├── _authenticated/    # dashboard, settings, coordination, event-requests, events, registrations, venues, notifications
-│       │   ├── equipment-requests/ # Technical Support's work list and per-request arrangement view
-│       │   ├── events/ # Attendee view of a published (confirmed, registration-on) event, or of a cancelled event that the Attendee has a registration for
-│       │   ├── venue-requests/ # Pending booking request queue, detail, approval and rejection
-│       │   └── venue-bookings/ # Venue Staff's approved-booking release and amendment view
+│       ├── _authenticated/    # dashboard, settings, coordination, event-requests, events, venue-bookings, venues, notifications
+│       │   ├── events/ # Staff event detail (record stack plus action rail) and the attendee event view
 │       ├── api/          # Better Auth handler, health, smoke, cron
 │       └── robots[.]txt.ts, sitemap[.]xml.ts
 ├── tests/                # Vitest and Playwright suites
