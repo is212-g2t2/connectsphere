@@ -20,12 +20,8 @@ import { EventRequestForm } from "#/features/event-requests/components/request-f
 import type { EventRequestFormSubmitContext } from "#/features/event-requests/components/request-form";
 import { toDraftValues } from "#/features/event-requests/components/request-page";
 import { formatVenuePeriod } from "#/features/event-requests/format";
-import {
-  EVENT_INFORMATION_FIELDS,
-  significantFieldPhrase,
-  significantFields,
-} from "#/features/event-requests/schema";
-import type { EventRequestDraftValues, SignificantField } from "#/features/event-requests/schema";
+import { EVENT_INFORMATION_FIELDS, significantFields } from "#/features/event-requests/schema";
+import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import type { EventRequestDetail, EventRequestDraft } from "#/features/event-requests/server-fns";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 import { listEventArrangements, updateEventInformation } from "#/features/events/server-fns";
