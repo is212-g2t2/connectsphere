@@ -1,15 +1,20 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventInformationChanges, eventRequests } from "#/db/schema";
+import { eventChangeRequests, eventInformationChanges, eventRequests } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { amendedValues, amendmentsBetween } from "#/features/event-requests/amendments";
 import {
+  CHANGE_REQUEST_APPLY_NO_CHANGE_MESSAGE,
+  CHANGE_REQUEST_NOT_WAITING_MESSAGE,
+  EVENT_CHANGE_REQUEST_CLOSED,
   EVENT_INFORMATION_FIELDS,
   EVENT_REQUEST_STATUS_LABELS,
   SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE,
+  canApplyEventChangeRequest,
   canUpdateEventInformation,
+  parseEventChangeRequestDeclineInput,
   parseEventInformationInput,
   significantFields,
 } from "#/features/event-requests/schema";
@@ -41,6 +46,11 @@ export interface EventInformationUpdated {
  * PTR-23: a significant change (AC1) is refused until the Coordinator acknowledges the warning
  * that names what the event holds (AC2), and once saved it tells the staff holding a booking or a
  * reservation (AC5). The arrangements themselves are not touched (AC3).
+ *
+ * PTR-52: a save that carries `changeRequestId` applies the Organiser's waiting change request. It
+ * is open in every status the request could be raised in, it must change something, and the
+ * request is marked applied and the Organiser told in the same transaction (AC2, AC5). Nothing
+ * else moves (AC4).
  */
 export async function handleUpdateEventInformation(
   data: unknown,
@@ -50,24 +60,38 @@ export async function handleUpdateEventInformation(
   const input = parseEventInformationInput(data);
 
   return database.transaction(async tx => {
-    const request = (
-      await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
-    ).at(0);
-
-    // A missing event and someone else's event are refused the same way, so the refusal does not
-    // say whether the id exists. A draft has no Coordinator, so it is refused here too.
-    if (!request || request.assignedCoordinatorId !== actor.id) {
-      throw new AuthorizationError("Forbidden");
-    }
-    if (!canUpdateEventInformation(request.status)) {
-      throw new ConflictError(
-        `This event's information cannot be updated while its status is ${EVENT_REQUEST_STATUS_LABELS[request.status].toLowerCase()}.`
-      );
+    let request: typeof eventRequests.$inferSelect;
+    let changeRequest: typeof eventChangeRequests.$inferSelect | null;
+    if (input.changeRequestId !== undefined) {
+      const locked = await lockWaitingChangeRequest(tx, input.id, input.changeRequestId, actor);
+      if (!canApplyEventChangeRequest(locked.event.status)) {
+        throw new ConflictError(EVENT_CHANGE_REQUEST_CLOSED);
+      }
+      request = locked.event;
+      changeRequest = locked.changeRequest;
+    } else {
+      const direct = (
+        await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
+      ).at(0);
+      if (!direct || direct.assignedCoordinatorId !== actor.id) {
+        throw new AuthorizationError("Forbidden");
+      }
+      if (!canUpdateEventInformation(direct.status)) {
+        throw new ConflictError(
+          `This event's information cannot be updated while its status is ${EVENT_REQUEST_STATUS_LABELS[direct.status].toLowerCase()}.`
+        );
+      }
+      request = direct;
+      changeRequest = null;
     }
 
     const values = amendedValues(request, input.amendments);
     const changes = amendmentsBetween(request, values, EVENT_INFORMATION_FIELDS);
-    if (changes.length === 0) return { changedFields: [], notified: 0 };
+    if (changes.length === 0) {
+      // An apply must change the record; a no-change save is refused so the request stays waiting.
+      if (changeRequest) throw new ConflictError(CHANGE_REQUEST_APPLY_NO_CHANGE_MESSAGE);
+      return { changedFields: [], notified: 0 };
+    }
 
     // Decided on what actually changed, not on what the form touched: a field typed over and
     // restored is no change. The refusal rolls the locked row back untouched.
@@ -114,9 +138,129 @@ export async function handleUpdateEventInformation(
             actorName || "The Coordinator"
           )
         : [];
-    await raiseNotifications(tx, notices);
+    if (changeRequest) {
+      const applied = await tx
+        .update(eventChangeRequests)
+        .set({
+          outcome: "applied",
+          processedById: actor.id,
+          processedByName: actorName,
+          processedAt: appliedAt,
+        })
+        .where(
+          and(eq(eventChangeRequests.id, changeRequest.id), isNull(eventChangeRequests.outcome))
+        )
+        .returning({ id: eventChangeRequests.id });
+      if (applied.length === 0) throw new ConflictError(CHANGE_REQUEST_NOT_WAITING_MESSAGE);
+    }
+    await raiseNotifications(
+      tx,
+      changeRequest
+        ? [
+            ...notices,
+            {
+              recipientId: request.organiserId,
+              eventRequestId: request.id,
+              kind: "event_change_processed",
+              payload: {
+                outcome: "applied",
+                eventName: values.eventName.trim() || "Untitled request",
+                whatShouldChange: changeRequest.whatShouldChange,
+              },
+            },
+          ]
+        : notices
+    );
 
+    // The toast counts the holders told (PTR-23 AC5); the Organiser's notice is not one of them.
     return { changedFields: changes.map(change => change.field), notified: notices.length };
+  });
+}
+
+/**
+ * PTR-52: the waiting change request named by `changeRequestId`, locked, on an event the actor is
+ * the assigned Coordinator of, also locked. The event lock goes first, as every writer on the event
+ * takes it, so an apply, a decline and a cancellation serialise. A missing event, a draft and
+ * someone else's event are refused the same way; a request that is not this event's or is already
+ * processed answers 409, so a double click or a stale page cannot process it twice.
+ */
+async function lockWaitingChangeRequest(
+  tx: Tx,
+  eventId: number,
+  changeRequestId: number,
+  actor: SessionUser
+) {
+  const event = (
+    await tx.select().from(eventRequests).where(eq(eventRequests.id, eventId)).for("update")
+  ).at(0);
+  if (!event || event.status === "draft" || event.assignedCoordinatorId !== actor.id) {
+    throw new AuthorizationError("Forbidden");
+  }
+  const changeRequest = (
+    await tx
+      .select()
+      .from(eventChangeRequests)
+      .where(
+        and(
+          eq(eventChangeRequests.id, changeRequestId),
+          eq(eventChangeRequests.eventRequestId, event.id)
+        )
+      )
+      .for("update")
+  ).at(0);
+  if (!changeRequest || changeRequest.outcome !== null) {
+    throw new ConflictError(CHANGE_REQUEST_NOT_WAITING_MESSAGE);
+  }
+  return { event, changeRequest };
+}
+
+/**
+ * PTR-52 AC2, AC5: the assigned Coordinator declines a waiting change request with a reason. The
+ * event is left as it is in every status, as a cancellation request is; the request keeps its
+ * outcome and reason on the record, and the Organiser is told in the same transaction.
+ */
+export async function handleDeclineEventChangeRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseEventChangeRequestDeclineInput(data);
+
+  return database.transaction(async tx => {
+    const { event, changeRequest } = await lockWaitingChangeRequest(
+      tx,
+      input.id,
+      input.changeRequestId,
+      actor
+    );
+
+    const declined = await tx
+      .update(eventChangeRequests)
+      .set({
+        outcome: "declined",
+        declineReason: input.reason,
+        processedById: actor.id,
+        processedByName: actor.name?.trim() || actor.email,
+        processedAt: new Date(),
+      })
+      .where(and(eq(eventChangeRequests.id, changeRequest.id), isNull(eventChangeRequests.outcome)))
+      .returning();
+    if (declined.length === 0) throw new ConflictError(CHANGE_REQUEST_NOT_WAITING_MESSAGE);
+    await raiseNotifications(tx, [
+      {
+        recipientId: event.organiserId,
+        eventRequestId: event.id,
+        kind: "event_change_processed",
+        payload: {
+          outcome: "declined",
+          eventName: event.eventName.trim() || "Untitled request",
+          whatShouldChange: changeRequest.whatShouldChange,
+          reason: input.reason,
+        },
+      },
+    ]);
+
+    return declined[0];
   });
 }
 

@@ -1,5 +1,5 @@
 import { Card, CardContent } from "#/components/ui/card";
-import { UpdateEventInformation } from "#/features/coordination/components/update-event-information";
+import { CoordinatorInformationForm } from "#/features/coordination/components/change-request-decisions";
 import { Detail } from "#/features/event-requests/components/request-message-blocks";
 import { canUpdateEventInformation } from "#/features/event-requests/schema";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
@@ -88,7 +88,9 @@ function OrganiserInformation({ request }: { request: EventRequestDetail }) {
 
 /**
  * The event's recorded information both staff roles read — updatable by the Coordinator while the
- * event is approved, planning, or confirmed.
+ * event is approved, planning, or confirmed. In those statuses the Coordinator's form also saves
+ * the apply of a waiting change request (PTR-52); in the others the change requests section holds
+ * that form.
  */
 export function eventInformationSections(data: EventPageData): EventSectionDef[] {
   if (data.kind !== "event") return [];
@@ -115,7 +117,7 @@ export function eventInformationSections(data: EventPageData): EventSectionDef[]
         if (body.kind !== "event") return null;
         if (body.event.access === "coordinator") {
           const request = body.coordination?.request;
-          return request ? <UpdateEventInformation request={request} /> : null;
+          return request ? <CoordinatorInformationForm request={request} /> : null;
         }
         const request = body.organiserRequest;
         return request ? <OrganiserInformation request={request} /> : null;

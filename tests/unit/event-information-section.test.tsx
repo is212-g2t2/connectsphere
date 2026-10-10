@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { ChangeRequestApplyProvider } from "#/features/coordination/components/change-request-decisions";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
 import type { EventProjection } from "#/features/events/access";
 import { eventInformationSections } from "#/features/events/components/event-information-section";
@@ -114,7 +115,8 @@ describe("event information section", () => {
     const defs = eventInformationSections(data);
     expect(defs).toHaveLength(1);
     expect(defs[0].label).toBe("Update event information");
-    render(<>{defs[0].render(data)}</>);
+    // The event page holds the change-request apply this form shares with the decisions card.
+    render(<ChangeRequestApplyProvider>{defs[0].render(data)}</ChangeRequestApplyProvider>);
 
     expect(screen.getByRole("heading", { name: "Update event information" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit event information" })).toBeTruthy();

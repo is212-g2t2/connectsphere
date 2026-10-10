@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -22,7 +22,7 @@ import { toDraftValues } from "#/features/event-requests/components/request-page
 import { formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_INFORMATION_FIELDS, significantFields } from "#/features/event-requests/schema";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
-import type { EventRequestDraft } from "#/features/event-requests/server-fns";
+import type { EventRequestDetail, EventRequestDraft } from "#/features/event-requests/server-fns";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 import { listEventArrangements, updateEventInformation } from "#/features/events/server-fns";
 
@@ -48,15 +48,64 @@ interface SignificantChangeWarning {
  * PTR-23: a change to a significant field (AC1) first reads what the event holds and shows the
  * warning (AC2, AC3); the save goes ahead only once the Coordinator confirms it. An ordinary edit
  * saves at once (AC4). The server refuses a significant change sent without the confirmation.
+ *
+ * PTR-52: with `applying` set, the form is open on the Organiser's change request, pinned above
+ * it, and the save carries the request's id so the server marks it applied and tells the Organiser
+ * in the same transaction (AC2, AC5). The caller shows the form in that mode in every status the
+ * request could be raised in, derives `applying` from the live record so a request processed
+ * elsewhere closes the form on the next read, and is told through `onApplyEnd` when the save lands
+ * or the form is closed. `onDirtyChange` lets it hold other applies while edits are unsaved.
  */
-export function UpdateEventInformation({ request }: { request: EventRequestDraft }) {
+export function UpdateEventInformation(props: UpdateEventInformationProps) {
+  // An apply replaces an open direct edit: the key remounts the form on apply/dispose, so no
+  // direct-edit state survives the switch. Every CoordinatorInformationForm call site shares
+  // this, in the change requests section and the event information section alike.
+  return <UpdateEventInformationBody key={props.applying?.id ?? "edit"} {...props} />;
+}
+
+type UpdateEventInformationProps = {
+  request: EventRequestDraft;
+  applying?: Pick<
+    EventRequestDetail["changeRequests"][number],
+    "id" | "whatShouldChange" | "requestedValue"
+  > | null;
+  onApplyEnd?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+};
+
+function UpdateEventInformationBody({
+  request,
+  applying = null,
+  onApplyEnd,
+  onDirtyChange,
+}: UpdateEventInformationProps) {
   const router = useRouter();
   const formId = useId();
   const toggle = useRef<HTMLButtonElement>(null);
-  const [editing, setEditing] = useState(false);
+  const applyingHeading = useRef<HTMLHeadingElement>(null);
+  const [editingSelf, setEditingSelf] = useState(false);
+  // An apply opens the form from the decisions card, so the request's own state cannot close it;
+  // the form is open for either reason. The wrapper remounts on apply/dispose, so an apply
+  // always replaces an open direct edit with a fresh form.
+  const editing = applying !== null || editingSelf;
+  const applyingId = applying?.id;
+  // The decisions card sits above; the reader lands on the pinned request, not where they were.
+  useEffect(() => {
+    if (applyingId !== undefined) applyingHeading.current?.focus();
+  }, [applyingId]);
+  // The caller holds other applies while this form has unsaved edits (PTR-52). A form closed
+  // from outside — the request processed elsewhere, the page re-read — reports clean on its way
+  // out, so nothing stays held after it is gone.
+  useEffect(
+    () => () => {
+      onDirtyChange?.(false);
+    },
+    [onDirtyChange]
+  );
   // The toggle waits for a save, so a reopened form is never closed by the earlier save.
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const saveLabel = applying ? "Save and mark applied" : "Save changes";
   const [confirmOpen, setConfirmOpen] = useState(false);
   // From the arrangements read until the Coordinator answers the warning: the toggle waits, so
   // the form cannot be discarded under a warning that would still save its edits.
@@ -66,14 +115,28 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
   // fades out. `warningOpen` says whether it shows.
   const [warningOpen, setWarningOpen] = useState(false);
 
+  const reportDirty = useCallback(
+    (next: boolean) => {
+      setDirty(next);
+      onDirtyChange?.(next);
+    },
+    [onDirtyChange]
+  );
+
+  function closeForm() {
+    setEditingSelf(false);
+    reportDirty(false);
+    if (applying) onApplyEnd?.();
+  }
+
   function discardEdits() {
-    // Close both at once so focus can move straight to the toggle.
+    // Close both at once so focus can move straight to the toggle. An apply came from the
+    // decisions card, and `onApplyEnd` returns focus there instead.
     flushSync(() => {
       setConfirmOpen(false);
-      setEditing(false);
-      setDirty(false);
+      closeForm();
     });
-    toggle.current?.focus();
+    if (!applying) toggle.current?.focus();
   }
 
   async function save(
@@ -113,6 +176,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
           id: request.id,
           amendments: pickAmendments(values, EVENT_INFORMATION_FIELDS, touchedFields),
           ...(significant.length > 0 ? { acknowledgeSignificant: true } : {}),
+          ...(applying ? { changeRequestId: applying.id } : {}),
         },
       });
       let reloadFailed = false;
@@ -128,16 +192,17 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
       // One commit re-enables the toggle and closes the form, so the toggle can take focus at once.
       flushSync(() => {
         setSaving(false);
-        setEditing(false);
-        setDirty(false);
+        closeForm();
       });
-      toggle.current?.focus();
+      if (!applying) toggle.current?.focus();
       if (result.changedFields.length === 0) toast.info("No changes to save.");
       else if (!reloadFailed) {
+        const staff =
+          result.notified > 0 ? " The staff holding its arrangements will be notified." : "";
         toast.success(
-          result.notified > 0
-            ? "Event information saved. The staff holding its arrangements will be notified."
-            : "Event information saved."
+          applying
+            ? `Change request applied. The Organiser will be notified.${staff}`
+            : `Event information saved.${staff}`
         );
       }
     } catch (error) {
@@ -150,6 +215,16 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
     }
   }
 
+  let toggleLabel = "Edit event information";
+  if (editing) toggleLabel = "Cancel editing";
+  if (applying) toggleLabel = "Cancel applying";
+
+  function onToggle() {
+    if (editing && dirty) setConfirmOpen(true);
+    else if (editing) closeForm();
+    else setEditingSelf(true);
+  }
+
   return (
     <section className="mt-8" aria-labelledby="update-information-heading">
       <Card>
@@ -157,7 +232,7 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 id="update-information-heading" className="display-h3">
-                Update event information
+                {applying ? "Apply the change request" : "Update event information"}
               </h2>
               <p className="mt-2 body-sm text-muted-foreground">
                 A saved change replaces the recorded value for everyone with access to this event. A
@@ -173,24 +248,47 @@ export function UpdateEventInformation({ request }: { request: EventRequestDraft
               disabled={saving || confirming}
               aria-expanded={editing}
               aria-controls={editing ? formId : undefined}
-              onClick={() => {
-                if (editing && dirty) setConfirmOpen(true);
-                else setEditing(open => !open);
-              }}
+              onClick={onToggle}
             >
-              {editing ? "Cancel editing" : "Edit event information"}
+              {toggleLabel}
             </Button>
           </div>
           {editing && (
             <div id={formId} className="mt-4 max-w-3xl">
+              {applying && (
+                <div className="mb-6 rounded-md border border-border bg-muted/40 p-4">
+                  <h3 ref={applyingHeading} tabIndex={-1} className="display-h3 outline-none">
+                    Applying the Organiser&apos;s change request
+                  </h3>
+                  <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <dt className="eyebrow text-muted-foreground">What should change</dt>
+                      <dd className="mt-2 body-md font-medium whitespace-pre-line">
+                        {applying.whatShouldChange}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="eyebrow text-muted-foreground">Requested new value</dt>
+                      <dd className="mt-2 body-md font-medium whitespace-pre-line">
+                        {applying.requestedValue}
+                      </dd>
+                    </div>
+                  </dl>
+                  <p className="mt-3 body-sm text-muted-foreground">
+                    Make the change in the form, then save. The request is marked applied with the
+                    save, and the Organiser is told.
+                  </p>
+                </div>
+              )}
               <EventRequestForm
+                key={applying ? `apply-${applying.id}` : "edit"}
                 initialValues={toDraftValues(request)}
-                saveLabel="Save changes"
-                busyLabel={saving ? "Saving…" : "Save changes"}
+                saveLabel={saveLabel}
+                busyLabel={saving ? "Saving…" : saveLabel}
                 requireComplete
                 idPrefix={formId}
                 onSave={save}
-                onDirtyChange={setDirty}
+                onDirtyChange={reportDirty}
               />
             </div>
           )}

@@ -6,6 +6,7 @@ import { ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { lockOwnedEvent } from "#/features/event-requests/owned-event.server";
 import {
+  EVENT_CHANGE_REQUEST_CLOSED,
   canRaiseEventChangeRequest,
   parseEventChangeRequestInput,
 } from "#/features/event-requests/schema";
@@ -13,15 +14,26 @@ import { raiseNotifications } from "#/features/notifications/raise.server";
 
 type Database = typeof Db;
 
-const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.";
-
-/** PTR-51: read the append-only requests in the order the Organiser raised them. */
+/**
+ * PTR-51: the requests in the order the Organiser raised them, with the outcome PTR-52 recorded.
+ * The Organiser's page and the Coordinator's page both show them, so the processor's id stays out
+ * of the projection as it does for a cancellation request.
+ */
 export async function listEventChangeRequests(
   eventRequestId: number,
   database: Pick<Database, "select">
 ) {
   return database
-    .select()
+    .select({
+      id: eventChangeRequests.id,
+      whatShouldChange: eventChangeRequests.whatShouldChange,
+      requestedValue: eventChangeRequests.requestedValue,
+      createdAt: eventChangeRequests.createdAt,
+      outcome: eventChangeRequests.outcome,
+      declineReason: eventChangeRequests.declineReason,
+      processedByName: eventChangeRequests.processedByName,
+      processedAt: eventChangeRequests.processedAt,
+    })
     .from(eventChangeRequests)
     .where(eq(eventChangeRequests.eventRequestId, eventRequestId))
     .orderBy(asc(eventChangeRequests.createdAt), asc(eventChangeRequests.id));

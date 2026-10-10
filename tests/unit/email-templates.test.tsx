@@ -8,6 +8,7 @@ import {
   EventCancellationRequestedEmail,
   EventCancelledEmail,
 } from "#/features/emails/components/event-cancellation-email";
+import { EventChangeProcessedEmail } from "#/features/emails/components/event-change-request-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { EventSignificantChangeEmail } from "#/features/emails/components/event-significant-change-email";
 import {
@@ -469,6 +470,38 @@ describe("Email templates rendering", () => {
       />
     );
     expect(techHtml).toContain("release");
+  });
+
+  it("renders the processed change request for each outcome, with the reason for a decline (PTR-52 AC5)", async () => {
+    const appliedHtml = await render(
+      <EventChangeProcessedEmail
+        outcome="applied"
+        eventName="Community workshop"
+        whatShouldChange="Expected attendance"
+        eventRequestUrl="http://localhost:3000/events/42"
+      />
+    );
+    expect(appliedHtml).toContain("Change request applied");
+    expect(appliedHtml).toContain("Community workshop");
+    expect(appliedHtml).toContain("Expected attendance");
+    expect(appliedHtml).toContain("now shows the new information");
+    expect(appliedHtml).not.toContain("Reason:");
+    expect(appliedHtml).not.toContain("holds 80");
+    expect(appliedHtml).toContain("http://localhost:3000/events/42");
+
+    const declinedHtml = await render(
+      <EventChangeProcessedEmail
+        outcome="declined"
+        eventName="Community workshop"
+        whatShouldChange="Expected attendance"
+        reason="The hall holds 80 at most."
+        eventRequestUrl="http://localhost:3000/events/42"
+      />
+    );
+    expect(declinedHtml).toContain("Change request declined");
+    expect(declinedHtml).toContain("Reason:");
+    expect(declinedHtml).toContain("The hall holds 80 at most.");
+    expect(declinedHtml).not.toContain("now shows the new information");
   });
 
   it("renders the significant change to each holder, naming the booking to Venue Staff and the event to Technical Support (PTR-23 AC5)", async () => {

@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission, requireSession } from "#/features/auth/session";
 import {
   parseEventCancellationDeclineInput,
+  parseEventChangeRequestDeclineInput,
   parseEventInformationInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
@@ -107,6 +108,7 @@ export const updateEventInformation = createServerFn({ method: "POST" })
         actorId: context.user.id,
         changedFields: result.changedFields,
         notified: result.notified,
+        changeRequestId: data.changeRequestId,
       });
     }
 
@@ -139,6 +141,25 @@ export const cancelEvent = createServerFn({ method: "POST" })
     const event = await handleCancelEvent(data, context.user, db);
 
     log.info("Event cancelled", { eventId: event.id, actorId: context.user.id });
+  });
+
+/**
+ * PTR-52 AC2: the assigned Coordinator declines a waiting change request, with a reason. The
+ * handler re-reads the assignment and the request, so the permission says only that the caller may
+ * coordinate. Applying a request goes through `updateEventInformation` with `changeRequestId`.
+ */
+export const declineEventChangeRequest = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestCoordinate])
+  .validator(parseEventChangeRequestDeclineInput)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleDeclineEventChangeRequest }] = await loadUpdateServer();
+    const declined = await handleDeclineEventChangeRequest(data, context.user, db);
+
+    log.info("Event change request declined", {
+      eventId: data.id,
+      changeRequestId: declined.id,
+      actorId: context.user.id,
+    });
   });
 
 /** PTR-54 AC8: the assigned Coordinator declines a waiting cancellation request, with a reason. */

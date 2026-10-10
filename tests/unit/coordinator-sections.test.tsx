@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ChangeRequestApplyProvider } from "#/features/coordination/components/change-request-decisions";
 import {
   coordinatorClosingSections,
   coordinatorSections,
@@ -121,7 +122,8 @@ function renderSection(data: EventPageData, id: string, closing = false) {
   const sections = closing ? coordinatorClosingSections(data) : coordinatorSections(data);
   const section = sections.find(candidate => candidate.id === id);
   expect(section).toBeDefined();
-  return render(<>{section?.render(data)}</>);
+  // The event page holds the change-request apply its sections share (PTR-52).
+  return render(<ChangeRequestApplyProvider>{section?.render(data)}</ChangeRequestApplyProvider>);
 }
 
 const owned = (overrides: Record<string, unknown> = {}) =>
@@ -385,6 +387,10 @@ describe("changes section", () => {
       createdAt: new Date("2026-09-20T02:00:00Z"),
       whatShouldChange: "Start time",
       requestedValue: "Move the start to 10:00.",
+      outcome: "applied",
+      declineReason: null,
+      processedByName: "Myself",
+      processedAt: new Date("2026-09-21T02:00:00Z"),
     },
   ];
 

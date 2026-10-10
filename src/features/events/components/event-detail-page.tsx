@@ -2,6 +2,7 @@ import { CalendarDays, Clock3 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 import { Page } from "#/components/layout/page";
+import { ChangeRequestApplyProvider } from "#/features/coordination/components/change-request-decisions";
 import {
   coordinatorClosingSections,
   coordinatorSections,
@@ -193,7 +194,15 @@ export function EventDetailPage({ data }: { data: EventPageData }) {
       </div>
 
       <div className="mt-6">
-        <SectionStack data={data} sections={sections} />
+        {/* The apply bridges two coordinator-only sections (PTR-52), so only that access
+            mounts the provider. */}
+        {access === "coordinator" ? (
+          <ChangeRequestApplyProvider>
+            <SectionStack data={data} sections={sections} />
+          </ChangeRequestApplyProvider>
+        ) : (
+          <SectionStack data={data} sections={sections} />
+        )}
       </div>
     </Page>
   );

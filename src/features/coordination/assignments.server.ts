@@ -9,6 +9,7 @@ import {
   notInArray,
   or,
   isNull,
+  sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -16,6 +17,7 @@ import type { db as Db } from "#/db";
 import {
   clarificationRequests,
   eventAssignments,
+  eventChangeRequests,
   eventHandovers,
   equipmentRequests,
   eventRequests,
@@ -75,6 +77,11 @@ export async function handleListAssignedEventRequests(actor: SessionUser, databa
       organiser: { name: user.name, email: user.email },
       /** PTR-110: the Coordinator a live handover waits on, so the list can say so. */
       handoverTo: handoverTargets.name,
+      /** PTR-52 AC1: the Organiser's change requests still waiting on this Coordinator. */
+      changeRequestsWaiting:
+        sql<number>`(select count(*) from ${eventChangeRequests} where ${eventChangeRequests.eventRequestId} = ${eventRequests.id} and ${eventChangeRequests.outcome} is null)`.mapWith(
+          Number
+        ),
     })
     .from(eventRequests)
     .innerJoin(user, eq(user.id, eventRequests.organiserId))

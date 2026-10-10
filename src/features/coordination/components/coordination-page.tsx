@@ -171,6 +171,13 @@ export function CoordinationPage({
                   {request.handoverTo ? (
                     <Badge variant="progress">Handover to {request.handoverTo} pending</Badge>
                   ) : null}
+                  {request.changeRequestsWaiting > 0 ? (
+                    <Badge variant="secondary">
+                      {request.changeRequestsWaiting === 1
+                        ? "1 change request waiting"
+                        : `${request.changeRequestsWaiting} change requests waiting`}
+                    </Badge>
+                  ) : null}
                 </div>
                 <p className="mt-1 body-sm text-muted-foreground">{request.organiser.name}</p>
               </li>

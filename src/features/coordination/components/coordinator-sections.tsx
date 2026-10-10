@@ -27,6 +27,10 @@ import {
   OutstandingReleasesList,
 } from "#/features/coordination/components/cancellation-decision";
 import {
+  ChangeRequestDecisions,
+  CoordinatorInformationForm,
+} from "#/features/coordination/components/change-request-decisions";
+import {
   CoordinatorSelection,
   DECISION_REASON_MAX_LENGTH,
   DecisionFormSchema,
@@ -50,6 +54,7 @@ import {
   CLARIFICATION_TEXT_MAX,
   ClarificationFormSchema,
   canRequestEventCancellation,
+  canUpdateEventInformation,
 } from "#/features/event-requests/schema";
 import type { ClarificationField, EventRequestStatus } from "#/features/event-requests/schema";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
@@ -647,11 +652,35 @@ function MessagesBody({ data }: { data: EventPageData }) {
   return <ClarificationThread request={request} replyable={false} />;
 }
 
-/** The change-request history, exactly as the old coordination detail shows it. */
+/**
+ * The change-request history with its outcomes (PTR-52 AC5). While a request waits, the assigned
+ * Coordinator gets the decisions card above it, and, in a status with no direct edit, the form
+ * that applies a request opens below the card instead of in the event information section.
+ */
 function ChangesBody({ data }: { data: EventPageData }) {
   const request = coordinationRequest(data);
   if (!request || request.changeRequests.length === 0) return null;
-  return <ChangeRequestHistory request={request} />;
+  const processing =
+    isAssignedView(data, request) && request.changeRequests.some(item => item.outcome === null);
+  // While the decisions card shows the waiting requests, the history below keeps only the
+  // decided ones so no request renders twice. The Organiser's record keeps the full list.
+  const history = processing
+    ? { ...request, changeRequests: request.changeRequests.filter(item => item.outcome !== null) }
+    : request;
+  return (
+    <div className="space-y-8">
+      {processing && <ChangeRequestDecisions request={request} />}
+      {processing && !canUpdateEventInformation(request.status) && (
+        <CoordinatorInformationForm request={request} />
+      )}
+      {history.changeRequests.length > 0 && (
+        <ChangeRequestHistory
+          request={history}
+          viewerIsCoordinator={isAssignedView(data, request)}
+        />
+      )}
+    </div>
+  );
 }
 
 /**

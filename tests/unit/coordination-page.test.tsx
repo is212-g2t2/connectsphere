@@ -122,6 +122,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       assignedCoordinatorId: "usr_coord",
       assignedAt: new Date("2026-09-15T03:00:00Z"),
       handoverTo: null,
+      changeRequestsWaiting: 0,
     };
     const { rerender } = render(
       <CoordinationPage unassigned={[]} assigned={[assignedRow]} handovers={[]} />
@@ -143,6 +144,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       assignedCoordinatorId: "usr_coord",
       assignedAt: new Date("2026-09-15T03:00:00Z"),
       handoverTo: null,
+      changeRequestsWaiting: 0,
     };
     render(<CoordinationPage unassigned={[]} assigned={[decided]} handovers={[]} />);
 
@@ -155,6 +157,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       assignedCoordinatorId: "usr_coord",
       assignedAt: new Date("2026-09-15T03:00:00Z"),
       handoverTo: "Bailey",
+      changeRequestsWaiting: 0,
     };
     render(<CoordinationPage unassigned={[]} assigned={[assignedRow]} handovers={[]} />);
 
@@ -230,5 +233,32 @@ describe("Handovers awaiting a response (PTR-110)", () => {
     render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[]} />);
 
     expect(screen.queryByRole("heading", { name: "Handovers awaiting your response" })).toBeNull();
+  });
+});
+
+describe("change requests waiting on the Coordinator (PTR-52 AC1)", () => {
+  it("flags each assigned request with how many change requests wait, and nothing when none do", () => {
+    const base: AssignedEventRequest = {
+      ...waiting,
+      assignedCoordinatorId: "usr_coord",
+      assignedAt: new Date("2026-09-15T03:00:00Z"),
+      handoverTo: null,
+      changeRequestsWaiting: 0,
+    };
+    render(
+      <CoordinationPage
+        unassigned={[]}
+        assigned={[
+          { ...base, id: 1, eventName: "One waiting", changeRequestsWaiting: 1 },
+          { ...base, id: 2, eventName: "Two waiting", changeRequestsWaiting: 2 },
+          { ...base, id: 3, eventName: "None waiting" },
+        ]}
+        handovers={[]}
+      />
+    );
+
+    expect(screen.getByText("1 change request waiting")).toBeTruthy();
+    expect(screen.getByText("2 change requests waiting")).toBeTruthy();
+    expect(screen.getAllByText(/change requests? waiting/)).toHaveLength(2);
   });
 });
