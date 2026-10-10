@@ -62,16 +62,16 @@ interface SignificantChangeWarning {
  */
 export function UpdateEventInformation({
   request,
-  applying,
+  applying = null,
   onApplyEnd,
   onDirtyChange,
 }: {
   request: EventRequestDraft;
-  applying: Pick<
+  applying?: Pick<
     EventRequestDetail["changeRequests"][number],
     "id" | "whatShouldChange" | "requestedValue"
   > | null;
-  onApplyEnd: () => void;
+  onApplyEnd?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const router = useRouter();
@@ -128,7 +128,7 @@ export function UpdateEventInformation({
   function closeForm() {
     setEditingSelf(false);
     reportDirty(false);
-    if (applying) onApplyEnd();
+    if (applying) onApplyEnd?.();
   }
 
   function discardEdits() {

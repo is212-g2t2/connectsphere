@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -7,11 +9,15 @@ import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Textarea } from "#/components/ui/textarea";
+import { UpdateEventInformation } from "#/features/coordination/components/update-event-information";
+import type { CoordinationRequest } from "#/features/coordination/server-fns";
 import { formatInstant } from "#/features/event-requests/format";
 import {
   CHANGE_REQUEST_DECLINE_REASON_MAX,
   EVENT_CHANGE_REQUEST_CLOSED,
   EventChangeRequestDeclineInput,
+  canApplyEventChangeRequest,
+  canUpdateEventInformation,
 } from "#/features/event-requests/schema";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import { declineEventChangeRequest } from "#/features/events/server-fns";
@@ -22,7 +28,7 @@ export const CHANGE_REQUEST_DECISIONS_HEADING_ID = "change-request-decisions-hea
 
 /**
  * Where focus lands once a decision has taken a request off this card: the card's heading while
- * other requests still wait, otherwise the record of every request further down the page.
+ * other requests still wait, otherwise the record of every request below it.
  */
 export function focusChangeRequests() {
   (
@@ -32,36 +38,88 @@ export function focusChangeRequests() {
 }
 
 /**
- * PTR-52: the Organiser's change requests still waiting on the assigned Coordinator, each with the
- * two decisions (AC2). "Apply" opens the event information form below with the request pinned to
- * it, so the save that applies it records the change and the outcome together and warns about a
- * significant change as any edit does (AC3). "Decline" asks for a reason. A closed event can only
- * decline. The processed requests stay on the record further down the page (AC5).
+ * PTR-52: the apply in progress on the event page. The decisions card in the change requests
+ * section starts it, and the event information form saves it, so the two sections share the id
+ * of the request being applied and whether the form holds unsaved edits. Only the id is kept; the
+ * request itself is read from the live record.
  */
-export function ChangeRequestDecisions({
-  requestId,
-  changeRequests,
-  canApply,
-  applyingId,
-  applyDisabled,
-  onApply,
-}: {
-  requestId: number;
-  changeRequests: ChangeRequest[];
-  canApply: boolean;
-  /** The request whose apply is open in the form below, if any. */
+interface ChangeRequestApplyState {
   applyingId: number | null;
-  /** True while the form below holds unsaved edits, so no apply can replace them unasked. */
-  applyDisabled: boolean;
-  onApply: (request: ChangeRequest) => void;
-}) {
-  const waiting = changeRequests
+  setApplyingId: (id: number | null) => void;
+  informationDirty: boolean;
+  setInformationDirty: (dirty: boolean) => void;
+}
+
+const ChangeRequestApplyContext = createContext<ChangeRequestApplyState | null>(null);
+
+/** Holds the apply for every section of one event page. */
+export function ChangeRequestApplyProvider({ children }: { children: ReactNode }) {
+  const [applyingId, setApplyingId] = useState<number | null>(null);
+  const [informationDirty, setInformationDirty] = useState(false);
+  const value = useMemo(
+    () => ({ applyingId, setApplyingId, informationDirty, setInformationDirty }),
+    [applyingId, informationDirty]
+  );
+  return <ChangeRequestApplyContext value={value}>{children}</ChangeRequestApplyContext>;
+}
+
+/**
+ * The apply on `request`, read from the live record: a request processed elsewhere, or an event
+ * closed since, is no longer applying on the next read.
+ */
+function useChangeRequestApply(request: CoordinationRequest) {
+  const state = useContext(ChangeRequestApplyContext);
+  if (!state) throw new Error("A change request apply needs a ChangeRequestApplyProvider.");
+  const applying = canApplyEventChangeRequest(request.status)
+    ? (request.changeRequests.find(item => item.id === state.applyingId && item.outcome === null) ??
+      null)
+    : null;
+  return { ...state, applying };
+}
+
+/**
+ * The assigned Coordinator's event information form: a direct edit in the statuses that allow
+ * one (PTR-22), and the apply of a waiting change request in every status the request could be
+ * raised in (PTR-52). Outside the direct-edit statuses it shows only while an apply is open.
+ */
+export function CoordinatorInformationForm({ request }: { request: CoordinationRequest }) {
+  const { applying, setApplyingId, setInformationDirty } = useChangeRequestApply(request);
+  if (!canUpdateEventInformation(request.status) && applying === null) return null;
+
+  function endApply() {
+    // The form may unmount with the apply (no direct edit in this status), so focus is placed
+    // first; the form moves it on to its own toggle when that survives.
+    flushSync(() => setApplyingId(null));
+    focusChangeRequests();
+  }
+
+  return (
+    <UpdateEventInformation
+      request={request}
+      applying={applying}
+      onApplyEnd={endApply}
+      onDirtyChange={setInformationDirty}
+    />
+  );
+}
+
+/**
+ * PTR-52: the Organiser's change requests still waiting on the assigned Coordinator, each with the
+ * two decisions (AC2). "Apply" opens the event information form with the request pinned to it, so
+ * the save that applies it records the change and the outcome together and warns about a
+ * significant change as any edit does (AC3). "Decline" asks for a reason. A closed event can only
+ * decline. The processed requests stay on the record below the card (AC5).
+ */
+export function ChangeRequestDecisions({ request }: { request: CoordinationRequest }) {
+  const { applying, setApplyingId, informationDirty } = useChangeRequestApply(request);
+  const canApply = canApplyEventChangeRequest(request.status);
+  const waiting = request.changeRequests
     .map((item, index) => ({ item, number: index + 1 }))
     .filter(({ item }) => item.outcome === null);
   if (waiting.length === 0) return null;
 
   return (
-    <section className="mt-8" aria-labelledby={CHANGE_REQUEST_DECISIONS_HEADING_ID}>
+    <section aria-labelledby={CHANGE_REQUEST_DECISIONS_HEADING_ID}>
       <Card>
         <CardContent>
           <h2
@@ -80,13 +138,14 @@ export function ChangeRequestDecisions({
             {waiting.map(({ item, number }) => (
               <ChangeRequestDecision
                 key={item.id}
-                requestId={requestId}
+                requestId={request.id}
                 item={item}
                 number={number}
                 canApply={canApply}
-                applying={applyingId === item.id}
-                applyDisabled={applyDisabled}
-                onApply={onApply}
+                applying={applying?.id === item.id}
+                // Unsaved edits in the form are never replaced by an apply unasked.
+                applyDisabled={informationDirty}
+                onApply={next => setApplyingId(next.id)}
               />
             ))}
           </ul>

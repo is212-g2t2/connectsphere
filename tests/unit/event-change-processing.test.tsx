@@ -2,9 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CoordinationRequestPage } from "#/features/coordination/components/coordination-request-page";
 import type { CoordinationRequest } from "#/features/coordination/server-fns";
-import { EventRequestDetailPage } from "#/features/event-requests/components/request-detail-page";
 import {
   EVENT_REQUEST_STATUSES,
   canApplyEventChangeRequest,
@@ -12,6 +10,8 @@ import {
   parseEventInformationInput,
 } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import { EventDetailPage } from "#/features/events/components/event-detail-page";
+import type { EventPageData } from "#/features/events/page-data";
 
 const { updateEventInformation, listEventArrangements, declineEventChangeRequest, invalidate } =
   vi.hoisted(() => ({
@@ -54,7 +54,6 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success, info, warning, error } }));
 
-const actor = { id: "coord-a", email: "a@example.com", name: "Alex", role: "event_coordinator" };
 const coordinators = [{ id: "coord-a", name: "Alex", email: "a@example.com" }];
 
 const waiting = {
@@ -132,16 +131,31 @@ const request: CoordinationRequest = {
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,
   equipmentArrangementsCompletedById: null,
+  venueRequest: null,
 };
 
+/** The assigned Coordinator's event page: `kind: "event"` with coordinator access means assigned. */
+function coordinatorPage(overrides: Partial<CoordinationRequest> = {}): EventPageData {
+  const coordination = { ...request, ...overrides };
+  return {
+    kind: "event",
+    viewerId: "coord-a",
+    event: {
+      access: "coordinator",
+      event: {
+        id: coordination.id,
+        name: coordination.eventName,
+        description: coordination.description,
+        status: coordination.status,
+        expectedAttendance: coordination.expectedAttendance,
+      },
+    },
+    coordination: { request: coordination, coordinators },
+  } as unknown as EventPageData;
+}
+
 function renderPage(overrides: Partial<CoordinationRequest> = {}) {
-  return render(
-    <CoordinationRequestPage
-      request={{ ...request, ...overrides }}
-      coordinators={coordinators}
-      user={actor}
-    />
-  );
+  return render(<EventDetailPage data={coordinatorPage(overrides)} />);
 }
 
 const decisions = () =>
@@ -210,7 +224,17 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     ).toBeNull();
     unmount();
 
-    renderPage({ assignedCoordinatorId: "coord-b" });
+    // A Coordinator the event is not assigned to opens the triage view of the request.
+    render(
+      <EventDetailPage
+        data={{
+          kind: "triage",
+          viewerId: "coord-b",
+          request: { ...request, status: "submitted" },
+          coordinators,
+        }}
+      />
+    );
     expect(
       screen.queryByRole("region", { name: "Change requests awaiting your decision" })
     ).toBeNull();
@@ -230,6 +254,32 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       expect(screen.queryByRole("button", { name: "Edit event information" })).toBeNull();
     }
   );
+
+  it("opens the apply in the event information section where a direct edit is offered, and below the decisions card where it is not", async () => {
+    const user = userEvent.setup();
+    const editable = renderPage();
+    await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
+    expect(
+      editable.container
+        .querySelector("#details")
+        ?.contains(screen.getByLabelText("Event name (required)"))
+    ).toBe(true);
+    editable.unmount();
+
+    const review = renderPage({
+      status: "under_review",
+      decidedByCoordinatorId: null,
+      decidedByCoordinatorName: null,
+      decidedAt: null,
+    });
+    await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
+    expect(review.container.querySelector("#details")).toBeNull();
+    expect(
+      review.container
+        .querySelector("#changes")
+        ?.contains(screen.getByLabelText("Event name (required)"))
+    ).toBe(true);
+  });
 
   it("offers only the decline on a completed event, and says why", () => {
     renderPage({
@@ -415,17 +465,14 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
 
     // Another tab declined #1; the page re-read with #2 still waiting.
     rerender(
-      <CoordinationRequestPage
-        request={{
-          ...request,
+      <EventDetailPage
+        data={coordinatorPage({
           status: "submitted",
           decidedByCoordinatorId: null,
           decidedByCoordinatorName: null,
           decidedAt: null,
           changeRequests: [{ ...declined, id: 31 }, second],
-        }}
-        coordinators={coordinators}
-        user={actor}
+        })}
       />
     );
 
@@ -445,13 +492,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     await user.click(screen.getByRole("button", { name: "Edit event information" }));
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
-    rerender(
-      <CoordinationRequestPage
-        request={{ ...request, changeRequests: [declined] }}
-        coordinators={coordinators}
-        user={actor}
-      />
-    );
+    rerender(<EventDetailPage data={coordinatorPage({ changeRequests: [declined] })} />);
 
     expect(screen.queryByLabelText("Purpose (required)")).toBeNull();
     expect(screen.getByRole("button", { name: "Edit event information" })).toBeTruthy();
@@ -464,13 +505,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     expect(screen.getByRole("heading", { name: "Apply the change request" })).toBeTruthy();
 
     // A page re-read after another tab declined the request.
-    rerender(
-      <CoordinationRequestPage
-        request={{ ...request, changeRequests: [declined] }}
-        coordinators={coordinators}
-        user={actor}
-      />
-    );
+    rerender(<EventDetailPage data={coordinatorPage({ changeRequests: [declined] })} />);
 
     expect(screen.queryByRole("heading", { name: "Apply the change request" })).toBeNull();
   });
@@ -585,12 +620,24 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
   });
 });
 
+/** The Organiser's event page, whose requests section carries the same record. */
+function organiserPage(overrides: Partial<CoordinationRequest> = {}): EventPageData {
+  const organiserRequest = { ...request, ...overrides };
+  return {
+    kind: "event",
+    viewerId: "org",
+    event: {
+      access: "organiser",
+      event: { id: organiserRequest.id, name: organiserRequest.eventName, status: "approved" },
+    },
+    organiserRequest,
+  } as unknown as EventPageData;
+}
+
 describe("the record of a change request (PTR-52 AC5)", () => {
   it("keeps every request with its outcome, who processed it, and the reason for a decline, for the Organiser", () => {
     render(
-      <EventRequestDetailPage
-        request={{ ...request, changeRequests: [waiting, applied, declined] }}
-      />
+      <EventDetailPage data={organiserPage({ changeRequests: [waiting, applied, declined] })} />
     );
 
     const section = screen.getByRole("region", { name: "Change requests" });
@@ -599,7 +646,7 @@ describe("the record of a change request (PTR-52 AC5)", () => {
     expect(within(items[0]).getByText("Waiting for Alex to process it.")).toBeTruthy();
     expect(
       within(items[1]).getByText(
-        /Applied by Alex on .*The record below shows the new information\./
+        /Applied by Alex on .*The event information shows the new values\./
       )
     ).toBeTruthy();
     expect(within(items[2]).getByText(/Declined by Alex on /)).toBeTruthy();
@@ -609,9 +656,7 @@ describe("the record of a change request (PTR-52 AC5)", () => {
 
   it("says a waiting request waits for a Coordinator to be assigned when none is", () => {
     render(
-      <EventRequestDetailPage
-        request={{ ...request, assignedCoordinatorId: null, coordinator: null }}
-      />
+      <EventDetailPage data={organiserPage({ assignedCoordinatorId: null, coordinator: null })} />
     );
 
     expect(screen.getByText("Waiting for a Coordinator to be assigned.")).toBeTruthy();

@@ -146,7 +146,7 @@ test("the Coordinator applies a change request through the event information for
     },
   ]);
 
-  const organiser = await openAs(browser, ORGANISER_EMAIL, `/event-requests/${id}`);
+  const organiser = await openAs(browser, ORGANISER_EMAIL, `/events/${id}`);
   await expect(organiser.getByRole("heading", { level: 1, name: `${name} Dinner` })).toBeVisible();
   await expect(organiser.getByText(/Applied by Seeded Event Coordinator on/)).toBeVisible();
 });
@@ -159,7 +159,7 @@ test("the Coordinator declines a change request with a reason, and the Organiser
     "400 attendees"
   );
 
-  const coordinator = await openAs(browser, COORDINATOR_EMAIL, `/coordination/${id}`);
+  const coordinator = await openAs(browser, COORDINATOR_EMAIL, `/events/${id}`);
   await coordinator.getByRole("button", { name: "Decline change request #1" }).click();
   await coordinator.getByRole("button", { name: "Decline request #1 with this reason" }).click();
   await expect(coordinator.getByText("Enter a reason for declining")).toBeVisible();
@@ -175,7 +175,7 @@ test("the Coordinator declines a change request with a reason, and the Organiser
     declineReason: "The hall holds 80 at most.",
   });
 
-  const organiser = await openAs(browser, ORGANISER_EMAIL, `/event-requests/${id}`);
+  const organiser = await openAs(browser, ORGANISER_EMAIL, `/events/${id}`);
   await expect(organiser.getByRole("heading", { level: 1, name })).toBeVisible();
   await expect(organiser.getByText(/Declined by Seeded Event Coordinator on/)).toBeVisible();
   await expect(organiser.getByText("The hall holds 80 at most.")).toBeVisible();

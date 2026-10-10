@@ -110,11 +110,12 @@ export function ClarificationThread({
 }
 
 export function ChangeRequestHistory({ request }: { request: EventRequestDetail }) {
+  const coordinatorName = request.coordinator?.name ?? null;
   return (
     <section aria-labelledby="change-requests-heading">
       <Card>
         <CardContent>
-          <h2 id="change-requests-heading" className="display-h3">
+          <h2 id="change-requests-heading" tabIndex={-1} className="display-h3 outline-none">
             Change requests
           </h2>
           <ul className="mt-4 divide-y divide-border">
@@ -133,6 +134,15 @@ export function ChangeRequestHistory({ request }: { request: EventRequestDetail 
                   <Detail term="What should change">{item.whatShouldChange}</Detail>
                   <Detail term="Requested new value">{item.requestedValue}</Detail>
                 </dl>
+                <p className="mt-3 body-md font-medium">
+                  {changeRequestOutcome(item, coordinatorName)}
+                </p>
+                {item.declineReason ? (
+                  <div className="mt-3 border-l-2 border-border pl-4">
+                    <p className="eyebrow text-muted-foreground">Reason</p>
+                    <p className="mt-1 body-md whitespace-pre-line">{item.declineReason}</p>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -285,6 +295,22 @@ function formatAmendmentValue(
     default:
       return plainAmendmentText(value);
   }
+}
+
+/** PTR-52 AC5: what became of one change request, and who processed it when. */
+function changeRequestOutcome(
+  item: EventRequestDetail["changeRequests"][number],
+  coordinatorName: string | null
+): string {
+  if (item.outcome === null) {
+    return coordinatorName === null
+      ? "Waiting for a Coordinator to be assigned."
+      : `Waiting for ${coordinatorName} to process it.`;
+  }
+  const by = `${item.processedByName ?? "the Coordinator"} on ${formatInstant(item.processedAt)}`;
+  return item.outcome === "applied"
+    ? `Applied by ${by}. The event information shows the new values.`
+    : `Declined by ${by}.`;
 }
 
 /** PTR-54 AC7, AC8: what became of one cancellation request, and who decided it when. */
