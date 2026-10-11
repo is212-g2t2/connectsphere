@@ -8,7 +8,7 @@ Built with TanStack Start, Better Auth, and Drizzle ORM.
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) v1.4.2 or later
+- [Bun](https://bun.sh/) v1.4.3 or later
 - [Docker](https://www.docker.com/) for local services (PostgreSQL, Redis)
 
 ### Setup
