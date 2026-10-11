@@ -21,11 +21,12 @@ on:
       - "instrument.server.mjs"
       - "Dockerfile"
       - ".github/**"
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".vscode/**"
-      - ".idea/**"
+      # GitHub rejects `paths` with `paths-ignore` on one event. List
+      # exclusions here with `!`. Negations follow inclusions.
+      - "!**.md"
+      - "!docs/**"
+      - "!.vscode/**"
+      - "!.idea/**"
 
 permissions:
   contents: read

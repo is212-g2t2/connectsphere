@@ -5,11 +5,6 @@ on:
   pull_request:
     # This activity type is not enabled by default. Include it so marking a draft ready starts a run.
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".vscode/**"
-      - ".idea/**"
     paths:
       - "src/**"
       - "tests/integration/**"
@@ -20,6 +15,12 @@ on:
       - "vitest.config.ts"
       - "package.json"
       - "bun.lock"
+      # GitHub rejects `paths` with `paths-ignore` on one event. List
+      # exclusions here with `!`. Negations follow inclusions.
+      - "!**.md"
+      - "!docs/**"
+      - "!.vscode/**"
+      - "!.idea/**"
 
 permissions:
   contents: read
