@@ -37,7 +37,9 @@ export function RegisterAction({ eventId, eventName }: { eventId: number; eventN
       throw isRegistrationRefusal(message) ? error : new Error();
     }
     toast.success(`You are registered for ${eventName}.`);
-    await router.invalidate({ filter: skipRootFilter });
+    // Registration raises the attendee's own event_registered notice, and the bell count
+    // lives in the root context. Refresh it too.
+    await router.invalidate();
   }, "Could not register for this event. Try again.");
 
   return (

@@ -129,7 +129,7 @@ The scripts that `package.json` defines:
 | `bun run db:seed`          | Run the database seed script (`scripts/seed.ts`)                                            |
 | `bun run db:studio`        | Start the Drizzle Studio web interface                                                      |
 | `bun run test`             | Run all Vitest test suites across projects                                                  |
-| `bun run test:unit`        | Run unit tests (`tests/unit/`, `jsdom` environment)                                         |
+| `bun run test:unit`        | Run unit tests (`tests/unit/`, `node` default; component tests opt into `jsdom`)            |
 | `bun run test:integration` | Run integration tests (`tests/integration/`, `node` environment)                            |
 | `bun run test:e2e`         | Run the Playwright end-to-end tests (the setup provisions the database and the application) |
 | `bun run codegen`          | Start the Playwright code generator for browser test recording                              |
@@ -159,12 +159,12 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 
 ## Testing Guide
 
-The test suite has three tiers. Vitest coverage is enabled in `vitest.config.ts`: 43% lines and statements, 29% branches, and 24% functions over `src/env.ts`, `components`, `db`, `features`, `hooks`, and `lib`. The configuration excludes `components/ui`, the application bootstrap files, generated files, and the migration directory. Unit and integration runs therefore rewrite `coverage/`.
+The test suite has three tiers. Vitest collects coverage only when `COVERAGE=1`: 43% lines and statements, 29% branches, and 24% functions over `src/env.ts`, `components`, `db`, `features`, `hooks`, and `lib`. The configuration excludes `components/ui`, the application bootstrap files, generated files, and the migration directory. The unit CI job sets `COVERAGE=1` and enforces these gates. A local run rewrites `coverage/` only when you set the variable.
 
 ### 1. Unit Tests (`tests/unit/`)
 
 - Configured under the `unit` project in `vitest.config.ts`.
-- Uses the `jsdom` environment with `@testing-library/react`.
+- Uses the `node` environment by default. Component tests opt into `jsdom` with a per-file pragma and use `@testing-library/react`.
 - **Rule**: unit tests must test pure logic and isolated components. They **must not** start a database container or rely on external network services.
 
 Run unit tests:
@@ -187,8 +187,8 @@ bun run test:integration
 
 ### 3. End-to-End Tests (`tests/e2e/`)
 
-- Playwright drives these tests (`playwright.config.ts`). `tests/e2e/global-setup.ts` owns the environment. It starts a `postgres:18-alpine` testcontainer on a random host port, applies the committed migrations, and seeds the database. It then builds the application and starts the production server (`bun run build`, `bun run start`) on :3000 against that same `DATABASE_URL`. Teardown stops the server and the container, and it discards the database.
-- Docker must be running, and :3000 must be free. The setup does not reuse another server: it fails on the busy port. The application and the tests therefore always share one database.
+- Playwright drives these tests (`playwright.config.ts`). `tests/e2e/global-setup.ts` owns the environment. By default it starts a `postgres:18-alpine` testcontainer on a random host port, applies the committed migrations, and seeds the database. It then builds the application and starts the production server (`bun run build`, `bun run start`) on :3000 against that same `DATABASE_URL`. Teardown stops the server and the container, and it discards the database.
+- Docker must be running, and :3000 must be free, unless you reuse a running server. With `E2E_SKIP_BUILD=1`, the setup skips the build and the container and runs the tests against the server already on :3000. Set `DATABASE_URL` to that server's database, or the tests write a different database than the server reads. Reused runs also inherit rows from earlier runs, so use a fresh server for clean results. The application and the tests therefore always share one database.
 - The reset-password journey sends mail through the capture server. Run `docker compose up -d mailpit` and set `SMTP_URL="smtp://localhost:1025"` in `.env`.
 - Notification emails wait in the `notifications` table. The application does not send them inline, and nothing schedules the worker locally. Only sign-up verification and password reset send immediately.
 

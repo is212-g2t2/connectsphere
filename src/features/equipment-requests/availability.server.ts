@@ -50,30 +50,30 @@ export async function loadTypeAvailability(
     overlapConditions.push(ne(equipmentReservations.id, args.excludeReservationId));
   }
 
-  // The type row, the unavailable-units sum, and the overlap read touch different tables.
-  const [typeRows, unavailableRows, overlapping] = await Promise.all([
+  // A transaction handle serves one query at a time. Read in sequence so the reserve
+  // path, which passes its tx, never issues concurrent queries on one connection.
+  const typeRows =
     args.quantityHeld === undefined
-      ? database
+      ? await database
           .select({ quantityHeld: equipmentTypes.quantityHeld })
           .from(equipmentTypes)
           .where(eq(equipmentTypes.id, args.equipmentTypeId))
           .limit(1)
-      : Promise.resolve([]),
-    database
-      .select({
-        unavailable: sql<number>`coalesce(sum(${equipmentUnavailability.quantityUnavailable}), 0)::int`,
-      })
-      .from(equipmentUnavailability)
-      .where(eq(equipmentUnavailability.equipmentTypeId, args.equipmentTypeId)),
-    database
-      .select({
-        startsAt: equipmentReservations.startsAt,
-        endsAt: equipmentReservations.endsAt,
-        quantity: equipmentReservations.quantity,
-      })
-      .from(equipmentReservations)
-      .where(and(...overlapConditions)),
-  ]);
+      : [];
+  const unavailableRows = await database
+    .select({
+      unavailable: sql<number>`coalesce(sum(${equipmentUnavailability.quantityUnavailable}), 0)::int`,
+    })
+    .from(equipmentUnavailability)
+    .where(eq(equipmentUnavailability.equipmentTypeId, args.equipmentTypeId));
+  const overlapping = await database
+    .select({
+      startsAt: equipmentReservations.startsAt,
+      endsAt: equipmentReservations.endsAt,
+      quantity: equipmentReservations.quantity,
+    })
+    .from(equipmentReservations)
+    .where(and(...overlapConditions));
 
   let quantityHeld = args.quantityHeld;
   if (quantityHeld === undefined) {

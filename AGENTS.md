@@ -40,10 +40,10 @@ Before you call work done, run `bun run lint:check`, `bun run type:check`, and `
 
 ## Test layout gotchas
 
-- `test:unit` runs the Vitest `unit` project (`vitest run --project unit`), targeting `tests/unit/` with `jsdom` environment.
+- `test:unit` runs the Vitest `unit` project (`vitest run --project unit`), targeting `tests/unit/` with the `node` environment by default. Component tests opt into `jsdom` with a per-file pragma.
 - `test:integration` runs the Vitest `integration` project (`vitest run --project integration`), targeting `tests/integration/` with `node` environment.
 - Unit tests must not start a database container. Keep them to pure logic, and use Testcontainers in integration and E2E tests only.
-- Coverage is `enabled: true` in `vitest.config.ts`, so test runs rewrite `coverage/`.
+- Coverage runs only when `COVERAGE=1`. The unit CI job sets it and enforces the thresholds in `vitest.config.ts`. Local runs skip coverage unless you set the variable, so they do not rewrite `coverage/`.
 
 ## Client/server boundary
 
