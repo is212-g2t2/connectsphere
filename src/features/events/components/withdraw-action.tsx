@@ -21,6 +21,7 @@ import {
   PLACE_FREED_MESSAGE,
 } from "#/features/events/withdrawal";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 const GENERIC_WITHDRAW_FAILURE = "Could not withdraw from this event. Try again.";
 
@@ -34,12 +35,12 @@ export function WithdrawAction({ eventId, eventName }: { eventId: number; eventN
       placeFreedAtCapacity = await withdrawFromEvent({ data: { id: eventId } });
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
       throw isWithdrawalRefusal(message) ? error : new Error(GENERIC_WITHDRAW_FAILURE);
     }
     setOpen(false);
     toast.success(placeFreedAtCapacity ? PLACE_FREED_AT_CAPACITY_MESSAGE : PLACE_FREED_MESSAGE);
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
   }, GENERIC_WITHDRAW_FAILURE);
 
   const refusal =

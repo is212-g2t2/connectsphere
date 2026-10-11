@@ -1,0 +1,3 @@
+CREATE INDEX "event_registrations_event_status_idx" ON "event_registrations" USING btree ("event_id","status");--> statement-breakpoint
+CREATE INDEX "notifications_unread_recipient_idx" ON "notifications" USING btree ("recipient_id") WHERE "notifications"."read_at" is null;--> statement-breakpoint
+CREATE INDEX "venue_requests_venue_period_idx" ON "venue_requests" USING btree ("venue_id","starts_at","ends_at") WHERE "venue_requests"."status" = 'approved';

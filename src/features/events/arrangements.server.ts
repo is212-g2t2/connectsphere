@@ -93,27 +93,27 @@ export async function loadArrangementHolders(
   database: Pick<Database, "select" | "selectDistinct">,
   eventId: number
 ): Promise<ArrangementHolders> {
-  const [bookings, lines] = await Promise.all([
-    database
-      .select({
-        staffId: venueRequests.assignedStaffId,
-        venueName: venues.name,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-      })
-      .from(venueRequests)
-      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-      .where(and(eq(venueRequests.eventId, eventId), eq(venueRequests.status, "approved")))
-      .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id)),
-    database
-      .selectDistinct({ staffId: equipmentRequests.assignedStaffId })
-      .from(equipmentReservations)
-      .innerJoin(
-        equipmentRequests,
-        eq(equipmentRequests.id, equipmentReservations.equipmentRequestId)
-      )
-      .where(eq(equipmentRequests.eventId, eventId)),
-  ]);
+  // A transaction handle serves one query at a time. Read in sequence: both callers
+  // (significant-change warning, cancellation) pass their tx.
+  const bookings = await database
+    .select({
+      staffId: venueRequests.assignedStaffId,
+      venueName: venues.name,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+    })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .where(and(eq(venueRequests.eventId, eventId), eq(venueRequests.status, "approved")))
+    .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
+  const lines = await database
+    .selectDistinct({ staffId: equipmentRequests.assignedStaffId })
+    .from(equipmentReservations)
+    .innerJoin(
+      equipmentRequests,
+      eq(equipmentRequests.id, equipmentReservations.equipmentRequestId)
+    )
+    .where(eq(equipmentRequests.eventId, eventId));
 
   return {
     bookings: bookings.flatMap(({ staffId, ...booking }) =>

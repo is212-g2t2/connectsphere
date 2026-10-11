@@ -37,6 +37,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-bun
       - name: Run unit tests
+        # Coverage gates live in vitest.config.ts. Collect it here so a PR cannot
+        # lower coverage while the tests pass.
+        env:
+          COVERAGE: "1"
         run: bun run test:unit
       - name: Upload test artifacts
         uses: actions/upload-artifact@v7

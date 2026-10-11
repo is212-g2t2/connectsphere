@@ -42,6 +42,7 @@ export function NotificationsPage({
     } finally {
       // A refusal may follow a mark that landed (a lost response), so re-read either way rather
       // than leave rows showing a state the server no longer holds.
+      // The header bell count lives in root, so include it.
       await router.invalidate();
     }
   }, "Could not mark as read. Try again.");

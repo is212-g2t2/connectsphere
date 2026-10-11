@@ -18,6 +18,7 @@ import { ReserveEquipmentFormInput } from "#/features/equipment-requests/schema"
 import { checkLineAvailability, reserveEquipment } from "#/features/equipment-requests/server-fns";
 import { formatLocalDateTime } from "#/features/event-requests/format";
 import { parseWholeNumber } from "#/features/event-requests/schema";
+import { skipRootFilter } from "#/lib/invalidate";
 
 export interface ReserveEquipmentDialogProps {
   equipmentRequest: {
@@ -93,7 +94,7 @@ export function ReserveEquipmentDialog({
           toast.success(`Reserved ${result.quantity} of ${requested} — the line stays Requested.`);
         }
         onOpenChange(false);
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Could not reserve equipment. Try again.";

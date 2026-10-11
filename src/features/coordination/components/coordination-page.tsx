@@ -25,6 +25,7 @@ import { formatFirstProposedDate, formatInstant } from "#/features/event-request
 import type { UnassignedEventRequest } from "#/features/event-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /**
  * Submitted requests the Coordinator can act on: their own assignments, the unassigned queue,
@@ -59,7 +60,7 @@ export function CoordinationPage({
       } finally {
         // A refusal usually means the offer was answered or replaced elsewhere; re-read either
         // way so a dead offer does not stay on screen actionable. The reason still surfaces.
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       }
     },
     "Could not answer this handover. Try again."

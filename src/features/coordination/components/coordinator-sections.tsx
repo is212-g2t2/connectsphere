@@ -63,6 +63,7 @@ import { isConfirmableStatus } from "#/features/events/confirmation";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /** The review stages: the decision, the clarification thread, and the assignment all live here. */
 const REVIEW_STATUSES: readonly EventRequestStatus[] = [
@@ -380,7 +381,7 @@ function TakeUpBlock({ request }: { request: CoordinationRequest }) {
     await takeUpEventRequestForReview({ data: { id: request.id } });
     toast.success("Request taken up for review.");
     try {
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
     } catch {
       // The take-up already committed; a missed refresh must not mask it as an error.
     }
@@ -440,7 +441,7 @@ function DecideBlock({ request }: { request: CoordinationRequest }) {
         return;
       }
       try {
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       } catch {
         // The decision already committed; a missed refresh must not mask it as an error.
       }
@@ -550,7 +551,7 @@ function ClarifyBlock({ request }: { request: CoordinationRequest }) {
         return;
       }
       try {
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       } catch {
         // The request already sent; a missed refresh must not mask it as an error.
       }
@@ -705,7 +706,7 @@ function AssignmentBody({ data }: { data: EventPageData }) {
           coordinators={coordinators}
           viewerId={data.viewerId}
           onAssigned={async () => {
-            await router.invalidate();
+            await router.invalidate({ filter: skipRootFilter });
           }}
         />
       </div>

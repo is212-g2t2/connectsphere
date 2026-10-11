@@ -7,6 +7,7 @@ import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Textarea } from "#/components/ui/textarea";
 import { CHANGE_REQUEST_TEXT_MAX, EventChangeRequestInput } from "#/features/event-requests/schema";
 import { raiseEventChangeRequest } from "#/features/event-requests/server-fns";
+import { skipRootFilter } from "#/lib/invalidate";
 
 export function EventChangeRequestForm({ requestId }: { requestId: number }) {
   const router = useRouter();
@@ -35,7 +36,7 @@ export function EventChangeRequestForm({ requestId }: { requestId: number }) {
       formApi.reset();
 
       try {
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       } catch {
         toast.warning(
           "Your change request was saved. Refresh this page to see the updated history."

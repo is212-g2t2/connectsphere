@@ -634,6 +634,12 @@ export const venueRequests = pgTable(
     // the caller can see.
     index("venue_requests_event_id_idx").on(table.eventId),
     index("venue_requests_assigned_staff_id_idx").on(table.assignedStaffId),
+    // The availability calendar and search read approved bookings by venue and period, and
+    // the amend path checks the same shape for conflicts. The partial predicate keeps this
+    // index to rows that occupy the venue.
+    index("venue_requests_venue_period_idx")
+      .on(table.venueId, table.startsAt, table.endsAt)
+      .where(sql`${table.status} = 'approved'`),
     // PTR-37's shared approved-booking queue filters by status and start time.
     index("venue_requests_approved_starts_at_idx")
       .on(table.startsAt)
@@ -819,6 +825,8 @@ export const eventRegistrations = pgTable(
     primaryKey({ columns: [table.eventId, table.attendeeId] }),
     // The primary key starts with `event_id`, so index an Attendee's registrations separately.
     index("event_registrations_attendee_id_idx").on(table.attendeeId),
+    // Registration counts and lists filter by event and status.
+    index("event_registrations_event_status_idx").on(table.eventId, table.status),
   ]
 );
 
@@ -920,6 +928,11 @@ export const notifications = pgTable(
       table.createdAt,
       table.id
     ),
+    // The unread count and mark-read scan filter by recipient and unread state. The partial
+    // predicate keeps this index to unread rows.
+    index("notifications_unread_recipient_idx")
+      .on(table.recipientId)
+      .where(sql`${table.readAt} is null`),
     // The worker scans pending rows oldest first. The partial predicate keeps this index small.
     index("notifications_pending_idx")
       .on(table.createdAt)

@@ -70,20 +70,20 @@ export async function loadEventPageData(
       if (venueRequest?.status !== "pending") return { kind: "event", event: projection, viewerId };
       // A race can settle the request between the list and the detail read. The read then
       // answers `null`. The page shows the projection without a decision block. Log anything else
-      // before the same degrade.
-      const request = await getPendingVenueRequest({ data: { id: venueRequest.id } }).catch(
-        error => {
+      // before the same degrade. The venue catalogue read needs no request data, so both run together.
+      const [request, venues] = await Promise.all([
+        getPendingVenueRequest({ data: { id: venueRequest.id } }).catch(error => {
           log.warn("Venue decision read failed", {
             eventId,
             requestId: venueRequest.id,
             reason: error instanceof Error ? error.message : String(error),
           });
           return null;
-        }
-      );
+        }),
+        // Offer a suggested venue only to a role that may decide, as the detail route did.
+        can(role, { venue_request: ["decide"] }) ? listVenueOptions() : Promise.resolve([]),
+      ]);
       if (!request) return { kind: "event", event: projection, viewerId };
-      // Offer a suggested venue only to a role that may decide, as the detail route did.
-      const venues = can(role, { venue_request: ["decide"] }) ? await listVenueOptions() : [];
       return { kind: "event", event: projection, viewerId, venueDecision: { request, venues } };
     }
     case "technical_support": {

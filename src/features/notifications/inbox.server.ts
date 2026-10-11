@@ -66,35 +66,32 @@ export async function handleListNotifications(
 
   const eventIds = [...new Set(rows.map(row => row.eventRequestId))];
   const condition = connectedEventCondition(database, actor);
-  const [accessibleRows, handoverRows] = await Promise.all([
-    condition === undefined
-      ? Promise.resolve([])
-      : database
-          .select({ id: eventRequests.id })
-          .from(eventRequests)
-          .where(and(condition, inArray(eventRequests.id, eventIds))),
-    liveHandoverEventIds(actor.id, eventIds, database),
-  ]);
-  const accessibleEventIds = new Set(accessibleRows.map(row => row.id));
-  const pendingHandoverEventIds = new Set(handoverRows);
-
   // One extra read only when the inbox holds venue-staff rows: the href for a settled request
   // depends on what the request became, and that status is not part of the notification payload.
   const venueRequestIds = rows.flatMap(row => {
     const parsed = parseNotificationPayload(row.kind, row.payload);
     return parsed?.kind === "venue_booking_requested" ? [parsed.payload.venueRequestId] : [];
   });
-  const venueRequestStatuses =
+  // Run the reads in order: `handleReadInbox` calls this inside one transaction, and the
+  // transaction handle serves one query at a time.
+  const accessibleRows =
+    condition === undefined
+      ? []
+      : await database
+          .select({ id: eventRequests.id })
+          .from(eventRequests)
+          .where(and(condition, inArray(eventRequests.id, eventIds)));
+  const handoverRows = await liveHandoverEventIds(actor.id, eventIds, database);
+  const venueRequestStatusRows =
     venueRequestIds.length === 0
-      ? new Map<string, string>()
-      : new Map(
-          (
-            await database
-              .select({ id: venueRequests.id, status: venueRequests.status })
-              .from(venueRequests)
-              .where(inArray(venueRequests.id, venueRequestIds))
-          ).map(row => [row.id, row.status])
-        );
+      ? []
+      : await database
+          .select({ id: venueRequests.id, status: venueRequests.status })
+          .from(venueRequests)
+          .where(inArray(venueRequests.id, venueRequestIds));
+  const accessibleEventIds = new Set(accessibleRows.map(row => row.id));
+  const pendingHandoverEventIds = new Set(handoverRows);
+  const venueRequestStatuses = new Map(venueRequestStatusRows.map(row => [row.id, row.status]));
 
   return rows.map(row => {
     const item = (summary: string | null, href: string | null): NotificationListItem => ({

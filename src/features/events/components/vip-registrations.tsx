@@ -47,6 +47,7 @@ import {
   searchVipAttendees,
 } from "#/features/events/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /** Time in ms to wait after typing stops before the search runs. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -135,7 +136,7 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
       if (mine === latest.current) setSearch({ status: "done", query: term, attendees });
     } catch (error) {
       // The event or the caller's assignment may have changed since the page loaded.
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
       const refusal = refusalOf(error);
       if (mine === latest.current) {
         setSearch({
@@ -264,11 +265,11 @@ function CandidateRow({
       await addVipRegistration({ data: { id: eventId, attendeeId: attendee.attendeeId } });
     } catch (error) {
       // The places or the Attendee's registration may have changed since the page loaded.
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
       throw new Error(refusalOf(error), { cause: error });
     }
     toast.success(`${attendee.name} is registered as a VIP.`);
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
     onAdded();
   }, "Could not add the VIP registration. Try again.");
 
@@ -309,7 +310,7 @@ export function RemoveVipButton({ eventId, vip }: { eventId: number; vip: VipAtt
       await removeVipRegistration({ data: { id: eventId, attendeeId: vip.attendeeId } });
     } catch (error) {
       // The VIP, the event or the caller's assignment may have changed since the page loaded.
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
       const refusal = refusalOf(error);
       if (!refusal) throw new Error("", { cause: error });
       // The reload can take this row away. Show a named refusal in a toast. The toast outlives
@@ -320,7 +321,7 @@ export function RemoveVipButton({ eventId, vip }: { eventId: number; vip: VipAtt
     }
     setDialogOpen(false);
     toast.success(`${vip.name} is no longer registered as a VIP.`);
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
   }, "Could not remove this VIP registration. Try again.");
 
   return (

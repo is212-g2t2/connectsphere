@@ -6,6 +6,7 @@ import { pickAmendments } from "#/features/event-requests/amendments";
 import { EventRequestForm } from "#/features/event-requests/components/request-form";
 import type { ClarificationField, EventRequestDraftValues } from "#/features/event-requests/schema";
 import { replyToClarification } from "#/features/event-requests/server-fns";
+import { skipRootFilter } from "#/lib/invalidate";
 
 type ReplyableClarification = {
   id: number;
@@ -46,7 +47,7 @@ export function ClarificationReplyForm({
     toast.success("Reply sent — the Coordinator will be notified.");
 
     try {
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
     } catch {
       const message = "Your reply was saved. Refresh this page to see the updated request.";
       setDeliveryWarning(message);

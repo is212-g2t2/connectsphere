@@ -287,40 +287,43 @@ export async function handleGetVenueRequestContext(
 ) {
   const { eventId, venueId } = parseVenueRequestContext(data);
 
-  const eventRows = await database
-    .select({
-      id: eventRequests.id,
-      name: eventRequests.eventName,
-      status: eventRequests.status,
-      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
-      proposedDates: eventRequests.proposedDates,
-      expectedAttendance: eventRequests.expectedAttendance,
-      roomLayoutPreference: eventRequests.roomLayoutPreference,
-      accessibilityRequirements: eventRequests.accessibilityRequirements,
-      venueRequirements: eventRequests.venueRequirements,
-    })
-    .from(eventRequests)
-    .where(eq(eventRequests.id, eventId))
-    .limit(1);
+  // The event and its pending request for this venue are independent reads.
+  const [eventRows, requestRows] = await Promise.all([
+    database
+      .select({
+        id: eventRequests.id,
+        name: eventRequests.eventName,
+        status: eventRequests.status,
+        assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+        proposedDates: eventRequests.proposedDates,
+        expectedAttendance: eventRequests.expectedAttendance,
+        roomLayoutPreference: eventRequests.roomLayoutPreference,
+        accessibilityRequirements: eventRequests.accessibilityRequirements,
+        venueRequirements: eventRequests.venueRequirements,
+      })
+      .from(eventRequests)
+      .where(eq(eventRequests.id, eventId))
+      .limit(1),
+    database
+      .select({
+        id: venueRequests.id,
+        startsAt: venueRequests.startsAt,
+        endsAt: venueRequests.endsAt,
+        requestedById: venueRequests.requestedById,
+      })
+      .from(venueRequests)
+      .where(
+        and(
+          eq(venueRequests.eventId, eventId),
+          eq(venueRequests.venueId, venueId),
+          eq(venueRequests.status, "pending")
+        )
+      )
+      .limit(1),
+  ]);
   const event = eventRows.at(0);
   if (!event) return null;
 
-  const requestRows = await database
-    .select({
-      id: venueRequests.id,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-      requestedById: venueRequests.requestedById,
-    })
-    .from(venueRequests)
-    .where(
-      and(
-        eq(venueRequests.eventId, eventId),
-        eq(venueRequests.venueId, venueId),
-        eq(venueRequests.status, "pending")
-      )
-    )
-    .limit(1);
   const request = requestRows.at(0);
 
   // Check access before returning any data. Only the current assignee of a submitted event or the
@@ -533,11 +536,9 @@ export async function handleApproveVenueRequest(
       if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
 
       // The lock prevents another approval from racing this check. The constraint catches writes
-      // outside this function.
-      const [conflicts, holdConflicts] = await Promise.all([
-        loadVenueBookings(tx, [row.venueId], row.startsAt, row.endsAt),
-        loadVenueHolds(tx, [row.venueId], row.startsAt, row.endsAt),
-      ]);
+      // outside this function. Read in sequence: the transaction holds one connection.
+      const conflicts = await loadVenueBookings(tx, [row.venueId], row.startsAt, row.endsAt);
+      const holdConflicts = await loadVenueHolds(tx, [row.venueId], row.startsAt, row.endsAt);
       const conflict = conflicts.at(0);
       const holdConflict = holdConflicts.at(0);
       const activeConflict = conflict

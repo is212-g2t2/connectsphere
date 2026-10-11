@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -65,7 +66,7 @@ describe("EventDetailPage", () => {
     expect(screen.getByText("An open day for new members.")).toBeTruthy();
   });
 
-  it("renders the organiser staff header with the venue and the section nav", () => {
+  it("renders the organiser staff header with the venue and the section nav", async () => {
     const { container } = render(
       <EventDetailPage
         data={
@@ -114,13 +115,17 @@ describe("EventDetailPage", () => {
       "/dashboard"
     );
 
+    // The sections arrive in a second chunk behind the sync header. Wait for one before
+    // reading the section anchors. The first wait also pays the chunk's transform, so allow
+    // for a loaded worker.
+    await screen.findByRole("heading", { name: "Registrations" }, { timeout: 5000 });
     for (const id of ["venue", "registrations", "equipment", "requests", "details"]) {
       expect(container.querySelector(`#${id}`)).toBeTruthy();
     }
     expect(screen.queryByRole("complementary", { name: "Actions" })).toBeNull();
   });
 
-  it("titles a venue staff event with the requested venue", () => {
+  it("titles a venue staff event with the requested venue", async () => {
     render(
       <EventDetailPage
         data={
@@ -155,11 +160,11 @@ describe("EventDetailPage", () => {
 
     expect(screen.getByText("venue staff access")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Riverside Loft" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Booking request details" })).toBeTruthy();
+    await screen.findByRole("heading", { name: "Booking request details" });
     expect(screen.getByRole("heading", { name: "Record a decision" })).toBeTruthy();
   });
 
-  it("renders the technical support header without a venue row", () => {
+  it("renders the technical support header without a venue row", async () => {
     render(
       <EventDetailPage
         data={{
@@ -172,11 +177,11 @@ describe("EventDetailPage", () => {
 
     expect(screen.getByText("technical support access")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ConnectSphere Open Day" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Equipment lines" })).toBeTruthy();
+    await screen.findByRole("region", { name: "Equipment lines" });
     expect(screen.queryByText("Harbor Hall")).toBeNull();
   });
 
-  it("falls back to Venue request when the event carries no name", () => {
+  it("falls back to Venue request when the event carries no name", async () => {
     render(
       <EventDetailPage
         data={{
@@ -189,10 +194,10 @@ describe("EventDetailPage", () => {
       />
     );
 
-    expect(screen.getByRole("heading", { name: "Venue request" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Venue request" })).toBeTruthy();
   });
 
-  it("renders the coordinator triage header from the coordination request", () => {
+  it("renders the coordinator triage header from the coordination request", async () => {
     render(
       <EventDetailPage
         data={
@@ -218,12 +223,12 @@ describe("EventDetailPage", () => {
       />
     );
 
-    expect(screen.getByText("coordinator access")).toBeTruthy();
+    expect(await screen.findByText("coordinator access")).toBeTruthy();
     expect(screen.getByText("Submitted")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Unassigned open day" })).toBeTruthy();
   });
 
-  it("rails the triage assignment beside the record", () => {
+  it("rails the triage assignment beside the record", async () => {
     const { container } = render(
       <EventDetailPage
         data={
@@ -250,7 +255,7 @@ describe("EventDetailPage", () => {
       />
     );
 
-    const rail = screen.getByRole("complementary", { name: "Actions" });
+    const rail = await screen.findByRole("complementary", { name: "Actions" });
     expect(rail.querySelector("#assignment")).toBeTruthy();
     expect(container.querySelector("main #request")).toBeTruthy();
     expect(container.querySelector("main aside #assignment")).toBe(

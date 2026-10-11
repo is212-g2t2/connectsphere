@@ -28,6 +28,7 @@ import type { OutstandingReleases } from "#/features/events/cancellation";
 import { cancelEvent, declineEventCancellation } from "#/features/events/server-fns";
 import { toLocalMinuteValue } from "#/features/venues/availability";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /**
  * PTR-54: the assigned Coordinator processes the Organiser's waiting cancellation request, either
@@ -50,7 +51,7 @@ export function CancellationDecision({
     await cancelEvent({ data: { id: requestId } });
     setDialogOpen(false);
     toast.success("Event cancelled. Everyone concerned will be notified.");
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
   }, "Could not cancel this event. Try again.");
 
   const declineForm = useForm({
@@ -73,7 +74,7 @@ export function CancellationDecision({
       }
       toast.success("Cancellation request declined.");
       formApi.reset();
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
     },
   });
 

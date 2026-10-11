@@ -18,6 +18,7 @@ import { Textarea } from "#/components/ui/textarea";
 import { ReleaseEquipmentFormInput } from "#/features/equipment-requests/schema";
 import { releaseEquipment } from "#/features/equipment-requests/server-fns";
 import { parseWholeNumber } from "#/features/event-requests/schema";
+import { skipRootFilter } from "#/lib/invalidate";
 
 export interface ReleaseEquipmentDialogProps {
   equipmentRequest: {
@@ -92,7 +93,7 @@ export function ReleaseEquipmentDialog({
           : "No Coordinator to notify; tell them yourself.";
         toast.success(`${change} ${notice}`);
         onOpenChange(false);
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Could not release equipment. Try again.";

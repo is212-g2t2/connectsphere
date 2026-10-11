@@ -13,7 +13,7 @@ import {
   useTable,
 } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { Badge } from "#/components/ui/badge";
@@ -141,6 +141,26 @@ export function AttendeeTable({
   const typeFilter = typeColumn?.getFilterValue();
   const typeValue = typeof typeFilter === "string" ? typeFilter : "";
   const searchValue = typeof table.state.globalFilter === "string" ? table.state.globalFilter : "";
+  // Debounce the search: each keystroke re-filters every row. The box shows the draft at once
+  // and the table catches up 200ms after typing stops.
+  const [searchDraft, setSearchDraft] = useState(searchValue);
+  const setTableFilter = table.setGlobalFilter;
+  // Follow an external filter change (a cleared search from the parent). The draft only feeds
+  // the table, so without this the box keeps stale text. Adjust during render, not in an effect.
+  const [syncedSearch, setSyncedSearch] = useState(searchValue);
+  if (syncedSearch !== searchValue) {
+    setSyncedSearch(searchValue);
+    setSearchDraft(searchValue);
+  }
+  useEffect(() => {
+    if (searchDraft === searchValue) return () => {};
+    const timer = setTimeout(() => {
+      setTableFilter(searchDraft);
+    }, 200);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [searchDraft, searchValue, setTableFilter]);
   const isFiltered = searchValue !== "" || typeValue !== "";
   const rows = table.getRowModel().rows;
 
@@ -151,8 +171,8 @@ export function AttendeeTable({
           type="search"
           aria-label="Search attendees"
           placeholder="Search by name or email"
-          value={searchValue}
-          onChange={event => table.setGlobalFilter(event.target.value)}
+          value={searchDraft}
+          onChange={event => setSearchDraft(event.target.value)}
           className="max-w-xs"
         />
         <fieldset className="flex flex-wrap gap-2">
