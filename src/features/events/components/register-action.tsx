@@ -9,6 +9,7 @@ import {
 } from "#/features/events/registration";
 import { registerForEvent } from "#/features/events/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /** The server's named refusals. Other failures use the generic text. */
 function isRegistrationRefusal(message: string): boolean {
@@ -32,11 +33,11 @@ export function RegisterAction({ eventId, eventName }: { eventId: number; eventN
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       // The registration the refusal names may have changed since this page loaded.
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
       throw isRegistrationRefusal(message) ? error : new Error();
     }
     toast.success(`You are registered for ${eventName}.`);
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
   }, "Could not register for this event. Try again.");
 
   return (

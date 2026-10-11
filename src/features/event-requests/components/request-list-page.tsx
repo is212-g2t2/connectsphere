@@ -20,6 +20,7 @@ import type {
 } from "#/features/event-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
+import { skipRootFilter } from "#/lib/invalidate";
 
 export const UNTITLED_REQUEST = "Untitled request";
 /** The Coordinator column value for a submitted request with no assignment (criterion 2). */
@@ -48,7 +49,7 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
 
     if (result.status === "success") {
       setPendingDeleteId(null);
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
     }
   }
   return (

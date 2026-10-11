@@ -71,6 +71,7 @@ export function SignupForm({ className, ...props }: React.ComponentProps<"div">)
       // Signing up creates the session in place — this panel replaces the form, no navigation —
       // so the route context the header reads (PTR-73) is still the signed-out one this page was
       // served with. Re-resolving it is what puts "Sign out" in the nav.
+      // The header session lives in root, so include it.
       await router.invalidate();
     },
   });

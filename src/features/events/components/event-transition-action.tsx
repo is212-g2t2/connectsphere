@@ -18,6 +18,7 @@ import {
 import { Button } from "#/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 interface EventTransitionActionProps {
   eventName: string;
@@ -61,7 +62,7 @@ export function EventTransitionAction({
       const refusal = message.startsWith(refusalHeading);
       if (!refusal || invalidateOnRefusal) {
         try {
-          await router.invalidate();
+          await router.invalidate({ filter: skipRootFilter });
         } catch {
           // A failed refresh must not mask the original refusal or failure.
         }
@@ -69,7 +70,7 @@ export function EventTransitionAction({
       throw refusal ? error : new Error();
     }
     try {
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
     } catch {
       // The transition already committed. A failed refresh must not report it as a failure.
     }

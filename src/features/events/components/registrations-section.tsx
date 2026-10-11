@@ -7,6 +7,7 @@ import type { EventPageData, EventSectionDef } from "#/features/events/page-data
 import { AttendeeTable } from "#/features/events/components/attendee-table";
 import { AddVipDialog, RemoveVipButton } from "#/features/events/components/vip-registrations";
 import type { RegisteredAttendee } from "#/features/events/access";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /** Stages with a registration record to show: venue settled onward. */
 const REGISTRATION_STATUSES: readonly EventRequestStatus[] = [
@@ -61,7 +62,7 @@ function RegistrationsBody({ data }: { data: Extract<EventPageData, { kind: "eve
               size="sm"
               onClick={() => {
                 // A failed refetch leaves the alert in place. The click only retries the load.
-                void router.invalidate().catch(() => undefined);
+                void router.invalidate({ filter: skipRootFilter }).catch(() => undefined);
               }}
             >
               Try again

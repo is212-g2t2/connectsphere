@@ -18,6 +18,18 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // must accept the same token. A real deployment gets it from Secret Manager.
   process.env.CRON_TOKEN ??= "e2e-cron-token";
 
+  // E2E_SKIP_BUILD=1 reuses the existing DATABASE_URL and a server that already runs on
+  // :3000. Skip the Testcontainer, migrations, seed, build, and spawn entirely.
+  // Reuse shares the server database and may carry dirty state; run without reuse for clean runs.
+  if (process.env.E2E_SKIP_BUILD === "1") {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("E2E_SKIP_BUILD=1 needs DATABASE_URL set to the running server's database.");
+    }
+    console.info("E2E_SKIP_BUILD=1: reuse the running server and DATABASE_URL.");
+    await waitForRunningServer();
+    return async () => {};
+  }
+
   console.info("Spinning up PostgreSQL testcontainer for E2E tests...");
   const container = await new PostgreSqlContainer("postgres:18-alpine")
     .withUsername("postgres")
@@ -83,6 +95,17 @@ async function assertAppPortFree(): Promise<void> {
   throw new Error(`Something is already serving ${APP_URL}; stop it before running E2E tests.`);
 }
 
+/** One poll of the app server. True once it answers below 500. */
+async function isServerReady(): Promise<boolean> {
+  try {
+    const response = await fetch(APP_URL, { signal: AbortSignal.timeout(1_000) });
+    return response.status < 500;
+  } catch {
+    // The server does not accept connections yet.
+    return false;
+  }
+}
+
 async function waitForServer(server: ChildProcess): Promise<void> {
   let spawnError: Error | undefined;
   server.on("error", error => {
@@ -95,15 +118,20 @@ async function waitForServer(server: ChildProcess): Promise<void> {
     if (server.exitCode !== null) {
       throw new Error(`Production server exited early with code ${server.exitCode}`);
     }
-    try {
-      const response = await fetch(APP_URL, { signal: AbortSignal.timeout(1_000) });
-      if (response.status < 500) return;
-    } catch {
-      // The server does not accept connections yet.
-    }
+    if (await isServerReady()) return;
     await new Promise(resolve => setTimeout(resolve, 250));
   }
   throw new Error(`Production server did not answer at ${APP_URL} within 30s`);
+}
+
+/** Wait for a server that already runs (E2E_SKIP_BUILD=1). No child process to watch. */
+async function waitForRunningServer(): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (await isServerReady()) return;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error(`No running server answered at ${APP_URL} within 30s`);
 }
 
 function stopServer(server: ChildProcess): void {

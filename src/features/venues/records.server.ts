@@ -454,12 +454,20 @@ export async function handleSearchVenues(
   loadBookings: VenueBookingLoader = loadVenueBookings
 ) {
   const { eventId, ...requested } = parseVenueSearchRequest(data);
+
   let event: { id: number; name: string } | null = null;
   let defaults: VenueSearch = {};
 
   if (eventId !== undefined) {
-    const record = await loadAssignedEvent(database, eventId, user.id, SEARCHABLE_EVENT_STATUSES);
-    if (!record) throw new AuthorizationError("Forbidden");
+    // Refuse before the catalogue read. A forbidden event never pays for the venue list.
+    const assignedRecord = await loadAssignedEvent(
+      database,
+      eventId,
+      user.id,
+      SEARCHABLE_EVENT_STATUSES
+    );
+    if (!assignedRecord) throw new AuthorizationError("Forbidden");
+    const record = assignedRecord;
     event = { id: record.id, name: record.name };
 
     const timing = eventTiming(record.proposedDates);
@@ -483,6 +491,8 @@ export async function handleSearchVenues(
     Object.entries(suppliedValues).filter(([, value]) => value !== undefined)
   ) as Partial<VenueSearch>;
   const filters: VenueSearch = { ...defaults, ...supplied };
+  // The suitability verdict stays in JS (`evaluateVenueSuitability` below): a SQL pre-filter
+  // would drop the failure reasons the unsuitable list must name.
   const venueRows = await handleListVenues(database);
   let blocksByVenue = new Map<number, VenueBlock[]>();
   let bookingsByVenue = new Map<number, VenueBooking[]>();

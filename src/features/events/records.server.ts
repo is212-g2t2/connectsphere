@@ -257,15 +257,39 @@ export async function handleListEvents(
   // only the rows its relationship names, filtered in SQL by `connectedEventCondition`.
   const relationship = connectedEventCondition(database, user);
 
+  // The projection reads most event columns (see `projectEvent` in `access.ts`), so list
+  // the columns it uses instead of the full row. This skips the draft jsonb columns and the
+  // audit snapshots.
   const requestRows =
     relationship === undefined
       ? []
       : await database
-          .select()
+          .select({
+            id: eventRequests.id,
+            organiserId: eventRequests.organiserId,
+            assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+            status: eventRequests.status,
+            eventName: eventRequests.eventName,
+            description: eventRequests.description,
+            proposedDates: eventRequests.proposedDates,
+            expectedAttendance: eventRequests.expectedAttendance,
+            venueRequirements: eventRequests.venueRequirements,
+            roomLayoutPreference: eventRequests.roomLayoutPreference,
+            accessibilityRequirements: eventRequests.accessibilityRequirements,
+            equipmentSubmittedAt: eventRequests.equipmentSubmittedAt,
+            equipmentArrangementsCompletedAt: eventRequests.equipmentArrangementsCompletedAt,
+            confirmedAt: eventRequests.confirmedAt,
+            confirmedByName: eventRequests.confirmedByName,
+            registrationEnabled: eventRequests.registrationEnabled,
+            registrationCapacity: eventRequests.registrationCapacity,
+            registrationOpensAt: eventRequests.registrationOpensAt,
+            registrationClosesAt: eventRequests.registrationClosesAt,
+          })
           .from(eventRequests)
           .where(
             eventId === undefined ? relationship : and(relationship, eq(eventRequests.id, eventId))
-          );
+          )
+          .orderBy(eventRequests.id);
 
   // Naming one event brings a refusal, not an empty answer. Refuse a missing row and another
   // user's row in the same way. Neither reveals whether the row exists. The message carries no
@@ -317,6 +341,14 @@ export async function handleListEvents(
       ),
   ]);
 
+  // Group child rows once. The card render below reads per event, so a map lookup
+  // replaces the per-event scan.
+  const equipmentByEvent = Map.groupBy(equipmentRows, row => row.eventId);
+  const venueByEvent = Map.groupBy(venueRows, row => row.eventId);
+  const registrationByEvent = Map.groupBy(registrationRows, row => row.eventId);
+
+  const confirmedIds = requestRows.filter(row => row.status === "confirmed").map(row => row.id);
+  const pendingIds = venueRows.flatMap(row => (row.status === "pending" ? [row.id] : []));
   // Show Technical Support who holds each line. Use one batched name lookup for that role only.
   const holderIds =
     role === "technical_support_staff"
@@ -326,16 +358,105 @@ export async function handleListEvents(
           ),
         ]
       : [];
-  const holderNames = new Map<string, string>(
+  // PTR-24 AC3: Show the Organiser and the Coordinator the current booking of a confirmed event.
+  // Show an Attendee the booking for every event they reach (PTR-44 AC2): published events and
+  // events they registered for (PTR-46 AC2). Count the venue's places for confirmed events only.
+  const wantsBookings =
+    role === "event_organiser" || role === "event_coordinator" || role === "attendee";
+  // PTR-45 AC10: Show Attendees, Organisers, and Coordinators how many places each confirmed
+  // event has taken. Count VIPs (PTR-111) apart. They take venue places only.
+  const wantsCounts =
+    (role === "attendee" || role === "event_organiser" || role === "event_coordinator") &&
+    confirmedIds.length > 0;
+
+  // Every branch needs only `requestIds` and the rows above, so read them together.
+  const approvedBooking = alias(venueRequests, "approved_booking");
+  const holderRead =
     holderIds.length === 0
-      ? []
-      : (
-          await database
-            .select({ id: userTable.id, name: userTable.name })
-            .from(userTable)
-            .where(inArray(userTable.id, holderIds))
-        ).map(row => [row.id, row.name])
-  );
+      ? Promise.resolve([])
+      : database
+          .select({ id: userTable.id, name: userTable.name })
+          .from(userTable)
+          .where(inArray(userTable.id, holderIds));
+  // Show rejections and releases only to the assigned Coordinator. Other roles skip the lookup.
+  // Scope Venue Staff to their own settled rows. `venue-requests` owns the event's live
+  // operational outcome.
+  const outcomeRead =
+    role === "event_coordinator"
+      ? loadVenueRequestOutcomesForEvents(database, requestIds)
+      : role === "venue_staff"
+        ? loadVenueRequestOutcomesForEvents(database, requestIds, user.id)
+        : Promise.resolve(new Map<number, VenueRequestOutcome>());
+  const bookingRead = wantsBookings
+    ? loadCurrentBookings(database, role === "attendee" ? requestIds : confirmedIds)
+    : Promise.resolve(new Map<number, { venue: EventVenue; maxCapacity: number }>());
+  const countRead = wantsCounts
+    ? database
+        .select({ eventId: eventRegistrations.eventId, ...registrationCounts })
+        .from(eventRegistrations)
+        .where(
+          and(
+            inArray(eventRegistrations.eventId, confirmedIds),
+            eq(eventRegistrations.status, "registered")
+          )
+        )
+        .groupBy(eventRegistrations.eventId)
+    : Promise.resolve([]);
+  // PTR-36 criterion 4: Find pending requests that overlap an approved booking for the same
+  // venue. Use a self-join, not a per-request read. Do not scope it to `venueRows`. The approved
+  // booking can belong to an event the caller cannot see. Send only the conflict kind to the
+  // client, never the other event. Flag active holds with a second join. They conflict the same
+  // way (the staff queue's "Conflicting hold").
+  const bookingConflictRead =
+    pendingIds.length === 0
+      ? Promise.resolve([])
+      : database
+          .select({ id: venueRequests.id })
+          .from(venueRequests)
+          .innerJoin(
+            approvedBooking,
+            and(
+              eq(approvedBooking.venueId, venueRequests.venueId),
+              eq(approvedBooking.status, "approved"),
+              lt(venueRequests.startsAt, approvedBooking.endsAt),
+              gt(venueRequests.endsAt, approvedBooking.startsAt)
+            )
+          )
+          .where(
+            and(
+              inArray(venueRequests.id, pendingIds),
+              // The id list comes from an earlier statement. A row approved since then would self-join
+              // and flag as conflicting. A period always overlaps itself.
+              eq(venueRequests.status, "pending")
+            )
+          );
+  const holdConflictRead =
+    pendingIds.length === 0
+      ? Promise.resolve([])
+      : database
+          .select({ id: venueRequests.id })
+          .from(venueRequests)
+          .innerJoin(
+            venueHolds,
+            and(
+              eq(venueHolds.venueId, venueRequests.venueId),
+              eq(venueHolds.status, "held"),
+              lt(venueRequests.startsAt, venueHolds.endsAt),
+              gt(venueRequests.endsAt, venueHolds.startsAt)
+            )
+          )
+          .where(and(inArray(venueRequests.id, pendingIds), eq(venueRequests.status, "pending")));
+  const [holderRows, venueRequestOutcomes, bookings, countRows, bookingConflicts, holdConflicts] =
+    await Promise.all([
+      holderRead,
+      outcomeRead,
+      bookingRead,
+      countRead,
+      bookingConflictRead,
+      holdConflictRead,
+    ]);
+
+  const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
 
   const completionUnavailableReasons = new Map<number, string | null>();
   if (role === "event_coordinator") {
@@ -345,111 +466,32 @@ export async function handleListEvents(
     }
   }
 
-  // Show rejections and releases only to the assigned Coordinator. Other roles skip the lookup.
-  // Scope Venue Staff to their own settled rows. `venue-requests` owns the event's live
-  // operational outcome.
-  const venueRequestOutcomes: ReadonlyMap<number, VenueRequestOutcome> =
-    role === "event_coordinator"
-      ? await loadVenueRequestOutcomesForEvents(database, requestIds)
-      : role === "venue_staff"
-        ? await loadVenueRequestOutcomesForEvents(database, requestIds, user.id)
-        : new Map<number, VenueRequestOutcome>();
-
-  // PTR-24 AC3: Show the Organiser and the Coordinator the current booking of a confirmed event.
-  // Show an Attendee the booking for every event they reach (PTR-44 AC2): published events and
-  // events they registered for (PTR-46 AC2). Count the venue's places for confirmed events only.
-  const confirmedIds = requestRows.filter(row => row.status === "confirmed").map(row => row.id);
+  const confirmed = new Set(confirmedIds);
   const currentVenues = new Map<number, EventVenue>();
   const venueCapacities = new Map<number, number>();
-  if (role === "event_organiser" || role === "event_coordinator" || role === "attendee") {
-    const confirmed = new Set(confirmedIds);
-    const bookings = await loadCurrentBookings(
-      database,
-      role === "attendee" ? requestIds : confirmedIds
-    );
-    for (const [id, booking] of bookings) {
-      currentVenues.set(id, booking.venue);
-      if (confirmed.has(id)) venueCapacities.set(id, booking.maxCapacity);
-    }
+  for (const [id, booking] of bookings) {
+    currentVenues.set(id, booking.venue);
+    if (confirmed.has(id)) venueCapacities.set(id, booking.maxCapacity);
   }
 
-  // PTR-45 AC10: Show Attendees, Organisers, and Coordinators how many places each confirmed
-  // event has taken. Count VIPs (PTR-111) apart. They take venue places only.
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
-    (role === "attendee" || role === "event_organiser" || role === "event_coordinator") &&
-      confirmedIds.length > 0
-      ? (
-          await database
-            .select({ eventId: eventRegistrations.eventId, ...registrationCounts })
-            .from(eventRegistrations)
-            .where(
-              and(
-                inArray(eventRegistrations.eventId, confirmedIds),
-                eq(eventRegistrations.status, "registered")
-              )
-            )
-            .groupBy(eventRegistrations.eventId)
-        ).map(row => [row.eventId, { registered: row.registered, vips: row.vips }])
-      : []
+    countRows.map(row => [row.eventId, { registered: row.registered, vips: row.vips }])
   );
 
-  // PTR-36 criterion 4: Find pending requests that overlap an approved booking for the same
-  // venue. Use a self-join, not a per-request read. Do not scope it to `venueRows`. The approved
-  // booking can belong to an event the caller cannot see. Send only the conflict kind to the
-  // client, never the other event. Flag active holds with a second join. They conflict the same
-  // way (the staff queue's "Conflicting hold").
-  const pendingRows = venueRows.filter(row => row.status === "pending");
   const conflictKinds = new Map<string, "booking" | "hold">();
-  if (pendingRows.length > 0) {
-    const approved = alias(venueRequests, "approved_booking");
-    const pendingIds = pendingRows.map(row => row.id);
-    const [bookingConflicts, holdConflicts] = await Promise.all([
-      database
-        .select({ id: venueRequests.id })
-        .from(venueRequests)
-        .innerJoin(
-          approved,
-          and(
-            eq(approved.venueId, venueRequests.venueId),
-            eq(approved.status, "approved"),
-            lt(venueRequests.startsAt, approved.endsAt),
-            gt(venueRequests.endsAt, approved.startsAt)
-          )
-        )
-        .where(
-          and(
-            inArray(venueRequests.id, pendingIds),
-            // The id list comes from an earlier statement. A row approved since then would self-join
-            // and flag as conflicting. A period always overlaps itself.
-            eq(venueRequests.status, "pending")
-          )
-        ),
-      database
-        .select({ id: venueRequests.id })
-        .from(venueRequests)
-        .innerJoin(
-          venueHolds,
-          and(
-            eq(venueHolds.venueId, venueRequests.venueId),
-            eq(venueHolds.status, "held"),
-            lt(venueRequests.startsAt, venueHolds.endsAt),
-            gt(venueRequests.endsAt, venueHolds.startsAt)
-          )
-        )
-        .where(and(inArray(venueRequests.id, pendingIds), eq(venueRequests.status, "pending"))),
-    ]);
-    for (const row of bookingConflicts) conflictKinds.set(row.id, "booking");
-    for (const row of holdConflicts) {
-      // A booking outranks a hold for the same row, matching the staff queue's precedence.
-      if (!conflictKinds.has(row.id)) conflictKinds.set(row.id, "hold");
-    }
+  for (const row of bookingConflicts) conflictKinds.set(row.id, "booking");
+  for (const row of holdConflicts) {
+    // A booking outranks a hold for the same row, matching the staff queue's precedence.
+    if (!conflictKinds.has(row.id)) conflictKinds.set(row.id, "hold");
   }
 
   // PTR-50: Read the venue's wall clock in the spelling of the stored registration period.
   const venueNow = toLocalMinuteValue(venueLocalTimestamp(now));
 
   return requestRows.flatMap(record => {
-    const ownRegistration = registrationRows.find(row => row.eventId === record.id) ?? null;
+    const ownRegistration = registrationByEvent.get(record.id)?.at(0) ?? null;
+    const eventVenueRows = venueByEvent.get(record.id) ?? [];
+    const eventEquipmentRows = equipmentByEvent.get(record.id) ?? [];
 
     // Apply the shared queue in memory. A Venue Staff member works their own rows plus every
     // unassigned `pending` one. `isVenueQueueRow` is the rule. The relationship SQL states it too.
@@ -459,15 +501,12 @@ export async function handleListEvents(
       organiserId: record.organiserId,
       assignedCoordinatorId: record.assignedCoordinatorId,
       // Only the caller's id can satisfy the access check. A queue row contributes exactly that id.
-      venueStaffIds: venueRows.flatMap(row =>
-        row.eventId === record.id && isVenueQueueRow(row, user.id) ? [user.id] : []
-      ),
-      technicalSupportIds: equipmentRows.flatMap(row =>
-        row.eventId === record.id &&
+      venueStaffIds: eventVenueRows.some(row => isVenueQueueRow(row, user.id)) ? [user.id] : [],
+      technicalSupportIds: eventEquipmentRows.some(row =>
         isEquipmentQueueRow(row, user.id, record.equipmentSubmittedAt !== null)
-          ? [user.id]
-          : []
-      ),
+      )
+        ? [user.id]
+        : [],
       status: record.status,
       registrationEnabled: record.registrationEnabled,
       hasOwnRegistration: ownRegistration !== null,
@@ -476,43 +515,41 @@ export async function handleListEvents(
     if (!access) return [];
 
     // List every equipment line of a connected event, not only assigned lines.
-    const equipment: EquipmentLineProjection[] = equipmentRows
-      .filter(row => row.eventId === record.id)
-      .map(row => ({
-        id: row.id,
-        item: row.item,
-        quantity: row.quantity,
-        arrangementStatus: row.arrangementStatus,
-        notes: row.notes,
-        arrangementNotes: row.arrangementNotes,
-        unavailableReason: row.unavailableReason,
-        reservedQuantity: row.reservedQuantity,
-        lastRelease:
-          row.lastReleasedAt !== null && row.lastReleasedQuantity !== null
-            ? {
-                quantity: row.lastReleasedQuantity,
-                byName: row.lastReleasedByStaffName ?? "Technical Support",
-                at: row.lastReleasedAt.toISOString(),
-              }
-            : null,
-        // Only Technical Support acts on a line. Only their copy states whether they may act.
-        arrangeable:
-          access === "technical_support"
-            ? isEquipmentQueueRow(row, user.id, record.equipmentSubmittedAt !== null)
-            : undefined,
-        assignedStaffName:
-          access === "technical_support"
-            ? (holderNames.get(row.assignedStaffId ?? "") ?? null)
-            : undefined,
-      }));
+    const equipment: EquipmentLineProjection[] = eventEquipmentRows.map(row => ({
+      id: row.id,
+      item: row.item,
+      quantity: row.quantity,
+      arrangementStatus: row.arrangementStatus,
+      notes: row.notes,
+      arrangementNotes: row.arrangementNotes,
+      unavailableReason: row.unavailableReason,
+      reservedQuantity: row.reservedQuantity,
+      lastRelease:
+        row.lastReleasedAt !== null && row.lastReleasedQuantity !== null
+          ? {
+              quantity: row.lastReleasedQuantity,
+              byName: row.lastReleasedByStaffName ?? "Technical Support",
+              at: row.lastReleasedAt.toISOString(),
+            }
+          : null,
+      // Only Technical Support acts on a line. Only their copy states whether they may act.
+      arrangeable:
+        access === "technical_support"
+          ? isEquipmentQueueRow(row, user.id, record.equipmentSubmittedAt !== null)
+          : undefined,
+      assignedStaffName:
+        access === "technical_support"
+          ? (holderNames.get(row.assignedStaffId ?? "") ?? null)
+          : undefined,
+    }));
     // PTR-31 criterion 5: A withdrawn request leaves the card. Report only a pending row. Never
     // fall back to an older withdrawn request. An event with no pending request shows no venue
     // request. Several pending rows can share one event. Report the newest one the caller may see.
     // Break ties by update time, then by greater id string. The outcome reader uses the same
     // stable rule. A Venue Staff caller sees only rows the queue rule grants.
     let pendingRequest: (typeof venueRows)[number] | null = null;
-    for (const row of venueRows) {
-      if (row.eventId !== record.id || row.status !== "pending") continue;
+    for (const row of eventVenueRows) {
+      if (row.status !== "pending") continue;
       if (access === "venue_staff" && !isVenueQueueRow(row, user.id)) continue;
       if (
         !pendingRequest ||
@@ -537,8 +574,8 @@ export async function handleListEvents(
     // above. An approval carries no outcome, so build it from the row itself.
     let ownSettled: (typeof venueRows)[number] | null = null;
     if (access === "venue_staff" && !pendingRequest) {
-      for (const row of venueRows) {
-        if (row.eventId !== record.id || row.assignedStaffId !== user.id) continue;
+      for (const row of eventVenueRows) {
+        if (row.assignedStaffId !== user.id) continue;
         if (row.status === "pending" || row.status === "withdrawn") continue;
         if (
           !ownSettled ||
@@ -625,7 +662,14 @@ function eventPlaces(
  * and venue for confirmed events only. A cancelled event needs neither.
  */
 function attendeeRegistrationAvailability(
-  record: typeof eventRequests.$inferSelect,
+  record: Pick<
+    typeof eventRequests.$inferSelect,
+    | "status"
+    | "registrationEnabled"
+    | "registrationCapacity"
+    | "registrationOpensAt"
+    | "registrationClosesAt"
+  >,
   venueCapacity: number | undefined,
   counts: { registered: number; vips: number },
   now: string

@@ -20,6 +20,18 @@ const config = defineConfig(({ mode }) => {
 
   return {
     customLogger: logger,
+    build: {
+      sourcemap: "hidden",
+      rollupOptions: {
+        output: {
+          // Vite 8 takes a function here; the object form no longer typechecks.
+          manualChunks(id) {
+            if (id.includes("@sentry")) return "sentry";
+            return undefined;
+          },
+        },
+      },
+    },
     optimizeDeps: {
       exclude: ["bun"],
     },
@@ -30,10 +42,38 @@ const config = defineConfig(({ mode }) => {
       ...(isDev ? [devtools()] : []),
       nitro({
         preset: "bun",
+        compressPublicAssets: true,
         rollupConfig: { external: ["bun", /^bun:/] },
         traceDeps: [/^@sentry\//, /^@logtape\//],
         routeRules: {
           "/assets/**": {
+            headers: {
+              "cache-control": "public, max-age=31536000, immutable",
+            },
+          },
+          // Route patterns follow rou3: exact paths or `**` wildcards. A `{ico,png}` glob
+          // never matches, so list each public file exactly.
+          "/favicon.ico": {
+            headers: {
+              "cache-control": "public, max-age=31536000, immutable",
+            },
+          },
+          "/favicon.svg": {
+            headers: {
+              "cache-control": "public, max-age=31536000, immutable",
+            },
+          },
+          "/og-image.png": {
+            headers: {
+              "cache-control": "public, max-age=31536000, immutable",
+            },
+          },
+          "/apple-touch-icon.png": {
+            headers: {
+              "cache-control": "public, max-age=31536000, immutable",
+            },
+          },
+          "/site.webmanifest": {
             headers: {
               "cache-control": "public, max-age=31536000, immutable",
             },

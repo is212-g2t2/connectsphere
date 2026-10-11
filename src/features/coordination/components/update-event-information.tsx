@@ -25,6 +25,7 @@ import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import type { EventRequestDetail, EventRequestDraft } from "#/features/event-requests/server-fns";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 import { listEventArrangements, updateEventInformation } from "#/features/events/server-fns";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /**
  * PTR-23 AC2, AC3: the warning that waits for the Coordinator's answer before a significant
@@ -159,7 +160,7 @@ function UpdateEventInformationBody({
         // As a failed save does: the page re-reads, so a lost assignment or a closed event
         // removes the form instead of leaving it to fail on every retry.
         if (error instanceof Error && error.message) toast.error(error.message);
-        await router.invalidate().catch(() => {});
+        await router.invalidate({ filter: skipRootFilter }).catch(() => {});
         throw error;
       } finally {
         setWarningOpen(false);
@@ -182,7 +183,7 @@ function UpdateEventInformationBody({
       let reloadFailed = false;
       if (result.changedFields.length > 0) {
         try {
-          await router.invalidate();
+          await router.invalidate({ filter: skipRootFilter });
         } catch {
           // The update committed; only the re-read failed.
           reloadFailed = true;
@@ -209,7 +210,7 @@ function UpdateEventInformationBody({
       // The toast outlives the panel when the re-read unmounts it; the form keeps its own
       // message when it survives. The toggle waits for the re-read so a reopen never sits stale.
       if (error instanceof Error && error.message) toast.error(error.message);
-      await router.invalidate().catch(() => {});
+      await router.invalidate({ filter: skipRootFilter }).catch(() => {});
       setSaving(false);
       throw error;
     }

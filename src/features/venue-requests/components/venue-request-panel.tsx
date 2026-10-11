@@ -26,6 +26,7 @@ import type { VenueRequestPrefill, VenueRequestValues } from "#/features/venue-r
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 const FIELDS = ["date", "startTime", "endTime"] as const;
 
@@ -98,7 +99,7 @@ export function VenueRequestPanel({
   const [withdrawState, withdraw, withdrawing] = useMutation(async (requestId: string) => {
     await withdrawVenueRequest({ data: { id: requestId } });
     toast.success("Venue request withdrawn.");
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
   }, "Could not withdraw this request. Try again.");
 
   const form = useForm({
@@ -110,7 +111,7 @@ export function VenueRequestPanel({
         await requestVenue({ data: value });
         toast.success("Venue request sent.");
         // The loader owns the panel state. Rerun it to replace the form with the pending request.
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       } catch (error) {
         // `fields` marks this as a global error and stores `form` verbatim.
         formApi.setErrorMap({

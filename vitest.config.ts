@@ -15,7 +15,9 @@ export default defineConfig({
     restoreMocks: true,
     coverage: {
       reporter: ["text", "json", "html"],
-      enabled: true,
+      // Unit and integration runs rewrite `coverage/`. Opt in with `COVERAGE=1`.
+      // oxlint-disable-next-line node/no-process-env -- build-time config, not application code
+      enabled: process.env.COVERAGE === "1",
       include: [
         "src/*.{ts,tsx}",
         "src/components/**/*.{ts,tsx}",
@@ -53,7 +55,9 @@ export default defineConfig({
         test: {
           name: "unit",
           include: ["tests/unit/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
-          environment: "jsdom",
+          // Node by default. Component and hook tests that render opt back into jsdom
+          // with a `// @vitest-environment jsdom` comment at the top of the file.
+          environment: "node",
           globals: true,
           setupFiles: [path.resolve(import.meta.dirname, "./tests/setup.ts")],
         },

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useForm } from "@tanstack/react-form";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CalendarDays } from "lucide-react";
@@ -62,6 +62,23 @@ const OCCUPIED_STATES = {
   }
 >;
 
+/** One formatter per shape. Construction parses its options, so reuse the instance. */
+const DATE_LABEL = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+const DAY_MONTH = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  day: "numeric",
+  month: "short",
+});
+
+const MONTH_SHORT = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short" });
+
 /**
  * Show the venue calendar (PTR-28). Accept a venue and an inclusive date range. Return free,
  * confirmed, and blocked periods. The rows and the calendar come from the route loader, and the
@@ -116,47 +133,52 @@ export function VenueCalendarPage({
     search.startDate ? civilDate(search.startDate) : new Date()
   );
 
-  const occupiedDays = new Map<string, OccupiedPeriod["state"]>();
-  for (const period of schedule?.occupied ?? []) {
-    for (
-      let day = timestampDay(period.visibleStart);
-      day <= timestampEndDay(period.visibleEnd);
-      day = nextDay(day)
-    ) {
-      if (!occupiedDays.has(day)) occupiedDays.set(day, period.state);
+  // Derive the day map, the picker modifiers, and the sorted rows once per schedule.
+  // Typing a filter or flipping the month re-renders without rebuilding them.
+  const { occupiedModifiers, periods } = useMemo(() => {
+    const occupiedDays = new Map<string, OccupiedPeriod["state"]>();
+    for (const period of schedule?.occupied ?? []) {
+      for (
+        let day = timestampDay(period.visibleStart);
+        day <= timestampEndDay(period.visibleEnd);
+        day = nextDay(day)
+      ) {
+        if (!occupiedDays.has(day)) occupiedDays.set(day, period.state);
+      }
     }
-  }
 
-  const occupiedModifiers: Record<OccupiedPeriod["state"], Date[]> = {
-    confirmed: [],
-    tentative_hold: [],
-    blocked: [],
-  };
-  for (const [day, state] of occupiedDays) occupiedModifiers[state].push(civilDate(day));
+    const modifiers: Record<OccupiedPeriod["state"], Date[]> = {
+      confirmed: [],
+      tentative_hold: [],
+      blocked: [],
+    };
+    for (const [day, state] of occupiedDays) modifiers[state].push(civilDate(day));
+
+    const rows = schedule
+      ? [
+          ...schedule.available.map(period => ({
+            key: `available:${period.startsAt}`,
+            label: "Available",
+            state: "available" as const,
+            startsAt: period.startsAt,
+            endsAt: period.endsAt,
+          })),
+          ...schedule.occupied.map(period => ({
+            key: `${period.state}:${period.id}`,
+            id: period.id,
+            label: period.label,
+            state: period.state,
+            startsAt: period.visibleStart,
+            endsAt: period.visibleEnd,
+            canRelease: period.canRelease,
+            canConvert: period.canConvert,
+          })),
+        ].toSorted((left, right) => compareTimestamps(left.startsAt, right.startsAt))
+      : [];
+    return { occupiedModifiers: modifiers, periods: rows };
+  }, [schedule]);
 
   const canHold = user ? can(user.role, { venue_request: ["request"] }) : false;
-
-  const periods = schedule
-    ? [
-        ...schedule.available.map(period => ({
-          key: `available:${period.startsAt}`,
-          label: "Available",
-          state: "available" as const,
-          startsAt: period.startsAt,
-          endsAt: period.endsAt,
-        })),
-        ...schedule.occupied.map(period => ({
-          key: `${period.state}:${period.id}`,
-          id: period.id,
-          label: period.label,
-          state: period.state,
-          startsAt: period.visibleStart,
-          endsAt: period.visibleEnd,
-          canRelease: period.canRelease,
-          canConvert: period.canConvert,
-        })),
-      ].toSorted((left, right) => compareTimestamps(left.startsAt, right.startsAt))
-    : [];
 
   return (
     <Page
@@ -452,13 +474,7 @@ function nextDay(value: string) {
 }
 
 function dateLabel(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "UTC",
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(civilDate(value));
+  return DATE_LABEL.format(civilDate(value));
 }
 
 /** Show a booking past midnight as `23:00 - 24:00` when it ends at range end. */
@@ -470,22 +486,14 @@ function timeRange(period: { startsAt: string; endsAt: string }) {
       ? endClock
       : timestampTime(period.endsAt).startsWith("00:00:00")
         ? "24:00"
-        : `${new Intl.DateTimeFormat("en-GB", {
-            timeZone: "UTC",
-            day: "numeric",
-            month: "short",
-          }).format(civilDate(timestampDay(period.endsAt)))} ${endClock}`;
+        : `${DAY_MONTH.format(civilDate(timestampDay(period.endsAt)))} ${endClock}`;
   return `${start} – ${end}`;
 }
 
 function DateChip({ day }: { day: string }) {
   return (
     <span className="flex size-10 shrink-0 flex-col items-center justify-center rounded-md bg-muted leading-none">
-      <span className="eyebrow text-muted-foreground">
-        {new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short" }).format(
-          civilDate(day)
-        )}
-      </span>
+      <span className="eyebrow text-muted-foreground">{MONTH_SHORT.format(civilDate(day))}</span>
       <span className="mt-0.5 body-sm font-semibold">{Number(day.slice(8, 10))}</span>
     </span>
   );

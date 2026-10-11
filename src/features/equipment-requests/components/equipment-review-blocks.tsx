@@ -40,6 +40,7 @@ import type { EquipmentTypeOption } from "#/features/events/page-data";
 import { parseWholeNumber } from "#/features/event-requests/schema";
 import type { EquipmentLineProjection } from "#/features/events/access";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /** Show the review page's line, completion, and availability sections. The host provides the headings. */
 export function ArrangementLines({
@@ -72,7 +73,7 @@ export function ArrangementsCompletion({
   const [completion, markComplete, completing] = useMutation(async () => {
     await completeEquipmentArrangements({ data: { eventId } });
     toast.success("Technical arrangements marked complete.");
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
   }, "Could not mark arrangements complete. Try again.");
 
   if (completedAt) {
@@ -335,7 +336,7 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
           });
         }
         toast.success("Equipment line updated.");
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       } catch (error) {
         formApi.setErrorMap({
           onSubmit: {

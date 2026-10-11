@@ -39,6 +39,7 @@ import {
   releaseVenueHold,
 } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 export interface CoordinatorEventOption {
   id: number;
@@ -110,11 +111,11 @@ function ConfirmHoldAction({ holdId, kind }: { holdId: string; kind: HoldActionK
     try {
       await copy.run(holdId);
     } catch (error) {
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
       throw error;
     }
     toast.success(copy.successMessage);
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
   }, copy.errorMessage);
 
   return (
@@ -214,7 +215,7 @@ export function PlaceVenueHoldDialog({
         await createVenueHold({ data: toHoldInput(venueId, value) });
         toast.success("Tentative hold placed.");
         setOpen(false);
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       } catch (submitError) {
         formApi.setErrorMap({
           onSubmit: {

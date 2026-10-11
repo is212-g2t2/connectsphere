@@ -22,6 +22,7 @@ import {
 import { approveVenueRequest } from "#/features/venue-requests/server-fns";
 import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /**
  * Keep the alert when the server has already settled or deleted a request. It left the queue, so a
@@ -76,7 +77,7 @@ export function ApproveBookingButton({
       await approveVenueRequest({ data: { id: request.id } });
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
-      if (!requestIsGone(message)) await router.invalidate();
+      if (!requestIsGone(message)) await router.invalidate({ filter: skipRootFilter });
       throw isApprovalConflict(message) ? error : new Error();
     }
     toast.success(

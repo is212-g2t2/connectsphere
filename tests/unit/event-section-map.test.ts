@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EventProjection } from "#/features/events/access";
 import type { EventPageData } from "#/features/events/page-data";
-import { eventSections, railSectionIds } from "#/features/events/components/event-detail-page";
+import { eventSections, railSectionIds } from "#/features/events/components/event-staff-page";
 
 function projection(
   access: EventProjection["access"],

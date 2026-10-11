@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+// @vitest-environment jsdom
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -146,8 +147,11 @@ describe("registrations section", () => {
 
     await user.type(screen.getByRole("searchbox", { name: "Search attendees" }), "ben");
 
+    // The search debounces 200ms behind typing, so wait for the table to catch up.
     const table = screen.getByRole("table");
-    expect(within(table).queryByRole("cell", { name: "Ava Patel" })).toBeNull();
+    await waitFor(() =>
+      expect(within(table).queryByRole("cell", { name: "Ava Patel" })).toBeNull()
+    );
     expect(within(table).getByRole("cell", { name: "Ben Koh" })).toBeTruthy();
   });
 

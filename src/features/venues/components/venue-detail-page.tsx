@@ -13,6 +13,7 @@ import { VenueForm } from "#/features/venues/components/venue-form";
 import { saveVenue } from "#/features/venues/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /**
  * Show one venue record. Holders of `venue:update` can edit it. Other admitted roles see it
@@ -96,7 +97,7 @@ export function VenueDetailPage({
             // `venue` with saved values and bumps `updatedAt` (the column is `$onUpdate`). The key above
             // then changes, and the banner arrives with the reloaded values. Do not keep a local copy of
             // the response. Component state and loader data would drift apart.
-            await router.invalidate();
+            await router.invalidate({ filter: skipRootFilter });
             setSaved(true);
           }}
         />
@@ -118,7 +119,12 @@ export function VenueDetailPage({
           // Coordinator can retry the same read. Do not send them back to the search.
           <div role="alert" className="mt-8 body-sm text-destructive">
             Could not load this venue's request panel.{" "}
-            <Button type="button" variant="link" size="sm" onClick={() => void router.invalidate()}>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              onClick={() => void router.invalidate({ filter: skipRootFilter })}
+            >
               Try again
             </Button>
           </div>

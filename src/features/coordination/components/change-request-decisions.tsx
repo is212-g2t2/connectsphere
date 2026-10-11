@@ -22,6 +22,7 @@ import {
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import { declineEventChangeRequest } from "#/features/events/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
+import { skipRootFilter } from "#/lib/invalidate";
 
 type ChangeRequest = EventRequestDetail["changeRequests"][number];
 
@@ -355,7 +356,7 @@ function DeclineRequestForm({
       }
       toast.success("Change request declined. The Organiser will be notified.");
       try {
-        await router.invalidate();
+        await router.invalidate({ filter: skipRootFilter });
       } catch {
         // The decline committed; only the re-read failed.
         toast.warning("The request was declined. Refresh this page to see it.");

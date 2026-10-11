@@ -16,6 +16,7 @@ import {
 import { Button } from "#/components/ui/button";
 import { requestEventCancellation } from "#/features/event-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /** PTR-53 AC3: Where a request waits when the event has no Coordinator to notify. */
 export const UNASSIGNED_CANCELLATION_NOTE =
@@ -54,7 +55,7 @@ export function RequestCancellationAction({
 
     // The request is recorded. A failed refresh must not report it as an error.
     try {
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
     } catch {
       toast.warning("Your cancellation request was saved. Refresh this page to see it.");
     }

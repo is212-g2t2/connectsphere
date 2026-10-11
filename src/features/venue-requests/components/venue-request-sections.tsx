@@ -10,6 +10,7 @@ import { ApproveBookingButton } from "#/features/venue-requests/components/appro
 import { BookingRequestDetails } from "#/features/venue-requests/components/booking-request-details";
 import { RejectBookingForm } from "#/features/venue-requests/components/reject-booking-form";
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /**
  * Show the booking request to Venue Staff and let them decide it. Show decision controls only
@@ -58,7 +59,7 @@ function DecisionBody({ data }: { data: EventPageData }) {
   if (data.kind !== "event") return null;
   const venueDecision = data.venueDecision ?? null;
   if (!venueDecision) return null;
-  const refresh = () => router.invalidate();
+  const refresh = () => router.invalidate({ filter: skipRootFilter });
   return (
     <div>
       <h2 className="display-h3">Record a decision</h2>

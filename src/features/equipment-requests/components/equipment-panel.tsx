@@ -34,6 +34,7 @@ import {
 } from "#/features/equipment-requests/server-fns";
 import { parseWholeNumber } from "#/features/event-requests/schema";
 import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 
 interface EquipmentPanelProps {
   eventId: number;
@@ -79,7 +80,7 @@ export function EquipmentPanel({
 
   const closeFormAndRefresh = () => {
     setEditing(null);
-    void router.invalidate();
+    void router.invalidate({ filter: skipRootFilter });
   };
 
   const cancelForm = () => setEditing(null);
@@ -190,7 +191,7 @@ function RemoveLineDialog({ eventId, line }: RemoveLineDialogProps) {
   const [state, remove, removing] = useMutation(async () => {
     await removeEquipmentLine({ data: { eventId, id: line.id } });
     toast.success("Equipment line removed.");
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
   }, "Could not remove this line. Try again.");
 
   return (
@@ -265,7 +266,7 @@ function SubmitSection({
   const [state, submit, submitting] = useMutation(async () => {
     const result = await submitEquipmentRequest({ data: { eventId } });
     toast.success(submitToastMessage(result));
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
     return result;
   }, "Could not submit the equipment request. Try again.");
 
@@ -279,7 +280,7 @@ function SubmitSection({
         setOpen(false);
       } else {
         // Another tab may change the data first. Refresh this panel after that conflict.
-        void router.invalidate();
+        void router.invalidate({ filter: skipRootFilter });
       }
     } finally {
       inFlight.current = false;

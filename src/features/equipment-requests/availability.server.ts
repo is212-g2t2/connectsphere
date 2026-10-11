@@ -41,25 +41,6 @@ export async function loadTypeAvailability(
   peakReserved: number;
   availableQuantity: number;
 }> {
-  let quantityHeld = args.quantityHeld;
-  if (quantityHeld === undefined) {
-    const rows = await database
-      .select()
-      .from(equipmentTypes)
-      .where(eq(equipmentTypes.id, args.equipmentTypeId))
-      .limit(1);
-    const equipmentType = rows.at(0);
-    if (!equipmentType) throw new NotFoundError("Not Found");
-    quantityHeld = equipmentType.quantityHeld;
-  }
-
-  const [{ unavailable }] = await database
-    .select({
-      unavailable: sql<number>`coalesce(sum(${equipmentUnavailability.quantityUnavailable}), 0)::int`,
-    })
-    .from(equipmentUnavailability)
-    .where(eq(equipmentUnavailability.equipmentTypeId, args.equipmentTypeId));
-
   const overlapConditions = [
     eq(equipmentReservations.equipmentTypeId, args.equipmentTypeId),
     lt(equipmentReservations.startsAt, args.window.endsAt),
@@ -69,14 +50,39 @@ export async function loadTypeAvailability(
     overlapConditions.push(ne(equipmentReservations.id, args.excludeReservationId));
   }
 
-  const overlapping = await database
-    .select({
-      startsAt: equipmentReservations.startsAt,
-      endsAt: equipmentReservations.endsAt,
-      quantity: equipmentReservations.quantity,
-    })
-    .from(equipmentReservations)
-    .where(and(...overlapConditions));
+  // The type row, the unavailable-units sum, and the overlap read touch different tables.
+  const [typeRows, unavailableRows, overlapping] = await Promise.all([
+    args.quantityHeld === undefined
+      ? database
+          .select({ quantityHeld: equipmentTypes.quantityHeld })
+          .from(equipmentTypes)
+          .where(eq(equipmentTypes.id, args.equipmentTypeId))
+          .limit(1)
+      : Promise.resolve([]),
+    database
+      .select({
+        unavailable: sql<number>`coalesce(sum(${equipmentUnavailability.quantityUnavailable}), 0)::int`,
+      })
+      .from(equipmentUnavailability)
+      .where(eq(equipmentUnavailability.equipmentTypeId, args.equipmentTypeId)),
+    database
+      .select({
+        startsAt: equipmentReservations.startsAt,
+        endsAt: equipmentReservations.endsAt,
+        quantity: equipmentReservations.quantity,
+      })
+      .from(equipmentReservations)
+      .where(and(...overlapConditions)),
+  ]);
+
+  let quantityHeld = args.quantityHeld;
+  if (quantityHeld === undefined) {
+    const equipmentType = typeRows.at(0);
+    if (!equipmentType) throw new NotFoundError("Not Found");
+    quantityHeld = equipmentType.quantityHeld;
+  }
+
+  const [{ unavailable }] = unavailableRows;
 
   const { availableQuantity, peakReserved } = computeAvailableEquipmentQuantity(
     quantityHeld,
@@ -117,29 +123,65 @@ export async function handleCheckEquipmentAvailability(
   if (bookings.length === 0) throw new ConflictError("The event has no approved venue booking yet");
 
   const rows = await database
-    .select()
+    .select({
+      id: equipmentTypes.id,
+      name: equipmentTypes.name,
+      quantityHeld: equipmentTypes.quantityHeld,
+    })
     .from(equipmentTypes)
     .where(eq(equipmentTypes.id, input.equipmentTypeId))
     .limit(1);
   const equipmentType = rows.at(0);
   if (!equipmentType) throw new NotFoundError("Not Found");
 
-  const perBooking = await Promise.all(
-    bookings.map(async booking => {
-      const availability = await loadTypeAvailability(database, {
-        equipmentTypeId: equipmentType.id,
-        window: { startsAt: booking.startsAt, endsAt: booking.endsAt },
-      });
-      return {
-        startsAt: booking.startsAt,
-        endsAt: booking.endsAt,
-        quantityHeld: availability.quantityHeld,
-        totalUnavailable: availability.totalUnavailable,
-        peakReserved: availability.peakReserved,
-        availableQuantity: availability.availableQuantity,
-      };
-    })
-  );
+  // One read for every window: unavailable units are type-wide, and one union-window
+  // reservation fetch covers all bookings. Each peak computes in JS from that list.
+  let minStart = bookings[0].startsAt;
+  let maxEnd = bookings[0].endsAt;
+  for (const booking of bookings) {
+    if (booking.startsAt < minStart) minStart = booking.startsAt;
+    if (booking.endsAt > maxEnd) maxEnd = booking.endsAt;
+  }
+  const [unavailableRows, overlapping] = await Promise.all([
+    database
+      .select({
+        unavailable: sql<number>`coalesce(sum(${equipmentUnavailability.quantityUnavailable}), 0)::int`,
+      })
+      .from(equipmentUnavailability)
+      .where(eq(equipmentUnavailability.equipmentTypeId, equipmentType.id)),
+    database
+      .select({
+        startsAt: equipmentReservations.startsAt,
+        endsAt: equipmentReservations.endsAt,
+        quantity: equipmentReservations.quantity,
+      })
+      .from(equipmentReservations)
+      .where(
+        and(
+          eq(equipmentReservations.equipmentTypeId, equipmentType.id),
+          lt(equipmentReservations.startsAt, maxEnd),
+          gt(equipmentReservations.endsAt, minStart)
+        )
+      ),
+  ]);
+  const unavailable = unavailableRows[0].unavailable;
+
+  const perBooking = bookings.map(booking => {
+    const { availableQuantity, peakReserved } = computeAvailableEquipmentQuantity(
+      equipmentType.quantityHeld,
+      unavailable,
+      { startsAt: booking.startsAt, endsAt: booking.endsAt },
+      overlapping
+    );
+    return {
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+      quantityHeld: equipmentType.quantityHeld,
+      totalUnavailable: unavailable,
+      peakReserved,
+      availableQuantity,
+    };
+  });
   const tightest = perBooking.reduce((a, b) => (b.availableQuantity < a.availableQuantity ? b : a));
 
   return {

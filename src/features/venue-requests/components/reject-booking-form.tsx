@@ -22,6 +22,7 @@ import {
 import { rejectVenueRequest } from "#/features/venue-requests/server-fns";
 import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
 import type { VenueOption } from "#/features/events/page-data";
+import { skipRootFilter } from "#/lib/invalidate";
 
 /** What the inputs hold. Field names match `VenueRejectionInput`, so an issue lands on its field. */
 interface FormValues {
@@ -120,14 +121,14 @@ export function RejectBookingForm({
             return;
           }
           await router.navigate({ to: "/dashboard" });
-          await router.invalidate();
+          await router.invalidate({ filter: skipRootFilter });
           return;
         }
 
         // `fields` marks this as a global error and stores `form` verbatim.
         // Set the message before invalidating. A reload failure must not hide it.
         formApi.setErrorMap({ onSubmit: { fields: {}, form: message } });
-        await router.invalidate().catch(() => {
+        await router.invalidate({ filter: skipRootFilter }).catch(() => {
           // Best effort, as above. The refusal is already shown.
         });
         return;
@@ -138,7 +139,7 @@ export function RejectBookingForm({
         return;
       }
       await router.navigate({ to: "/dashboard" });
-      await router.invalidate();
+      await router.invalidate({ filter: skipRootFilter });
     },
   });
 

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -160,6 +161,18 @@ function renderPage(overrides: Partial<CoordinationRequest> = {}) {
   return render(<EventDetailPage data={coordinatorPage(overrides)} />);
 }
 
+/**
+ * Wait for the staff sections chunk behind the sync header. Every staff render below suspends
+ * on it first, so read section content only after the fallback clears.
+ */
+async function settleSections() {
+  await waitFor(
+    () => expect(screen.queryByText("Loading sections…")).toBeNull(),
+    // The first settle in the file also pays the staff chunk's transform. Allow for a loaded worker.
+    { timeout: 5000 }
+  );
+}
+
 const decisions = () =>
   screen.getByRole("region", { name: "Change requests awaiting your decision" });
 
@@ -208,8 +221,9 @@ describe("processing a change request: inputs (PTR-52 AC2)", () => {
 });
 
 describe("the Coordinator's decisions on a change request (PTR-52)", () => {
-  it("lists only the waiting requests, numbered as the record numbers them, to the assigned Coordinator", () => {
+  it("lists only the waiting requests, numbered as the record numbers them, to the assigned Coordinator", async () => {
     renderPage({ changeRequests: [applied, waiting, declined] });
+    await settleSections();
 
     const region = decisions();
     expect(within(region).getAllByRole("listitem")).toHaveLength(1);
@@ -219,8 +233,9 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     expect(within(region).getByRole("button", { name: "Decline change request #2" })).toBeTruthy();
   });
 
-  it("offers nothing when no request waits, or to a Coordinator the event is not assigned to", () => {
+  it("offers nothing when no request waits, or to a Coordinator the event is not assigned to", async () => {
     const { unmount } = renderPage({ changeRequests: [applied, declined] });
+    await settleSections();
     expect(
       screen.queryByRole("region", { name: "Change requests awaiting your decision" })
     ).toBeNull();
@@ -237,6 +252,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
         }}
       />
     );
+    await settleSections();
     expect(
       screen.queryByRole("region", { name: "Change requests awaiting your decision" })
     ).toBeNull();
@@ -244,13 +260,14 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
 
   it.each(["submitted", "under_review", "awaiting_organiser"] satisfies EventRequestStatus[])(
     "offers the apply on a %s event, where a direct edit is not offered",
-    status => {
+    async status => {
       renderPage({
         status,
         decidedByCoordinatorId: null,
         decidedByCoordinatorName: null,
         decidedAt: null,
       });
+      await settleSections();
 
       expect(screen.getByRole("button", { name: "Apply change request #1" })).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Edit event information" })).toBeNull();
@@ -260,6 +277,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
   it("opens the apply in the event information section where a direct edit is offered, and below the decisions card where it is not", async () => {
     const user = userEvent.setup();
     const editable = renderPage();
+    await settleSections();
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     expect(
       editable.container
@@ -274,6 +292,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       decidedByCoordinatorName: null,
       decidedAt: null,
     });
+    await settleSections();
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     expect(review.container.querySelector("#details")).toBeNull();
     expect(
@@ -283,13 +302,14 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     ).toBe(true);
   });
 
-  it("offers only the decline on a completed event, and says why", () => {
+  it("offers only the decline on a completed event, and says why", async () => {
     renderPage({
       status: "completed",
       completedById: "coord-a",
       completedByName: "Alex",
       completedAt: new Date("2031-01-01T00:00:00Z"),
     });
+    await settleSections();
 
     const region = decisions();
     expect(within(region).getByText(/can no longer be changed/)).toBeTruthy();
@@ -301,6 +321,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     updateEventInformation.mockResolvedValue({ changedFields: ["eventName"], notified: 0 });
     const user = userEvent.setup();
     renderPage();
+    await settleSections();
     expect(screen.queryByLabelText("Event name (required)")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
@@ -349,6 +370,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     });
     const user = userEvent.setup();
     renderPage();
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     const attendance = screen.getByLabelText("Expected attendance (required)");
@@ -377,6 +399,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     );
     const user = userEvent.setup();
     renderPage();
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     await user.click(screen.getByRole("button", { name: "Save and mark applied" }));
@@ -393,6 +416,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
   it("closes the pinned request when the Coordinator cancels applying, and returns to the decisions card", async () => {
     const user = userEvent.setup();
     renderPage();
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     await user.click(screen.getByRole("button", { name: "Cancel applying" }));
@@ -414,6 +438,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       decidedByCoordinatorName: null,
       decidedAt: null,
     });
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     expect(screen.getByRole("heading", { name: "Apply the change request" })).toBeTruthy();
@@ -428,6 +453,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
   it("holds every apply while the form has unsaved edits, so no edit is lost to a switch", async () => {
     const user = userEvent.setup();
     renderPage({ changeRequests: [waiting, { ...waiting, id: 34, whatShouldChange: "Date" }] });
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     expect(
@@ -458,6 +484,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       decidedAt: null,
       changeRequests: [waiting, second],
     });
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
@@ -490,6 +517,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
   it("drops an open direct edit when an apply starts, so an external close cannot remount it on the apply's typing", async () => {
     const user = userEvent.setup();
     const { rerender } = renderPage();
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Edit event information" }));
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
@@ -503,6 +531,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
   it("closes the pinned request when the record shows it processed elsewhere", async () => {
     const user = userEvent.setup();
     const { rerender } = renderPage();
+    await settleSections();
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     expect(screen.getByRole("heading", { name: "Apply the change request" })).toBeTruthy();
 
@@ -531,6 +560,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     });
     const user = userEvent.setup();
     renderPage();
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     const attendance = screen.getByLabelText("Expected attendance (required)");
@@ -560,6 +590,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     declineEventChangeRequest.mockResolvedValue(undefined);
     const user = userEvent.setup();
     renderPage();
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Decline change request #1" }));
     // Focus moves to the reason. The toggle yields to the form's own cancel.
@@ -594,6 +625,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
   it("closes the reason form without declining on cancel", async () => {
     const user = userEvent.setup();
     renderPage();
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Decline change request #1" }));
     await user.type(screen.getByLabelText("Reason for declining"), "Draft reason");
@@ -610,6 +642,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     );
     const user = userEvent.setup();
     renderPage();
+    await settleSections();
 
     await user.click(screen.getByRole("button", { name: "Decline change request #1" }));
     await user.type(screen.getByLabelText("Reason for declining"), "Too late.");
@@ -646,10 +679,11 @@ function organiserPage(overrides: Partial<CoordinationRequest> = {}): EventPageD
 }
 
 describe("the record of a change request (PTR-52 AC5)", () => {
-  it("keeps every request with its outcome, who processed it, and the reason for a decline, for the Organiser", () => {
+  it("keeps every request with its outcome, who processed it, and the reason for a decline, for the Organiser", async () => {
     render(
       <EventDetailPage data={organiserPage({ changeRequests: [waiting, applied, declined] })} />
     );
+    await settleSections();
 
     const section = screen.getByRole("region", { name: "Change requests" });
     const items = within(section).getAllByRole("listitem");
@@ -665,10 +699,11 @@ describe("the record of a change request (PTR-52 AC5)", () => {
     expect(within(items[1]).queryByText("Reason")).toBeNull();
   });
 
-  it("says a waiting request waits for a Coordinator to be assigned when none is", () => {
+  it("says a waiting request waits for a Coordinator to be assigned when none is", async () => {
     render(
       <EventDetailPage data={organiserPage({ assignedCoordinatorId: null, coordinator: null })} />
     );
+    await settleSections();
 
     expect(screen.getByText("Waiting for a Coordinator to be assigned.")).toBeTruthy();
   });

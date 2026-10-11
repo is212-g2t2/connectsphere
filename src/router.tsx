@@ -15,6 +15,8 @@ export function getRouter() {
     routeTree,
     scrollRestoration: true,
     defaultPreload: "intent",
+    // PTR-129: keep 0 so a click refetches a finished hover preload instead of reusing it.
+    // Reuse would serve revoked access from authz-sensitive loaders.
     defaultPreloadStaleTime: 0,
     // PTR-22 AC3: wait for loaders on a revisit so the page does not show stale cached data. The
     // default (`background`) shows cached data first. This makes revisits slower. With

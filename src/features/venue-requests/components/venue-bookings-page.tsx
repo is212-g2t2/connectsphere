@@ -17,6 +17,7 @@ import {
 } from "#/features/venue-requests/schema";
 import { amendVenueBooking, releaseVenueBooking } from "#/features/venue-requests/server-fns";
 import type { VenueBooking } from "#/features/venue-requests/server-fns";
+import { skipRootFilter } from "#/lib/invalidate";
 
 interface VenueOption {
   id: number;
@@ -317,7 +318,7 @@ export function VenueBookingsPage({
 
   async function finishAction() {
     setAction(null);
-    await router.invalidate();
+    await router.invalidate({ filter: skipRootFilter });
   }
 
   return (

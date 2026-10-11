@@ -143,36 +143,36 @@ export async function handleGetCoordinationRequest(
   // nonexistent request answers the same 404, and the message carries no request data.
   if (!request) throw new AuthorizationError("Forbidden");
 
-  const [clarifications, changeRequests, cancellationRequests, outstandingReleases, venueRequest] =
-    await Promise.all([
-      database
-        .select()
-        .from(clarificationRequests)
-        .where(eq(clarificationRequests.eventRequestId, id))
-        .orderBy(asc(clarificationRequests.createdAt)),
-      listEventChangeRequests(id, database),
-      listEventCancellationRequests(id, database),
-      // PTR-54 AC2: what a cancelled event still holds, read live so a release takes it off.
-      request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
-      // The triage venue section reads the event's live venue request from here.
-      loadVenueRequestForEvent(database, id),
-    ]);
-
   // PTR-110: the live offer, but only while it is still this assignment's offer — the outgoing
   // Coordinator sees it and cannot raise a second one. A row the current assignment has moved
   // past (account deletion and a later pick-up), one on a decided request, or one whose incoming
   // account no longer exists (the inner join) is not shown as if it still waited.
   const assignedCoordinatorId = request.assignedCoordinatorId;
 
-  let pendingHandover: { requestedAt: Date; toName: string } | null = null;
-  if (
-    assignedCoordinatorId !== null &&
-    request.status !== "approved" &&
-    request.status !== "rejected"
-  ) {
-    pendingHandover =
-      (
-        await database
+  const [
+    clarifications,
+    changeRequests,
+    cancellationRequests,
+    outstandingReleases,
+    venueRequest,
+    handoverRows,
+  ] = await Promise.all([
+    database
+      .select()
+      .from(clarificationRequests)
+      .where(eq(clarificationRequests.eventRequestId, id))
+      .orderBy(asc(clarificationRequests.createdAt)),
+    listEventChangeRequests(id, database),
+    listEventCancellationRequests(id, database),
+    // PTR-54 AC2: what a cancelled event still holds, read live so a release takes it off.
+    request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
+    // The triage venue section reads the event's live venue request from here.
+    loadVenueRequestForEvent(database, id),
+    // PTR-110: the live offer only while it is still this assignment's offer. A row the
+    // assignment moved past, one on a decided request, or one whose incoming account is gone
+    // (the inner join) is not shown as if it still waited.
+    assignedCoordinatorId !== null && request.status !== "approved" && request.status !== "rejected"
+      ? database
           .select({
             requestedAt: eventHandovers.requestedAt,
             toName: handoverTargets.name,
@@ -186,8 +186,10 @@ export async function handleGetCoordinationRequest(
               eq(eventHandovers.fromCoordinatorId, assignedCoordinatorId)
             )
           )
-      ).at(0) ?? null;
-  }
+      : Promise.resolve([]),
+  ]);
+
+  const pendingHandover = handoverRows.at(0) ?? null;
 
   return {
     ...request,
