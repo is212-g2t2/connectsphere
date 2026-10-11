@@ -33,11 +33,102 @@ export const seedUsers: SeedUser[] = [
 ];
 
 /**
+ * One hundred extra people for local browsing, search, and dashboards. The same index always
+ * builds the same person, and the trailing index keeps every email unique.
+ *
+ * Use only the two self-assignable roles. More internal roles would take new submissions from
+ * the seeded Coordinator, and the e2e suite expects only that Coordinator.
+ */
+const EXTRA_FIRST_NAMES = [
+  "Amara",
+  "Priya",
+  "Kenji",
+  "Sofia",
+  "Mateo",
+  "Aisha",
+  "Liam",
+  "Zhao",
+  "Fatima",
+  "Diego",
+  "Ingrid",
+  "Kwame",
+  "Yuki",
+  "Elena",
+  "Omar",
+  "Naledi",
+  "Ravi",
+  "Clara",
+  "Tomas",
+  "Mei",
+  "Jonas",
+  "Zara",
+  "Felix",
+  "Anika",
+  "Samir",
+  "Lucia",
+  "Wei",
+  "Nia",
+  "Pablo",
+  "Hana",
+];
+
+const EXTRA_LAST_NAMES = [
+  "Okafor",
+  "Sharma",
+  "Tanaka",
+  "Rossi",
+  "Garcia",
+  "Khan",
+  "Obrien",
+  "Wei",
+  "Hassan",
+  "Silva",
+  "Larsen",
+  "Mensah",
+  "Sato",
+  "Petrova",
+  "Haddad",
+  "Dube",
+  "Patel",
+  "Muller",
+  "Novak",
+  "Chen",
+  "Berg",
+  "Ali",
+  "Weber",
+  "Nair",
+  "Costa",
+  "Lim",
+  "Adeyemi",
+  "Krishnan",
+  "Santos",
+  "Kim",
+];
+
+function slugPart(value: string): string {
+  const slug = value.toLowerCase().replace(/[^a-z]+/g, "");
+  return slug === "" ? "seed" : slug;
+}
+
+export const seedExtraUsers: SeedUser[] = Array.from({ length: 100 }, (_, i) => {
+  const first = EXTRA_FIRST_NAMES[i % EXTRA_FIRST_NAMES.length];
+  const last = EXTRA_LAST_NAMES[(i * 7 + 3) % EXTRA_LAST_NAMES.length];
+  const n = i + 4;
+  return {
+    id: `seed-user-${String(n).padStart(3, "0")}`,
+    name: `${first} ${last}`,
+    email: `${slugPart(first)}.${slugPart(last)}.${n}@example.com`,
+    emailVerified: true,
+    role: i % 2 === 0 ? "attendee" : "event_organiser",
+  };
+});
+
+/**
  * Use this password for every seeded account: staff, the demo organiser, and the demo attendee (PTR-59).
  * This password is for development only. Do not put personal data here. The password meets
  * PasswordSchema: 8–128 characters, including a digit and a symbol.
  */
-export const SEED_STAFF_PASSWORD = "Seed-Pass123!";
+export const SEED_STAFF_PASSWORD = "password1!";
 
 /**
  * Create internal staff accounts for the seed (PTR-59). Sign-up permits only external roles
@@ -74,7 +165,7 @@ export type SeedVenue = Omit<typeof schema.venues.$inferInsert, "id">;
  * field is the idempotency key, so a re-run does not add duplicate venues. `operatingHours` uses
  * weekday wall-clock times in `HH:MM` format. Use `null` for a closed day.
  */
-export const seedVenues: SeedVenue[] = [
+const baseVenues: SeedVenue[] = [
   {
     name: "Harbour Hall",
     location: "Level 1, ConnectSphere Marina Centre",
@@ -127,6 +218,147 @@ export const seedVenues: SeedVenue[] = [
     },
   },
 ];
+
+/** Forty-seven extra venue names. Names stay hand-written; the code derives the rest. */
+const EXTRA_VENUE_NAMES = [
+  "Willow Studio",
+  "Meridian Loft",
+  "Casuarina Room",
+  "Orchid Ballroom",
+  "Banyan Hall",
+  "Saffron Suite",
+  "Lotus Seminar Room",
+  "Amber Auditorium",
+  "Jade Conference Room",
+  "Coral Deck",
+  "Driftwood Pavilion",
+  "Fern Courtyard",
+  "Granite Forum",
+  "Hibiscus Hall",
+  "Ivory Boardroom",
+  "Juniper Lodge",
+  "Koi Garden Terrace",
+  "Lantern Room",
+  "Maple Learning Lab",
+  "Nutmeg Theatre",
+  "Onyx Black Box",
+  "Palm Cove Room",
+  "Quartz Studio",
+  "Rattan Retreat",
+  "Sandalwood Suite",
+  "Teak Auditorium",
+  "Umbra Gallery",
+  "Vista Sky Lounge",
+  "Wisteria Hall",
+  "Cypress Chamber",
+  "Dune Event Space",
+  "Ember Workshop Room",
+  "Fig Tree Courtyard",
+  "Grove Meeting Pod",
+  "Horizon Conference Suite",
+  "Indigo Performance Hall",
+  "Jasmine Function Room",
+  "Kelp Marine Lab",
+  "Lagoon View Deck",
+  "Mangrove Hall",
+  "Nimbus Rooftop",
+  "Olive Branch Room",
+  "Papaya Studio",
+  "Reed Amphitheatre",
+  "Seagrass Pavilion",
+  "Tamarind Ballroom",
+  "Ursa Community Hall",
+];
+
+const EXTRA_VENUE_BUILDINGS = [
+  "Marina Centre",
+  "Tower",
+  "Garden Wing",
+  "Harbourfront Block",
+  "Orchard Annex",
+  "Riverside Pavilion",
+];
+
+const EXTRA_VENUE_CAPACITIES = [
+  80, 120, 180, 250, 90, 150, 300, 110, 200, 400, 130, 220, 500, 95, 160,
+];
+
+const EXTRA_VENUE_FACILITIES: string[][] = [
+  ["Stage", "PA system", "Wi-Fi", "Projector"],
+  ["Whiteboard", "Video conferencing", "Wi-Fi", "Projector"],
+  ["PA system", "Bar counter", "Wi-Fi", "Dance floor"],
+  ["Projector", "Whiteboard", "Wi-Fi", "Air conditioning"],
+  ["Stage", "Lighting rig", "PA system", "Wi-Fi", "Backstage room"],
+  ["Video conferencing", "Whiteboard", "Wi-Fi", "Coffee station"],
+];
+
+const EXTRA_VENUE_ACCESSIBILITY: string[][] = [
+  ["Step-free access", "Accessible toilets", "Hearing loop"],
+  ["Step-free access", "Lift access"],
+  ["Lift access", "Accessible toilets"],
+  ["Step-free access", "Adjustable-height desks", "Hearing loop"],
+  ["Step-free access", "Accessible toilets", "Braille signage"],
+];
+
+const EXTRA_VENUE_LAYOUTS: SeedVenue["supportedLayouts"][] = [
+  ["theatre", "classroom"],
+  ["banquet", "exhibition"],
+  ["boardroom", "classroom"],
+  ["theatre", "banquet", "exhibition"],
+  ["other"],
+  ["classroom", "boardroom", "other"],
+];
+
+const EXTRA_VENUE_HOURS: SeedVenue["operatingHours"][] = [
+  {
+    mon: { opens: "08:00", closes: "22:00" },
+    tue: { opens: "08:00", closes: "22:00" },
+    wed: { opens: "08:00", closes: "22:00" },
+    thu: { opens: "08:00", closes: "22:00" },
+    fri: { opens: "08:00", closes: "22:00" },
+    sat: { opens: "09:00", closes: "18:00" },
+    sun: null,
+  },
+  {
+    mon: { opens: "08:00", closes: "22:00" },
+    tue: { opens: "08:00", closes: "22:00" },
+    wed: { opens: "08:00", closes: "22:00" },
+    thu: { opens: "08:00", closes: "22:00" },
+    fri: { opens: "08:00", closes: "22:00" },
+    sat: { opens: "09:00", closes: "22:00" },
+    sun: { opens: "10:00", closes: "18:00" },
+  },
+  {
+    mon: null,
+    tue: null,
+    wed: { opens: "17:00", closes: "23:00" },
+    thu: { opens: "17:00", closes: "23:00" },
+    fri: { opens: "17:00", closes: "23:30" },
+    sat: { opens: "11:00", closes: "23:30" },
+    sun: { opens: "11:00", closes: "21:00" },
+  },
+  {
+    mon: { opens: "09:00", closes: "18:00" },
+    tue: { opens: "09:00", closes: "18:00" },
+    wed: { opens: "09:00", closes: "18:00" },
+    thu: { opens: "09:00", closes: "18:00" },
+    fri: { opens: "09:00", closes: "18:00" },
+    sat: null,
+    sun: null,
+  },
+];
+
+const seedExtraVenues: SeedVenue[] = EXTRA_VENUE_NAMES.map((name, i) => ({
+  name,
+  location: `Level ${(i % 12) + 1}, ConnectSphere ${EXTRA_VENUE_BUILDINGS[i % EXTRA_VENUE_BUILDINGS.length]}`,
+  maxCapacity: EXTRA_VENUE_CAPACITIES[i % EXTRA_VENUE_CAPACITIES.length],
+  facilities: EXTRA_VENUE_FACILITIES[i % EXTRA_VENUE_FACILITIES.length],
+  accessibilityFeatures: EXTRA_VENUE_ACCESSIBILITY[i % EXTRA_VENUE_ACCESSIBILITY.length],
+  supportedLayouts: EXTRA_VENUE_LAYOUTS[i % EXTRA_VENUE_LAYOUTS.length],
+  operatingHours: EXTRA_VENUE_HOURS[i % EXTRA_VENUE_HOURS.length],
+}));
+
+export const seedVenues: SeedVenue[] = [...baseVenues, ...seedExtraVenues];
 
 /**
  * Add two future unavailable periods for PTR-59 criterion 4. The PTR-28 availability calendar
@@ -185,6 +417,24 @@ export const seedVenueUnavailability: {
     endsAt: futureDay(45, "18:00:00"),
     reason: "Internal staff training",
   },
+  {
+    venueName: "Willow Studio",
+    startsAt: futureDay(50, "09:00:00"),
+    endsAt: futureDay(51, "18:00:00"),
+    reason: "Acoustic panel upgrade",
+  },
+  {
+    venueName: "Orchid Ballroom",
+    startsAt: futureDay(60),
+    endsAt: futureDay(62, "23:59:59"),
+    reason: "Chandelier maintenance",
+  },
+  {
+    venueName: "Nimbus Rooftop",
+    startsAt: futureDay(70, "17:00:00"),
+    endsAt: futureDay(70, "23:00:00"),
+    reason: "Private hire blackout",
+  },
 ];
 
 /**
@@ -195,6 +445,13 @@ export const seedEquipmentTypes: Omit<typeof schema.equipmentTypes.$inferInsert,
   { name: "Portable Projector", quantityHeld: 8 },
   { name: "Wireless Microphone", quantityHeld: 12 },
   { name: "Portable PA System", quantityHeld: 4 },
+  { name: "Folding Chair", quantityHeld: 200 },
+  { name: "Round Banquet Table", quantityHeld: 40 },
+  { name: "LED Uplighter", quantityHeld: 24 },
+  { name: "Portable Stage Deck", quantityHeld: 12 },
+  { name: "Lectern", quantityHeld: 6 },
+  { name: "Whiteboard Easel", quantityHeld: 10 },
+  { name: "Extension Lead Reel", quantityHeld: 15 },
 ];
 
 /**
@@ -210,6 +467,16 @@ export const seedEquipmentUnavailability: {
     equipmentTypeName: "Portable Projector",
     quantityUnavailable: 1,
     reason: "Demo unit under maintenance",
+  },
+  {
+    equipmentTypeName: "Wireless Microphone",
+    quantityUnavailable: 2,
+    reason: "Two units sent for repair",
+  },
+  {
+    equipmentTypeName: "LED Uplighter",
+    quantityUnavailable: 2,
+    reason: "Firmware upgrade batch",
   },
 ];
 /**
@@ -233,6 +500,232 @@ export const ATTENDEE_DEMO_EVENT_NAME = "ConnectSphere Open Day";
 export const ATTENDEE_DEMO_VENUE_NAME = "Seminar Room 2A";
 
 /**
+ * Twenty extra events for browsing, dashboards, and search. The first sixteen are confirmed
+ * with registration on; the last four stay submitted. Each event uses a different organiser
+ * from `seedExtraUsers` and a different venue on its own date, so approved bookings never
+ * share a venue and a date. Find each event by `(organiserId, eventName)`, like the demos.
+ */
+export const seedExtraEvents: {
+  name: string;
+  type: string;
+  purpose: string;
+  description: string;
+  venueName: string;
+  dayOffset: number;
+  attendance: number;
+  status: "confirmed" | "submitted";
+}[] = [
+  {
+    name: "Harbour Food Festival",
+    type: "Festival",
+    purpose: "Celebrate hawker heritage with tastings and chef demos.",
+    description: "Two dozen stalls, live cooking stations and a night market finale by the water.",
+    venueName: "Willow Studio",
+    dayOffset: 35,
+    attendance: 60,
+    status: "confirmed",
+  },
+  {
+    name: "Marina Tech Expo",
+    type: "Expo",
+    purpose: "Showcase local startups and student robotics teams.",
+    description: "Demo booths, lightning talks and a hands-on gadget lab for all ages.",
+    venueName: "Meridian Loft",
+    dayOffset: 39,
+    attendance: 55,
+    status: "confirmed",
+  },
+  {
+    name: "Community Health Fair",
+    type: "Health Fair",
+    purpose: "Free screenings and wellness coaching for residents.",
+    description: "Blood-pressure checks, nutrition counselling and family fitness tasters.",
+    venueName: "Onyx Black Box",
+    dayOffset: 43,
+    attendance: 45,
+    status: "confirmed",
+  },
+  {
+    name: "Youth Climate Summit",
+    type: "Summit",
+    purpose: "Give students a stage for neighbourhood green plans.",
+    description: "Keynotes, project showcases and a pledge wall for school teams.",
+    venueName: "Orchid Ballroom",
+    dayOffset: 47,
+    attendance: 70,
+    status: "confirmed",
+  },
+  {
+    name: "Artisan Makers Market",
+    type: "Market",
+    purpose: "Support independent craft sellers and printmakers.",
+    description: "Forty stalls, live letterpress demos and a gift-wrapping corner.",
+    venueName: "Banyan Hall",
+    dayOffset: 51,
+    attendance: 50,
+    status: "confirmed",
+  },
+  {
+    name: "Startup Pitch Night",
+    type: "Networking",
+    purpose: "Connect early founders with mentors and operators.",
+    description: "Eight five-minute pitches, open Q&A and mentor speed-dating.",
+    venueName: "Saffron Suite",
+    dayOffset: 55,
+    attendance: 40,
+    status: "confirmed",
+  },
+  {
+    name: "Multilingual Storytelling Morning",
+    type: "Family",
+    purpose: "Stories in four languages for preschoolers and parents.",
+    description: "Librarians rotate English, Mandarin, Malay and Tamil sessions with songs.",
+    venueName: "Palm Cove Room",
+    dayOffset: 59,
+    attendance: 30,
+    status: "confirmed",
+  },
+  {
+    name: "Senior Wellness Workshop",
+    type: "Workshop",
+    purpose: "Gentle exercise and fall-prevention coaching for seniors.",
+    description: "Physio-led movement, balance screening and a social tea break.",
+    venueName: "Amber Auditorium",
+    dayOffset: 63,
+    attendance: 35,
+    status: "confirmed",
+  },
+  {
+    name: "Interfaith Harmony Dinner",
+    type: "Dinner",
+    purpose: "Bring faith groups together over a shared table.",
+    description: "Family-style courses, youth choir interludes and guided table conversations.",
+    venueName: "Jade Conference Room",
+    dayOffset: 67,
+    attendance: 65,
+    status: "confirmed",
+  },
+  {
+    name: "Urban Gardening Bootcamp",
+    type: "Workshop",
+    purpose: "Teach corridor and rooftop growing basics.",
+    description: "Seed starting, composting and a take-home planter for every attendee.",
+    venueName: "Coral Deck",
+    dayOffset: 71,
+    attendance: 28,
+    status: "confirmed",
+  },
+  {
+    name: "Robotics Discovery Day",
+    type: "Open Day",
+    purpose: "Let children drive robots and meet student builders.",
+    description: "Obstacle courses, coding corners and a mini sumo tournament.",
+    venueName: "Rattan Retreat",
+    dayOffset: 75,
+    attendance: 55,
+    status: "confirmed",
+  },
+  {
+    name: "Heritage Walks Festival",
+    type: "Festival",
+    purpose: "Guided walks through the district's trading past.",
+    description: "Docent-led routes, photo exhibition and a closing talk at the gallery.",
+    venueName: "Fern Courtyard",
+    dayOffset: 79,
+    attendance: 42,
+    status: "confirmed",
+  },
+  {
+    name: "Women in Engineering Panel",
+    type: "Panel",
+    purpose: "Spotlight practitioners across civil, software and marine fields.",
+    description: "Panel, breakout mentoring and a student poster wall.",
+    venueName: "Granite Forum",
+    dayOffset: 83,
+    attendance: 48,
+    status: "confirmed",
+  },
+  {
+    name: "Night Market Cinema",
+    type: "Screening",
+    purpose: "Outdoor shorts and local documentaries under the stars.",
+    description: "Bean-bag seating, food trucks and filmmaker Q&As between blocks.",
+    venueName: "Hibiscus Hall",
+    dayOffset: 87,
+    attendance: 68,
+    status: "confirmed",
+  },
+  {
+    name: "Inclusive Sports Carnival",
+    type: "Sports",
+    purpose: "Try wheelchair basketball, goalball and boccia.",
+    description: "Coached stations, friendly matches and a medal ceremony.",
+    venueName: "Sandalwood Suite",
+    dayOffset: 91,
+    attendance: 52,
+    status: "confirmed",
+  },
+  {
+    name: "Early Childhood Educators Forum",
+    type: "Conference",
+    purpose: "Share play-based learning practices across centres.",
+    description: "Case studies, classroom provocations and a resource swap table.",
+    venueName: "Juniper Lodge",
+    dayOffset: 95,
+    attendance: 38,
+    status: "confirmed",
+  },
+  {
+    name: "Hawker Culture Showcase",
+    type: "Showcase",
+    purpose: "Record recipes and stories from second-generation hawkers.",
+    description: "Live interviews, tastings and a printed zine for every guest.",
+    venueName: "Koi Garden Terrace",
+    dayOffset: 99,
+    attendance: 44,
+    status: "submitted",
+  },
+  {
+    name: "Digital Safety for Families",
+    type: "Workshop",
+    purpose: "Practical scam-spotting and device hygiene for parents.",
+    description: "Live scam demos, password-manager setup and a take-home checklist.",
+    venueName: "Lantern Room",
+    dayOffset: 103,
+    attendance: 32,
+    status: "submitted",
+  },
+  {
+    name: "Choir and Orchestra Gala",
+    type: "Concert",
+    purpose: "Annual joint performance with community soloists.",
+    description: "Two halves, sing-along finale and a reception in the foyer.",
+    venueName: "Teak Auditorium",
+    dayOffset: 107,
+    attendance: 62,
+    status: "submitted",
+  },
+  {
+    name: "Neighbourhood Volunteer Awards",
+    type: "Awards",
+    purpose: "Honour block champions and ground-up groups.",
+    description: "Nominee films, award presentation and a dessert reception.",
+    venueName: "Nutmeg Theatre",
+    dayOffset: 111,
+    attendance: 58,
+    status: "submitted",
+  },
+];
+
+const EXTRA_EQUIPMENT_ITEMS = [
+  "Portable Projector",
+  "Wireless Microphone",
+  "Portable PA System",
+  "Folding Chair",
+  "LED Uplighter",
+];
+
+/**
  * Every seed takes this fixed key before it looks up the demo request. A lookup then insert is not
  * safe by itself: `select ... for update` takes no lock when it finds no row, so concurrent seeds
  * can both insert. The advisory lock serializes those seeds.
@@ -246,6 +739,7 @@ export type Database = ReturnType<typeof drizzle<typeof schema>>;
  */
 export async function runSeed(database: Database): Promise<void> {
   await database.insert(schema.user).values(seedUsers).onConflictDoNothing();
+  await database.insert(schema.user).values(seedExtraUsers).onConflictDoNothing();
   await database.insert(schema.user).values(seedStaffUsers).onConflictDoNothing();
 
   // Seed accounts share one password, so they can share one scrypt hash. `onConflictDoNothing`
@@ -254,7 +748,7 @@ export async function runSeed(database: Database): Promise<void> {
   await database
     .insert(schema.account)
     .values(
-      [...seedStaffUsers, ...seedUsers].map(user => ({
+      [...seedStaffUsers, ...seedUsers, ...seedExtraUsers].map(user => ({
         id: `seed-account-${user.id}`,
         accountId: user.id,
         providerId: "credential",
@@ -408,6 +902,12 @@ export async function runSeed(database: Database): Promise<void> {
           confirmedById: null,
           confirmedByName: null,
           confirmedAt: null,
+          completedById: null,
+          completedByName: null,
+          completedAt: null,
+          cancelledById: null,
+          cancelledByName: null,
+          cancelledAt: null,
           equipmentSubmittedAt: null,
           equipmentArrangementsCompletedAt: null,
           equipmentArrangementsCompletedById: null,
@@ -537,6 +1037,12 @@ export async function runSeed(database: Database): Promise<void> {
           ...attendeeRequirements,
           ...attendeeAttribution,
           submittedAt: sql`coalesce(${schema.eventRequests.submittedAt}, now())`,
+          completedById: null,
+          completedByName: null,
+          completedAt: null,
+          cancelledById: null,
+          cancelledByName: null,
+          cancelledAt: null,
           registrationEnabled: true,
           registrationCapacity: 40,
         })
@@ -594,6 +1100,188 @@ export async function runSeed(database: Database): Promise<void> {
       .insert(schema.eventRegistrations)
       .values({ eventId: attendeeEventId, attendeeId: "test-user-1" })
       .onConflictDoNothing();
+
+    // Seed twenty extra events under the same advisory lock as the demos. Dates move forward
+    // on every run, so existing rows converge instead of going stale. Each event keeps its
+    // own venue date, so approved bookings never share a venue and a date.
+    // oxlint-disable eslint/no-await-in-loop -- lookups must run sequentially under the lock
+    for (const [index, extra] of seedExtraEvents.entries()) {
+      const organiserId = seedExtraUsers[index * 2 + 1].id;
+      const extraDate = futureOpenDayDate(extra.dayOffset);
+      const extraTiming = {
+        proposedDates: [{ start: `${extraDate}T10:00`, end: `${extraDate}T16:00` }],
+        registrationOpensAt: `${futureDate(-1)}T09:00`,
+        registrationClosesAt: `${futureDate(extra.dayOffset - 1)}T17:00`,
+      };
+      const extraRequirements = {
+        expectedAttendance: extra.attendance,
+        venueRequirements: "Projector, Wi-Fi",
+        roomLayoutPreference: "Theatre seating",
+        accessibilityRequirements: "Step-free access",
+      };
+      const extraAttribution =
+        extra.status === "confirmed"
+          ? {
+              status: "confirmed" as const,
+              decidedByCoordinatorId: DEMO_EVENT_COORDINATOR_ID,
+              decidedByCoordinatorName: "Seeded Event Coordinator",
+              decidedAt: new Date(),
+              confirmedById: DEMO_EVENT_COORDINATOR_ID,
+              confirmedByName: "Seeded Event Coordinator",
+              confirmedAt: new Date(),
+            }
+          : { status: "submitted" as const };
+
+      const existing = await tx
+        .select({ id: schema.eventRequests.id })
+        .from(schema.eventRequests)
+        .where(
+          and(
+            eq(schema.eventRequests.organiserId, organiserId),
+            eq(schema.eventRequests.eventName, extra.name)
+          )
+        )
+        .limit(1)
+        .for("update");
+
+      let extraEventId = existing.at(0)?.id;
+      if (extraEventId === undefined) {
+        const [inserted] = await tx
+          .insert(schema.eventRequests)
+          .values({
+            organiserId,
+            submittedAt: new Date(),
+            assignedCoordinatorId: DEMO_EVENT_COORDINATOR_ID,
+            assignedAt: new Date(),
+            eventName: extra.name,
+            purpose: extra.purpose,
+            ...extraTiming,
+            ...extraRequirements,
+            ...extraAttribution,
+            description: extra.description,
+            eventType: extra.type,
+            registrationEnabled: true,
+            registrationCapacity: extra.attendance + 15,
+          })
+          .returning({ id: schema.eventRequests.id });
+        extraEventId = inserted.id;
+      } else if (extra.status === "confirmed") {
+        await tx
+          .update(schema.eventRequests)
+          .set({
+            ...extraTiming,
+            ...extraRequirements,
+            ...extraAttribution,
+            submittedAt: sql`coalesce(${schema.eventRequests.submittedAt}, now())`,
+            // A hand-completed or hand-cancelled row converges back on re-run instead of
+            // breaking the completion/cancellation CHECKs.
+            completedById: null,
+            completedByName: null,
+            completedAt: null,
+            cancelledById: null,
+            cancelledByName: null,
+            cancelledAt: null,
+            registrationEnabled: true,
+            registrationCapacity: extra.attendance + 15,
+          })
+          .where(eq(schema.eventRequests.id, extraEventId));
+      } else {
+        await tx
+          .update(schema.eventRequests)
+          .set({
+            ...extraTiming,
+            ...extraRequirements,
+            status: "submitted",
+            submittedAt: sql`coalesce(${schema.eventRequests.submittedAt}, now())`,
+            decisionReason: null,
+            decidedByCoordinatorId: null,
+            decidedByCoordinatorName: null,
+            decidedAt: null,
+            confirmedById: null,
+            confirmedByName: null,
+            confirmedAt: null,
+            completedById: null,
+            completedByName: null,
+            completedAt: null,
+            cancelledById: null,
+            cancelledByName: null,
+            cancelledAt: null,
+            registrationEnabled: true,
+            registrationCapacity: extra.attendance + 15,
+          })
+          .where(eq(schema.eventRequests.id, extraEventId));
+      }
+
+      const extraVenueId = venueIdByName.get(extra.venueName);
+      if (extraVenueId === undefined) {
+        throw new Error(`Seed venue "${extra.venueName}" was not inserted`);
+      }
+      const venueRequestId = `seed-extra-venue-request-${String(index + 1).padStart(2, "0")}`;
+      const extraVenueRequest = {
+        venueId: extraVenueId,
+        requestedById: DEMO_EVENT_COORDINATOR_ID,
+        startsAt: `${extraDate} 10:00:00`,
+        endsAt: `${extraDate} 16:00:00`,
+        status: extra.status === "confirmed" ? ("approved" as const) : ("pending" as const),
+        assignedStaffId: null,
+      };
+      const existingVenueRequest = await tx
+        .select({ id: schema.venueRequests.id })
+        .from(schema.venueRequests)
+        .where(eq(schema.venueRequests.id, venueRequestId))
+        .limit(1);
+      if (existingVenueRequest.length === 0) {
+        await tx.insert(schema.venueRequests).values({
+          id: venueRequestId,
+          eventId: extraEventId,
+          ...extraVenueRequest,
+        });
+      } else {
+        await tx
+          .update(schema.venueRequests)
+          .set({ ...extraVenueRequest, eventId: extraEventId })
+          .where(eq(schema.venueRequests.id, venueRequestId));
+      }
+
+      const equipmentRequestId = `seed-extra-equipment-request-${String(index + 1).padStart(2, "0")}`;
+      const equipmentName = EXTRA_EQUIPMENT_ITEMS[index % EXTRA_EQUIPMENT_ITEMS.length];
+      const extraEquipment = {
+        eventId: extraEventId,
+        assignedStaffId: "seed-tech-support-1",
+        item: equipmentName,
+        quantity: (index % 3) + 1,
+        equipmentTypeId: equipmentTypeIdByName.get(equipmentName) ?? null,
+        arrangementStatus:
+          extra.status === "confirmed" ? ("reserved" as const) : ("requested" as const),
+        notes: `Seeded for ${extra.name}`,
+      };
+      const existingEquipment = await tx
+        .select({ id: schema.equipmentRequests.id })
+        .from(schema.equipmentRequests)
+        .where(eq(schema.equipmentRequests.id, equipmentRequestId))
+        .limit(1);
+      if (existingEquipment.length === 0) {
+        await tx.insert(schema.equipmentRequests).values({
+          id: equipmentRequestId,
+          ...extraEquipment,
+        });
+      } else {
+        await tx
+          .update(schema.equipmentRequests)
+          .set(extraEquipment)
+          .where(eq(schema.equipmentRequests.id, equipmentRequestId));
+      }
+
+      if (extra.status === "confirmed") {
+        for (let k = 0; k < 5; k += 1) {
+          const attendee = seedExtraUsers[(index * 6 + k * 2) % seedExtraUsers.length];
+          await tx
+            .insert(schema.eventRegistrations)
+            .values({ eventId: extraEventId, attendeeId: attendee.id })
+            .onConflictDoNothing();
+        }
+      }
+    }
   });
 }
 

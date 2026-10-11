@@ -353,7 +353,7 @@ test.describe("Coordinator assignment (PTR-15)", () => {
     page,
   }) => {
     const signIn = await page.request.post("/api/auth/sign-in/email", {
-      data: { email: "coordinator.seed@example.com", password: "Seed-Pass123!" },
+      data: { email: "coordinator.seed@example.com", password: "password1!" },
     });
     expect(signIn.ok(), await signIn.text()).toBe(true);
 
