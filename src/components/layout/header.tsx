@@ -145,7 +145,7 @@ export function Header() {
                     type="button"
                     aria-label="Account menu"
                     title="Account menu"
-                    className={ICON_LINK_CLASSNAME}
+                    className="flex size-8 items-center justify-center"
                   />
                 }
               >
