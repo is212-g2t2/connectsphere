@@ -8,9 +8,9 @@ type Database = typeof Db;
 type EventTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 /**
- * PTR-51/53: locks the Organiser's own event row until the transaction ends, so a concurrent
- * completion or cancellation cannot pass the caller's eligibility check and commit beside the
- * caller's write. Another Organiser's event and an unknown id are refused the same way.
+ * PTR-51/53: Lock the Organiser's own event row until the transaction ends. This stops a
+ * concurrent completion or cancellation from passing the eligibility check and committing beside
+ * this write. Refuse another Organiser's event and an unknown id in the same way.
  */
 export async function lockOwnedEvent(tx: EventTx, eventRequestId: number, organiserId: string) {
   const event = (

@@ -35,22 +35,20 @@ type Database = typeof Db;
 const log = logger.getChild("venue-holds");
 
 /**
- * PTR-109: tentative venue holds at the handler boundary.
- *
- * AC1: Coordinator places a tentative hold naming venue and period -> recorded against event as "held".
- * AC2: Overlapping hold attempts refused (ConflictError 409) naming venue and period. The
- * locked pre-check produces the named refusal; the exclusion-constraint backstop maps to the
- * generic overlap sentence.
- * AC4: Hold refused when approved booking exists (ConflictError 409) naming venue and period.
- * AC7: Stores acting user ID (heldById) and timestamp.
- * PTR-54 AC9: a cancelled event takes no new hold.
+ * PTR-109: Handle tentative venue holds.
+ * AC1: Record the venue and period as held on the event.
+ * AC2: Return 409 for overlapping holds and name the venue and period. The locked pre-check gives
+ * this refusal. The exclusion-constraint fallback uses the generic overlap message.
+ * AC4: Return 409 and name the venue and period when an approved booking overlaps.
+ * AC7: Store the acting user's id (`heldById`) and timestamp.
+ * PTR-54 AC9: Refuse a new hold for a cancelled event.
  */
 export async function handleCreateVenueHold(data: unknown, actor: SessionUser, database: Database) {
   const input = parseVenueHoldInput(data);
 
   return database.transaction(async tx => {
-    // The event lock comes before the venue lock. It waits for a cancellation in progress, and a
-    // cancellation that starts later waits for this transaction to commit.
+    // Lock the event before the venue. This waits for a cancellation in progress. A later
+    // cancellation waits for this transaction to commit.
     const locked = await keyShareEvent(tx, input.eventId);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
@@ -64,7 +62,7 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
     const venue = venueRows.at(0);
     if (!venue) throw new NotFoundError("Not Found");
 
-    // Serialise per venue before checking conflicts
+    // Serialize by venue before checking conflicts.
     await lockVenue(tx, venue.id);
 
     const startsAt = `${input.date} ${input.startTime}:00`;
@@ -122,13 +120,12 @@ async function releaseActiveHold(
   actorId: string,
   conflictMessage = "This hold has already been released."
 ) {
-  // The advisory lock must come first: a plain read of the venue, then the lock, then the row
-  // lock. Taking the row lock before the advisory lock (as this used to) lets a convert and an
-  // approval for the same venue grab them in opposite orders and deadlock (40P01).
+  // Read the venue, take the advisory lock, then lock the row. Locking the row first lets a
+  // conversion and approval take locks in opposite orders and deadlock (40P01).
   const lockedVenueId = await lockVenueForHold(tx, id);
 
-  // Re-read under the venue lock, locking only the hold row: `of: venueHolds` leaves the joined
-  // event_requests row unlocked, so a concurrent event writer cannot deadlock against us.
+  // Re-read under the venue lock. Lock only the hold row with `of: venueHolds`; do not lock the
+  // joined `event_requests` row, or a concurrent event writer could deadlock.
   const rows = await tx
     .select({
       id: venueHolds.id,
@@ -147,9 +144,8 @@ async function releaseActiveHold(
   const hold = rows.at(0);
   if (!hold) throw new NotFoundError("Not Found");
   assertSameVenue(lockedVenueId, hold.venueId);
-  // An orphaned hold (both actor columns null) has no owner left to release it, so anyone who can
-  // reach the hold may. Conversion still runs the assignee+submitted gate below, so an orphan is
-  // releasable but not convertible by a stranger.
+  // An orphaned hold has no owner because both actor columns are null. Let any user who can reach
+  // it release the hold. The assignee and submitted-status checks still prevent conversion.
   if (!canReleaseHold(hold, actorId)) {
     throw new AuthorizationError("Forbidden");
   }
@@ -173,9 +169,9 @@ async function releaseActiveHold(
 }
 
 /**
- * PTR-109 AC5: releasing a tentative hold.
- * Frees the period for other events and marks status as "released".
- * Refuses non-creator (403), non-existent ID (404), already released (409).
+ * PTR-109 AC5: Release a tentative hold and mark it `released`.
+ * This frees the period for other events. Return 403 for a non-creator, 404 for a missing id, and
+ * 409 for a hold that is already released.
  */
 export async function handleReleaseVenueHold(
   data: unknown,
@@ -191,10 +187,9 @@ export async function handleReleaseVenueHold(
 }
 
 /**
- * PTR-109 AC5: converting a tentative hold to a pending venue request.
- * Releases the hold, creates a pending venue request with matching period/venue/event,
- * and notifies Venue Staff via email.
- * PTR-54 AC9: a cancelled event takes no new venue request, so its hold can only be released.
+ * PTR-109 AC5: Convert a tentative hold to a pending venue request.
+ * Release the hold, create a request for the same venue, period, and event, and notify Venue Staff.
+ * PTR-54 AC9: A cancelled event cannot get a new request, so its hold can only be released.
  */
 export async function handleConvertVenueHold(
   data: unknown,
@@ -204,8 +199,8 @@ export async function handleConvertVenueHold(
   const { id } = parseVenueHoldId(data);
 
   const result = await database.transaction(async tx => {
-    // The event lock comes before the venue lock. It waits for a cancellation in progress, and a
-    // cancellation that starts later waits for this transaction to commit.
+    // Lock the event before the venue. This waits for a cancellation in progress. A later
+    // cancellation waits for this transaction to commit.
     const locked = await keyShareEventForHold(tx, id);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const { hold, released: releasedHold } = await releaseActiveHold(
@@ -215,16 +210,13 @@ export async function handleConvertVenueHold(
       "This hold has already been released or converted."
     );
 
-    // Conversion creates a pending request, so it applies the same gate as raising one: the event
-    // must still be `submitted` and assigned to the caller. `loadAssignedEvent` re-checks that in
-    // this transaction, but a handover landing between the calendar read and here still shows a
-    // stale Convert; the gate refuses it and the release rolls back with the hold left `held`.
-    // Throwing rolls the release back, so the hold stays `held` rather than leaking a freed slot
-    // for a request that was never made.
+    // Conversion creates a pending request, so require an assigned event in `submitted` status.
+    // `loadAssignedEvent` re-checks this in the transaction. If a handover makes the calendar's
+    // Convert action stale, refuse it and roll back the release. The hold then stays `held`.
     const assignedEvent = await loadAssignedEvent(tx, hold.eventId, actor.id, ["submitted"]);
     if (!assignedEvent) throw new AuthorizationError("Forbidden");
 
-    // Read before the insert like `handleCreateVenueHold` does; the FK guarantees the row exists.
+    // Read before insert, as `handleCreateVenueHold` does. The foreign key guarantees the row exists.
     const venueRows = await tx
       .select({ id: venues.id, name: venues.name })
       .from(venues)

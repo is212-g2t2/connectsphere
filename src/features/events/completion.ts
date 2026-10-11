@@ -10,11 +10,11 @@ export const COMPLETED_EVENT_ACTIVITY_MESSAGE =
   "Completed events cannot accept new venue bookings, equipment reservations, or registrations.";
 
 /**
- * The completed-event refusal every activity write path shares: venue approvals and
- * equipment reservations read the event under lock, then call this after their
- * ownership gate, so a refused probe reveals nothing about an event the caller
- * cannot work. A null status is not a bypass: the callers hold the event row
- * through the non-null FK, and a missing row fails their write on that FK.
+ * Share one completed-event refusal across all activity write paths. Venue approvals and
+ * equipment reservations read the event under lock, then call this after their ownership gate.
+ * A refused probe then reveals nothing about an event the caller cannot use. A null status is
+ * not a bypass. Callers hold the event row through the non-null foreign key. A missing row
+ * fails their write on that key.
  */
 export function assertEventAcceptsActivity(status: string | null | undefined): void {
   if (status === "completed") throw new ConflictError(COMPLETED_EVENT_ACTIVITY_MESSAGE);

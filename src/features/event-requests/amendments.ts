@@ -14,10 +14,10 @@ import type {
 } from "#/features/event-requests/schema";
 
 /**
- * JSON with object keys in a fixed order. `jsonb` reorders keys when it stores them, so a plain
- * `JSON.stringify` of the locked row and of the freshly parsed values can differ on key order
- * alone; sorting here compares the values, not how Postgres laid them out. An explicit `undefined`
- * becomes `null`, matching how an absent value returns from the row; a missing key stays missing.
+ * Return JSON with object keys in a fixed order. `jsonb` can reorder keys, so plain
+ * `JSON.stringify` can report a change when only the key order differs. Sort keys to compare
+ * values, not Postgres's storage order. Convert explicit `undefined` values to `null`, as row reads
+ * do. Keep missing keys absent.
  */
 function normalisedForComparison(value: unknown): ClarificationAmendmentValue {
   if (Array.isArray(value)) return value.map(normalisedForComparison);
@@ -44,10 +44,10 @@ function sameValue(left: unknown, right: unknown): boolean {
 }
 
 /**
- * What `values` changes on the locked row, for the given fields only. A field left identical
- * produces no entry, so a client that re-sends every value cannot pad the history.
- * `attendeeRegistration` is one entry covering its four columns. A clarification reply (PTR-19)
- * passes the fields its question permits; an event information update (PTR-22) passes them all.
+ * Return changes to the locked row for the given fields. Do not add an entry when a field stays the
+ * same, so resending values does not pad the history. `attendeeRegistration` is one entry for its
+ * four columns. A clarification reply (PTR-19) passes allowed fields; an event update (PTR-22)
+ * passes all fields.
  */
 export function amendmentsBetween(
   request: typeof eventRequests.$inferSelect,
@@ -100,10 +100,9 @@ export function amendmentsBetween(
 }
 
 /**
- * What a save changes: one amendment for each field in `fields` that the user actually touched. A
- * field left at its loaded value is omitted, so a form opened on an older copy of the record
- * cannot resend that copy and revert a later change. `attendeeRegistration` spans four columns,
- * so a change to any of them sends all four as a group.
+ * Return one amendment for each field in `fields` that the user changed. Omit fields left at their
+ * loaded values, so an older form cannot revert a later change. `attendeeRegistration` spans four
+ * columns, so a change to any one sends all four as a group.
  */
 export function pickAmendments(
   values: EventRequestDraftValues,
@@ -132,9 +131,9 @@ export function pickAmendments(
 }
 
 /**
- * The locked row with `amendments` written over it, parsed by the draft rules. A column the row
- * stores as null is absent to the schema. The fields a submitted event needs must stay complete,
- * so a missing one throws the sentence that names it.
+ * Apply `amendments` to the locked row, then parse the result with the draft rules. The schema
+ * treats stored `null` values as absent. Submitted events need complete fields, so a missing field
+ * throws its named error.
  */
 export function amendedValues(
   request: typeof eventRequests.$inferSelect,

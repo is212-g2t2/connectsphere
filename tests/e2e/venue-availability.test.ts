@@ -19,8 +19,7 @@ async function signUpAsExternal(page: Page, role: "attendee" | "event_organiser"
 }
 
 async function selectLiveRange(page: Page, venueName: string, start: string, end = start) {
-  // The page is server-rendered and then hydrated; values typed before React is listening are
-  // wiped, or the form submits natively. Wait for hydration the way `dashboard.test.ts` does.
+  // Wait for hydration before typing. React may discard early input or submit the form natively.
   await waitForHydration(page);
   await page.locator("#availability-venue").click();
   await expect(page.getByRole("option", { name: venueName, exact: true })).toHaveCount(1);
@@ -36,8 +35,7 @@ test("[PTR-28-TC01-LIVE][AC1] coordinator loads seeded venues and renders a sche
   await signInAsStaff(page, "event_coordinator");
   await page.goto("/venues/availability");
   await expect(page.getByRole("heading", { name: "Venue calendar", exact: true })).toBeVisible();
-  // Derived from the seed like its sibling: the seeded dates are relative to seed time, so a
-  // literal date would silently drift out from under the venue it was chosen for.
+  // Derive the date from the seed time. A fixed date could stop matching the seeded venue.
   await selectLiveRange(page, "Harbour Hall", await seededBlockDate("Harbour Hall"));
 
   const results = page.getByRole("region", { name: "Availability results" });

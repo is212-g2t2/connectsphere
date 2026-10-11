@@ -61,7 +61,7 @@ describe("CompleteEventAction (PTR-25)", () => {
     const [alert] = await screen.findAllByRole("alert", { hidden: true });
     expect(alert.textContent).toContain(EVENT_HAS_NOT_ENDED_MESSAGE);
     expect(success).not.toHaveBeenCalled();
-    // A pure eligibility refusal changes nothing on the server, so no refetch follows.
+    // A pure eligibility refusal changes nothing on the server. No refetch follows.
     expect(invalidate).not.toHaveBeenCalled();
   });
 

@@ -2,14 +2,13 @@ import { WEEKDAYS } from "#/features/venues/schema";
 import type { OperatingHours } from "#/features/venues/schema";
 
 /**
- * Venue availability is measured in floating venue-local wall-clock time, never a `Date`.
+ * Measure venue availability with local wall-clock values, not `Date` objects.
  *
- * Postgres stores the recorded unavailability as `timestamp without time zone` with Drizzle's
- * `mode: "string"` (see `venueUnavailability` in `src/db/schema.ts`) and the operating hours are
- * `HH:MM` strings (see `venues/schema.ts`). A floating timestamp is therefore
- * `YYYY-MM-DDTHH:MM:SS[.fff]`, and fixed-width values in that shape compare as plain strings:
- * chronological order without a timezone ever entering the comparison, which is the same
- * reasoning `event-requests/format.ts` and the operating-hours schema already follow.
+ * Postgres stores unavailability as `timestamp without time zone`. Drizzle reads it as a string
+ * (`mode: "string"`; see `venueUnavailability` in `src/db/schema.ts`). Operating hours use `HH:MM`
+ * strings from `venues/schema.ts`. A floating timestamp uses `YYYY-MM-DDTHH:MM:SS[.fff]`.
+ * Fixed-width values in this format sort in chronological order as strings. This avoids timezone
+ * conversion, as in `event-requests/format.ts` and the operating-hours schema.
  */
 
 const FLOATING_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
@@ -22,7 +21,7 @@ function parseCivilDate(value: string) {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value ? date : null;
 }
 
-/** The calendar day after `value`, or throws when it is not a civil date. */
+/** Return the calendar day after `value`. Throw when `value` is not a civil date. */
 export function nextCivilDate(value: string) {
   const date = parseCivilDate(value);
   if (!date) throw new Error("Availability contains an invalid date");
@@ -30,7 +29,7 @@ export function nextCivilDate(value: string) {
   return date.toISOString().slice(0, 10);
 }
 
-/** Postgres hands back `"2026-10-05 10:00:00"`; the calendar speaks the `T` spelling. */
+/** Convert Postgres `"2026-10-05 10:00:00"` to the calendar `T` spelling. */
 export function normalizeDatabaseTimestamp(value: string) {
   const normalized = value.replace(" ", "T");
   if (!isFloatingTimestamp(normalized))
@@ -38,7 +37,7 @@ export function normalizeDatabaseTimestamp(value: string) {
   return normalized;
 }
 
-/** The `T` spelling trimmed to the minute, as the forms and calendar expect. */
+/** Trim the `T` spelling to the minute for forms and the calendar. */
 export function toLocalMinuteValue(value: string) {
   return normalizeDatabaseTimestamp(value).slice(0, 16);
 }
@@ -55,7 +54,7 @@ const singaporeClock = new Intl.DateTimeFormat("en-CA", {
 });
 
 /**
- * An instant as the venue's wall clock reads it, in the database spelling
+ * Show an instant as the venue wall clock reads it. Use the database spelling
  * (`"2026-10-05 10:00:00"`). The venues are in Singapore (brief §1).
  */
 export function venueLocalTimestamp(now: Date): string {
@@ -68,7 +67,7 @@ export function venueLocalTimestamp(now: Date): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
-/** Bad source data must not read as an available venue, so this throws rather than guesses. */
+/** Throw on bad source data. Never show bad data as an available venue. */
 export function isFloatingTimestamp(value: string) {
   return FLOATING_TIMESTAMP.test(value) && parseCivilDate(value.slice(0, 10)) !== null;
 }
@@ -77,19 +76,18 @@ export function compareTimestamps(left: string, right: string) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** The civil day a floating timestamp falls on: `"2026-10-05"` for `"2026-10-05T23:00:00"`. */
+/** Return the civil day of a floating timestamp. `"2026-10-05T23:00:00"` returns `"2026-10-05"`. */
 export function timestampDay(value: string) {
   return value.slice(0, 10);
 }
 
-/** The `HH:MM:SS[.fff]` clock reading of a floating timestamp. */
+/** Return the `HH:MM:SS[.fff]` clock reading of a floating timestamp. */
 export function timestampTime(value: string) {
   return value.slice(11);
 }
 
 /**
- * The last civil day a period covers. A period ending exactly at midnight belongs to the day
- * before, or every booking would leak one extra day onto the calendar.
+ * Return the last civil day a period covers. A period that ends at midnight belongs to the previous day. This keeps each booking on its own calendar days.
  */
 export function timestampEndDay(value: string) {
   return timestampTime(value).startsWith("00:00:00")
@@ -105,8 +103,8 @@ function previousCivilDate(value: string) {
 }
 
 /**
- * The venue's opening periods across the inclusive civil-date range, one per open weekday.
- * A closed day contributes nothing; the venue is then unavailable rather than open all day.
+ * Return the venue opening periods for the inclusive date range. Add one period per open weekday.
+ * Add nothing for a closed day. The venue stays unavailable that day.
  */
 export function openingPeriods(
   startDate: string,
@@ -125,7 +123,7 @@ export function openingPeriods(
 }
 
 export interface AvailabilityPeriod {
-  /** Floating venue-local timestamps, as described above. */
+  /** Use floating venue-local timestamps. */
   startsAt: string;
   endsAt: string;
 }
@@ -133,7 +131,7 @@ export interface AvailabilityPeriod {
 export interface AvailabilityRecord extends AvailabilityPeriod {
   id: string;
   label: string;
-  /** Whether the viewer may act on this record (PTR-109 hold release/convert). */
+  /** Show whether the viewer can release or convert this record (PTR-109). */
   canRelease?: boolean;
   canConvert?: boolean;
 }
@@ -142,10 +140,10 @@ export interface OccupiedPeriod extends AvailabilityPeriod {
   id: string;
   state: "confirmed" | "blocked" | "tentative_hold";
   label: string;
-  /** The part of the record that lies inside the requested range. */
+  /** Return the part of the record inside the requested range. */
   visibleStart: string;
   visibleEnd: string;
-  /** Copied from the source record; absent for bookings and blocks. */
+  /** Copy this value from the source record. Omit it for bookings and blocks. */
   canRelease?: boolean;
   canConvert?: boolean;
 }
@@ -156,13 +154,13 @@ export interface AvailabilityProjection {
 }
 
 /**
- * The occupancy and free gaps for one venue across a range. Intervals are positive-duration
- * `[start, end)` extents, not permission to create adjacent bookings — buffers belong to booking
- * policy, which no story owns yet.
+ * Occupancy and free gaps for one venue over a date range. Intervals have positive duration and
+ * use the `[start, end)` form. This shape does not allow adjacent bookings. No feature defines
+ * booking buffers yet.
  *
- * `bookings` carries the approved bookings `loadVenueBookings` reads (PTR-36); `blocks` are the
- * recorded unavailability; `holds` are the tentative holds (PTR-109). Both are positive-duration
- * `[start, end)` extents, never permission to create adjacent bookings.
+ * `bookings` contains approved rows from `loadVenueBookings` (PTR-36). `blocks` contain recorded
+ * unavailability, and `holds` contain tentative holds (PTR-109). These intervals do not allow
+ * adjacent bookings.
  */
 export function projectAvailability(
   range: AvailabilityPeriod,

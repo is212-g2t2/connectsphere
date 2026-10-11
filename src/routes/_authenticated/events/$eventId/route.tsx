@@ -1,9 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 /**
- * The layout for one event's routes, and nothing else. It exists so the Organiser/Coordinator
- * attendee page can sit beside the Attendee event page without inheriting that page's
- * attendee-only `beforeLoad`: each child route carries its own guard. A route with no
- * `component` renders its `Outlet` (see `_authenticated.tsx`).
+ * Layout for this event's routes. It lets Organiser and Coordinator pages sit beside Attendee
+ * pages without inheriting an Attendee-only `beforeLoad`. Each child route has its own guard.
+ * Without a `component`, this route renders its `Outlet` (see `_authenticated.tsx`).
  */
 export const Route = createFileRoute("/_authenticated/events/$eventId")({});

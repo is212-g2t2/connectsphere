@@ -5,16 +5,13 @@ import path from "node:path";
 /**
  * PTR-75: route modules are routing, and nothing else.
  *
- * `dashboard.tsx` (177 lines) and `settings.tsx` (143 lines) used to carry their whole view —
- * local `SettingsSection` and `Row` helpers — beside the routing
- * configuration, which is how a page view becomes impossible to render without a router. The
- * views now live under `src/features/<feature>/components/`, and these assertions are what stops
- * the next one from being written back into a route file: nothing else in the suite would notice,
- * because a page that renders correctly renders correctly wherever it is declared.
+ * `dashboard.tsx` (177 lines) and `settings.tsx` (143 lines) carried their views beside the routing
+ * configuration, so those pages needed a router to render. Views now live under
+ * `src/features/<feature>/components/`. These assertions stop the next view from moving back;
+ * no other test would notice.
  *
- * The checks are textual on purpose. They are about where a declaration sits, which is a property
- * of the file rather than of the running application, and a file read is the cheapest way to hold
- * a boundary that no amount of rendering can.
+ * The checks are textual on purpose. They check where a declaration sits in the file. A file
+ * read is the cheapest way to hold a boundary that no rendering can check.
  */
 const routesDir = path.resolve(process.cwd(), "src/routes");
 
@@ -30,21 +27,21 @@ function relative(filePath: string): string {
   return path.relative(process.cwd(), filePath).replace(/\\/g, "/");
 }
 
-/** A top-level `function`/`const`/`class`/`type` declaration, by the name it binds. */
+/** Match top-level `function`, `const`, `class`, and `type` declarations by name. */
 const TOP_LEVEL_DECLARATION =
   /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/;
 
-/** React state and lifecycle — a route module reaching for these is rendering, not routing. */
+/** Match React state and lifecycle APIs. Route modules must not use them. */
 const VIEW_HOOK =
   /\buse(?:State|Effect|LayoutEffect|Ref|Memo|Callback|Reducer|Transition|ImperativeHandle)\s*\(/;
 
-/** `#/features/<feature>/components/<page>` — where a page view is allowed to live. */
+/** Match the directory where page views belong. */
 const FEATURE_VIEW_IMPORT = /from\s*["']#\/features\/[^"']+\/components\/[^"']+["']/;
 
 describe("Route module boundaries", () => {
   const allRoutes = routeModules(routesDir);
-  // The rendering routes. API handlers under `routes/api/` and the crawler formats are `.ts`,
-  // declare no view, and keep their own request-handling helpers.
+  // Only rendering routes belong here. API handlers and crawler formats use `.ts` files and keep
+  // their request-handling helpers.
   const renderingRoutes = allRoutes.filter(filePath => filePath.endsWith(".tsx"));
 
   it("finds the route modules to hold", () => {
@@ -71,12 +68,12 @@ describe("Route module boundaries", () => {
 
   it("imports every page view from its feature's components directory", () => {
     const offenders = renderingRoutes
-      // `__root.tsx` renders the document shell and the two boundaries around it rather than a
-      // page view, so its components come from `src/components/` by design.
+      // `__root.tsx` renders the document shell and its two boundaries, not a page view. Its
+      // components therefore come from `src/components/`.
       .filter(filePath => path.basename(filePath) !== "__root.tsx")
       .filter(filePath => {
         const content = fs.readFileSync(filePath, "utf-8");
-        // A pathless layout route (`_authenticated.tsx`) renders nothing of its own.
+        // `_authenticated.tsx` is a pathless layout and renders nothing.
         return /\bcomponent:/.test(content) && !FEATURE_VIEW_IMPORT.test(content);
       });
 

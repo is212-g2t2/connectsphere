@@ -23,10 +23,9 @@ test.afterAll(async () => {
   await pool.end();
 });
 
-/**
- * An organiser, a venue and a submitted event assigned to the run's own Coordinator. Every id is
- * pushed onto `cleanup` before its row is written, so a failure part-way still leaves the finally
- * a complete list — the pattern `coordination.test.ts` uses.
+/** Create an Organiser, venue, and submitted event for this run's Coordinator. Add each id to
+ * `cleanup` before writing its row, so cleanup still knows about it if a later write fails. This
+ * follows the pattern in `coordination.test.ts`.
  */
 async function seedFixture(
   coordinatorId: string,
@@ -71,10 +70,8 @@ async function seedFixture(
   return { venueId: venue.id, venueName, eventId: event.id, eventName };
 }
 
-/**
- * PTR-31 end to end: the request panel on the venue page, the row it leaves in the queue, the
- * notification Venue Staff receive, and the withdrawal that takes it out again. The fixtures are
- * file-owned so nothing here touches the seed's demo request.
+/** PTR-31: test the venue request panel, queued row, Venue Staff notification, and withdrawal.
+ * This file owns its fixtures and does not change the seed's demo request.
  */
 test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the request is withdrawn", async ({
   page,
@@ -101,7 +98,7 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     await page.getByLabel("End time (required)", { exact: true }).fill("15:30");
     await page.getByRole("button", { name: "Send booking request" }).click();
 
-    // The loader is the panel's source, so the pending request replaces the form in place.
+    // The panel reads loader data, so the pending request replaces the form in place.
     await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
     await expect(page.getByText(/10 May 2027, 09:00 – 15:30/)).toBeVisible();
 
@@ -117,7 +114,7 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
       assignedStaffId: null,
     });
 
-    // AC4: every Venue Staff member is told; the seeded one stands in for the role.
+    // AC4: notify every Venue Staff member. The seeded user represents this role.
     const email = await waitForEmail(
       "venue.staff.seed@example.com",
       `Venue booking requested: ${fixture.venueName}`
@@ -125,7 +122,7 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     expect(email).toContain("10 May 2027");
     expect(email).toContain("09:00");
     expect(email).toContain("15:30");
-    // The venue-staff projection withholds the event name, so its notification must too.
+    // Do not show the event name in the Venue Staff notification.
     expect(email).not.toContain(fixture.eventName);
 
     await page.getByRole("button", { name: "Withdraw request" }).click();
@@ -138,7 +135,7 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
       .where(eq(schema.venueRequests.id, created.id));
     expect(withdrawn.status).toBe("withdrawn");
   } finally {
-    // Deleting the users cascades the event and its venue request; the venue follows.
+    // Deleting the users removes the event and venue request by cascade. Then delete the venue.
     if (cleanup.userIds.length > 0) {
       await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
     }

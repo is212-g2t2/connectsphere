@@ -3,7 +3,7 @@ import { cn } from "cn";
 
 import { LAYOUT_LABELS, parseLayouts } from "#/features/venues/schema";
 
-/** The four operational requirements both projections carry, and nothing else. */
+/** The four operational requirements both projections carry. Nothing else. */
 interface EventRequirementFields {
   expectedAttendance?: number | null;
   layout?: string | null;
@@ -17,13 +17,13 @@ interface Requirement {
 }
 
 /**
- * The operational requirements Venue Staff receive, as labelled pairs the Coordinator can check
- * before and after sending. Empty terms drop out, a wholly empty event leaves nothing to restate,
- * and a free-text layout reads back as the layout it names rather than the raw stored words.
+ * List the operational requirements for Venue Staff as labelled pairs. The Coordinator checks
+ * them before and after sending. Drop empty terms. A wholly empty event leaves nothing to
+ * restate. Show a named layout by its label. Show other text as stored.
  */
 function requirementPairs(event: EventRequirementFields): Requirement[] {
-  // Whitespace-only text is treated as absent, so a field that reads as blank on screen drops out
-  // instead of rendering a labelled empty term. `0` is a real answer and stays.
+  // Treat whitespace-only text as absent. A blank-looking field drops out. Keep `0`. It is a
+  // real answer.
   const layout = event.layout?.trim() ?? "";
   const layouts = parseLayouts(layout).map(name => LAYOUT_LABELS[name]);
   const accessibilityRequirements = event.accessibilityRequirements?.trim();
@@ -40,18 +40,19 @@ function requirementPairs(event: EventRequirementFields): Requirement[] {
 }
 
 /**
- * Whether the requirements block would render anything: any requirement pair, or extra rows
- * the host adds (its venue request and any rejection). Hosts use it to skip their eyebrow
- * when the block is empty.
+ * Check whether the requirements block would render anything. Count any requirement pair and
+ * extra rows the host adds (its venue request and any rejection). Hosts skip their eyebrow when
+ * the block is empty.
  */
 export function hasEventRequirements(event: EventRequirementFields, hasExtra: boolean): boolean {
   return hasExtra || requirementPairs(event).length > 0;
 }
 
 /**
- * The one requirements treatment the request panel and the dashboard's event cards share: four
- * labelled facts from the event's fields, and nothing when the event is bare. `className` is the
- * host's outer spacing, and `children` is the extra rows a card adds (its venue request and any rejection).
+ * Share one requirements treatment between the request panel and the dashboard event cards. Show
+ * four labelled facts from the event's fields. Show nothing when the event is bare. `className`
+ * sets the host's outer spacing. `children` adds extra rows (its venue request and any
+ * rejection).
  */
 export function EventRequirements({
   event,

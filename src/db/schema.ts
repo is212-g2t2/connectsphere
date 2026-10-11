@@ -27,11 +27,11 @@ import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 import { user } from "./auth-schema";
 
 /**
- * The full defined set (PTR-21): the one place an event's stage is recorded. Only a user's status
- * action writes it — a venue or equipment arrangement changing never moves an event by itself —
- * and every decision keeps who and when (the `event_requests_decision_matches_status` CHECK). The
- * client restates the set in `src/features/event-requests/schema.ts`, held identical by
- * `tests/unit/db-schema.test.ts`; widening it is a generated `ALTER TYPE` migration.
+ * The full set of event stages (PTR-21). This is the only field that records an event's stage.
+ * Only a user's status action changes it. A venue or equipment change does not change the stage.
+ * The `event_requests_decision_matches_status` CHECK ties each decision to its stage. The client
+ * repeats this set in `src/features/event-requests/schema.ts`; `tests/unit/db-schema.test.ts` keeps
+ * both sets in sync. Add a stage with a generated `ALTER TYPE` migration.
  */
 export const eventRequestStatus = pgEnum("event_request_status", [
   "draft",
@@ -40,9 +40,9 @@ export const eventRequestStatus = pgEnum("event_request_status", [
   "approved",
   "rejected",
   "awaiting_organiser",
-  // PTR-21 criterion 1: the rest of the defined set, added once so PTR-24 (confirmed), PTR-25
-  // (completed) and PTR-54 (cancelled) write into an enum that already holds their value.
-  // `planning` is the stage between approval and confirmation the brief names (§5 steps 6–9).
+  // PTR-21 criterion 1: add the remaining stages now. PTR-24, PTR-25 and PTR-54 can then write
+  // `confirmed`, `completed` and `cancelled`. `planning` is the stage between approval and
+  // confirmation in brief section 5, steps 6–9.
   "planning",
   "confirmed",
   "completed",
@@ -57,47 +57,42 @@ export const eventRequests = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     status: eventRequestStatus("status").notNull().default("draft"),
-    /**
-     * PTR-13 criterion 2: when the organiser submitted the request. Null while it is a draft,
-     * and the CHECK below keeps any other status from existing without it.
-     */
+    /** PTR-13 criterion 2: submission time. Null for drafts; the CHECK requires it for every other status. */
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     /**
-     * PTR-15: the one Event Coordinator responsible for the event, chosen at submission. A single
-     * column is what makes criterion 2 structural — a row cannot hold two. Null while a draft
-     * (PTR-9 criterion 4), and null after submission only when no Coordinator could be assigned
-     * (criterion 5), in which case the request waits in the unassigned list. `set null` rather
-     * than cascade: deleting a staff account must not delete the events they were handling —
-     * they become unassigned and wait to be picked up (PTR-16), and `assignedAt` is left as the
-     * record of the assignment that was, which is why the CHECK below runs one way only.
+     * PTR-15: the Event Coordinator chosen at submission. One column limits each row to one
+     * Coordinator (criterion 2). Drafts have no Coordinator (PTR-9 criterion 4). A submitted
+     * request can have no Coordinator only when none was available (criterion 5); that request
+     * stays in the unassigned list. `set null` keeps an event if staff leave. The event then waits
+     * for a new Coordinator (PTR-16), and `assignedAt` preserves the previous assignment time.
      */
     assignedCoordinatorId: text("assigned_coordinator_id").references(() => user.id, {
       onDelete: "set null",
     }),
     assignedAt: timestamp("assigned_at", { withTimezone: true }),
-    /** PTR-20: immutable decision attribution retained after the request leaves review. */
+    /** PTR-20: keep decision attribution after the request leaves review. */
     decisionReason: text("decision_reason"),
     decidedByCoordinatorId: text("decided_by_coordinator_id"),
     decidedByCoordinatorName: text("decided_by_coordinator_name"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     /**
-     * PTR-24 AC4: who confirmed the event and when, kept apart from the decision columns so the
-     * approval attribution survives. The id and name are snapshots, like the decision's, so an
-     * account deletion keeps the record. Null until the event is confirmed.
+     * PTR-24 AC4: who confirmed the event and when. These fields are separate from the decision
+     * fields, so they preserve approval attribution. Store the id and name as snapshots so account
+     * deletion does not remove them. Null until confirmation.
      */
     confirmedById: text("confirmed_by_id"),
     confirmedByName: text("confirmed_by_name"),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     /**
-     * PTR-25 AC3: who explicitly completed the event and when. The id and name are durable
-     * snapshots, like confirmation, so account deletion does not erase the audit record.
+     * PTR-25 AC3: who completed the event and when. Store the id and name as snapshots so account
+     * deletion does not remove the audit record.
      */
     completedById: text("completed_by_id"),
     completedByName: text("completed_by_name"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     /**
-     * PTR-54 AC1: who cancelled the event and when (PTR-21 AC4). Snapshots, like the confirmation,
-     * so an account deletion keeps the record. Null until the event is cancelled.
+     * PTR-54 AC1: who cancelled the event and when (PTR-21 AC4). Store the id and name as
+     * snapshots so account deletion does not remove the record. Null until cancellation.
      */
     cancelledById: text("cancelled_by_id"),
     cancelledByName: text("cancelled_by_name"),
@@ -105,7 +100,8 @@ export const eventRequests = pgTable(
     eventName: text("event_name").notNull().default(""),
     purpose: text("purpose").notNull().default(""),
     /**
-     * JSONB rather than a `timestamp` pair (PTR-10): an organiser may propose several date windows, and the strings round-trip exactly as the `datetime-local` inputs submitted them
+     * PTR-10: use JSONB instead of a `timestamp` pair because an organiser can propose several
+     * date windows. The stored strings match the submitted `datetime-local` values.
      */
     proposedDates: jsonb("proposed_dates")
       .$type<EventRequestDraftValues["proposedDates"]>()
@@ -127,10 +123,10 @@ export const eventRequests = pgTable(
      */
     equipmentSubmittedAt: timestamp("equipment_submitted_at", { withTimezone: true }),
     /**
-     * PTR-43: when Technical Support Staff marked the equipment arrangements complete, and who did
-     * it. Null until then, and cleared by any line mutation (add, edit, remove, notes, state
-     * change, reservation reduce/release) so a value only survives while the arrangements it
-     * describes are unchanged.
+     * PTR-43: when Technical Support Staff completed the equipment arrangements and who did it.
+     * Null until then. Clear these fields after any line change: add, edit, remove, notes, state
+     * change, or reservation reduction or release. This keeps the record valid only while its
+     * arrangements stay unchanged.
      */
     equipmentArrangementsCompletedAt: timestamp("equipment_arrangements_completed_at", {
       withTimezone: true,
@@ -141,11 +137,10 @@ export const eventRequests = pgTable(
     ),
     specialArrangements: text("special_arrangements").notNull().default(""),
     /**
-     * PTR-11: whether attendees may register, and the terms when they may. The two window columns
-     * are text for the same reason `proposedDates` is JSONB — the `datetime-local` spelling
-     * survives the round trip untouched, and the fixed-width format the save path guarantees keeps
-     * the CHECK below a chronological comparison. A `timestamp` column would hand back
-     * `… 18:00:00` instead.
+     * PTR-11: whether attendees may register and the registration terms. Store both window fields
+     * as text, like `proposedDates` uses JSONB, so `datetime-local` values keep their spelling.
+     * The save path enforces a fixed-width format, which lets the CHECK compare dates in order. A
+     * `timestamp` column would add seconds, such as `18:00:00`.
      */
     registrationEnabled: boolean("registration_enabled").notNull().default(false),
     registrationCapacity: integer("registration_capacity"),
@@ -158,48 +153,43 @@ export const eventRequests = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date()),
   },
   table => [
-    // PTR-13 criterion 2, held for whichever path writes the row: a draft has no submission time,
-    // and anything past draft records the moment it left (the later statuses keep it).
+    // PTR-13 criterion 2: drafts have no submission time. Every later status keeps the time it left draft.
     check(
       "event_requests_submission_time_matches_status",
       sql`(${table.status} = 'draft' and ${table.submittedAt} is null) or (${table.status} <> 'draft' and ${table.submittedAt} is not null)`
     ),
-    // PTR-15: a Coordinator is never recorded without the time they were assigned. The reverse
-    // is allowed — `ON DELETE SET NULL` vacates the Coordinator and keeps the time — so a staff
-    // account with events can still be removed.
+    // PTR-15: a Coordinator requires an assignment time. `ON DELETE SET NULL` can remove the
+    // Coordinator and keep the time, so staff accounts with events can be deleted.
     check(
       "event_requests_coordinator_has_assignment_time",
       sql`${table.assignedCoordinatorId} is null or ${table.assignedAt} is not null`
     ),
-    // PTR-9 criterion 4: a draft never carries a Coordinator. Only the id is guarded — no path
-    // writes `assignedAt` on a draft — while a time without an id stays legal for the CHECK above.
+    // PTR-9 criterion 4: drafts have no Coordinator. Check only the id because no path sets
+    // `assignedAt` on a draft. A time without an id is valid under the CHECK above.
     check(
       "event_requests_draft_has_no_coordinator",
       sql`${table.status} <> 'draft' or ${table.assignedCoordinatorId} is null`
     ),
-    // Decision attribution is required from the moment a request is approved or rejected and is
-    // kept through every later stage (planning, confirmed, completed); it must be absent before a
-    // decision exists. A cancellation can happen on either side of the decision (PTR-54), so
-    // `cancelled` accepts the attribution complete or wholly absent, never half-written.
+    // Keep decision attribution from approval or rejection through later stages. Require it for
+    // those stages and omit it before a decision. Cancellation can happen before or after a
+    // decision (PTR-54), so `cancelled` allows all attribution fields or none.
     check(
       "event_requests_decision_matches_status",
       sql`(${table.status}::text in ('approved', 'rejected', 'planning', 'confirmed', 'completed') and ${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.status}::text in ('draft', 'submitted', 'under_review', 'awaiting_organiser') and ${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null) or (${table.status}::text = 'cancelled' and ((${table.decidedByCoordinatorId} is not null and btrim(${table.decidedByCoordinatorId}) <> '' and ${table.decidedByCoordinatorName} is not null and btrim(${table.decidedByCoordinatorName}) <> '' and ${table.decidedAt} is not null) or (${table.decisionReason} is null and ${table.decidedByCoordinatorId} is null and ${table.decidedByCoordinatorName} is null and ${table.decidedAt} is null)))`
     ),
-    // PTR-24 AC4: a confirmed event always says who confirmed it and when; the three columns are
-    // all present or all absent; and only the stages from confirmation on may carry them.
-    // `completed` and `cancelled` keep the record of a confirmation they followed.
+    // PTR-24 AC4: confirmed events require all three confirmation fields. Earlier stages must
+    // omit them. `completed` and `cancelled` keep the confirmation record.
     check(
       "event_requests_confirmation_matches_status",
       sql`(${table.status}::text = 'confirmed' and ${table.confirmedById} is not null and btrim(${table.confirmedById}) <> '' and ${table.confirmedByName} is not null and btrim(${table.confirmedByName}) <> '' and ${table.confirmedAt} is not null) or (${table.status}::text in ('completed', 'cancelled') and ((${table.confirmedById} is not null and btrim(${table.confirmedById}) <> '' and ${table.confirmedByName} is not null and btrim(${table.confirmedByName}) <> '' and ${table.confirmedAt} is not null) or (${table.confirmedById} is null and ${table.confirmedByName} is null and ${table.confirmedAt} is null))) or (${table.status}::text not in ('confirmed', 'completed', 'cancelled') and ${table.confirmedById} is null and ${table.confirmedByName} is null and ${table.confirmedAt} is null)`
     ),
-    // PTR-25 AC3: completion writes all three audit fields with the status. A later cancellation
-    // may retain the complete audit record, but no earlier stage may carry it.
+    // PTR-25 AC3: completion requires all three audit fields. A later cancellation can keep them;
+    // earlier stages cannot have them.
     check(
       "event_requests_completion_matches_status",
       sql`(${table.status}::text = 'completed' and ${table.completedById} is not null and btrim(${table.completedById}) <> '' and ${table.completedByName} is not null and btrim(${table.completedByName}) <> '' and ${table.completedAt} is not null) or (${table.status}::text = 'cancelled' and ((${table.completedById} is not null and btrim(${table.completedById}) <> '' and ${table.completedByName} is not null and btrim(${table.completedByName}) <> '' and ${table.completedAt} is not null) or (${table.completedById} is null and ${table.completedByName} is null and ${table.completedAt} is null))) or (${table.status}::text not in ('completed', 'cancelled') and ${table.completedById} is null and ${table.completedByName} is null and ${table.completedAt} is null)`
     ),
-    // PTR-54 AC1: a cancelled event always says who cancelled it and when, and no other stage
-    // carries a cancellation.
+    // PTR-54 AC1: cancelled events require all cancellation fields. Other stages cannot have them.
     check(
       "event_requests_cancellation_matches_status",
       sql`(${table.status}::text = 'cancelled' and ${table.cancelledById} is not null and btrim(${table.cancelledById}) <> '' and ${table.cancelledByName} is not null and btrim(${table.cancelledByName}) <> '' and ${table.cancelledAt} is not null) or (${table.status}::text <> 'cancelled' and ${table.cancelledById} is null and ${table.cancelledByName} is null and ${table.cancelledAt} is null)`
@@ -208,7 +198,7 @@ export const eventRequests = pgTable(
       "event_requests_rejection_has_reason",
       sql`${table.status}::text <> 'rejected' or (${table.decisionReason} is not null and btrim(${table.decisionReason}) <> '')`
     ),
-    // Criterion 2/5, held for whichever path writes the row: terms exist exactly when enabled.
+    // Criteria 2 and 5: require registration terms exactly when registration is enabled.
     check(
       "event_requests_registration_terms_match_enabled",
       sql`(${table.registrationEnabled} and ${table.registrationCapacity} is not null and ${table.registrationOpensAt} is not null and ${table.registrationClosesAt} is not null) or (not ${table.registrationEnabled} and ${table.registrationCapacity} is null and ${table.registrationOpensAt} is null and ${table.registrationClosesAt} is null)`
@@ -221,8 +211,8 @@ export const eventRequests = pgTable(
       "event_requests_registration_closes_after_opens",
       sql`${table.registrationOpensAt} is null or ${table.registrationClosesAt} is null or ${table.registrationClosesAt} > ${table.registrationOpensAt}`
     ),
-    // PTR-8 resolves a caller's event by ownership or assignment; both columns are looked up
-    // per request, and Postgres indexes neither a foreign key nor a column on its own.
+    // PTR-8 looks up event access by owner or assignee. Index both columns because PostgreSQL does
+    // not index foreign keys or columns by default.
     index("event_requests_organiser_id_idx").on(table.organiserId),
     index("event_requests_assigned_coordinator_id_idx").on(table.assignedCoordinatorId),
     index("event_requests_equipment_arrangements_completed_by_id_idx").on(
@@ -231,7 +221,7 @@ export const eventRequests = pgTable(
   ]
 );
 
-/** PTR-16: append-only handover history. User ids are snapshots so account deletion keeps attribution. */
+/** PTR-16: append-only handover history. User id snapshots preserve attribution after account deletion. */
 export const eventAssignments = pgTable("event_assignments", {
   id: serial("id").primaryKey(),
   eventRequestId: integer("event_request_id")
@@ -244,10 +234,9 @@ export const eventAssignments = pgTable("event_assignments", {
 });
 
 /**
- * PTR-110: the decision the incoming Coordinator makes on a pending handover. The row itself is
- * the pending state — `decision` is null until answered, and the CHECK below keeps the decision
- * attribution all-or-nothing. The partial unique index allows one live handover per event, so a
- * replacement (raise again) has to resolve the previous one first.
+ * PTR-110: the incoming Coordinator's decision on a pending handover. A null `decision` means
+ * pending. The CHECK below requires all decision fields together. The partial unique index allows
+ * one live handover per event, so a new handover must first resolve the previous one.
  */
 export const eventHandoverDecision = pgEnum("event_handover_decision", ["accepted", "declined"]);
 
@@ -258,7 +247,7 @@ export const eventHandovers = pgTable(
     eventRequestId: integer("event_request_id")
       .notNull()
       .references(() => eventRequests.id, { onDelete: "cascade" }),
-    /** Snapshots, like `eventAssignments`: account deletion keeps the record attributable. */
+    /** Snapshots preserve attribution after account deletion, as in `eventAssignments`. */
     fromCoordinatorId: text("from_coordinator_id").notNull(),
     toCoordinatorId: text("to_coordinator_id").notNull(),
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
@@ -271,21 +260,20 @@ export const eventHandovers = pgTable(
       "event_handovers_decision_complete",
       sql`(${table.decision} is null and ${table.decidedById} is null and ${table.decidedAt} is null) or (${table.decision} is not null and ${table.decidedById} is not null and ${table.decidedAt} is not null)`
     ),
-    // PTR-110: one handover waits at a time; a raise replaces the previous live row in the same
-    // transaction, and the index is the backstop for a writer that does not come through it.
+    // PTR-110: allow one pending handover at a time. A new handover replaces the old row in one
+    // transaction. This index also protects writes that skip that transaction.
     uniqueIndex("event_handovers_pending_event_idx")
       .on(table.eventRequestId)
       .where(sql`${table.decision} is null`),
-    // The incoming Coordinator's list reads by recipient.
+    // The incoming Coordinator's list filters by recipient.
     index("event_handovers_to_coordinator_id_idx").on(table.toCoordinatorId),
   ]
 );
 
 /**
- * PTR-18: clarification requests raised by the assigned Coordinator. User ids are snapshots so
- * account deletion keeps attribution. The question body is immutable once recorded — the
- * Coordinator must raise a new one to add to it — while the reply columns are written once when
- * the Organiser answers.
+ * PTR-18: clarification requests from the assigned Coordinator. User id snapshots preserve
+ * attribution after account deletion. The question cannot change after insert; the Coordinator
+ * must raise another request to add a question. The Organiser writes the reply fields once.
  */
 export const clarificationRequests = pgTable(
   "clarification_requests",
@@ -306,9 +294,9 @@ export const clarificationRequests = pgTable(
     repliedByOrganiserId: text("replied_by_organiser_id"),
     repliedAt: timestamp("replied_at", { withTimezone: true }),
     /**
-     * PTR-19: what the reply changed on the request, as `{field, from, to}` entries, so both detail
-     * pages can show the amendment beside the reply. Empty when the reply answered without
-     * amending anything. `jsonb` keeps the before/after values exactly as the request stored them.
+     * PTR-19: fields that the reply changed, as `{field, from, to}` entries. Both detail pages show
+     * these changes beside the reply. Empty if the reply made no changes. `jsonb` keeps the values
+     * as the request stored them.
      */
     amendments: jsonb("amendments").$type<ClarificationAmendment[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -326,11 +314,11 @@ export const clarificationRequests = pgTable(
 export const eventChangeOutcome = pgEnum("event_change_outcome", ["applied", "declined"]);
 
 /**
- * PTR-51: an Organiser's requested post-submission change. The request text is append-only, and
- * keeping the requested value outside `event_requests` ensures that raising a request cannot change
- * the event's recorded information. PTR-52 writes the outcome once: `applied` when the Coordinator
- * saves the event through the request, `declined` with a reason. The processor's id and name are
- * snapshots, like the decision's. Several requests may wait at once.
+ * PTR-51: an Organiser's requested change after submission. Keep the requested value outside
+ * `event_requests` so a request cannot change recorded event data. Keep the request text unchanged
+ * after insert. PTR-52 records one outcome: `applied` when the Coordinator saves the change, or
+ * `declined` with a reason. Store the processor's id and name as snapshots. Several requests can
+ * wait at once.
  */
 export const eventChangeRequests = pgTable(
   "event_change_requests",
@@ -374,7 +362,7 @@ export const eventChangeRequests = pgTable(
 );
 
 /**
- * PTR-53/54: what the Coordinator decided on a cancellation request. Null while the request waits.
+ * PTR-53/54: the Coordinator's decision on a cancellation request. Null while the request waits.
  */
 export const eventCancellationOutcome = pgEnum("event_cancellation_outcome", [
   "cancelled",
@@ -382,10 +370,10 @@ export const eventCancellationOutcome = pgEnum("event_cancellation_outcome", [
 ]);
 
 /**
- * PTR-53: an Organiser's request to cancel their event. Kept apart from `event_change_requests`
- * because it names no field and no value. The event's status does not move until the Coordinator
- * processes the request (PTR-54), and the row keeps the outcome so it stays on the event record.
- * The processor's id and name are snapshots, like the decision's.
+ * PTR-53: an Organiser's request to cancel an event. Keep it separate from
+ * `event_change_requests` because it names no field or new value. PTR-54 changes the event status
+ * when the Coordinator processes the request. Keep the outcome on this row and store the
+ * processor's id and name as snapshots.
  */
 export const eventCancellationRequests = pgTable(
   "event_cancellation_requests",
@@ -407,7 +395,7 @@ export const eventCancellationRequests = pgTable(
   },
   table => [
     index("event_cancellation_requests_event_request_id_idx").on(table.eventRequestId),
-    // One request waits at a time, so a double click cannot raise two.
+    // Allow one pending request at a time, so a double-click cannot add two.
     uniqueIndex("event_cancellation_requests_open_event_idx")
       .on(table.eventRequestId)
       .where(sql`${table.outcome} is null`),
@@ -423,12 +411,12 @@ export const eventCancellationRequests = pgTable(
 );
 
 /**
- * PTR-22 AC4: one row for each field that an event information update changed: the field, its
- * previous and new value, who made the change, and when (brief §8f). Append-only. `field` is a
- * `CLARIFICATION_FIELDS` key, so `attendeeRegistration` is one row for its four columns, as in a
- * clarification amendment. `amendment` holds `{ from, to }` in the stored shape. It is an object,
- * because Drizzle parses a top-level `jsonb` string again on read, and "2031" would come back as
- * a number. The actor's id and name are snapshots, so an account deletion keeps the record.
+ * PTR-22 AC4: one append-only row for each field changed by an event information update. Store the
+ * field, old and new values, user, and time (brief section 8f). `field` is a `CLARIFICATION_FIELDS`
+ * key. For example, `attendeeRegistration` covers four columns in one row, as it does for a
+ * clarification. Store `amendment` as `{ from, to }`. It must be an object because Drizzle parses
+ * a top-level JSONB string again when it reads the row. It would read `"2031"` as a number. Store
+ * the user's id and name as snapshots so account deletion keeps the record.
  */
 export const eventInformationChanges = pgTable(
   "event_information_changes",
@@ -452,13 +440,13 @@ export const venues = pgTable(
     id: serial("id").primaryKey(),
     name: text("name").notNull().unique(),
     location: text("location").notNull(),
-    // Criterion 3 lives in the database too, not only in the Zod schema: a positive whole number
-    // is what `integer` plus this CHECK guarantees, whichever path writes the row.
+    // Keep criterion 3 in the database too. The integer column and CHECK require a positive whole
+    // number, whichever path writes the row.
     maxCapacity: integer("max_capacity").notNull(),
     facilities: text("facilities").array().notNull().default([]),
     accessibilityFeatures: text("accessibility_features").array().notNull().default([]),
-    // Values are constrained to `VENUE_LAYOUTS` by `VenueInput`, not by a Postgres enum, so
-    // widening the list is a code change rather than an `ALTER TYPE` migration.
+    // `VenueInput` limits values to `VENUE_LAYOUTS`. This is not a PostgreSQL enum, so widening
+    // the list requires a code change, not an `ALTER TYPE` migration.
     supportedLayouts: text("supported_layouts")
       .array()
       .$type<VenueLayout[]>()
@@ -476,10 +464,10 @@ export const venues = pgTable(
 );
 
 /**
- * Recorded periods a venue cannot be requested for (maintenance, renovation, internal use).
- * v0.1 defers *managing* these (brief §9), so today the rows come from the seed (PTR-59
- * criterion 4) and are read by the availability calendar (PTR-28). The `mode: "string"`
- * timestamps keep the `datetime-local` values round-tripping exactly.
+ * Periods when a venue is not available for requests, such as for maintenance, renovation, or
+ * internal use. Version 0.1 does not manage these periods (brief section 9). The seed creates them
+ * (PTR-59 criterion 4), and the availability calendar reads them (PTR-28). String timestamps
+ * preserve the `datetime-local` values.
  */
 export const venueUnavailability = pgTable(
   "venue_unavailability",
@@ -495,7 +483,7 @@ export const venueUnavailability = pgTable(
   },
   table => [
     check("venue_unavailability_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
-    // What makes re-running the seed a no-op rather than a second copy of every period.
+    // This unique key prevents the seed from adding each period more than once.
     uniqueIndex("venue_unavailability_period_idx").on(table.venueId, table.startsAt, table.endsAt),
   ]
 );
@@ -503,13 +491,12 @@ export const venueUnavailability = pgTable(
 export * from "./auth-schema";
 
 /**
- * PTR-8: the statuses an event's child records can hold. Same rule as `eventRequestStatus`
- * above — only what a story writes today — so widening one is a generated `ALTER TYPE`
- * migration when PTR-34/37/39/44 start moving it. PTR-31 added `withdrawn`: a request the
- * Coordinator took back is kept rather than deleted, so the record of it survives. PTR-36
- * added `approved`: an approved request is the booking that holds the venue, and the exclusion
- * constraint in migration 0019 is label-based, not order-based. PTR-34 added `rejected`, and
- * PTR-37 added `released`; both hold nothing because the constraint only looks at `approved`.
+ * PTR-8: statuses for event child records. As with `eventRequestStatus`, include only statuses
+ * used by current stories. Add new statuses with a generated `ALTER TYPE` migration. PTR-31 added
+ * `withdrawn`; keep withdrawn requests so their history remains. PTR-36 added `approved`; an
+ * approved request reserves the venue. Migration 0019's exclusion constraint checks the status
+ * label, not its order. PTR-34 added `rejected` and PTR-37 added `released`; neither reserves a
+ * venue because the constraint checks only `approved`.
  */
 export const venueRequestStatus = pgEnum("venue_request_status", [
   "pending",
@@ -522,8 +509,8 @@ export const venueRequestStatus = pgEnum("venue_request_status", [
 export const venueHoldStatus = pgEnum("venue_hold_status", ["held", "released"]);
 
 /**
- * PTR-39 added `not_required` and `unavailable`, the two states Technical Support sets by hand;
- * `reserved` stays with the reservation action (PTR-41).
+ * PTR-39 added `not_required` and `unavailable`, which Technical Support sets by hand.
+ * The reservation action sets `reserved` (PTR-41).
  */
 export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status", [
   "requested",
@@ -533,9 +520,9 @@ export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status",
 ]);
 
 /**
- * PTR-45 AC4: a registration is exactly one of these, and only `registered` counts against
- * capacity. The registration's own row moves between them (PTR-47), so `withdrawn` keeps the record.
- * A removed VIP registration (PTR-111 AC6) is `withdrawn` too.
+ * PTR-45 AC4: each registration has one of these statuses. Only `registered` counts against
+ * capacity. PTR-47 changes the registration's row, so `withdrawn` preserves its history. Removed
+ * VIP registrations also use `withdrawn` (PTR-111 AC6).
  */
 export const eventRegistrationStatus = pgEnum("event_registration_status", [
   "registered",
@@ -543,14 +530,14 @@ export const eventRegistrationStatus = pgEnum("event_registration_status", [
 ]);
 
 /**
- * PTR-8: until the event record arrives (PTR-21/24), the submitted event request *is* the event,
- * so every child below references `event_requests.id` rather than a parallel events table.
- * `venue_requests` and `equipment_requests` are the requests directed at Venue Staff and
- * Technical Support (PTR-8 criterion 3); PTR-31 filled the venue request's own columns.
+ * PTR-8: until PTR-21/24 creates an event record, the submitted request represents the event.
+ * Each child below references `event_requests.id`, not a separate events table. `venue_requests`
+ * and `equipment_requests` go to Venue Staff and Technical Support (PTR-8 criterion 3). PTR-31
+ * added the venue request fields.
  *
- * PTR-36: no two `approved` rows may overlap for one venue. The guarantee is the partial
- * exclusion constraint in migration `0019_booking-overlap-constraint`, which Drizzle cannot
- * express here and never drops; see docs/adrs/ADR-5-venue-booking-overlap.md.
+ * PTR-36: approved rows for one venue cannot overlap. Migration
+ * `0019_booking-overlap-constraint` adds the partial exclusion constraint. Drizzle cannot express
+ * it here and never drops it. See docs/adrs/ADR-5-venue-booking-overlap.md.
  */
 export const venueRequests = pgTable(
   "venue_requests",
@@ -560,54 +547,53 @@ export const venueRequests = pgTable(
       .notNull()
       .references(() => eventRequests.id, { onDelete: "cascade" }),
     /**
-     * PTR-31 criterion 1: the venue the Coordinator chose. Deleting a venue is not a story yet,
-     * so the default `no action` is the safe side of that decision.
+     * PTR-31 criterion 1: the venue chosen by the Coordinator. Keep the default `no action` so
+     * deleting a venue cannot remove a request. Venue deletion is not supported yet.
      */
     venueId: integer("venue_id")
       .notNull()
       .references(() => venues.id),
     /**
-     * PTR-31 criterion 1: the requested window, in the `mode: "string"` shape
-     * `venueUnavailability` already uses, so the `datetime-local` spelling survives the round
-     * trip and the CHECK below compares fixed-width strings as times. What the Coordinator
-     * submits is a civil date plus a start and end time, combined into one pair here.
+     * PTR-31 criterion 1: the requested window. Use the string format from `venueUnavailability`
+     * so `datetime-local` values keep their spelling. The CHECK compares fixed-width strings as
+     * times. The Coordinator submits a date, start time, and end time; this field stores them as
+     * one pair.
      */
     startsAt: timestamp("starts_at", { mode: "string" }).notNull(),
     endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
     /**
-     * Who is working the request. Null on creation (PTR-31): the queue is shared, so a request
-     * is not routed to a person — the approval records the Venue Staff member who settled it (PTR-36).
+     * The Venue Staff member who approved or rejected the request. Null on creation (PTR-31)
+     * because the queue is shared and does not assign requests to a person.
      */
     assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
     /** PTR-37: last Venue Staff actor to release or amend this booking. */
     lastChangedByStaffId: text("last_changed_by_staff_id").references(() => user.id, {
       onDelete: "set null",
     }),
-    /** Durable PTR-37 actor label, retained if the staff account is later deleted. */
+    /** PTR-37: save the actor's name so staff account deletion does not remove it. */
     lastChangedByStaffName: text("last_changed_by_staff_name"),
-    /** PTR-37: when the release or amendment was committed. */
+    /** PTR-37: when Venue Staff released or amended the booking. */
     lastChangedAt: timestamp("last_changed_at", { withTimezone: true }),
     /**
-     * PTR-31 criterion 5: the Coordinator who raised the request, snapshotted at creation. Withdraw
-     * authorizes on this rather than the event's current assignee, so reassigning an event does not
-     * hand another Coordinator the power to take back a request they never raised. `set null` rather
-     * than cascade, matching `assignedCoordinatorId`: deleting a staff account must not delete the
-     * requests they raised, including approved bookings that will hold the venue — the row stays and
-     * becomes unattributable, and null reads as "not the raiser" in the withdrawal check.
+     * PTR-31 criterion 5: the Coordinator who raised the request, saved as a snapshot. Withdrawal
+     * checks this field, not the event's current assignee. Reassignment therefore does not give
+     * another Coordinator permission to withdraw the request. Use `set null`, as for
+     * `assignedCoordinatorId`, so deleting a staff account does not delete its requests or approved
+     * bookings. A null value means the user is not the request's raiser.
      */
     requestedById: text("requested_by_id").references(() => user.id, { onDelete: "set null" }),
     status: venueRequestStatus("status").default("pending").notNull(),
     /**
-     * PTR-34 criterion 1: why Venue Staff rejected it, kept on the row so the Coordinator sees it
-     * whenever they view the event. The CHECK below refuses a rejected row without one.
+     * PTR-34 criterion 1: why Venue Staff rejected the request. Keep the reason on the row so the
+     * Coordinator can see it on the event. The CHECK requires a reason for every rejected row.
      */
     rejectionReason: text("rejection_reason"),
     /** PTR-37: the required operational reason when an approved booking is released. */
     releaseReason: text("release_reason"),
     /**
-     * PTR-34 criterion 2: the alternative Venue Staff may suggest, each part optional and
-     * independent. PTR-35 pre-fills a new request from these. `set null` so a removed venue leaves
-     * the rejection and its reason standing.
+     * PTR-34 criterion 2: an alternative suggested by Venue Staff. Each field is optional and
+     * independent. PTR-35 uses these fields to pre-fill a new request. `set null` keeps the
+     * rejection and reason if someone removes the suggested venue.
      */
     suggestedVenueId: integer("suggested_venue_id").references(() => venues.id, {
       onDelete: "set null",
@@ -615,23 +601,22 @@ export const venueRequests = pgTable(
     suggestedDate: date("suggested_date", { mode: "string" }),
     suggestedStartTime: time("suggested_start_time"),
     suggestedEndTime: time("suggested_end_time"),
-    /** When the Coordinator raised it — the queue's first-come-first-served order (PTR-32). */
+    /** When the Coordinator raised the request; PTR-32 uses this for queue order. */
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    // Mirrors `venues`/`eventRequests`: the row's `status` is mutable (withdrawal), so it records
-    // when it last changed.
+    // As in `venues` and `eventRequests`, record when this row last changed because withdrawal
+    // changes its status.
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => /* @__PURE__ */ new Date()),
   },
   table => [
-    // Criterion 1: a request that ends before it starts is not a request.
+    // Criterion 1: the end time must not come before the start time.
     check("venue_requests_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
-    // PTR-34 criterion 1, held for whichever path writes the row. Compared as text: Postgres
-    // refuses a value added to an enum in the same transaction, which is where this migration runs.
-    // `[:space:]` catches every whitespace character (tabs and newlines included), not only the
-    // plain spaces `btrim` alone would strip; the app's own Zod schema already trims and caps the
-    // reason, so this is the backstop for a writer outside it.
+    // PTR-34 criterion 1: enforce this for every writer. Compare the status as text because
+    // PostgreSQL rejects a new enum value in the same transaction that adds it. `[:space:]` finds
+    // tabs and newlines as well as spaces; `btrim` alone finds only spaces. The Zod schema trims
+    // and limits the reason. This CHECK protects other writers.
     check(
       "venue_requests_rejection_has_reason",
       sql`${table.status}::text <> 'rejected' or coalesce(${table.rejectionReason}, '') ~ '[^[:space:]]'`
@@ -640,28 +625,28 @@ export const venueRequests = pgTable(
       "venue_requests_release_has_reason",
       sql`${table.status}::text <> 'released' or coalesce(${table.releaseReason}, '') ~ '[^[:space:]]'`
     ),
-    // Criterion 1 again: a double-submit cannot leave two live requests for one venue on one
-    // event. Partial, so withdrawing frees the pair to be requested again.
+    // Criterion 1: prevent two live requests for one venue and event. This partial index frees the
+    // pair after withdrawal.
     uniqueIndex("venue_requests_pending_event_venue_idx")
       .on(table.eventId, table.venueId)
       .where(sql`${table.status} = 'pending'`),
-    // Both directions are looked up per request: the caller's assignments, and the requests of
-    // the events a caller can already see.
+    // Look up both directions for each request: a caller's assignments and requests for events
+    // the caller can see.
     index("venue_requests_event_id_idx").on(table.eventId),
     index("venue_requests_assigned_staff_id_idx").on(table.assignedStaffId),
-    // PTR-37's shared approved-booking queue filters by status and sorts by its start time.
+    // PTR-37's shared approved-booking queue filters by status and start time.
     index("venue_requests_approved_starts_at_idx")
       .on(table.startsAt)
-      // The wrapper is IMMUTABLE and already exists for ADR-5. It also avoids PostgreSQL 15's
-      // refusal to use an enum value added earlier in the same migration transaction.
+      // This IMMUTABLE wrapper exists for ADR-5. It also lets this migration use the enum value
+      // that it added earlier in the same transaction; PostgreSQL 15 otherwise refuses that use.
       .where(sql`venue_request_occupies_venue(${table.status})`),
   ]
 );
 
 /**
- * PTR-109: tentative venue holds placed by an event's assigned Coordinator.
- * Holds reserve a venue for an event before final booking confirmation.
- * Exactly one active hold or approved booking may exist for a venue/time slot.
+ * PTR-109: tentative venue holds from an event's assigned Coordinator. A hold reserves a venue
+ * before final booking confirmation. Each venue and time slot can have one active hold or one
+ * approved booking.
  */
 export const venueHolds = pgTable(
   "venue_holds",
@@ -705,29 +690,23 @@ export const equipmentRequests = pgTable(
     }),
     assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
     item: text("item").notNull(),
-    /**
-     * PTR-38 criterion 1: a positive whole number, enforced by the CHECK below so any writer
-     * outside the application schema also meets the constraint.
-     */
+    /** PTR-38 criterion 1: a positive whole number. The CHECK below also applies to other writers. */
     quantity: integer("quantity").notNull(),
     arrangementStatus: equipmentArrangementStatus("arrangement_status")
       .default("requested")
       .notNull(),
     notes: text("notes"),
-    /**
-     * PTR-39: Technical Support's own note on the line, kept apart from the Coordinator's `notes`
-     * so neither overwrites the other. Null when there is none.
-     */
+    /** PTR-39: Technical Support's note. Keep it separate from the Coordinator's `notes`. Null if absent. */
     arrangementNotes: text("arrangement_notes"),
     /** PTR-39 AC3: why the line is `unavailable`; null in every other state. */
     unavailableReason: text("unavailable_reason"),
-    /** PTR-42: last Technical Support actor to reduce or release this line's reservation. */
+    /** PTR-42: last Technical Support user who reduced or released this reservation. */
     lastReleasedByStaffId: text("last_released_by_staff_id").references(() => user.id, {
       onDelete: "set null",
     }),
-    /** Durable PTR-42 actor label, retained if the staff account is later deleted. */
+    /** PTR-42: save the actor's name so staff account deletion does not remove it. */
     lastReleasedByStaffName: text("last_released_by_staff_name"),
-    /** PTR-42: when the reduction or release was committed. */
+    /** PTR-42: when Technical Support reduced or released the reservation. */
     lastReleasedAt: timestamp("last_released_at", { withTimezone: true }),
     /** PTR-42: units given back in the most recent reduce or release. */
     lastReleasedQuantity: integer("last_released_quantity"),
@@ -737,11 +716,10 @@ export const equipmentRequests = pgTable(
     index("equipment_requests_event_id_idx").on(table.eventId),
     index("equipment_requests_assigned_staff_id_idx").on(table.assignedStaffId),
     index("equipment_requests_last_released_by_staff_id_idx").on(table.lastReleasedByStaffId),
-    // PTR-39 AC3 backstop against a missing or whitespace-only reason. The Zod rule
-    // (`requireReasonAndChange`) also rejects format/control characters such as zero-width spaces,
-    // which pass this check. Compared as text: Postgres refuses to
-    // use an enum value added in the same transaction, which is where this migration runs.
-    // `[:space:]` catches tabs and newlines as well as plain spaces.
+    // PTR-39 AC3: reject a missing or whitespace-only reason. The Zod rule
+    // (`requireReasonAndChange`) also rejects control characters, such as zero-width spaces, that
+    // this CHECK allows. Compare the status as text because PostgreSQL will not use an enum value
+    // in the transaction that adds it. `[:space:]` also finds tabs and newlines.
     check(
       "equipment_requests_unavailable_has_reason",
       sql`${table.arrangementStatus}::text <> 'unavailable' or coalesce(${table.unavailableReason}, '') ~ '[^[:space:]]'`
@@ -753,7 +731,7 @@ export const equipmentRequests = pgTable(
   ]
 );
 
-/** PTR-40: the catalogue of equipment types and how many of each the venue holds in total. */
+/** PTR-40: equipment types and the total quantity of each type at a venue. */
 export const equipmentTypes = pgTable(
   "equipment_types",
   {
@@ -766,8 +744,8 @@ export const equipmentTypes = pgTable(
 );
 
 /**
- * PTR-40 AC2: units of a type recorded damaged, under maintenance or otherwise out of service.
- * One row per reason, so re-recording a reason updates it rather than double-counting.
+ * PTR-40 AC2: equipment units that are damaged, under maintenance, or otherwise out of service.
+ * Keep one row per reason so an update does not count the same units twice.
  */
 export const equipmentUnavailability = pgTable(
   "equipment_unavailability",
@@ -787,9 +765,8 @@ export const equipmentUnavailability = pgTable(
 );
 
 /**
- * PTR-40 read side of a reservation: units of a type committed to an event's equipment line. The
- * period is recorded at reservation time, so later booking changes do not move it. PTR-41 owns
- * the write path.
+ * PTR-40 reservation data: units of a type committed to an event's equipment line. Store the
+ * period at reservation time so later booking changes do not move it. PTR-41 owns writes.
  */
 export const equipmentReservations = pgTable(
   "equipment_reservations",
@@ -810,7 +787,7 @@ export const equipmentReservations = pgTable(
   table => [
     uniqueIndex("equipment_reservations_equipment_request_id_idx").on(table.equipmentRequestId),
     check("equipment_reservations_quantity_positive", sql`${table.quantity} > 0`),
-    // The overlap predicate filters by type and period, so the engine reads this path.
+    // The overlap check filters by type and period, so the database reads this index.
     index("equipment_reservations_type_period_idx").on(
       table.equipmentTypeId,
       table.startsAt,
@@ -830,18 +807,17 @@ export const eventRegistrations = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     status: eventRegistrationStatus("status").default("registered").notNull(),
-    /** When the registration was recorded: by the Attendee, or by whoever added the VIP. */
+    /** When the Attendee or a VIP's inviter recorded the registration. */
     registeredAt: timestamp("registered_at", { withTimezone: true }).defaultNow().notNull(),
     /**
-     * PTR-111: the Organiser or the assigned Coordinator recorded this registration for an invited
-     * Attendee. A VIP takes a place at the venue but not a place in the registration capacity.
+     * PTR-111: an Organiser or assigned Coordinator registered an invited Attendee. A VIP takes a
+     * venue place, but does not count toward registration capacity.
      */
     vip: boolean("vip").notNull().default(false),
   },
   table => [
     primaryKey({ columns: [table.eventId, table.attendeeId] }),
-    // The primary key leads with `event_id`, so an attendee's own registrations need their own
-    // path to be indexed.
+    // The primary key starts with `event_id`, so index an Attendee's registrations separately.
     index("event_registrations_attendee_id_idx").on(table.attendeeId),
   ]
 );
@@ -849,10 +825,9 @@ export const eventRegistrations = pgTable(
 export const vipRegistrationChange = pgEnum("vip_registration_change", ["added", "removed"]);
 
 /**
- * PTR-111 AC5 and AC6: who added or removed each VIP registration, and when. Append-only, because
- * the registration's one row holds only its current state, so a later change never erases an
- * earlier one. The ids are snapshots, like `eventAssignments`, so an account deletion keeps the
- * record.
+ * PTR-111 AC5 and AC6: who added or removed each VIP registration, and when. Keep this history
+ * append-only because the registration row stores only its current state. Store ids as snapshots,
+ * as in `eventAssignments`, so account deletion keeps the record.
  */
 export const vipRegistrationChanges = pgTable(
   "vip_registration_changes",
@@ -870,11 +845,10 @@ export const vipRegistrationChanges = pgTable(
 );
 
 /**
- * PTR-55: every notification raised for one user, and the queue its email copy is delivered from.
- * A row commits in the same transaction as the state change it announces, so a rolled-back change
- * leaves nothing behind. `kind` selects the email template; `payload` carries the domain facts the
- * inbox line and the email are both built from (never template props). The list in
- * `src/features/notifications/message.ts` restates this enum, held identical by `db-schema.test.ts`.
+ * PTR-55: notifications for a user and the queue for their email copies. Insert a row in the same
+ * transaction as its state change, so a rollback removes both. `kind` selects the email template.
+ * `payload` stores domain data for the inbox line and email, not template props. The enum also
+ * appears in `src/features/notifications/message.ts`; `db-schema.test.ts` keeps both in sync.
  */
 export const notificationKind = pgEnum("notification_kind", [
   "venue_booking_requested",
@@ -904,7 +878,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "registration_opened",
   /** PTR-49 AC2: a confirmed event's registration period closed. */
   "registration_closed",
-  /** PTR-23 AC5: a significant change was saved on an event holding the recipient's arrangement. */
+  /** PTR-23 AC5: a significant change was saved to an event with the recipient's arrangement. */
   "event_significant_change",
   /** PTR-52 AC5: the Coordinator applied or declined the Organiser's change request. */
   "event_change_processed",
@@ -917,40 +891,40 @@ export const notifications = pgTable(
     recipientId: text("recipient_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** The event request the notification is about; every current kind has one. */
+    /** The event request for this notification. Every current kind has one. */
     eventRequestId: integer("event_request_id")
       .notNull()
       .references(() => eventRequests.id, { onDelete: "cascade" }),
     kind: notificationKind("kind").notNull(),
     payload: jsonb("payload").$type<NotificationPayload["payload"]>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    /** Null while unread, so every new row starts unread; set once, on the first mark. */
+    /** Null while unread. Set once, when first marked as read. */
     readAt: timestamp("read_at", { withTimezone: true }),
-    /** Null until the worker delivers the email copy; the inbox does not depend on it. */
+    /** Null until the worker sends the email. The inbox does not depend on this field. */
     emailedAt: timestamp("emailed_at", { withTimezone: true }),
-    /** Set when the worker gives up after its attempt budget; the row stays in the inbox. */
+    /** Set when the worker reaches its attempt limit. The row stays in the inbox. */
     failedAt: timestamp("failed_at", { withTimezone: true }),
     emailAttempts: integer("email_attempts").notNull().default(0),
-    /** When a worker may claim the row; a failure pushes it out with backoff. */
+    /** When a worker can claim the row. A failure delays the next attempt. */
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
-    /** Lease: set while a worker owns the row, so a second run skips it rather than double-sends. */
+    /** Lease: set while a worker owns the row, so another run does not send the email twice. */
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
-    /** Sanitised failure name only: provider messages can echo the recipient address. */
+    /** Store only the sanitized failure name because provider messages can include recipient addresses. */
     lastEmailError: text("last_email_error"),
   },
   table => [
-    // The inbox reads one recipient's rows newest first; Postgres scans a btree backwards, so
-    // ascending columns serve the descending read.
+    // The inbox reads each recipient's rows newest first. PostgreSQL scans a btree backward, so
+    // ascending columns support this descending read.
     index("notifications_recipient_created_at_idx").on(
       table.recipientId,
       table.createdAt,
       table.id
     ),
-    // The worker scans pending rows oldest first; the partial predicate keeps the queue small.
+    // The worker scans pending rows oldest first. The partial predicate keeps this index small.
     index("notifications_pending_idx")
       .on(table.createdAt)
       .where(sql`${table.emailedAt} is null and ${table.failedAt} is null`),
-    // The event-request read path and the FK's cascade both look the event up.
+    // Both the event-request read and the foreign-key cascade look up the event.
     index("notifications_event_request_id_idx").on(table.eventRequestId),
   ]
 );

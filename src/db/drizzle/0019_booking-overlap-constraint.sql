@@ -1,9 +1,9 @@
--- PTR-36: no two approved bookings may overlap for one venue. Drizzle Kit cannot express an
--- EXCLUDE constraint, so this migration is hand-written by design; the reviewed exemption is
--- ADR-5, and no generated DDL is touched. The predicate must be IMMUTABLE, which rules out both
--- `status::text = 'approved'` (enum_out is STABLE) and a direct comparison against the label
--- added in 0018 (Postgres refuses to use a same-transaction enum value), hence the wrapper
--- function. `tsrange(..., '[)')` is the strict no-buffer semantics: touching periods are free.
+-- PTR-36: prevent approved bookings for one venue from overlapping. Drizzle Kit cannot create an
+-- EXCLUDE constraint, so this migration adds it by hand under the ADR-5 exception. Do not edit
+-- generated DDL. The predicate must be IMMUTABLE. `status::text = 'approved'` calls STABLE
+-- `enum_out` and is not allowed. A direct comparison with the label added in migration 0018 also
+-- fails because PostgreSQL cannot use a new enum value in the same transaction. Use this wrapper
+-- function instead. `tsrange(..., '[)')` allows periods to touch but prevents overlap.
 CREATE EXTENSION IF NOT EXISTS btree_gist;--> statement-breakpoint
 CREATE FUNCTION "public"."venue_request_occupies_venue"("public"."venue_request_status")
 RETURNS boolean

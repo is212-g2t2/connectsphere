@@ -41,11 +41,7 @@ import { parseWholeNumber } from "#/features/event-requests/schema";
 import type { EquipmentLineProjection } from "#/features/events/access";
 import { useMutation } from "#/hooks/use-mutation";
 
-/**
- * The review page's working blocks as section bodies: the lines with their per-line actions,
- * the completion, and the availability checker. The hosts provide the section headings; the
- * equipment review page keeps its own.
- */
+/** Show the review page's line, completion, and availability sections. The host provides the headings. */
 export function ArrangementLines({
   eventId,
   lines,
@@ -99,10 +95,7 @@ export function ArrangementsCompletion({
   );
 }
 
-/**
- * PTR-40: how much of an equipment type is free for the event's approved venue booking. The
- * wording comes from `availabilityMessage`; the server refuses an event with no approved booking.
- */
+/** PTR-40: Check availability for an approved booking. Use `availabilityMessage` for the result. The server refuses events with no approved booking. */
 export function AvailabilityCheck({
   eventId,
   equipmentTypes,
@@ -110,7 +103,7 @@ export function AvailabilityCheck({
   eventId: number;
   equipmentTypes: EquipmentTypeOption[] | null;
 }) {
-  // The server's answer, which is not a form value; TanStack Form owns the inputs and errors.
+  // Store the server's answer outside the form. TanStack Form owns the inputs and errors.
   const [outcome, setOutcome] = useState<{ message: string; shortfall: number } | null>(null);
 
   const form = useForm({
@@ -246,11 +239,7 @@ export function AvailabilityCheck({
   );
 }
 
-/**
- * One line: what was asked for, then either its form or, for a line another member of Technical
- * Support is arranging, where that stands. `arrangeable` is absent when the server did not say, so
- * only an explicit `false` takes the form away.
- */
+/** Show the requested item and its form. Show its state if another Technical Support member arranges it. Hide the form only when `arrangeable` is false. Keep the form when the server omits `arrangeable`. */
 function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLineProjection }) {
   const canReserve =
     line.arrangeable !== false &&
@@ -297,10 +286,7 @@ function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLi
   );
 }
 
-/**
- * A line's form. A line holding a reservation shows its state but cannot change it, and leaves
- * the state out of the update so only its notes are sent.
- */
+/** Show the line's form. A reserved line shows its state but sends only note changes. */
 function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLineProjection }) {
   const router = useRouter();
   const locked = line.arrangementStatus === "reserved" || (line.reservedQuantity ?? 0) > 0;
@@ -314,9 +300,8 @@ function ArrangementForm({ eventId, line }: { eventId: number; line: EquipmentLi
     },
     validators: { onSubmit: ArrangementFormInput },
     onSubmit: async ({ value, formApi }) => {
-      // Send only what the member changed: another tab may have moved the rest since this loaded.
-      // A reason travels with its status (the server writes it only alongside one), so a reason
-      // edit on an `unavailable` line resends its status.
+      // Send only changed fields because another tab may have changed the rest.
+      // Send the status with its reason. A reason edit on an `unavailable` line must resend that status.
       const stateChanged =
         !locked &&
         (value.arrangementStatus !== line.arrangementStatus ||

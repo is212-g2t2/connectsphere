@@ -29,7 +29,7 @@ export default defineConfig({
         "src/components/ui/**",
         "src/db/drizzle/**",
         "src/routeTree.gen.ts",
-        // App bootstrap, exercised only by E2E runs, which collect no coverage.
+        // E2E runs exercise app bootstrap. They do not collect coverage.
         "src/router.tsx",
         "src/server.ts",
         "src/start.ts",
@@ -64,15 +64,16 @@ export default defineConfig({
           include: ["tests/integration/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
           environment: "node",
           globals: true,
-          // One Postgres container shared by every file. Files that call `runSeed` and files
-          // that delete or count the seed's rows (event requests, venues) cannot run at the
-          // same time without racing, so the suite trades wall time for determinism.
+          // Share one Postgres container across all files. Tests that run `runSeed` can race with
+          // tests that delete or count its rows, such as event-request and venue tests. Run these
+          // files in sequence to avoid those races.
           fileParallelism: false,
           setupFiles: [path.resolve(import.meta.dirname, "./tests/setup.ts")],
           globalSetup: "./tests/integration/integration-setup.ts",
           server: {
             deps: {
-              // Inlined so `vi.mock` reaches inside it: the middleware runner reads TanStack Start's async-local context, which a test supplies by mocking the storage module.
+              // Inline this code so `vi.mock` can replace it. The middleware runner reads TanStack
+              // Start's async-local context. Tests provide that context by mocking its storage.
               inline: [
                 /@tanstack\/react-start/,
                 /@tanstack\/start-client-core/,

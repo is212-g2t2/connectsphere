@@ -15,21 +15,16 @@ import { NO_CANCELLATION_REQUEST_MESSAGE } from "#/features/events/cancellation"
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 
-/**
- * Server-only on purpose, and named for it: `#/db/schema` is a value import here, so this is
- * reached through a dynamic `import()` inside `.handler()` in `server-fns.ts`. The middleware
- * pipeline has already verified the session and `event_request:coordinate`.
- */
+/** Server-only: keep this module off the client. `server-fns.ts` loads it inside the handler. */
 
 type Database = typeof Db;
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 /**
- * The assigned Coordinator's event with its waiting cancellation request, both locked. The event
- * row lock serialises the decision with a second Coordinator action and with each writer that adds
- * to the event: booking approval, venue requests, tentative holds, hold conversion, reservations
- * and registrations. Each of them locks the event row too, and then reads the new status. A
- * missing event and someone else's are refused the same way.
+ * Lock the assigned Coordinator's event and pending cancellation request. The event lock serialises
+ * this decision with other event writes, including bookings, holds, reservations, and registrations.
+ * Those writes also lock the event and read its current status. Refuse a missing event and a foreign
+ * event in the same way.
  */
 async function lockEventWithWaitingRequest(tx: Tx, eventId: number, actor: SessionUser) {
   const event = (
@@ -61,18 +56,18 @@ function eventName(event: { eventName: string }): string {
 }
 
 /**
- * PTR-54: the assigned Coordinator processes a waiting cancellation request as a cancellation. The
- * event becomes `cancelled` with who and when (AC1), and the request keeps its outcome on the
- * record (AC7). Nothing the event holds is released (AC6): the Coordinator's page lists what is
- * still held (AC2), and the staff holding it, the registered Attendees and the Organiser are told
- * (AC3, AC4, AC7). Everything commits together; the worker sends the emails.
+ * PTR-54: The assigned Coordinator cancels the event in response to its pending request. Record
+ * who cancelled it and when (AC1), and keep the request outcome (AC7). Do not release its bookings
+ * or equipment (AC6). List the held items to the Coordinator (AC2), and notify the holders,
+ * registered Attendees, and Organiser (AC3, AC4, AC7). Commit the changes together. The worker
+ * sends the emails.
  */
 export async function handleCancelEvent(data: unknown, actor: SessionUser, database: Database) {
   const input = parseEventRequestId(data);
 
   return database.transaction(async tx => {
     const { event, request } = await lockEventWithWaitingRequest(tx, input.id, actor);
-    // A request can wait while the event is completed (PTR-25); it can then only be declined.
+    // The event can be completed while the request waits (PTR-25). Then the Coordinator can only decline it.
     if (!canRequestEventCancellation(event.status)) {
       throw new ConflictError(EVENT_CANCELLATION_CLOSED);
     }
@@ -114,10 +109,10 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
 }
 
 /**
- * PTR-54 AC3: the Venue Staff who settled each approved booking, one notice per booking because
- * their copy names the booking rather than the event (PTR-8), and each Technical Support member
- * holding a reservation, once. A booking or line with no staff member on it (an account since
- * deleted) has no one to tell; it stays in the shared queue and on the Coordinator's list.
+ * PTR-54 AC3: Notify the Venue Staff member for each approved booking, once per booking. Their
+ * notice names the booking, not the event (PTR-8). Notify each Technical Support member with a
+ * reservation once. If a staff account was deleted, no one receives a notice. Keep the item in the
+ * shared queue and on the Coordinator's list.
  */
 async function staffNotices(
   tx: Pick<Database, "select" | "selectDistinct">,
@@ -146,7 +141,7 @@ async function staffNotices(
   return notices;
 }
 
-/** PTR-54 AC4: every Attendee who holds a `registered` registration, VIPs included. */
+/** PTR-54 AC4: Return every Attendee with a `registered` row, including VIPs. */
 async function attendeeNotices(
   tx: Pick<Database, "select">,
   eventId: number,
@@ -166,11 +161,7 @@ async function attendeeNotices(
   }));
 }
 
-/**
- * PTR-54 AC8: the assigned Coordinator declines a waiting cancellation request with a reason. The
- * event is left as it is; the request keeps its outcome and reason on the record, and the
- * Organiser is told.
- */
+/** PTR-54 AC8: Decline the pending cancellation request with a reason. Keep the event unchanged and notify the Organiser. */
 export async function handleDeclineEventCancellation(
   data: unknown,
   actor: SessionUser,

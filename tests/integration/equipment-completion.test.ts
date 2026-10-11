@@ -26,7 +26,7 @@ import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
-/** Renders a queued notification row as its email, so content assertions keep working. */
+/** Render a queued notification row as an email for content assertions. */
 async function renderedEmail(row: typeof schema.notifications.$inferSelect) {
   const parsed = renderNotificationEmail({
     kind: row.kind,
@@ -36,8 +36,7 @@ async function renderedEmail(row: typeof schema.notifications.$inferSelect) {
   return { subject: parsed.subject, html: await render(parsed.element) };
 }
 
-// Ids are namespaced `ptr43-` so this file's cleanup never touches another file's rows when the
-// integration files share one database.
+// Prefix ids with `ptr43-` so cleanup does not touch other rows in the shared integration database.
 const fixtureUsers = {
   tech1: {
     id: "ptr43-tech-1",
@@ -83,7 +82,7 @@ interface LineSeed {
   item?: string;
   quantity?: number;
   state: LineState;
-  /** undefined -> unassigned. */
+  /** Use `undefined` for an unassigned line. */
   assignedStaffId?: string;
   unavailableReason?: string;
 }
@@ -117,7 +116,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
       .returning({ id: schema.venues.id });
     fixtureVenueId = venue.id;
 
-    // Plenty of stock: availability is not what these tests are about.
+    // Add enough stock; these tests do not check availability.
     const [type] = await database
       .insert(schema.equipmentTypes)
       .values({ name: `PTR43 Test Projector ${Date.now()}`, quantityHeld: 10 })
@@ -173,11 +172,9 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
     }
   }
 
-  /**
-   * An event with an approved venue booking and any number of lines. Lines are assigned to nobody
-   * unless told otherwise; `equipmentSubmitted: false` freezes the shared queue (and re-opens the
-   * Coordinator's editing, which only works before submission). Use a distinct `day` when a test
-   * creates two events, since the venue cannot be double-booked.
+  /** Create an event with an approved venue booking and any number of lines. Lines start
+   * unassigned. Set `equipmentSubmitted: false` to keep the shared queue closed and allow the
+   * Coordinator to edit. Use a different `day` for each event because a venue cannot be double-booked.
    */
   async function createEvent(params: {
     name: string;
@@ -406,8 +403,8 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
       );
     });
 
-    // Role gating is the requireEquipmentArrange middleware's job; the handler only checks line
-    // ownership. These users own no line, so the handler refuses them regardless of role.
+    // `requireEquipmentArrange` middleware checks roles. The handler checks line ownership. These
+    // users own no line, so the handler refuses them for that reason.
     it.each(["organiser", "coordinator"] as const)(
       "refuses a %s who owns none of the lines",
       async who => {
@@ -445,9 +442,9 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         lines: [{ state: "not_required", assignedStaffId: fixtureUsers.tech1.id }],
       });
 
-      // Either order ends the same way: the revert takes the line back to `requested` and clears
-      // any stamp the completion managed to record, while a completion that loses the race is
-      // refused outright. The revert must always win its own write.
+      // Both orders must leave the line as `requested` with no completion stamp. If completion wins
+      // first, the revert clears its stamp. If revert wins, completion is refused. The revert must
+      // complete its write.
       const [, revertResult] = await Promise.allSettled([
         handleCompleteArrangements({ eventId }, session("tech1"), database as never),
         handleUpdateArrangement(
@@ -467,7 +464,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         name: "AC1 Confirmed Frozen",
         lines: [{ state: "not_required", assignedStaffId: fixtureUsers.tech1.id }],
       });
-      // The fixtures set decided_by/decided_at already; only the status moves.
+      // The fixture already sets `decided_by` and `decided_at`; only change the status.
       await database
         .update(schema.eventRequests)
         .set({
@@ -706,8 +703,8 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         notificationSummary({ kind: rows[0].kind, payload: rows[0].payload } as never)
       );
       expect(subject).toBe("Equipment arrangements complete for AC3 Complete Mail");
-      // React renders each interpolated value in its own text node. Assert the fragments around
-      // the interpolation, so no sanitization step is needed.
+      // React renders each value in a separate text node. Check the surrounding fragments; no
+      // sanitization is needed.
       expect(html).toContain(`event <!-- -->${eventId}<!-- -->`);
       expect(html).toContain("<!-- -->2<!-- -->");
       expect(html).toContain("requested equipment");
@@ -814,7 +811,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
         name: "AC3 No Coordinator",
         lines: [{ state: "reserved", assignedStaffId: fixtureUsers.tech1.id }],
       });
-      // If your schema forbids this on a planning event, drop this test: the handler just logs.
+      // The handler only logs this event. Remove this test if the schema forbids it for planning events.
       await database
         .update(schema.eventRequests)
         .set({ assignedCoordinatorId: null })
@@ -834,8 +831,8 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
 
       await handleCompleteArrangements({ eventId }, session("tech1"), database as never);
 
-      // Both the stamp and the queued row are readable once the handler returns: they committed
-      // together, so the worker can never deliver one without the other existing.
+      // The stamp and queued row commit together. Both must exist when the handler returns, so the
+      // worker cannot deliver a row without its stamp.
       const event = await readEvent(eventId);
       expect(event.equipmentArrangementsCompletedAt).toBeInstanceOf(Date);
       const rows = await notificationsForEvent(eventId);
@@ -843,7 +840,7 @@ describe("Equipment arrangement completion Integration (PTR-43)", () => {
       expect(rows[0].kind).toBe("equipment_arrangements_completed");
       expect(rows[0].recipientId).toBe(fixtureUsers.coordinator.id);
 
-      // A refused completion rolls everything back and leaves no rows behind.
+      // A refused completion rolls back and leaves no rows.
       const refused = await createEvent({
         name: "AC3 Refused Same Transaction",
         day: "2027-02-02",

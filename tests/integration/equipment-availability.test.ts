@@ -1,4 +1,4 @@
-// Mirrors equipment-arrangement.test.ts: a local node-postgres drizzle instance.
+// Like `equipment-arrangement.test.ts`, use a local node-postgres Drizzle instance.
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
@@ -44,7 +44,7 @@ describe("equipment availability (PTR-40)", () => {
   });
 
   afterEach(async () => {
-    // Events cascade to bookings, lines and reservations; reservations restrict their type.
+    // Event deletion cascades to bookings, lines, and reservations. Reservations restrict type deletion.
     if (eventIds.length > 0) {
       await database.delete(schema.eventRequests).where(inArray(schema.eventRequests.id, eventIds));
     }
@@ -68,7 +68,7 @@ describe("equipment availability (PTR-40)", () => {
     return row;
   }
 
-  /** A booking of `eventId` on its own venue (the overlap constraint is per venue). */
+  /** Book `eventId` at its own venue. The overlap constraint is per venue. */
   async function addBooking(
     eventId: number,
     [start, end]: [string, string],
@@ -99,10 +99,9 @@ describe("equipment availability (PTR-40)", () => {
     });
   }
 
-  /**
-   * An approved event with one submitted line and an approved booking on its own venue (the
-   * booking overlap constraint is per venue, so each event gets one). The window is a pair of
-   * times on 2030-01-01; `null` makes an event with no approved booking.
+  /** Create an approved event with one submitted line and a booking at its own venue. Each event
+   * needs its own venue because the overlap constraint is per venue. Use 2030-01-01 for the
+   * booking window. Pass `null` for an event without an approved booking.
    */
   async function createEvent(window: [string, string] | null) {
     const [event] = await database
@@ -145,7 +144,7 @@ describe("equipment availability (PTR-40)", () => {
     return { eventId: event.id, lineId: line.id };
   }
 
-  /** A reservation snapshots the line event's first approved booking window at insert time. */
+  /** A reservation copies the line event's first approved booking window when inserted. */
   async function reserve(lineId: string, equipmentTypeId: number, quantity: number) {
     const [line] = await database
       .select({ eventId: schema.equipmentRequests.eventId })
@@ -250,7 +249,7 @@ describe("equipment availability (PTR-40)", () => {
     const target = await createEvent(["10:00", "12:00"]);
     const other = await createEvent(["10:00", "12:00"]);
     await reserve(other.lineId, type.id, 4);
-    // A second approved booking arrives after the reservation; the snapshot still counts once.
+    // Add a second approved booking after the reservation. The snapshot must still count once.
     await addBooking(other.eventId, ["11:00", "13:00"]);
 
     expect((await check(target.eventId, type.id)).reserved).toBe(4);

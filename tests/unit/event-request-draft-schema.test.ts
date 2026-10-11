@@ -128,8 +128,8 @@ describe("EventRequestDraftInput", () => {
     "2026-11-18",
     "2026-11-18T24:00",
     "2026-11-18T09:60",
-    // Accepted by a bare ISO check; refused because `datetime-local` submits no seconds, and the
-    // stored precision is what the range comparison is validated against.
+    // A bare ISO check accepts it. Refuse it: `datetime-local` submits no seconds, and the range
+    // comparison validates against stored precision.
     "2026-11-18T09:30:15",
     "2026-11-18T09:30Z",
   ])("refuses the malformed proposed date %s", value => {
@@ -313,8 +313,8 @@ describe("EventRequestDraftInput", () => {
     expect(EventRequestDraftInput.parse({})).not.toHaveProperty("id");
   });
 
-  // AC2 seeds the panel from the organiser's draft, so the draft array itself must carry the
-  // panel's ceiling; otherwise a direct save could seed more lines than the panel allows.
+  // AC2 seeds the panel from the organiser's draft. The draft array carries the panel's ceiling.
+  // Otherwise a direct save seeds more lines than the panel allows.
   it("caps equipment requirements at EQUIPMENT_MAX_LINES", () => {
     expect(
       EventRequestDraftInput.safeParse({

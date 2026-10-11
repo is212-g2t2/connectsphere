@@ -5,7 +5,7 @@ const RESULT_ROWS = ["row-1", "row-2", "row-3"];
 const CALENDAR_WEEKS = ["week-1", "week-2", "week-3", "week-4", "week-5"];
 const WEEKDAY_TICKS = ["day-1", "day-2", "day-3", "day-4", "day-5", "day-6", "day-7"];
 
-/** One period row of the schedule list: date chip, label and time range, status badge. */
+/** Show one schedule-list period row. Include the date chip, label, time range, and status badge. */
 function ResultRowSkeleton() {
   return (
     <div className="flex items-center gap-4 py-4">
@@ -20,12 +20,12 @@ function ResultRowSkeleton() {
 }
 
 /**
- * The venue calendar's loading shape: back link, heading, the filter form's venue select, date
- * inputs and submit button, the sidebar month grid with its legend, and three schedule rows.
+ * Show the venue calendar loading shape: back link, heading, venue select, date inputs, submit
+ * button, sidebar month grid with legend, and three schedule rows.
  *
- * The filter form is drawn because every role reaching this page can use it. The hold buttons on
- * the schedule rows are role-gated, so the skeleton leaves them out rather than promise controls
- * the arriving user may not have (the rule `VenueListPageSkeleton` states).
+ * Draw the filter form because every role on this page can use it. Omit the hold buttons from
+ * schedule rows because they are role-gated. The skeleton must not promise controls the arriving
+ * user may lack (the rule `VenueListPageSkeleton` states).
  */
 export function VenueCalendarPageSkeleton() {
   return (

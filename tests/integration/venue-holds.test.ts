@@ -25,14 +25,14 @@ import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 /**
  * PTR-109: tentative venue holds at the handler boundary.
  *
- * Acceptance criteria under test:
- *   AC1 — Coordinator assigned to event places hold → recorded against that event
- *   AC2 — Overlapping hold refused, conflicting venue and period named
- *   AC3 — Booking approval refused while tentative hold exists
- *   AC4 — Tentative hold refused while approved booking exists
- *   AC5 — Releasing or converting hold frees period; hold no longer blocks other events
- *   AC6 — Tentative hold shown on venue calendar and in suitability checks to internal users
- *   AC7 — Acting user and creation time are stored
+ * Acceptance criteria:
+ *   AC1: The assigned Coordinator can place a hold on the event.
+ *   AC2: Refuse overlapping holds and name the venue and period.
+ *   AC3: Refuse booking approval while a tentative hold exists.
+ *   AC4: Refuse a tentative hold while an approved booking exists.
+ *   AC5: Releasing or converting a hold frees the period for other events.
+ *   AC6: Show tentative holds on internal venue calendars and in suitability checks.
+ *   AC7: Store the acting user and creation time.
  */
 
 const users = {
@@ -187,7 +187,7 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(hold.startsAt).toMatch(/^2027-06-15[ T]09:00/);
       expect(hold.endsAt).toMatch(/^2027-06-15[ T]12:00/);
 
-      // Verify row is persisted in the database, not just returned in-memory
+      // Check that the database stores the row.
       const result = await database.execute<{
         id: string;
         event_id: number;
@@ -213,7 +213,7 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(hold.createdAt).toBeInstanceOf(Date);
       expect(hold.createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 30_000);
 
-      // Verify DB storage of user and creation time
+      // Check that the database stores the user and creation time.
       const result = await database.execute<{
         held_by_id: string;
         created_at: string | Date;
@@ -508,14 +508,14 @@ describe("tentative venue holds (PTR-109)", () => {
       );
       expect(released.status).toBe("released");
 
-      // Verify releasedById was stored (AC7)
+      // Check that the database stores `releasedById` (AC7).
       const [persistedHold] = await database
         .select()
         .from(schema.venueHolds)
         .where(eq(schema.venueHolds.id, hold.id));
       expect(persistedHold.releasedById).toBe(users.coordinatorA.id);
 
-      // Another event can now hold the same period
+      // Another event can now hold the same period.
       const newHold = await handleCreateVenueHold(
         { ...HOLD_WINDOW, eventId: eventIdB, venueId },
         session(users.coordinatorB),
@@ -558,8 +558,8 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      // Reassign event to Coordinator B: the creator is no longer the assignee, but release
-      // authorizes on the hold's holder as well as the current assignee.
+      // Assign the event to Coordinator B. The creator is no longer assigned, but may release the
+      // hold because they created it. The current assignee may also release it.
       await database
         .update(schema.eventRequests)
         .set({ assignedCoordinatorId: users.coordinatorB.id })
@@ -616,7 +616,7 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(orphanHold?.canRelease).toBe(true);
       expect(orphanHold?.canConvert).toBe(false);
 
-      // No owner on either side, so any coordinator reaching the hold may free it.
+      // Neither side has an owner, so any Coordinator who can reach the hold may release it.
       const released = await handleReleaseVenueHold(
         { id: hold.id },
         session(users.coordinatorB),
@@ -688,7 +688,7 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(result.request.startsAt).toMatch(/^2027-06-15[ T]09:00/);
       expect(result.request.endsAt).toMatch(/^2027-06-15[ T]12:00/);
 
-      // The conversion queues a booking-request notification for Venue Staff
+      // Conversion queues a booking request notification for Venue Staff.
       const queued = await database
         .select()
         .from(schema.notifications)
@@ -702,7 +702,7 @@ describe("tentative venue holds (PTR-109)", () => {
         venueName: VENUE_NAME,
       });
 
-      // Verify DB persistence of the new venue request and released hold
+      // Check that the database stores the new venue request and released hold.
       const [persistedHold] = await database
         .select()
         .from(schema.venueHolds)
@@ -767,7 +767,7 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      // The creator is still the assignee, but the event has moved past the holdable status.
+      // The creator is still assigned, but the event status no longer allows holds.
       await database
         .update(schema.eventRequests)
         .set({ status: "under_review" })
@@ -777,7 +777,7 @@ describe("tentative venue holds (PTR-109)", () => {
         handleConvertVenueHold({ id: hold.id }, session(users.coordinatorA), database as never)
       ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
 
-      // The refusal rolled the release back: the hold is not left dangling as "released".
+      // The refusal rolls back the release. The hold must not remain "released".
       const [persisted] = await database
         .select()
         .from(schema.venueHolds)
@@ -786,8 +786,8 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("refuses conversion when the event+venue already has a pending request, leaving the hold held and releasable", async () => {
-      // The pending request comes first: hold creation never checks pending rows, so the hold
-      // still lands and the duplicate surfaces only at conversion.
+      // Create the pending request first. Hold creation does not check pending requests, so the
+      // hold succeeds and conversion detects the duplicate.
       await handleCreateVenueRequest(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
@@ -807,7 +807,7 @@ describe("tentative venue holds (PTR-109)", () => {
         message: VENUE_REQUEST_DUPLICATE_MESSAGE,
       });
 
-      // The refusal rolled the release back: the hold stays held and can still be released.
+      // The refusal rolls back the release. The hold stays active and can still be released.
       const [persisted] = await database
         .select()
         .from(schema.venueHolds)
@@ -941,7 +941,7 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      // Assigned coordinator on a submitted event: canRelease=true, canConvert=true
+      // The assigned Coordinator can release and convert a hold on a submitted event.
       const coordAvailability = await handleGetVenueAvailability(
         { venueId, startDate: HOLD_WINDOW.date, endDate: HOLD_WINDOW.date },
         users.coordinatorA.id,
@@ -951,7 +951,7 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(coordHold?.canRelease).toBe(true);
       expect(coordHold?.canConvert).toBe(true);
 
-      // Unassigned viewer: canRelease=false, canConvert=false
+      // An unassigned viewer cannot release or convert the hold.
       const unassignedAvailability = await handleGetVenueAvailability(
         { venueId, startDate: HOLD_WINDOW.date, endDate: HOLD_WINDOW.date },
         users.coordinatorB.id,
@@ -961,7 +961,7 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(unassignedHold?.canRelease).toBe(false);
       expect(unassignedHold?.canConvert).toBe(false);
 
-      // Event moves past "submitted": assigned coordinator has canRelease=true, canConvert=false
+      // After the event leaves "submitted", its Coordinator can release but cannot convert the hold.
       await database
         .update(schema.eventRequests)
         .set({ status: "under_review" })
@@ -1025,7 +1025,7 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
       const entry = availability?.occupied.find(period => period.id === hold.id);
-      // Release stays offered, but Convert would land straight in the pending-request refusal.
+      // Offer release. Conversion would be refused because a pending request exists.
       expect(entry?.canRelease).toBe(true);
       expect(entry?.canConvert).toBe(false);
     });
@@ -1075,12 +1075,9 @@ describe("tentative venue holds (PTR-109)", () => {
     });
   });
 
-  /**
-   * Genuine-concurrency barrier: a session-level advisory lock on the venue is held while both
-   * writers start, so neither can finish before the other begins. Both block on the venue lock
-   * inside their transactions; releasing the gate lets them contend for real. Without this, one
-   * writer could commit before the other starts and the "race" would prove nothing. Callers
-   * assert the post-race invariant, never which writer won.
+  /** Hold a session-level advisory lock on the venue while both writers start, then release it.
+   * Both transactions wait on the venue lock and contend for it. Without this barrier, one writer
+   * commits before the other starts. Check the final invariant.
    */
   async function raceForVenue<A, B>(
     contenderA: () => Promise<A>,
@@ -1094,9 +1091,9 @@ describe("tentative venue holds (PTR-109)", () => {
       try {
         await vi.waitFor(
           async () => {
-            // This venue's key only: writers take single-bigint xact locks (classid 0, objid
-            // the venue id, objsubid 1 — verified against pg_locks), so other suites' venues
-            // sharing the cluster never satisfy the barrier early.
+            // Limit the barrier to this venue. Writers use single-bigint transaction locks
+            // (classid 0, objid is the venue id, objsubid 1; verified in `pg_locks`). Other suites
+            // use different venue ids, so they cannot release this barrier.
             const waiting = await database.execute<{ count: string }>(
               sql`SELECT count(*)::text AS count FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND classid = 0 AND objid = ${venueId} AND objsubid = 1`
             );
@@ -1140,7 +1137,7 @@ describe("tentative venue holds (PTR-109)", () => {
           )
       );
 
-      // The advisory lock serialises the two writers: one wins, the other is refused.
+      // The advisory lock serializes the writers. One succeeds and the other is refused.
       const fulfilled = results.filter(result => result.status === "fulfilled");
       const rejected = results.filter(result => result.status === "rejected");
       expect(fulfilled).toHaveLength(1);
@@ -1168,9 +1165,9 @@ describe("tentative venue holds (PTR-109)", () => {
         row.startsAt < windowEnd && row.endsAt > windowStart;
       const held = heldRows.some(overlaps);
       const approved = approvedRows.some(overlaps);
-      // The guarantee: the two states never coexist for the same venue and period.
+      // The two states must never coexist for the same venue and period.
       expect(held && approved).toBe(false);
-      // And exactly one of the two writes survived.
+      // Exactly one write must survive.
       expect(held !== approved).toBe(true);
     });
 
@@ -1197,12 +1194,12 @@ describe("tentative venue holds (PTR-109)", () => {
           )
       );
 
-      // The convert only needs its own hold, so it always lands; the approval lands only when its
-      // pre-check runs after the release. Either order is valid — pending requests stack — but a
-      // held hold and an approved booking must never coexist for the slot.
+      // Conversion uses its own hold and always succeeds. Approval succeeds only if its pre-check
+      // runs after release. Either order is valid because pending requests can overlap, but a hold
+      // and an approved booking must never share the same period.
       expect(convertOutcome.status).toBe("fulfilled");
-      // The approval either lands (its pre-check ran after the release) or is refused as
-      // conflicting (it ran before); both are valid, so only a non-conflict outcome fails.
+      // Approval may succeed if its pre-check runs after release or return a conflict if it runs
+      // before release. Both outcomes are valid. Fail only on another result.
       const approveError = approveOutcome.status === "rejected" ? approveOutcome.reason : null;
       expect(
         approveError === null ||
@@ -1234,8 +1231,8 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("races two opposite-direction amendments without deadlocking (40P01)", async () => {
-      // A second venue, created after the suite venue so its id sorts after it: both amendments
-      // lock the pair in the same sorted order and queue instead of deadlocking.
+      // Create a second venue with a larger id. Both amendments lock the venues in sorted
+      // order and wait. They complete with no deadlock.
       const [venueB] = await database
         .insert(schema.venues)
         .values({
@@ -1247,8 +1244,8 @@ describe("tentative venue holds (PTR-109)", () => {
         .returning({ id: schema.venues.id });
       const venueIdB = venueB.id;
 
-      // Disjoint windows, so either amendment's target pre-check passes whichever order wins: both
-      // succeed and the bookings swap venues.
+      // The windows do not overlap, so both target checks pass in either order. Both amendments
+      // succeed and the bookings switch venues.
       const requestA = await handleCreateVenueRequest(
         { ...HOLD_WINDOW, startTime: "09:00", endTime: "10:00", eventId: eventIdA, venueId },
         session(users.coordinatorA),
@@ -1303,8 +1300,8 @@ describe("tentative venue holds (PTR-109)", () => {
           )
       );
 
-      // Either both succeed or the loser carries a mapped refusal: a deadlock (40P01) or an
-      // unmapped 500 fails here.
+      // Both operations may succeed, or the loser may receive a mapped refusal. Fail on deadlock
+      // (40P01) or an unmapped 500 response.
       for (const result of results) {
         if (result.status === "fulfilled") continue;
         const reason = result.reason as Error & { status?: number; cause?: { code?: string } };
@@ -1326,7 +1323,8 @@ describe("tentative venue holds (PTR-109)", () => {
         expect(booking.status).toBe("approved");
         expect([venueId, venueIdB]).toContain(booking.venueId);
       }
-      // One venue ends with each booking's own disjoint window: swap or no-op, never stacked.
+      // Each venue must have one booking in its own non-overlapping window. The result may be a
+      // swap or no change, but the bookings must not stack.
       const approved = await database
         .select({
           venueId: schema.venueRequests.venueId,
@@ -1376,7 +1374,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("refuses a hold when the event is not in a holdable status (TC13)", async () => {
-      // Note: Infers the same status gate as handleCreateVenueRequest (must be in "submitted" status)
+      // This infers the same status check as `handleCreateVenueRequest`: the event must be "submitted".
       await expect(
         handleCreateVenueHold(
           { ...HOLD_WINDOW, eventId: underReviewEventId, venueId },
@@ -1428,7 +1426,7 @@ describe("tentative venue holds (PTR-109)", () => {
         heldById: users.coordinatorA.id,
       });
 
-      // Boundary touch (12:00 to 14:00) should succeed
+      // Allow a boundary touch from 12:00 to 14:00.
       const [touching] = await database
         .insert(schema.venueHolds)
         .values({
@@ -1443,7 +1441,7 @@ describe("tentative venue holds (PTR-109)", () => {
         .returning();
       expect(touching.id).toBe("ptr-109-direct-4");
 
-      // Overlapping hold for the same period but with status 'released' should succeed
+      // Allow an overlapping hold when the existing hold has status `released`.
       const [released] = await database
         .insert(schema.venueHolds)
         .values({
@@ -1513,7 +1511,7 @@ describe("tentative venue holds (PTR-109)", () => {
         })
         .returning();
 
-      // Delete Temp Coord A: held_by_id should become NULL, NOT block deletion
+      // Delete Coordinator A. Set `held_by_id` to null and allow deletion.
       await database.delete(schema.user).where(eq(schema.user.id, tempCoordAId));
 
       const [holdAfterDeleteA] = await database
@@ -1522,7 +1520,7 @@ describe("tentative venue holds (PTR-109)", () => {
         .where(eq(schema.venueHolds.id, hold.id));
       expect(holdAfterDeleteA.heldById).toBeNull();
 
-      // The assigned coordinator (Temp Coord B) can still release the hold
+      // Coordinator B is assigned and can still release the hold.
       const released = await handleReleaseVenueHold(
         { id: hold.id },
         {
@@ -1541,7 +1539,7 @@ describe("tentative venue holds (PTR-109)", () => {
         .where(eq(schema.venueHolds.id, hold.id));
       expect(holdAfterRelease.releasedById).toBe(tempCoordBId);
 
-      // Now delete Temp Coord B: released_by_id should become NULL, NOT block deletion
+      // Delete Coordinator B. Set `released_by_id` to null and allow deletion.
       await database.delete(schema.user).where(eq(schema.user.id, tempCoordBId));
 
       const [holdAfterDeleteB] = await database

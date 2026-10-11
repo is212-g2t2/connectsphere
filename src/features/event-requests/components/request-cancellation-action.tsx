@@ -17,21 +17,21 @@ import { Button } from "#/components/ui/button";
 import { requestEventCancellation } from "#/features/event-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 
-/** PTR-53 AC3: where a request goes when the event has no Coordinator to notify. */
+/** PTR-53 AC3: Where a request waits when the event has no Coordinator to notify. */
 export const UNASSIGNED_CANCELLATION_NOTE =
   "No Coordinator is assigned yet, so the request waits in the unassigned events list.";
 
 /**
- * PTR-53 AC4: the one sentence every cancellation surface uses. It names the assigned
- * Coordinator, or any Coordinator while the event is unassigned (AC3).
+ * PTR-53 AC4: The one sentence every cancellation surface uses. It names the assigned
+ * Coordinator. It names any Coordinator while the event is unassigned (AC3).
  */
 export function cancellationStatusNote(coordinatorName: string | null): string {
   return `The event's status stays the same until ${coordinatorName ?? "a Coordinator"} processes the request.`;
 }
 
 /**
- * PTR-53: the Organiser asks for their event to be cancelled. The dialog says who decides and
- * that the event stays as it is until then (AC3, AC4).
+ * PTR-53: The Organiser asks for cancellation of their event. The dialog names who decides. The
+ * event stays as it is until then (AC3, AC4).
  */
 export function RequestCancellationAction({
   requestId,
@@ -52,7 +52,7 @@ export function RequestCancellationAction({
         : `Cancellation requested. ${coordinatorName} has been notified.`
     );
 
-    // The request is recorded; a failed refresh must not turn that into an error.
+    // The request is recorded. A failed refresh must not report it as an error.
     try {
       await router.invalidate();
     } catch {
@@ -95,7 +95,7 @@ export function RequestCancellationAction({
               {requesting ? "Sending…" : "Send request"}
             </AlertDialogAction>
           </AlertDialogFooter>
-          {/* One copy at a time: two live role="alert" nodes would announce twice. */}
+          {/* Show one copy at a time. Two live alert nodes would announce twice. */}
           {dialogOpen && refusal}
         </AlertDialogContent>
       </AlertDialog>

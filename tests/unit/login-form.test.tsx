@@ -108,8 +108,8 @@ describe("LoginForm component", () => {
       expect(screen.getByRole("alert").textContent).toBe("Invalid email or password.");
     });
 
-    // Submitting revalidates, and that write to `errorMap.onSubmit` is what drops the stale
-    // message — the form holds no separate error state for anything to reset.
+    // Submitting revalidates. That write to `errorMap.onSubmit` drops the stale message. The
+    // form holds no separate error state to reset.
     await user.click(screen.getByRole("button", { name: /^sign in$/i }));
 
     await waitFor(() => {

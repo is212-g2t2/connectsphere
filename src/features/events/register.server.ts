@@ -36,16 +36,16 @@ import { raiseNotifications } from "#/features/notifications/raise.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 
 /**
- * Server-only on purpose, and named for it: `#/db/schema` is a value import here, so this is
- * reached through a dynamic `import()` inside `.handler()` in `server-fns.ts`. The middleware
- * pipeline has already verified the session and `event:register` or `vip_registration:manage`.
+ * Keep this module server-only. It imports `#/db/schema` as a value. `server-fns.ts` loads it
+ * dynamically inside `.handler()`. Middleware already verified the session and `event:register`
+ * or `vip_registration:manage`.
  */
 
 type Database = typeof Db;
 
 /**
- * The event's `registered` registrations, the normal ones and the VIPs (PTR-111) apart, as select
- * columns. `records.server` counts the attendee's places with the same two.
+ * Count the event's `registered` registrations as select columns: normal ones and VIPs (PTR-111)
+ * apart. `records.server` counts attendee places with the same two.
  */
 export const registrationCounts = {
   registered: sql<number>`count(*) filter (where not ${eventRegistrations.vip})`.mapWith(Number),
@@ -53,11 +53,11 @@ export const registrationCounts = {
 };
 
 /**
- * PTR-45: an Attendee registers for a published event. The event row is the lock that every
- * registration for the event takes before it counts. Two Attendees who race for the last place
- * therefore queue on it, and the second one counts the first (AC3).
+ * PTR-45: An Attendee registers for a published event. Every registration for the event locks the
+ * event row before it counts. Two Attendees racing for the last place queue on the row. The
+ * second one counts the first (AC3).
  *
- * The registration and its notifications commit together; the worker sends the emails.
+ * Commit the registration and its notifications together. The worker sends the emails.
  */
 export async function handleRegisterForEvent(
   data: unknown,
@@ -70,8 +70,8 @@ export async function handleRegisterForEvent(
   return database.transaction(async tx => {
     const event = await readEvent(tx, input.id, { lock: true });
 
-    // AC2: only a published event takes registrations. A missing event and an unpublished one
-    // are refused the same way, so the refusal does not say whether the id exists.
+    // AC2: Only a published event takes registrations. Refuse a missing event and an
+    // unpublished one in the same way. The refusal then reveals nothing about the id.
     if (!event || !isPublishedForAttendees(event)) throw new AuthorizationError("Forbidden");
 
     const booking = await approvedBooking(tx, event.id);
@@ -87,15 +87,15 @@ export async function handleRegisterForEvent(
     });
     if (refusal) throw new ConflictError(refusal);
 
-    // The refusal rules guarantee both; the throw only narrows the types.
+    // The refusal rules guarantee both values. The throw only narrows the types.
     const capacity = event.registrationCapacity;
     if (!booking || capacity === null) {
       throw new Error("Registration passed without an approved booking or a capacity");
     }
 
-    // One row for each Attendee and event: a withdrawn registration returns to `registered`
-    // (PTR-47 AC5), as the Attendee's own even where it was a removed VIP registration. A
-    // `registered` row is left as it is, so no row comes back (AC6).
+    // Keep one row per Attendee and event. A withdrawn registration returns to `registered`
+    // (PTR-47 AC5). It returns as the Attendee's own row, even when it was a removed VIP
+    // registration. Leave a `registered` row unchanged, so no row comes back (AC6).
     const registration = (
       await tx
         .insert(eventRegistrations)
@@ -126,8 +126,8 @@ export async function handleRegisterForEvent(
         },
       },
     ]);
-    // AC8 and AC9: only the registration that brings the registered count to 90% of the place
-    // limit, or to the limit itself, so each threshold is announced as the count crosses it.
+    // AC8 and AC9: Announce each threshold as the count crosses it. Only the registration that
+    // reaches 90% of the place limit, or the limit itself, sends the notice.
     const limit = placeLimit(capacity, booking.venueCapacity, vips);
     if (placeMark(registered + 1, limit)) await announcePlaceMark(tx, event, registered + 1, limit);
 
@@ -136,10 +136,10 @@ export async function handleRegisterForEvent(
 }
 
 /**
- * PTR-111: the Attendee accounts that the Organiser or the assigned Coordinator can add as a VIP,
- * found by part of the name or the email, case-insensitively. An Attendee who already holds a
- * registration for the event is left out. The account with exactly the typed email comes first,
- * so accounts named after a guest cannot push the guest's own account out of the results.
+ * PTR-111: Find Attendee accounts by part of the name or email, case-insensitively. The Organiser
+ * or the assigned Coordinator can add them as VIPs. Leave out Attendees with a registration for
+ * the event. List the account with the exact typed email first. Accounts named after a guest then
+ * cannot push the guest's account out of the results.
  */
 export async function handleSearchVipAttendees(
   data: unknown,
@@ -149,7 +149,7 @@ export async function handleSearchVipAttendees(
   const input = parseVipSearchInput(data);
   const event = requireManagedEvent(await readEvent(database, input.id), actor);
 
-  // `\` is the ILIKE escape character, so a typed `%` or `_` matches only itself.
+  // `\` is the ILIKE escape character. A typed `%` or `_` matches only itself.
   const pattern = `%${input.query.replaceAll(/[\\%_]/g, "\\$&")}%`;
   return database
     .select({ attendeeId: user.id, name: user.name, email: user.email })
@@ -177,10 +177,10 @@ export async function handleSearchVipAttendees(
 }
 
 /**
- * PTR-111: the Organiser or the assigned Coordinator adds a VIP registration for an Attendee
- * account. The VIP takes the event row lock that an Attendee's own registration takes, so a VIP
- * and an Attendee who race for the venue's last place queue on it (AC3). The change log keeps the
- * acting user and the time (AC5).
+ * PTR-111: The Organiser or the assigned Coordinator adds a VIP registration for an Attendee
+ * account. The VIP takes the same event row lock as an Attendee's own registration. A VIP and an
+ * Attendee racing for the venue's last place queue on it (AC3). Log the acting user and the time
+ * (AC5).
  */
 export async function handleAddVipRegistration(
   data: unknown,
@@ -203,8 +203,8 @@ export async function handleAddVipRegistration(
       throw new ConflictError(VIP_ALREADY_REGISTERED_MESSAGE);
     }
 
-    // AC2 and AC3: the registration capacity and period do not apply. The venue on the approved
-    // booking is the only ceiling, and with no approved booking there is no ceiling to hold to.
+    // AC2 and AC3: The registration capacity and period do not apply. The venue on the approved
+    // booking sets the only ceiling. With no approved booking, there is no ceiling.
     const booking = await approvedBooking(tx, event.id);
     if (!booking) throw new ConflictError(REGISTRATION_NOT_OPEN_MESSAGE);
     const { registered, vips } = await countRegistrations(tx, event.id);
@@ -212,8 +212,8 @@ export async function handleAddVipRegistration(
       throw new ConflictError(venueCapacityReachedMessage(booking.venueCapacity));
     }
 
-    // The Attendee's one row for the event: a withdrawn registration of either kind becomes this
-    // VIP registration.
+    // Reuse the Attendee's one row for the event. A withdrawn registration of either kind
+    // becomes this VIP registration.
     const registration = (
       await tx
         .insert(eventRegistrations)
@@ -230,10 +230,10 @@ export async function handleAddVipRegistration(
       .insert(vipRegistrationChanges)
       .values({ eventId: event.id, attendeeId: attendee.id, change: "added", actorId: actor.id });
 
-    // The VIP can leave normal registration one place fewer. Where that moves the normal
-    // registrations onto the 90% or the full mark of the new limit, the Organiser and the
-    // Coordinator are told, as a normal registration that reaches the mark tells them (PTR-45 AC8,
-    // AC9). The mark is compared, not only its presence: 9 of 10 is 90%, but 9 of 9 is full.
+    // A VIP leaves normal registration one place fewer. That can move normal registrations onto
+    // the 90% or full mark of the new limit. Tell the Organiser and the Coordinator then, as for a
+    // normal registration that reaches the mark (PTR-45 AC8, AC9). Compare the mark value itself.
+    // 9 of 10 reads as 90%. 9 of 9 reads as full.
     const capacity = event.registrationCapacity;
     if (capacity === null) {
       throw new Error("A published event passed without a registration capacity");
@@ -247,9 +247,8 @@ export async function handleAddVipRegistration(
 }
 
 /**
- * PTR-111 AC6: the Organiser or the assigned Coordinator removes a VIP registration. It becomes
- * `withdrawn`, so it no longer holds a venue place, and the change log keeps who removed it and
- * when.
+ * PTR-111 AC6: The Organiser or the assigned Coordinator removes a VIP registration. It becomes
+ * `withdrawn` and no longer holds a venue place. Log who removed it and when.
  */
 export async function handleRemoveVipRegistration(
   data: unknown,
@@ -284,8 +283,8 @@ export async function handleRemoveVipRegistration(
 }
 
 /**
- * The event row. Every registration write locks it before it counts; `no key update` does not
- * block the key-share locks that foreign-key inserts take on the event row.
+ * The event row. Every registration write locks it before it counts. `no key update` leaves room
+ * for the key-share locks of foreign-key inserts on the event row.
  */
 export async function readEvent(
   database: Pick<Database, "select">,
@@ -312,10 +311,10 @@ export async function readEvent(
 export type EventRow = NonNullable<Awaited<ReturnType<typeof readEvent>>>;
 
 /**
- * PTR-111: the published event that the caller manages VIPs for. Only its Organiser and its
- * assigned Coordinator do, and a missing event and someone else's are refused the same way. A
- * published event whose booking was released still lets them remove a VIP, so its existing
- * registrations can be resolved manually.
+ * PTR-111: Load the published event the caller manages VIPs for. Only its Organiser and its
+ * assigned Coordinator manage VIPs. Refuse a missing event and another user's event in the same
+ * way. An event with a released booking still allows VIP removal. Resolve its existing
+ * registrations manually.
  */
 function requireManagedEvent(event: EventRow | undefined, actor: SessionUser): EventRow {
   if (!event || (event.organiserId !== actor.id && event.assignedCoordinatorId !== actor.id)) {
@@ -332,10 +331,10 @@ export function eventName(event: EventRow): string {
 type StakeholderRecipient = { recipientId: string; audience: "organiser" | "coordinator" };
 
 /**
- * Who hears a registration notification: the Organiser always, and the assigned Coordinator when
- * the event has one. Each carries their own audience, so the inbox links each party to their page.
- * `announcePlaceMark` below, `announceFreedPlace` in `withdraw.server.ts`, and the
- * registration-boundary sweep build their notices from this list instead of repeating the rule.
+ * List who hears a registration notification: the Organiser always, and the assigned Coordinator
+ * when the event has one. Each carries its own audience, so the inbox links each party to its
+ * page. `announcePlaceMark`, `announceFreedPlace` in `withdraw.server.ts`, and the
+ * registration-boundary sweep all build from this list.
  */
 export function stakeholderRecipients(
   event: Pick<EventRow, "organiserId" | "assignedCoordinatorId">
@@ -350,10 +349,9 @@ export function stakeholderRecipients(
 }
 
 /**
- * PTR-45 AC8 and AC9: tells the Organiser, and the assigned Coordinator when there is one, that the
- * normal registrations stand on a mark of the place limit. Each pair of count and limit is told
- * once for each event, so a VIP added and removed again and again cannot send it again and again
- * (PTR-111).
+ * PTR-45 AC8 and AC9: Tell the Organiser, and the assigned Coordinator when one exists, that
+ * normal registrations stand on a mark of the place limit. Tell each count-and-limit pair once
+ * per event. A VIP added and removed repeatedly then sends no repeat notice (PTR-111).
  */
 async function announcePlaceMark(
   tx: Pick<Database, "select" | "insert">,
@@ -385,7 +383,7 @@ async function announcePlaceMark(
   );
 }
 
-/** Whether the Attendee holds a `registered` registration for the event, of either kind. */
+/** Check whether the Attendee holds a `registered` registration of either kind. */
 async function isRegistered(
   database: Pick<Database, "select">,
   eventId: number,
@@ -404,7 +402,7 @@ async function isRegistered(
   return rows.length > 0;
 }
 
-/** The venue the event page shows: the earliest approved booking, as `records.server` picks it. */
+/** Return the venue for the event page: the earliest approved booking, as `records.server` picks it. */
 export async function approvedBooking(database: Pick<Database, "select">, eventId: number) {
   return (
     await database

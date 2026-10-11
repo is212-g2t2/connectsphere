@@ -10,19 +10,18 @@ import type {
 } from "#/features/events/access";
 
 /**
- * Server-only on purpose: `#/db/schema` is a value import here, which would ship the whole
- * database schema to the browser from any module a route can reach. `events/records.server.ts`
- * reaches this through a plain import — both modules already carry the `.server.ts` suffix that
- * keeps either one out of a client bundle, the same way `requests.server.ts` already imports
- * `loadAssignedEvent` from the events feature in the other direction.
+ * Keep this module server-only. A client-reachable value import of `#/db/schema` would ship the
+ * full database schema to the browser. `events/records.server.ts` imports this module directly;
+ * both files use the `.server.ts` suffix to stay out of client bundles. `requests.server.ts` also
+ * imports `loadAssignedEvent` from the events feature.
  */
 
 type Database = typeof Db;
 
 /**
- * The latest operational outcome for each event. Withdrawals remain invisible because they carry
- * no staff decision, while a release supersedes an older rejection and remains visible with its
- * reason and durable actor label. One join carries the suggested venue's name for rejection cards.
+ * Return the latest operational outcome for each event. Ignore withdrawals because they contain
+ * no staff decision. A release replaces an older rejection and remains visible with its reason and
+ * actor label. Join the suggested venue name for rejection cards.
  */
 export type VenueRequestOutcome =
   | { id: string; status: "rejected"; venueName: string; rejection: VenueRequestRejection }
@@ -72,8 +71,8 @@ export function venueRequestOutcomeFromRow(
     };
   }
   if (row.status !== "rejected") return null;
-  // The CHECK on `venue_requests` guarantees a rejected row has a reason; null here is data
-  // corruption to surface loudly, not a blank card to render quietly.
+  // The `venue_requests` CHECK requires a reason for rejected rows. Treat `null` as corrupt data,
+  // not as a blank card.
   if (row.rejectionReason === null) {
     throw new Error(`Rejected venue request ${row.id} has no reason recorded`);
   }
@@ -133,15 +132,13 @@ export async function loadVenueRequestOutcomesForEvents(
     .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
     .where(inArray(venueRequests.eventId, [...eventIds]));
 
-  // The newest decided row per event: a withdrawal is not a decision, and a pending request
-  // raised after a rejection (an adjusted request) must not hide the rejection it answers. A tie
-  // (same instant) falls to the greater id string, the same stable rule the single-event reader
-  // used.
+  // Select the newest decided row per event. Ignore withdrawals and later pending requests; a
+  // pending adjusted request must not hide the rejection it answers. Break equal-time ties by the
+  // greater id string, as the single-event reader does.
   const newestByEvent = new Map<number, (typeof rows)[number]>();
   for (const row of rows) {
     if (row.status === "withdrawn" || row.status === "pending") continue;
-    // A staff member asking for their own settled rows sees only those assigned to them; the
-    // coordinator's unfiltered call is unchanged.
+    // Staff see only their own settled rows. The Coordinator's unfiltered call stays the same.
     if (assignedStaffId !== undefined && row.assignedStaffId !== assignedStaffId) continue;
     const current = newestByEvent.get(row.eventId);
     if (
@@ -162,9 +159,9 @@ export async function loadVenueRequestOutcomesForEvents(
 }
 
 /**
- * One event's live venue request in the projection's shape: the newest non-withdrawn row, a
- * pending row as-is, a decided row as its outcome. The triage page reads it through the
- * coordination request, which otherwise carries no venue data.
+ * Return one event's latest live venue request in the projection's shape. Ignore withdrawn rows.
+ * Return pending rows as-is and decided rows as outcomes. The triage page reads this through the
+ * coordination request, which has no venue data.
  */
 export async function loadVenueRequestForEvent(
   database: Pick<Database, "select">,
@@ -196,8 +193,8 @@ export async function loadVenueRequestForEvent(
     .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
     .where(eq(venueRequests.eventId, eventId));
 
-  // The newest live row, by update time with the greater id string breaking a tie — the same
-  // stable rule the multi-event reader uses. A withdrawal is not a request.
+  // Select the newest live row by update time. Break ties with the greater id string, as the
+  // multi-event reader does. A withdrawal is not a request.
   let newest: VenueRequestOutcomeRow | null = null;
   for (const row of rows) {
     if (row.status === "withdrawn") continue;

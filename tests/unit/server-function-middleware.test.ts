@@ -2,16 +2,13 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-/**
- * PTR-69: a server function is a directly addressable HTTP route, so "the route guard hid the
- * control" is not enforcement. Every `createServerFn` under `src/features` therefore declares the
- * middleware that verifies the session and the required permission before its handler can run —
- * `withSession`/`requireSession`/`requirePermission` in `src/features/auth/session.ts`, or a
- * `requirePermission(...)` alias such as `requireVenueRead`.
+/** PTR-69: callers can address server functions as HTTP routes. A hidden UI control does not
+ * enforce access. Every `createServerFn` under `src/features` must declare middleware that checks
+ * the session and permission before the handler runs. Use `withSession`, `requireSession`,
+ * `requirePermission`, or an alias such as `requireVenueRead` from `src/features/auth/session.ts`.
  *
- * The behavioural half (401 and 403, with no handler execution) is
- * `tests/integration/server-function-authorization.test.ts`; this scan is what keeps the next
- * server function from being the one that omits the pipeline.
+ * `tests/integration/server-function-authorization.test.ts` checks runtime 401 and 403 responses
+ * and confirms that the handler does not run. This scan catches missing middleware declarations.
  */
 const featuresDir = path.resolve(process.cwd(), "src/features");
 
@@ -22,9 +19,8 @@ function featureModules(dir: string): string[] {
     .filter(filePath => filePath.endsWith(".ts") || filePath.endsWith(".tsx"));
 }
 
-/**
- * Blank out comments so a commented-out `.middleware([...])` is not read as a real call. Quotes
- * are tracked so a `//` inside a string literal survives. Regex literals are left alone.
+/** Remove comments so a commented-out `.middleware([...])` does not count as a call. Preserve
+ * `//` inside strings. Leave regex literals unchanged.
  */
 function stripComments(source: string): string {
   let out = "";
@@ -70,7 +66,7 @@ function stripComments(source: string): string {
   return out;
 }
 
-/** Enforcing middleware names: the canonical trio plus every alias declared from one of them. */
+/** Names of the three enforcing middleware functions and their aliases. */
 function enforcementNames(sources: readonly string[]): Set<string> {
   const names = new Set(["withSession", "requireSession", "requirePermission"]);
   const alias =
@@ -83,10 +79,8 @@ function enforcementNames(sources: readonly string[]): Set<string> {
   return names;
 }
 
-/**
- * Slice each `createServerFn` chain at the next one. A non-greedy match over the whole file lets a
- * middleware-less chain swallow a later compliant chain's `.middleware(...)`, so the units have to
- * be independent.
+/** End each `createServerFn` chain before the next one. Otherwise a middleware-less chain can
+ * match a later chain's `.middleware(...)` call.
  */
 function serverFnChains(source: string): string[] {
   const clean = stripComments(source);
@@ -98,7 +92,7 @@ function serverFnChains(source: string): string[] {
   });
 }
 
-/** Chains whose pre-handler middleware is absent, empty, or does not name enforcing middleware. */
+/** Chains with no pre-handler middleware or without an enforcing middleware name. */
 function middlewareViolations(source: string, enforcing: ReadonlySet<string>): string[] {
   const violations: string[] = [];
 

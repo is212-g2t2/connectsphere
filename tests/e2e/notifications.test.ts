@@ -23,10 +23,9 @@ test.afterAll(async () => {
   await pool.end();
 });
 
-/**
- * PTR-55: the signed-in user opens their notifications and sees theirs, newest first, with what
- * happened and when; opening one leads to the request it concerns; a notification whose event
- * they are not connected to shows the neutral line and no event data.
+/** PTR-55: A signed-in user sees their notifications, newest first, with each event and time.
+ * Opening a notification opens its request. A notification for an unrelated event shows a neutral
+ * message and no event data.
  */
 test("[PTR-55] reads notifications, follows one, and sees no data for an event out of reach", async ({
   page,
@@ -109,10 +108,10 @@ test("[PTR-55] reads notifications, follows one, and sees no data for an event o
 
     const items = page.getByRole("listitem");
     await expect(items).toHaveCount(2);
-    // Newest first: the later confirmation sits above the earlier, unreachable one.
+    // Show the newer confirmation above the earlier, inaccessible event.
     await expect(items.first()).toContainText("Event confirmed: PTR-55 Reachable Gala");
     await expect(items.last()).toContainText("This notification is no longer available.");
-    // The unreachable event's data is nowhere on the page.
+    // Do not show data for the inaccessible event.
     await expect(page.getByText("PTR-55 Unreachable Gala")).toHaveCount(0);
     await expect(page.getByText("Elsewhere")).toHaveCount(0);
 
@@ -130,9 +129,8 @@ test("[PTR-55] reads notifications, follows one, and sees no data for an event o
   }
 });
 
-/**
- * PTR-56: unread notifications are labelled and counted; marking one read, then all, clears the
- * labels and the count on the next render.
+/** PTR-56: label and count unread notifications. Mark one notification read, then mark all read.
+ * The next render must clear the labels and count.
  */
 test("[PTR-56] tells unread from read and marks one, then all, read", async ({ page }) => {
   const eventIds: number[] = [];

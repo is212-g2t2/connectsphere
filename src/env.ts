@@ -36,7 +36,8 @@ export const env = createEnv({
     EMAIL_FROM: process.env.EMAIL_FROM,
     SMTP_URL: process.env.SMTP_URL,
     REDIS_URL: process.env.REDIS_URL,
-    // import.meta.env is Vite-only; fallback to process.env in Node.js (e.g. drizzle-kit, instrument.server.mjs)
+    // Vite provides `import.meta.env`. In Node.js tools, such as drizzle-kit and
+    // instrument.server.mjs, use `process.env` instead.
     VITE_APP_TITLE: process.env.VITE_APP_TITLE ?? import.meta.env?.VITE_APP_TITLE,
     VITE_SENTRY_DSN: process.env.VITE_SENTRY_DSN ?? import.meta.env?.VITE_SENTRY_DSN,
     VITE_SENTRY_ORG: process.env.VITE_SENTRY_ORG ?? import.meta.env?.VITE_SENTRY_ORG,

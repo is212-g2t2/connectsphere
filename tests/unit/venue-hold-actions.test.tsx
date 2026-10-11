@@ -108,7 +108,7 @@ const scheduleWithHold: VenueAvailability = {
   ],
 };
 
-/** The same hold as a viewer who may not manage it sees it. */
+/** The same hold as seen by a viewer who cannot manage it. */
 const scheduleWithUnownedHold: VenueAvailability = {
   ...scheduleWithHold,
   occupied: [
@@ -348,8 +348,8 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      // Placing a new hold is a role capability, so "Hold slot" stays; acting on someone
-      // else's hold is per-record ownership, so Release/Convert go.
+      // The role permits new holds, so keep "Hold slot". The viewer does not own this hold, so
+      // remove "Release" and "Convert".
       expect(screen.getByRole("button", { name: "Hold slot" })).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Release tentative hold" })).toBeNull();
       expect(

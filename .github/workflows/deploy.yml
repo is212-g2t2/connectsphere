@@ -20,11 +20,10 @@ on:
         required: false
         type: boolean
         default: false
-    # No secrets block on purpose. An environment secret (the migrate job's
-    # DATABASE_URL_SESSION) reaches a called workflow only through
-    # `secrets: inherit`, which cannot be combined with named passing. Both
-    # callers inherit; the steps here reference GCP_WIF_PROVIDER, GCP_SA,
-    # SENTRY_AUTH_TOKEN, VITE_SENTRY_DSN and that environment secret.
+    # Do not add a `secrets` block here. A called workflow receives environment secrets only
+    # through `secrets: inherit`, which cannot be combined with named secrets. Both callers inherit
+    # secrets. These steps use GCP_WIF_PROVIDER, GCP_SA, SENTRY_AUTH_TOKEN, VITE_SENTRY_DSN, and the
+    # migration job's DATABASE_URL_SESSION secret.
 
 permissions:
   contents: read
@@ -41,8 +40,8 @@ jobs:
   publish:
     name: Publish image
     runs-on: ubuntu-latest
-    # The wait for another workflow's build runs to 30 minutes; the job must
-    # outlast it so the bound fails with its own message, not a cancellation.
+    # The build wait can take 30 minutes. Let this job run longer so its own timeout reports a
+    # failure instead of cancelling the wait.
     timeout-minutes: 40
     permissions:
       contents: read
@@ -66,8 +65,7 @@ jobs:
         id: meta
         run: echo "tag=${IMAGE}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      # Staging builds when the image is missing; a release waits for the
-      # staging build (ADR-4).
+      # Staging builds the image when it is missing. A release waits for that build (ADR-4).
       - name: Resolve the existing image for this commit, if any
         id: reuse
         run: |
@@ -98,9 +96,9 @@ jobs:
             echo "No published image for this commit; building it."
           fi
 
-      # SENTRY_AUTH_TOKEN is a BuildKit secret, never a build arg: `cache-to:
-      # type=gha,mode=max` exports every layer, and PR runs on this public repo
-      # can read that cache. See Dockerfile.
+      # Pass SENTRY_AUTH_TOKEN as a BuildKit secret, not a build arg. `cache-to: type=gha,mode=max`
+      # exports every layer. Pull requests on this public repository can read that cache. See
+      # Dockerfile.
       - name: Build and push
         id: build
         if: steps.reuse.outputs.digest == ''
@@ -169,9 +167,9 @@ jobs:
           echo "Staged revision: $revision"
           echo "Smoke URL: $url"
 
-  # The schema moves after the new revision is staged at 0% but before
-  # promotion, so the old revision serves live traffic against a migrated
-  # database. Migrations must stay additive-only for that window to be safe.
+  # Migrate after staging the new revision at 0% traffic and before promotion. The old revision
+  # serves live traffic against the migrated database during this period. Keep migrations additive
+  # so both revisions can use the database.
   migrate:
     name: Migrate database
     runs-on: ubuntu-latest
@@ -190,9 +188,9 @@ jobs:
       - name: Apply committed migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_SESSION }}
-          # drizzle.config.ts imports src/env.ts, which requires a 32+ char
-          # secret at import time. Migrations never read it, so this job sets a
-          # literal rather than relying on a copied .env.example placeholder.
+          # drizzle.config.ts imports src/env.ts, which requires a secret of at least 32 characters.
+          # Migrations do not read this secret, so set a literal here instead of using the copied
+          # .env.example placeholder.
           BETTER_AUTH_SECRET: "connectsphere-migration-only-secret-0000"
         run: bunx drizzle-kit migrate
 
@@ -223,8 +221,7 @@ jobs:
           echo "::add-mask::$token"
           echo "token=$token" >> "$GITHUB_OUTPUT"
 
-      # K_REVISION in the response is what proves the request reached the
-      # revision just staged, not whatever is currently serving.
+      # Check K_REVISION in the response to confirm that the request reached the staged revision.
       - name: Hit the staged revision
         env:
           SMOKE_TOKEN: ${{ steps.secret.outputs.token }}
@@ -240,9 +237,9 @@ jobs:
             exit 1
           fi
 
-  # Cleanup cannot live inside `smoke`: a `migrate` failure skips that job
-  # entirely. `promote` is listed so a failure there is covered too; removing a
-  # tag never moves traffic, so this is safe even after a partial promote.
+  # Keep cleanup outside `smoke` because a migration failure skips that job. Include `promote` so
+  # cleanup also runs after a promotion failure. Removing a tag never moves traffic, even after a
+  # partial promotion.
   cleanup:
     name: Remove the staged tag after a failed release
     runs-on: ubuntu-latest

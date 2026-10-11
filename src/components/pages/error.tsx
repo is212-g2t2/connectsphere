@@ -51,12 +51,12 @@ export function ErrorPage({ error, reset, title = "Something went wrong" }: Erro
 }
 
 /**
- * The root route's error boundary. A boundary replaces everything beneath `<html>`, so it
- * re-renders the document shell itself, and it is the one place that reports the failure to
- * Sentry — on the server during SSR, and again on the client once it hydrates.
+ * The root route's error boundary. It replaces everything below `<html>`, so it renders the
+ * document shell again. It also reports the error to Sentry during server rendering and after
+ * client hydration.
  */
 export function RootErrorPage(props: ErrorComponentProps) {
-  // Capture SSR rendering exceptions manually as per documentation
+  // Capture SSR rendering exceptions as the docs instruct.
   if (typeof window === "undefined") {
     Sentry.captureException(props.error);
   }
@@ -72,7 +72,7 @@ export function RootErrorPage(props: ErrorComponentProps) {
   );
 }
 
-/** The root route's 404. Nothing to report — the address simply matched no route. */
+/** The root route's 404. The address matched no route, so there is nothing else to report. */
 export function RootNotFoundPage() {
   return (
     <RootDocument meta={<meta name="robots" content="noindex, nofollow" />}>

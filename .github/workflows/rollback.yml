@@ -19,9 +19,9 @@ permissions:
   contents: read
   id-token: write
 
-# Deliberately the same group the deploy uses for that service, so a rollback
-# cannot land in the middle of the deploy it is rolling back. A deploy paused
-# on an environment approval holds the lock; cancel that run, do not wait.
+# Use the same concurrency group as the deployment for this service. This prevents rollback during
+# a deployment. A deployment paused for environment approval holds the lock. Cancel that run before
+# you start a rollback.
 concurrency:
   group: ${{ inputs.service == 'connectsphere' && 'deploy-production' || 'deploy-staging' }}
   cancel-in-progress: false
@@ -36,8 +36,8 @@ jobs:
     timeout-minutes: 10
     environment: ${{ inputs.service == 'connectsphere' && 'production' || 'staging' }}
     steps:
-      # Dispatch inputs are free-form strings; route them through env so a
-      # crafted revision name cannot reach the shell as code.
+      # Workflow-dispatch inputs accept any string. Pass them through env so a crafted revision name
+      # cannot run as shell code.
       - name: Authenticate to Google Cloud (WIF)
         uses: google-github-actions/auth@v3
         with:

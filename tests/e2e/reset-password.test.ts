@@ -33,11 +33,9 @@ test.describe("Reset password", () => {
   });
 });
 
-/**
- * The account-recovery loop no static render state can prove: request a reset, read the token out
- * of the captured email, set a new password with it, then sign in with that password. Mailpit
- * stands in for the mail provider so the token is real; without it the suite could only assert
- * the form again.
+/** Test the full account recovery flow: request a reset, get its token from email, set a new
+ * password, and sign in with it. Mailpit captures the real token. Without email, this test could
+ * only check the form.
  */
 test.describe("Reset password journey", () => {
   const newPassword = "NewPassword456!";
@@ -59,7 +57,7 @@ test.describe("Reset password journey", () => {
 
     const token = await waitForResetToken(email);
 
-    // Better Auth puts the token in the emailed link's path; the form reads it from `?token=`.
+    // Better Auth puts the token in the email link. The form reads the `?token=` query parameter.
     await page.goto(`/reset-password?token=${token}`);
     await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "Set a new password" })).toBeVisible();
@@ -74,8 +72,8 @@ test.describe("Reset password journey", () => {
     ]);
     expect(resetResponse.ok(), await resetResponse.text()).toBe(true);
 
-    // The sign-up session survives the reset, so /login would bounce a signed-in visitor to the
-    // dashboard. Sign out first, or the new password is never actually exercised.
+    // Sign-up leaves the user signed in, and `/login` redirects signed-in users to the dashboard.
+    // Sign out first so the test checks the new password.
     const signOut = await page.request.post("/api/auth/sign-out", {
       headers: { Origin: "http://localhost:3000" },
     });

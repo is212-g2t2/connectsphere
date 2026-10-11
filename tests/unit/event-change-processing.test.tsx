@@ -134,7 +134,9 @@ const request: CoordinationRequest = {
   venueRequest: null,
 };
 
-/** The assigned Coordinator's event page: `kind: "event"` with coordinator access means assigned. */
+/** Show the assigned Coordinator's event page. `kind: "event"` with coordinator access means
+ * assigned.
+ */
 function coordinatorPage(overrides: Partial<CoordinationRequest> = {}): EventPageData {
   const coordination = { ...request, ...overrides };
   return {
@@ -224,7 +226,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     ).toBeNull();
     unmount();
 
-    // A Coordinator the event is not assigned to opens the triage view of the request.
+    // An unassigned Coordinator opens the request's triage view.
     render(
       <EventDetailPage
         data={{
@@ -303,7 +305,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
 
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
 
-    // The form opens on the request, with the request text pinned and focused.
+    // The form opens on the request. It pins and focuses the request text.
     const pinned = screen.getByRole("heading", { name: "Applying the Organiser's change request" });
     expect(document.activeElement).toBe(pinned);
     expect(within(pinned.parentElement as HTMLElement).getByText("150 attendees")).toBeTruthy();
@@ -329,7 +331,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     });
     expect(invalidate).toHaveBeenCalled();
     expect(screen.queryByLabelText("Event name (required)")).toBeNull();
-    // The re-read will take the applied request off the card; focus goes back to the card.
+    // The re-read removes the applied request from the card. Focus returns to the card.
     expect(document.activeElement).toBe(
       screen.getByRole("heading", { name: "Change requests awaiting your decision" })
     );
@@ -436,7 +438,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
     ).toBe(true);
-    // Discarding the edits frees the other apply again.
+    // Discarding the edits re-enables the other apply.
     await user.click(screen.getByRole("button", { name: "Cancel applying" }));
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     await waitFor(() =>
@@ -463,7 +465,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       screen.getByRole<HTMLButtonElement>("button", { name: "Apply change request #2" }).disabled
     ).toBe(true);
 
-    // Another tab declined #1; the page re-read with #2 still waiting.
+    // Another tab declines #1. The page re-reads with #2 still waiting.
     rerender(
       <EventDetailPage
         data={coordinatorPage({
@@ -504,7 +506,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     await user.click(screen.getByRole("button", { name: "Apply change request #1" }));
     expect(screen.getByRole("heading", { name: "Apply the change request" })).toBeTruthy();
 
-    // A page re-read after another tab declined the request.
+    // Re-read the page after another tab declines the request.
     rerender(<EventDetailPage data={coordinatorPage({ changeRequests: [declined] })} />);
 
     expect(screen.queryByRole("heading", { name: "Apply the change request" })).toBeNull();
@@ -560,7 +562,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
     renderPage();
 
     await user.click(screen.getByRole("button", { name: "Decline change request #1" }));
-    // The reason takes focus, and the toggle gives way to the form's own cancel.
+    // Focus moves to the reason. The toggle yields to the form's own cancel.
     const reason = screen.getByLabelText("Reason for declining");
     expect(document.activeElement).toBe(reason);
     expect(screen.queryByRole("button", { name: "Decline change request #1" })).toBeNull();
@@ -581,7 +583,7 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       data: { id: 7, changeRequestId: 31, reason: "The hall holds 80 at most." },
     });
     expect(invalidate).toHaveBeenCalled();
-    // The re-read takes the item away; focus lands on the card's heading.
+    // The re-read removes the item. Focus lands on the card's heading.
     await waitFor(() =>
       expect(document.activeElement).toBe(
         screen.getByRole("heading", { name: "Change requests awaiting your decision" })
@@ -620,10 +622,10 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
   });
 });
 
-/** The Organiser's event page, whose requests section carries the same record. */
+/** Show the Organiser's event page. Its requests section carries the same record. */
 function organiserPage(overrides: Partial<CoordinationRequest> = {}): EventPageData {
-  // The organiser read carries no organiser contact or coordinator-only projections;
-  // without those keys the record renders as the Organiser sees it.
+  // The organiser read carries no organiser contact or coordinator-only projections. Without
+  // those keys the record renders as the Organiser sees it.
   const {
     organiser: _organiser,
     pendingHandover: _handover,

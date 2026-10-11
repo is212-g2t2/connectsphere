@@ -49,12 +49,12 @@ vi.mock("sonner", () => ({ toast: { success, error: failure } }));
 const ada: VipAttendee = { attendeeId: "ada", name: "Ada Lovelace", email: "ada@x.test" };
 const alan: VipAttendee = { attendeeId: "alan", name: "Alan Turing", email: "alan@x.test" };
 
-/** Opens the "Add VIP" dialog, which holds the search form. */
+/** Open the "Add VIP" dialog. It holds the search form. */
 async function openAddDialog(user: { click: (element: Element) => Promise<void> }) {
   await user.click(screen.getByRole("button", { name: "Add VIP" }));
 }
 
-/** Types into the search box of the add dialog. */
+/** Type into the search box of the add dialog. */
 async function searchFor(text: string) {
   const user = userEvent.setup();
   render(<AddVipDialog eventId={12} />);
@@ -63,14 +63,14 @@ async function searchFor(text: string) {
   return user;
 }
 
-/** Searches for Ada and adds her from the results. */
+/** Search for Ada and add her from the results. */
 async function addAda() {
   searchVipAttendees.mockResolvedValue([ada]);
   const user = await searchFor("ada");
   await user.click(await screen.findByRole("button", { name: "Add Ada Lovelace as a VIP" }));
 }
 
-/** Opens Ada's removal dialog and confirms it. */
+/** Open Ada's removal dialog and confirm it. */
 async function removeAda() {
   const user = userEvent.setup();
   render(<RemoveVipButton eventId={12} vip={ada} />);
@@ -242,7 +242,7 @@ describe("AddVipDialog (PTR-111)", () => {
   });
 
   it("shows which addition is running", async () => {
-    // Settled before the test ends: React holds later transitions behind one still running.
+    // Settle before the test ends. React holds later transitions behind a running one.
     let finish: (() => void) | undefined;
     addVipRegistration.mockReturnValue(
       new Promise<void>(resolve => {
@@ -282,7 +282,7 @@ describe("AddVipDialog (PTR-111)", () => {
   );
 
   it("falls back to generic text for a failure that is not a named refusal, and reloads", async () => {
-    // What a Coordinator gets once the event is handed to someone else.
+    // A Coordinator sees this after the event moves to someone else.
     searchVipAttendees.mockRejectedValue(new Error("Forbidden"));
 
     await searchFor("ada");

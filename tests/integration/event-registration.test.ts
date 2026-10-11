@@ -1,5 +1,5 @@
-// Mirrors event-confirmation.test.ts: a local node-postgres drizzle instance, not the app's
-// `#/db`, with notifications read back from the `notifications` table.
+// Use a local node-postgres Drizzle instance, as `event-confirmation.test.ts` does. Keep the
+// app's `#/db` out of this file. Read notifications from the `notifications` table.
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
@@ -40,13 +40,15 @@ const attendees = Array.from({ length: 12 }, (_, index) =>
   actor(`registration-attendee-${index}`, "attendee")
 );
 const [attendee, secondAttendee, thirdAttendee] = attendees;
-/** The Attendees who take the earlier places, kept apart from the three a test names. */
+/** These Attendees take the earlier places. They stay apart from the three a test names. */
 const placeTakers = attendees.slice(3);
 
 const VENUE_NAME = "Registration Test Hall";
 const SMALL_VENUE_NAME = "Registration Test Room";
 
-/** 1 Nov 09:00 to 1 Dec 17:00 Singapore time; `now` sits in the middle unless a test moves it. */
+/** Registration runs 1 Nov 09:00 to 1 Dec 17:00 Singapore time. `now` sits in the middle. A test
+ * can move it.
+ */
 const opensAt = "2026-11-01T09:00";
 const closesAt = "2026-12-01T17:00";
 const insidePeriod = new Date("2026-11-15T04:00:00Z");
@@ -114,7 +116,7 @@ describe("registering for an event (PTR-45)", () => {
 
   afterEach(async () => {
     if (created.length === 0) return;
-    // Registrations and notifications cascade with the event; the booking keeps its venue.
+    // Registrations and notifications cascade with the event. The booking keeps its venue.
     await database
       .delete(schema.venueRequests)
       .where(inArray(schema.venueRequests.eventId, created));
@@ -122,7 +124,7 @@ describe("registering for an event (PTR-45)", () => {
     created.length = 0;
   });
 
-  /** A confirmed event with registration on and an approved booking at `bookedVenue`. */
+  /** Confirm an event with registration on. Approve its booking at `bookedVenue`. */
   async function createEvent(
     options: {
       status?: "approved" | "confirmed" | "cancelled";
@@ -171,7 +173,7 @@ describe("registering for an event (PTR-45)", () => {
 
     const bookedVenue = options.bookedVenue === undefined ? venueId : options.bookedVenue;
     if (bookedVenue !== null) {
-      // A distant year per booking keeps the overlap constraint from tripping.
+      // Use a distant year per booking. The overlap constraint never trips.
       bookingYear += 1;
       await database.insert(schema.venueRequests).values({
         id: crypto.randomUUID(),
@@ -263,7 +265,7 @@ describe("registering for an event (PTR-45)", () => {
   test("follows the period on the Singapore clock, and records nothing outside it", async () => {
     const event = await createEvent();
 
-    // 00:59Z is 08:59 in Singapore, a minute before the period opens; 01:00Z is 09:00.
+    // 00:59Z is 08:59 Singapore time, one minute before opening. 01:00Z is 09:00.
     expect(await refusal(event.id, attendee, new Date("2026-11-01T00:59:00Z"))).toBe(
       REGISTRATION_NOT_OPEN_MESSAGE
     );
@@ -273,7 +275,7 @@ describe("registering for an event (PTR-45)", () => {
     expect((await register(event.id, attendee, new Date("2026-11-01T01:00:00Z"))).status).toBe(
       "registered"
     );
-    // 09:00Z on 1 Dec is 17:00 in Singapore, the minute the period closes.
+    // 09:00Z on 1 Dec is 17:00 Singapore time, the closing minute.
     expect(await refusal(event.id, secondAttendee, new Date("2026-12-01T09:00:00Z"))).toBe(
       REGISTRATION_NOT_OPEN_MESSAGE
     );
@@ -314,7 +316,7 @@ describe("registering for an event (PTR-45)", () => {
       eventId: event.id,
       venueId,
       requestedById: coordinator.id,
-      // Released bookings sit outside the overlap constraint, so any window will do.
+      // Released bookings sit outside the overlap constraint. Any window works.
       startsAt: `${bookingYear}-12-05 10:00:00`,
       endsAt: `${bookingYear}-12-05 16:00:00`,
       status: "released",
@@ -348,7 +350,7 @@ describe("registering for an event (PTR-45)", () => {
     await registerOthers(event.id, 2);
 
     expect(await refusal(event.id)).toBe(venueCapacityReachedMessage(2));
-    // AC8: the venue is the lower limit, so filling it is filling the event.
+    // AC8: the venue sets the lower limit. Filling the venue fills the event.
     const notices = await notificationsFor(event.id, "registration_threshold_reached");
     expect(notices.map(notice => notice.payload)).toEqual(
       expect.arrayContaining([expect.objectContaining({ registered: 2, limit: 2 })])
@@ -427,7 +429,7 @@ describe("registering for an event (PTR-45)", () => {
   // ── AC9 ────────────────────────────────────────────────────────────────────────────────────
   test("tells the Organiser and the Coordinator once at 90% of the limit, then once at the limit", async () => {
     const event = await createEvent({ capacity: 10 });
-    // Seven earlier places, written directly: only the crossings are under test here.
+    // Write seven earlier places directly. Only the crossings are under test.
     await database
       .insert(schema.eventRegistrations)
       .values(placeTakers.slice(0, 7).map(taker => ({ eventId: event.id, attendeeId: taker.id })));
@@ -463,9 +465,9 @@ describe("registering for an event (PTR-45)", () => {
   test("makes a registration for the last place wait for the one ahead of it, then refuses it", async () => {
     const event = await createEvent({ capacity: 3 });
     await registerOthers(event.id, 2);
-    // A second connection plays the registration ahead: it holds the event row lock the handler
-    // takes and fills the last place, uncommitted. If the handler drops its lock, it counts two
-    // places, registers too, and the event ends over capacity.
+    // A second connection runs ahead. It holds the event row lock that the handler takes and
+    // fills the last place without committing. If the handler drops its lock, the handler counts
+    // two places and overbooks the event.
     const client = await pool.connect();
     let registering: Promise<unknown> | undefined;
     try {
@@ -482,7 +484,7 @@ describe("registering for an event (PTR-45)", () => {
       );
 
       registering = register(event.id).catch((caught: unknown) => caught);
-      // Commit the place only once this connection blocks the handler, so the handler must count it.
+      // Commit the place after this connection blocks the handler. The handler must count it.
       await vi.waitFor(
         async () => {
           const { rows } = await pool.query<{ waiting: number }>(
@@ -524,12 +526,12 @@ describe("registering for an event (PTR-45)", () => {
     test("says the period has not opened yet, and says when it has closed", async () => {
       const event = await createEvent();
 
-      // 00:59Z is 08:59 in Singapore, a minute before the period opens.
+      // 00:59Z is 08:59 Singapore time, one minute before opening.
       expect(await availability(event.id, new Date("2026-11-01T00:59:00Z"))).toEqual({
         state: "not_yet_open",
       });
       expect(await availability(event.id, insidePeriod)).toEqual({ state: "open" });
-      // 09:00Z on 1 Dec is 17:00 in Singapore, the minute the period closes.
+      // 09:00Z on 1 Dec is 17:00 Singapore time, the closing minute.
       expect(await availability(event.id, new Date("2026-12-01T09:00:00Z"))).toEqual({
         state: "closed",
       });
@@ -767,7 +769,7 @@ describe("registering for an event (PTR-45)", () => {
     });
 
     test("a VIP self-withdrawal with room to spare notifies nobody (AC4)", async () => {
-      // Nine normal places against a limit of ten: the event is genuinely not full.
+      // Take nine normal places against a limit of ten. The event is genuinely not full.
       const event = await createEvent({ capacity: 10 });
       await registerOthers(event.id, 9);
       await database.insert(schema.eventRegistrations).values({
@@ -783,8 +785,8 @@ describe("registering for an event (PTR-45)", () => {
     });
 
     test("a VIP self-withdrawal that frees a venue-bound place notifies with the raised limit (AC4)", async () => {
-      // The two-place venue holds one VIP and one normal place: full at the venue. The VIP's
-      // withdrawal raises the normal limit from one to two, so the notice carries the after-value.
+      // The two-place venue holds one VIP and one normal place. It is full at the venue. The
+      // VIP withdrawal raises the normal limit from one to two. The notice carries the after-value.
       const event = await createEvent({ capacity: 10, bookedVenue: smallVenueId });
       await register(event.id, secondAttendee);
       await database.insert(schema.eventRegistrations).values({
@@ -809,8 +811,8 @@ describe("registering for an event (PTR-45)", () => {
     });
 
     test("an over-capacity withdrawal frees no place and notifies nobody (AC4)", async () => {
-      // A registration capacity can be lowered under a standing count; a withdrawal that leaves
-      // the count at or over the limit frees no place.
+      // Registration capacity can drop below the standing count. A withdrawal that leaves the
+      // count at or over the limit frees no place.
       const event = await createEvent({ capacity: 10 });
       await register(event.id, attendee);
       await registerOthers(event.id, 2);

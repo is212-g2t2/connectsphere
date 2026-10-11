@@ -24,13 +24,12 @@ import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 
 /**
- * Refusals that skip the reload, for opposite reasons. A request the client still shows as
- * `pending` but the server has already settled (rejected, approved or withdrawn) or deleted leaves
- * the queue, so reloading would 404 the detail route and silently drop the row, taking the alert
- * with it — the alert stays as the only trace. A "Forbidden" request is still `pending` but claimed
- * by another staff member, so it stays in the shared queue and a reload would just add nothing.
- * `AuthorizationError`/`NotFoundError` carry fixed text because neither survives the
- * server-function boundary as a class the client can `instanceof`-check.
+ * Keep the alert when the server has already settled or deleted a request. It left the queue, so a
+ * reload would return 404 and remove the alert, which may be the only trace.
+ * A `Forbidden` request remains pending but another staff member claimed it. It stays in the shared
+ * queue, so a reload adds no information.
+ * `AuthorizationError` and `NotFoundError` use fixed text. Their classes do not cross the
+ * server-function boundary for client-side `instanceof` checks.
  */
 function requestIsGone(message: string): boolean {
   return (
@@ -42,10 +41,9 @@ function requestIsGone(message: string): boolean {
 }
 
 /**
- * Whether `message` is one of the sentences worth showing verbatim: the request was already
- * settled, or the venue conflicts with an approved booking or an active hold (the named refusal or
- * its generic backstop). Anything else — a bare "Forbidden" or "Not Found" — is not this caller's to
- * explain, so it falls back to the mutation's generic text instead.
+ * Check whether to show `message` verbatim. Show refusals for a settled request or a conflict with
+ * an approved booking or active hold. Use the generic mutation message for other errors, such as
+ * `Forbidden` or `Not Found`.
  */
 function isApprovalConflict(message: string): boolean {
   return (
@@ -56,11 +54,10 @@ function isApprovalConflict(message: string): boolean {
 }
 
 /**
- * PTR-33 criterion 1: approve a pending request from its queue row or detail page. Success lands
- * on a reloaded queue, since the detail route 404s once the request leaves `pending`; a refusal
- * stays beside the button, and only reloads the loader when the row can still be found there —
- * an overlap conflict leaves it pending, so reloading still lets the "Conflicting booking" or
- * "Conflicting hold" badge catch up.
+ * PTR-33 criterion 1: Approve a pending request from its queue row or detail page.
+ * On success, reload the queue because the detail route returns 404 after the request leaves
+ * `pending`. Keep refusals beside the button. Reload only if the row still exists; an overlap
+ * conflict leaves it pending, so the conflict badge can update.
  */
 export function ApproveBookingButton({
   request,
@@ -68,9 +65,8 @@ export function ApproveBookingButton({
 }: {
   request: Pick<PendingVenueRequest, "id" | "venueName" | "startsAt" | "endsAt" | "conflict">;
   /**
-   * Where a decided request goes. The queue and the old detail page return to the queue; the
-   * universal event page stays put and reloads its loader instead, since the request leaves
-   * `pending` and the decision block drops out on refetch.
+   * Where to go after a decision. The queue and old detail page return to the queue.
+   * The event page stays open and reloads its data; the request leaves `pending` and its decision block disappears.
    */
   onDecided?: () => Promise<void> | void;
 }) {
@@ -115,7 +111,7 @@ export function ApproveBookingButton({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            {/* Escape already closes mid-flight, so disabling Cancel would only trap pointer users. */}
+            {/* Escape closes the dialog during a request, so disabling Cancel would trap pointer users. */}
             <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
             <AlertDialogAction size="sm" disabled={approving} onClick={() => void approve()}>
               {approving ? "Approving…" : "Confirm"}

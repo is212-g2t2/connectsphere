@@ -77,9 +77,9 @@ async function loadBookingChangeNotice(
 }
 
 /**
- * PTR-37 AC4: the change notice to the event's current assignee, raised in the change's own
- * transaction. The request raiser is the fallback when the event has no current Coordinator, so a
- * change notice is not silently dropped. Delivery is the worker's job.
+ * PTR-37 AC4: Add a change notice in the transaction that changes the booking.
+ * Notify the event's current assignee. If no Coordinator is assigned, notify the request raiser
+ * so the notice is not lost. The worker delivers it.
  */
 async function raiseBookingChangeNotification(
   tx: Pick<Database, "insert">,
@@ -177,8 +177,8 @@ export async function handleReleaseVenueBooking(
 ) {
   const input = parseVenueReleaseInput(data);
   const released = await database.transaction(async tx => {
-    // The event key share precedes the venue lock: the notification insert below takes it through
-    // its FK, and confirmation holds the event before this event's requests.
+    // Lock the event before the venue. The notification insert takes this event lock through its
+    // foreign key, and confirmation also locks the event before its requests.
     await keyShareEventForRequest(tx, input.id);
     const lockedVenueId = await lockVenueForRequest(tx, input.id);
 
@@ -229,8 +229,8 @@ export async function handleAmendVenueBooking(
 
   const amended = await database
     .transaction(async tx => {
-      // The event key share precedes the venue locks: the notification insert below takes it
-      // through its FK, and confirmation holds the event before this event's requests.
+      // Lock the event before the venues. The notification insert takes this lock through its
+      // foreign key, and confirmation also locks the event before its requests.
       await keyShareEventForRequest(tx, input.id);
       const currentVenueId = await previewVenueForRequest(tx, input.id);
 
@@ -242,8 +242,8 @@ export async function handleAmendVenueBooking(
       const venue = venueRows.at(0);
       if (!venue) throw new NotFoundError("Not Found");
 
-      // The preview took no lock, so the sorted pair below is the only lock order; two
-      // crossed amendments queue the same way instead of deadlocking on each other's second lock.
+      // The preview took no lock. Lock venues in sorted order so crossed amendments cannot
+      // deadlock while each waits for the other's second lock.
       const venueIds = [...new Set([currentVenueId, input.venueId])].toSorted((a, b) => a - b);
       for (const venueId of venueIds) {
         // oxlint-disable-next-line eslint/no-await-in-loop -- every transaction takes locks in this order

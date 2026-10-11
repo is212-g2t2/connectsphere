@@ -3,10 +3,9 @@ import { confirmEvent } from "#/features/events/server-fns";
 import { EventTransitionAction } from "#/features/events/components/event-transition-action";
 
 /**
- * PTR-24 AC1/AC2: the assigned Coordinator confirms the event. The action stays available while
- * arrangements are outstanding on purpose: the refusal names every outstanding item, which is
- * more use than a disabled button that cannot say why. Only the server's named refusal is shown
- * verbatim; any other failure falls back to the generic text.
+ * PTR-24 AC1/AC2: The assigned Coordinator confirms the event. Keep the action available while
+ * arrangements are outstanding. The refusal names every outstanding item. A disabled button cannot
+ * say why. Show only the server's named refusal verbatim. Other failures use the generic text.
  */
 export function ConfirmEventAction({ eventId, eventName }: { eventId: number; eventName: string }) {
   return (

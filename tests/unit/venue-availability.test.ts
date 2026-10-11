@@ -14,7 +14,7 @@ import {
   parseAvailabilitySelection,
 } from "#/features/venues/schema";
 
-/** 2026-10-05 is a Monday; the fixture hours below are open Mon-Fri, closed at the weekend. */
+/** 2026-10-05 is a Monday. The fixture hours below open Mon-Fri and close at the weekend. */
 function day(dayOfMonth: number, time: string) {
   return `2026-10-${String(dayOfMonth).padStart(2, "0")}T${time}`;
 }
@@ -60,9 +60,8 @@ describe("PTR-28 availability projection", () => {
     ]);
   });
 
-  /**
-   * The projection's confirmed state, pinned as pure logic: `loadVenueBookings` feeds it live
-   * approved bookings (PTR-36), and this keeps the rendering rule independent of that query.
+  /** Pin the projection's confirmed state as pure logic. `loadVenueBookings` feeds it live
+   * approved bookings (PTR-36). This test keeps the rendering rule independent of that query.
    */
   it("renders an approved booking as a confirmed period (PTR-36)", () => {
     const projection = projectAvailability(

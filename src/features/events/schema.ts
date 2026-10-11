@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 /**
- * `event_requests.id` is int4, so an id past that range would reach the `where` clause and have
- * Postgres answer 22003 instead of "no such event" (the reason `parseEventRequestId` is `int32`).
- * An invalid or out-of-range id is a validation refusal, never a query.
+ * `event_requests.id` is int4. An id past that range would reach the `where` clause. Postgres
+ * would answer 22003 instead of "no such event". That is why `parseEventRequestId` uses `int32`.
+ * Treat an invalid or out-of-range id as a validation refusal, never a query.
  */
 const EVENT_LIST_ID_MESSAGE = "Choose an event";
 
@@ -24,9 +24,9 @@ export function parseEventListInput(data: unknown): EventListValues {
 const VIP_ATTENDEE_MESSAGE = "Choose an Attendee";
 
 /**
- * PTR-111: the event, and the Attendee account whose VIP registration is added or removed. A user
- * id is a short run of letters, digits, `-` and `_`, so anything else is refused before a query
- * (Postgres rejects a NUL byte with an error that would carry the SQL back).
+ * PTR-111: Name the event and the Attendee account for the VIP registration change. A user id
+ * holds letters, digits, `-`, and `_` only. Refuse anything else before a query. Postgres rejects
+ * a NUL byte with an error that carries the SQL back.
  */
 const VipRegistrationInput = z.object({
   id: EventId,
@@ -50,9 +50,9 @@ export const VIP_SEARCH_LIMIT = 10;
 export const VIP_SEARCH_MESSAGE = `Type at least ${VIP_SEARCH_MIN_LENGTH} characters of a name or email`;
 
 /**
- * PTR-111: the event, and part of the name or email of the Attendee to add as a VIP. A control
- * character, such as a pasted tab, becomes a space before the query (Postgres rejects a NUL byte
- * with an error that would carry the SQL back).
+ * PTR-111: Name the event and part of the Attendee's name or email. Turn control characters, such
+ * as a pasted tab, into spaces before the query. Postgres rejects a NUL byte with an error that
+ * carries the SQL back.
  */
 export const VipSearchInput = z.object({
   id: EventId,

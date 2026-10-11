@@ -16,7 +16,7 @@ export const requireEventRequestCoordinate = requirePermission({
   event_request: ["coordinate"],
 });
 
-/** A saved draft as the client sees it — derived here so no route has to import the server module. */
+/** A saved draft as the client sees it. Derive it here, so no route imports the server module. */
 export type EventRequestDraft = Awaited<ReturnType<typeof saveEventRequestDraft>>;
 
 /** One of the organiser's requests as the list and detail pages see it (PTR-14), Coordinator resolved (PTR-15). */
@@ -37,9 +37,9 @@ async function loadServer() {
 }
 
 /**
- * Routes import this module, so it must stay free of any static server import — the middleware
- * pipeline is client-safe, and `./drafts.server` and `#/db` are both reached inside the handler,
- * which TanStack Start strips from the client build.
+ * Routes import this module, so do not add static server imports here. Middleware must remain
+ * client-safe. The handler imports `./drafts.server` and `#/db` dynamically; TanStack Start removes
+ * the handler from the client build.
  */
 export const saveEventRequestDraft = createServerFn({ method: "POST" })
   .validator(parseDraftInput)
@@ -54,9 +54,9 @@ export const saveEventRequestDraft = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-13: submits a saved draft by id, so the page never has to carry a payload that was not
- * stored. The same `event_request:create` the save path needs is the permission to submit one's
- * own request; the storage-level status scoping is what keeps it to that organiser's own draft.
+ * PTR-13: Submit a saved draft by id so the page cannot send unsaved data.
+ * Use `event_request:create`, the same permission as the save path. Storage-level status checks
+ * limit submission to the Organiser's own draft.
  */
 export const submitEventRequest = createServerFn({ method: "POST" })
   .validator(parseEventRequestId)
@@ -79,10 +79,9 @@ export const submitEventRequest = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-14: every request the signed-in organiser created, drafts included, newest change first.
- * The organiser's own-request permission is `event_request:create` for the same reason it is on
- * `submitEventRequest`; the storage-level scoping to `organiserId` is what keeps the list to
- * their own rows until PTR-8 introduces relationship-based access.
+ * PTR-14: List the signed-in Organiser's requests, including drafts, newest change first.
+ * Use `event_request:create` as for `submitEventRequest`. Scope rows to `organiserId` until PTR-8
+ * adds relationship-based access.
  */
 export const listEventRequests = createServerFn({ method: "GET" })
   .middleware([requireEventRequestCreate])
@@ -92,10 +91,9 @@ export const listEventRequests = createServerFn({ method: "GET" })
   });
 
 /**
- * PTR-14 criterion 4: one of the organiser's requests as currently recorded. Wrapped in an
- * object for the reason `getVenue` gives — a nullable top-level result infers as `never` — and
- * `null` for a row that is not theirs as much as for one that does not exist, so the id space
- * reveals nothing.
+ * PTR-14 criterion 4: Return one of the Organiser's requests as recorded.
+ * Wrap the result in an object because a nullable top-level result infers as `never`, as `getVenue` documents.
+ * Return `null` for another user's row or a missing row, so the id space reveals nothing.
  */
 export const getEventRequest = createServerFn({ method: "GET" })
   .validator(parseEventRequestId)
@@ -106,9 +104,9 @@ export const getEventRequest = createServerFn({ method: "GET" })
   });
 
 /**
- * PTR-15 criterion 5: the requests no Coordinator is handling, for any Event Coordinator to
- * open. PTR-16's assignment functions live in `coordination/server-fns.ts` and use the same
- * `event_request:coordinate` middleware, with current ownership checked in each handler.
+ * PTR-15 criterion 5: Return requests with no assigned Coordinator for any Event Coordinator.
+ * PTR-16's assignment functions live in `coordination/server-fns.ts`. They use the same
+ * `event_request:coordinate` middleware and check current ownership in each handler.
  */
 export const listUnassignedEventRequests = createServerFn({ method: "GET" })
   .middleware([requireEventRequestCoordinate])
@@ -118,9 +116,9 @@ export const listUnassignedEventRequests = createServerFn({ method: "GET" })
   });
 
 /**
- * Criterion 2: fetches one owned draft so the edit route can seed the form with it. Wrapped in
- * an object for the reason `getEventRequest` gives — a nullable top-level result infers as
- * `never` — and `null` for a row that is not theirs, submitted, or absent.
+ * Criterion 2: Load an owned draft to seed the edit form.
+ * Wrap the result in an object because a nullable top-level result infers as `never`, as `getEventRequest` documents.
+ * Return `null` for another user's row, a submitted request, or a missing row.
  */
 export const getEventRequestDraft = createServerFn({ method: "GET" })
   .validator(parseEventRequestId)
@@ -131,7 +129,7 @@ export const getEventRequestDraft = createServerFn({ method: "GET" })
     return { draft: await handleGetEventRequestDraft(data, context.user, db) };
   });
 
-/** Criterion 3: deletes an owned draft; refuses a submitted one via the scoping in the handler. */
+/** Criterion 3: Delete an owned draft. The handler's scope rejects submitted requests. */
 export const deleteEventRequestDraft = createServerFn({ method: "POST" })
   .validator(parseEventRequestId)
   .middleware([requireEventRequestCreate])
@@ -193,8 +191,8 @@ export const raiseEventChangeRequest = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-53: records the Organiser's request to cancel their event and notifies the assigned
- * Coordinator. The event's status waits for the Coordinator (PTR-54).
+ * PTR-53: Record the Organiser's cancellation request and notify the assigned Coordinator.
+ * Keep the event status until the Coordinator decides (PTR-54).
  */
 export const requestEventCancellation = createServerFn({ method: "POST" })
   .validator(parseEventRequestId)

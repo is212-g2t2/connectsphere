@@ -2,9 +2,9 @@ import { Page } from "#/components/layout/page";
 import { Skeleton } from "#/components/ui/skeleton";
 
 /**
- * The universal event page's loading shape for every access: the back link, the eyebrow, the
- * status pill, the title, the record stack, and the sticky action rail. Nothing role-gated is
- * promised (the `DashboardPageSkeleton` rule).
+ * Loading shape for the universal event page for every access: back link, eyebrow, status pill,
+ * title, record stack, and sticky action rail. Promise nothing role-gated (the
+ * `DashboardPageSkeleton` rule).
  */
 export function EventDetailPageSkeleton() {
   return (

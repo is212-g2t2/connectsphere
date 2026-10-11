@@ -3,11 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { VenueDetailPageSkeleton } from "#/features/venues/components/venue-detail-page-skeleton";
 
-/**
- * The pending component mirrors the venue record: the page-width shell and the field grid. The
- * edit form, the read-only record and PTR-31's request panel are role-gated, so the skeleton must
- * not draw a form or any button (the `VenueListPageSkeleton` rule); these assertions hold that
- * shape even though nothing has text.
+/** The pending component must match the venue record's shell and field grid. The edit form, record,
+ * and request panel are role-gated, so the skeleton must not show a form or button. These tests
+ * keep that shape when the skeleton has no text.
  */
 describe("VenueDetailPageSkeleton", () => {
   it("draws the page-width shell with the record's field grid and no role-gated controls", () => {

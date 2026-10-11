@@ -29,12 +29,9 @@ async function signUpAsOrganiser(page: Page): Promise<void> {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
-/**
- * PTR-8: the dashboard loader calls the `listEvents` server function and hands the widget each
- * role's own projection, so these runs exercise the real database relationships through the
- * interface — including venue staff being refused the event name. The refusal half of the
- * criterion (401/403) is not reachable through the UI and lives in the integration suite, at the
- * handler and middleware boundaries.
+/** PTR-8: the dashboard loader calls `listEvents` and gives each role its own projection. These
+ * tests check the database relationships through the UI, including the hidden event name for Venue
+ * Staff. The integration suite checks handler and middleware refusals (401/403).
  */
 test.describe("Event access", () => {
   test("answers not found for the removed registrations route", async ({ page }) => {
@@ -54,16 +51,15 @@ test.describe("Event access", () => {
 
   test("shows the signed-in Attendee their registration on the dashboard", async ({ page }) => {
     await signInAsSeeded(page, "john.doe@example.com");
-    // The registrations route is gone: the Attendee's registration reads as a card on the
-    // dashboard.
+    // The registrations route returns 404. Show the Attendee's registration as a dashboard card.
     await page.goto("/dashboard");
 
     await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
     await expect(page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
     await expect(page.getByLabel("Your registration: Registered").first()).toBeVisible();
-    // Structure, not hardcoded dates: the seed moves its window on every run. The card carries
-    // no venue, so only the date and time read here; the venue stays on the event page.
+    // The seed changes the event dates on every run. Check the card structure, date, and time; the
+    // card omits the venue, which stays on the event page.
     await expect(page.getByText(/\d{1,2} [A-Z][a-z]{2} \d{4}/).first()).toBeVisible();
     await expect(page.getByText(/\d{2}:\d{2}–\d{2}:\d{2}/).first()).toBeVisible();
   });
@@ -85,8 +81,7 @@ test.describe("Event access", () => {
 
     await page.goto("/dashboard");
 
-    // The seed's attendee demo is a confirmed event with registration on, so a
-    // brand-new attendee sees it as "attendee access".
+    // The seed's confirmed demo event has registration enabled, so a new Attendee sees "attendee access".
     await expect(page.getByText("attendee access").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("link", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
   });
@@ -116,14 +111,13 @@ test.describe("Event access", () => {
     await expect(page).toHaveURL(/\/events\/\d+/);
     await expect(page.getByRole("heading", { name: ATTENDEE_DEMO_EVENT_NAME })).toBeVisible();
     await expect(page.getByText("An open day for new members: meet the organisers")).toBeVisible();
-    // Structure, not hardcoded dates: the seed moves its window on every run.
+    // Check the structure because the seed changes its dates on every run.
     await expect(page.getByText(ATTENDEE_DEMO_VENUE_NAME).first()).toBeVisible();
     await expect(page.getByText("Level 2, ConnectSphere Marina Centre").first()).toBeVisible();
     await expect(page.getByText(/Opens .+ – closes /)).toBeVisible();
     await expect(page.getByRole("heading", { name: "About Event" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in Maps" })).toHaveCount(0);
-    // These DOM absences guard the page component; the projection itself is pinned by the
-    // integration key-set assertion.
+    // These DOM checks cover the page. The integration test checks the projection's keys.
     await expect(page.getByText("Venue request", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Equipment arrangements")).toHaveCount(0);
     await expect(page.getByText("Expected attendance")).toHaveCount(0);
@@ -151,7 +145,7 @@ test.describe("Event access", () => {
     await expect(page).toHaveURL(/\/events\/\d+/);
     await waitForHydration(page);
 
-    // The seed keeps the Open Day's period open, with places left out of its 40.
+    // The seed keeps Open Day registration open and leaves some of its 40 places available.
     const before = await page.getByText(/^\d+ \/ 40 registered$/).textContent();
     const taken = Number(before?.split(" ")[0]);
     await page.getByRole("button", { name: "Register" }).click();
@@ -220,9 +214,9 @@ test.describe("Event access", () => {
     await expect(page.getByRole("link", { name: DEMO_EVENT_NAME })).toBeVisible();
   });
 
-  // PTR-111: the run adds a seeded Attendee as a VIP and removes the registration again, so
-  // the net places on the seeded Open Day do not move for the PTR-45 run counting them. The
-  // registrations section holds the one attendee table: Add VIP, search, add, then remove by bin.
+  // PTR-111: Add a seeded Attendee as a VIP, then remove the registration. This keeps the place
+  // count unchanged for the PTR-45 test. The registrations section has one attendee table: add a
+  // VIP, search, add them, then remove them.
   test("adds and removes a VIP through the registrations table (PTR-111)", async ({ page }) => {
     await signInAsSeeded(page, "coordinator.seed@example.com");
     await page.goto("/dashboard");
@@ -234,14 +228,14 @@ test.describe("Event access", () => {
     await expect(page.getByRole("heading", { name: "Registrations" })).toBeVisible({
       timeout: 10_000,
     });
-    // One view only: the old separate VIP list is gone.
+    // Use one view; the separate VIP list is gone.
     await expect(page.getByLabel("VIP registrations")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Add VIP" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("searchbox", { name: "Search attendees" }).fill("demo@example");
     await dialog.getByRole("button", { name: "Add Demo User as a VIP" }).click();
-    // The dialog stays open for further additions, inerting the page behind it.
+    // Keep the dialog open for more additions and disable the page behind it.
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
 
@@ -269,13 +263,13 @@ test.describe("Event access", () => {
     await page.goto("/dashboard");
 
     await expect(page.getByText("venue staff access").first()).toBeVisible({ timeout: 10_000 });
-    // PTR-31 AC2: timing, attendance, layout, accessibility and facilities — never the name. The
-    // card is titled by the venue, and the event name appears nowhere on the dashboard.
+    // PTR-31 AC2: show the time, attendance, layout, accessibility, and facilities, not the event
+    // name. The venue titles the card.
     await expect(page.getByRole("link", { name: "Harbour Hall" })).toBeVisible();
     await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toHaveCount(0);
     await expect(page.getByText(DEMO_EVENT_NAME)).toHaveCount(0);
-    // The event status reads as a pill; the venue request's own pending state lives on the event
-    // page's request section.
+    // Show the event status in a pill. The venue request's pending state appears in the event page's
+    // request section.
     await expect(page.getByLabel("Status: Submitted")).toBeVisible();
   });
 
@@ -310,8 +304,8 @@ test.describe("Event access", () => {
     const response = await page.request.get("/dashboard");
     const html = await response.text();
 
-    // Loader data, not a client fetch: an unauthenticated or empty HTML response would not carry
-    // either string. React separates the access label's two text children with a comment node.
+    // Loader data appears in server HTML; an unauthenticated or empty response lacks both strings.
+    // React separates the two access label text nodes with a comment node.
     expect(html.replaceAll("<!-- -->", "")).toContain("coordinator access");
     expect(html).toContain(DEMO_EVENT_NAME);
   });

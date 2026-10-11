@@ -52,10 +52,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   );
 }
 
-/** `sticky` pins a trailing action column to the viewport's right edge on a horizontally
- * scrolling table, with the opaque fill a sticky cell needs to occlude the content scrolling
- * underneath it — the one case the design system names for restyling this primitive from here
- * rather than a call site. */
+/** On a horizontally scrolling table, `sticky` pins the action column to the right edge. The cell needs an opaque fill to cover content beneath it. */
 function TableHead({
   className,
   sticky,

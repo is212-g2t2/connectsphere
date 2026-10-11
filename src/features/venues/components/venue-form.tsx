@@ -28,13 +28,13 @@ import type {
   Weekday,
 } from "#/features/venues/schema";
 
-/** The record the form starts from — a saved venue when editing, nothing when creating. */
+/** Start the form from this record. Use a saved venue when editing and nothing when creating. */
 export type VenueFormInitial = Omit<VenueValues, "id">;
 
 /**
- * Spelled out per day, not built with `Object.fromEntries`: that returns an index signature,
- * which neither satisfies `Record<Weekday, T>` under tsc 7 nor can be converted without an
- * assertion `no-unsafe-type-assertion` refuses.
+ * Spell out each day. Do not build with `Object.fromEntries`. That function returns an index
+ * signature, which fails `Record<Weekday, T>` under tsc 7. Conversion needs an assertion that
+ * `no-unsafe-type-assertion` refuses.
  */
 function mapDays<T>(build: (day: Weekday) => T): Record<Weekday, T> {
   return {
@@ -70,8 +70,8 @@ function toFormValues(initial?: VenueFormInitial): VenueFormValues {
 }
 
 /**
- * Only the slice of a `form.Field` a text row reads, described structurally so that naming it
- * costs none of TanStack Form's two dozen generics.
+ * Describe only the slice of a `form.Field` that a text row reads. Describe it structurally, so
+ * naming it avoids TanStack Form's two dozen generics.
  */
 interface TextFieldApi {
   name: string;
@@ -80,17 +80,17 @@ interface TextFieldApi {
   handleBlur: () => void;
 }
 
-/** What the five plain fields vary by beyond their label; `min`/`step` only capacity uses. */
+/** List what the five plain fields vary by beyond their label. Only capacity uses `min`/`step`. */
 type TextFieldOptions = Pick<React.ComponentProps<"input">, "type" | "min" | "step"> & {
   description?: string;
 };
 
 /**
- * The five single-input fields render an identical row — label, input, optional hint, error — so
- * the row is built once here and each `form.Field` hands its own `field` to the result. The
- * `<form.Field>` stays at the call site so `name` is still checked against the form's own keys,
- * and that name doubles as the input's `id`: both the unit tests and `tests/e2e/venues.test.ts`
- * reach these inputs through the label pointing at it, so the pairing is load-bearing.
+ * The five single-input fields render an identical row: label, input, optional hint, and error.
+ * Build the row once here. Each `form.Field` hands its own `field` to the result. Keep
+ * `<form.Field>` at the call site so `name` still checks against the form keys. That name also
+ * serves as the input `id`. Unit tests and `tests/e2e/venues.test.ts` reach these inputs through
+ * the label, so the pairing is load-bearing.
  */
 function textField(
   label: string,
@@ -129,10 +129,10 @@ export function VenueForm({
     validators: { onSubmit: VenueFormInput },
     onSubmit: async ({ value, formApi }) => {
       try {
-        // Validation has already passed, so this parse is the typed handoff, not a second gate.
+        // Validation already passed. This parse is the typed handoff, not a second gate.
         await onSave(VenueFormInput.parse(value));
       } catch (error) {
-        // `fields` is what makes the library read this as a global error and store `form` verbatim.
+        // Pass `fields` so the library reads this as a global error and stores `form` verbatim.
         formApi.setErrorMap({
           onSubmit: {
             fields: {},
@@ -200,11 +200,11 @@ export function VenueForm({
           <FieldDescription>Untick a day to mark the venue closed.</FieldDescription>
           <div className="grid gap-3">
             {/*
-              Without this a sighted user sees a checkbox and two bare time boxes — the labels
-              that tell them apart are `sr-only`. Shown only from `sm`, the width at which a row
-              actually is these three columns; narrower than that the row stacks and the header
-              would point at nothing. `aria-hidden` because those `sr-only` labels already name
-              each input, so a second set of column names would only be announced twice.
+              Without this header, a sighted user sees a checkbox and two bare time boxes. The labels
+              that tell them apart are `sr-only`. Show the header only from `sm`, the width where a row
+              uses three columns. Below that width the row stacks, and the header would point at nothing.
+              Mark it `aria-hidden` because the `sr-only` labels already name each input. A second set of
+              column names would announce twice.
             */}
             <div
               aria-hidden="true"

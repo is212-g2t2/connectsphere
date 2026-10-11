@@ -21,10 +21,10 @@ CREATE INDEX "venue_holds_event_id_idx" ON "venue_holds" USING btree ("event_id"
 CREATE INDEX "venue_holds_venue_id_starts_at_idx" ON "venue_holds" USING btree ("venue_id","starts_at");--> statement-breakpoint
 CREATE INDEX "venue_holds_held_by_id_idx" ON "venue_holds" USING btree ("held_by_id");--> statement-breakpoint
 CREATE INDEX "venue_holds_released_by_id_idx" ON "venue_holds" USING btree ("released_by_id");--> statement-breakpoint
--- PTR-109: no two active tentative holds may overlap for one venue. Drizzle Kit cannot express an
--- EXCLUDE constraint, so this migration is hand-written by design per ADR-5. The predicate must be
--- IMMUTABLE, which rules out `status::text = 'held'` (enum_out is STABLE), hence the wrapper
--- function. `tsrange(..., '[)')` enforces strict no-buffer semantics: touching periods are free.
+-- PTR-109: prevent active tentative holds for one venue from overlapping. Drizzle Kit cannot
+-- create an EXCLUDE constraint, so this migration adds it by hand under the ADR-5 exception. The
+-- predicate must be IMMUTABLE. `status::text = 'held'` calls STABLE `enum_out` and is not allowed,
+-- so use the wrapper function. `tsrange(..., '[)')` allows periods to touch but prevents overlap.
 CREATE EXTENSION IF NOT EXISTS btree_gist;--> statement-breakpoint
 CREATE FUNCTION "public"."venue_hold_occupies_venue"("public"."venue_hold_status")
 RETURNS boolean

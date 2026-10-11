@@ -119,7 +119,7 @@ describe("VenueForm (PTR-26)", () => {
     });
   });
 
-  /** Criterion 3 at the form: empty and the boundary just below valid, plus a non-integer and a negative. */
+  /** Criterion 3 at the form: empty, the boundary just below valid, a non-integer, and a negative. */
   it.each(["", "0", "2.5", "-5"])("refuses the capacity %s before saving", async maxCapacity => {
     const user = userEvent.setup();
     const onSave = saveSpy();

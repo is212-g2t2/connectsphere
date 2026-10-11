@@ -22,16 +22,16 @@ import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 export const UNTITLED_REQUEST = "Untitled request";
-/** What criterion 2's Coordinator column reads on a submitted request nobody could be assigned to. */
+/** The Coordinator column value for a submitted request with no assignment (criterion 2). */
 export const NOT_YET_ASSIGNED = "Not yet assigned";
-/** And on a draft, which PTR-15 only assigns at submission. */
+/** The Coordinator column value for a draft, which PTR-15 assigns on submission. */
 export const ASSIGNED_ON_SUBMIT = "Assigned when you submit";
 
 const DELETE_FAILED = "Could not delete this draft. Try again.";
 
 /**
- * The organiser's own requests (PTR-14). Rows come from the route's loader as a prop, so the
- * table renders in a unit test without a router (PTR-75).
+ * Show the Organiser's requests (PTR-14). The route passes loader rows as a prop, so unit tests can
+ * render the table without a router (PTR-75).
  */
 export function EventRequestListPage({ requests }: { requests: EventRequestSummary[] }) {
   const router = useRouter();

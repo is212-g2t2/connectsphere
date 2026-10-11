@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { submitToastMessage } from "#/features/equipment-requests/components/equipment-panel";
 
 describe("submitToastMessage", () => {
-  // Delivery is the worker's job now, so the only branches left are whether anyone was queued.
+  // The worker owns delivery. The only branches are whether anyone was queued.
   test.each([
     [
       { recipientCount: 0 },

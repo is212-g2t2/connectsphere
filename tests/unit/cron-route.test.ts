@@ -62,8 +62,8 @@ describe("POST /api/cron/notifications", () => {
   it("returns 401 when CRON_TOKEN is not configured", async () => {
     mockEnv.CRON_TOKEN = undefined;
 
-    // No header: without the explicit `!env.CRON_TOKEN` guard, `undefined === undefined`
-    // would pass the Bearer check and deliver mail from an unauthenticated caller.
+    // Send no header. Without the explicit `!env.CRON_TOKEN` guard, `undefined === undefined`
+    // passes the Bearer check. An unauthenticated caller triggers mail.
     const response = await getPostHandler()({ request: cronRequest() });
 
     expect(response.status).toBe(401);

@@ -55,8 +55,8 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
       .returning({ id: schema.venues.id });
     venueIds = venues.map(venue => venue.id);
 
-    // One card per connected event: each pending request needs its own event, or the newer one
-    // hides the older behind the same card.
+    // Each pending request needs a separate event. Otherwise both appear on one card and hide the
+    // older request.
     const events = await database
       .insert(schema.eventRequests)
       .values([
@@ -124,14 +124,13 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
     ]);
 
     await signInAsStaff(page, "venue_staff");
-    // The queue route is gone: it answers 404. Each pending request is a card on the
-    // dashboard instead.
+    // The queue route returns 404. The dashboard shows each pending request as a card.
     await page.goto("/venue-requests");
     await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
     await page.goto("/dashboard");
     await waitForHydration(page);
 
-    // The venue name is the card's only link; the event name stays withheld.
+    // The venue name is the only link on the card. Do not show the event name.
     await expect(page.getByRole("link", { name: venueNames[0], exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: venueNames[1], exact: true })).toBeVisible();
     await expect(page.getByText(approvedEventName, { exact: true })).toHaveCount(0);
@@ -158,13 +157,12 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
     );
     await expect(page.getByText(pendingEventName, { exact: true })).toHaveCount(0);
 
-    // The approved request left `pending`, so Venue Staff can no longer open its event either.
+    // The approved request is no longer pending, so Venue Staff cannot open its event.
     await page.goto(`/events/${eventIds[1]}`);
     await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
 
-    // The second pending request shows its event's facilities and drops the null attendance
-    // term rather than rendering a labelled blank.
+    // Show the second request's facilities. Hide null attendance.
     await page.goto("/dashboard");
     await waitForHydration(page);
     await page.getByRole("link", { name: venueNames[1], exact: true }).click();

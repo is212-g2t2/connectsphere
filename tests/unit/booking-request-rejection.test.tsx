@@ -91,7 +91,7 @@ describe("rejecting a booking (PTR-34)", () => {
 
     await userEvent.click(screen.getByLabelText("Suggested venue"));
 
-    // Orchid Room (id 3) is the venue being rejected; suggesting it back makes no sense.
+    // Rejecting Orchid Room (id 3) cannot suggest Orchid Room again.
     expect(await screen.findByRole("option", { name: "Harbour Hall" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Orchid Room" })).toBeNull();
   });
@@ -176,11 +176,9 @@ describe("rejecting a booking (PTR-34)", () => {
     expect(invalidate).toHaveBeenCalledOnce();
   });
 
-  /**
-   * A conflict means someone else already settled the row: reloading this page's loader would
-   * 404 it out from under the form (PTR-34 review), so the refusal is toasted from the queue
-   * instead of flashed on a page the router is about to replace. Both settle sentences take this
-   * branch — rejected, and approved/withdrawn.
+  /** Another user has settled the row. A loader reload would return 404 and replace the form,
+   * so show the refusal in a toast. Both settled messages use this branch: rejected and
+   * approved/withdrawn.
    */
   it.each([VENUE_REQUEST_DECIDED_MESSAGE, VENUE_REQUEST_REJECTED_MESSAGE])(
     "toasts and returns to the queue when someone else already settled the request (%s)",

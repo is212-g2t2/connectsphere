@@ -36,13 +36,10 @@ import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 
 /**
- * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
- * ship the whole database schema to the browser from any module a route can reach.
- * `server-fns.ts` reaches this through a dynamic `import()` inside `.handler()`.
- *
- * The middleware pipeline has already verified the session and `venue_request:request` before
- * these handlers run. Which event a caller may act on is data rather than a role permission, so
- * the assignment check lives here, next to the rows it reads.
+ * Keep this module server-only. A client-reachable value import of `#/db/schema` would ship the
+ * full database schema to the browser. `server-fns.ts` imports it dynamically inside `.handler()`.
+ * Middleware checks the session and `venue_request:request` before these handlers run. Event
+ * assignment depends on row data, so check it here beside the database reads.
  */
 
 type Database = typeof Db;
@@ -62,11 +59,10 @@ export interface VenueRequestNotification {
 }
 
 /**
- * PTR-31 criterion 4: every Venue Staff member works the shared pending queue, so every one of
- * them is told (§6: a venue booking is requested). The rows commit in the caller's transaction —
- * a rolled-back request raises nothing — and the worker delivers the emails afterwards, so a mail
- * outage cannot lose or undo the notification. An empty recipient list is the caller's to log,
- * not a refusal.
+ * PTR-31 criterion 4: Notify every Venue Staff member about a booking request (§6).
+ * Insert notification rows in the caller's transaction, so rollback also removes them. The worker
+ * sends the emails later, so a mail outage cannot undo the request or notification.
+ * The caller logs an empty recipient list; it does not refuse the request.
  */
 export async function raiseVenueRequestNotifications(
   tx: Pick<Database, "insert">,
@@ -94,8 +90,7 @@ export async function raiseVenueRequestNotifications(
 }
 
 /**
- * The shared shape behind both write paths' `.catch`: a constraint violation becomes the readable
- * refusal it stands for, and anything else keeps travelling as the original error.
+ * Map a constraint violation to its readable refusal. Rethrow every other error unchanged.
  */
 function rethrowConstraintViolation(error: unknown, constraint: string, message: string): never {
   if (isConstraintViolation(error, constraint)) {
@@ -105,8 +100,8 @@ function rethrowConstraintViolation(error: unknown, constraint: string, message:
 }
 
 /**
- * The partial unique index is the guarantee; a racing double-submit meets it as a driver error,
- * which `isConstraintViolation` reads. The sentence is the one the panel is built to show.
+ * The partial unique index prevents duplicate requests. A racing double-submit reaches the driver
+ * error that `isConstraintViolation` reads. Return the message shown by the panel.
  */
 export function rethrowDuplicate(error: unknown): never {
   rethrowConstraintViolation(
@@ -117,21 +112,19 @@ export function rethrowDuplicate(error: unknown): never {
 }
 
 /**
- * Defence in depth for a writer outside `handleApproveVenueRequest`: the locked pre-check cannot
- * see a booking another connection commits between it and the update, and the constraint can. Its
- * message is the generic `VENUE_REQUEST_CONFLICT_MESSAGE`, not the named `venueRequestConflictMessage`
- * — fine while this backstop stays unreachable for callers going through this handler, where the
- * locked pre-check above already produces the named refusal.
+ * Protect writers outside `handleApproveVenueRequest`. Another connection can commit a booking
+ * after the locked pre-check and before the update; the constraint catches it. Use the generic
+ * `VENUE_REQUEST_CONFLICT_MESSAGE` here. Handler callers get the named
+ * `venueRequestConflictMessage` from the locked pre-check.
  */
 function rethrowOverlap(error: unknown): never {
   rethrowConstraintViolation(error, "venue_requests_no_overlap", VENUE_REQUEST_CONFLICT_MESSAGE);
 }
 
 /**
- * What a decision email needs, read in the decision's own transaction: the event, the venue, and
- * the address of the Coordinator who raised the request. That Coordinator is the raiser
- * (`requestedById`), not the event's current assignee; a raiser whose account is gone has no id,
- * so `requesterId` may be null.
+ * Read email data in the decision transaction: the event, venue, and the requesting Coordinator's
+ * address. The requester is `requestedById`, not the event's current assignee. If the requester's
+ * account is gone, `requesterId` is `null`.
  */
 async function loadDecisionNotice(database: Pick<Database, "select">, id: string) {
   const [notice] = await database
@@ -150,10 +143,9 @@ async function loadDecisionNotice(database: Pick<Database, "select">, id: string
 }
 
 /**
- * PTR-33/PTR-34: the decision email to the Coordinator who raised the request, raised in the
- * decision's own transaction. A raiser whose account is gone has no recipient id, which is logged
- * rather than silent. Delivery is the worker's job, so no mail outage can turn a held venue or a
- * recorded rejection into a failure.
+ * PTR-33/PTR-34: Add a decision email for the Coordinator who raised the request, in the decision
+ * transaction. Log a missing recipient id if the account is gone. The worker delivers the email,
+ * so a mail outage cannot undo a held venue or recorded rejection.
  */
 async function raiseDecisionNotification(
   tx: Pick<Database, "insert">,
@@ -182,8 +174,8 @@ async function raiseDecisionNotification(
 }
 
 /**
- * What kind of overlap a single request has, for the detail read: an approved booking outranks an
- * active hold (a booking is the answer the Coordinator most needs), and neither is `null`.
+ * Return the overlap for one request. An approved booking takes precedence over an active hold.
+ * Return `null` when neither exists.
  */
 async function loadConflictKind(
   database: Database,
@@ -214,8 +206,7 @@ function summarizePendingVenueRequest(
 ) {
   return {
     id: row.id,
-    // The venue-request route is now a shim onto the event page, so every row carries the event
-    // it forwards to.
+    // The venue-request route forwards to the event page, so include the event id in every row.
     eventId: row.eventId,
     // The reject form's suggestion picker needs this to exclude the venue being rejected.
     venueId: row.venueId,
@@ -228,10 +219,9 @@ function summarizePendingVenueRequest(
 }
 
 /**
- * PTR-32 AC3 and TC12's refreshed contract: detail reads the current PTR-31 event requirement
- * fields, because main does not persist a requirement snapshot on `venue_requests`. It still
- * projects only venue, requested period, submission instant and operational requirements; event
- * names and conflicting-event details remain outside the Venue Staff contract.
+ * PTR-32 AC3: Read current event requirements for the detail view. `venue_requests` does not store
+ * a requirement snapshot. Return only the venue, requested period, submission time, and operational
+ * requirements. Do not expose event names or conflicting-event details to Venue Staff (TC12).
  */
 export async function handleGetPendingVenueRequest(data: unknown, database: Database) {
   const { id } = parseVenueRequestId(data);
@@ -256,8 +246,8 @@ export async function handleGetPendingVenueRequest(data: unknown, database: Data
     .where(and(eq(venueRequests.id, id), eq(venueRequests.status, "pending")))
     .limit(1);
   const row = rows.at(0);
-  // A missing row, or one that already left `pending`, is an ordinary answer the route turns into
-  // its 404, matching `handleGetVenue` and `handleGetEventRequest`.
+  // A missing row or a row that left `pending` is an ordinary result. The route returns 404, as
+  // `handleGetVenue` and `handleGetEventRequest` do.
   if (!row) return null;
 
   const conflict = await loadConflictKind(database, row.venueId, row.startsAt, row.endsAt);
@@ -278,22 +268,17 @@ export async function handleGetPendingVenueRequest(data: unknown, database: Data
 }
 
 /**
- * What the venue page's request panel needs: the caller's event defaults, and the pending request
- * for this event and venue when one exists. The event is loaded by id alone rather than filtered to
- * the current assignee, so the panel stays reachable after the event moves past `submitted` or is
- * reassigned; the caller is refused instead. Deliberately not `loadAssignedEvent`: that
- * gate requires `submitted` and the current assignee, which would take withdrawal away from a
- * raiser the moment their event moved on. Two ways a context is returned: to the Coordinator the
- * event is currently assigned to, on an event still awaiting a booking decision, or to anyone who
- * raised the pending request for this venue, whatever the event now stands at. `null` is the
- * refusal — a stranger's stale `?eventId=` leaves the venue page readable, and the difference tells
- * them nothing.
+ * Return event defaults and the pending request for the venue page's request panel.
+ * Load the event by id, not by current assignee. This lets the request raiser withdraw after the
+ * event changes status or assignment. `loadAssignedEvent` would block withdrawal because it
+ * requires a submitted event assigned to the caller.
+ * Return context to the current Coordinator while the event awaits a booking decision, or to the
+ * requester while their request is pending. Return `null` otherwise. A stranger's stale `?eventId=`
+ * leaves the venue page readable and reveals no information.
  *
- * PTR-31 criterion 2: the event part carries exactly the operational requirements the venue-staff
- * projection exposes — timing, expected attendance, layout, accessibility and required facilities
- * — so the panel can show what the request is asking of the venue. `canWithdraw` is the seam the
- * panel uses to offer withdrawal: true only while the caller raised the pending request, which is
- * what criterion 5 authorizes on.
+ * PTR-31 criterion 2: Include the operational requirements shown to Venue Staff: timing, attendance,
+ * layout, accessibility, and required facilities. `canWithdraw` is true only when the caller raised
+ * the pending request, as criterion 5 requires.
  */
 export async function handleGetVenueRequestContext(
   data: unknown,
@@ -338,8 +323,8 @@ export async function handleGetVenueRequestContext(
     .limit(1);
   const request = requestRows.at(0);
 
-  // Nothing is projected before this check, so a stranger still learns nothing: only the current
-  // assignee on a submitted event, or whoever raised the pending request, gets a context back.
+  // Check access before returning any data. Only the current assignee of a submitted event or the
+  // requester of a pending request receives context.
   const canRequest = event.assignedCoordinatorId === actor.id && event.status === "submitted";
   const raisedByCaller = request?.requestedById === actor.id;
   if (!canRequest && !raisedByCaller) return null;
@@ -366,15 +351,11 @@ export async function handleGetVenueRequestContext(
 }
 
 /**
- * PTR-31 criteria 1–4: the Coordinator's request becomes one `pending` row, unassigned (the
- * queue is shared), and every Venue Staff member is notified. The window is refused before the
- * insert when it does not describe a real civil day, and the event must be the submitted request
- * assigned to the caller — the gate PTR-29's venue search already applies, since the search is
- * the only way the panel is reached.
- *
- * No overlap check runs here: only an approved booking holds a venue, and pending requests stack
- * by design; the approval path refuses the overlap (PTR-36). A cancelled event takes no new
- * request (PTR-54 AC9).
+ * PTR-31 criteria 1–4: Create one unassigned `pending` row and notify all Venue Staff.
+ * Refuse a window that does not describe a real civil day. The event must be submitted and
+ * assigned to the caller, as the PTR-29 search requires.
+ * Do not check overlaps here. Pending requests can overlap; approval checks them (PTR-36).
+ * A cancelled event cannot receive a request (PTR-54 AC9).
  */
 export async function handleCreateVenueRequest(
   data: unknown,
@@ -384,8 +365,8 @@ export async function handleCreateVenueRequest(
   const input = parseVenueRequestInput(data);
 
   const created = await database.transaction(async tx => {
-    // The event lock waits for a cancellation in progress, and a cancellation that starts later
-    // waits for this transaction to commit.
+    // Lock the event before creating the request. This waits for a cancellation in progress; a
+    // later cancellation waits for this transaction to commit.
     const locked = await keyShareEvent(tx, input.eventId);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
@@ -405,18 +386,17 @@ export async function handleCreateVenueRequest(
         id: crypto.randomUUID(),
         eventId: event.id,
         venueId: venue.id,
-        // Criterion 5's authorization: the row remembers who raised it, not the event.
+        // Criterion 5: Check the user who raised the request, not the event assignment.
         requestedById: actor.id,
-        // The `mode: "string"` shape the column reads back: `YYYY-MM-DD HH:MM:SS`.
+        // The column returns `YYYY-MM-DD HH:MM:SS` because it uses `mode: "string"`.
         startsAt: `${input.date} ${input.startTime}:00`,
         endsAt: `${input.date} ${input.endTime}:00`,
       })
       .returning()
       .catch(rethrowDuplicate);
 
-    // Recipients are resolved and the notification rows written in the transaction, the
-    // canonical shape: the request and its notifications commit together, and the worker
-    // delivers from the queue.
+    // Resolve recipients and write notifications in the same transaction as the request. The
+    // worker sends email from the committed queue.
     const recipients = await tx
       .select({ id: user.id })
       .from(user)
@@ -443,7 +423,7 @@ export async function handleCreateVenueRequest(
   });
 
   if (created.recipientCount === 0) {
-    // Nobody to tell does not refuse the request, but it must be observable rather than silent.
+    // Do not refuse a request when there is nobody to notify. Log the empty recipient list.
     log.warn("No Venue Staff to notify of the venue request", { requestId: created.request.id });
   }
 
@@ -451,24 +431,20 @@ export async function handleCreateVenueRequest(
 }
 
 /**
- * PTR-34: a rejected request is final on every decision path (withdraw, approve, reject), so one
- * place states the refusal rather than three copies of the same `if`. Approve and reject call it
- * before their queue rule, so the sentence reaches every staff member, not only the one who
- * decided the row; each caller then checks its own "not pending" case, whose message differs.
+ * PTR-34: A rejected request is final for withdraw, approve, and reject actions.
+ * Check this in one place so every action uses the same refusal. Approve and reject call it before
+ * checking the queue. Each action then checks its own non-pending case and message.
  */
 function assertNotRejected(status: string): void {
   if (status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
 }
 
 /**
- * PTR-31 criterion 5: the Coordinator takes back a pending request *they raised*, which leaves the
- * queue. The row is kept as `withdrawn` rather than deleted, so the record of what was asked
- * survives, and the partial unique index frees the event and venue to be requested again. A
- * settled request is refused: the approval decision (PTR-36) is not undone by withdrawing the row
- * beneath it.
- *
- * The authorization reads the request's own `requestedById`, not the event's current assignee: a
- * reassigned event must not hand the new Coordinator the power to withdraw someone else's request.
+ * PTR-31 criterion 5: Let the Coordinator who raised a pending request withdraw it.
+ * Keep the row as `withdrawn` to preserve its history. The partial unique index then allows a new
+ * request for the event and venue. Refuse settled requests; withdrawal must not undo approval (PTR-36).
+ * Check `requestedById`, not the event's current assignee. Reassignment must not let a new
+ * Coordinator withdraw someone else's request.
  */
 export async function handleWithdrawVenueRequest(
   data: unknown,
@@ -504,15 +480,12 @@ export async function handleWithdrawVenueRequest(
 }
 
 /**
- * PTR-36: an approval settles a pending request *and* holds the venue for its exact period. The
- * exclusion constraint (`venue_requests_no_overlap`) is the guarantee; the advisory lock makes
- * two simultaneous approvals for one venue queue instead of deadlocking on the index, and the
- * overlap pre-check under that lock is what produces the named refusal. A writer that does not
- * come through this function still meets the constraint, whose 23P01 maps to the same conflict.
- *
- * The shared queue is every unassigned pending row (PTR-31); a row assigned to another staff
- * member is not the caller's to settle. The decision records who settled it (`assignedStaffId`),
- * which is also what keeps the event connected to that staff member afterwards.
+ * PTR-36: Approve a pending request and reserve its exact venue period.
+ * The `venue_requests_no_overlap` exclusion constraint guarantees no overlap. The advisory lock
+ * serializes approvals for one venue and prevents an index deadlock. The locked pre-check returns
+ * a named refusal; the constraint catches writes outside this function with the same conflict.
+ * Only unassigned pending rows are shared (PTR-31). Do not settle a row assigned to another staff
+ * member. Store the decision-maker in `assignedStaffId` to keep the event linked to that staff member.
  */
 export async function handleApproveVenueRequest(
   data: unknown,
@@ -523,12 +496,11 @@ export async function handleApproveVenueRequest(
 
   const decided = await database
     .transaction(async tx => {
-      // The event key share precedes every venue lock: the notification insert below takes it
-      // through its FK, and confirmation holds the event before this event's requests. Then one
-      // lock order for every venue writer: advisory lock first, then the row lock. The preview
-      // read learns which venue to lock; the post-lock re-read must still belong to it.
-      // A cancellation holds the event row, so this lock waits for it and then reads the new
-      // status (PTR-54 AC9).
+      // Lock the event before any venue. The notification insert takes this lock through its
+      // foreign key, and confirmation also locks the event before its requests.
+      // For each venue, take the advisory lock before the row lock. Read the venue first, then
+      // re-read it under the lock to confirm it did not change.
+      // A cancellation holds the event row. This lock waits for it, then reads the new status (PTR-54 AC9).
       const event = await keyShareEventForRequest(tx, id);
       const lockedVenueId = await lockVenueForRequest(tx, id);
 
@@ -543,28 +515,25 @@ export async function handleApproveVenueRequest(
         .from(venueRequests)
         .where(eq(venueRequests.id, id))
         .limit(1)
-        // The row lock makes the reads below current: a second approval of the same request waits
-        // here and then sees the settled row — refused as rejected or decided, never handed a
-        // self-conflict sentence about the request it just approved.
+        // The row lock makes these reads current. A second approval waits, then sees the settled
+        // row and gets a rejection or decided message, not an overlap message about itself.
         .for("update");
       const row = rows.at(0);
       if (!row) throw new NotFoundError("Not Found");
       assertSameVenue(lockedVenueId, row.venueId);
-      // Settled checks run before the queue rule: a decision can change who owns the row, and the
-      // queue rule would otherwise answer a second staff member with a bare Forbidden instead of
-      // the sentence that says the request is settled (PTR-34 AC5). `assertNotRejected` carries the
-      // rejected half of that.
+      // Check settled status before the queue. A decision can change row ownership. Otherwise,
+      // another staff member would get `Forbidden` instead of the settled message (PTR-34 AC5).
+      // `assertNotRejected` handles rejected rows.
       assertNotRejected(row.status);
       if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
       if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
-      // After the ownership gate: a refused probe of another member's row reveals
-      // nothing about the event's completion or cancellation.
+      // Check event status after ownership so a probe of another member's row reveals nothing.
       assertEventAcceptsActivity(event?.status);
       // PTR-54 AC9: a cancelled event takes no new booking.
       if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
 
-      // Under the lock this pre-check cannot race another approval; the constraint below is the
-      // backstop for a writer that does not come through this function.
+      // The lock prevents another approval from racing this check. The constraint catches writes
+      // outside this function.
       const [conflicts, holdConflicts] = await Promise.all([
         loadVenueBookings(tx, [row.venueId], row.startsAt, row.endsAt),
         loadVenueHolds(tx, [row.venueId], row.startsAt, row.endsAt),
@@ -591,14 +560,14 @@ export async function handleApproveVenueRequest(
         );
       }
 
-      // The row lock and the status check above make this the only writer of this row.
+      // The row lock and status check make this the only writer of the row.
       const [approved] = await tx
         .update(venueRequests)
         .set({ status: "approved", assignedStaffId: actor.id })
         .where(eq(venueRequests.id, id))
         .returning();
 
-      // The decision and its notification commit together; the worker sends the email.
+      // Commit the decision and notification together. The worker sends the email.
       const notice = await loadDecisionNotice(tx, id);
       await raiseDecisionNotification(tx, id, notice, context => ({
         recipientId: context.requesterId,
@@ -620,16 +589,14 @@ export async function handleApproveVenueRequest(
 }
 
 /**
- * PTR-34: Venue Staff settle a pending request by rejecting it with a reason, and may attach a
- * suggested alternative (venue, date or time, each optional). It follows the approval's row lock
- * and queue rule, so an approval and a rejection racing for one request settle it exactly once. No
- * venue lock is needed: a rejection holds nothing, and the exclusion constraint only reads
- * `approved`. The raising Coordinator's notification is raised with the rejection; the worker
- * delivers it.
- *
- * A rejected request is final: approving, withdrawing or rejecting it again is refused with the
- * sentence that tells the Coordinator to raise a new request. The partial unique index covers only
- * pending rows, so raising one is always open.
+ * PTR-34: Reject a pending request with a reason. Venue Staff may also suggest a venue, date, or
+ * time. Use the approval path's row lock and queue rule, so approval and rejection settle a request
+ * only once. No venue lock is needed because rejection does not reserve a slot. The exclusion
+ * constraint only checks approved rows. Add a notification for the requesting Coordinator; the
+ * worker delivers it.
+ * A rejected request is final. Refuse later approve, withdraw, or reject actions and tell the
+ * Coordinator to raise a new request. The partial unique index covers pending rows, so a new
+ * request can be raised.
  */
 export async function handleRejectVenueRequest(
   data: unknown,
@@ -639,8 +606,8 @@ export async function handleRejectVenueRequest(
   const input = parseVenueRejectionInput(data);
 
   const rejected = await database.transaction(async tx => {
-    // Same event-before-venue order as approval: the notification insert below key-shares the
-    // event through its FK, and confirmation holds the event before this event's requests.
+    // Lock the event before the venue, as in approval. The notification insert takes the event
+    // lock through its foreign key, and confirmation also locks the event first.
     await keyShareEventForRequest(tx, input.id);
     const rows = await tx
       .select({ status: venueRequests.status, assignedStaffId: venueRequests.assignedStaffId })
@@ -650,14 +617,14 @@ export async function handleRejectVenueRequest(
       .for("update");
     const row = rows.at(0);
     if (!row) throw new NotFoundError("Not Found");
-    // Same order as approval: settled before queue rule, so a second staff member's stale form
-    // gets the settled sentence rather than a bare Forbidden (PTR-34 AC5).
+    // Check settled status before the queue, as in approval. Another staff member's stale form
+    // then gets the settled message instead of `Forbidden` (PTR-34 AC5).
     assertNotRejected(row.status);
     if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
     if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
 
-    // The suggestion is optional, but a venue it names must exist; the same refusal a request for
-    // a missing venue gets, and the name is what the email shows.
+    // The suggestion is optional, but any venue it names must exist. Use the same refusal as a
+    // request for a missing venue; the email shows this name.
     let suggestedVenueName: string | undefined;
     if (input.suggestedVenueId !== undefined) {
       const venueRows = await tx
@@ -683,7 +650,7 @@ export async function handleRejectVenueRequest(
       .where(eq(venueRequests.id, input.id))
       .returning();
 
-    // The rejection and its notification commit together; the worker sends the email.
+    // Commit the rejection and notification together. The worker sends the email.
     const notice = await loadDecisionNotice(tx, input.id);
     await raiseDecisionNotification(tx, input.id, notice, context => ({
       recipientId: context.requesterId,

@@ -9,16 +9,12 @@ import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
-/**
- * PTR-8 at the `handleListEvents` boundary: which event rows a caller's role and relationships
- * select, and the role-specific projection each one renders through. The middleware pipeline has
- * already established the session before this runs, so the caller here is a `SessionUser` and the
- * only thing under test is the scoping SQL and the projection contract.
+/** PTR-8: test the rows that `handleListEvents` returns for each role and relationship, and each
+ * role-specific projection. Middleware supplies a `SessionUser`, so this file checks SQL scoping
+ * and the projection contract.
  *
- * The fixtures are file-owned so the assertions do not depend on seed state. The one seed row that
- * would otherwise leak in is the attendee demo event (confirmed, registration on), which every
- * attendee sees; the attendee cases therefore find their row by id rather than asserting the
- * whole list length.
+ * This file owns its fixtures. The seed includes a confirmed attendee demo event that every
+ * Attendee sees, so Attendee tests check that row by id alone.
  */
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
@@ -38,10 +34,8 @@ const fixtureUsers = {
     emailVerified: true,
     role: "event_organiser",
   },
-  /**
-   * Owns the confirmed fixtures below. A separate organiser keeps the organiser, outsider and
-   * coordinator list assertions untouched — those fixtures stay exactly as other roles rely on
-   * them — while no list test reads this account, so the attendee-visible rows leak nowhere.
+  /** Own the confirmed fixtures below with a separate Organiser. This keeps other role fixtures
+   * unchanged. No list test reads this account, so its rows do not appear in other results.
    */
   extraOrganiser: {
     id: "el-extra-organiser",
@@ -96,9 +90,8 @@ const organiserIds = [
 const attendeeIds = [fixtureUsers.attendee.id, fixtureUsers.attendeeRegistered.id];
 
 const FIXTURE_VENUE_NAME = "Event List Hall";
-/**
- * The confirmed fixtures' venue. Separate from the hall above so their approved booking never
- * overlaps the pending rows the PTR-36 conflict test reads.
+/** Venue for the confirmed fixtures. Keep it separate from the hall above so its approved booking
+ * does not overlap pending rows in the PTR-36 conflict test.
  */
 const FIXTURE_VENUE_2_NAME = "Event List Room 2A";
 
@@ -107,7 +100,7 @@ function session(key: keyof typeof fixtureUsers): SessionUser {
   return { id: user.id, email: user.email, role: user.role };
 }
 
-/** A registration window that is open now, and one that closed years before the run. */
+/** An open registration window and one that closed years ago. */
 const OPEN_WINDOW = {
   registrationOpensAt: "2020-01-01T00:00",
   registrationClosesAt: "2099-01-01T00:00",
@@ -173,7 +166,7 @@ describe("event list handler (PTR-8)", () => {
   });
 
   beforeEach(async () => {
-    // Children cascade with the events; the registration delete clears only the file-owned rows.
+    // Event deletion cascades to children. Delete registrations for this file's rows only.
     await database
       .delete(schema.eventRequests)
       .where(inArray(schema.eventRequests.organiserId, organiserIds));
@@ -254,12 +247,10 @@ describe("event list handler (PTR-8)", () => {
       })
       .returning();
 
-    /**
-     * PTR-44: the attendee-visible rows. A browsing attendee sees `confirmed` AND
-     * registration-enabled, so these live apart from the `submitted` fixtures other roles'
-     * tests rely on. They belong to the extra organiser with no assigned coordinator, so no
-     * organiser, outsider or coordinator list assertion sees them. `confirmed` carries the
-     * decision and confirmation attribution the CHECKs require.
+    /** PTR-44: an Attendee sees events that are `confirmed` and have registration enabled. Keep
+     * these separate from the `submitted` fixtures used by other role tests. Assign them to an
+     * extra Organiser with no Coordinator, so other role tests do not see them. `confirmed` also
+     * requires decision and confirmation data for the database checks.
      */
     const confirmedAttribution = {
       submittedAt: new Date(),
@@ -291,8 +282,8 @@ describe("event list handler (PTR-8)", () => {
       })
       .returning();
 
-    // A closed window stays visible: the window gates the registration action, not the view.
-    // No approved booking, so its venue reads null.
+    // Keep the event visible after its registration window closes. The window controls registration,
+    // not visibility. With no approved booking, its venue is null.
     const [confirmedClosed] = await database
       .insert(schema.eventRequests)
       .values({
@@ -308,7 +299,8 @@ describe("event list handler (PTR-8)", () => {
       })
       .returning();
 
-    // Registration off means no terms at all (the CHECK refuses anything else) and no view.
+    // With registration disabled, store no registration terms. The database rejects them, and the
+    // event is not visible.
     const [confirmedDisabled] = await database
       .insert(schema.eventRequests)
       .values({
@@ -324,8 +316,8 @@ describe("event list handler (PTR-8)", () => {
 
     await database.insert(schema.venueRequests).values([
       {
-        // Sorts before the pending row; with the fallback gone it must not reach the card, and the
-        // pending row below is the only one the assertion sees (PTR-31 AC5).
+        // This row sorts before the pending row. It must not appear on the card; only the pending
+        // row below should match the assertion (PTR-31 AC5).
         id: "el-venue-0-withdrawn",
         eventId: main.id,
         venueId: fixtureVenueId,
@@ -354,7 +346,7 @@ describe("event list handler (PTR-8)", () => {
         assignedStaffId: fixtureUsers.venueStaff.id,
       },
       {
-        // The closed event's only request is withdrawn, so its card shows no venue request.
+        // The closed event's only request is withdrawn, so its card has no venue request.
         id: "el-venue-closed-withdrawn",
         eventId: closed.id,
         venueId: fixtureVenueId,
@@ -364,8 +356,8 @@ describe("event list handler (PTR-8)", () => {
         status: "withdrawn",
       },
       {
-        // The booking the open confirmed event was confirmed against (PTR-44 AC2): unassigned
-        // and approved, so it reaches no staff queue and only the attendee venue lookup reads it.
+        // This is the approved booking for the open confirmed event (PTR-44 AC2). It is unassigned,
+        // so no staff queue shows it. Only the Attendee venue lookup reads it.
         id: "el-venue-confirmed-open",
         eventId: confirmedOpen.id,
         venueId: fixtureVenue2Id,
@@ -387,7 +379,7 @@ describe("event list handler (PTR-8)", () => {
         notes: "HDMI adapter included",
       },
       {
-        // Assigned to nobody: a technician connected through one line still sees every line.
+        // No one owns this line. A technician connected through another line still sees it.
         id: "el-equipment-other",
         eventId: main.id,
         item: "Microphone",
@@ -699,10 +691,10 @@ describe("event list handler (PTR-8)", () => {
         requiredFacilities: "Near MRT",
         venueRequest: { status: "pending" },
       });
-      // PTR-31 criterion 2: not even the name, and none of the organiser-only fields.
+      // PTR-31 criterion 2: hide the event name and all Organiser-only fields.
       expect(projection.event).not.toHaveProperty("name");
       expect(projection.event).not.toHaveProperty("description");
-      // Everyone with access sees the stage.
+      // Show the event stage to every user with access.
       expect(projection.event.status).toBe("submitted");
       expect(projection.event).not.toHaveProperty("equipment");
     });
@@ -927,7 +919,7 @@ describe("event list handler (PTR-8)", () => {
           eventId: fixtures.main.id,
         });
 
-        // The card reads pending, and the rejection it answers rides along in full.
+        // The card shows the pending request and the full rejection it answers.
         expect(await coordinatorCard(fixtures.main.id)).toEqual({
           id: "el-venue-main",
           status: "pending",
@@ -980,9 +972,8 @@ describe("event list handler (PTR-8)", () => {
           updatedAt: new Date("2026-10-05T00:00:00Z"),
         });
 
-        // The event's newest venue request is now the approval, not the earlier rejection, so the
-        // rejection must not still render as the event's live state (PTR-34 review: a rejected then
-        // raised-and-approved request must not resurrect its old reason).
+        // The newest venue request is the approval. Do not show the earlier rejection as the event's
+        // current state or restore its old reason (PTR-34).
         expect(await coordinatorCard(fixtures.closed.id)).toBeNull();
       });
 
@@ -1036,8 +1027,8 @@ describe("event list handler (PTR-8)", () => {
           updatedAt: new Date("2026-10-05T00:00:00Z"),
         });
 
-        // A withdrawal carries no decision, so the Coordinator is back to planning and the last
-        // rejection is still the event's live state (PTR-34 review).
+        // Withdrawal has no decision. Return the Coordinator to planning and keep the last
+        // rejection as the event's current state (PTR-34).
         expect(await coordinatorCard(fixtures.closed.id)).toMatchObject({
           status: "rejected",
           rejection: { reason: "Closed for floor resurfacing" },
@@ -1094,7 +1085,8 @@ describe("event list handler (PTR-8)", () => {
             unavailableReason: null,
             reservedQuantity: null,
             lastRelease: null,
-            // Unassigned, on an event not yet submitted: shown, but not open to this member.
+            // The event is not submitted and the line is unassigned. Show it, but do not let this
+            // member open it.
             arrangeable: false,
             assignedStaffName: null,
           },
@@ -1122,9 +1114,9 @@ describe("event list handler (PTR-8)", () => {
         registrationOpensAt: OPEN_WINDOW.registrationOpensAt,
         registrationClosesAt: OPEN_WINDOW.registrationClosesAt,
         registration: null,
-        // PTR-45 AC10: registration capacity 60 at a 40-seat venue, so the venue sets the limit.
+        // PTR-45 AC10: registration capacity is 60, but the 40-seat venue sets the limit.
         places: { registered: 0, limit: 40 },
-        // PTR-50: inside the open window with places left.
+        // PTR-50: the registration window is open and places remain.
         registrationAvailability: { state: "open" },
         venue: {
           name: FIXTURE_VENUE_2_NAME,
@@ -1135,10 +1127,10 @@ describe("event list handler (PTR-8)", () => {
           endTime: "15:00",
         },
       });
-      // Everyone with access sees the stage.
+      // Show the event stage to every user with access.
       expect(projection.event.status).toBe("confirmed");
-      // AC3: no booking decisions, equipment, or clarification threads — and no confirmation
-      // record either (PTR-24 withholds it from attendees).
+      // AC3: do not show booking decisions, equipment, clarification threads, or the confirmation
+      // record (PTR-24 hides it from Attendees).
       expect(Object.keys(projection.event).toSorted()).toEqual(
         [
           "description",
@@ -1180,8 +1172,8 @@ describe("event list handler (PTR-8)", () => {
     });
 
     it("keeps the earliest-created approved booking when a later one exists (determinism)", async () => {
-      // A different venue from the first booking, so the ADR-5 overlap rule cannot fire; the
-      // explicitly later createdAt proves the earliest-created booking wins, not the newest row.
+      // Use another venue so the ADR-5 overlap rule does not apply. The later `createdAt` proves
+      // that the earliest-created booking wins, not the newest row.
       await database.insert(schema.venueRequests).values({
         id: "el-venue-confirmed-open-second",
         eventId: fixtures.confirmedOpen.id,
@@ -1216,7 +1208,7 @@ describe("event list handler (PTR-8)", () => {
         database as never
       );
       expect(projection.event.venue).toBeNull();
-      // Without a venue there is no place limit, so no count either.
+      // Without a venue, the event has no place limit or count.
       expect(projection.event.places).toBeNull();
     });
 

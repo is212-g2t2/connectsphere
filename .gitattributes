@@ -1,4 +1,4 @@
 * text=auto eol=lf
 
-# drizzle-kit output: journal and cumulative schema snapshots
+# Keep drizzle-kit journals and cumulative schema snapshots in LF format.
 src/db/drizzle/meta/** linguist-generated

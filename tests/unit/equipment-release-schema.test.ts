@@ -41,7 +41,7 @@ describe("ReleaseEquipmentInput (PTR-42 AC1)", () => {
         unavailableReason: "Amplifier failed inspection",
       })
     ).toThrow(RELEASE_REASON_NEEDS_RELEASE_MESSAGE);
-    // A blank reason on a reduction is no reason at all.
+    // A blank reason on a reduction counts as no reason.
     expect(
       parseReleaseEquipmentInput({
         equipmentRequestId: "line-1",

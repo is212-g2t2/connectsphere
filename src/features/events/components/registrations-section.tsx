@@ -8,7 +8,7 @@ import { AttendeeTable } from "#/features/events/components/attendee-table";
 import { AddVipDialog, RemoveVipButton } from "#/features/events/components/vip-registrations";
 import type { RegisteredAttendee } from "#/features/events/access";
 
-/** The stages with a registration record to show: venue settled onward. */
+/** Stages with a registration record to show: venue settled onward. */
 const REGISTRATION_STATUSES: readonly EventRequestStatus[] = [
   "approved",
   "planning",
@@ -16,15 +16,15 @@ const REGISTRATION_STATUSES: readonly EventRequestStatus[] = [
   "completed",
 ];
 
-/** Whether the status leaves a registration record worth listing. */
+/** Check whether the status leaves a registration record worth listing. */
 export function hasRegistrationRecord(status: EventRequestStatus): boolean {
   return REGISTRATION_STATUSES.some(candidate => candidate === status);
 }
-/** The shared attendee list: places count and every registration in one table, always visible. */
+/** Shared attendee list: places count and every registration in one table. Always visible. */
 function RegistrationsBody({ data }: { data: Extract<EventPageData, { kind: "event" }> }) {
   const { event } = data.event;
   const router = useRouter();
-  // Stable across renders, so the table keeps its column identity and its search and filter.
+  // Keep this stable across renders. The table then keeps its column identity, search, and filter.
   const rowActions = useCallback(
     (attendee: RegisteredAttendee) =>
       attendee.vip ? (
@@ -60,7 +60,7 @@ function RegistrationsBody({ data }: { data: Extract<EventPageData, { kind: "eve
               variant="link"
               size="sm"
               onClick={() => {
-                // A failed refetch leaves the alert in place; the click only retries the load.
+                // A failed refetch leaves the alert in place. The click only retries the load.
                 void router.invalidate().catch(() => undefined);
               }}
             >
@@ -80,8 +80,8 @@ function RegistrationsBody({ data }: { data: Extract<EventPageData, { kind: "eve
 }
 
 /**
- * The attendee list the Organiser and the Coordinator share. Before approval there is nobody to
- * list; a rejected or cancelled event keeps none.
+ * Share the attendee list between the Organiser and the Coordinator. Before approval there is
+ * nobody to list. A rejected or cancelled event keeps none.
  */
 export function registrationsSections(data: EventPageData): EventSectionDef[] {
   if (data.kind !== "event") return [];

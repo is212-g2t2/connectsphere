@@ -4,7 +4,7 @@ import { Button } from "#/components/ui/button";
 import { ReserveEquipmentDialog } from "#/features/equipment-requests/components/reserve-equipment-dialog";
 import type { ReserveEquipmentDialogProps } from "#/features/equipment-requests/components/reserve-equipment-dialog";
 
-/** The one Reserve button + dialog, shared by the workspace card and the review page. */
+/** The Reserve button and dialog used by the workspace card and review page. */
 export function ReserveEquipmentAction({
   line,
 }: {

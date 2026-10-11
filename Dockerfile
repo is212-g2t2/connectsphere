@@ -11,8 +11,8 @@ ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN \
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --ignore-scripts
 COPY . .
-# The auth token arrives as a BuildKit secret, never an ARG/ENV: a GHA layer cache is readable
-# from PRs on this public repo. An absent secret is fine — it just disables source-map upload.
+# Pass the auth token as a BuildKit secret, not an ARG or ENV value. Pull requests on this public
+# repository can read the GitHub Actions layer cache. If the secret is absent, skip source-map upload.
 RUN --mount=type=secret,id=sentry_auth_token \
     SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token 2>/dev/null)" bun run build
 

@@ -10,7 +10,7 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EquipmentLineProjection } from "#/features/events/access";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 
-/** The stages with equipment lines to arrange: venue settled onward. */
+/** Events can have equipment lines to arrange from the venue-settled stage onward. */
 const EQUIPMENT_STATUSES: readonly EventRequestStatus[] = [
   "approved",
   "planning",
@@ -21,7 +21,7 @@ const EQUIPMENT_STATUSES: readonly EventRequestStatus[] = [
 /** Technical Support's blocks show for every event they can open. */
 const alwaysVisible = () => true;
 
-/** The organiser's read-only lines: what was asked for and what Technical Support made of it. */
+/** The Organiser's read-only lines show the request and Technical Support's response. */
 function OrganiserEquipment({ lines }: { lines: EquipmentLineProjection[] }) {
   return (
     <div>
@@ -52,7 +52,7 @@ function OrganiserEquipment({ lines }: { lines: EquipmentLineProjection[] }) {
   );
 }
 
-/** The coordinator's editable panel, as the old dashboard card passed it. */
+/** The Coordinator's editable panel, passed by the dashboard card. */
 function CoordinatorEquipment({ data }: { data: Extract<EventPageData, { kind: "event" }> }) {
   const { event } = data.event;
   return (
@@ -71,11 +71,7 @@ function CoordinatorEquipment({ data }: { data: Extract<EventPageData, { kind: "
   );
 }
 
-/**
- * The equipment blocks: one shared arrangements list for the Organiser and the Coordinator, and
- * Technical Support's three working blocks — the lines, the completion, and the availability
- * checker.
- */
+/** Show shared arrangement lists to Organisers and Coordinators. Show the line, completion, and availability sections to Technical Support. */
 export function equipmentSections(data: EventPageData): EventSectionDef[] {
   if (data.kind !== "event") return [];
   if (data.event.access === "organiser" || data.event.access === "coordinator") {

@@ -1,15 +1,15 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-43: Equipment arrangement completion and unavailable handling (Playwright E2E).
+// PTR-43: Playwright tests for completed arrangements and unavailable equipment.
 //
-// Uses the same real E2E setup as the working equipment reservation test:
-// - Drizzle + pg for test data
+// Use the real E2E setup from the equipment reservation test:
+// - Drizzle and pg for test data
 // - signInAsStaff() for authentication
 // - waitForHydration() after navigation
 // - /events/:id for Technical Support
 //
-// Email delivery is covered by the PTR-43 integration test, which mocks sendEmail directly.
-// This E2E file focuses on the actual user-facing behaviour.
+// The PTR-43 integration test mocks sendEmail and checks email delivery.
+// This file checks user-facing behavior.
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -237,7 +237,7 @@ async function markUnavailable(page: Page, item: string, reason: string) {
   await chooseArrangementState(page, item, "Unavailable");
   await page.getByLabel(`Reason unavailable for ${item} (required)`).fill(reason);
   await saveLine(page, item);
-  // Wait for the server's confirmation so the afterEach delete cannot deadlock with an in-flight save.
+  // Wait for server confirmation before afterEach deletes data. This avoids a lock with an in-flight save.
   await expect(page.getByText("Equipment line updated.")).toBeVisible();
 }
 

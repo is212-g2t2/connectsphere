@@ -13,7 +13,7 @@ import {
   venueCapacityReachedMessage,
 } from "#/features/events/registration";
 
-/** A published event, open from 1 Nov 09:00 to 1 Dec 17:00, with places left. */
+/** Publish an event from 1 Nov 09:00 to 1 Dec 17:00 with places left. */
 const open = {
   registrationCapacity: 40,
   registrationOpensAt: "2026-11-01T09:00",
@@ -71,7 +71,7 @@ describe("registrationRefusal (PTR-45)", () => {
     expect(registrationRefusal({ ...withVips, registeredCount: 40 })).toBe(
       venueCapacityReachedMessage(45)
     );
-    // Room at the venue, so the registration capacity alone stops it.
+    // The venue has room. Registration capacity alone blocks it.
     expect(registrationRefusal({ ...open, vipCount: 5, registeredCount: 40 })).toBe(
       EVENT_FULL_MESSAGE
     );
@@ -107,14 +107,15 @@ describe("placeMark (PTR-45 AC8, AC9)", () => {
   });
 
   it("rounds 90% up, and is full when that is where it lands", () => {
-    // 90% of 11 is 9.9, so the tenth registration; 90% of 6 is 5.4, which rounds up to the limit.
+    // 90% of 11 is 9.9: the tenth registration crosses it. 90% of 6 is 5.4, which rounds up to
+    // the limit.
     expect(placeMark(10, 11)).toBe("nearly_full");
     expect(placeMark(5, 6)).toBeNull();
     expect(placeMark(6, 6)).toBe("full");
   });
 
   it("tells the two marks apart where a lower limit moves the count from one to the other", () => {
-    // PTR-111: a VIP takes a limit of 10 down to 9 with 9 normal registrations.
+    // PTR-111: a VIP drops a limit of 10 to 9 with 9 normal registrations.
     expect(placeMark(9, 10)).toBe("nearly_full");
     expect(placeMark(9, 9)).toBe("full");
   });
@@ -215,8 +216,8 @@ describe("registrationAvailability (PTR-50)", () => {
       { ...cancelled, now: "2026-11-01T08:59" },
     ];
     for (const input of cases) {
-      // The handler refuses an unpublished event, a cancelled one included, before the refusal
-      // runs (PTR-45 AC2). The refusal alone lets the cancelled cases through.
+      // The published check runs before the refusal (PTR-45 AC2). It catches unpublished events,
+      // cancelled ones included. The refusal alone lets cancelled cases through.
       const proceeds =
         isPublishedForAttendees({ ...input, registrationEnabled: true }) &&
         registrationRefusal(input) === null;

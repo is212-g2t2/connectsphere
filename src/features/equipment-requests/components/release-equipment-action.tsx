@@ -4,7 +4,7 @@ import { Button } from "#/components/ui/button";
 import { ReleaseEquipmentDialog } from "#/features/equipment-requests/components/release-equipment-dialog";
 import type { ReleaseEquipmentDialogProps } from "#/features/equipment-requests/components/release-equipment-dialog";
 
-/** The one Reduce or release button + dialog, shown beside Reserve on a line holding units. */
+/** Show the Reduce or release button and dialog beside Reserve on a line with held units. */
 export function ReleaseEquipmentAction({
   line,
 }: {

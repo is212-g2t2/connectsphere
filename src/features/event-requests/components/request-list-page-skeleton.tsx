@@ -16,7 +16,7 @@ function RequestRowSkeleton() {
 }
 
 /**
- * The event request list's loading shape: back link, heading, and the table's five columns.
+ * Loading shape for the event request list: back link, heading, and the table's five columns.
  */
 export function EventRequestListPageSkeleton() {
   return (

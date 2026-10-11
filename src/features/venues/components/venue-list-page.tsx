@@ -24,8 +24,8 @@ import type { VenueSearchResult } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 /**
- * `filters` is `VenueSearch`, whose values arrive already parsed; the input shape is the same
- * fields as display strings, with an absent number or time rendered as an empty input.
+ * `filters` is `VenueSearch` with values already parsed. The input shape holds the same fields as
+ * display strings. An absent number or time renders as an empty input.
  */
 function toSearchFormValues(filters: VenueSearch): VenueSearchFormValues {
   return {
@@ -44,7 +44,7 @@ function toSearchFormValues(filters: VenueSearch): VenueSearchFormValues {
   };
 }
 
-/** Only the slice of a `form.Field` a text row reads, as `venue-form.tsx` describes it. */
+/** Describe only the slice of a `form.Field` that a text row reads, as `venue-form.tsx` does. */
 interface SearchFieldApi {
   name: string;
   state: { value: string; meta: { errors: Array<{ message?: string } | undefined> } };
@@ -52,17 +52,17 @@ interface SearchFieldApi {
   handleBlur: () => void;
 }
 
-/** What the ten plain fields vary by beyond their label. */
+/** List what the ten plain fields vary by beyond their label. */
 type SearchFieldOptions = Pick<
   React.ComponentProps<typeof Input>,
   "type" | "min" | "step" | "placeholder"
 >;
 
 /**
- * Every search field renders the same row — label, input, error — so the row is built once here
- * and each `form.Field` hands its own `field` to the result. The `<form.Field>` stays at the call
- * site so `name` is still checked against the form's own keys, and that name doubles as the
- * input's `id`, which is what every label points at.
+ * Every search field renders the same row: label, input, and error. Build the row once here.
+ * Each `form.Field` hands its own `field` to the result. Keep `<form.Field>` at the call site so
+ * `name` still checks against the form keys. That name also serves as the input `id`, which each
+ * label points at.
  */
 function searchField(label: string, options: SearchFieldOptions = {}) {
   return (field: SearchFieldApi) => (
@@ -83,8 +83,8 @@ function searchField(label: string, options: SearchFieldOptions = {}) {
 }
 
 /**
- * The venue catalogue and PTR-29 search. Loader data and the session arrive as props so the page
- * remains renderable without a router; only submitting or clearing filters navigates.
+ * Show the venue catalogue and PTR-29 search. Loader data and the session arrive as props, so the
+ * page renders without a router. Only submitting or clearing filters navigates.
  */
 export function VenueListPage({ user, result }: { user: SessionUser; result: VenueSearchResult }) {
   const navigate = useNavigate();
@@ -112,16 +112,16 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
     },
   });
 
-  // Arrival, Clear filters and back/forward all hand a new `filters`; resetting from it keeps the
-  // controlled inputs in step. Re-rendering alone does not, and remounting via a route key would
-  // drop whatever the visitor was mid-way through typing.
+  // Arrival, Clear filters, and back/forward all hand a new `filters`. Reset from it to keep the
+  // controlled inputs in step. Re-rendering alone does not keep them in step. Remounting through a
+  // route key would drop text the visitor is still typing.
   useEffect(() => {
     form.reset(toSearchFormValues(filters));
   }, [filters, form]);
 
   const hasFilters = Object.keys(filters).some(key => key !== "eventId");
-  // PTR-30 criterion 5: once something was asked of the venues, the ones that fell short say why.
-  // A window that crosses midnight is the Coordinator's slip, not a venue's failing.
+  // PTR-30 criterion 5: venues that fall short say why once the search asks something of them.
+  // A window that crosses midnight is the Coordinator's slip. It is not a venue failure.
   const showUnsuitable =
     (hasFilters || event !== null) && unsuitable.length > 0 && !crossesMidnight(filters);
 
@@ -291,8 +291,7 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
                     <Link
                       to="/venues/$venueId"
                       params={{ venueId: String(venue.id) }}
-                      // Carried so the detail page can offer PTR-31's booking request for the
-                      // event this search was run for.
+                      // Carry the event id so the detail page can offer PTR-31's booking request.
                       search={event ? { eventId: event.id } : {}}
                       className={NAV_LINK_CLASSNAME}
                     >

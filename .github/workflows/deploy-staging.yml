@@ -12,7 +12,7 @@ on:
 permissions:
   contents: read
 
-# A deploy is never cancelled mid-flight.
+# Do not cancel a deployment while it is running.
 concurrency:
   group: deploy-staging
   cancel-in-progress: false
@@ -38,17 +38,17 @@ jobs:
     permissions:
       contents: read
 
-  # CodeQL declares `actions: read` + `security-events: write`, and a called
-  # workflow can only downgrade the caller's token. Without these the analysis
-  # resolves them to `none` and the whole release stops at the check stage.
+  # CodeQL needs `actions: read` and `security-events: write`. A called workflow can only reduce
+  # the caller's token permissions. Without these permissions, CodeQL gets `none` and the release
+  # stops at the check stage.
   security-checks:
     uses: ./.github/workflows/security-checks.yml
     permissions:
       contents: read
       actions: read
       security-events: write
-    # The security workflow reads GITLEAKS_LICENSE without declaring it under
-    # `on.workflow_call.secrets`, so it needs the caller's secrets to reach it.
+    # The security workflow reads GITLEAKS_LICENSE but does not list it under
+    # `on.workflow_call.secrets`. Pass the caller's secrets so the workflow can read it.
     secrets: inherit
 
   deploy:
@@ -64,6 +64,6 @@ jobs:
       environment: staging
       secret_prefix: staging
       require_existing_image: false
-    # inherit, not named passing: the migrate job's DATABASE_URL_SESSION is an
-    # environment secret, and those resolve only through inheritance.
+    # Inherit secrets instead of naming them. The migrate job's DATABASE_URL_SESSION is an
+    # environment secret, which is available only through inheritance.
     secrets: inherit

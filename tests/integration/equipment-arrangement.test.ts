@@ -1,6 +1,5 @@
-// Mirrors equipment-requests.test.ts: a local node-postgres drizzle instance, not the app's `#/db`
-// (which is configured with the bun-sql driver and does not accept this codebase's query shapes
-// in a test context).
+// Like `equipment-requests.test.ts`, use a local node-postgres Drizzle instance. The app's `#/db`
+// uses the bun-sql driver, which does not support these query shapes in tests.
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { eq, inArray } from "drizzle-orm";
@@ -429,7 +428,7 @@ describe("equipment arrangement handler (PTR-39)", () => {
   describe("adding notes", () => {
     test("saves notes without changing the state", async () => {
       const eventId = await createSubmittedEvent();
-      // A line only reaches `not_required` through an update, which also assigns it to the member.
+      // Only an update can set `not_required`, and that update also assigns the line to the member.
       const line = await createLine(eventId, {
         arrangementStatus: "not_required",
         assignedStaffId: techSupport.id,
@@ -540,7 +539,7 @@ describe("equipment arrangement handler (PTR-39)", () => {
         arrangementStatus: "reserved",
         assignedStaffId: techSupport.id,
       });
-      // PTR-42 releases a reservation by returning the line to requested; it is not built yet.
+      // PTR-42 will release a reservation by returning the line to `requested`; that behavior is not built yet.
       await database
         .update(schema.equipmentRequests)
         .set({ arrangementStatus: "requested" })
@@ -551,9 +550,9 @@ describe("equipment arrangement handler (PTR-39)", () => {
       expect((await lineRow(line.id)).arrangementStatus).toBe("not_required");
     });
 
-    // A second raw connection holds the line lock while the handler runs on the pool. The
-    // handler's `FOR UPDATE` must block on it and re-read the row after the reservation commits;
-    // a handler that read the row first would see `requested` and overwrite the reservation.
+    // Hold the line lock on a second connection while the handler runs. Its `FOR UPDATE` query
+    // must wait, then read the row after the reservation commits. An earlier read would see
+    // `requested` and overwrite the reservation.
     test("an update racing a reservation commit is refused", async () => {
       const eventId = await createSubmittedEvent();
       const line = await createLine(eventId, {
@@ -569,7 +568,7 @@ describe("equipment arrangement handler (PTR-39)", () => {
           id: line.id,
           arrangementStatus: "not_required",
         });
-        // Give the update time to reach its locked read before the reservation commits.
+        // Let the update reach its locked read before the reservation commits.
         await sleep(150);
         await client.query(
           "update equipment_requests set arrangement_status = 'reserved' where id = $1",
@@ -623,7 +622,8 @@ describe("equipment arrangement handler (PTR-39)", () => {
       const held = await createLine(eventId, {
         assignedStaffId: otherTechSupport.id,
       });
-      // A second, open line keeps the event connected to the actor, so the refusal is the line's.
+      // Keep a second line open so the event remains assigned to the actor. This refusal must be
+      // about the first line.
       await createLine(eventId, { item: "Microphone" });
 
       await expect(

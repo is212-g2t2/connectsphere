@@ -582,7 +582,7 @@ describe("EventRequestForm", () => {
       replyForm({ ...initialValues, expectedAttendance: 120, roomLayoutPreference: "Classroom" })
     );
 
-    // The form owns its values for this mount: the reply and the organiser's own edits survive.
+    // The form owns its values for this mount. The reply and the organiser's own edits survive.
     expect(inputValue("Expected attendance (required)")).toBe("125");
     expect(inputValue("Room-layout preference (optional)")).toBe("Boardroom");
     expect(screen.getByLabelText<HTMLTextAreaElement>("Your reply (required)").value).toBe(
@@ -609,7 +609,7 @@ describe("EventRequestForm", () => {
     );
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
-    // The defaults are fixed for the mount, so neither the new copy nor its rows count as changes.
+    // The defaults stay fixed for the mount. Neither the new copy nor its rows count as changes.
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
     expect(onSave.mock.calls[0][1].changedFields).toEqual(["roomLayoutPreference"]);
   });

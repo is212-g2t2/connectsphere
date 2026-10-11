@@ -13,8 +13,7 @@ configureAppLogging({
 
 /**
  * Server entry point.
- * Wraps the TanStack Start fetch handler with Sentry to capture
- * server-side errors and performance traces automatically.
+ * Wrap the TanStack Start fetch handler with Sentry to capture server errors and performance traces.
  */
 export default createServerEntry(
   wrapFetchWithSentry({

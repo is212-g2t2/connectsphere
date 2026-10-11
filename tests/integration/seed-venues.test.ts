@@ -22,8 +22,8 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
   });
 
   it("holds at least three venues, each with every catalogue attribute (AC3)", async () => {
-    // Scoped to the seed's own names: this file shares its container with `venue-records.test.ts`
-    // and `venue-availability.test.ts`, which create venues with empty attribute arrays.
+    // Check only seed venue names. `venue-records.test.ts` and `venue-availability.test.ts` also
+    // use this container and create venues with empty attribute arrays.
     const seedNames = seedVenues.map(venue => venue.name);
     const rows = await database
       .select()
@@ -61,15 +61,14 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
     expect(rows.length).toBeGreaterThanOrEqual(seedVenueUnavailability.length);
     const now = new Date().toISOString();
     for (const period of rows) {
-      // `mode: "string"` timestamps come back as `YYYY-MM-DD HH:MM:SS`, which sorts as a date.
+      // With `mode: "string"`, timestamps use `YYYY-MM-DD HH:MM:SS` and sort as dates.
       expect(period.startsAt > now).toBe(true);
       expect(period.endsAt > period.startsAt).toBe(true);
     }
   });
 
   it("does not duplicate venues or periods when run again (AC5)", async () => {
-    // Scoped to the seed's own rows, because this file shares its container with
-    // `venue-records.test.ts`, which creates and deletes its own venue.
+    // Check only seed rows. `venue-records.test.ts` shares this container and creates its own venue.
     const seedNames = seedVenues.map(venue => venue.name);
     const seedIds = (
       await database

@@ -1,5 +1,6 @@
-// Mirrors event-confirmation.test.ts: a local node-postgres drizzle instance, not the app's
-// `#/db`, with notifications read back from the `notifications` table.
+// Use a local node-postgres Drizzle instance, as `event-confirmation.test.ts` does. Keep the app's
+// `#/db` out of this file.
+// Read notifications from the `notifications` table.
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
@@ -107,7 +108,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
   let database: Database;
   let venueId: number;
   let equipmentTypeId: number;
-  // A distant year per booking, hold and reservation keeps the overlap constraints from tripping.
+  // Use a different year for each booking, hold, and reservation to avoid overlap constraints.
   let year = 2060;
   const created: number[] = [];
 
@@ -150,8 +151,8 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
 
   afterEach(async () => {
     if (created.length === 0) return;
-    // Lines, reservations, holds, registrations, requests and notifications cascade with the
-    // event; the venue request keeps its venue, so it goes first.
+    // Event deletion cascades to lines, reservations, holds, registrations, requests, and
+    // notifications. Delete venue requests first because they keep their venue.
     await database
       .delete(schema.venueRequests)
       .where(inArray(schema.venueRequests.eventId, created));
@@ -243,7 +244,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
     return { startsAt: `${year}-12-05 10:00:00`, endsAt: `${year}-12-05 16:00:00` };
   }
 
-  /** The form input a Coordinator sends for a new hold or venue request, in a fresh year. */
+  /** Form input for a new hold or venue request, with a date in a new year. */
   function periodInput(eventId: number) {
     year += 1;
     return { eventId, venueId, date: `${year}-12-05`, startTime: "10:00", endTime: "12:00" };
@@ -462,7 +463,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       const event = await createEvent("planning");
       const request = await requestCancellation(event.id);
 
-      // Drizzle wraps the driver error, so the constraint name is on the cause, not the message.
+      // Drizzle wraps the driver error. The constraint name is in `cause`, not the message.
       await expect(
         database
           .update(schema.eventCancellationRequests)
@@ -542,7 +543,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
         cancelledByName: coordinator.name,
       });
       expect(row.cancelledAt?.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
-      // The confirmation and the decision it followed stay on the record.
+      // Keep the confirmation and its decision on the record.
       expect(row.confirmedById).toBe(coordinator.id);
       expect(row.decidedByCoordinatorId).toBe(coordinator.id);
     });
@@ -578,7 +579,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
     test("refuses to cancel an event completed after the request was raised", async () => {
       const event = await createEvent("confirmed");
       await requestCancellation(event.id);
-      // Completion records who and when (PTR-25 AC3).
+      // Completion records who completed it and when (PTR-25 AC3).
       await database
         .update(schema.eventRequests)
         .set({
@@ -634,7 +635,8 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       await handleReleaseVenueHold({ id: holdId }, coordinator, database as never);
       expect((await outstandingReleases(event.id))?.venueHolds).toEqual([]);
 
-      // A partial release keeps the line listed with what it still holds; a full one removes it.
+      // A partial release keeps the line on the list with its remaining units. A full release
+      // removes it.
       await handleReleaseEquipment(
         { equipmentRequestId: lineId, quantity: 1 },
         technicalSupport,
@@ -675,7 +677,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       const techNotice = notices.find(notice => notice.recipientId === technicalSupport.id);
       if (!venueNotice || !techNotice) throw new Error("staff were not notified");
 
-      // Venue Staff are never shown the event's name (PTR-8), so their notice names the booking.
+      // Venue Staff do not see the event name (PTR-8), so name the booking in their notice.
       expect(venueNotice.payload).toMatchObject({ audience: "venue_staff", venueName: VENUE_NAME });
       expect(venueNotice.payload).not.toHaveProperty("eventName");
       expect(notificationSummary(parsed(venueNotice))).toBe(
@@ -887,9 +889,9 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
 
     test("makes a new hold wait for a cancellation in progress, then refuses it", async () => {
       const event = await createEvent("submitted");
-      // A second connection plays the cancellation: it locks the event row as `handleCancelEvent`
-      // does and moves the event to cancelled, uncommitted. A hold that reads the event without a
-      // conflicting lock sees `submitted` and lands on the cancelled event.
+      // Use a second connection to cancel the event. Lock its row as `handleCancelEvent` does, then
+      // set its status to cancelled without committing. A hold without a conflicting lock could
+      // read `submitted` and be created for a cancelled event.
       const client = await pool.connect();
       let holding: Promise<unknown> | undefined;
       try {
@@ -908,7 +910,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
           coordinator,
           database as never
         ).catch((caught: unknown) => caught);
-        // Commit the cancellation only once it blocks the hold, so the hold must read it.
+        // Commit the cancellation after it blocks the hold, so the hold must read the new status.
         await vi.waitFor(
           async () => {
             const { rows } = await pool.query<{ waiting: number }>(

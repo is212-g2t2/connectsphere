@@ -22,8 +22,8 @@ describe("event information updates (PTR-22)", () => {
   });
 
   it("accepts and logs every column the request form captures (AC4)", () => {
-    // An update may write these columns and the change log names them. A column added to the form
-    // without a field here could not be updated, and would never be logged.
+    // An update writes these columns, and the change log names them. A form column with no
+    // field here accepts no update and no log entry.
     const draftColumns = Object.keys(EventRequestDraftInput.in.shape).filter(key => key !== "id");
 
     expect(EVENT_INFORMATION_COLUMNS.toSorted()).toEqual(draftColumns.toSorted());
@@ -62,8 +62,8 @@ describe("significant changes (PTR-23)", () => {
       "venueRequirements",
       "equipmentRequirements",
     ]);
-    // The room layout and the accessibility requirements stay ordinary (PO decision), and the
-    // significant fields come back in the order the list gives.
+    // The room layout and accessibility requirements stay ordinary (PO decision). The
+    // significant fields return in list order.
     expect(
       significantFields([
         "purpose",

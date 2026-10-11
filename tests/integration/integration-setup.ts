@@ -8,7 +8,7 @@ import { seed } from "../../scripts/seed";
 let container: StartedPostgreSqlContainer | undefined;
 
 /**
- * Spins up a postgres:18-alpine testcontainer, applies the committed migrations, and seeds test data.
+ * Start a `postgres:18-alpine` Testcontainer, apply committed migrations, and seed test data.
  */
 export async function setup(): Promise<void> {
   if (container) {
@@ -33,7 +33,7 @@ export async function setup(): Promise<void> {
 }
 
 /**
- * Stops the running PostgreSQL testcontainer.
+ * Stop the PostgreSQL Testcontainer.
  */
 export async function teardown(): Promise<void> {
   if (container) {
@@ -43,7 +43,7 @@ export async function teardown(): Promise<void> {
 }
 
 /**
- * Default export for Vitest globalSetup.
+ * Vitest global setup function.
  */
 export default async function (): Promise<() => Promise<void>> {
   await setup();

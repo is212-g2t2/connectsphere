@@ -285,7 +285,7 @@ describe("Email templates rendering", () => {
     expect(none).not.toContain("Suggested instead");
   });
 
-  /** A bare `10:00–13:30` reads as an unlabelled fragment; a times-only suggestion is called out. */
+  /** A bare `10:00-13:30` reads as an unlabelled fragment. Call out a times-only suggestion. */
   it("labels a suggestion that is only a new time, rather than a bare time range", async () => {
     const html = await render(
       <VenueBookingRejectedEmail
@@ -437,7 +437,7 @@ describe("Email templates rendering", () => {
     expect(attendeeHtml).toContain("http://localhost:3000/events/42");
     expect(attendeeHtml).toContain("View the event");
 
-    // The Organiser's link opens their request, not the event page.
+    // The Organiser's link opens their request. It skips the event page.
     const organiserHtml = await render(
       <EventCancelledEmail
         audience="organiser"

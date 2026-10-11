@@ -5,11 +5,10 @@ import { EventRequirements } from "#/features/events/components/event-requiremen
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
 /**
- * A read-only view of the current pending booking-request data supplied by the server reader.
- * The four operational requirement fields reuse the canonical `EventRequirements` treatment the
- * venue panel and event cards share, so a blank field drops out rather than reading "None
- * specified". The server names its accessibility field `accessibility`, so the call site maps it
- * onto the canonical `accessibilityRequirements`.
+ * Show the current booking request as read-only server data.
+ * Use the shared `EventRequirements` treatment for all four operational fields. It hides blank
+ * fields instead of showing "None specified". Map the server's `accessibility` field to the
+ * shared `accessibilityRequirements` field.
  */
 export function BookingRequestDetails({ request }: { request: PendingVenueRequestDetail }) {
   return (

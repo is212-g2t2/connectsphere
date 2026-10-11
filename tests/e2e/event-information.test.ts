@@ -1,10 +1,9 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-22: the assigned Coordinator updates an approved event's information from the event page,
-// the change log records it, and the Organiser sees only the new value. PTR-23: a change to a
-// significant field is warned about first, naming what the event holds, and the staff holding a
-// booking are notified. Every test creates and removes its own event, so the tests can run in parallel
-// and never touch the demo rows.
+// PTR-22: the assigned Coordinator updates an approved event's information from the event page.
+// The change log records the update, and the Organiser sees only the new value. PTR-23 warns
+// first on a significant-field change, names what the event holds, and notifies staff with a
+// booking. Each test creates and removes its own event and runs in parallel with no demo rows.
 import { expect, test } from "@playwright/test";
 import { asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -44,7 +43,7 @@ test.afterAll(async () => {
   await pool?.end();
 });
 
-/** An approved event assigned to the seeded Coordinator and owned by the seeded Organiser. */
+/** Approve an event for the seeded Coordinator and the seeded Organiser. */
 async function createApprovedEvent() {
   const name = `PTR-22 E2E ${crypto.randomUUID().slice(0, 8)}`;
   const [row] = await database
@@ -84,7 +83,7 @@ test("the assigned Coordinator updates an approved event, and the change is reco
   await page.getByLabel("Expected attendance (required)").fill("65");
   await page.getByRole("button", { name: "Save changes" }).click();
 
-  // PTR-23: the attendance is significant, so the warning comes first; the event holds nothing.
+  // PTR-23: the attendance is significant. The warning comes first. The event holds nothing.
   const dialog = page.getByRole("alertdialog");
   await expect(dialog.getByText("This is a significant change")).toBeVisible();
   await expect(
@@ -118,8 +117,8 @@ test("the Organiser never sees the previous value on a return visit (AC3)", asyn
   await waitForHydration(page);
   await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
 
-  // The router holds the event page's data. Leave it, then let the update land and reload, so
-  // the dashboard re-reads the list instead of showing its cached copy.
+  // The router holds the event page's data. Leave the page, let the update land, and reload.
+  // The dashboard re-reads the list. It shows no cached copy.
   await page.getByRole("link", { name: "Back to dashboard" }).click();
   await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
   await database
@@ -130,7 +129,7 @@ test("the Organiser never sees the previous value on a return visit (AC3)", asyn
   await waitForHydration(page);
   await expect(page.getByRole("link", { name: renamed, exact: true })).toBeVisible();
 
-  // Record every page heading from here on, so a cached copy shown for one frame still counts.
+  // Record every page heading from here on. A copy cached for one frame still counts.
   await page.evaluate(() => {
     const seen: string[] = [];
     Object.assign(window, { seenHeadings: seen });
@@ -213,7 +212,7 @@ test("a significant change names the booking the event holds, and saves on confi
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Save changes" })).toHaveCount(0);
   } finally {
-    // The event itself is `afterEach`'s; the booking goes first so the venue can.
+    // Leave the event to `afterEach`. Delete the booking first, then the venue.
     await database.delete(schema.venueRequests).where(eq(schema.venueRequests.id, bookingId));
     await database.delete(schema.venues).where(eq(schema.venues.id, venue.id));
   }

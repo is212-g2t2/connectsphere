@@ -12,10 +12,9 @@ import { RejectBookingForm } from "#/features/venue-requests/components/reject-b
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 
 /**
- * The Venue Staff page: read the booking request, then record the decision. The decision block
- * shows only while the request still waits (`venueDecision` present) and the event is not
- * cancelled, where approval is always refused; the request details stay readable afterwards from
- * the projection's own `venueRequest`.
+ * Show the booking request to Venue Staff and let them decide it. Show decision controls only
+ * while the request is pending (`venueDecision` exists) and the event is not cancelled.
+ * Keep request details readable after the decision through `venueRequest`.
  */
 export function venueRequestSections(data: EventPageData): EventSectionDef[] {
   if (data.kind !== "event" || data.event.access !== "venue_staff") return [];
@@ -40,7 +39,7 @@ export function venueRequestSections(data: EventPageData): EventSectionDef[] {
   ];
 }
 
-/** The pending request as Venue Staff know it, else the settled outcome the projection keeps. */
+/** Show the pending request or its settled outcome to Venue Staff. */
 function RequestBody({ data }: { data: EventPageData }) {
   if (data.kind !== "event") return null;
   const venueDecision = data.venueDecision ?? null;
@@ -51,9 +50,8 @@ function RequestBody({ data }: { data: EventPageData }) {
 }
 
 /**
- * The decision controls with the old page's copy. The old page gated them on the session user's
- * `venue_request:decide` verb; the section only has the loader data, so the loader's
- * `venueDecision` is the gate and the server middleware still refuses the verb itself.
+ * Show the decision controls and the old page's text. The loader's `venueDecision` gates the
+ * controls. Server middleware still checks the user's `venue_request:decide` permission.
  */
 function DecisionBody({ data }: { data: EventPageData }) {
   const router = useRouter();
@@ -86,11 +84,10 @@ function DecisionBody({ data }: { data: EventPageData }) {
 }
 
 /**
- * What a settled request leaves behind: its status and venue, the rejection with its suggested
- * alternative, or the release record. Labels mirror the dashboard workspace's venue request
- * block, so the same rejection reads the same everywhere.
+ * Show a settled request's status and venue, rejection and suggested alternative, or release
+ * record. Use the same labels as the dashboard's venue request block.
  *
- * The settled outcome's short banner sits above the detail rows the projection keeps.
+ * Show the settled outcome's short banner above the detail rows.
  */
 const OUTCOME_BANNERS: Record<string, string> = {
   approved: "Booking approved.",

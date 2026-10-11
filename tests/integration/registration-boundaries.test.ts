@@ -326,7 +326,7 @@ describe("registration boundaries sweep (PTR-49)", () => {
       confirmedAt: new Date("2020-01-01T00:00:00Z"),
     });
 
-    // 8 days later: registration windows are well before limitMinute
+    // Eight days later, the registration windows are before `limitMinute`.
     const now = new Date("2030-01-09T12:05:00+08:00");
     const count = await sweepRegistrationWindows(database as never, now);
     expect(count).toBe(0);
@@ -341,21 +341,20 @@ describe("registration boundaries sweep (PTR-49)", () => {
 
     const now = new Date("2030-01-01T10:05:00+08:00");
 
-    // Create a second isolated connection pool to simulate a concurrent worker
+    // Create a second connection pool to simulate another worker.
     const pool2 = new Pool({ connectionString: env.DATABASE_URL });
     const database2 = drizzle(pool2, { schema });
 
     try {
-      // Start both sweeps at exactly the same time. The first one will acquire
-      // the pg_advisory_xact_lock(49, 0), and the second will block until the
-      // first commits. When the second wakes up, the first has already inserted
-      // the notifications, so the second will deduplicate and insert 0.
+      // Start both sweeps at the same time. The first acquires
+      // `pg_advisory_xact_lock(49, 0)`. The second waits until the first commits its notifications,
+      // then finds them and inserts none.
       const [count1, count2] = await Promise.all([
         sweepRegistrationWindows(database as never, now),
         sweepRegistrationWindows(database2 as never, now),
       ]);
 
-      // Exactly one worker raises the 2 notifications, the other raises 0
+      // One worker inserts two notifications. The other inserts none.
       expect(count1 + count2).toBe(2);
 
       const notifs = await database

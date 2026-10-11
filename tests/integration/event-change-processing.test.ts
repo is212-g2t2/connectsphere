@@ -70,7 +70,7 @@ let year = 2080;
 beforeAll(async () => {
   pool = new Pool({ connectionString: process.env.DATABASE_URL });
   database = drizzle(pool, { schema });
-  // A line from an earlier run still references the equipment type, so the events go first.
+  // Delete events before equipment types because lines from earlier runs may reference the type.
   await database
     .delete(schema.eventRequests)
     .where(eq(schema.eventRequests.organiserId, organiser.id));
@@ -152,7 +152,7 @@ async function eventAt(
   return event;
 }
 
-/** A request the Organiser raised through the real path, so the Coordinator's notice exists too. */
+/** A request raised by the Organiser through the real path, including the Coordinator's notice. */
 async function raise(eventId: number, whatShouldChange = "Expected attendance") {
   return handleRaiseEventChangeRequest(
     { id: eventId, whatShouldChange, requestedValue: "120 attendees" },
@@ -161,7 +161,7 @@ async function raise(eventId: number, whatShouldChange = "Expected attendance") 
   );
 }
 
-/** A processed row, written as the Coordinator's decision left it. */
+/** A processed row in its final state after the Coordinator's decision. */
 async function processedRequest(eventId: number) {
   const request = await raise(eventId, "Already done");
   await database
@@ -242,7 +242,7 @@ describe("processing a change request (PTR-52)", () => {
 
     expect(rows.find(row => row.id === twoWaiting.id)?.changeRequestsWaiting).toBe(2);
     expect(rows.find(row => row.id === none.id)?.changeRequestsWaiting).toBe(0);
-    // Both parties still see every request on the record, outcome included.
+    // Both parties can still see every request and its outcome.
     const view = await handleGetCoordinationRequest(
       { id: twoWaiting.id },
       coordinator,
@@ -281,13 +281,13 @@ describe("processing a change request (PTR-52)", () => {
         recipientId: organiser.id,
         payload: {
           outcome: "applied",
-          // The name as the apply left it.
+          // The name after the update.
           eventName: "PTR52 Forum, renamed",
           whatShouldChange: "Event name",
         },
       },
     ]);
-    // The Organiser's own page shows the outcome.
+    // Show the outcome on the Organiser's page.
     const view = await handleGetEventRequest({ id: event.id }, organiser, database as never);
     expect(view?.changeRequests[0]).toMatchObject({
       outcome: "applied",
@@ -344,7 +344,7 @@ describe("processing a change request (PTR-52)", () => {
       });
       expect((await changeRequestRow(request.id)).outcome).toBeNull();
       expect((await storedEvent(open.id)).purpose).toBe(recorded.purpose);
-      // A decline still records the outcome and tells the Organiser.
+      // A decline records the outcome and notifies the Organiser.
       await decline(open.id, request.id);
       expect((await changeRequestRow(request.id)).outcome).toBe("declined");
     }
@@ -457,8 +457,8 @@ describe("processing a change request (PTR-52)", () => {
 
     expect(await snapshot()).toEqual(before);
     expect((await storedEvent(event.id)).status).toBe("confirmed");
-    // The holders are told as for any significant change (PTR-23 AC5), and counted apart from
-    // the Organiser's own notice.
+    // Notify the holders as for any significant change (PTR-23 AC5). Count their notices separately
+    // from the Organiser's notice.
     expect(result.notified).toBe(2);
     const holderNotices = await database
       .select({ recipientId: schema.notifications.recipientId })
@@ -538,7 +538,8 @@ describe("processing a change request (PTR-52)", () => {
   });
 
   it("declines a request with a reason, leaves the event as it is, and tells the Organiser (AC2, AC5)", async () => {
-    // Raised while the event was open, decided after it completed: a decline is open in any status.
+    // Raise the request while the event is open and decide it after completion. A decline is
+    // allowed in any event status.
     const event = await eventAt("confirmed");
     const request = await raise(event.id);
     await database
@@ -570,7 +571,7 @@ describe("processing a change request (PTR-52)", () => {
         },
       },
     ]);
-    // A second decision on the same request is refused.
+    // Refuse a second decision on the same request.
     await expect(decline(event.id, request.id)).rejects.toMatchObject({
       status: 409,
       message: CHANGE_REQUEST_NOT_WAITING_MESSAGE,

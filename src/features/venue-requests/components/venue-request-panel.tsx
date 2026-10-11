@@ -32,10 +32,9 @@ const FIELDS = ["date", "startTime", "endTime"] as const;
 type FieldName = (typeof FIELDS)[number];
 
 /**
- * The inputs hold the event's proposed window as the form's values, or the adjusted window the
- * rejection card carried in. A request covers one civil day, so a multi-day (or cross-midnight)
- * window leaves the times empty rather than silently truncating to its first day — the
- * required-field and order messages then force a conscious choice.
+ * Prefill the form with the event's proposed window or the adjusted window from the rejection card.
+ * A request covers one civil day. Leave times empty for a multi-day or cross-midnight window so
+ * the Coordinator chooses a valid range instead of silently truncating it.
  */
 function toFormValues(
   event: VenueRequestContext["event"],
@@ -54,9 +53,9 @@ function toFormValues(
 }
 
 /**
- * PTR-31's action surface on the venue page: raise a booking request for an event the Coordinator
- * came from, or withdraw the pending one. The route only renders it when the loader found a
- * requestable event, so everything here is the aftermath of a decision rather than access control.
+ * PTR-31: Let the Coordinator raise a booking request for the event they came from or withdraw a
+ * pending request. The route renders this panel only when the loader finds a requestable event.
+ * Server middleware still controls access.
  */
 export function VenueRequestPanel({
   venueId,
@@ -72,10 +71,10 @@ export function VenueRequestPanel({
   const router = useRouter();
   const request = context.request;
   const sameDay = context.event.endDate === context.event.eventDate;
-  // The route hands a fresh `prefill` object on every render; compare it by value so a re-render
-  // never resets what the Coordinator is mid-way through typing. A carried-in window counts only
-  // when it is complete and ordered — fixed-width `HH:MM` strings compare as times, the same rule
-  // `VenueRequestInput` applies — so a hand-edited or unordered window falls back to the event's own.
+  // The route creates a new `prefill` object on each render. Compare values so a render does not
+  // reset what the Coordinator is typing. Use a carried window only when it is complete and
+  // ordered. Fixed-width `HH:MM` strings compare as times, as `VenueRequestInput` requires.
+  // Otherwise, use the event's proposed window.
   const prefillDate = prefill?.date;
   const prefillStart = prefill?.startTime;
   const prefillEnd = prefill?.endTime;
@@ -104,18 +103,16 @@ export function VenueRequestPanel({
 
   const form = useForm({
     defaultValues: toFormValues(context.event, venueId, stablePrefill),
-    // `VenueRequestInput` is the same gate the server uses, so the ids, the date and the times are
-    // checked once and every issue marks its own field.
+    // `VenueRequestInput` uses the server's rules. Validate ids, date, and times once, then mark each field with its issue.
     validators: { onSubmit: VenueRequestInput },
     onSubmit: async ({ value, formApi }) => {
       try {
         await requestVenue({ data: value });
         toast.success("Venue request sent.");
-        // The loader is the only source for the panel's state: re-running it is what swaps the form
-        // for the pending request.
+        // The loader owns the panel state. Rerun it to replace the form with the pending request.
         await router.invalidate();
       } catch (error) {
-        // `fields` is what makes the library read this as a global error and store `form` verbatim.
+        // `fields` marks this as a global error and stores `form` verbatim.
         formApi.setErrorMap({
           onSubmit: {
             fields: {},
@@ -125,8 +122,7 @@ export function VenueRequestPanel({
         });
       }
     },
-    // A failed submit is the library's own signal; this points focus at the first field the schema
-    // marked, in the panel's left-to-right order, so the reader lands where the problem is.
+    // On submit failure, focus the first field the schema marked, in panel order.
     onSubmitInvalid: ({ formApi }) => {
       const firstInvalid = FIELDS.find(
         field => (formApi.state.fieldMeta[field]?.errors.length ?? 0) > 0
@@ -135,25 +131,23 @@ export function VenueRequestPanel({
     },
   });
 
-  // A new event, venue or request reseeds the controls. Resetting from the props, rather than
-  // remounting on a key, keeps the inputs in step without dropping what was mid-typing, the
-  // pattern `venue-list-page.tsx` follows.
+  // Reset the controls when the event, venue, or request changes. Reset from props instead of
+  // remounting so the inputs stay in sync without dropping text the Coordinator is typing.
   useEffect(() => {
     form.reset(toFormValues(context.event, venueId, stablePrefill));
   }, [context, venueId, stablePrefill, form]);
 
-  // An adjusted request arrives from the rejection card with the form below the venue record, so
-  // the heading takes focus on arrival: the reader lands on the pre-filled form, not the top. Only
-  // while the form is showing — once the request is sent the URL still carries the window.
+  // An adjusted request comes from the rejection card, below the venue record. Focus its heading
+  // so the reader lands on the prefilled form. Do this only while the form is visible; the URL
+  // keeps the window after submission.
   const showsForm = request === null;
   useEffect(() => {
     if (stablePrefill && showsForm) headingRef.current?.focus();
   }, [stablePrefill, showsForm]);
 
-  // Sending or withdrawing swaps the panel's branch under the same heading, so focus would
-  // otherwise fall to `<body>` and the new state go unannounced. Only a request that changed
-  // while the event and venue stayed put is that swap — a venue-to-venue navigation changes the
-  // context too and must leave focus alone, and the first run only records the identity.
+  // Sending or withdrawing replaces the panel under the same heading. Move focus so readers hear
+  // the new state. Do this only when the request changes but the event and venue stay the same.
+  // Leave focus alone during venue navigation. The first run only records the current ids.
   const contextKey = `${context.event.id}:${venueId}`;
   const requestId = request?.id ?? null;
   const previous = useRef<{ contextKey: string; requestId: string | null } | null>(null);
@@ -252,8 +246,7 @@ export function VenueRequestPanel({
                 className="mt-5 space-y-4"
                 onSubmit={event => {
                   event.preventDefault();
-                  // The library has no re-entrancy check, and a second click can land before
-                  // React disables the button.
+                  // The library has no re-entrancy check. A second click can arrive before React disables the button.
                   if (form.state.isSubmitting) return;
                   void form.handleSubmit();
                 }}

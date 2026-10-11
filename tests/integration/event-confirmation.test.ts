@@ -1,5 +1,6 @@
-// Mirrors equipment-arrangement.test.ts: a local node-postgres drizzle instance, not the app's
-// `#/db`, with notifications read back from the `notifications` table.
+// Use a local node-postgres Drizzle instance, as `equipment-arrangement.test.ts` does. Keep the
+// app's `#/db` out of this file.
+// Read notifications from the `notifications` table.
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
@@ -158,7 +159,7 @@ describe("confirming an event (PTR-24)", () => {
       eventId,
       venueId,
       requestedById: coordinator.id,
-      // A window in a distant year per event keeps the overlap constraint from tripping.
+      // Use a different year for each event to avoid the overlap constraint.
       startsAt: `${2040 + created.length}-03-10 09:00:00`,
       endsAt: `${2040 + created.length}-03-10 12:30:00`,
       status,
@@ -269,7 +270,7 @@ describe("confirming an event (PTR-24)", () => {
     test("refuses more than one approved booking and leaves the event untouched", async () => {
       const eventId = await createEvent();
       await createBooking(eventId);
-      // A distant second window keeps the overlap constraint from tripping.
+      // Use a distant second window to avoid the overlap constraint.
       await database.insert(schema.venueRequests).values({
         id: crypto.randomUUID(),
         eventId,
@@ -301,7 +302,7 @@ describe("confirming an event (PTR-24)", () => {
       expect((await readEvent(eventId)).status).toBe("approved");
     });
 
-    // PTR-43: every line arranged is not enough until Technical Support marks it complete.
+    // PTR-43: arranged lines are not enough. Technical Support must mark them complete.
     test("refuses arranged equipment that Technical Support has not marked complete", async () => {
       const eventId = await createEvent("approved", false);
       await createBooking(eventId);
@@ -504,7 +505,7 @@ describe("confirming an event (PTR-24)", () => {
         .from(schema.venueRequests)
         .where(eq(schema.venueRequests.eventId, eventId));
 
-      // Hold the booking's row lock the way a release does, then start confirming.
+      // Lock the booking row as a release would, then start confirmation.
       const client = await pool.connect();
       try {
         await client.query("begin");

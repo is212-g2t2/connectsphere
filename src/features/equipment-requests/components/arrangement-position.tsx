@@ -1,7 +1,7 @@
 import { ReservedCount } from "#/features/equipment-requests/components/reserved-count";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 
-/** Technical Support's position on one line: its state, then the reason and note when present. */
+/** Show Technical Support's position on one line. Show its state first, then the reason and note. */
 export function ArrangementPosition({
   line,
 }: {

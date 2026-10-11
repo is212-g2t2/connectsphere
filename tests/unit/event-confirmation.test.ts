@@ -18,7 +18,7 @@ const settled = [
 
 const completedAt = new Date("2026-10-01T00:00:00Z");
 
-/** Settled by default (PTR-43's stamp present); a case passes `null` to leave it unmarked. */
+/** Settle by default with PTR-43's stamp present. A case passes `null` to leave it unmarked. */
 function blockersFor(
   input: Omit<Parameters<typeof confirmationBlockers>[0], "equipmentArrangementsCompletedAt"> & {
     equipmentArrangementsCompletedAt?: Date | null;

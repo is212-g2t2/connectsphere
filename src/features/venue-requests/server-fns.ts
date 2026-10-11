@@ -16,9 +16,9 @@ import { logger } from "#/lib/logger";
 const log = logger.getChild("venue-requests");
 
 /**
- * Routes import this module, so it stays free of any static server import — the middleware
- * pipeline is client-safe, and `./requests.server` and `#/db` are reached inside the handlers,
- * which TanStack Start strips from the client build.
+ * Routes import this module, so do not add static server imports here. Middleware must remain
+ * client-safe. Handlers import `./requests.server` and `#/db` dynamically; TanStack Start removes
+ * handlers from the client build.
  */
 async function loadServer() {
   return Promise.all([import("#/db"), import("#/features/venue-requests/requests.server")]);
@@ -29,9 +29,9 @@ async function loadBookingServer() {
 }
 
 /**
- * PTR-31: what an Event Coordinator holds when asking about, raising, or withdrawing a booking
- * request. The handler re-reads the event's assignment, so the function grants the role its
- * verbs, never a specific event.
+ * PTR-31: The Event Coordinator's access when they view, raise, or withdraw a booking request.
+ * The handler re-reads the event assignment. This function grants role permissions, not access to
+ * a specific event.
  */
 export const requireVenueRequest = requirePermission({ venue_request: ["request"] });
 
@@ -54,9 +54,9 @@ export type PendingVenueRequestDetail = NonNullable<
 >;
 
 /**
- * The venue page's read. Wrapped in `{ context }` for the reason `getVenue` documents: a nullable
- * top-level result infers as `never`. A `null` context is an ordinary answer — the venue page
- * renders without the request panel — not a refusal the route has to handle.
+ * Read the context for the venue page. Return it in `{ context }` because a nullable top-level
+ * result infers as `never`, as `getVenue` documents. A `null` context means the page omits the
+ * request panel; it is not a refusal.
  */
 export const getVenueRequestContext = createServerFn({ method: "GET" })
   .validator(parseVenueRequestContext)
@@ -66,7 +66,7 @@ export const getVenueRequestContext = createServerFn({ method: "GET" })
     return { context: await handleGetVenueRequestContext(data, context.user, db) };
   });
 
-/** The panel's props as the client sees them — derived here, so no route imports the server module. */
+/** The panel props for the client. Derive them here so routes do not import the server module. */
 export type VenueRequestContext = NonNullable<
   Awaited<ReturnType<typeof getVenueRequestContext>>["context"]
 >;
@@ -105,8 +105,8 @@ export const withdrawVenueRequest = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-36: the Venue Staff verb that settles a pending request. The handler re-reads the queue
- * rule, so the function grants the role its verb, never a specific row.
+ * PTR-36: The Venue Staff permission to approve a pending request. The handler checks the queue
+ * again, so this function grants a role permission, not access to a specific row.
  */
 export const requireVenueDecision = requirePermission({ venue_request: ["decide"] });
 

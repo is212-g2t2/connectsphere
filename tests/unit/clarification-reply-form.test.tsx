@@ -138,7 +138,7 @@ describe("ClarificationReplyForm", () => {
           id: 7,
           clarificationId: 14,
           body: "The revised count is confirmed.",
-          // The untouched room layout is omitted so it cannot revert a value another reply set.
+          // Omit the untouched room layout. It never reverts a value another reply set.
           amendments: { expectedAttendance: 120 },
         },
       });

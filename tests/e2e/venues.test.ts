@@ -5,8 +5,8 @@ import type { Page } from "@playwright/test";
 import { waitForHydration } from "./hydration";
 import { signInWithSeedPassword as signInAsSeeded } from "./staff-auth";
 
-// Sign-up can only mint external roles, so the internal accounts these tests sign in as come
-// from the seed that `global-setup.ts` runs once before the suite.
+// Sign-up creates only external roles. These tests use internal accounts from the seed in
+// `global-setup.ts`.
 
 async function signInAsVenueStaff(page: Page): Promise<void> {
   await signInAsSeeded(page, "venue.staff.seed@example.com");
@@ -24,19 +24,16 @@ async function signUpAsOrganiser(page: Page): Promise<void> {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
-/** The location the helper below records, so a test can assert on what it filled in. */
+/** The location recorded by the helper below, for tests to check. */
 const CREATED_LOCATION = "Level 4, Playwright Wing";
 
-/**
- * Records a venue through the form and leaves the page on its detail route, returning that
- * route's path. The seed's demo venues are shared mutable state, so a test that edits or reads
- * back a specific record brings its own row rather than racing every other run for one of those.
- * The path is read only once `?saved=true` has been stripped: the detail route drops that param
- * in an effect, so until then neither the URL nor a reload of it is stable.
+/** Create a venue through the form and return its detail path. Each test creates its own row to
+ * avoid races on the shared seed venues. Read the path after the detail route removes
+ * `?saved=true`; that effect changes the URL.
  */
 async function createVenue(page: Page, name: string): Promise<string> {
   await page.goto("/venues/new");
-  // Controlled inputs: typing before hydration completes is thrown away when React attaches.
+  // Wait for hydration before typing. React discards input sent before it attaches.
   await waitForHydration(page);
 
   await page.getByLabel("Venue name", { exact: true }).fill(name);
@@ -67,7 +64,7 @@ test.describe("Venue records", () => {
     await expect(page.getByRole("heading", { name: "Venues", exact: true })).toBeVisible();
     await page.getByRole("link", { name: "New venue" }).click();
     await expect(page.getByRole("heading", { name: "New venue" })).toBeVisible();
-    // Controlled inputs: typing before hydration completes is thrown away when React attaches.
+    // Wait for hydration before typing. React discards input sent before it attaches.
     await waitForHydration(page);
 
     await page.getByLabel("Venue name", { exact: true }).fill(name);
@@ -90,8 +87,7 @@ test.describe("Venue records", () => {
 
     await page.goto("/venues");
     await expect(page).toHaveURL(/\/dashboard$/);
-    // The guard, not the loader, is what turns this request around: the catalogue heading must
-    // never have painted, however briefly.
+    // The guard must redirect before the loader renders the catalogue heading.
     await expect(page.getByRole("heading", { name: "Venues" })).toHaveCount(0);
 
     await page.goto("/dashboard");
@@ -100,9 +96,8 @@ test.describe("Venue records", () => {
   });
 
   test("sends a Coordinator from New venue back to the catalogue", async ({ page }) => {
-    // `/venues/new` falls back to `/venues`, not `/dashboard`: a Coordinator holds `venue:read`,
-    // so the catalogue is the page the guard may hand them. Fallback and target stay co-located
-    // per route rather than being modelled by a layout shared with the catalogue's own guard.
+    // `/venues/new` redirects to `/venues`. A Coordinator has `venue:read`, so the catalogue is
+    // the correct fallback. Keep the fallback with its route, not in a shared layout.
     await signInAsSeeded(page, "coordinator.seed@example.com");
 
     await page.goto("/venues/new");
@@ -114,15 +109,14 @@ test.describe("Venue records", () => {
 
   test("lets Venue Staff edit a venue and keeps the change across a reload", async ({ page }) => {
     await signInAsVenueStaff(page);
-    // Two independent ids: `getByText` matches substrings, so a renamed venue whose name
-    // contained the original one would make the "old value is gone" check below unfalsifiable.
+    // Use two ids. `getByText` matches substrings, so a new name that contains the old name would
+    // make the removal check pass incorrectly.
     const original = `Playwright Original ${randomUUID().slice(0, 8)}`;
     const renamed = `Playwright Renamed ${randomUUID().slice(0, 8)}`;
 
     await createVenue(page, original);
-    // Reloaded before touching anything: creating arrives with "Venue saved." already on screen,
-    // and the same assertion after the edit has to be about the edit. The fresh load starts the
-    // banner hidden, and shows the created row coming back from the database on its own.
+    // Reload before editing. The create page already shows "Venue saved." A fresh load hides the
+    // banner and reads the created row from the database, so the next check covers the edit.
     await page.reload();
     await waitForHydration(page);
     await expect(page.getByRole("heading", { name: original })).toBeVisible();
@@ -132,9 +126,9 @@ test.describe("Venue records", () => {
     await page.getByRole("button", { name: "Save venue" }).click();
 
     await expect(page.getByText("Venue saved.")).toBeVisible();
-    // The heading renders loader data, never the values that were typed, so it only reads the
-    // new name once `router.invalidate()` has re-run the loader — this is the assertion that
-    // fails if the save path goes back to mirroring the row in component state.
+    // The heading uses loader data, not typed values. It shows the new name only after
+    // `router.invalidate()` runs the loader again. This catches a save path that copies the row
+    // into component state.
     await expect(page.getByRole("heading", { name: renamed })).toBeVisible();
 
     await page.reload();
@@ -148,22 +142,22 @@ test.describe("Venue records", () => {
     const name = `Playwright Read-only ${randomUUID().slice(0, 8)}`;
     const detailPath = await createVenue(page, name);
 
-    // Dropped rather than overwritten: Better Auth only CSRF-checks a request that carries a
-    // cookie, and the request context sends no `Origin` header for it to accept, so signing in
-    // over the staff session is refused. Clearing it is also what changing person really is.
+    // Remove the staff cookie before signing in as another user. Better Auth checks CSRF only when
+    // a request has a cookie, and this request has no `Origin` header. Without the cookie, sign-in
+    // is refused. This also models changing users.
     await page.context().clearCookies();
     await signInAsSeeded(page, "coordinator.seed@example.com");
     await page.goto(detailPath);
 
-    // May view. In the read-only list the stored values are text rather than input values, so
-    // `getByText` finding them is itself the evidence that this is not the form.
+    // This user may view the venue. Its values appear as text, not input values, in the read-only
+    // list.
     await expect(page.getByRole("heading", { name })).toBeVisible();
     await expect(page.getByText(CREATED_LOCATION)).toBeVisible();
     await expect(page.getByText("25", { exact: true })).toBeVisible();
-    // Layouts read as their labels here, never as the enum keys the column stores.
+    // Show layout labels, not the enum keys stored in the database.
     await expect(page.getByText("Theatre", { exact: true })).toBeVisible();
 
-    // May not edit: no submit, and none of the three kinds of control the form is built from.
+    // This user may not edit. Show no submit button or form controls.
     await expect(page.getByRole("button", { name: "Save venue" })).toHaveCount(0);
     await expect(page.getByRole("textbox")).toHaveCount(0);
     await expect(page.getByRole("spinbutton")).toHaveCount(0);

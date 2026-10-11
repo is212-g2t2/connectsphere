@@ -18,26 +18,22 @@ async function signUp(page: Page): Promise<void> {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
-/**
- * PTR-73: the nav is server-rendered from the session the request already carries.
- *
- * `page.request.get` is the assertion that matters — it reads the server's own response, before
- * a line of client JavaScript runs. Asking the rendered page instead would pass just as well
- * against the `authClient.useSession()` the header used to call, which only answers after
- * hydration and made the account menu pop into a nav that had already painted without it.
+/** PTR-73: render the navigation from the request's session on the server. `page.request.get`
+ * reads the response before client JavaScript runs. A browser assertion would also pass with the
+ * old `authClient.useSession()` call, which showed the account menu only after hydration.
  */
 test.describe("Header session", () => {
   test("serves the signed-in nav in the server markup", async ({ page }) => {
     await signUp(page);
 
-    // `/` redirects a signed-in request to `/dashboard` (the landing `beforeLoad`), so the
-    // request client follows it there — both responses still carry the signed-in nav.
+    // The `/` route redirects signed-in users to `/dashboard`. The request client follows it, and
+    // both responses include the signed-in navigation.
     const [dashboard, landing] = await Promise.all(
       ["/dashboard", "/"].map(url => page.request.get(url))
     );
     expect(landing.url()).toMatch(/\/dashboard$/);
-    // The menu content renders on the client, so the server markup carries the trigger —
-    // `aria-label="Account menu"` — and never the "Sign out" item itself.
+    // The menu renders on the client. Server markup has its `aria-label="Account menu"` trigger,
+    // but not the "Sign out" item.
     const htmls = await Promise.all([dashboard, landing].map(response => response.text()));
     for (const html of htmls) {
       expect(html).toContain('aria-label="Account menu"');
@@ -50,7 +46,7 @@ test.describe("Header session", () => {
     const html = await response.text();
     expect(html).not.toContain('aria-label="Account menu"');
 
-    // The refusal also holds after hydration, not only in the server markup.
+    // Check the refusal after hydration as well as in the server markup.
     await page.goto("/");
     await waitForHydration(page);
     await expect(page.getByRole("button", { name: "Account menu" })).toHaveCount(0);
@@ -79,7 +75,7 @@ test.describe("Header session", () => {
     await expect(header.getByRole("button", { name: "Account menu" })).toBeVisible();
 
     await header.getByRole("button", { name: "Account menu" }).click();
-    // The popup mounts in a portal on `document.body`, so the items live outside `header`.
+    // The popup uses a portal on `document.body`, so its items are outside `header`.
     const menu = page.getByRole("menu");
     await expect(menu.getByText("Settings")).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
@@ -99,9 +95,8 @@ test.describe("Header session", () => {
   });
 });
 
-/**
- * The dashboard is cards only; each role's sections moved to the site header. The header is
- * server-rendered, so the signed-in sections are asserted on the hydrated page per role.
+/** The dashboard contains cards. Each role's sections are in the header. Check the signed-in
+ * header sections for each role after hydration.
  */
 test.describe("Role sections nav", () => {
   test("organiser sees Event requests only", async ({ page }) => {

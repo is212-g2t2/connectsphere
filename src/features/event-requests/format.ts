@@ -3,10 +3,9 @@ import { toLocalMinuteValue } from "#/features/venues/availability";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
- * A stored `datetime-local` value (`2030-11-18T09:30`) as a reader sees it: `18 Nov 2030, 09:30`.
- * String arithmetic rather than a `Date`, for the reason the value is stored as text at all —
- * it is the organiser's wall-clock, and building a `Date` would shift it by the viewer's zone.
- * Anything not in that shape is returned untouched rather than mis-rendered.
+ * Format a stored `datetime-local` value, such as `2030-11-18T09:30`, as `18 Nov 2030, 09:30`.
+ * Use string operations, not `Date`: this is the Organiser's wall-clock time, and `Date` would
+ * shift it to the viewer's timezone. Return values in any other shape unchanged.
  */
 export function formatLocalDateTime(value: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})$/.exec(value);
@@ -18,8 +17,8 @@ export function formatLocalDateTime(value: string): string {
 }
 
 /**
- * A stored calendar date (`2030-11-18`) as a reader sees it: `18 Nov 2030`. String arithmetic for
- * the same reason as `formatLocalDateTime`; anything not in that shape is returned untouched.
+ * Format a stored date, such as `2030-11-18`, as `18 Nov 2030`. Use string operations for the same
+ * reason as `formatLocalDateTime`. Return other values unchanged.
  */
 export function formatLocalDate(value: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -49,10 +48,9 @@ export function formatProposedWindow(window: { start?: string; end?: string }): 
 }
 
 /**
- * An instant the server recorded — a submission or an assignment — unlike the wall-clock strings
- * above. Rendered in one fixed zone rather than the runtime's: the page is server-rendered and
- * then hydrated, and a zone that differed between the two would change the text under React's
- * feet. ConnectSphere's venues are in Singapore (brief §1), so that is the zone.
+ * Format a server-recorded instant, such as a submission or assignment, in one fixed timezone.
+ * The page renders on the server and then hydrates. Different timezones would change its text.
+ * ConnectSphere's venues are in Singapore (brief §1), so use that timezone.
  */
 export function formatInstant(value: Date | null): string {
   return value === null
@@ -65,8 +63,8 @@ export function formatInstant(value: Date | null): string {
 }
 
 /**
- * A floating venue-local period (`2026-12-05 10:00:00`, the `mode: "string"` shape a booking or
- * a hold reads back) in the proposed-window wording: `5 Dec 2026, 10:00 – 16:00`.
+ * Format a floating venue-local period, such as `2026-12-05 10:00:00`, as a proposed window.
+ * Bookings and holds use the `mode: "string"` shape. Example: `5 Dec 2026, 10:00 – 16:00`.
  */
 export function formatVenuePeriod(startsAt: string, endsAt: string): string {
   return formatProposedWindow({

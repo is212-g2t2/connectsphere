@@ -59,7 +59,7 @@ const FILTERS = [
   "Required facilities",
 ];
 
-/** Types into the controlled input the way a person does, then reads back what it holds. */
+/** Type into the controlled input, then read its value. */
 async function fill(actor: ReturnType<typeof userEvent.setup>, label: string, value: string) {
   const input = screen.getByLabelText<HTMLInputElement>(label, { exact: true });
   await actor.clear(input);
@@ -242,13 +242,13 @@ describe("VenueListPage suitability (PTR-30)", () => {
 
     const results = screen.getByRole("region", { name: "Venue results" });
     expect(within(results).getByText("1 venue suitable, 1 not suitable")).toBeTruthy();
-    // Results stay the suitable venues; the shortfalls are their own region beneath them.
+    // Show suitable venues as results. List shortfalls in a separate region below them.
     expect(within(results).queryByRole("link", { name: "Small Room" })).toBeNull();
     const unsuitable = screen.getByRole("region", { name: "Not suitable" });
     expect(within(unsuitable).getByRole("link", { name: "Small Room" })).toBeTruthy();
     expect(within(unsuitable).getByText("Holds 40; 120 needed")).toBeTruthy();
     expect(within(unsuitable).getByText("Missing facilities: projector")).toBeTruthy();
-    // AC6 stated where the verdict is read.
+    // AC6 specifies where to show the verdict.
     expect(within(unsuitable).getByText(/books or blocks nothing/)).toBeTruthy();
   });
 

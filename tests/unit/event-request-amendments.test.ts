@@ -4,7 +4,7 @@ import type { eventRequests } from "#/db/schema";
 import { amendedValues, amendmentsBetween } from "#/features/event-requests/amendments";
 import { EVENT_INFORMATION_FIELDS } from "#/features/event-requests/schema";
 
-/** A stored row as the handlers lock it; only the draft columns matter to these helpers. */
+/** Lock a stored row as the handlers lock it. Only the draft columns matter to these helpers. */
 const row = {
   id: 7,
   eventName: "Planning forum",
@@ -26,8 +26,8 @@ const row = {
 
 describe("event request amendments", () => {
   it("finds no change when only the key order or an absent value's spelling differs", () => {
-    // `jsonb` stores keys in its own order, and the row stores absent terms as null where the
-    // parsed values carry them as undefined.
+    // `jsonb` stores keys in its own order. The row stores absent terms as null; parsed values
+    // carry them as undefined.
     const values = amendedValues(row, {
       proposedDates: [{ end: "2031-03-10T17:00", start: "2031-03-10T09:00" }],
       equipmentRequirements: [{ quantity: 1, type: "Projector" }],

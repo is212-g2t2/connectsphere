@@ -10,7 +10,7 @@ import {
 import { registerForEvent } from "#/features/events/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 
-/** The server's named refusals. Any other failure falls back to the generic text. */
+/** The server's named refusals. Other failures use the generic text. */
 function isRegistrationRefusal(message: string): boolean {
   return (
     message === REGISTRATION_NOT_OPEN_MESSAGE ||
@@ -20,9 +20,9 @@ function isRegistrationRefusal(message: string): boolean {
 }
 
 /**
- * PTR-45: the Attendee registers for the event. The page shows the action only while registration
- * is open (PTR-50); the server still says why it refuses, because the period or the places can
- * change after the page loads.
+ * PTR-45: The Attendee registers for the event. The page shows the action only while registration
+ * is open (PTR-50). The server still states why it refuses. The period or the places can change
+ * after the page loads.
  */
 export function RegisterAction({ eventId, eventName }: { eventId: number; eventName: string }) {
   const router = useRouter();

@@ -9,9 +9,9 @@ import * as schema from "../../src/db/schema";
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 /**
- * Registers an account through the API. An internal role cannot be self-assigned, so a
- * coordinator is registered as an organiser, promoted directly, then signed out and back in so
- * the session carries the role. Shared by the specs that need an account of their own.
+ * Register an account through the API. Internal roles are not self-assignable, so register a
+ * coordinator as an organiser and promote directly. Sign out and back in; the session then
+ * carries the role. Specs that need their own account share this helper.
  */
 export async function registerAccount(
   database: Database,

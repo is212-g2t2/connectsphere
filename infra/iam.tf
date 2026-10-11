@@ -1,7 +1,6 @@
-# Workload Identity Federation: GitHub Actions authenticates as the deploy
-# service account with no long-lived key. The provider accepts only tokens from
-# this repository, and the binding below accepts only its main branch and tag
-# refs; a pull-request workflow cannot assume the deploy identity.
+# Workload Identity Federation lets GitHub Actions use the deploy service account without a
+# long-lived key. The provider accepts tokens only from this repository. The binding accepts only
+# its main branch and tag refs, so pull-request workflows cannot use the deploy identity.
 
 resource "google_iam_workload_identity_pool" "github" {
   project                   = var.project_id
@@ -22,8 +21,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.ref"        = "assertion.ref"
     "attribute.ref_type"   = "assertion.ref_type"
   }
-  # Branch refs always pass; a tag ref must be a release-please v* tag, so a
-  # pushed tag cannot assume the deploy identity.
+  # Allow branch refs. Allow tag refs only when release-please created the v* tag.
   attribute_condition = "assertion.repository == \"is212-g2t2/connectsphere\" && (assertion.ref_type != \"tag\" || assertion.ref.startsWith(\"refs/tags/v\"))"
 
   oidc {
@@ -31,9 +29,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   }
 }
 
-# The deploy identity. Terraform itself runs by hand from a workstation, so
-# this account carries only what the release pipeline needs: deploy and move
-# traffic, read the smoke token, and act as the runtime service accounts.
+# The deploy identity. Run Terraform by hand from a workstation. Give this account only the access
+# the release pipeline needs: deploy services, move traffic, read the smoke token, and act as the
+# runtime service accounts.
 resource "google_service_account" "deploy" {
   project      = var.project_id
   account_id   = "terraform"
@@ -45,10 +43,9 @@ resource "google_service_account_iam_binding" "github_deploy" {
   role               = "roles/iam.workloadIdentityUser"
   members = [
     "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}/attribute.ref/refs/heads/main",
-    # A release publishes a tag, so the production deploy authenticates from a
-    # tag ref. Principal sets match attribute values exactly; there is no
-    # wildcard, which is why the tag case is identified by ref_type and the
-    # provider condition narrows it to v* tags.
+    # A release publishes a tag, so production deploys use a tag ref. Principal sets require exact
+    # attribute values. Match tag refs by `ref_type`, then restrict them to v* tags in the provider
+    # condition.
     "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}/attribute.ref_type/tag",
   ]
 }
@@ -59,8 +56,8 @@ resource "google_project_iam_member" "deploy_run" {
   member  = "serviceAccount:${google_service_account.deploy.email}"
 }
 
-# The smoke job reads <env>-SMOKE_TOKEN from Secret Manager. Only the two smoke
-# tokens are readable, so the staging deploy cannot reach prod-DATABASE_URL.
+# The smoke job reads <env>-SMOKE_TOKEN from Secret Manager. It can read only the two smoke tokens,
+# so the staging deploy cannot read prod-DATABASE_URL.
 resource "google_secret_manager_secret_iam_member" "deploy_smoke" {
   for_each = { for k, v in local.env_secrets : k => v if v.name == "SMOKE_TOKEN" }
 
@@ -70,7 +67,7 @@ resource "google_secret_manager_secret_iam_member" "deploy_smoke" {
   member    = "serviceAccount:${google_service_account.deploy.email}"
 }
 
-# Per-environment runtime identities: the isolation that makes one project safe.
+# Give each environment its own runtime identity. This keeps environments isolated in one project.
 resource "google_service_account" "runtime" {
   for_each = local.environments
 
@@ -79,8 +76,7 @@ resource "google_service_account" "runtime" {
   display_name = "ConnectSphere ${each.key} runtime"
 }
 
-# `gcloud run deploy` needs actAs on the runtime identity; none of the
-# project-level roles grant it.
+# `gcloud run deploy` needs `actAs` on the runtime identity. The project-level roles do not grant it.
 resource "google_service_account_iam_member" "deploy_actas_runtime" {
   for_each = local.environments
 

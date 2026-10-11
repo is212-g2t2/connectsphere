@@ -52,11 +52,9 @@ describe("VenueInput (PTR-26)", () => {
     expect(parsed.facilities).toEqual(["Projector", "Stage"]);
   });
 
-  /**
-   * Criterion 3, as boundary-value analysis: just below, exactly at and just above each end of
-   * the valid range, plus every other way a number can fail to be a positive whole number. The
-   * upper end is the `max_capacity` int4 column's ceiling — past it Postgres raises 22003 and
-   * the form would be shown a driver error, so Zod has to refuse it first.
+  /** Criterion 3: test values below, at, and above each valid range boundary. Also test values
+   * that are not positive whole numbers. The upper boundary is the `max_capacity` int4 limit.
+   * PostgreSQL returns error 22003 above it, so Zod must reject the value first.
    */
   describe("maximum capacity", () => {
     it.each([1, 2, 300, 2_147_483_647])("accepts %d", maxCapacity => {
@@ -70,8 +68,8 @@ describe("VenueInput (PTR-26)", () => {
       }
     );
 
-    // A number past the int4 ceiling *is* a positive whole number, so criterion 3's sentence
-    // would be false about it — it is refused for storage, and says so.
+    // A number above the int4 limit is a positive whole number. Reject it because the database
+    // cannot store it, and return that reason.
     it.each([2_147_483_648, 3_000_000_000])("refuses %d as too large to store", maxCapacity => {
       expect(() => parseVenueInput({ ...valid, maxCapacity })).toThrow(CAPACITY_TOO_LARGE_MESSAGE);
     });
@@ -103,10 +101,8 @@ describe("VenueInput (PTR-26)", () => {
   });
 });
 
-/**
- * AGENTS.md requires every server-function validator to rethrow `issues[0].message`, so the id
- * schema has to carry wording a person can act on — including for a payload that is not an
- * object at all, which trips the object check rather than the field's.
+/** `AGENTS.md` requires validators to throw `issues[0].message`. Give the id schema useful wording
+ * for a non-object payload, which fails the object check before it checks the field.
  */
 describe("parseVenueId", () => {
   it("returns the id it was given", () => {

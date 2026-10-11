@@ -3,7 +3,7 @@ name: E2E Tests
 on:
   workflow_call:
   pull_request:
-    # Not a default activity type; without it, marking a draft ready starts no run.
+    # This activity type is not enabled by default. Include it so marking a draft ready starts a run.
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "**.md"
@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 
-# Literal, not `github.workflow`: a called workflow sees the caller's name.
+# Set a literal name because a called workflow sees the caller's name in `github.workflow`.
 concurrency:
   group: e2e-tests-${{ github.ref }}
   cancel-in-progress: true
@@ -42,9 +42,9 @@ jobs:
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
       - name: Run E2E tests
-        # globalSetup starts its own postgres testcontainer (random port, migrated and seeded)
-        # and a production server on :3000 against it, so Docker must be reachable here — hence
-        # no job container. Mailpit comes from the services above.
+        # globalSetup starts a Postgres test container on a random port, then migrates and seeds it.
+        # It also starts a production server on port 3000 against that database. Docker must be
+        # reachable from this job, so do not use a job container. Mailpit runs as a service above.
         run: bun run test:e2e
         env:
           BETTER_AUTH_SECRET: "12345678901234567890123456789012"
@@ -52,7 +52,7 @@ jobs:
           # Mail capture for the password-reset journey.
           SMTP_URL: smtp://127.0.0.1:1025
           MAILPIT_URL: http://127.0.0.1:8025
-          # The notification email worker's bearer; E2E drains the queue through its route.
+          # Bearer token for the notification email worker. E2E drains the queue through its route.
           CRON_TOKEN: e2e-cron-token
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7
@@ -62,7 +62,7 @@ jobs:
           path: playwright-report/
           retention-days: 3
       - name: Report Playwright results
-        # Public action over the JSON reporter: writes the job summary, no local script.
+        # This public action reads the JSON reporter and writes the job summary. No local script is needed.
         uses: daun/playwright-report-summary@v4
         if: ${{ always() }}
         with:

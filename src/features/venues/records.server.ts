@@ -29,12 +29,12 @@ import type { OperatingHours, VenueLayout, VenueSearch } from "#/features/venues
 import { isConstraintViolation } from "#/lib/db-errors";
 
 /**
- * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
- * ship the whole database schema to the browser from any module a route can reach.
- * `server-fns.ts` reaches this through a dynamic `import()` inside `.handler()`.
+ * Keep this module server-only. A static `#/db/schema` import from a client-reachable module
+ * would ship the full database schema to the browser. `server-fns.ts` imports this module
+ * dynamically inside `.handler()`.
  *
- * These are pure database operations: the server function's middleware pipeline has already
- * verified the session and the `venue` permission before any of them runs.
+ * These functions only access the database. Middleware checks the session and `venue` permission
+ * before a server function calls them.
  */
 
 type Database = typeof Db;
@@ -53,7 +53,7 @@ function normalise(value: string) {
   return value.trim().toLocaleLowerCase("en");
 }
 
-/** Dropped from both sides so "Sound and lighting" and "lighting sound" compare equal. */
+/** Remove these words from both sides so "Sound and lighting" matches "lighting sound". */
 const TAG_STOPWORDS = new Set(["and", "or", "the", "with", "plus", "for", "of"]);
 
 function tagWords(value: string) {
@@ -63,12 +63,12 @@ function tagWords(value: string) {
 }
 
 /**
- * The requested phrases — split on commas and the word "and" — that the venue's stored tags do
- * not cover, named as the Coordinator typed them. A phrase is covered when every one of its words
- * is some stored tag's word, in any order, so a stored tag with extra words still satisfies a
- * shorter request and punctuation is just a separator.
+ * Return requested phrases that the venue's stored tags do not cover. Split phrases on commas and
+ * the word "and". Keep each phrase as the Coordinator typed it. A phrase matches when every word
+ * occurs in a stored tag. Word order does not matter, and extra tag words are allowed. Treat
+ * punctuation as a separator.
  *
- * ponytail: exact word-set matching, no synonyms — "PA system" does not match a stored "Sound and
+ * ponytail: exact word-set matching with no synonyms. "PA system" does not match a stored "Sound and
  * lighting system". Add a synonym table (or embeddings) if cross-vocabulary recall matters.
  */
 function missingTagPhrases(actual: readonly string[], requested: string | undefined): string[] {
@@ -81,8 +81,8 @@ function missingTagPhrases(actual: readonly string[], requested: string | undefi
 }
 
 /**
- * PTR-30 criterion 5: the criterion a venue failed, named. `criterion` is stable for tests and
- * any later grouping; `message` is the sentence the Coordinator reads.
+ * PTR-30 criterion 5: the name of a failed criterion. Tests and later grouping use `criterion`;
+ * the Coordinator reads `message`.
  */
 export type SuitabilityCriterion =
   | "capacity"
@@ -99,7 +99,7 @@ export interface SuitabilityFailure {
   message: string;
 }
 
-/** Every rule is evaluated, so an unsuitable venue lists everything wrong with it, not the first thing. */
+/** Evaluate every rule so an unsuitable venue lists all failures. */
 export interface SuitabilityVerdict {
   suitable: boolean;
   failures: SuitabilityFailure[];
@@ -129,9 +129,9 @@ function clashingFailure(
 }
 
 /**
- * Whether the venue can host the requested window, and if not, why: closed, blocked by recorded
- * unavailability, or — criterion 4 — holding an approved booking that overlaps it. A booking is
- * named ahead of a block on the same day because it is the answer the Coordinator most needs.
+ * Report whether the venue can host the requested window and why it cannot. Reasons are closure,
+ * recorded unavailability, or an overlapping approved booking (criterion 4). Name a booking
+ * before a block on the same day because the Coordinator needs that answer first.
  */
 function availabilityFailure(
   venue: VenueSuitabilityCandidate,
@@ -154,8 +154,8 @@ function availabilityFailure(
     openPeriods: openingPeriods(filters.date, endDate, venue.operatingHours),
   });
 
-  // Without times the event needs some open time on each requested day, so a day that is closed,
-  // blocked or booked right through fails the range however free the other days are.
+  // Without times, each requested day needs some open time. A closed, blocked, or fully booked day
+  // makes the range unavailable, even if other days are free.
   if (!filters.startTime || !filters.endTime) {
     for (let day = filters.date; day <= endDate; day = nextCivilDate(day)) {
       const dayStart = `${day}T00:00:00`;
@@ -164,8 +164,8 @@ function availabilityFailure(
         period => period.startsAt < dayEnd && period.endsAt > dayStart
       );
       if (free) continue;
-      // Name a booking only when it takes some of the day's opening time; a booking outside the
-      // hours, or on a closed day, is not what removed the day.
+      // Name a booking only if it overlaps the venue's opening hours. A booking outside those
+      // hours, or on a closed day, did not make the day unavailable.
       const opening = openingPeriods(day, day, venue.operatingHours);
       const openClashes = projection.occupied.filter(period =>
         opening.some(open => overlaps(period, open.startsAt, open.endsAt))
@@ -177,8 +177,8 @@ function availabilityFailure(
     return null;
   }
 
-  // The times are a daily hosting window, not one continuous period: a two-day search needs each
-  // day covered on its own, and a window running past midnight fits no civil day at all.
+  // Treat the times as a daily hosting window, not one continuous period. A multi-day search must
+  // cover each day, and a window past midnight does not fit any civil day.
   if (crossesMidnight(filters)) {
     return { criterion: "availability", message: "The requested window crosses midnight" };
   }
@@ -191,8 +191,8 @@ function availabilityFailure(
     );
     if (covered) continue;
 
-    // Occupied periods are sorted by start, so look for a booking first: a booked venue is the
-    // answer the Coordinator most needs, even when a block starts earlier the same day.
+    // Check bookings first. The periods are sorted by start, but the Coordinator needs a booking
+    // result first even when a block starts earlier that day.
     const clashes = projection.occupied.filter(period =>
       overlaps(period, requestedStart, requestedEnd)
     );
@@ -210,10 +210,10 @@ function availabilityFailure(
 }
 
 /**
- * PTR-29's AND-composed search rules and PTR-30's suitability verdict are one function, so a
- * venue can never pass the filter and fail suitability on the same criterion (PTR-29 AC2). Every
- * applied filter is checked and every failure named (PTR-30 AC5); `suitable` is what search
- * filters on. Kept beside its sole application caller, `handleSearchVenues`.
+ * Apply the PTR-29 search filters and PTR-30 suitability rules in one function. A venue cannot
+ * pass a filter and fail suitability on the same criterion (PTR-29 AC2). Check every filter and
+ * name every failure (PTR-30 AC5). Search filters on `suitable`. This function has one caller:
+ * `handleSearchVenues`.
  */
 export function evaluateVenueSuitability(
   venue: VenueSuitabilityCandidate,
@@ -224,7 +224,7 @@ export function evaluateVenueSuitability(
 ): SuitabilityVerdict {
   const failures: SuitabilityFailure[] = [];
 
-  // Both filters are lower bounds and a venue must clear both, so the stricter one decides.
+  // Both filters set minimum values, so the stricter value decides.
   const requiredCapacity = Math.max(filters.expectedAttendance ?? 0, filters.capacity ?? 0);
   if (requiredCapacity > venue.maxCapacity) {
     failures.push({
@@ -241,8 +241,8 @@ export function evaluateVenueSuitability(
   if (filters.layout) {
     const requested = parseLayouts(filters.layout);
     if (!requested.some(layout => venue.supportedLayouts.includes(layout))) {
-      // An event's layout preference is free text and skips the search form's guard, so it can
-      // name none of the six layouts; the sentence then names what was asked for.
+      // An event's free-text preference skips the search form's guard and may name no known
+      // layout. The message then names the requested preference.
       const wanted =
         requested.length > 0
           ? requested.map(layout => LAYOUT_LABELS[layout]).join(" or ")
@@ -278,10 +278,10 @@ export async function handleListVenues(database: Database): Promise<Venue[]> {
 }
 
 /**
- * A picker's whole catalogue, not a record: the reject form's suggested-venue select needs only
- * an id and a name, not every column `handleListVenues` selects (including `operatingHours`,
- * a jsonb blob nobody reads for this). `defaultPreload: "intent"` runs this on every queue-row
- * hover, so the slimmer select is the difference between one wasted column and every one of them.
+ * The reject form's suggested-venue select needs only an id and a name. This reads fewer columns
+ * than `handleListVenues`, which also selects `operatingHours`, a jsonb value the form does not
+ * use. `defaultPreload: "intent"` runs this query on every queue-row hover, so the smaller select
+ * avoids fetching unused columns.
  */
 export async function handleListVenueOptions(
   database: Database
@@ -331,12 +331,11 @@ async function loadVenueBlocks(
 export type VenueBooking = AvailabilityRecord & { venueId: number };
 
 /**
- * PTR-30 criterion 4's data: the approved bookings overlapping a range, per venue. An approved
- * `venue_requests` row *is* the booking (PTR-36), so this is the read the seam was waiting for;
- * the search and the availability calendar both call it, and the search's wiring stays pinned by
- * an integration test that injects its own loader. `label` is deliberately anonymous: the
- * calendar and search never leak another event's name, and the approval refusal names the venue
- * and period instead.
+ * Return approved bookings that overlap a range, grouped by venue (PTR-30 criterion 4). An
+ * approved `venue_requests` row is the booking (PTR-36). Search and the availability calendar
+ * both call this function. An integration test injects a loader into the search. Keep `label`
+ * anonymous so the calendar and search do not reveal another event's name. The approval refusal
+ * names only the venue and period.
  */
 export type VenueBookingLoader = (
   database: Pick<Database, "select">,
@@ -365,14 +364,14 @@ export const loadVenueBookings: VenueBookingLoader = async (
       and(
         inArray(venueRequests.venueId, venueIds),
         eq(venueRequests.status, "approved"),
-        // The same strict half-open overlap the projection and the exclusion constraint use:
-        // periods that only touch at a boundary do not conflict.
+        // Use the same half-open overlap as the projection and exclusion constraint. Periods that
+        // touch at a boundary do not conflict.
         lt(venueRequests.startsAt, endsAt),
         gt(venueRequests.endsAt, startsAt)
       )
     )
-    // Earliest first, so a refusal that finds several overlapping bookings always names the same
-    // one; the projection re-sorts anyway.
+    // Sort by start time so refusals always name the same booking when several overlap. The
+    // projection sorts the results again.
     .orderBy(asc(venueRequests.startsAt));
 
   return rows.map(row => ({
@@ -393,10 +392,9 @@ export type VenueHold = AvailabilityRecord & {
 };
 
 /**
- * PTR-109: the active tentative holds overlapping a range, per venue.
- * Calendar and search project holds so internal users see held slots as occupied. The event join
- * carries the two ids ownership is decided from; the projection never returns them, only the
- * derived `canRelease`/`canConvert` booleans.
+ * Return active tentative holds that overlap a range, grouped by venue (PTR-109). The calendar
+ * and search show these holds as occupied. Join the event to check ownership, but return only the
+ * derived `canRelease` and `canConvert` values, not either id.
  */
 export async function loadVenueHolds(
   database: Pick<Database, "select">,
@@ -443,11 +441,11 @@ export async function loadVenueHolds(
 }
 
 /**
- * PTR-29's venue search and PTR-30's verdicts. An optional event id belongs to the assigned
- * Coordinator or is refused without revealing whether the event exists. The event's first
- * complete proposed window and hard venue requirements become defaults; explicit filters are then
- * evaluated by the one evaluator, which sorts every venue into `venues` (suitable) or `unsuitable`
- * (with its failures named). Nothing here writes: a verdict books or blocks no venue (AC6).
+ * Run PTR-29 venue search and PTR-30 suitability checks. Only the assigned Coordinator can supply
+ * an event id; refuse other users without revealing whether the event exists. Use the event's
+ * first complete proposed window and hard requirements as defaults. Evaluate explicit filters
+ * once, then return suitable venues in `venues` and other venues in `unsuitable` with named
+ * failures. This function does not write or reserve a venue (AC6).
  */
 export async function handleSearchVenues(
   data: unknown,
@@ -478,8 +476,8 @@ export async function handleSearchVenues(
     };
   }
 
-  // A hand-edited or SSR URL can carry a key whose value is `undefined`; spreading it would
-  // clobber the event default, so only supplied values survive the merge.
+  // A hand-edited or SSR URL can set a key to `undefined`. Do not spread it over the event default.
+  // Keep only supplied values.
   const suppliedValues: Record<string, unknown> = requested;
   const supplied = Object.fromEntries(
     Object.entries(suppliedValues).filter(([, value]) => value !== undefined)
@@ -528,10 +526,10 @@ export async function handleGetVenue(data: unknown, database: Database): Promise
 }
 
 /**
- * A venue's availability across an inclusive civil-date range (PTR-28): its opening periods,
- * minus the recorded unavailability and the approved bookings that overlap the range, as
- * floating venue-local timestamps. PTR-36 filled the booking seam, so an approved booking now
- * renders as a "confirmed" period. PTR-109 includes active tentative holds.
+ * Return a venue's availability over an inclusive date range (PTR-28). Include its opening
+ * periods, minus recorded unavailability and approved bookings that overlap the range. Use
+ * floating venue-local timestamps. Approved bookings appear as "confirmed" periods (PTR-36).
+ * Include active tentative holds (PTR-109).
  */
 export async function handleGetVenueAvailability(
   data: unknown,
@@ -546,8 +544,9 @@ export async function handleGetVenueAvailability(
     .where(eq(venues.id, selection.venueId))
     .limit(1);
   const venue = venueRows.at(0);
-  // A read answers a missing row with `null`, exactly as `handleGetVenue` does: the route turns it into the router's `notFound()`, which is the right answer for the one id a visitor can mistype.
-  // The 404 stays on the write path (`handleSaveVenue`), where "not there" is the operation failing.
+  // Return `null` for a missing row, as `handleGetVenue` does. The route uses the router's
+  // `notFound()` boundary for a mistyped id. `handleSaveVenue` returns 404 because a missing row
+  // makes the write fail.
   if (!venue) return null;
 
   const startsAt = `${selection.startDate}T00:00:00`;
@@ -558,8 +557,8 @@ export async function handleGetVenueAvailability(
     loadVenueBlocks(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueBookings(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueHolds(database, [venue.id], databaseStartsAt, databaseEndsAt),
-    // Converting a hold creates the event+venue pending request, so a hold whose event already
-    // has one would convert straight into the unique-index refusal; offer release only.
+    // Conversion creates a pending request for the event and venue. If one already exists, the
+    // unique index rejects conversion, so offer release only.
     database
       .select({ eventId: venueRequests.eventId })
       .from(venueRequests)
@@ -567,12 +566,11 @@ export async function handleGetVenueAvailability(
       .then(rows => new Set(rows.map(row => row.eventId))),
   ]);
 
-  // Ownership decides whether the calendar offers Release or Convert. The ids stay server-side;
-  // only the booleans cross into the projection, so a Venue Staff viewer never learns who else's
-  // hold it is. An orphan hold (both creator and assignee are gone) is releasable by coordinators
-  // to recover the slot, but not convertible. Convert also requires the event to be in submitted status.
-  // Copy-on-write on purpose: the rows are the loader's, and mutating them would leak the
-  // viewer's flags into other callers' reads.
+  // Ownership controls whether the calendar offers Release or Convert. Keep both ids on the
+  // server; return only booleans so Venue Staff cannot learn who owns another user's hold.
+  // Coordinators can release orphan holds to free a slot, but cannot convert them. Conversion
+  // also requires a submitted event.
+  // Copy rows before adding viewer flags. The loader shares these rows with other callers.
   // oxlint-disable-next-line oxc/no-map-spread
   const manageableHolds = holds.map(hold => {
     const canRelease = canReleaseHold(hold, viewerId);
@@ -591,7 +589,7 @@ export async function handleGetVenueAvailability(
     ...projectAvailability(
       { startsAt, endsAt },
       {
-        // The same approved bookings and tentative holds the search reads (PTR-36, PTR-109).
+        // Read the same approved bookings and holds as the search (PTR-36, PTR-109).
         bookings,
         blocks,
         holds: manageableHolds,
@@ -602,9 +600,9 @@ export async function handleGetVenueAvailability(
 }
 
 /**
- * Postgres reports a unique violation as a driver error that Drizzle wraps; `isConstraintViolation`
- * reads the constraint name off it. Turned into the sentence the form is built to show, since a
- * duplicate name is the one conflict the UI can trigger by itself.
+ * Postgres reports a unique violation as a driver error, and Drizzle wraps that error.
+ * `isConstraintViolation` reads the constraint name from the wrapped error. Convert the violation
+ * to the sentence the form shows. A duplicate name is the one conflict the UI can cause by itself.
  */
 function rethrowReadable(error: unknown): never {
   if (isConstraintViolation(error, "venues_name_unique")) {
@@ -614,10 +612,9 @@ function rethrowReadable(error: unknown): never {
 }
 
 /**
- * Create when no `id` is supplied, otherwise a full replace of that row (PTR-26 criterion 1).
- * The middleware has already checked `venue:create` or `venue:update`, deriving which from
- * `data.id` before the payload reaches `.validator(parseVenueInput)`. A row that is not there
- * becomes the 404 below rather than a refusal.
+ * Create a venue when `data` has no `id`. Replace the full row when `data` has an `id`
+ * (PTR-26 criterion 1). Middleware checks `venue:create` or `venue:update` from `data.id` before
+ * `.validator(parseVenueInput)` runs. Return 404 below for a missing row.
  */
 export async function handleSaveVenue(data: unknown, database: Database): Promise<Venue> {
   const { id, ...fields } = parseVenueInput(data);
@@ -639,9 +636,8 @@ export async function handleSaveVenue(data: unknown, database: Database): Promis
     .catch(rethrowReadable);
 
   if (updated.length === 0) {
-    // No such venue — which is not a refusal. A 403 here told a Venue Staff member who does hold
-    // `venue:update` that their role forbade a row they had merely mistyped the id of, or that
-    // someone else had deleted; the 404 says what actually happened.
+    // Return 404 for a missing venue. A 403 would wrongly say that Venue Staff lacks
+    // `venue:update` when the id is mistyped or someone else deleted the row.
     throw new NotFoundError("Not Found");
   }
 

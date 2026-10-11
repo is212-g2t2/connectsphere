@@ -86,15 +86,14 @@ test("[PTR-33] Venue Staff approve from the queue, and an overlapping approval i
     ]);
 
     await signInAsStaff(page, "venue_staff");
-    // The queue route is gone: it answers 404. Each pending request is a card on the
-    // dashboard, named by its venue. The decision happens on the event page.
+    // The queue route returns 404. The dashboard shows each pending request as a venue card.
+    // Make the decision on the event page.
     await page.goto("/venue-requests");
     await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
     await page.goto("/dashboard");
     await waitForHydration(page);
 
-    // Both pending requests share one venue, so both cards carry its name; the href picks the
-    // card for the first event.
+    // Both requests use one venue, so both cards show its name. Check the link for the first event.
     const venueLinks = page.getByRole("link", { name: venueName, exact: true });
     await expect(venueLinks).toHaveCount(2);
     await page.locator(`a[href="/events/${eventIds[0]}"]`).click();
@@ -112,13 +111,13 @@ test("[PTR-33] Venue Staff approve from the queue, and an overlapping approval i
       page.getByText(`Booking approved for ${venueName} from 10 Jun 2037, 09:00.`)
     ).toBeVisible();
 
-    // The page refreshes in place: no navigation back to a queue.
+    // The page refreshes in place and does not return to a queue.
     await expect(page).toHaveURL(new RegExp(`/events/${eventIds[0]}$`));
     await expect(
       page.getByRole("button", { name: `Approve request for ${venueName}, 10 Jun 2037, 09:00` })
     ).toHaveCount(0);
 
-    // The requesting Coordinator is told by real mail, naming the venue and the event.
+    // Real email tells the requesting Coordinator which venue and event were approved.
     const approvalEmail = await waitForEmail(
       `${coordinatorId}@example.invalid`,
       `Venue booking approved: ${venueName}`
@@ -126,8 +125,7 @@ test("[PTR-33] Venue Staff approve from the queue, and an overlapping approval i
     expect(approvalEmail).toContain(venueName);
     expect(approvalEmail).toContain("PTR-33 First");
 
-    // AC3, browser-proven: the approved window shows as a confirmed booking on the venue
-    // calendar, pinned to the exact period just approved, not merely "not pending" anymore.
+    // AC3: the venue calendar shows a confirmed booking for the approved period.
     await page.goto(
       `/venues/availability?venueId=${venueId}&startDate=2037-06-10&endDate=2037-06-10`
     );
@@ -139,7 +137,7 @@ test("[PTR-33] Venue Staff approve from the queue, and an overlapping approval i
     await page.goto(`/events/${eventIds[1]}`);
     await waitForHydration(page);
 
-    // AC3: the second, overlapping request is now flagged, and approving it is refused by name.
+    // AC3: flag the overlapping request and refuse approval with its named reason.
     await page
       .locator("section#decision")
       .getByRole("button", { name: `Approve request for ${venueName}, 10 Jun 2037, 11:00` })

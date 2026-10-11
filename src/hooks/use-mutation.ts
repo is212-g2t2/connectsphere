@@ -1,27 +1,26 @@
 import { startTransition, useActionState, useCallback } from "react";
 
 /**
- * A mutation's settled outcome. `status` is the discriminant rather than a second boolean beside
- * `data` and `error`, so a render cannot ask for a result the run did not produce.
+ * The result after a mutation finishes.
+ * `status` identifies the result instead of adding a boolean beside `data` and `error`.
+ * This prevents a render from asking for a result that the run did not produce.
  *
- * In-flight is deliberately *not* one of these states: React owns it, and `useMutation` returns it
- * separately. A `"pending"` member here would be a copy of that flag, free to disagree with it —
- * which is the drift this replaces.
+ * React owns the in-flight state, and `useMutation` returns it separately.
+ * Do not add a `"pending"` member here. It would duplicate React's flag and could drift.
  */
 type MutationState<TResult> =
   | { status: "idle"; data: undefined; error: undefined }
   | { status: "success"; data: TResult; error: undefined }
   /**
-   * A failure keeps the last successful `data`. A retry after a rejected save therefore still
-   * carries the id the server handed back, instead of writing a second row beside the first.
+   * A failure keeps the last successful `data`.
+   * A retry after a rejected save still has the server id, so it does not create a second row.
    */
   | { status: "error"; data: TResult | undefined; error: string };
 
 /**
- * What one call to `mutate` dispatches: the caller's input, plus the resolver for the promise it
- * handed back. React gives an action no return channel to its dispatcher, and the payload is the
- * only per-dispatch one there is — a ref would be shared by every queued run and resolve the
- * wrong promise when two are in flight.
+ * Data for one `mutate` dispatch: the caller's input and the promise resolver.
+ * React does not return the action result to its dispatcher, so this payload carries the result.
+ * Do not use a ref. Queued runs would share it and could resolve the wrong promise.
  */
 interface MutationRun<TInput, TResult> {
   input: TInput;
@@ -31,17 +30,17 @@ interface MutationRun<TInput, TResult> {
 const IDLE: MutationState<never> = { status: "idle", data: undefined, error: undefined };
 
 /**
- * One mutation's in-flight flag, result and error, held by React's `useActionState` rather than by
- * a hand-rolled set of `useState` flags (PTR-71).
+ * React's `useActionState` holds a mutation's in-flight flag, result, and error (PTR-71).
+ * It replaces hand-written `useState` flags.
  *
- * `run` may reject; the rejection becomes the `"error"` state instead of an unhandled promise, so
- * a caller that ignores the result still returns to an interactive state with a message to show.
- * Its second argument is whatever the last *successful* run returned — the channel by which a
- * server-assigned id reaches the next run without being threaded back through component state.
+ * `run` can reject. Store the rejection as the `"error"` state to prevent an unhandled promise.
+ * A caller can ignore the result and still return to an interactive state with an error message.
+ * Pass the last successful result as `run`'s second argument. This carries a server id to the next
+ * run without component state.
  *
- * `mutate` returns the settled state and never rejects, so `void mutate(input)` is a complete call
- * site. Callers that drive another lifecycle — a form that owns its own submitting flag and error
- * map — await it and decide for themselves what a failure means there.
+ * `mutate` returns the final state and never rejects. Use `void mutate(input)` when the caller does
+ * not need to handle another lifecycle. A form that tracks its own submit flag and errors can
+ * await `mutate` and handle failures itself.
  */
 export function useMutation<TInput = void, TResult = void>(
   run: (input: TInput, previous: TResult | undefined) => Promise<TResult>,
@@ -60,8 +59,7 @@ export function useMutation<TInput = void, TResult = void>(
       next = {
         status: "error",
         data: previous.data,
-        // An empty message is as useless to a caller as no message: `if (error)` has to mean
-        // "this run failed", so a blank one falls back too.
+        // `if (error)` must mean this run failed. Treat an empty message like no message and use the fallback.
         error: error instanceof Error && error.message ? error.message : fallbackMessage,
       };
     }
@@ -70,9 +68,8 @@ export function useMutation<TInput = void, TResult = void>(
     return next;
   }, IDLE);
 
-  // `useActionState`'s dispatcher does not open a transition of its own — React warns and leaves
-  // `isPending` stuck at `false` when an async action is dispatched outside one. The wrapper is
-  // what `<form action>` would otherwise supply; these mutations run from click handlers instead.
+  // `useActionState` does not start a transition. Without one, React warns and keeps `isPending` false.
+  // `<form action>` supplies this wrapper, but click handlers do not.
   const mutate = useCallback(
     (input: TInput) =>
       new Promise<MutationState<TResult>>(settle => {

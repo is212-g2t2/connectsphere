@@ -6,11 +6,9 @@ import { ResetPasswordPage } from "#/features/auth/components/reset-password-pag
 import { SignupPage } from "#/features/auth/components/signup-page";
 import { LandingPage } from "#/features/landing/components/landing-page";
 
-/**
- * The page wrappers (PTR-75): each takes no route data of its own and only places a feature
- * component on the shared shell. The assertions below check the placement (`max-w-page` column,
- * `size="auth"` card) and the props the route hands down, so a wrapper that drops the card or
- * stops forwarding `token`/`error` fails here even though the form's own tests keep passing.
+/** PTR-75 page wrappers take no route data. Each places a feature component on the shared shell.
+ * These tests check the layout and route props. They catch a wrapper that drops the card or stops
+ * passing `token` or `error`. The form tests cannot catch that breakage.
  */
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (

@@ -10,7 +10,7 @@ const WIDTHS = {
 interface PageProps extends React.ComponentProps<"main"> {
   /** `page` is the 880px column; `wide` is the 1120px column. See docs/DESIGN.md §Layout. */
   width: keyof typeof WIDTHS;
-  /** Renders a 1.6:1 two-column at 860px and up: primary content beside this panel. */
+  /** At 860px and wider, render two columns in a 1.6:1 ratio. The primary content sits beside this panel. */
   sidebar?: ReactNode;
 }
 

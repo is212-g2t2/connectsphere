@@ -16,8 +16,8 @@ import { raiseNotifications } from "#/features/notifications/raise.server";
 type Database = typeof Db;
 
 /**
- * PTR-53/54: an event's cancellation requests with their outcomes, in the order they were raised.
- * The Organiser's page and the Coordinator's page both show them.
+ * Return an event's cancellation requests and outcomes in the order they were raised (PTR-53/54).
+ * The Organiser and Coordinator pages both show them.
  */
 export async function listEventCancellationRequests(
   eventRequestId: number,
@@ -38,11 +38,10 @@ export async function listEventCancellationRequests(
 }
 
 /**
- * PTR-53: the Organiser asks for their event to be cancelled. Only the request is recorded; the
- * event's status waits for the Coordinator (AC4). The event row lock serialises the request with
- * a completion or a cancellation, and with a second request, which the open-request index also
- * refuses. An assigned Coordinator is notified in the same transaction; an unassigned event stays
- * in the unassigned list, where any Coordinator sees it (AC3).
+ * PTR-53: Record the Organiser's cancellation request. Keep the event status until the Coordinator
+ * decides (AC4). The event row lock orders this request against completion, cancellation, and
+ * other requests. The open-request index also rejects a second request. Notify an assigned
+ * Coordinator in the same transaction. Any Coordinator can see an unassigned event in the queue (AC3).
  */
 export async function handleRequestEventCancellation(
   data: unknown,

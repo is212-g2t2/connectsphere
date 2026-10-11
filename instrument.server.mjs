@@ -11,8 +11,8 @@ if (sentryDsn) {
     dsn: sentryDsn,
     environment: process.env.SENTRY_ENVIRONMENT ?? "development",
     // Keep this baseline in sync with src/router.tsx (client init).
-    // Sentry v11 collects request bodies, cookies and user info by default. Keep the
-    // v10 privacy posture explicitly; widen a category only after reviewing data-handling.
+    // Sentry v11 collects request bodies, cookies, and user information by default. Keep the
+    // v10 privacy settings. Review data handling before you enable another category.
     dataCollection: {
       userInfo: false,
       cookies: false,
@@ -27,8 +27,8 @@ if (sentryDsn) {
       queues: false,
       graphQL: { document: false, variables: false },
     },
-    // Keep server traces at 10% in production to control volume and cost.
-    // Raise to 1.0 temporarily for debugging, then lower before shipping.
+    // Keep 10% of server traces in production to control volume and cost.
+    // Raise this to 1.0 for debugging, then lower it before release.
     tracesSampleRate: 0.1,
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 1,

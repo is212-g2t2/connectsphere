@@ -39,15 +39,14 @@ function inputValue(label: string) {
     .value;
 }
 
-/** The id each call was sent with — `undefined` on a create, the row's id on an update. */
+/** Record the id each call was sent with: `undefined` on a create, the row's id on an update. */
 function sentIds() {
   return saveEventRequestDraft.mock.calls.map(([options]) => options.data.id);
 }
 
-/**
- * PTR-71 criterion 4. The page used to hold `draftId` in `useState` and set it from the resolved
- * row after every save; the id now travels as the action's own state, and these assertions are
- * what would catch a save that quietly opened a second draft beside the first.
+/** PTR-71 criterion 4. The page held `draftId` in `useState` and set it from the resolved row
+ * after every save. The id now travels as the action's own state. These assertions catch a save
+ * that quietly opens a second draft beside the first.
  */
 describe("EventRequestsPage", () => {
   it("creates a draft on the first save and updates that same draft on the next", async () => {
@@ -85,21 +84,20 @@ describe("EventRequestsPage", () => {
 
     await saveDraftNamed("Community workshop, revised");
     expect((await screen.findByRole("alert")).textContent).toContain("Unauthorized");
-    // The refusal dropped the confirmation, so a failed save never reads as a saved one.
+    // The refusal drops the confirmation. A failed save never reads as saved.
     expect(screen.queryByText("Draft saved.")).toBeNull();
 
     await saveDraftNamed("Community workshop, revised again");
     expect(await screen.findByText("Draft saved.")).toBeTruthy();
 
-    // The id survived the refusal, so the retry updated the row rather than inserting beside it.
+    // The id survives the refusal. The retry updates the row with no second insert.
     expect(sentIds()).toEqual([undefined, 41, 41]);
   });
 });
 
-/**
- * Criterion 2: a draft loaded by the reopen route must be updated by the first save, not
- * duplicated — `useMutation`'s `previous` starts undefined here, so only `existingDraft`'s id can
- * carry the row across.
+/** Criterion 2: a draft loaded by the reopen route must update on first save, not duplicate.
+ * `useMutation`'s `previous` starts undefined here, so only `existingDraft`'s id carries the row
+ * across.
  */
 const reopenedDraft = {
   id: 41,
@@ -192,11 +190,11 @@ describe("EventRequestsPage submission (PTR-13)", () => {
     await waitFor(() =>
       expect(submitEventRequest).toHaveBeenCalledExactlyOnceWith({ data: { id: 41 } })
     );
-    // The save opened the row; the submit carried the id it handed back, not a second draft.
+    // The save opens the row. The submit carries the handed-back id with no second draft.
     expect(sentIds()).toEqual([undefined]);
     expect(await screen.findByText("Request submitted.")).toBeTruthy();
     expect(screen.getByText(SUBMITTED_EDIT_REFUSAL)).toBeTruthy();
-    // The form is gone with the confirmation, so there is nothing left to edit on this page.
+    // The form leaves with the confirmation. Nothing remains to edit on this page.
     expect(screen.queryByRole("button", { name: "Submit request" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
   });
@@ -214,7 +212,7 @@ describe("EventRequestsPage submission (PTR-13)", () => {
       "This request is missing: Purpose, Expected attendance"
     );
     expect(screen.queryByText("Request submitted.")).toBeNull();
-    // The refusal leaves the form standing, so the organiser can complete and submit again.
+    // The refusal leaves the form standing. The organiser completes and submits again.
     expect(screen.getByRole("button", { name: "Submit request" })).toBeTruthy();
   });
 

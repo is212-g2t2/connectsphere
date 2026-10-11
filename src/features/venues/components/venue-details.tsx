@@ -2,8 +2,8 @@ import { LAYOUT_LABELS, WEEKDAY_LABELS, WEEKDAYS } from "#/features/venues/schem
 import type { VenueValues } from "#/features/venues/schema";
 
 /**
- * The read-only rendering of a venue record for roles that may view but not edit it
- * (PTR-26 criterion 4). Same data as the form, laid out as a description list.
+ * Render a venue record read-only for roles that can view but not edit it (PTR-26 criterion 4).
+ * Show the same data as the form in a description list.
  */
 export function VenueDetails({ venue }: { venue: Omit<VenueValues, "id"> }) {
   return (

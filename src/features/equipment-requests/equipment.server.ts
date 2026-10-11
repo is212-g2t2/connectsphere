@@ -26,21 +26,18 @@ import { logger } from "#/lib/logger";
 const log = logger.getChild("equipment-requests");
 
 /**
- * Server-only on purpose, and named for it: `#/db/schema` is a value import here, which would
- * ship the whole database schema to the browser from any module a route can reach.
- * `server-fns.ts` reaches this through a dynamic `import()` inside `.handler()`.
- *
- * The middleware pipeline has already verified the session and the `equipment_request` permission
- * for the action (`manage`, `submit` or `arrange`) before these handlers run.
+ * Keep this module server-only. A client-reachable value import of `#/db/schema` would ship the
+ * full database schema to the browser. `server-fns.ts` imports it dynamically inside `.handler()`.
+ * Middleware checks the session and the action's `equipment_request` permission (`manage`,
+ * `submit`, or `arrange`) before these handlers run.
  */
 
 type Database = typeof Db;
 
 /**
- * Verifies the event is in an editable status and is assigned to the actor. Returns the event row
- * or throws 403. Every mutating handler calls this so the rule has exactly one home, and every one
- * calls it inside a transaction: the `FOR UPDATE` lock stops a concurrent submit committing
- * between this check and the caller's write.
+ * Check that the event is editable and assigned to the actor. Return its row or throw 403.
+ * Mutating handlers call this inside a transaction. The `FOR UPDATE` lock prevents a concurrent
+ * submit between this check and the caller's write.
  */
 async function loadEditableEvent(
   database: Pick<Database, "select">,
@@ -62,8 +59,8 @@ async function loadEditableEvent(
     .for("update");
   const event = rows.at(0);
   if (!event) throw new AuthorizationError("Forbidden");
-  // The status check is post-query so the coordinator gets 403 for a missing event and a
-  // conflict message for a settled one, matching the pattern established by venue requests.
+  // Check status after the query. A missing event returns 403. A settled event returns a conflict,
+  // as in venue requests.
   if (!isEquipmentEditableStatus(event.status)) {
     throw new ConflictError(
       "Equipment can only be edited on an approved event that is not yet confirmed."
@@ -72,7 +69,7 @@ async function loadEditableEvent(
   return event;
 }
 
-/** A submitted request is frozen: the submit handler's own one-shot guard aside, no line may change. */
+/** A submitted request is frozen, so no equipment line can change. */
 function assertNotSubmitted(event: { equipmentSubmittedAt: Date | null }) {
   if (event.equipmentSubmittedAt !== null) {
     throw new ConflictError(
@@ -82,9 +79,8 @@ function assertNotSubmitted(event: { equipmentSubmittedAt: Date | null }) {
 }
 
 /**
- * Whether the line commits capacity: a reservation row exists for it. A partial reservation keeps
- * the line `requested`, so callers cannot rely on the status alone — every state/line guard below
- * probes the row instead.
+ * Check whether the line reserves capacity by looking for a reservation row.
+ * Partial reservations keep the line `requested`, so status alone is not enough.
  */
 async function lineHoldsReservation(
   database: Pick<Database, "select">,
@@ -101,8 +97,8 @@ async function lineHoldsReservation(
 }
 
 /**
- * The line row `FOR UPDATE` scoped to the event, so a reservation cannot commit between the probe
- * below and the caller's write. No row means the line is not this event's.
+ * Lock the line with `FOR UPDATE` and scope it to the event. This prevents a reservation from
+ * committing between the check and the caller's write. No row means the line belongs to another event.
  */
 async function lockEventLine(database: Pick<Database, "select">, lineId: string, eventId: number) {
   const rows = await database
@@ -115,9 +111,9 @@ async function lockEventLine(database: Pick<Database, "select">, lineId: string,
 }
 
 /**
- * PTR-38 AC1/AC4: add a new equipment line or update an existing one on behalf of the assigned
- * Coordinator. Quantity must be a positive whole number (enforced by the Zod schema before this
- * runs, and by the DB CHECK as backstop).
+ * PTR-38 AC1/AC4: Add or update an equipment line for the assigned Coordinator.
+ * Quantity must be a positive whole number. The Zod schema checks it first; the database CHECK is
+ * the backstop.
  */
 export async function handleSaveEquipmentLine(
   data: unknown,
@@ -151,8 +147,8 @@ export async function handleSaveEquipmentLine(
       return rows[0];
     }
 
-    // Add path: a new line with no Technical Support assignment yet. The cap is a row count inside
-    // the same transaction as the insert, so two adds racing for the last slot cannot both pass.
+    // Add a line with no Technical Support assignment. Count rows and insert in one transaction,
+    // so two requests cannot both claim the last slot.
     const [{ value: lineCount }] = await tx
       .select({ value: count() })
       .from(equipmentRequests)
@@ -179,8 +175,7 @@ export async function handleSaveEquipmentLine(
 }
 
 /**
- * PTR-38 AC4: remove one equipment line. The line must belong to this event, and the event must
- * still be in an editable status.
+ * PTR-38 AC4: Remove an equipment line. It must belong to this event, and the event must remain editable.
  */
 export async function handleRemoveEquipmentLine(
   data: unknown,
@@ -192,8 +187,8 @@ export async function handleRemoveEquipmentLine(
     const event = await loadEditableEvent(tx, input.eventId, actor.id);
     assertNotSubmitted(event);
 
-    // The reservation FK cascades, so without this a delete would silently vanish committed
-    // capacity. Post-submit lines are frozen, which is why this is nearly unreachable.
+    // The reservation foreign key cascades. Without this check, deleting the line would silently
+    // free reserved capacity. Submitted lines are frozen, so this should rarely occur.
     await lockEventLine(tx, input.id, input.eventId);
     if (await lineHoldsReservation(tx, input.id)) {
       throw new ConflictError(EQUIPMENT_RESERVED_REMOVE_MESSAGE);
@@ -210,23 +205,21 @@ export async function handleRemoveEquipmentLine(
 }
 
 /**
- * The event-level gate for Technical Support: every line of the event (locked when `lock`), the
- * event's status and whether it is submitted. Throws 403 unless the actor may work at least one
- * line, so a probe of an event they have no line on says nothing about it.
+ * Check Technical Support access to an event. Read every line, lock them when `lock` is true, and
+ * read the event status and submission state. Throw 403 unless the actor can work on at least one
+ * line; this prevents probes of events with no assigned line.
  *
- * Lock order is lines -> event: every writer that can run on a submitted event (these arrangement
- * handlers, reserve, release) takes its line locks before touching the event row (the reservation
- * paths do so through the completion clear), so they cannot form a cycle. save/remove take the
- * event first but refuse once the request is submitted; confirmation also takes lines then event
- * and can be attempted before submission, so that pair can deadlock (40P01). When `lock`, the
- * event row is locked after the lines, so the status the caller's gate reads cannot change under it.
+ * Lock lines before the event. Arrangement, reserve, and release handlers can run on submitted
+ * events, so they lock lines before the event. Save and remove lock the event first, but refuse
+ * submitted events. Confirmation can run before submission and locks lines before the event, so
+ * save/remove and confirmation can deadlock (40P01). When `lock` is true, lock the event after its
+ * lines so its status cannot change during the check.
  *
- * The reserve path (`loadReservableLine` in `reservations.server.ts`) follows the same
- * lines-then-event order — equipment line `FOR UPDATE`, then the event `FOR KEY SHARE` — so
- * it serialises with these handlers rather than against them; the 40P01 pair above stands.
+ * `loadReservableLine` in `reservations.server.ts` uses the same order: lock the equipment line
+ * with `FOR UPDATE`, then the event with `FOR KEY SHARE`. It serializes with these handlers.
  *
- * The status is returned so the arrangement handlers can apply PTR-43's confirmation gate;
- * reserve and release deliberately stay open after confirmation.
+ * Return the status so arrangement handlers can apply PTR-43's confirmation gate. Reserve and
+ * release remain available after confirmation.
  */
 export async function loadWorkableLines(
   database: Pick<Database, "select">,
@@ -256,9 +249,9 @@ export async function loadWorkableLines(
 }
 
 /**
- * PTR-43: arrangements are mutable only before the event is confirmed. Reserve and release stay
- * open after confirmation (PTR-24 AC6 expects the Coordinator to handle those manually); the
- * three arrangement handlers call this after the event-level gate.
+ * PTR-43: Allow changes to arrangements only before event confirmation.
+ * Keep reserve and release open after confirmation (PTR-24 AC6); the Coordinator handles them
+ * manually. The three arrangement handlers call this after the event-level check.
  */
 function assertArrangementsEditable(status: string | undefined) {
   if (status === undefined || !isEquipmentEditableStatus(status)) {
@@ -269,14 +262,11 @@ function assertArrangementsEditable(status: string | undefined) {
 }
 
 /**
- * PTR-39 AC3: Technical Support sets a line's arrangement state, adds notes, or both.
- *
- * Every line of the event is read under a row lock, so a reservation committing at the same
- * moment is seen rather than overwritten. Who may touch what is the queue rule the work list uses
- * (`isEquipmentQueueRow`): a member with no line on the event is refused outright, so probing line
- * ids says nothing about the event, and a colleague's line is refused even when the event is
- * theirs to work. The update records the acting member on the line, which keeps the event on their
- * list once no line is left in `requested`.
+ * PTR-39 AC3: Technical Support can set a line's arrangement state, add notes, or do both.
+ * Lock every line so a concurrent reservation cannot be overwritten. Use the work-list rule
+ * (`isEquipmentQueueRow`): refuse members with no line on the event, and refuse a colleague's line.
+ * This prevents event and line probes. Record the acting member on the line so the event stays in
+ * their list after no line remains `requested`.
  */
 export async function handleUpdateArrangement(
   data: unknown,
@@ -290,9 +280,8 @@ export async function handleUpdateArrangement(
     const line = lines.find(row => row.id === input.id);
     if (!line) throw new NotFoundError("Not Found");
     if (!isEquipmentQueueRow(line, actor.id, submitted)) throw new AuthorizationError("Forbidden");
-    // The reservation action (PTR-41) owns `reserved`, and its release (PTR-42) is the only way
-    // out. A line holding a reservation row is frozen as well: partial reservations stay
-    // `requested`. Notes are not a state change, so they still go through.
+    // PTR-41 sets `reserved`; only PTR-42 can clear it. A line with a reservation row cannot change
+    // state, and partial reservations remain `requested`. Notes can still change.
     if (input.arrangementStatus !== undefined && line.arrangementStatus === "reserved") {
       throw new ConflictError(ARRANGEMENT_RESERVED_MESSAGE);
     }
@@ -326,9 +315,9 @@ export async function handleUpdateArrangement(
 }
 
 /**
- * PTR-38 AC5: submit the full equipment list to Technical Support. Refuses when no lines are
- * recorded — there is nothing to submit. The submission and its notifications commit in the same
- * transaction, so the worker delivers every Technical Support member's email from the queue.
+ * PTR-38 AC5: Submit the full equipment list to Technical Support.
+ * Refuse when no lines are recorded. Commit the submission and notifications in one transaction;
+ * the worker sends each member's email from the queue.
  */
 export async function handleSubmitEquipmentRequest(
   data: unknown,
@@ -360,8 +349,8 @@ export async function handleSubmitEquipmentRequest(
       .from(user)
       .where(eq(user.role, "technical_support_staff"));
 
-    // Recipients are resolved and the rows written in the transaction; the worker sends the
-    // emails from the queue, so a mail outage cannot lose the submission notice.
+    // Resolve recipients and write notification rows in this transaction. The worker sends the
+    // emails, so a mail outage cannot lose the submission notice.
     await raiseNotifications(
       tx,
       recipients.map(recipient => ({
@@ -395,10 +384,9 @@ export async function handleSubmitEquipmentRequest(
 // ── PTR-43: Technical arrangement completion / unavailability ──────────────────────────────────
 
 /**
- * Clears a previously recorded completion stamp. Scoped to rows that have a stamp, so it is a
- * no-op when nothing was recorded. Called inside the same transaction that mutates
- * a line (add, edit, remove) or reduces/releases a reservation, so the confirmation gate never
- * reads a stale completion.
+ * Clear a recorded completion stamp. Do nothing when the event has no stamp.
+ * Call this in the transaction that changes a line or reduces/releases a reservation, so the
+ * confirmation gate never reads stale data.
  */
 export async function clearArrangementsCompletion(tx: Pick<Database, "update">, eventId: number) {
   await tx
@@ -413,10 +401,9 @@ export async function clearArrangementsCompletion(tx: Pick<Database, "update">, 
 }
 
 /**
- * Raises the assigned Coordinator's notification for a Technical Support outcome inside the
- * caller's transaction, returning whether a row was queued. Logs when no Coordinator is assigned,
- * rather than failing an outcome that is already committed. Shared with the reservation release
- * path, which has the same recipient shape.
+ * Add a notification for the assigned Coordinator in the caller's transaction. Return whether a
+ * row was queued. Log when no Coordinator is assigned; do not fail an outcome that is already
+ * committed. The reservation release path also uses this function.
  */
 export async function raiseCoordinatorNotification(
   tx: Pick<Database, "insert" | "select">,
@@ -449,12 +436,10 @@ export async function raiseCoordinatorNotification(
 }
 
 /**
- * PTR-43 AC1: Technical Support Staff marks all equipment arrangements for the event as complete.
- *
- * Every line must be in state `reserved` or `not_required`; if any line is in another state the
- * action is refused. The completion is stamped on the event row; the event's status is unchanged.
- * An event with no equipment lines needs no completion action (the confirmation gate treats the
- * equipment side as satisfied).
+ * PTR-43 AC1: Mark all equipment arrangements for the event as complete.
+ * Every line must be `reserved` or `not_required`. Refuse when any line has another state. Stamp
+ * completion on the event row without changing event status. No equipment lines means the
+ * confirmation gate is satisfied.
  */
 export async function handleCompleteArrangements(
   data: unknown,
@@ -463,7 +448,7 @@ export async function handleCompleteArrangements(
 ) {
   const input = parseCompleteArrangementsInput(data);
   const result = await database.transaction(async tx => {
-    // Lock all lines so a concurrent reservation change cannot slip between the check and the stamp.
+    // Lock every line so a concurrent reservation cannot change it between the check and the stamp.
     const { lines, status } = await loadWorkableLines(tx, input.eventId, actor, true);
     assertArrangementsEditable(status);
 
@@ -488,7 +473,7 @@ export async function handleCompleteArrangements(
         equipmentArrangementsCompletedAt: eventRequests.equipmentArrangementsCompletedAt,
       });
 
-    // The completion and the Coordinator's notification commit together; the worker sends it.
+    // Commit completion and notification together. The worker sends the notification.
     await raiseCoordinatorNotification(tx, input.eventId, context => ({
       recipientId: context.coordinatorId,
       eventRequestId: input.eventId,
@@ -503,10 +488,8 @@ export async function handleCompleteArrangements(
 }
 
 /**
- * PTR-43 AC2: Technical Support Staff records that a requested equipment line cannot be provided.
- *
- * Sets the line's arrangement status to `unavailable` and stores the reason. The assigned
- * Coordinator is notified so they can adjust the event plan.
+ * PTR-43 AC2: Record that Technical Support cannot provide a requested equipment line.
+ * Set its arrangement state to `unavailable`, save the reason, and notify the assigned Coordinator.
  */
 export async function handleRecordUnavailable(
   data: unknown,
@@ -523,7 +506,7 @@ export async function handleRecordUnavailable(
       throw new AuthorizationError("Forbidden");
     }
 
-    // A reserved line commits capacity; it cannot be marked unavailable without releasing first.
+    // Release a reserved line before marking it unavailable; it currently holds capacity.
     if (line.arrangementStatus === "reserved" || (await lineHoldsReservation(tx, line.id))) {
       throw new ConflictError(ARRANGEMENT_RESERVED_MESSAGE);
     }
@@ -541,10 +524,10 @@ export async function handleRecordUnavailable(
       .where(eq(equipmentRequests.id, line.id))
       .returning();
 
-    // Recording unavailability invalidates any prior completion stamp.
+    // The unavailability record clears any prior completion stamp.
     await clearArrangementsCompletion(tx, input.eventId);
 
-    // The outcome and the Coordinator's notification commit together; the worker sends it.
+    // Commit the outcome and notification together. The worker sends the notification.
     await raiseCoordinatorNotification(tx, input.eventId, context => ({
       recipientId: context.coordinatorId,
       eventRequestId: input.eventId,

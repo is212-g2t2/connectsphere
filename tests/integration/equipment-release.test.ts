@@ -93,7 +93,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
       .returning({ id: schema.venues.id });
     venueId = venue1.id;
     venueId2 = venue2.id;
-    // 5 held, none unavailable: 5 serviceable.
+    // Five units are held and none are unavailable, so five are serviceable.
     typeName = `PTR42 Test Mixer ${Date.now()}`;
     const [type] = await database
       .insert(schema.equipmentTypes)
@@ -124,11 +124,11 @@ describe("Reduce or release a reservation (PTR-42)", () => {
       .where(eq(schema.eventRequests.organiserId, fixtureUsers.organiser.id));
     if (events.length === 0) return;
     const eventIds = events.map(e => e.id);
-    // Events cascade to bookings, lines and reservations.
+    // Event deletion cascades to bookings, lines, and reservations.
     await database.delete(schema.eventRequests).where(inArray(schema.eventRequests.id, eventIds));
   }
 
-  /** An approved, equipment-submitted event with one requested line on its own venue. */
+  /** An approved event with submitted equipment and one requested line at its own venue. */
   async function createEvent(params: {
     name: string;
     requested?: number;
@@ -253,7 +253,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     expect(reservation).toBeUndefined();
     expect(line.arrangementStatus).toBe("requested");
     expect(line.lastReleasedQuantity).toBe(2);
-    // The line stays with the member who released it, so it keeps its place on their list.
+    // Keep the line assigned to the member who released it, so it stays on their list.
     expect(line.assignedStaffId).toBe(fixtureUsers.tech1.id);
   });
 
@@ -342,7 +342,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     );
     expect(afterRelease.available).toBe(5);
 
-    // And the other event can now take what was freed.
+    // The other event can now reserve the released units.
     const reserved = await reserve(other.lineId, 3);
     expect(reserved.arrangementStatus).toBe("reserved");
   });
@@ -402,7 +402,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     expect(await notificationsFor(fixtureUsers.coordinator.id)).toHaveLength(0);
   });
 
-  // PTR-24 AC6: a release after confirmation is the Coordinator's to handle, not a status change.
+  // PTR-24 AC6: the Coordinator handles a release after confirmation. Do not change its status.
   it("leaves a confirmed event confirmed (PTR-24 AC6)", async () => {
     const { eventId, lineId } = await createEvent({ name: "Already confirmed", requested: 2 });
     await reserve(lineId, 2);
@@ -501,7 +501,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     const { eventId, lineId } = await createEvent({ name: "Held by one", requested: 3 });
     await reserve(lineId, 3);
 
-    // No line on the event at all: refused at the event gate.
+    // Refuse the event because it has no equipment lines.
     await expect(
       handleReleaseEquipment(
         { equipmentRequestId: lineId, quantity: 0 },
@@ -510,8 +510,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
       )
     ).rejects.toMatchObject({ status: 403, message: "Forbidden" });
 
-    // A colleague working a second line of the same event passes the event gate but not the
-    // line's: tech1's holding is not theirs to give back.
+    // A colleague can access the event through its second line, but cannot release tech1's line.
     await database.insert(schema.equipmentRequests).values({
       id: `er-${crypto.randomUUID()}`,
       eventId,
@@ -548,13 +547,13 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     const { eventId, lineId } = await createEvent({ name: "Holder gone", requested: 3 });
     await reserve(lineId, 3);
 
-    // What the user FK's ON DELETE SET NULL leaves behind: a fully reserved, unassigned line.
+    // Account deletion sets the user foreign key to null and leaves a fully reserved, unassigned line.
     await database
       .update(schema.equipmentRequests)
       .set({ assignedStaffId: null })
       .where(eq(schema.equipmentRequests.id, lineId));
 
-    // The event must still reach the queue the member's list is scoped by...
+    // Keep the event in the queue that scopes the member's list.
     const [projected] = await handleListEvents({ eventId }, session("tech2"), database as never);
     expect(projected?.event.equipment?.[0]).toMatchObject({
       id: lineId,
@@ -562,7 +561,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
       reservedQuantity: 3,
     });
 
-    // ...and its units must be releasable by a member who never held the line.
+    // Let a member who never held the line release its units.
     const result = await handleReleaseEquipment(
       { equipmentRequestId: lineId, quantity: 0 },
       session("tech2"),
@@ -595,7 +594,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
     await reserve(holder.lineId, 5);
     await expect(reserve(other.lineId, 3)).rejects.toMatchObject({ status: 409 });
 
-    // Hold the type row the way a reserve in flight does; the release must queue behind it.
+    // Hold the equipment type row as a reservation would. The release must wait for the lock.
     const blocker = await pool.connect();
     let released: { released: boolean } | undefined;
     try {
@@ -619,7 +618,7 @@ describe("Reduce or release a reservation (PTR-42)", () => {
       blocker.release();
     }
 
-    // With the lock gone and the units freed, the other event's reserve now succeeds.
+    // After the lock releases the units, the other event can reserve them.
     expect((await reserve(other.lineId, 3)).arrangementStatus).toBe("reserved");
   });
 });

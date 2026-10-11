@@ -28,9 +28,8 @@ async function register(page: Page, role: "event_organiser" | "event_coordinator
   return registerAccount(database, page, { role, name, password });
 }
 
-/**
- * Seeds a submitted request already assigned to `coordinatorId`. The organiser id is pushed onto
- * `ids` before the request insert, so a failed insert cannot leak it.
+/** Seed a submitted request for `coordinatorId`. Track the organiser id before inserting the
+ * request so cleanup can remove it if the insert fails.
  */
 async function seedAssignedRequest(
   ids: string[],
@@ -107,13 +106,13 @@ test("hands an event over only once the incoming Coordinator accepts", async ({
       })
       .returning();
 
-    // The outgoing Coordinator offers the event; the offer waits and the request stays theirs.
+    // The current Coordinator offers the event. The request stays assigned to them while the offer waits.
     await page.goto("/coordination");
     await page.getByRole("link", { name: eventName }).click();
     await waitForHydration(page);
     await page.locator("#coordinatorId").click();
-    // The email is unique and part of the option's label, so a substring match cannot pick a
-    // concurrently registered Coordinator whose name contains this one.
+    // The unique email is part of the option label. Match it so another Coordinator with a similar
+    // name cannot be selected.
     await page.getByRole("option", { name: incoming.email }).click();
     await page.getByRole("button", { name: "Hand over" }).click();
     await expect(page.getByText(/You remain the assigned Coordinator/)).toBeVisible();
@@ -144,14 +143,14 @@ test("hands an event over only once the incoming Coordinator accepts", async ({
       .where(eq(schema.eventRequests.id, request.id));
     expect(stored.assignedCoordinatorId).toBe(incoming.id);
 
-    // Access moves on both sides: the outgoing Coordinator's event page is now a 404.
+    // Access moves to the new Coordinator. The former Coordinator now gets a 404.
     await page.goto(`/events/${request.id}`);
     await expect(page.getByText(/not found/i)).toBeVisible();
     await incomingPage.goto(`/events/${request.id}`);
     await expect(incomingPage.getByRole("heading", { name: eventName })).toBeVisible();
 
-    // The Organiser reads the new Coordinator and both notifications are delivered. The
-    // address shows in the messages contact card, so read it there.
+    // Show the new Coordinator to the Organiser and deliver both notifications. Read the address
+    // from the messages contact card.
     await organiserPage.goto(`/events/${request.id}`);
     await expect(
       organiserPage
@@ -238,7 +237,7 @@ test("picks up unassigned events for yourself or a named Coordinator", async ({
     ids.push(actor.id);
     const other = await register(otherPage, "event_coordinator", "Named Coordinator");
     ids.push(other.id);
-    // Use a unique organiser row so this test owns all its fixtures and cleanup cascades.
+    // Use a unique organiser row so this test owns its fixtures and cleanup.
     const organiserId = randomUUID();
     ids.push(organiserId);
     await database.insert(schema.user).values({
@@ -258,15 +257,15 @@ test("picks up unassigned events for yourself or a named Coordinator", async ({
       await waitForHydration(page);
       if (target.id === actor.id) {
         await page.getByRole("button", { name: "Assign to me" }).click();
-        // Claiming re-reads the event page in place: the triage view flips to the assigned one.
-        // The flip is also the sync point for the reads below — without it they race the commit.
+        // Claiming reloads the event page and changes triage to the assigned view. Wait for that
+        // change before reading the committed data below.
         await expect(page.getByRole("heading", { name: "Hand over this request" })).toBeVisible();
       } else {
         await page.locator("#coordinatorId").click();
         await page.getByRole("option", { name: target.name }).click();
         await page.getByRole("button", { name: "Assign Coordinator", exact: true }).click();
-        // The request now belongs to someone else, so the actor's event page is a 404 — the
-        // same access move the handover test asserts. The 404 syncs the reads below.
+        // Another user now owns the request, so this actor's event page returns 404. Wait for that
+        // response before reading the committed data below.
         await expect(page.getByText(/not found/i)).toBeVisible();
       }
       await expect(page).toHaveURL(new RegExp(`/events/${request.id}$`));
@@ -361,10 +360,10 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
     await expect(organiserPage.getByText("Under review", { exact: true })).toBeVisible();
     await expect(organiserPage.getByText(reply, { exact: true })).toBeVisible();
     await expect(organiserPage.getByRole("button", { name: "Send reply" })).toHaveCount(0);
-    // The record reads in the information section; the venue section carries the same fields.
+    // Read the record in the information section. The venue section shows the same fields.
     const record = organiserPage.getByRole("region", { name: "Event information" });
     await expect(fieldValue(record, "Expected attendance")).toHaveText("120");
-    // PTR-19: the reply records what changed, with the before and after the Coordinator can read.
+    // PTR-19: the reply records the change and shows the Coordinator its old and new values.
     await expect(organiserPage.getByText("Expected attendance: 100 → 120")).toBeVisible();
     await expect(
       organiserPage.getByText("Room-layout preference: Theatre → Classroom")
@@ -377,8 +376,8 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
     await page.reload();
     await expect(page.getByText(question, { exact: true })).toBeVisible();
     await expect(page.getByText(reply, { exact: true })).toBeVisible();
-    // The Coordinator reads the shared requirements: the venue section labels the layout
-    // "Layout" rather than the request form's "Room-layout preference".
+    // Show the shared requirements to the Coordinator. The venue section labels the layout
+    // "Layout"; the request form calls it "Room-layout preference".
     await expect(fieldValue(page.getByRole("region", { name: "Venue" }), "Layout")).toHaveText(
       "Classroom"
     );
@@ -425,8 +424,8 @@ test("a reply to a second question never reverts the first reply's amendment", a
         proposedDates: [{ start: `${date}T09:00`, end: `${date}T17:00` }],
       })
       .returning();
-    // Both questions permit the attendance, so one page load renders two reply forms from the
-    // same 100 snapshot. Distinct timestamps pin the order the loader reads them back in.
+    // Both questions accept the attendance, so one page load shows two reply forms with the same
+    // value of 100. Use different timestamps to check the loader's order.
     const clarifications = await database
       .insert(schema.clarificationRequests)
       .values([
@@ -461,9 +460,9 @@ test("a reply to a second question never reverts the first reply's amendment", a
       .fill("We now expect 120 guests.");
     await organiserPage.getByRole("button", { name: "Send reply", exact: true }).first().click();
 
-    // The surviving form picks up the amendment from the reloaded request, not its 100 snapshot.
-    // Waiting on its value is the reload sync point; the reply text alone is not, because the text
-    // matcher reads a textarea's current value and the answered form is still mounted until then.
+    // The remaining form must use the reloaded request, not its old value of 100. Wait for its
+    // value to change; reply text alone is not enough because the answered form stays mounted until
+    // reload completes.
     await expect(
       organiserPage.locator(`#clarification-${secondQuestion.id}-expectedAttendance`)
     ).toHaveValue("120");
@@ -472,7 +471,7 @@ test("a reply to a second question never reverts the first reply's amendment", a
       organiserPage.getByText("We now expect 120 guests.", { exact: true })
     ).toBeVisible();
 
-    // The second reply leaves the attendance untouched, so it must not echo the stale 100 back.
+    // The second reply does not change attendance, so it must not submit the old value of 100.
     await organiserPage
       .locator(`#clarification-${secondQuestion.id}-replyBody`)
       .fill("The count is unchanged.");
@@ -504,8 +503,8 @@ test("a reply to a second question never reverts the first reply's amendment", a
 test("shows every organiser-supplied field on the event page", async ({ page }) => {
   const ids: string[] = [];
   try {
-    // The read-only record lives on the organiser's event page now; the Coordinator's details
-    // section is the edit form, shown only once the event is approved.
+    // Show the read-only record on the Organiser's event page. The Coordinator gets an edit form
+    // only after approval.
     const organiser = await register(page, "event_organiser", "Detail Organiser");
     ids.push(organiser.id);
     const coordinatorId = randomUUID();
@@ -545,7 +544,7 @@ test("shows every organiser-supplied field on the event page", async ({ page }) 
 
     await page.goto(`/events/${request.id}`);
     await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
-    // The read-only record lives in the information section; the venue section repeats its fields.
+    // Read the record in the information section. The venue section repeats its fields.
     const record = page.getByRole("region", { name: "Event information" });
     await expect(fieldValue(record, "Purpose")).toHaveText("Quarterly town hall");
     await expect(fieldValue(record, "Description")).toHaveText("All-staff briefing with Q&A");
@@ -580,7 +579,7 @@ test("takes an assigned request up for review", async ({ page }) => {
     await page.goto(`/events/${request.id}`);
     await waitForHydration(page);
     await page.getByRole("button", { name: "Take up for review" }).click();
-    // Taking up re-reads the event page in place: the review section moves on to the decision.
+    // Taking up the request reloads the event page and shows the decision section.
     await expect(page).toHaveURL(new RegExp(`/events/${request.id}$`));
     await expect(page.getByRole("button", { name: "Take up for review" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Record a decision" })).toBeVisible();
@@ -645,7 +644,7 @@ test("rejects an under-review request, records the decision and notifies the Org
     await expect(page.getByRole("alert")).toHaveText("Enter a reason to reject this request");
     await page.getByLabel("Decision reason").fill("The requested venue is unavailable.");
     await page.getByRole("button", { name: "Reject request" }).click();
-    // The decision re-reads the event page in place; the review section drops out with it.
+    // The decision reloads the event page and removes the review section.
     await expect(page).toHaveURL(new RegExp(`/events/${request.id}$`));
     await expect(page.getByRole("button", { name: "Reject request" })).toHaveCount(0);
     await expect(page.getByLabel("Status: Rejected")).toBeVisible();
@@ -663,7 +662,7 @@ test("rejects an under-review request, records the decision and notifies the Org
     expect(stored.decidedAt).toBeInstanceOf(Date);
 
     await organiserPage.goto(`/events/${request.id}`);
-    // The organiser reads the rejection in the recorded decision; the notification carries it too.
+    // Show the rejection in the Organiser's recorded decision and notification.
     await expect(organiserPage.getByLabel("Status: Rejected")).toBeVisible();
     const decision = organiserPage.getByRole("region", { name: "Recorded decision" });
     await expect(decision.getByText("Rejected", { exact: true })).toBeVisible();

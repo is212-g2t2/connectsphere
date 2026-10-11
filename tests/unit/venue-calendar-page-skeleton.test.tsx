@@ -3,11 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { VenueCalendarPageSkeleton } from "#/features/venues/components/venue-calendar-page-skeleton";
 
-/**
- * The pending component mirrors the venue calendar: the wide shell, the sidebar month grid, and
- * the availability message. The filter form and the role-gated hold buttons are omitted so the
- * skeleton never promises controls the arriving user may not have (the `VenueListPageSkeleton`
- * rule); these assertions hold that shape even though nothing has text.
+/** The pending component must match the venue calendar's wide shell, month grid, and availability
+ * message. It must not show the filter form or role-gated hold buttons. These tests keep that shape
+ * when the skeleton has no text.
  */
 describe("VenueCalendarPageSkeleton", () => {
   it("draws the wide loading shell, the availability message, and no role-gated controls", () => {

@@ -30,13 +30,13 @@ export interface ReleaseEquipmentDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/** Whether the entered total gives the reservation back outright (0 units kept). */
+/** Return true when the member releases all units. */
 function isFullRelease(quantity: string): boolean {
   const kept = parseWholeNumber(quantity);
   return Number.isInteger(kept) && kept === 0;
 }
 
-/** The submit button says what will happen, so a full release is never a neutral "confirm". */
+/** Set the button label to name the action. Use a specific label for a full release. */
 function submitLabel(quantity: string, currentReserved: number): string {
   if (isFullRelease(quantity)) {
     return `Release all ${currentReserved} unit${currentReserved === 1 ? "" : "s"}`;
@@ -49,10 +49,10 @@ function submitLabel(quantity: string, currentReserved: number): string {
 }
 
 /**
- * PTR-42: give back some or all of a line's reserved units. The total kept defaults to zero (a
- * full release); anything above zero and below the current holding is a reduction. A reason marks
- * the line unavailable instead of requested — Technical Support's call, never inferred — and
- * goes with a full release only, so an unavailable line never sits on units nobody can touch.
+ * PTR-42: Return some or all reserved units. The total to keep starts at zero, which releases all
+ * units. A total above zero and below the current holding reduces the reservation. A reason sets
+ * the line to `unavailable` instead of `requested`. Technical Support must choose this state. A
+ * reason is valid only for a full release, so an unavailable line does not hold reserved units.
  */
 export function ReleaseEquipmentDialog({
   equipmentRequest,
@@ -71,8 +71,8 @@ export function ReleaseEquipmentDialog({
 
   const form = useForm({
     defaultValues: { quantity: "0", unavailableReason: "" },
-    // The same gate as `ReleaseEquipmentInput`; the server refuses a total at or above the
-    // current holding, so the input's max only guides.
+    // Use the same rules as `ReleaseEquipmentInput`. The server rejects totals at or above the
+    // current holding. The input's max only guides the member.
     validators: { onSubmit: ReleaseEquipmentFormInput },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -102,7 +102,7 @@ export function ReleaseEquipmentDialog({
   });
 
   useEffect(() => {
-    // The dialog stays mounted while closed; each opening starts from a full release.
+    // This dialog stays mounted while closed. Reset it to a full release on each opening.
     if (open) form.reset();
   }, [open, form]);
 

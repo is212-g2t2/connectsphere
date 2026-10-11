@@ -14,7 +14,7 @@ export const Route = createFileRoute("/api/smoke")({
         const { db } = await import("#/db");
         await db.execute(sql`select 1`);
 
-        // K_REVISION is injected by Cloud Run and has no local meaning, so it stays out of the schema.
+        // Cloud Run injects K_REVISION. It has no local meaning. Keep it out of the schema.
         // oxlint-disable-next-line node/no-process-env
         return Response.json({ ok: true, revision: process.env.K_REVISION ?? "local" });
       },

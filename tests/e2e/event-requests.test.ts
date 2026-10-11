@@ -18,7 +18,7 @@ async function signUp(page: Page, role?: "event_organiser"): Promise<void> {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
-/** Signs an organiser up and lands on the form, via the header every organiser journey starts from. */
+/** Sign an organiser up from the header. Land on the form. */
 async function openNewRequest(page: Page): Promise<void> {
   await signUp(page, "event_organiser");
   await page.goto("/dashboard");
@@ -30,7 +30,7 @@ async function openNewRequest(page: Page): Promise<void> {
   await waitForHydration(page);
 }
 
-/** Creates a fresh organiser's draft from the list and returns to it. */
+/** Create a fresh organiser draft from the list. Return to the list. */
 async function draftFromList(page: Page, name: string): Promise<void> {
   await openNewRequest(page);
   await page.getByLabel("Event name (required)", { exact: true }).fill(name);
@@ -124,12 +124,12 @@ test.describe("Event request drafts", () => {
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
 
-    // Sign out from another tab, so this page keeps its held draft id but loses the session;
-    // the next in-app save comes back refused and must not read as a save.
+    // Sign out from another tab. The page keeps its held draft id and loses the session. The
+    // next in-app save meets a refusal. The app records no save.
     const otherTab = await context.newPage();
     await otherTab.goto("/dashboard");
-    // The header is signed-in in the server markup now (PTR-73), so the button is clickable
-    // before React has attached its handler; without this the click lands on inert markup.
+    // PTR-73 renders the header signed-in in the server markup. The button accepts clicks
+    // before React attaches its handler. Without this wait, the click lands on inert markup.
     await waitForHydration(otherTab);
     await otherTab.getByRole("button", { name: "Account menu" }).click();
     await otherTab.getByRole("menuitem", { name: "Sign out" }).click();
@@ -156,8 +156,7 @@ test.describe("Event request drafts", () => {
     await signUp(page);
     await page.goto("/event-requests");
     await expect(page).toHaveURL(/\/dashboard$/);
-    // Neither page must ever have painted, however briefly: the redirect comes from
-    // `beforeLoad`, not from the page reacting after it rendered.
+    // Neither page paints first. `beforeLoad` redirects before rendering.
     await expect(page.getByRole("heading", { name: "Event requests" })).toHaveCount(0);
     await page.goto("/event-requests/new");
     await expect(page).toHaveURL(/\/dashboard$/);
@@ -185,8 +184,8 @@ test.describe("Event request submission (PTR-13)", () => {
     await page.getByRole("button", { name: "Submit request" }).click();
 
     await expect(page.getByText("Request submitted.")).toBeVisible();
-    // The submitted request is no longer editable here; the panel points at the routes that can
-    // change it instead of leaving a form that would refuse on save.
+    // The submitted request is no longer editable here. The panel points at the routes that
+    // can change it. No form remains to refuse on save.
     await expect(page.getByRole("button", { name: "Submit request" })).toHaveCount(0);
     await expect(page.getByText(/raise a change request/)).toBeVisible();
   });
@@ -234,12 +233,12 @@ test.describe("Event request list (PTR-14)", () => {
     const workshop = page.getByRole("row", { name: /Community workshop/ });
     await expect(dinner).toContainText("Submitted");
     await expect(dinner).toContainText("1 Dec 2030, 18:00");
-    // PTR-15: the seed's one Coordinator is assigned at submission.
+    // PTR-15: submission assigns the seed's only Coordinator.
     await expect(dinner).toContainText("Seeded Event Coordinator");
     await expect(workshop).toContainText("Draft");
 
     await dinner.getByRole("link", { name: "Annual dinner" }).click();
-    // A submitted request opens on the universal event page, not a detail route.
+    // A submitted request opens on the universal event page. It uses no detail route.
     await expect(page).toHaveURL(/\/events\/\d+/);
     await expect(page.getByRole("heading", { name: "Annual dinner" })).toBeVisible();
     await expect(page.getByText("Thank the volunteers")).toBeVisible();
@@ -255,10 +254,10 @@ test.describe("Event request list (PTR-14)", () => {
     await expect(page.getByText("Draft saved.")).toBeVisible();
     await page.getByRole("link", { name: "Back to event requests" }).click();
     const href = (await page.getByRole("link", { name: "Mine" }).getAttribute("href")) ?? "";
-    // A draft links back to its reopen route; a submitted one would link to its event page.
+    // A draft links back to its reopen route. A submitted request links to its event page.
     expect(href).toMatch(/\/event-requests\/reopenDraft\/\d+$/);
 
-    // A second organiser, same browser context but a fresh session.
+    // Clear the session and sign a second organiser up in the same browser context.
     await page.context().clearCookies();
     await signUp(page, "event_organiser");
     await page.goto(href);
@@ -296,7 +295,7 @@ test.describe("Event request resume and delete (PTR-12)", () => {
     await expect(page.getByRole("row", { name: /Community workshop, resumed/ })).toContainText(
       "Draft"
     );
-    // The first save after a reopen updates the loaded row; a duplicated insert would be two.
+    // The first save after a reopen updates the loaded row. A duplicated insert creates two.
     await expect(page.getByRole("row", { name: /Community workshop/ })).toHaveCount(1);
   });
 
@@ -335,12 +334,12 @@ test.describe("Coordinator assignment (PTR-15)", () => {
 
     await page.getByRole("link", { name: "Back to event requests" }).click();
     const row = page.getByRole("row", { name: /Board retreat/ });
-    // The seed provides one Coordinator, so every submission lands on them.
+    // The seed provides one Coordinator. Every submission lands on them.
     await expect(row).toContainText("Seeded Event Coordinator");
 
     await row.getByRole("link", { name: "Board retreat" }).click();
-    // The Coordinator contact reads in the request messages' contact card. The name also
-    // shows in the cancellation note, so read the contact row itself.
+    // Read the Coordinator contact in the request messages' contact card. The name also shows
+    // in the cancellation note. Read the contact row itself.
     const record = page.getByRole("region", { name: "Requests & messages" });
     await expect(record.locator("dd", { hasText: "Seeded Event Coordinator" })).toContainText(
       "Seeded Event Coordinator"

@@ -11,13 +11,11 @@ import "../globals.css";
 
 export const Route = createRootRoute({
   /**
-   * PTR-73: the one place the session is resolved, on full loads, for every route —
-   * `_authenticated` narrows what lands here rather than fetching it again. The header reads it
-   * from context, so the signed-in nav is part of the SSR markup instead of appearing a moment
-   * after hydration, which is what `authClient.useSession()` used to cost. The unread
-   * notification count rides along so the bell needs no second round trip. The root match is
-   * retained across sibling client-side navigations, so the count refreshes on full loads and
-   * on `router.invalidate()`, not on each navigation.
+   * PTR-73: Resolve the session once on each full load. `_authenticated` checks it here instead of fetching it again.
+   * The header reads the user from context, so signed-in navigation appears in server-rendered markup.
+   * Load the unread count with the session; the notification bell needs no second request.
+   * The root match stays active during sibling client navigation. The count updates on full loads
+   * and `router.invalidate()`, not on each navigation.
    */
   beforeLoad: () => getSessionContext(),
   head: () => ({

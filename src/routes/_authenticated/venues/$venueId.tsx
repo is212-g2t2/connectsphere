@@ -14,13 +14,11 @@ import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/venues/$venueId")({
   head: () => createSeoHead({ title: "Venue — ConnectSphere", noindex: true }),
-  // Kept as a string like `reset-password.tsx` does: a hand-typed `?saved=abc` should not
-  // drop a cosmetic banner into the route's error boundary. `eventId` is PTR-31's context — the
-  // event the visitor came from, if the venue search carried it in. The router's search codec
-  // turns `?eventId=12` into a number, so the schema coerces, and `catch` keeps a hand-typed
-  // `?eventId=abc` as "no context" rather than a route error.
-  // `date`, `startTime` and `endTime` are an adjusted request's prefill, carried in from the
-  // rejection card; a hand-typed value that is not a civil date or `HH:MM` is dropped the same way.
+  // Keep `saved` as a string, as in `reset-password.tsx`. A hand-typed `?saved=abc` must not cause a route error.
+  // `eventId` supplies PTR-31 context when the venue search includes it. The router converts
+  // `?eventId=12` to a number, so the schema coerces it. Treat failed coercion as no context.
+  // `date`, `startTime`, and `endTime` prefill an adjusted request from the rejection card.
+  // Drop hand-typed values that are not a civil date or `HH:MM`.
   validateSearch: z.object({
     saved: z.string().optional(),
     eventId: z.coerce.number().int().positive().optional().catch(undefined),
@@ -33,9 +31,8 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
       throw redirect({ to: "/dashboard" });
     }
   },
-  // Only `eventId` re-runs the loader; `saved` and the prefill window are read by the
-  // component, so changing those alone skips the loader. The loader context itself carries only
-  // params, so the value arrives as `deps`.
+  // Only `eventId` reruns the loader. The component reads `saved` and the prefill window, so they do not reload data.
+  // The loader context carries only params, so `eventId` arrives as `deps`.
   loaderDeps: ({ search }) => ({ eventId: search.eventId }),
   loader: async ({
     params,
@@ -46,18 +43,17 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
     requestContext: VenueRequestContext | null;
     requestContextFailed: boolean;
   }> => {
-    // `VenueIdInput` already encodes "whole number, positive, within int4"; re-deriving that
-    // rule here is how the two drift apart. `Number("abc")` is NaN and `Number("")` is 0, both
-    // of which it refuses, so a junk path segment is a 404 without ever hitting the server.
+    // Use `VenueIdInput` to keep the path under the same positive int4 rule as other venue IDs.
+    // `Number("abc")` gives NaN and `Number("")` gives 0; both fail before the server call.
+    // A malformed path segment therefore returns 404 without a server round trip.
     const parsed = VenueIdInput.safeParse({ id: Number(params.venueId) });
     if (!parsed.success) {
       throw notFound();
     }
 
-    // The request context is only asked for by roles that can act on it, and only when the
-    // search carried a complete selection. `safeParse(...).data ?? null` keeps a hand-edited or
-    // incomplete `eventId` as "no context", and a foreign one answers `null` inside the handler,
-    // so the page still renders the venue either way.
+    // Load request context only for roles that can act and when the search has a complete selection.
+    // `safeParse(...).data ?? null` treats an edited or incomplete `eventId` as no context.
+    // The handler returns `null` for a foreign event, so the venue page still renders.
     const selection = can(context.user.role, { venue_request: ["request"] })
       ? (VenueRequestContextInput.safeParse({
           eventId: deps.eventId,
@@ -67,9 +63,8 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
 
     const [venueResult, contextResult] = await Promise.all([
       getVenue({ data: parsed.data }),
-      // The request panel is an optional overlay on the venue record: a failed context load must
-      // not take the venue down with it. It becomes a flag the page can report and retry, rather
-      // than the same `null` as "this venue was opened without an event".
+      // Request context is optional. Keep the venue page available if the context load fails.
+      // Set a retryable error flag; do not use the `null` value for a venue opened without an event.
       selection
         ? getVenueRequestContext({ data: selection })
             .then(result => ({ context: result.context, failed: false }))

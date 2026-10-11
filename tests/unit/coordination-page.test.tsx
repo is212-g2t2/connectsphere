@@ -105,7 +105,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       within(row).getByRole("link", { name: "jane.doe@example.com" }).getAttribute("href")
     ).toBe("mailto:jane.doe@example.com");
     expect(within(row).getByText("1 Dec 2030, 18:00")).toBeTruthy();
-    // 02:00 UTC is 10:00 in Singapore, the fixed zone every instant renders in.
+    // 02:00 UTC is 10:00 Singapore time. Every instant renders in that zone.
     expect(within(row).getByText("15 Sept 2026, 10:00").tagName).toBe("TIME");
   });
 
@@ -207,7 +207,7 @@ describe("Handovers awaiting a response (PTR-110)", () => {
       "This handover has already been answered."
     );
     expect(success).not.toHaveBeenCalled();
-    // The offer is dead server-side; re-read so it does not stay actionable.
+    // The offer died server-side. Re-read to clear it.
     expect(invalidate).toHaveBeenCalled();
   });
 

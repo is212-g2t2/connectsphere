@@ -8,7 +8,7 @@ import { formatLocalDateTime, formatProposedWindow } from "#/features/event-requ
 
 const NONE = "None recorded";
 
-/** The organiser's read-only record, mirroring the request detail's event information block. */
+/** The Organiser's read-only record. It mirrors the request detail's event information block. */
 function OrganiserInformation({ request }: { request: EventRequestDetail }) {
   return (
     <div>
@@ -87,9 +87,9 @@ function OrganiserInformation({ request }: { request: EventRequestDetail }) {
 }
 
 /**
- * The event's recorded information both staff roles read — updatable by the Coordinator while the
- * event is approved, planning, or confirmed. In those statuses the Coordinator's form also saves
- * the apply of a waiting change request (PTR-52); in the others the change requests section holds
+ * Show the event's recorded information to both staff roles. The Coordinator can update it while
+ * the event is approved, planning, or confirmed. In those statuses the Coordinator's form also
+ * applies a waiting change request (PTR-52). In other statuses the change requests section holds
  * that form.
  */
 export function eventInformationSections(data: EventPageData): EventSectionDef[] {

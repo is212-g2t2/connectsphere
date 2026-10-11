@@ -16,7 +16,7 @@ import type { EventPageData, EventSectionDef } from "#/features/events/page-data
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 
-/** The review statuses, the only ones where a rejected request keeps the block mounted. */
+/** Review statuses. Only these keep the block mounted for a rejected request. */
 const REVIEW_STATUSES: readonly EventRequestStatus[] = [
   "submitted",
   "under_review",
@@ -77,7 +77,7 @@ function venueSource(data: EventPageData): VenueSource | null {
   };
 }
 
-/** The venue block as the old dashboard card rendered it: requirements, request, confirmation. */
+/** Render the venue block as the old dashboard card did: requirements, request, confirmation. */
 function VenueBody({ data }: { data: EventPageData }) {
   const source = venueSource(data);
   if (!source) return null;
@@ -235,7 +235,7 @@ function VenueBody({ data }: { data: EventPageData }) {
   );
 }
 
-/** One labelled row beside the shared requirements: the card's pending request. */
+/** Show one labelled row beside the shared requirements: the card's pending request. */
 function VenueDetail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
@@ -246,10 +246,10 @@ function VenueDetail({ label, value }: { label: string; value: ReactNode }) {
 }
 
 /**
- * The venue block the Organiser and the Coordinator share: approved, planning, and confirmed
- * events always; the review statuses only while a rejected request waits for adjustment. The
- * Coordinator keeps it for every searchable status, where the block carries the venue search
- * action. Triage shows it while the request carries a venue request.
+ * Share the venue block between the Organiser and the Coordinator. Show it always for approved,
+ * planning, and confirmed events. Show it in review statuses only while a rejected request waits
+ * for adjustment. The Coordinator keeps it for every searchable status. It carries the venue
+ * search action there. Triage shows it while the request carries a venue request.
  */
 export function venueSections(data: EventPageData): EventSectionDef[] {
   if (data.kind === "triage") {
@@ -264,8 +264,8 @@ export function venueSections(data: EventPageData): EventSectionDef[] {
     ];
   }
   if (data.event.access !== "organiser" && data.event.access !== "coordinator") return [];
-  // The search action lives in this block, so hiding the block for a searchable status would
-  // strand the action. The body gates the link itself on the same statuses.
+  // The search action lives in this block. Hiding the block for a searchable status would
+  // strand the action. The body gates the link on the same statuses.
   return [
     {
       id: "venue",

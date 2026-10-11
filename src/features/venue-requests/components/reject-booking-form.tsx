@@ -65,12 +65,12 @@ const SUGGESTION_INPUTS = [
 ] as const;
 
 /**
- * PTR-34 criteria 1 and 2: Venue Staff reject a pending request with a reason, and may suggest a
- * venue, date or time instead. The server's schema is the gate, so the reason, the suggestion and
- * the paired times are checked once and each issue marks its own field. Like the approval, success
- * lands on a reloaded queue. A refusal because someone else already decided the row also lands on
- * the queue, toasted, since reloading this page's loader would otherwise 404 it out from under the
- * form; any other refusal reloads the loader and stays on the page beside its message.
+ * PTR-34 criteria 1 and 2: Let Venue Staff reject a pending request with a reason and an optional
+ * suggested venue, date, or time. The server schema checks the reason, suggestion, and paired times.
+ * Show each issue by its field.
+ * On success, reload the queue. If someone else decided the request, show a toast and return to
+ * the queue. A loader reload here would return 404 and remove the form before it could show the
+ * error. For other refusals, reload the loader and keep the message by the form.
  */
 export function RejectBookingForm({
   request,
@@ -80,14 +80,13 @@ export function RejectBookingForm({
   request: Pick<PendingVenueRequest, "id" | "venueId" | "venueName">;
   venues: readonly VenueOption[];
   /**
-   * Where a decided request goes. The old detail page returns to the queue; the universal event
-   * page stays put and reloads its loader instead, since the request leaves `pending` and the
-   * decision block drops out on refetch.
+   * Where to go after a decision. The old detail page returns to the queue.
+   * The event page stays open and reloads its data; the request leaves `pending` and its decision block disappears.
    */
   onDecided?: () => Promise<void> | void;
 }) {
-  // The venue being rejected is never a sensible suggestion in its own place — at a minimum a
-  // "fully booked" rejection must not offer the same room back as the alternative.
+  // Do not suggest the same venue that staff just rejected. For example, a "fully booked" refusal
+  // must not offer the same venue as an alternative.
   const suggestableVenues = venues.filter(venue => venue.id !== request.venueId);
   const router = useRouter();
   const form = useForm({
@@ -110,9 +109,8 @@ export function RejectBookingForm({
         const message =
           error instanceof Error ? error.message : "Could not reject this request. Try again.";
 
-        // Someone else already settled this row: reloading the loader turns it into `notFound()`,
-        // which would unmount this form before it could show why the submit failed. Toast instead
-        // and return to the dashboard rather than flashing an error the router immediately replaces.
+        // Someone else already settled this row. Reloading would return `notFound()` and unmount
+        // the form before it could show the error. Show a toast and return to the dashboard.
         const alreadySettled =
           message === VENUE_REQUEST_REJECTED_MESSAGE || message === VENUE_REQUEST_DECIDED_MESSAGE;
         if (alreadySettled) {
@@ -126,12 +124,11 @@ export function RejectBookingForm({
           return;
         }
 
-        // `fields` is what makes the library read this as a global error and store `form` verbatim.
-        // Set before invalidating: a transport failure reloading the loader must not cost the
-        // message that is already on screen.
+        // `fields` marks this as a global error and stores `form` verbatim.
+        // Set the message before invalidating. A reload failure must not hide it.
         formApi.setErrorMap({ onSubmit: { fields: {}, form: message } });
         await router.invalidate().catch(() => {
-          // Best effort, like the send above: the refusal is already shown.
+          // Best effort, as above. The refusal is already shown.
         });
         return;
       }
@@ -151,8 +148,7 @@ export function RejectBookingForm({
       className="space-y-4"
       onSubmit={event => {
         event.preventDefault();
-        // The library has no re-entrancy check, and a second click can land before React disables
-        // the button.
+        // The library has no re-entrancy check. A second click can arrive before React disables the button.
         if (form.state.isSubmitting) return;
         void form.handleSubmit();
       }}

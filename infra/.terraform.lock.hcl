@@ -1,5 +1,4 @@
-# This file is maintained automatically by "terraform init".
-# Manual edits may be lost in future updates.
+# `terraform init` maintains this file. Do not edit it by hand; later runs can replace your changes.
 
 provider "registry.terraform.io/cloudflare/cloudflare" {
   version     = "4.52.9"

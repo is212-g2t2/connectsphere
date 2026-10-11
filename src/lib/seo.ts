@@ -26,7 +26,7 @@ export function getBaseUrl(explicitUrl?: string): string {
     try {
       serverUrl = env.SERVER_URL || env.BETTER_AUTH_URL;
     } catch {
-      // Ignored on client-side access
+      // Ignore this value when the client accesses it.
     }
   }
 

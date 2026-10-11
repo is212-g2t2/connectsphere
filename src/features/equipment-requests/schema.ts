@@ -8,21 +8,14 @@ import {
   PositiveWholeNumber,
 } from "#/features/event-requests/schema";
 
-/**
- * Pure data and Zod only: routes and the form import this module, so per AGENTS.md nothing here
- * may reach `#/db/schema` or any other server-only dependency.
- */
+/** Routes and forms import this module. Keep it free of server-only dependencies. */
 
 export const EQUIPMENT_NOTES_MAX = 2000;
 export const EQUIPMENT_NOTES_MESSAGE = `Notes must be ${EQUIPMENT_NOTES_MAX} characters or fewer`;
 export const EQUIPMENT_NO_LINES_MESSAGE =
   "No equipment lines recorded. Add at least one line before submitting.";
 
-/**
- * One equipment line as the panel, the email and the server pass it around. The arrangement
- * fields are Technical Support's position (PTR-39); they are absent wherever a line is shown
- * before Technical Support has seen it.
- */
+/** The equipment line used by the panel, email, and server. Include arrangement fields after Technical Support reviews the line. */
 export interface EquipmentLine {
   id: string;
   item: string;
@@ -35,25 +28,22 @@ export interface EquipmentLine {
   lastRelease?: EquipmentReleaseRecord | null;
 }
 
-/**
- * The arrangement states Technical Support may set (PTR-39 AC3). `reserved` is deliberately not
- * here: only the reservation action (PTR-41) writes it, so an update can never claim it.
- */
+/** States that Technical Support can set (PTR-39 AC3). Only the reserve action sets `reserved`. */
 export const ARRANGEMENT_STATES = ["requested", "not_required", "unavailable"] as const;
 
 export type ArrangementState = (typeof ARRANGEMENT_STATES)[number];
 
 /** PTR-42: the most recent reduce/release on a line, kept after the reservation row is gone. */
 export interface EquipmentReleaseRecord {
-  /** Units given back in that change. */
+  /** Store the units given back in this change. */
   quantity: number;
-  /** The member who made the change, name or email. */
+  /** Store the member name or email. */
   byName: string;
-  /** ISO timestamp. */
+  /** Store the change time as an ISO timestamp. */
   at: string;
 }
 
-/** The shared rule for the Reduce or release action: units held, and this member may arrange the line. */
+/** The Reduce or release action requires held units and permission to arrange the line. */
 export function canGiveBackUnits(line: {
   arrangeable?: boolean | undefined;
   reservedQuantity?: number | null | undefined;
@@ -61,7 +51,7 @@ export function canGiveBackUnits(line: {
   return line.arrangeable !== false && (line.reservedQuantity ?? 0) > 0;
 }
 
-/** Every state a line can hold, settable or not, as the words people read. */
+/** List all possible line states. Include states that a user cannot set. */
 const ARRANGEMENT_STATE_LABELS: Record<ArrangementState | "reserved", string> = {
   requested: "Requested",
   reserved: "Reserved",
@@ -69,7 +59,7 @@ const ARRANGEMENT_STATE_LABELS: Record<ArrangementState | "reserved", string> = 
   unavailable: "Unavailable",
 };
 
-/** The label for a stored status, or the raw value when it is not one we know. */
+/** Return the label for a known status, or the raw value for an unknown status. */
 export function arrangementStateLabel(status: string): string {
   return (ARRANGEMENT_STATE_LABELS as Record<string, string | undefined>)[status] ?? status;
 }
@@ -85,32 +75,25 @@ export const EQUIPMENT_RESERVED_EDIT_MESSAGE =
 export const EQUIPMENT_RESERVED_REMOVE_MESSAGE =
   "This line holds a reservation and cannot be removed.";
 
-/**
- * The statuses a Coordinator may edit equipment on: approved (AC1) and planning (AC4 says "not
- * yet confirmed", which is the `planning` stage before `confirmed`).
- */
+/** Coordinators can edit equipment when an event is approved or in planning. */
 const EQUIPMENT_EDITABLE_STATUSES = ["approved", "planning"] as const;
 
-/** Whether the coordinator panel is editable at this event status. */
+/** Check whether the coordinator panel accepts edits at this event status. */
 export function isEquipmentEditableStatus(status: string): boolean {
   return (EQUIPMENT_EDITABLE_STATUSES as readonly string[]).includes(status);
 }
 
-// Shared id shape: text primary key, same rule as `VenueRequestIdInput`.
+// Use the same text ID rule as `VenueRequestIdInput`.
 const EquipmentLineId = z
   .string({ error: "Choose an equipment line" })
   .trim()
   .min(1, "Choose an equipment line")
   .max(64, "Choose an equipment line");
 
-/**
- * PTR-38 AC1/AC4: add or edit one equipment line. All three required fields must be present on
- * save — the draft leniency of the organiser's form (partial lines while typing) does not apply
- * here; the Coordinator is editing a committed record.
- */
+/** PTR-38 AC1/AC4: Add or edit a saved equipment line. Require all three line fields. */
 export const EquipmentLineInput = z.object({
   eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
-  /** Present on edit, absent on add. */
+  /** Include on edit. Omit on add. */
   id: EquipmentLineId.optional(),
   item: z
     .string()
@@ -148,7 +131,7 @@ export function parseRemoveEquipmentLineInput(data: unknown): RemoveEquipmentLin
   return parseOrThrow(RemoveEquipmentLineInput, data);
 }
 
-/** PTR-38 AC5: submit the full set to Technical Support. Only the event id is needed. */
+/** PTR-38 AC5: Submit the full equipment list for an event to Technical Support. */
 export const SubmitEquipmentInput = z.object({
   eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
 });
@@ -160,9 +143,9 @@ export function parseSubmitEquipmentInput(data: unknown): SubmitEquipmentValues 
 }
 
 /**
- * PTR-39 AC3: Technical Support sets a line's arrangement state, adds notes, or both. Each part
- * is optional so notes can be added to a line whose state may not move (a reserved one); an empty
- * `arrangementNotes` clears the note, and `unavailableReason` only matters for `unavailable`.
+ * PTR-39 AC3: Technical Support can set the state, add notes, or do both. Each field is optional.
+ * Notes can change while a line is reserved. An empty `arrangementNotes` clears the note.
+ * `unavailableReason` applies only when the state is `unavailable`.
  */
 const arrangementFields = {
   arrangementStatus: z.enum(ARRANGEMENT_STATES, { error: ARRANGEMENT_STATE_MESSAGE }).optional(),
@@ -174,7 +157,7 @@ const arrangementFields = {
   arrangementNotes: z.string().trim().max(EQUIPMENT_NOTES_MAX, EQUIPMENT_NOTES_MESSAGE).optional(),
 };
 
-/** Blank once whitespace, control and invisible format characters (U+200B, U+2060) are stripped. */
+/** Return true when no visible characters remain. Strip whitespace, control characters, U+200B, and U+2060 first. */
 export function isBlank(text: string | undefined): boolean {
   return (text ?? "").replace(/[\p{Cc}\p{Cf}\s]/gu, "") === "";
 }
@@ -208,7 +191,7 @@ export function parseArrangementUpdateInput(data: unknown): ArrangementUpdateVal
   return parseOrThrow(ArrangementUpdateInput, data);
 }
 
-/** PTR-40: how much of one equipment type is free for an event's approved booking period. */
+/** PTR-40: Check how many units of an equipment type are free during an approved booking. */
 export const AvailabilityCheckInput = z.object({
   eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
   equipmentTypeId: z
@@ -226,14 +209,14 @@ export function parseAvailabilityCheckInput(data: unknown): AvailabilityCheckVal
   return parseOrThrow(AvailabilityCheckInput, data);
 }
 
-/** PTR-41: one line id for the reserve flow, under the same 64-char text-key rule. */
+/** PTR-41: The line ID for a reserve request. Use the 64-character text-key rule. */
 const EquipmentRequestId = z
   .string({ error: "Equipment request ID is required" })
   .trim()
   .min(1, "Equipment request ID is required")
   .max(64, "Equipment request ID is required");
 
-/** PTR-41: commit units of the line's type for the event's approved booking period. */
+/** PTR-41: Reserve units of the line's type for the approved booking period. */
 export const ReserveEquipmentInput = z.object({
   equipmentRequestId: EquipmentRequestId,
   quantity: z
@@ -248,7 +231,7 @@ export function parseReserveEquipmentInput(data: unknown): ReserveEquipmentValue
   return parseOrThrow(ReserveEquipmentInput, data);
 }
 
-/** PTR-41: how much of the line's type is free for its booking window. */
+/** PTR-41: Check how many units of the line's type are free during its booking. */
 export const CheckLineAvailabilityInput = z.object({
   equipmentRequestId: EquipmentRequestId,
 });
@@ -259,7 +242,7 @@ export function parseCheckLineAvailabilityInput(data: unknown): CheckLineAvailab
   return parseOrThrow(CheckLineAvailabilityInput, data);
 }
 
-// ── Reduce or release a reservation (PTR-42) ──────────────────────────────────────────────────
+// Reduce or release a reservation (PTR-42).
 
 export const RELEASE_TOTAL_MESSAGE = "Enter the units to keep as a whole number, 0 to release";
 export const RELEASE_NO_RESERVATION_MESSAGE = "This line holds no reservation to reduce or release";
@@ -269,10 +252,10 @@ export const RELEASE_REASON_NEEDS_RELEASE_MESSAGE =
   "A reason marks the line unavailable, which goes with a full release: keep 0 units or leave the reason blank";
 
 /**
- * PTR-42: the new total the line keeps — `0` releases the reservation. A reason marks the line
- * unavailable instead of requested (criterion 1), the same rule PTR-39's arrangement update
- * applies: the choice is Technical Support's, never inferred. A reason goes with a full release
- * only: an unavailable line holding units could be neither reserved nor moved, a dead end.
+ * PTR-42: Set the total units to keep. Use `0` to release all units. A reason sets the line to
+ * `unavailable` instead of `requested` (criterion 1). Technical Support must choose this state.
+ * A reason is valid only for a full release. Otherwise, the line could stay unavailable while it
+ * holds units, with no action to move those units.
  */
 const ReleaseEquipmentFields = z.object({
   equipmentRequestId: EquipmentRequestId,
@@ -310,10 +293,7 @@ export function parseReleaseEquipmentInput(data: unknown): ReleaseEquipmentValue
   return parseOrThrow(ReleaseEquipmentInput, data);
 }
 
-/**
- * PTR-43 AC1: Technical Support Staff marks all equipment arrangements for an event as complete.
- * Only the event id is needed; the handler verifies every line is `reserved` or `not_required`.
- */
+/** PTR-43 AC1: Mark arrangements complete with only the event id. The handler verifies every line is `reserved` or `not_required`. */
 export const CompleteArrangementsInput = z.object({
   eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
 });
@@ -324,10 +304,7 @@ export function parseCompleteArrangementsInput(data: unknown): CompleteArrangeme
   return parseOrThrow(CompleteArrangementsInput, data);
 }
 
-/**
- * PTR-43 AC2: Technical Support Staff records that requested equipment cannot be provided. Takes
- * the line id and a mandatory reason so the Coordinator knows why.
- */
+/** PTR-43 AC2: Store a line ID and required reason when Technical Support cannot provide equipment. */
 export const RecordUnavailableInput = z.object({
   eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
   id: EquipmentLineId,
@@ -346,23 +323,16 @@ export function parseRecordUnavailableInput(data: unknown): RecordUnavailableVal
   return parseOrThrow(RecordUnavailableInput, data);
 }
 
-// ── Form shapes (string-leaf values for React inputs) ─────────────────────────────────────────
+// Form shapes. React inputs return strings.
 
-/**
- * The shape a React form holds: every leaf is a string, because that is what `<input>` gives back.
- * Parsing the form shape converts strings into the wire type and pipes into `EquipmentLineInput`.
- */
+/** React form values use strings. Parsing converts them to `EquipmentLineInput`. */
 export const EquipmentLineFormShape = z.object({
   item: z.string(),
   quantity: z.string(),
   notes: z.string(),
 });
 
-/**
- * Form validator: the same gate the server uses, so every field is checked once and each message
- * marks its own input. `eventId` and `id` are injected by the caller before the server call, not
- * part of the form shape.
- */
+/** Use server rules so each error marks its own input. The caller adds `eventId` and `id`. */
 export const EquipmentLineFormInput = EquipmentLineFormShape.transform(
   (values): { item: string; quantity: number; notes?: string | undefined } => ({
     item: values.item,
@@ -371,11 +341,7 @@ export const EquipmentLineFormInput = EquipmentLineFormShape.transform(
   })
 ).pipe(EquipmentLineInput.omit({ eventId: true, id: true }));
 
-/**
- * The reserve dialog's form: the quantity is a string leaf until submit, then the same gate as
- * `ReserveEquipmentInput` checks it, so every issue marks its own input. The line id is injected
- * by the caller before the server call, not part of the form shape.
- */
+/** The reserve form stores quantity as a string. It uses `ReserveEquipmentInput` rules. The caller adds the line ID. */
 export const ReserveEquipmentFormInput = z
   .object({ quantity: z.string() })
   .transform((values): { quantity: number } => ({
@@ -383,10 +349,7 @@ export const ReserveEquipmentFormInput = z
   }))
   .pipe(ReserveEquipmentInput.omit({ equipmentRequestId: true }));
 
-/**
- * The release dialog's form: the quantity is a string leaf until submit, then the same gate as
- * `ReleaseEquipmentInput` checks it. The line id is injected by the caller before the server call.
- */
+/** The release form stores quantity as a string and uses `ReleaseEquipmentInput` rules. The caller adds the line ID. */
 export const ReleaseEquipmentFormInput = z
   .object({ quantity: z.string(), unavailableReason: z.string() })
   .transform((values): { quantity: number; unavailableReason?: string | undefined } => ({
@@ -400,9 +363,8 @@ export const ReleaseEquipmentFormInput = z
   );
 
 /**
- * The availability check form: string leaves in, the same gate as `AvailabilityCheckInput`. An
- * unchosen type becomes 0, which the gate refuses with its own message; a blank quantity is
- * simply not asked about.
+ * The availability form stores values as strings and uses `AvailabilityCheckInput` rules. An
+ * empty type becomes 0 and fails validation. A blank quantity does not trigger validation.
  */
 export const AvailabilityCheckFormInput = z
   .object({ equipmentTypeId: z.string(), requestedQuantity: z.string() })
@@ -414,8 +376,8 @@ export const AvailabilityCheckFormInput = z
   .pipe(AvailabilityCheckInput.omit({ eventId: true }));
 
 /**
- * The arrangement form: string leaves in, the same gate as `ArrangementUpdateInput`. A reserved
- * line shows its state but cannot set one; the caller drops anything that is not a settable state.
+ * The arrangement form stores values as strings and uses `ArrangementUpdateInput` rules. A
+ * reserved line shows its state, but the caller omits that state from updates.
  */
 export const ArrangementFormInput = z
   .object({

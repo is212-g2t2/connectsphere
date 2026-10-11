@@ -69,17 +69,17 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     database = drizzle(pool, { schema });
 
-    // Clean up any stale test fixtures
+    // Remove stale test fixtures.
     await cleanup();
 
-    // Insert fixture users in parallel
+    // Insert fixture users in parallel.
     await Promise.all(
       Object.values(fixtureUsers).map(u =>
         database.insert(schema.user).values(u).onConflictDoNothing()
       )
     );
 
-    // Insert fixture venues (need two venues so concurrent events can book same time without venue collision)
+    // Insert two venues so concurrent events can use the same time.
     const [insertedVenue1, insertedVenue2] = await database
       .insert(schema.venues)
       .values([
@@ -101,7 +101,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     fixtureVenueId = insertedVenue1.id;
     fixtureVenueId2 = insertedVenue2.id;
 
-    // Insert dedicated test equipment type (5 held, 1 unavailable -> 4 serviceable)
+    // Insert a test equipment type with five units, one unavailable, and four serviceable.
     testEquipmentTypeName = `PTR41 Test Projector ${Date.now()}`;
     const [insertedType] = await database
       .insert(schema.equipmentTypes)
@@ -254,7 +254,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     expect(result.arrangementStatus).toBe("reserved");
     expect(result.venueRequestId).toBe(venueRequestId);
 
-    // Verify DB state
+    // Check the database state.
     const [line] = await database
       .select()
       .from(schema.equipmentRequests)
@@ -297,7 +297,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
 
     expect(line.arrangementStatus).toBe("requested");
 
-    // Reserving remaining quantity upgrades line to reserved
+    // Reserving all remaining units changes the line to `reserved`.
     const secondResult = await handleReserveEquipment(
       { equipmentRequestId, quantity: 3 },
       session("tech1"),
@@ -309,7 +309,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   });
 
   it("refuses reservation exceeding available inventory with 409 Conflict and states exact shortfall (AC2, PTR-40 AC3)", async () => {
-    // 5 held, 1 unavailable -> 4 available
+    // Five units are held and one is unavailable, so four are available.
     const { equipmentRequestId } = await createEventWithApprovedBooking({
       name: "AC2 Over-allocation Event",
       startsAt: "2026-12-03 10:00:00",
@@ -332,7 +332,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   });
 
   it("reduces available quantity for overlapping events by the reserved amount (AC3)", async () => {
-    // Event 1: 10:00 to 14:00
+    // Event 1 runs from 10:00 to 14:00.
     const event1 = await createEventWithApprovedBooking({
       name: "Overlapping Event 1",
       startsAt: "2026-12-04 10:00:00",
@@ -340,7 +340,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       itemRequestedQuantity: 3,
     });
 
-    // Event 2: 12:00 to 16:00 (overlaps Event 1 from 12:00 to 14:00)
+    // Event 2 runs from 12:00 to 16:00 and overlaps Event 1 from 12:00 to 14:00.
     const event2 = await createEventWithApprovedBooking({
       name: "Overlapping Event 2",
       venueId: fixtureVenueId2,
@@ -349,14 +349,14 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       itemRequestedQuantity: 2,
     });
 
-    // Event 1 reserves 3 of 4 units
+    // Event 1 reserves three of four units.
     await handleReserveEquipment(
       { equipmentRequestId: event1.equipmentRequestId, quantity: 3 },
       session("tech1"),
       database as never
     );
 
-    // Event 2 attempts to reserve 2 units during overlapping window (only 1 remaining)
+    // Event 2 requests two units during the overlap, when only one remains.
     await expect(
       handleReserveEquipment(
         { equipmentRequestId: event2.equipmentRequestId, quantity: 2 },
@@ -369,7 +369,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       message: "Requested 2 units, but only 1 unit is available for this period (shortfall of 1).",
     });
 
-    // Event 2 reserves 1 unit (the remaining quantity) -> succeeds!
+    // Event 2 reserves the one remaining unit.
     const res2 = await handleReserveEquipment(
       { equipmentRequestId: event2.equipmentRequestId, quantity: 1 },
       session("tech1"),
@@ -404,9 +404,8 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   });
 
   it("never exceeds available quantity under concurrent overlapping reservations (AC5)", async () => {
-    // Total serviceable is 4.
-    // Event A and Event B both overlap 10:00 to 14:00 and concurrently ask for 3 units each.
-    // Combined would be 6 > 4.
+    // Four units are serviceable. Events A and B both request three units for 10:00–14:00, so
+    // both requests would require six units.
     const eventA = await createEventWithApprovedBooking({
       name: "Concurrent Event A",
       startsAt: "2026-12-06 10:00:00",
@@ -438,11 +437,11 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     const successes = results.filter(r => r.status === "fulfilled");
     const rejections = results.filter(r => r.status === "rejected");
 
-    // Exactly one must succeed and one must be refused
+    // One request must succeed and one must be refused.
     expect(successes).toHaveLength(1);
     expect(rejections).toHaveLength(1);
 
-    // Verify DB invariant: sum of reserved units is exactly 3 (<= 4)
+    // Check the database invariant: three units are reserved, which is at most four.
     const activeReservations = await database
       .select({ quantity: schema.equipmentReservations.quantity })
       .from(schema.equipmentReservations)
@@ -471,7 +470,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       })
       .returning();
 
-    // Venue request is pending, not approved
+    // The venue request is pending, not approved.
     await database.insert(schema.venueRequests).values({
       id: `vr-pending-${crypto.randomUUID()}`,
       eventId: event.id,
@@ -514,7 +513,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       assignedStaffId: fixtureUsers.tech1.id,
     });
 
-    // Tech 2 has no line on the event at all, so the queue gate refuses before the line does.
+    // Tech 2 has no line on the event, so the queue check refuses before the line check.
     await expect(
       handleReserveEquipment(
         { equipmentRequestId, quantity: 1 },
@@ -537,8 +536,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       assignedStaffId: fixtureUsers.tech1.id,
     });
 
-    // An unassigned second line keeps the event workable for Tech 2, so the refusal names the
-    // line rather than the event.
+    // Keep a second line unassigned so Tech 2 can access the event. The refusal must name the line.
     await database.insert(schema.equipmentRequests).values({
       id: `er-extra-${crypto.randomUUID()}`,
       eventId,
@@ -589,8 +587,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       endsAt: "2026-12-09 12:00:00",
     });
 
-    // A second approved booking makes the reservation period ambiguous, so it is refused rather
-    // than bound to an arbitrary one.
+    // A second approved booking leaves the reservation period ambiguous. Refuse the reservation.
     await database.insert(schema.venueRequests).values({
       id: `vr-second-${crypto.randomUUID()}`,
       eventId,
@@ -664,7 +661,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   });
 
   it("treats back-to-back bookings as non-overlapping", async () => {
-    // Serviceable capacity is 4; touching periods are free, so both events can take it all.
+    // Four units are serviceable. These periods only touch, so each event can use all four.
     const first = await createEventWithApprovedBooking({
       name: "Touching First",
       startsAt: "2026-12-13 10:00:00",
@@ -696,9 +693,8 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   });
 
   it("counts a competing event's reservation once: the stored period overlaps once", async () => {
-    // The competing event's reservation snapshots its booking (10–12); a second approved booking
-    // is added afterwards (approvals can accumulate after the fact). The stored period still
-    // counts once (3 of 4), so the target keeps its 1 free unit.
+    // The competing event snapshots its 10:00–12:00 booking. Add a second approved booking later.
+    // The reservation still counts once, using three of four units, so the target has one free unit.
     const competitor = await createEventWithApprovedBooking({
       name: "Fan-out Competitor",
       startsAt: "2026-12-15 10:00:00",
@@ -739,9 +735,9 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   });
 
   it("counts the peak concurrent commitment, not the sum, for staggered windows", async () => {
-    // Two reservations that do not overlap each other (10–12 and 12–14) each take 3 of the 4
-    // serviceable units. A third event spanning 11–13 sees a peak of 3, so 1 unit is still free;
-    // summing the two would wrongly report none.
+    // Two non-overlapping reservations (10:00–12:00 and 12:00–14:00) each use three of four units.
+    // A third event from 11:00 to 13:00 sees a peak of three, so one unit is free. Summing both
+    // reservations would report no free units.
     const morning = await createEventWithApprovedBooking({
       name: "Staggered Morning",
       startsAt: "2026-12-14 10:00:00",
@@ -815,7 +811,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   it.each(["unavailable", "not_required"] as const)(
     "refuses to reserve a line marked %s",
     async status => {
-      // Assigned to the actor so the queue gate passes and the state gate answers.
+      // Assign the event to the actor so the queue check passes and the state check runs.
       const { equipmentRequestId } = await createEventWithApprovedBooking({
         name: `State Gate ${status}`,
         startsAt: "2026-12-22 10:00:00",
@@ -859,7 +855,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       .set({ startsAt: "2026-12-23 16:00:00", endsAt: "2026-12-23 18:00:00" })
       .where(eq(schema.venueRequests.eventId, first.eventId));
 
-    // The snapshot still commits the morning window, so a rival there finds nothing free.
+    // The snapshot still uses the morning window, so a competing event finds no free units then.
     const rival = await createEventWithApprovedBooking({
       name: "Amended Rival",
       venueId: fixtureVenueId2,
@@ -875,7 +871,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       )
     ).rejects.toMatchObject({ name: "ConflictError", status: 409 });
 
-    // Re-reserving re-scopes the snapshot to the amended booking and frees the morning.
+    // Re-reservation uses the amended booking and frees the morning period.
     await handleReserveEquipment(
       { equipmentRequestId: first.equipmentRequestId, quantity: 4 },
       session("tech1"),
@@ -967,7 +963,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   });
 
   it("reports the line's free quantity for its booking window", async () => {
-    // 5 held, 1 unavailable -> 4 serviceable, nothing reserved yet.
+    // Five units are held, one is unavailable, and four are serviceable. Nothing is reserved yet.
     const { equipmentRequestId } = await createEventWithApprovedBooking({
       name: "Check Number Event",
       startsAt: "2026-12-26 10:00:00",
@@ -997,7 +993,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
       database as never
     );
 
-    // 2 of 4 committed to this line, but its own row does not count against itself.
+    // Two of four units are assigned to this line. Do not count the line against itself.
     await expect(
       handleCheckLineAvailability({ equipmentRequestId }, session("tech1"), database as never)
     ).resolves.toEqual({
@@ -1038,8 +1034,8 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   );
 
   it("refuses a state change on a partially reserved line but still allows notes", async () => {
-    // A partial reservation keeps the line `requested`: the row below commits 1 of 3 units
-    // without moving the state, so only the reservation-row guard can see it.
+    // A partial reservation keeps the line `requested`. The row below reserves one of three units
+    // without changing the status, so only the reservation guard can see it.
     const { eventId, equipmentRequestId } = await createEventWithApprovedBooking({
       name: "Partial Freeze Event",
       startsAt: "2026-12-28 10:00:00",
@@ -1128,8 +1124,8 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
   });
 
   it("reduces the availability check for an overlapping event once a reservation is recorded (AC3 record → check)", async () => {
-    // 5 held, 1 unavailable -> 4 serviceable. The first event commits 3 through the reserve
-    // handler; the overlapping second event reads the reduction through the check handler.
+    // Five units are held, one is unavailable, and four are serviceable. The first event reserves
+    // three. The overlapping event reads the reduced availability through the check handler.
     const first = await createEventWithApprovedBooking({
       name: "Record Check First",
       startsAt: "2026-12-30 10:00:00",

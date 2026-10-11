@@ -1,6 +1,6 @@
-# The state bucket cannot be created by Terraform (backend must exist before
-# init). bootstrap.ps1 creates it once with identical settings; this resource
-# is then imported so the bucket stays in IaC from then on.
+# Terraform cannot create the state bucket because the backend must exist before init.
+# `bootstrap.ps1` creates the bucket with these settings. Import it so Terraform manages it after
+# setup.
 
 resource "google_storage_bucket" "tfstate" {
   name                        = "connectsphere-is212-tfstate"

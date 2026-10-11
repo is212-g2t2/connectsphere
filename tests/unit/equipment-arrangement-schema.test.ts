@@ -54,7 +54,7 @@ describe("parseArrangementUpdateInput (PTR-39 AC3)", () => {
   });
 
   it("does not accept reserved as a state to set", () => {
-    // Reserved belongs to the reservation action (PTR-41); an update can never write it.
+    // `reserved` belongs to the reservation action (PTR-41). An update never writes it.
     expect(() => parseArrangementUpdateInput({ ...line, arrangementStatus: "reserved" })).toThrow(
       ARRANGEMENT_STATE_MESSAGE
     );
@@ -65,7 +65,7 @@ describe("parseArrangementUpdateInput (PTR-39 AC3)", () => {
     expect(
       parseArrangementUpdateInput({ ...line, arrangementNotes: "  Adapter in store B  " })
     ).toEqual({ ...line, arrangementNotes: "Adapter in store B" });
-    // An empty note is how a note is cleared, so it survives parsing as an empty string.
+    // An empty note clears the note. It survives parsing as an empty string.
     expect(parseArrangementUpdateInput({ ...line, arrangementNotes: "   " })).toEqual({
       ...line,
       arrangementNotes: "",

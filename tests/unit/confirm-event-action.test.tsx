@@ -55,7 +55,7 @@ describe("ConfirmEventAction (PTR-24)", () => {
     expect(alert.textContent).toContain("There is no approved venue booking.");
     expect(alert.textContent).toContain("Projector is not arranged (requested).");
     expect(success).not.toHaveBeenCalled();
-    // The named items may have moved since the page loaded.
+    // The named items can move after the page loads.
     expect(invalidate).toHaveBeenCalled();
   });
 

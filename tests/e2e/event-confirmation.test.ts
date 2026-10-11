@@ -1,8 +1,8 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-24: the assigned Coordinator confirms an event, the refusal names what is outstanding, and
-// the Organiser sees the confirmed arrangements. Every test creates and removes its own event and
-// booking, so the tests can run in parallel and never touch the shared demo rows.
+// PTR-24: the assigned Coordinator confirms an event. The refusal names what is outstanding.
+// The Organiser sees the confirmed arrangements. Each test creates and removes its own event and
+// booking, so tests run in parallel with no shared demo rows.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { eq, inArray } from "drizzle-orm";
@@ -58,7 +58,7 @@ interface Seed {
   lines?: { item: string; arrangementStatus: "requested" | "reserved" | "not_required" }[];
 }
 
-/** An approved event assigned to the seeded Coordinator, with the arrangements the test names. */
+/** Approve an event for the seeded Coordinator with the arrangements the test names. */
 async function createEvent({ booking, lines = [] }: Seed) {
   const name = `PTR-24 E2E ${crypto.randomUUID().slice(0, 8)}`;
   const [row] = await database
@@ -72,7 +72,7 @@ async function createEvent({ booking, lines = [] }: Seed) {
       decidedByCoordinatorId: COORDINATOR_ID,
       decidedByCoordinatorName: "Seed Coordinator",
       decidedAt: new Date(),
-      // PTR-43: Technical Support marked the arrangements complete once lines exist.
+      // PTR-43: Technical Support marks the arrangements complete after lines exist.
       equipmentArrangementsCompletedAt: lines.length > 0 ? new Date() : null,
       eventName: name,
       purpose: "test",
@@ -84,7 +84,8 @@ async function createEvent({ booking, lines = [] }: Seed) {
   created.push(row.id);
 
   if (booking) {
-    // A random far-future day per event keeps parallel tests clear of the venue overlap constraint.
+    // Use a random far-future day per event. Parallel tests stay clear of the venue overlap
+    // constraint.
     const year = 2100 + Math.floor(Math.random() * 800);
     const day = 1 + Math.floor(Math.random() * 28);
     const date = `${year}-03-${String(day).padStart(2, "0")}`;
@@ -172,7 +173,7 @@ test.describe("AC2: refusal", () => {
 
     await confirmFromPage(page, name);
 
-    // The dialog stays open on a refusal, so the named items show inside it.
+    // The dialog stays open on a refusal. The named items show inside it.
     const alert = page.getByRole("alertdialog").getByRole("alert");
     await expect(alert).toContainText("This event cannot be confirmed yet:");
     await expect(alert).toContainText("There is no approved venue booking.");
@@ -205,7 +206,7 @@ test.describe("AC3 and AC4: the Organiser", () => {
       await expect(venue.getByText("09:00–12:30")).toBeVisible();
       const equipment = organiserPage.locator("section#equipment");
       await expect(equipment.getByText("Projector")).toBeVisible();
-      // Equipment is shown as a state, never with Technical Support's own notes.
+      // Show equipment as a state. Hide Technical Support's notes.
       await expect(
         organiserPage.getByRole("button", { name: `Confirm event: ${name}` })
       ).toHaveCount(0);

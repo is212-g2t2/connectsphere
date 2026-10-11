@@ -58,7 +58,7 @@ describe("EquipmentPanel error paths (PTR-38)", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe("Equipment request already submitted.");
-    // A failure keeps the dialog open, so the message has to render inside it.
+    // A failure keeps the dialog open. Render the message inside it.
     expect(screen.getByRole("alertdialog").contains(alert)).toBe(true);
     expect(invalidate).toHaveBeenCalled();
   });
@@ -78,7 +78,7 @@ describe("EquipmentPanel error paths (PTR-38)", () => {
     expect(alert.textContent).toBe("Could not remove Projector.");
     expect(screen.getByRole("alertdialog").contains(alert)).toBe(true);
 
-    // Close A, open B: the panel-scoped error must not follow into B's dialog.
+    // Close A and open B. The panel-scoped error stays out of B's dialog.
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Remove Microphone" }));
     expect(await screen.findByRole("alertdialog")).toBeTruthy();

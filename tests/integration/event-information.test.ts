@@ -44,7 +44,7 @@ const members = [
 ];
 const EQUIPMENT_TYPE = "PTR23 Projector";
 
-/** What the event holds before an update. */
+/** Event data before an update. */
 const recorded = {
   eventName: "PTR22 Planning Forum",
   purpose: "Agree the regional plan",
@@ -64,18 +64,18 @@ let pool: Pool;
 let database: Database;
 let venueId: number;
 let equipmentTypeId: number;
-// A distant year per booking, hold and reservation keeps the overlap constraints from tripping.
+// Use a different year for each booking, hold, and reservation to avoid overlap constraints.
 let year = 2070;
 
 beforeAll(async () => {
   pool = new Pool({ connectionString: process.env.DATABASE_URL });
   database = drizzle(pool, { schema });
-  // A line from an earlier run still references the equipment type, so the events go first.
+  // Delete events before equipment types because lines from earlier runs may reference the type.
   await database
     .delete(schema.eventRequests)
     .where(eq(schema.eventRequests.organiserId, organiser.id));
   await database.insert(schema.user).values(members);
-  // The global setup seeds the venue catalogue.
+  // Global setup seeds the venue catalogue.
   venueId = (await database.select({ id: schema.venues.id }).from(schema.venues).limit(1))[0].id;
   await database
     .delete(schema.equipmentTypes)
@@ -94,7 +94,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
-  // The last test's lines still reference the equipment type, so the events go first.
+  // Delete events before equipment types because lines from earlier tests may reference the type.
   await database
     .delete(schema.eventRequests)
     .where(eq(schema.eventRequests.organiserId, organiser.id));
@@ -110,7 +110,7 @@ afterAll(async () => {
   await pool.end();
 });
 
-/** The columns each status's CHECK constraints require, so a fixture row is a legal one. */
+/** Columns required by each status's CHECK constraints, for valid fixture rows. */
 function stageColumns(status: EventRequestStatus) {
   const at = new Date("2031-01-05T02:00:00Z");
   const decided = ["approved", "rejected", "planning", "confirmed", "completed"].includes(status);
@@ -155,7 +155,7 @@ async function eventAt(
   return event;
 }
 
-/** Sends only the changed columns, as the Coordinator's form does. */
+/** Send only changed columns, as the Coordinator's form does. */
 function update(
   id: number,
   amendments: Record<string, unknown>,
@@ -169,7 +169,7 @@ function update(
   );
 }
 
-/** A significant change the Coordinator has read the warning for. */
+/** A significant change after the Coordinator has read the warning. */
 const updateAcknowledged = (id: number, amendments: Record<string, unknown>) =>
   update(id, amendments, coordinator, true);
 
@@ -268,7 +268,7 @@ describe("updating event information (PTR-22)", () => {
   it("saves the assigned Coordinator's update of an approved event and records each changed field", async () => {
     const event = await eventAt("approved");
 
-    // The attendance and dates are significant (PTR-23), so this save carries the acknowledgement.
+    // Attendance and dates are significant (PTR-23), so this save includes the acknowledgement.
     const result = await updateAcknowledged(event.id, {
       eventName: "PTR22 Regional Planning Forum",
       expectedAttendance: 120,
@@ -303,7 +303,7 @@ describe("updating event information (PTR-22)", () => {
       expect(row).toMatchObject({ changedById: coordinator.id, changedByName: coordinator.name });
       expect(row.changedAt).toBeInstanceOf(Date);
     }
-    // One save stamps every row with the same apply time.
+    // One save gives every row the same apply time.
     expect(new Set(log.map(row => row.changedAt.getTime())).size).toBe(1);
   });
 
@@ -390,7 +390,7 @@ describe("updating event information (PTR-22)", () => {
     const event = await eventAt("approved");
 
     await update(event.id, { eventName: "PTR22 Renamed in one tab" });
-    // A second form, opened before the rename, changes only the purpose.
+    // Open a second form before the rename. Change only the purpose.
     await update(event.id, { purpose: "Agree the regional and local plans" });
 
     expect(await storedEvent(event.id)).toMatchObject({
@@ -508,7 +508,7 @@ describe("warning before a significant change (PTR-23)", () => {
         { expectedAttendance: 120 },
         { venueRequirements: "A projector wall and a stage" },
         { equipmentRequirements: [{ type: "Projector", quantity: 2 }] },
-        // One significant field among ordinary ones is enough.
+        // One significant field is enough, even with ordinary fields.
         { eventName: "PTR23 Renamed", expectedAttendance: 120 },
       ].map(amendments =>
         expect(update(event.id, amendments)).rejects.toMatchObject({
@@ -632,14 +632,14 @@ describe("warning before a significant change (PTR-23)", () => {
         recipientId: technicalSupport.id,
         payload: {
           audience: "technical_support",
-          // The name as the same save left it, not the one it replaced.
+          // Keep the name written by this save, not the previous name.
           eventName: "PTR23 Renamed",
           changedFields: ["proposedDates", "expectedAttendance"],
           actorName: coordinator.name,
         },
       },
     ]);
-    // The Venue Staff copy never names the event (PTR-8).
+    // The Venue Staff message never names the event (PTR-8).
     for (const name of [recorded.eventName, "PTR23 Renamed"]) {
       expect(JSON.stringify(notices[0].payload)).not.toContain(name);
     }
@@ -670,7 +670,7 @@ describe("warning before a significant change (PTR-23)", () => {
       equipmentRequirements: [{ type: "Projector", quantity: 4 }],
     });
 
-    // Every column of every row, not only the status: nothing is amended, released or re-dated.
+    // Check every column of every row, not only status. Do not amend, release, or change dates.
     expect(await arrangements()).toEqual(before);
     expect(before[0][0].status).toBe("approved");
     expect(before[1][0].status).toBe("held");

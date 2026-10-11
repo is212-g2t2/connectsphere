@@ -35,9 +35,9 @@ export async function sendEmail(
 
   const from = env.EMAIL_FROM ?? "ConnectSphere <onboarding@resend.dev>";
 
-  // SMTP_URL is set only for local/E2E runs, where a capture server (Mailpit) stands in for
-  // Resend's HTTP API. Production leaves it unset and takes the Resend branch below. The capture
-  // server has no idempotency concept, and E2E drains the queue explicitly.
+  // Set SMTP_URL only for local and E2E runs. Mailpit captures the messages instead of the Resend
+  // HTTP API. Production uses the Resend branch below. The capture server has no idempotency
+  // support, so E2E drains the queue explicitly.
   if (env.SMTP_URL) {
     const [{ createTransport }, { render }] = await Promise.all([
       import("nodemailer"),
@@ -72,9 +72,8 @@ export async function sendEmail(
   );
 
   if (error) {
-    // Resend's message can echo the recipient address, so only the error's
-    // stable identifiers are logged; the thrown error keeps the full payload
-    // for Sentry.
+    // Resend errors can include the recipient address. Log only stable error identifiers; the
+    // thrown error keeps the full payload for Sentry.
     log.error("Failed to send email", {
       to: maskedTo,
       name: error.name,

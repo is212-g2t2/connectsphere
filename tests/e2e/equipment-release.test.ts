@@ -1,8 +1,8 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-42: Technical Support reduces or releases a reservation from the event page lines section.
-// Every test creates its own type, venue, booking and event through its own pool and removes
-// them again, so it never touches the shared demo rows.
+// PTR-42: Technical Support reduces or releases a reservation in the event page's lines section.
+// Each test creates and removes its own type, venue, booking, and event through its own pool. It
+// does not touch shared demo rows.
 import { expect, test } from "@playwright/test";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, inArray } from "drizzle-orm";
@@ -47,7 +47,7 @@ test.afterEach(async () => {
   eventIds.length = venueIds.length = typeIds.length = 0;
 });
 
-/** An approved, equipment-submitted event on 1 Feb 2030 holding `reserved` of `requested` units. */
+/** An approved event on 1 Feb 2030 with submitted equipment and `reserved` of `requested` units. */
 async function createReservedEvent(requested: number, reserved: number) {
   const [type] = await database
     .insert(schema.equipmentTypes)
@@ -107,7 +107,7 @@ async function createReservedEvent(requested: number, reserved: number) {
   });
 
   const lineId = crypto.randomUUID();
-  // The seeded Technical Support member signed in below is the one holding the line.
+  // The signed-in seeded Technical Support member owns the line.
   await database.insert(schema.equipmentRequests).values({
     id: lineId,
     eventId: event.id,
@@ -140,7 +140,7 @@ test("[PTR-42][AC1][AC4] reducing then releasing returns the line to Requested a
   const line = page.getByRole("listitem", { name: target.item });
   await expect(line.getByText("· 3 reserved")).toBeVisible();
 
-  // Reduce to one.
+  // Reduce the reservation to one unit.
   await line
     .getByRole("button", { name: `Reduce or release equipment for ${target.item}` })
     .click();
@@ -154,7 +154,7 @@ test("[PTR-42][AC1][AC4] reducing then releasing returns the line to Requested a
     line.getByText(/Last release: 2 units given back by Seeded Technical Support on/)
   ).toBeVisible();
 
-  // Release the rest: the reopened dialog shows the fresh holding.
+  // Release the remaining units. The reopened dialog shows the current reservation.
   await line
     .getByRole("button", { name: `Reduce or release equipment for ${target.item}` })
     .click();
@@ -162,7 +162,7 @@ test("[PTR-42][AC1][AC4] reducing then releasing returns the line to Requested a
   await expect(dialog.getByText("Currently reserved:").locator("xpath=..")).toContainText("1");
   await expect(dialog.getByLabel("Units to keep reserved")).toHaveValue("0");
   await dialog.getByRole("button", { name: "Release all 1 unit" }).click();
-  // While the dialog is open the list is aria-hidden, so wait for it to close before reading.
+  // The open dialog marks the list `aria-hidden`. Wait for it to close before reading the list.
   await expect(dialog).toBeHidden();
   await expect(line).toBeVisible();
   await expect(line.getByText("· 1 reserved")).toHaveCount(0);

@@ -33,16 +33,15 @@ export const seedUsers: SeedUser[] = [
 ];
 
 /**
- * Shared password for every seeded account (PTR-59): the internal staff accounts, the demo
- * organiser and the demo attendee.
- * Obviously non-production and documented in the README — never put real personal data here.
- * It satisfies PasswordSchema (8–128 characters, a digit, a symbol).
+ * Use this password for every seeded account: staff, the demo organiser, and the demo attendee (PTR-59).
+ * This password is for development only. Do not put personal data here. The password meets
+ * PasswordSchema: 8–128 characters, including a digit and a symbol.
  */
 export const SEED_STAFF_PASSWORD = "Seed-Pass123!";
 
 /**
- * Internal staff accounts no user story creates (PTR-59): self-registration (PTR-5) only
- * allows external roles, so these are inserted directly, bypassing the sign-up validator.
+ * Create internal staff accounts for the seed (PTR-59). Sign-up permits only external roles
+ * (PTR-5), so insert these accounts directly and bypass the sign-up validator.
  */
 export const seedStaffUsers: SeedUser[] = [
   {
@@ -71,9 +70,9 @@ export const seedStaffUsers: SeedUser[] = [
 export type SeedVenue = Omit<typeof schema.venues.$inferInsert, "id">;
 
 /**
- * Demo venues (PTR-59 criterion 3, landing with the schema from PTR-26). Names are the
- * idempotency key — `venues.name` is unique — so a re-run collides instead of inserting twins.
- * `operatingHours` is `"HH:MM"` wall-clock per weekday, `null` for closed.
+ * Create demo venues for PTR-59 criterion 3 with the PTR-26 schema. The unique `venues.name`
+ * field is the idempotency key, so a re-run does not add duplicate venues. `operatingHours` uses
+ * weekday wall-clock times in `HH:MM` format. Use `null` for a closed day.
  */
 export const seedVenues: SeedVenue[] = [
   {
@@ -130,12 +129,12 @@ export const seedVenues: SeedVenue[] = [
 ];
 
 /**
- * Two future periods of unavailability (PTR-59 criterion 4) so the availability calendar
- * (PTR-28) has something to show that is not a booking. Keyed by venue name because venue ids
- * are assigned by the database. Dates are relative to seed time, not fixed: "future" has to
- * stay true whichever day the seed runs. `YYYY-MM-DD HH:MM:SS` is the `mode: "string"` shape
- * the column reads back. Re-run convergence replaces the seed's own `(venue, reason)` rows in
- * `runSeed` rather than relying on the unique period index, because a moving date never collides.
+ * Add two future unavailable periods for PTR-59 criterion 4. The PTR-28 availability calendar
+ * can then show unavailable periods as well as bookings. Use venue names as keys because the
+ * database assigns venue ids. Calculate dates from seed time so they stay in the future on every
+ * run. Store timestamps as `YYYY-MM-DD HH:MM:SS`, the column's `mode: "string"` format. On each
+ * run, `runSeed` replaces the seed's `(venue, reason)` rows. Moving dates do not match the unique
+ * period index, so that index cannot make the seed repeatable.
  */
 function futureDate(days: number): string {
   return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
@@ -146,9 +145,9 @@ function futureDay(days: number, time = "00:00:00"): string {
 }
 
 /**
- * Harbour Hall closes on Sunday and is blocked for resurfacing across futureDay(30)–futureDay(34),
- * so the demo request needs a Mon–Sat slot clear of both. A landed Sunday steps forward to Monday;
- * a UTC weekday keeps the string it returns consistent with the calendar day `futureDate` derives.
+ * Harbour Hall closes on Sunday and has resurfacing blocks from futureDay(30) to futureDay(34).
+ * Keep the demo request on a free Monday-to-Saturday slot. If the date is Sunday, move it to
+ * Monday. Use a UTC weekday so the returned string matches the calendar day from `futureDate`.
  */
 function futureWeekdayDate(days: number): string {
   const date = new Date(Date.now() + days * 86_400_000);
@@ -157,9 +156,8 @@ function futureWeekdayDate(days: number): string {
 }
 
 /**
- * Seminar Room 2A is closed Saturday and Sunday, so the attendee demo (booked there) steps a
- * landed weekend forward to Monday. Harbour Hall opens Saturdays, so it keeps
- * `futureWeekdayDate`.
+ * Seminar Room 2A is closed on weekends. Move the attendee demo date to Monday if it falls on
+ * Saturday or Sunday. Harbour Hall opens on Saturdays, so use `futureWeekdayDate` for that venue.
  */
 function futureOpenDayDate(days: number): string {
   const date = new Date(Date.now() + days * 86_400_000);
@@ -190,8 +188,8 @@ export const seedVenueUnavailability: {
 ];
 
 /**
- * Small fictional catalogue for the equipment availability stories. Names are the idempotency
- * key because `equipment_types.name` is unique.
+ * Small fictional catalogue for the equipment availability stories. The unique
+ * `equipment_types.name` field is the idempotency key.
  */
 export const seedEquipmentTypes: Omit<typeof schema.equipmentTypes.$inferInsert, "id">[] = [
   { name: "Portable Projector", quantityHeld: 8 },
@@ -200,8 +198,8 @@ export const seedEquipmentTypes: Omit<typeof schema.equipmentTypes.$inferInsert,
 ];
 
 /**
- * One fictional out-of-service quantity leaves the same type with remaining held units without
- * representing a real asset.
+ * Add a fictional out-of-service quantity. The equipment type still has held units, and the seed
+ * does not represent a real asset.
  */
 export const seedEquipmentUnavailability: {
   equipmentTypeName: string;
@@ -215,44 +213,43 @@ export const seedEquipmentUnavailability: {
   },
 ];
 /**
- * PTR-8: the demo event is a submitted event request, because the event record does not exist
- * until PTR-21/24 and `event_requests` is what access is checked against. The name doubles as
- * the idempotency key — looked up with the organiser before insert, since `id` is serial and
- * pinning it would make the next application insert collide with the sequence.
+ * PTR-8: seed the demo event as a submitted event request. The event record does not exist until
+ * PTR-21/24, and access checks use `event_requests`. Use the name and organiser as the idempotency
+ * key. Look up the row before insert because `id` is serial; a fixed id could conflict with the
+ * next application insert.
  */
 export const DEMO_EVENT_NAME = "ConnectSphere Demo Summit";
 const DEMO_EVENT_ORGANISER_ID = "test-user-2";
 const DEMO_EVENT_COORDINATOR_ID = "seed-coordinator-1";
 
 /**
- * PTR-44: the attendee demo is a confirmed event with registration on, so a brand-new attendee
- * can see it — browsing visibility is `confirmed` AND `registrationEnabled`, and the live window
- * is not a gate. It lives apart from the demo event above because the venue-search and
- * equipment-request demos need that row submitted and planning-stage. Same idempotency rule:
- * looked up by organiser and name, with the attribution the CHECKs require for `confirmed`
- * rewritten on every run so the timing and the window stay in the future.
+ * PTR-44: seed a confirmed event with registration enabled for the attendee demo. New attendees
+ * can see it because browsing requires `confirmed` and `registrationEnabled`; it does not check
+ * the registration window. Keep this event separate from the submitted, planning-stage demo used
+ * for venue search and equipment requests. Find it by organiser and name before each insert. On
+ * every run, update the required `confirmed` attribution and future dates.
  */
 export const ATTENDEE_DEMO_EVENT_NAME = "ConnectSphere Open Day";
 export const ATTENDEE_DEMO_VENUE_NAME = "Seminar Room 2A";
 
 /**
- * A fixed key every seed takes before it looks up the demo request. The lookup-then-insert guard
- * alone is unsafe: a zero-row `select ... for update` takes no lock, so two concurrent seeds both
- * see nothing and both insert. The advisory lock serialises them instead.
+ * Every seed takes this fixed key before it looks up the demo request. A lookup then insert is not
+ * safe by itself: `select ... for update` takes no lock when it finds no row, so concurrent seeds
+ * can both insert. The advisory lock serializes those seeds.
  */
 const DEMO_EVENT_SEED_LOCK_KEY = 970_097;
 
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 /**
- * Executes idempotent insertion of seed users and staff credentials.
+ * Insert seed users and staff credentials. Repeated runs do not add duplicates.
  */
 export async function runSeed(database: Database): Promise<void> {
   await database.insert(schema.user).values(seedUsers).onConflictDoNothing();
   await database.insert(schema.user).values(seedStaffUsers).onConflictDoNothing();
 
-  // One hash for every seed account: they share a password, and a scrypt hash verifies
-  // regardless of which account row holds it. onConflictDoNothing keeps re-runs duplicate-free.
+  // Seed accounts share one password, so they can share one scrypt hash. `onConflictDoNothing`
+  // keeps repeated runs free of duplicate rows.
   const seedPasswordHash = await hashPassword(SEED_STAFF_PASSWORD);
   await database
     .insert(schema.account)
@@ -309,10 +306,9 @@ export async function runSeed(database: Database): Promise<void> {
     );
   const venueIdByName = new Map(venueRows.map(row => [row.name, row.id]));
 
-  // Dates are relative to seed time, so a re-run has to replace the seed's own periods rather
-  // than skip a venue that already has one: a stale block would otherwise swallow the demo
-  // event, which moves forward on every run. `(venue, reason)` is the seed's own key — the
-  // unique period index cannot be it, because a moving date never collides.
+  // Dates use seed time. Replace the seed's periods on each run instead of skipping a venue with
+  // an existing period. Otherwise, an old block could cover the demo event as its date moves.
+  // Use `(venue, reason)` as the seed's key because moving dates do not match the unique period index.
   await database.delete(schema.venueUnavailability).where(
     and(
       inArray(schema.venueUnavailability.venueId, [...venueIdByName.values()]),
@@ -335,9 +331,8 @@ export async function runSeed(database: Database): Promise<void> {
       })
     )
     .onConflictDoNothing();
-  // One transaction with an advisory lock held for its duration: two concurrent seeds serialise
-  // here instead of racing the lookup. The request row is also locked when it exists, so a
-  // concurrent delete waits until the children are written.
+  // Hold the advisory lock for the transaction so concurrent seeds do not race the lookup. Lock
+  // the request row when it exists, so a concurrent delete waits until the seed writes its children.
   await database.transaction(async tx => {
     await tx.execute(sql`select pg_advisory_xact_lock(${DEMO_EVENT_SEED_LOCK_KEY})`);
 
@@ -353,17 +348,17 @@ export async function runSeed(database: Database): Promise<void> {
       .limit(1)
       .for("update");
 
-    // Relative to seed time, and rewritten on every run: a database seeded more than a month ago
-    // would otherwise keep a registration window that has since closed. One date is computed once
-    // so a run crossing midnight cannot produce a start and end on different days.
+    // Use seed time and update this window on every run. A database seeded more than a month ago
+    // would keep a closed window. Compute the date once so a run across midnight uses one day for
+    // both the start and end.
     const demoDate = futureWeekdayDate(20);
     const demoTiming = {
       proposedDates: [{ start: `${demoDate}T09:00`, end: `${demoDate}T17:00` }],
       registrationOpensAt: `${futureDate(-1)}T09:00`,
       registrationClosesAt: `${futureDate(19)}T17:00`,
     };
-    // Harbour Hall's stored facilities/accessibility match this text word-for-word, so the event's
-    // prefilled search is a genuine PTR-29 AC5 match rather than a zero-result demo.
+    // This text matches Harbour Hall's facilities and accessibility fields exactly. The prefilled
+    // search therefore returns the PTR-29 AC5 demo result.
     const demoRequirements = {
       expectedAttendance: 120,
       venueRequirements: "Projector, PA system",
@@ -396,10 +391,9 @@ export async function runSeed(database: Database): Promise<void> {
 
       demoRequestId = inserted.id;
     } else {
-      // Requirements are rewritten too: a long-lived local database would otherwise keep the old
-      // text and never converge on the matchable demo request. A database seeded while the demo
-      // event was confirmed (PTR-44's first pass) converges back: `submitted` carries no decision
-      // or confirmation attribution, and the CHECKs refuse anything else.
+      // Update the requirements too, so an old local database gets the current searchable demo
+      // text. If an earlier seed left this event confirmed, restore `submitted`. That status has
+      // no decision or confirmation attribution, as the CHECK constraints require.
       await tx
         .update(schema.eventRequests)
         .set({
@@ -426,9 +420,9 @@ export async function runSeed(database: Database): Promise<void> {
       throw new Error('Seed venue "Harbour Hall" was not inserted');
     }
 
-    // The event's own window: the demo request is what a Coordinator would raise from it. One
-    // object feeds both statements, so a window edit cannot reach only one of them. `requestedById`
-    // is the demo Coordinator, the identity AC5 authorizes withdrawal on.
+    // Use the demo event's window for its Coordinator request. Both statements use this object, so
+    // a window change updates both. `requestedById` is the demo Coordinator who AC5 allows to
+    // withdraw the request.
     const demoVenueRequest = {
       venueId: demoVenueId,
       requestedById: DEMO_EVENT_COORDINATOR_ID,
@@ -436,10 +430,9 @@ export async function runSeed(database: Database): Promise<void> {
       endsAt: `${demoDate} 17:00:00`,
     };
 
-    // Rewritten the way the demo event above is: the window moves with `demoDate`, and `status`
-    // comes back to `pending` so a local row withdrawn in the UI converges on every run.
-    // `assignedStaffId` is left alone — the integration tests rely on the demo row being assigned
-    // to the venue-staff fixture, not a generic staff user.
+    // Update the window from `demoDate` and reset the status to `pending` on every run. This also
+    // restores a row that someone withdrew in the UI. Keep `assignedStaffId` unchanged because
+    // integration tests require the venue-staff fixture on this row.
     const existingDemoVenueRequests = await tx
       .select({ id: schema.venueRequests.id })
       .from(schema.venueRequests)
@@ -460,13 +453,12 @@ export async function runSeed(database: Database): Promise<void> {
         .where(eq(schema.venueRequests.id, "demo-venue-request-1"));
     }
 
-    // The booking the attendee demo was confirmed against (PTR-44 AC2): the venue the
-    // attendee page shows. Seminar Room 2A, not Harbour Hall — the pending Harbour Hall request
-    // above must not overlap an approved booking for the same venue, or the PTR-36 conflict badge
-    // appears. No other approved booking sits on that venue, so there is no overlap. The seed
-    // leaves the booking unassigned so the venue-staff dashboard keeps the single pending demo
-    // request; the approved booking still appears on the venue-bookings page. An unassigned
-    // approved row is a real state because `assignedStaffId` is `ON DELETE SET NULL`.
+    // This is the booking shown on the attendee page (PTR-44 AC2). Use Seminar Room 2A, not
+    // Harbour Hall, so it does not overlap the pending Harbour Hall request above or show the
+    // PTR-36 conflict badge. No other approved booking uses this venue. Leave this booking
+    // unassigned so the venue-staff dashboard shows one pending demo request. The approved booking
+    // still appears on the venue-bookings page. `ON DELETE SET NULL` makes an unassigned booking a
+    // valid state.
     const attendeeVenueId = venueIdByName.get(ATTENDEE_DEMO_VENUE_NAME);
     if (attendeeVenueId === undefined) {
       throw new Error(`Seed venue "${ATTENDEE_DEMO_VENUE_NAME}" was not inserted`);
@@ -484,9 +476,9 @@ export async function runSeed(database: Database): Promise<void> {
       .limit(1)
       .for("update");
 
-    // Its own date, a week past the demo event's, so the two never share a window. Rewritten on
-    // every run like the demo timing above, with an open registration window (opened yesterday,
-    // closes in ~18 days) so the seeded attendee demos the registered state.
+    // Keep this event one week after the other demo event so their windows do not overlap. Update
+    // the dates on every run, as above. Keep registration open from yesterday until about 18 days
+    // from now so the seeded attendee can show the registered state.
     const attendeeDate = futureOpenDayDate(27);
     const attendeeTiming = {
       proposedDates: [{ start: `${attendeeDate}T10:00`, end: `${attendeeDate}T16:00` }],
@@ -500,9 +492,9 @@ export async function runSeed(database: Database): Promise<void> {
       accessibilityRequirements: "Step-free access",
     };
 
-    // A confirmed event carries who decided and who confirmed it (the CHECKs refuse it
-    // otherwise); both are the seeded Coordinator. Re-runs rewrite them too, so a database
-    // seeded before this event existed converges instead of keeping a half-written row.
+    // A confirmed event must record who decided and who confirmed it. The CHECK constraints
+    // enforce this. Use the seeded Coordinator for both fields and update them on every run so an
+    // older database does not keep incomplete values.
     const attendeeAttribution = {
       status: "confirmed" as const,
       decidedByCoordinatorId: DEMO_EVENT_COORDINATOR_ID,
@@ -537,7 +529,7 @@ export async function runSeed(database: Database): Promise<void> {
 
       attendeeEventId = inserted.id;
     } else {
-      // The registration terms converge too: a hand-turned-off flag comes back on re-run.
+      // Update the registration terms too. A flag turned off by hand returns to its seeded value.
       await tx
         .update(schema.eventRequests)
         .set({

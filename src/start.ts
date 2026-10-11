@@ -14,14 +14,14 @@ const loggerMiddleware = createMiddleware({ type: "request" }).server(async ({ r
 });
 
 /**
- * TanStack Start instance with Sentry global middlewares and custom logging.
+ * TanStack Start instance with Sentry middleware and custom logging.
  *
- * - sentryGlobalRequestMiddleware: attaches request context to Sentry events.
- * - sentryGlobalFunctionMiddleware: captures errors in server functions.
- * - loggerMiddleware: logs all incoming requests for audit/metrics.
+ * - sentryGlobalRequestMiddleware adds request context to Sentry events.
+ * - sentryGlobalFunctionMiddleware captures server-function errors.
+ * - loggerMiddleware logs all requests for audit and metrics.
  *
- * These must be first in the arrays to ensure all errors and requests are
- * captured before any other middleware has a chance to swallow them.
+ * Put these first in the arrays. They must capture errors and requests before other middleware
+ * can handle them.
  */
 export const startInstance = createStart(() => {
   return {

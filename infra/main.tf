@@ -5,8 +5,7 @@ provider "google" {
   billing_project       = var.project_id
 }
 
-# Credentials come from the CLOUDFLARE_API_TOKEN environment variable; the
-# token is never stored in variables, tfvars, or state.
+# Read credentials from CLOUDFLARE_API_TOKEN. Do not store the token in variables, tfvars, or state.
 provider "cloudflare" {}
 
 data "google_project" "current" {
@@ -17,23 +16,22 @@ data "cloudflare_zone" "ciav" {
   name = var.zone_name
 }
 
-# Every per-environment resource keys off this map: secrets, Cloud Run
-# services, runtime service accounts, and DNS records. Adding or
-# resizing an environment is one edit here.
+# Secrets, Cloud Run services, runtime service accounts, and DNS records use this map. Edit the map
+# to add or resize an environment.
 locals {
   environments = {
     prod = {
       service  = "connectsphere"
       hostname = "connectsphere.ciav.dev"
-      # Scale to zero: cold start accepted, startup CPU boost softens it.
+      # Scale to zero. Accept cold starts; startup CPU boost reduces their effect.
       min_instances      = 0
       max_instances      = 5
       sentry_environment = "production"
-      # Flipped after staging was confirmed through the proxy.
+      # Enabled after staging worked through the proxy.
       proxied = true
-      # Bare address: src/env.ts validates EMAIL_FROM with z.email(), so a
-      # display-name form would crash the container at boot. Switch to
-      # noreply@ciav.dev once the domain is verified in Resend (SPF + DKIM).
+      # Use an email address without a display name. `src/env.ts` validates EMAIL_FROM with
+      # `z.email()`, so a display name would stop the container at startup. Use noreply@ciav.dev
+      # after Resend verifies the domain (SPF and DKIM).
       email_from = "onboarding@resend.dev"
     }
     staging = {
@@ -42,7 +40,7 @@ locals {
       min_instances      = 0
       max_instances      = 2
       sentry_environment = "staging"
-      # Flipped once the staging managed certificate was active, before prod.
+      # Enabled after the staging managed certificate was active and before production.
       proxied    = true
       email_from = "onboarding@resend.dev"
     }

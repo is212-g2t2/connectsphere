@@ -67,7 +67,7 @@ test("[PTR-29][AC5] search launched from an event opens with its requirements pr
   await signInAsStaff(page, "event_coordinator");
   await page.goto("/dashboard");
   await waitForHydration(page);
-  // Dashboard cards link to the event page; the search entry lives in its venue section now.
+  // Dashboard cards link to the event page. Open search from the venue section.
   await page.getByRole("link", { name: DEMO_EVENT_NAME, exact: true }).click();
   await expect(page).toHaveURL(/\/events\/\d+/);
   await waitForHydration(page);
@@ -87,7 +87,7 @@ test("[PTR-29][AC5] search launched from an event opens with its requirements pr
   await expect(page.getByLabel("Required facilities", { exact: true })).toHaveValue(
     "Projector, PA system"
   );
-  // The prefill is a real match, not just populated fields: the demo request describes Harbour Hall.
+  // Check that the demo request matches Harbour Hall, not only that the fields are populated.
   const results = page.getByRole("region", { name: "Venue results" });
   await expect(results.getByRole("link", { name: "Harbour Hall", exact: true })).toBeVisible();
 });
@@ -107,9 +107,9 @@ test("[PTR-30][AC2][AC3][AC5] the venues that do not suit the event say why", as
 
   const unsuitable = page.getByRole("region", { name: "Not suitable" });
   await expect(unsuitable).toBeVisible();
-  // Seminar Room 2A seats 40 against the demo event's 120; the sentence says exactly that.
+  // Seminar Room 2A has 40 seats and the demo event needs 120. Check that the message states this.
   const seminarRow = unsuitable.getByRole("row", { name: /Seminar Room 2A/ });
   await expect(seminarRow).toContainText("Holds 40; 120 needed");
-  // Nothing was booked or blocked by reading a verdict (AC6): the calendar action is still theirs.
+  // AC6: reading a verdict does not book or block the venue. The user can still open the calendar action.
   await expect(unsuitable.getByText(/books or blocks nothing/)).toBeVisible();
 });
