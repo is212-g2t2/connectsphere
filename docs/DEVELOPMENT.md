@@ -65,21 +65,23 @@ This guide covers the local development environment, the scripts catalogue, data
 
 `bun run db:seed` creates three internal staff accounts that self-registration cannot produce, because sign-up allows only external roles. These accounts exist to build, test, and demonstrate the role-restricted stories:
 
-| Role                    | Email                         | Password        |
-| ----------------------- | ----------------------------- | --------------- |
-| Event Coordinator       | coordinator.seed@example.com  | `Seed-Pass123!` |
-| Venue Staff             | venue.staff.seed@example.com  | `Seed-Pass123!` |
-| Technical Support Staff | tech.support.seed@example.com | `Seed-Pass123!` |
+| Role                    | Email                         | Password     |
+| ----------------------- | ----------------------------- | ------------ |
+| Event Coordinator       | coordinator.seed@example.com  | `password1!` |
+| Venue Staff             | venue.staff.seed@example.com  | `password1!` |
+| Technical Support Staff | tech.support.seed@example.com | `password1!` |
 
-The seeded attendee (`john.doe@example.com`) and organiser (`jane.doe@example.com`) also use `Seed-Pass123!`. The demo event request connects to all five roles, so you can check each access projection locally. It belongs to jane. The seeded Coordinator and Venue Staff are assigned to it. Technical Support holds an equipment request for it, and john is registered.
+The seeded attendee (`john.doe@example.com`) and organiser (`jane.doe@example.com`) also use `password1!`. The demo event request connects to all five roles, so you can check each access projection locally. It belongs to jane. The seeded Coordinator and Venue Staff are assigned to it. Technical Support holds an equipment request for it, and john is registered.
 
 A second event, ConnectSphere Open Day, is confirmed with registration on, so attendees can open its event page.
 
 These credentials are not for production (shared password, `example.com` addresses, no real personal data). Never use them outside local or demo environments.
 
-The seed also creates three demo venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion). Each venue has capacity, facilities, accessibility features, supported layouts, and operating hours. The seed adds two future periods of unavailability. A re-run of `bun run db:seed` is safe: it leaves existing accounts and venues untouched.
+The seed also creates fifty venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion, plus forty-seven extra rooms and halls). Each venue has capacity, facilities, accessibility features, supported layouts, and operating hours. The seed adds five future periods of unavailability. A re-run of `bun run db:seed` is safe: it leaves existing accounts and venues untouched.
 
-The fictional equipment inventory contains eight Portable Projectors, twelve Wireless Microphones, and four Portable PA Systems. The seed marks one projector unavailable for demo maintenance, so seven are available before reservations. A re-run of the seed does not duplicate equipment types or unavailable units.
+The fictional equipment inventory contains ten types, including Portable Projectors, Wireless Microphones, Portable PA Systems, Folding Chairs, and LED Uplighters. The seed marks small unavailable quantities for maintenance, so stock stays available before reservations. A re-run of the seed does not duplicate equipment types or unavailable units.
+
+The seed also creates one hundred extra people (fifty attendees, fifty organisers) and twenty extra events (sixteen confirmed with registration on, four submitted), each with a venue booking, an equipment line, and registrations on the confirmed ones.
 
 ## Environment Variables
 
