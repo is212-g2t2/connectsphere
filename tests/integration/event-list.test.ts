@@ -468,10 +468,17 @@ describe("event list handler (PTR-8)", () => {
     it("shows Venue Staff the events with a venue request assigned to them, and nobody else's", async () => {
       const listed = await handleListEvents({}, session("venueStaff"), database as never);
 
-      expect(listed.map(row => row.event.id).toSorted((a, b) => a - b)).toEqual(
-        [fixtures.main.id, fixtures.review.id].toSorted((a, b) => a - b)
-      );
-      expect(listed[0].access).toBe("venue_staff");
+      // The seed adds submitted queue rows every Venue Staff sees. Check the fixtures are
+      // present and no other fixture leaks, not an exact id match.
+      const ids = listed.map(row => row.event.id);
+      expect(ids).toEqual(expect.arrayContaining([fixtures.main.id, fixtures.review.id]));
+      expect(ids).not.toContain(fixtures.closed.id);
+      expect(ids).not.toContain(fixtures.foreign.id);
+      expect(ids).not.toContain(fixtures.draft.id);
+      expect(ids).not.toContain(fixtures.confirmedOpen.id);
+      expect(ids).not.toContain(fixtures.confirmedClosed.id);
+      expect(ids).not.toContain(fixtures.confirmedDisabled.id);
+      expect(listed.every(row => row.access === "venue_staff")).toBe(true);
     });
 
     it("shows Technical Support the events with an equipment request assigned to them", async () => {

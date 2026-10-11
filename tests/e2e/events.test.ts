@@ -269,8 +269,11 @@ test.describe("Event access", () => {
     await expect(page.getByRole("heading", { name: DEMO_EVENT_NAME })).toHaveCount(0);
     await expect(page.getByText(DEMO_EVENT_NAME)).toHaveCount(0);
     // Show the event status in a pill. The venue request's pending state appears in the event page's
-    // request section.
-    await expect(page.getByLabel("Status: Submitted")).toBeVisible();
+    // request section. The seed adds shared queue rows, so scope the badge to the demo card.
+    const card = page.locator('div[data-slot="card"]', {
+      has: page.getByRole("link", { name: "Harbour Hall", exact: true }),
+    });
+    await expect(card.getByLabel("Status: Submitted")).toBeVisible();
   });
 
   test("gives technical support their event, with the equipment on its page", async ({ page }) => {

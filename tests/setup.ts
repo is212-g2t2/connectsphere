@@ -4,6 +4,7 @@ import "zod/compile";
 
 process.env.BETTER_AUTH_SECRET ??= "01234567890123456789012345678901";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
+process.env.DATABASE_URL ??= "postgresql://postgres:postgres@localhost:5432/app";
 
 if (typeof window !== "undefined" && !window.matchMedia) {
   window.matchMedia = (query: string) =>
