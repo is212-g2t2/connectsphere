@@ -20,16 +20,15 @@ variable "zone_name" {
   default = "ciav.dev"
 }
 
-# The placeholder the service comes up on at first apply. The release pipeline
-# replaces it and cloud-run.tf ignores image changes, so a later bare apply
-# never reverts it.
+# The service uses this placeholder image on first apply. The release pipeline replaces it, and
+# cloud-run.tf ignores image changes so later applies do not restore the placeholder.
 variable "origin_image" {
   type    = string
   default = "us-docker.pkg.dev/cloudrun/container/hello"
 }
 
-# Requires ciav.dev verified in Webmaster Central for this project.
-# Verify, then set to true to create the Cloud Run domain mappings.
+# Verify ciav.dev in Webmaster Central for this project. Then set this to true to create the Cloud
+# Run domain mappings.
 variable "enable_domain_mapping" {
   type    = bool
   default = false

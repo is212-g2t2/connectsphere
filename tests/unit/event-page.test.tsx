@@ -4,11 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventProjection } from "#/features/events/access";
 import { AttendeeEventPage } from "#/features/events/components/attendee-event-page";
 
-/**
- * PTR-44: the attendee event view renders without a router, like the other page views
- * (`tests/unit/page-views.test.ts`). `Link` and the register action's `useRouter` are the router
- * surfaces the page uses, so they are mocked the same way — composed so a test can read where a
- * link leads. `tests/unit/register-action.test.tsx` covers what the action does.
+/** PTR-44: the attendee event view renders with no router, like the other page views
+ * (`tests/unit/page-views.test.ts`). `Link` and the register action's `useRouter` are the page's
+ * router surfaces. Mock them the same way, composed so a test reads each link's destination.
+ * `tests/unit/register-action.test.tsx` covers the action.
  */
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -294,7 +293,7 @@ describe("AttendeeEventPage (PTR-44)", () => {
   it("shows no booking decisions, equipment, or clarification threads (AC3)", () => {
     const { container } = render(<AttendeeEventPage event={projection} />);
 
-    // No confirmation record either: the status pill above is the only "Confirmed" on the page.
+    // Show no confirmation record. The status pill above is the only "Confirmed" on the page.
     expect(screen.getAllByText("Confirmed")).toHaveLength(1);
     expect(screen.queryByText("Expected attendance")).toBeNull();
     expect(screen.queryByText("Venue request")).toBeNull();
@@ -338,7 +337,7 @@ describe("AttendeeEventPage registration availability (PTR-50)", () => {
   });
 
   it("names the venue capacity when normal and VIP registrations fill the venue (AC3)", () => {
-    // VIPs added after the normal places were taken leave more registrations than places.
+    // VIPs added after normal places fill leave more registrations than places.
     renderWith({
       registrationAvailability: { state: "full", venueCapacity: 30 },
       places: { registered: 2, vip: 1, limit: 1, capacity: 1 },

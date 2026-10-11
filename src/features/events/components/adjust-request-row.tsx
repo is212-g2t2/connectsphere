@@ -5,9 +5,9 @@ import { buttonVariants } from "#/components/ui/button";
 import type { VenueRequestRejection } from "#/features/events/access";
 
 /**
- * What an adjusted request opens with: the suggested venue when Venue Staff named one, else the
- * venue that refused, and each part of the window falling back the same way, so a suggestion of
- * "same room, a day later" needs nothing retyped. Times are taken only as a pair.
+ * Prefill an adjusted request: the suggested venue when Venue Staff named one, else the refusing
+ * venue. Fall each window part back the same way. A "same room, a day later" suggestion then
+ * needs nothing retyped. Take times only as a pair.
  */
 export function adjustedRequest(rejection: VenueRequestRejection): {
   venueId: number;
@@ -30,9 +30,9 @@ export function adjustedRequest(rejection: VenueRequestRejection): {
 }
 
 /**
- * The rejection block's action: reopen the request on the suggested venue with its window. Only
- * while the event is still `submitted`, the one status the venue page's request panel answers
- * for, and only for the Coordinator — the caller gates both.
+ * Reopen the request on the suggested venue with its window. Show this action only while the
+ * event is `submitted`. That is the one status the venue page's request panel answers. Show it
+ * only to the Coordinator. The caller applies both gates.
  */
 export function AdjustRequestRow({
   eventId,

@@ -126,8 +126,8 @@ describe("VenueRequestPanel (PTR-31)", () => {
       },
     });
 
-    // A request covers one civil day, so a multi-day event must not truncate silently to its
-    // first day's hours.
+    // A request covers one calendar day. Do not silently use only the first day of a multi-day
+    // event.
     expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2026-10-12");
     expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "");
     expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "");
@@ -184,8 +184,7 @@ describe("VenueRequestPanel (PTR-31)", () => {
 
     const endInput = screen.getByLabelText("End time (required)");
     expect(endInput.getAttribute("aria-invalid")).toBe("true");
-    // The wrapper carries `data-invalid`, which is what tints the label; `aria-invalid` alone
-    // would let that regress unnoticed.
+    // `data-invalid` styles the label. Checking only `aria-invalid` would miss a styling regression.
     expect(endInput.closest("[data-slot='field']")?.getAttribute("data-invalid")).toBe("true");
     expect(document.activeElement).toBe(endInput);
     expect(screen.getByRole("alert").textContent).toContain("Enter start and end times as HH:MM");
@@ -199,7 +198,7 @@ describe("VenueRequestPanel (PTR-31)", () => {
     await user.click(screen.getByRole("button", { name: "Send booking request" }));
 
     await waitFor(() => {
-      // The refusal lands in the form's own error slot, rendered as a `FieldError`.
+      // Render the refusal in the form's `FieldError` slot.
       const alert = screen.getByRole("alert");
       expect(alert.textContent).toBe("Forbidden");
       expect(alert.getAttribute("data-slot")).toBe("field-error");
@@ -217,7 +216,7 @@ describe("VenueRequestPanel (PTR-31)", () => {
     expect(screen.queryByRole("button", { name: "Send booking request" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Withdraw request" }));
-    // Opening the dialog is the gate: nothing is withdrawn until Confirm runs.
+    // Do not withdraw the request until the user confirms in the dialog.
     expect(withdrawVenueRequest).not.toHaveBeenCalled();
     expect(await screen.findByRole("alertdialog")).toBeTruthy();
 
@@ -256,8 +255,8 @@ describe("VenueRequestPanel (PTR-31)", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe("Forbidden");
-    // Confirm is a plain Button, so only success unmounts the dialog. A failure keeps it open,
-    // which means the message must render inside it and Confirm must be interactive again.
+    // Confirm is a plain button. Keep the dialog open on failure, show the message inside it, and
+    // enable Confirm again.
     expect(screen.getByRole("alertdialog").contains(alert)).toBe(true);
     expect(screen.getByRole("button", { name: "Confirm" })).toHaveProperty("disabled", false);
   });

@@ -1,9 +1,9 @@
 // oxlint-disable node/no-process-env
 //
-// Coordinator equipment panel and the Technical Support work list, against a seeded DB.
-// Mutates the shared "ConnectSphere Demo Summit" row: per-test setup runs through
-// resetDemoEvent, while beforeAll/afterAll snapshot and restore the row so specs that run
-// after this file (e.g. events.test.ts) keep seeing the seed state.
+// Cover the Coordinator equipment panel and the Technical Support work list on a seeded DB.
+// Mutate the shared "ConnectSphere Demo Summit" row. Each test resets it through
+// `resetDemoEvent`. `beforeAll` and `afterAll` snapshot and restore the row, so later specs
+// (for example events.test.ts) still see the seed state.
 import { expect, test } from "@playwright/test";
 import type { Browser, Page } from "@playwright/test";
 import { Pool } from "pg";
@@ -15,7 +15,7 @@ const DASHBOARD_PATH = "/dashboard";
 const DEMO_EVENT = "ConnectSphere Demo Summit";
 const SUBMITTED_CAPTION = "Submitted to Technical Support.";
 const EMPTY_STATE_MESSAGE = "No equipment lines recorded. Add at least one line before submitting.";
-// Delivery is queued now, so the submit toast no longer varies with the mailer's configuration.
+// Delivery is queued, so the submit toast stays the same in every mailer configuration.
 const SUBMIT_TOAST = "Equipment requirements sent to Technical Support.";
 
 const USERS = {
@@ -23,7 +23,7 @@ const USERS = {
   organiser: "jane.doe@example.com",
 } as const;
 
-// This file mutates one shared demo row, so its own tests run one at a time.
+// This file mutates one shared demo row. Its tests run one at a time.
 test.describe.configure({ mode: "serial" });
 
 // ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ test.beforeAll(async () => {
     );
   }
 
-  // Verify schema + seed data once, so a bad environment fails here with a clear message.
+  // Check schema and seed data once. A bad environment fails here with a clear message.
   try {
     const { rowCount } = await pool.query(`select 1 from event_requests where event_name = $1`, [
       DEMO_EVENT,
@@ -82,7 +82,7 @@ test.beforeAll(async () => {
     throw new Error(`DB schema/seed check failed: ${(err as Error).message}`, { cause: err });
   }
 
-  // Snapshot the shared row so afterAll can put it back for the specs that run after this file.
+  // Snapshot the shared row. `afterAll` restores it for the specs that run after this file.
   const { rows: eventRows } = await pool.query(
     `select status, equipment_submitted_at, decision_reason, decided_by_coordinator_id,
             decided_by_coordinator_name, decided_at
@@ -115,13 +115,13 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  // The snapshot is taken in beforeAll; a failure there leaves this undefined, and there is
-  // nothing safe to restore. `pool.end()` must still run, otherwise the guard leaks the pool.
+  // `beforeAll` takes the snapshot. A failure there leaves it undefined with nothing safe
+  // to restore. `pool.end()` still runs, or the guard leaks the pool.
   try {
     if (!snapshot) return;
     const client = await pool.connect();
     try {
-      // Restore the shared row exactly, so events.test.ts still sees the seeded `submitted`
+      // Restore the shared row exactly. events.test.ts still sees the seeded `submitted`
       // event with its assigned `Projector` line.
       await client.query("begin");
       await client.query(
@@ -184,9 +184,9 @@ test.afterAll(async () => {
   }
 });
 
-// Statuses that the DB constraint event_requests_decision_matches_status treats as "decided":
-// they REQUIRE decided_by_coordinator_id/name and decided_at. All other statuses REQUIRE those
-// columns (and decision_reason) to be NULL.
+// The DB constraint `event_requests_decision_matches_status` calls these statuses "decided".
+// They require `decided_by_coordinator_id`, `decided_by_coordinator_name`, and `decided_at`.
+// Other statuses require those columns (and `decision_reason`) to stay NULL.
 const DECIDED_STATUSES = new Set(["approved", "rejected", "planning", "confirmed", "completed"]);
 const SEED_COORDINATOR_ID = "seed-coordinator-1"; // any non-empty text satisfies the constraint
 const SEED_COORDINATOR_NAME = "Seed Coordinator";
@@ -195,7 +195,7 @@ async function resetDemoEvent(status: string) {
   const decided = DECIDED_STATUSES.has(status);
   const client = await pool.connect();
   try {
-    // Transaction: if the update fails, the delete is rolled back too.
+    // Run in a transaction. A failed update rolls back the delete too.
     await client.query("begin");
     await client.query(
       `delete from equipment_requests
@@ -272,9 +272,9 @@ const card = (page: Page) => page.locator("[data-slot=card]").filter({ hasText: 
 
 const equipment = (page: Page) => page.locator("section#equipment");
 
-// A recorded equipment line in the list. Scoped to list items with an exact match, because the
-// section also shows the request's free-text equipment requirements elsewhere on the page, which
-// would otherwise make getByText("Projector") ambiguous (strict mode violation).
+// Match a recorded equipment line in the list. Scope the query to list items with an exact
+// match. The section also shows free-text equipment requirements elsewhere, which makes a plain
+// `getByText("Projector")` ambiguous.
 const lineItem = (page: Page, item: string) =>
   equipment(page).getByRole("listitem").getByText(item, { exact: true });
 
@@ -328,10 +328,10 @@ test.describe("Coordinator equipment panel", () => {
       await panel.getByLabel("Quantity (required)").fill(bad);
       await panel.getByRole("button", { name: "Add line" }).last().click();
 
-      // Form stays open and nothing was added.
+      // The form stays open with nothing added.
       await expect(panel.getByLabel("Quantity (required)")).toBeVisible();
       await expect(panel.getByText("Projector ×")).toHaveCount(0);
-      await expect(panel.getByText(EMPTY_STATE_MESSAGE)).toHaveCount(0); // form open, empty-state hidden
+      await expect(panel.getByText(EMPTY_STATE_MESSAGE)).toHaveCount(0); // The form stays open and hides the empty state.
     }
     // oxlint-enable no-await-in-loop
     expect(await countLines("Projector")).toBe(0);
@@ -353,12 +353,12 @@ test.describe("Coordinator equipment panel", () => {
     await page.reload();
     await expect(equipment(page).getByText("× 4")).toBeVisible();
 
-    // Cancel keeps the line.
+    // Cancelling keeps the line.
     await page.getByRole("button", { name: "Remove Projector" }).click();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(lineItem(page, "Projector")).toBeVisible();
 
-    // Confirm removes it, leaving exactly one empty-state message.
+    // Confirming removes it and leaves one empty-state message.
     await page.getByRole("button", { name: "Remove Projector" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
     await expect(equipment(page).getByText(EMPTY_STATE_MESSAGE)).toHaveCount(1);
@@ -393,7 +393,8 @@ test.describe("Coordinator equipment panel", () => {
 
     await expect(submitButton(page)).toBeDisabled();
     await expect(equipment(page).getByText(SUBMITTED_CAPTION)).toBeVisible();
-    // Post-submit freeze: no add, edit or remove controls, but the disabled Submit stays.
+    // After submission the panel freezes: no add, edit, or remove controls remain. The disabled
+    // Submit button stays.
     await expect(equipment(page).getByRole("button", { name: "Add line" })).toHaveCount(0);
     await expect(equipment(page).getByRole("button", { name: /Edit / })).toHaveCount(0);
     await expect(equipment(page).getByRole("button", { name: /Remove / })).toHaveCount(0);
@@ -414,7 +415,7 @@ test.describe("Coordinator equipment panel", () => {
     await panel.getByRole("button", { name: "Add line" }).last().dblclick();
 
     await expect(lineItem(page, "Projector")).toBeVisible();
-    // Poll so a slow second insert can't sneak in after the check.
+    // Poll the count. A slow second insert fails the test.
     await expect.poll(() => countLines("Projector")).toBe(1);
   });
 });
@@ -430,8 +431,8 @@ test.describe("Read-only states and other roles", () => {
       await resetDemoEvent(status);
       await openEventPageAs(page, USERS.coordinator);
 
-      // The page rendered (the event name is the level-1 heading), but with no lines the
-      // equipment section drops out, so there is nothing to edit or submit.
+      // The page renders with the event name as level-1 heading. With no lines the equipment
+      // section drops out, so nothing remains to edit or submit.
       await expect(page.getByRole("heading", { level: 1, name: DEMO_EVENT })).toBeVisible();
       await expect(page.locator("section#equipment")).toHaveCount(0);
     });
@@ -447,7 +448,7 @@ test.describe("Read-only states and other roles", () => {
 
   test("technical support finds the line in the event page lines section", async ({ page }) => {
     await resetDemoEvent("approved");
-    // The demo row is assigned to seed-tech-support-1, so it is connected. Re-create one line.
+    // The demo row belongs to seed-tech-support-1, so it stays connected. Re-create one line.
     await pool.query(
       `insert into equipment_requests (id, event_id, assigned_staff_id, item, quantity, notes)
        select 'e2e-line-1', id, 'seed-tech-support-1', 'Projector', 1, 'HDMI adapter included'
@@ -473,9 +474,9 @@ test.describe("Read-only states and other roles", () => {
     await page.goto(DASHBOARD_PATH);
     await waitForHydration(page);
 
-    // Wait for the dashboard to finish rendering before asserting that something is absent.
+    // Let the dashboard finish rendering before asserting an absence.
     await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
-    // Positive proof the venue workspace rendered, so the absence below is meaningful.
+    // The venue workspace renders, so the absence below carries meaning.
     await expect(page.getByText("venue staff access").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/Equipment (requirements|arrangements|lines)/)).toHaveCount(0);
   });
@@ -485,9 +486,9 @@ test.describe("Read-only states and other roles", () => {
 // Submitted queue across roles
 // ---------------------------------------------------------------------------
 
-// End-to-end AC5: a line submitted by the Coordinator with no assignee reaches Technical
-// Support, so a staffer with no prior assignment sees the event: the dashboard card leads into
-// the event page lines section.
+// End-to-end AC5: a Coordinator-submitted line with no assignee reaches Technical Support. A
+// staffer with no prior assignment sees the event. The dashboard card leads into the event page
+// lines section.
 test("AC5: a submitted event appears for a Technical Support user with no prior assignment", async ({
   page,
   browser,
@@ -508,7 +509,7 @@ test("AC5: a submitted event appears for a Technical Support user with no prior 
     await techPage.goto(DASHBOARD_PATH);
     await waitForHydration(techPage);
 
-    // The dashboard card carries no equipment detail; its link opens the event page.
+    // The dashboard card shows no equipment detail. Its link opens the event page.
     await expect(card(techPage).getByRole("link", { name: DEMO_EVENT })).toBeVisible();
     await card(techPage).getByRole("link", { name: DEMO_EVENT }).click();
     await waitForHydration(techPage);

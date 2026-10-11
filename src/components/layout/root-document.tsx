@@ -5,10 +5,9 @@ import { ThemeProvider } from "#/components/providers/theme-provider";
 import { Toaster } from "#/components/ui/sonner";
 
 /**
- * The HTML document every render is wrapped in — the root route's shell and the one the error
- * and not-found boundaries reuse, since a boundary replaces the whole tree beneath `<html>`.
- * It lives beside the header rather than in `src/routes/__root.tsx`, which keeps that file to
- * routing (PTR-75).
+ * Wrap every render in this HTML document. The root route and error or not-found boundaries use it.
+ * A boundary replaces everything below `<html>`, so it must render the document shell again.
+ * Keep this beside the header. The route-module test limits `src/routes/__root.tsx` to routing (PTR-75).
  */
 export function RootDocument({
   children,
@@ -17,9 +16,8 @@ export function RootDocument({
   children: React.ReactNode;
   meta?: React.ReactNode;
 }) {
-  // Runs only after React attaches, never during SSR, so E2E specs can wait on a real hydration
-  // signal (`body[data-hydrated]`) instead of network silence, which can settle before handlers
-  // are live under the dev server's on-demand transforms.
+  // This runs after React attaches, never during SSR. E2E tests can wait for `body[data-hydrated]` instead of network silence.
+  // Network silence can occur before event handlers attach when the dev server transforms files on demand.
   useEffect(() => {
     document.body.dataset.hydrated = "true";
   }, []);

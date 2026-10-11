@@ -13,9 +13,9 @@ import {
 type Database = typeof Db;
 
 /**
- * PTR-25: the assigned Coordinator explicitly completes an ended confirmed event. The event row
- * lock serialises the transition with the write paths, which key-share and re-read the
- * completed status.
+ * PTR-25: The assigned Coordinator explicitly completes an ended, confirmed event. The event row
+ * lock orders this transition against the write paths. Those paths share the lock and re-read
+ * the completed status.
  */
 export async function handleCompleteEvent(data: unknown, actor: SessionUser, database: Database) {
   const input = parseEventRequestId(data);
@@ -25,8 +25,8 @@ export async function handleCompleteEvent(data: unknown, actor: SessionUser, dat
       await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
     ).at(0);
 
-    // A missing event and someone else's event are refused the same way, so the refusal does not
-    // say whether the id exists.
+    // Refuse a missing event and another user's event in the same way. The refusal then reveals
+    // nothing about the id.
     if (!request || request.status === "draft" || request.assignedCoordinatorId !== actor.id) {
       throw new AuthorizationError("Forbidden");
     }

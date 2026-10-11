@@ -19,15 +19,15 @@ import { maskEmail } from "#/lib/utils";
 const log = logger.getChild("auth");
 
 /**
- * Auth endpoints that *set* a password, and so must enforce `PasswordSchema`.
+ * List auth endpoints that set a password and must enforce `PasswordSchema`.
  *
- * `/sign-in/email` is deliberately absent: it carries a password too, but validating there would
- * lock out any existing account whose password predates the current policy. Better Auth's
- * `setPassword` is `createAuthEndpoint.serverOnly`, so it has no route of its own to guard.
+ * Do not include `/sign-in/email`. It receives a password, but validation could lock out accounts
+ * that use the old policy. Better Auth's `setPassword` uses `createAuthEndpoint.serverOnly`, so it
+ * has no separate route to guard.
  */
 const PASSWORD_SETTING_PATHS = new Set(["/sign-up/email", "/reset-password", "/change-password"]);
 
-/** Only to pull the candidate password off an untyped request body; the policy itself is `PasswordSchema`. */
+/** Read a password from an untyped request body. `PasswordSchema` defines its policy. */
 const PasswordBodySchema = z.object({
   password: z.string().optional(),
   newPassword: z.string().optional(),
@@ -46,15 +46,13 @@ export const auth = betterAuth({
       role: {
         type: "string",
         required: true,
-        // Load-bearing, not a duplicate of the column DEFAULT: Better Auth applies defaultValue
-        // before its required check, so without it a sign-up omitting `role` is rejected outright
-        // and the database default never gets the chance to fire.
+        // Better Auth applies `defaultValue` before its required check. Set this default here or
+        // sign-up rejects a missing `role` before the database can apply its column default.
         defaultValue: DEFAULT_ROLE,
         input: true,
-        // `input: true` means the client supplies this, on /sign-up/email *and* /update-user.
-        // Without a validator any string persists, letting anyone self-assign an internal role.
-        // Deliberately the self-assignable subset, not the full `RoleSchema`: the roles this
-        // accepts are exactly the roles a stranger is trusted to pick for themselves.
+        // `input: true` lets the client send this field to `/sign-up/email` and `/update-user`.
+        // Validate it so users cannot assign themselves an internal role. Use the self-assignable
+        // subset, not all of `RoleSchema`, because new users can choose only those roles.
         validator: { input: SelfAssignableRoleSchema },
       },
     },
@@ -80,14 +78,13 @@ export const auth = betterAuth({
     },
   },
 
-  // Better Auth only enforces a length range of its own, so the rest of PasswordSchema (a digit,
-  // a symbol, a 128 maximum) has to be applied here or it exists only in the browser.
+  // Better Auth enforces only its own length range. Apply the rest of `PasswordSchema` here too:
+  // require a digit and symbol, and limit passwords to 128 characters.
   hooks: {
     before: createAuthMiddleware(async ctx => {
-      // `/update-user` carries `role` for the same reason `/sign-up/email` does — the field is
-      // `input: true`. The validator below already stops an internal role landing here, but it
-      // would still let an attendee promote itself to `event_organiser`, so the field is refused
-      // outright: nobody re-grades their own account (PTR-7).
+      // `/update-user` accepts `role` because the field is `input: true`. Its validator rejects
+      // internal roles, but it would allow an attendee to become an `event_organiser`. Reject the
+      // field here so users cannot change their own role (PTR-7).
       if (ctx.path === "/update-user") {
         if (ctx.body !== null && typeof ctx.body === "object" && "role" in ctx.body) {
           throw new APIError("FORBIDDEN", { message: "Your role cannot be changed here." });

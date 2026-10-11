@@ -51,7 +51,7 @@ describe("NotificationsPage", () => {
     render(<NotificationsPage notifications={[]} unreadCount={0} />);
 
     expect(screen.getByText("No notifications yet.")).toBeTruthy();
-    // Empty, the page already says there is nothing, so no count line repeats it.
+    // The empty page states the result, so omit the count.
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
     expect(screen.queryByRole("list")).toBeNull();
@@ -62,7 +62,7 @@ describe("NotificationsPage", () => {
 
     const link = screen.getByRole("link", { name: linked.summary as string });
     expect(link.getAttribute("href")).toBe(linked.href);
-    // The actionable row is the only full-ink element: it must not be demoted like the dead rows.
+    // Keep the actionable row at full contrast. Do not dim it with the inactive rows.
     expect(link.className).not.toContain("text-muted-foreground");
 
     const time = screen.getByText("1 Nov 2030, 09:00");
@@ -126,7 +126,7 @@ describe("NotificationsPage read state (PTR-56)", () => {
   it("marks one row read by id, naming the row and its time, and re-reads the list", async () => {
     render(<NotificationsPage notifications={[unread, unreadNeutral]} unreadCount={2} />);
 
-    // A neutralised row's button names the neutral line, never the hidden subject.
+    // Name the neutral line on its button. Do not name the hidden subject.
     expect(
       screen.getByRole("button", {
         name: /^Mark as read, This notification is no longer available\., /,
@@ -139,13 +139,13 @@ describe("NotificationsPage read state (PTR-56)", () => {
 
     expect(markNotificationsRead).toHaveBeenCalledWith({ data: { id: unread.id } });
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
-    // Settled once the buttons re-enable; a success says nothing.
+    // Finish after the buttons are enabled again. Success has no message.
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     expect(toastError).not.toHaveBeenCalled();
   });
 
   it("marks all read through the highest listed id, even when it is not the first row", async () => {
-    // Listed second (an earlier instant) yet holding the higher id: the cutoff must still cover it.
+    // This row has an earlier time but a higher id. The cutoff must still include it.
     const olderHigherId: NotificationListItem = {
       ...unread,
       id: 12,

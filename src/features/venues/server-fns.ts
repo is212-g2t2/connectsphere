@@ -12,18 +12,18 @@ import { logger } from "#/lib/logger";
 const log = logger.getChild("venues");
 
 /**
- * Routes import this module, so it stays free of any static server import — the middleware
- * pipeline is client-safe, and `./records.server` and `#/db` are reached inside the handlers,
- * which TanStack Start strips from the client build.
+ * Routes import this module. Keep it free of static server imports. The middleware pipeline is
+ * client-safe. Load `./records.server` and `#/db` inside handlers. TanStack Start strips
+ * handler bodies from the client build.
  */
 async function loadServer() {
   return Promise.all([import("#/db"), import("#/features/venues/records.server")]);
 }
 
-/** A venue row as the client sees it — derived here so no route has to import the server module. */
+/** Shape a venue row as the client sees it. Derive it here so routes avoid the server module. */
 export type Venue = Awaited<ReturnType<typeof listVenues>>[number];
 
-/** `saveVenue` is a create or an update depending on whether the payload carries an id. */
+/** Create or update a venue in `saveVenue`. The payload id selects the path. */
 function venueAction(data: unknown): "create" | "update" {
   return typeof data === "object" && data !== null && "id" in data && data.id !== undefined
     ? "update"
@@ -41,7 +41,7 @@ export const listVenues = createServerFn({ method: "GET" })
     return handleListVenues(db);
   });
 
-/** A picker's catalogue — `{ id, name }` only, not every venue column `listVenues` carries. */
+/** List `{ id, name }` pairs for pickers. Omit other venue columns that `listVenues` carries. */
 export const listVenueOptions = createServerFn({ method: "GET" })
   .middleware([requireVenueRead])
   .handler(async () => {
@@ -60,9 +60,9 @@ export const searchVenues = createServerFn({ method: "GET" })
 export type VenueSearchResult = Awaited<ReturnType<typeof searchVenues>>;
 
 /**
- * Wrapped in an object on purpose: a server function whose result is `Venue | null` infers as
- * `never` under @tanstack/react-start 1.168 (a nullable top-level result collapses), so the
- * loader could not read `venue.name`. `{ venue }` keeps the type intact.
+ * Wrap the result in an object. A top-level `Venue | null` result infers as `never` under
+ * @tanstack/react-start 1.168, so the loader cannot read `venue.name`. `{ venue }` keeps the
+ * type intact.
  */
 export const getVenue = createServerFn({ method: "GET" })
   .validator(parseVenueId)
@@ -89,11 +89,12 @@ export const saveVenue = createServerFn({ method: "POST" })
   });
 
 /**
- * The availability calendar's read (PTR-28). Anyone holding `venue:read` may call it — the same
- * Coordinators, Venue Staff and Technical Support Staff who may read a venue record, and nobody
- * external, which is criterion 5 enforced at the addressable endpoint rather than by the guard.
+ * Read the availability calendar (PTR-28). Any holder of `venue:read` can call it: Coordinators,
+ * Venue Staff, and Technical Support Staff who can read a venue record. Nobody external can call
+ * it. Criterion 5 places this check at the endpoint. The guard does not enforce it.
  *
- * Wrapped in `{ availability }` for the reason `getVenue` documents above: a nullable top-level result infers as `never`. A venue that is not there answers `null`, and the route turns that into the router's `notFound()`.
+ * Wrap the result in `{ availability }` as `getVenue` does above. A missing venue returns `null`,
+ * and the route turns that into the router's `notFound()`.
  */
 export const getVenueAvailability = createServerFn({ method: "GET" })
   .validator(parseAvailabilityRequest)
@@ -103,7 +104,7 @@ export const getVenueAvailability = createServerFn({ method: "GET" })
     return { availability: await handleGetVenueAvailability(data, context.user.id, db) };
   });
 
-/** The calendar schedule as the client sees it — derived here, like `Venue` above. */
+/** Shape the calendar schedule as the client sees it. Derive it here, as with `Venue` above. */
 export type VenueAvailability = NonNullable<
   Awaited<ReturnType<typeof getVenueAvailability>>["availability"]
 >;

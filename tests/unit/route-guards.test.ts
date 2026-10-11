@@ -2,17 +2,13 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-/**
- * PTR-68: route guards stay per-route presentation checks.
+/** PTR-68 keeps permission checks with each route and resolves the session once. A second fetch
+ * repeats work that navigation already did. A layout for each permission would add too many
+ * pathless routes, so keep only the authentication boundary pathless.
  *
- * The session is resolved once; a route fetching it again spends a roundtrip that navigation
- * already paid for. And a permission check modelled as a pathless layout route brings back the
- * layout-per-permission explosion the audit rejected, so the only pathless layout under
- * `src/routes` is the authentication boundary itself.
- *
- * PTR-73 moved that single resolution up to `__root.tsx`, because the header renders outside
- * `_authenticated` and needs the same user: the boundary now narrows what the root already put
- * on context, and the unauthenticated routes read it from there too.
+ * PTR-73 moved session resolution to `__root.tsx` because the header sits outside
+ * `_authenticated`. The boundary narrows the user already in context. Public routes read it there
+ * too.
  */
 const routesDir = path.resolve(process.cwd(), "src/routes");
 

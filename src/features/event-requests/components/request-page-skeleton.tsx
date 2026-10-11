@@ -28,9 +28,9 @@ function FieldSetSkeleton() {
 }
 
 /**
- * The new/edit event request form's loading shape: back link, heading and the form's field
- * groups. `reopenDraft/$id` waits on the draft it seeds the form with, so the skeleton draws the
- * form the arriving organiser will fill rather than the record.
+ * Loading shape for the new/edit event request form: back link, heading, and the form's field
+ * groups. `reopenDraft/$id` waits on the draft that seeds the form. Draw the form the arriving
+ * Organiser will fill, not the record.
  */
 export function EventRequestsPageSkeleton() {
   return (

@@ -20,9 +20,9 @@ const requireEventRegistrationRead = requirePermission({ event_registration: ["r
 const log = logger.getChild("events");
 
 /**
- * Routes import this module, so it stays free of any static server import — the middleware
- * pipeline is client-safe, and `./records.server` and `#/db` are both reached inside the handler,
- * which TanStack Start strips from the client build.
+ * Routes import this module, so do not add static server imports here. Middleware must remain
+ * client-safe. The handlers import `*.server` modules and `#/db` dynamically; TanStack Start
+ * removes the handlers from the client build.
  */
 async function loadServer() {
   return Promise.all([import("#/db"), import("#/features/events/records.server")]);
@@ -60,10 +60,10 @@ const requireEventRegister = requirePermission({ event: ["register"] });
 const requireVipRegistrationManage = requirePermission({ vip_registration: ["manage"] });
 
 /**
- * PTR-8: the events the signed-in user is connected to, each in a role-specific projection. No
- * `can()` permission fits — the relationship is data, not a role — so the pipeline only
- * establishes the session and `records.server` scopes and refuses per row. Naming an event the
- * caller is not connected to answers the generic 403 with no event data.
+ * PTR-8: List the events the signed-in user connects to, each in a role-specific projection. No
+ * `can()` permission fits. The relationship is data, not a role. The pipeline only establishes
+ * the session. `records.server` scopes and refuses per row. Naming an unconnected event answers
+ * the generic 403 with no event data.
  */
 export const listEvents = createServerFn({ method: "GET" })
   .middleware([requireSession])
@@ -74,8 +74,8 @@ export const listEvents = createServerFn({ method: "GET" })
   });
 
 /**
- * PTR-24: the assigned Coordinator confirms an event once its venue and equipment arrangements are
- * in place. The handler re-reads the assignment and the arrangements, so the permission says only
+ * PTR-24: The assigned Coordinator confirms an event with venue and equipment arrangements in
+ * place. The handler re-reads the assignment and the arrangements. The permission only states
  * that the caller may coordinate.
  */
 export const confirmEvent = createServerFn({ method: "POST" })
@@ -91,9 +91,9 @@ export const confirmEvent = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-22: the assigned Coordinator updates an approved, planning or confirmed event's information.
- * The handler re-reads the assignment and the status, so the permission says only that the caller
- * may coordinate.
+ * PTR-22: The assigned Coordinator updates information on an approved, planning, or confirmed
+ * event. The handler re-reads the assignment and the status. The permission only states that the
+ * caller may coordinate.
  */
 export const updateEventInformation = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
@@ -116,9 +116,9 @@ export const updateEventInformation = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-23 AC3: what an event holds, read before a significant change is saved so the warning can
- * name each booking, hold and reservation. The handler re-reads the assignment, so the permission
- * says only that the caller may coordinate. Reading changes nothing.
+ * PTR-23 AC3: Read what an event holds before saving a significant change. The warning then names
+ * each booking, hold, and reservation. The handler re-reads the assignment. The permission only
+ * states that the caller may coordinate. Reading changes nothing.
  */
 export const listEventArrangements = createServerFn({ method: "GET" })
   .middleware([requireEventRequestCoordinate])
@@ -129,9 +129,9 @@ export const listEventArrangements = createServerFn({ method: "GET" })
   });
 
 /**
- * PTR-54: the assigned Coordinator cancels the event a waiting cancellation request asks for. The
- * handler re-reads the assignment and the request, so the permission says only that the caller
- * may coordinate. The coordination page then lists what the event still holds.
+ * PTR-54: The assigned Coordinator cancels the event named by a waiting cancellation request. The
+ * handler re-reads the assignment and the request. The permission only states that the caller may
+ * coordinate. The coordination page then lists what the event still holds.
  */
 export const cancelEvent = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
@@ -144,9 +144,9 @@ export const cancelEvent = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-52 AC2: the assigned Coordinator declines a waiting change request, with a reason. The
- * handler re-reads the assignment and the request, so the permission says only that the caller may
- * coordinate. Applying a request goes through `updateEventInformation` with `changeRequestId`.
+ * PTR-52 AC2: The assigned Coordinator declines a waiting change request with a reason. The
+ * handler re-reads the assignment and the request. The permission only states that the caller may
+ * coordinate. Apply a request through `updateEventInformation` with `changeRequestId`.
  */
 export const declineEventChangeRequest = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
@@ -162,7 +162,7 @@ export const declineEventChangeRequest = createServerFn({ method: "POST" })
     });
   });
 
-/** PTR-54 AC8: the assigned Coordinator declines a waiting cancellation request, with a reason. */
+/** PTR-54 AC8: The assigned Coordinator declines a waiting cancellation request with a reason. */
 export const declineEventCancellation = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
   .validator(parseEventCancellationDeclineInput)
@@ -178,9 +178,9 @@ export const declineEventCancellation = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-45: an Attendee registers for a published event. A visitor gets 401 and any other role gets
- * 403 (AC1). The handler re-reads the event, its period and its places, so the permission says
- * only that the caller may register.
+ * PTR-45: An Attendee registers for a published event. A visitor gets 401. Any other role gets
+ * 403 (AC1). The handler re-reads the event, its period, and its places. The permission only
+ * states that the caller may register.
  */
 export const registerForEvent = createServerFn({ method: "POST" })
   .middleware([requireEventRegister])
@@ -195,8 +195,8 @@ export const registerForEvent = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-47: an Attendee withdraws from an event they are registered for.
- * Middleware ensures session and Attendee role (event:register permission).
+ * PTR-47: An Attendee withdraws from a registered event. Middleware checks the session and the
+ * `event:register` permission.
  */
 export const withdrawFromEvent = createServerFn({ method: "POST" })
   .middleware([requireEventRegister])
@@ -210,10 +210,10 @@ export const withdrawFromEvent = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-111: the Attendee accounts that the Organiser or the assigned Coordinator can add as a VIP,
- * by part of the name or the email. Every other role gets 403, and the handler re-reads the
- * caller's relationship to the event, so no one else can search the Attendees through it. POST,
- * so the names and emails searched for stay out of the URL and the request logs.
+ * PTR-111: Search Attendee accounts by part of the name or email. The Organiser or the assigned
+ * Coordinator can add them as VIPs. Every other role gets 403. The handler re-reads the caller's
+ * relationship to the event. Use POST, so searched names and emails stay out of the URL and the
+ * request logs.
  */
 export const searchVipAttendees = createServerFn({ method: "POST" })
   .middleware([requireVipRegistrationManage])
@@ -224,9 +224,9 @@ export const searchVipAttendees = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-111: the Organiser or the assigned Coordinator adds a VIP registration for an Attendee
- * account. Every other role gets 403. The handler re-reads the event, the caller's relationship to
- * it, and the venue places.
+ * PTR-111: The Organiser or the assigned Coordinator adds a VIP registration for an Attendee
+ * account. Every other role gets 403. The handler re-reads the event, the caller's relationship
+ * to it, and the venue places.
  */
 export const addVipRegistration = createServerFn({ method: "POST" })
   .middleware([requireVipRegistrationManage])
@@ -242,7 +242,7 @@ export const addVipRegistration = createServerFn({ method: "POST" })
     });
   });
 
-/** PTR-111 AC6: the Organiser or the assigned Coordinator removes a VIP registration. */
+/** PTR-111 AC6: The Organiser or the assigned Coordinator removes a VIP registration. */
 export const removeVipRegistration = createServerFn({ method: "POST" })
   .middleware([requireVipRegistrationManage])
   .validator(parseVipRegistrationInput)
@@ -257,7 +257,7 @@ export const removeVipRegistration = createServerFn({ method: "POST" })
     });
   });
 
-/** PTR-25: only an Event Coordinator reaches the handler; it re-checks the live assignment. */
+/** PTR-25: Only an Event Coordinator reaches the handler. It re-checks the live assignment. */
 export const completeEvent = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
   .validator(parseEventRequestId)
@@ -271,8 +271,8 @@ export const completeEvent = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-48: lists the attendees registered for an event.
- * Only the event's Organiser or assigned Coordinator can view this list.
+ * PTR-48: List the attendees registered for an event. Only the event's Organiser or assigned
+ * Coordinator can view this list.
  */
 export const listEventRegistrations = createServerFn({ method: "GET" })
   .middleware([requireEventRegistrationRead])

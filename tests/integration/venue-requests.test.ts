@@ -35,26 +35,24 @@ import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import { notificationSummary, parseNotificationPayload } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
 
-/** The inbox summary line for a queued row, which doubles as the email subject. */
+/** The inbox summary line, which is also the email subject. */
 function summarize(row: { kind: string; payload: unknown }): string {
   const parsed = parseNotificationPayload(row.kind, row.payload);
   if (!parsed) throw new Error(`unreadable notification kind: ${row.kind}`);
   return notificationSummary(parsed);
 }
 
-/** Renders a queued row as its email, so content assertions keep working. */
+/** Render a queued row as an email for content assertions. */
 async function renderQueuedEmail(row: { kind: string; payload: unknown; eventRequestId: number }) {
   const parsed = parseNotificationPayload(row.kind, row.payload);
   if (!parsed) throw new Error(`unreadable notification kind: ${row.kind}`);
   return render(renderNotificationEmail({ ...parsed, eventRequestId: row.eventRequestId }).element);
 }
 
-/**
- * PTR-31 at the handler boundary: creation, notification and withdrawal. PTR-36 adds approval,
- * the overlap refusal and the exclusion constraint's own behaviour. The middleware pipeline has
- * already established the session and the `venue_request` permission before these run, so the
- * caller is a `SessionUser` and the only things under test are the event-assignment gate, the row
- * that lands in the queue, the queued notifications, the withdrawal transition and the booking invariant.
+/** PTR-31: test request creation, notification, and withdrawal at the handler boundary. PTR-36
+ * tests approval, overlap refusal, and the exclusion constraint. Middleware provides the session
+ * and `venue_request` permission. This file tests event assignment, queued rows and notifications,
+ * withdrawal, and the booking invariant.
  */
 
 const users = {
@@ -198,7 +196,7 @@ describe("venue request handlers (PTR-31)", () => {
     underReviewEventId = underReviewEvent.id;
   });
 
-  /** A second submitted event assigned to the same Coordinator, for the other side of a clash. */
+  /** A second submitted event for the same Coordinator, used to test a clash. */
   async function createEvent(name: string) {
     const [event] = await database
       .insert(schema.eventRequests)
@@ -308,7 +306,7 @@ describe("venue request handlers (PTR-31)", () => {
         .select()
         .from(schema.notifications)
         .where(eq(schema.notifications.eventRequestId, eventId));
-      // Every Venue Staff account in the database is told, this suite's fixtures included.
+      // Notify every Venue Staff account, including this suite's fixtures.
       const allStaff = await database
         .select({ id: schema.user.id })
         .from(schema.user)
@@ -351,14 +349,14 @@ describe("venue request handlers (PTR-31)", () => {
         )
       ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
 
-      // Scoped to the fixture venue: the seed's own demo request is always in the table.
+      // Check only this fixture venue because the seed's demo request is also in the table.
       expect(
         await database
           .select()
           .from(schema.venueRequests)
           .where(eq(schema.venueRequests.venueId, venueId))
       ).toHaveLength(0);
-      // The refusal rolled everything back: no notification was queued either.
+      // The refusal rolled back the request and did not queue a notification.
       expect(await database.select().from(schema.notifications)).toHaveLength(0);
     });
 
@@ -419,7 +417,7 @@ describe("venue request handlers (PTR-31)", () => {
         .from(schema.venueRequests)
         .where(eq(schema.venueRequests.id, request.id));
       expect(rows).toHaveLength(1);
-      // The refused duplicate queued nothing: only the first request's rows remain.
+      // The refused duplicate queued nothing. Only the first request's rows remain.
       expect(await database.select().from(schema.notifications)).toHaveLength(before.length);
     });
   });
@@ -432,7 +430,7 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
 
-      // The row is unassigned: the shared pending queue is what connects both staff members.
+      // The shared pending queue connects both staff members because the row is unassigned.
       const staff = [users.venueStaffA, users.venueStaffB];
       const visible = await Promise.all(
         staff.map(async member => {
@@ -471,8 +469,8 @@ describe("venue request handlers (PTR-31)", () => {
         endsAt: "2027-04-20 12:30:00",
       });
 
-      // The assignee reaches the event; the isolation is that the other staff member does not,
-      // and asking for it by name is refused rather than answered with nothing.
+      // The assignee can reach the event. Another staff member cannot. A direct request by
+      // name raises 403 Forbidden. It returns no empty list.
       const assignee = await handleListEvents({}, session(users.venueStaffB), database as never);
       expect(assignee.map(item => item.event.id)).toContain(eventId);
 
@@ -693,8 +691,8 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
 
-      // The event moves to another Coordinator after the request was raised. Withdrawal authorizes
-      // on who raised the request, not who now owns the event.
+      // The event changes Coordinators after the request. Authorize withdrawal by the requester,
+      // not by the event's current owner.
       await database
         .update(schema.eventRequests)
         .set({ assignedCoordinatorId: users.otherCoordinator.id })
@@ -727,8 +725,8 @@ describe("venue request handlers (PTR-31)", () => {
     });
 
     it("refuses withdrawal for any caller when the raiser's account is gone", async () => {
-      // `requested_by_id` is `set null` on account deletion, not cascade: the row survives
-      // unattributable, and null must never match a caller's id.
+      // Account deletion sets `requested_by_id` to null and keeps the row. A null requester must
+      // never match a caller's id.
       const [orphan] = await database
         .insert(schema.venueRequests)
         .values({
@@ -845,8 +843,8 @@ describe("venue request handlers (PTR-31)", () => {
       ]);
 
       expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
-      // The settled row now belongs to the winner, so the loser sees the settled sentence — never a
-      // self-conflict sentence about the request it just approved, and never a bare Forbidden.
+      // The winner settled the row. Return the settled message to the loser, not a self-conflict
+      // message or a bare Forbidden response.
       expect(results.find(result => result.status === "rejected")).toMatchObject({
         reason: {
           name: "ConflictError",
@@ -971,8 +969,7 @@ describe("venue request handlers (PTR-31)", () => {
         new Date("2027-01-01T00:00:00Z")
       );
 
-      // Scoped to this suite's own rows: other suites' and the seed's approved bookings share the
-      // global list.
+      // Check only this suite's rows. Other suites and the seed share the global approved-booking list.
       const own = listed.filter(row => row.id === owned.id || row.id === other.id);
       expect(own).toEqual([
         expect.objectContaining({
@@ -1006,7 +1003,7 @@ describe("venue request handlers (PTR-31)", () => {
       );
       await approve(upcoming.id, users.venueStaffB);
 
-      // 10:00 UTC is 18:00 in Singapore. A UTC string comparison would incorrectly retain 15:00.
+      // 10:00 UTC is 18:00 in Singapore. A UTC string comparison would wrongly include 15:00.
       const listed = await handleListVenueBookings(
         database as never,
         new Date("2027-04-20T10:00:00Z")
@@ -1091,9 +1088,9 @@ describe("venue request handlers (PTR-31)", () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       await approve(request.id, users.venueStaffA);
 
-      // Hold the event row the way confirmation does, then let the release run into it. Without
-      // the event key share, the release takes the booking row first and waits on the event
-      // through its notification insert: the two orders form a deadlock (40P01).
+      // Lock the event row as confirmation does, then run the release. Without the event key share,
+      // release locks the booking first and waits on the event during notification insert. The
+      // different lock orders cause deadlock (40P01).
       const gate = new Pool({ connectionString: process.env.DATABASE_URL });
       const gateClient = await gate.connect();
       try {
@@ -1112,7 +1109,7 @@ describe("venue request handlers (PTR-31)", () => {
 
         await vi.waitFor(
           async () => {
-            // The blocked statement names the event key share, and this gate is its blocker.
+            // This gate blocks the statement that requests the event key share.
             const waiting = await database.execute<{ count: string }>(
               sql`SELECT count(*)::text AS count FROM pg_stat_activity
                   WHERE wait_event_type = 'Lock'
@@ -1125,7 +1122,7 @@ describe("venue request handlers (PTR-31)", () => {
           { timeout: 10_000, interval: 25 }
         );
 
-        // Parked on the event, the release has not touched the booking row yet.
+        // The release waits on the event and has not touched the booking row.
         const probe = await gateClient.query(
           "SELECT 1 FROM venue_requests WHERE id = $1 FOR UPDATE NOWAIT",
           [request.id]
@@ -1494,7 +1491,7 @@ describe("venue request handlers (PTR-31)", () => {
         status: "approved",
       });
 
-      // Drizzle wraps the driver error, so the constraint name is on the cause, not the message.
+      // Drizzle wraps the driver error. The constraint name is in `cause`, not the message.
       await expect(
         insertRequest({
           id: "ptr-36-direct-2",
@@ -1546,8 +1543,8 @@ describe("venue request handlers (PTR-31)", () => {
         .where(eq(schema.venueRequests.id, "ptr-36-direct-5"));
       await database.delete(schema.venues).where(eq(schema.venues.id, otherVenue.id));
 
-      // The predicate covers approved rows only: pending requests stack, and a withdrawn row
-      // never holds the venue.
+      // The predicate covers approved rows only. Pending requests can overlap, and withdrawn rows
+      // do not hold the venue.
       await insertRequest({
         id: "ptr-36-direct-6",
         eventId,
@@ -1774,8 +1771,8 @@ describe("venue request handlers (PTR-31)", () => {
     });
 
     it("keeps the rejection when the raiser's account is gone, and queues nothing (AC4)", async () => {
-      // `requested_by_id` is `set null` on account deletion, not cascade: the row survives
-      // unattributable, and there is no recipient left to queue for.
+      // Account deletion sets `requested_by_id` to null and keeps the row. No requester remains
+      // to notify.
       const [orphan] = await database
         .insert(schema.venueRequests)
         .values({
@@ -1808,9 +1805,8 @@ describe("venue request handlers (PTR-31)", () => {
         status: 409,
         message: VENUE_REQUEST_REJECTED_MESSAGE,
       });
-      // Rejection stamps `assignedStaffId` to the rejecter, so a second staff member who never
-      // touched this request must still see the AC5 sentence rather than a bare Forbidden — the
-      // rejected check runs before the queue rule for exactly this reason (review of PTR-34).
+      // Rejection assigns the row to the rejecter. A second staff member must still get the AC5
+      // message, not a bare Forbidden response. Check rejected status before queue membership (PTR-34).
       await expect(approve(request.id, users.venueStaffB)).rejects.toMatchObject({
         name: "ConflictError",
         status: 409,
@@ -1827,8 +1823,8 @@ describe("venue request handlers (PTR-31)", () => {
     });
 
     it("tells any staff member a settled request is settled, not forbidden", async () => {
-      // Approved by one staff member: another staff member's attempt gets the settled sentence
-      // rather than a bare Forbidden, so a stale form can toast it instead of reloading into 404.
+      // If another staff member approved the request, return the settled message, not Forbidden.
+      // The stale form shows this message with no reload to 404.
       const approved = await raiseRequest(eventId, "09:00", "12:30");
       await approve(approved.id, users.venueStaffA);
       await expect(approve(approved.id, users.venueStaffB)).rejects.toMatchObject({
@@ -1842,7 +1838,7 @@ describe("venue request handlers (PTR-31)", () => {
         message: VENUE_REQUEST_DECIDED_MESSAGE,
       });
 
-      // Withdrawn by the raiser: the same sentence for either attempt on the stale row.
+      // If the requester withdrew the row, return the same message for either attempt.
       const withdrawn = await raiseRequest(eventId, "13:00", "15:00");
       await handleWithdrawVenueRequest(
         { id: withdrawn.id },
@@ -1875,7 +1871,7 @@ describe("venue request handlers (PTR-31)", () => {
       await expect(
         reject(request.id, users.venueStaffA, { reason: "Changed my mind" })
       ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
-      // Same AC5 sentence for a second staff member trying to reject it again.
+      // Return the same AC5 message when another staff member tries to reject it.
       await expect(
         reject(request.id, users.venueStaffB, { reason: "Changed my mind" })
       ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
@@ -1930,8 +1926,8 @@ describe("venue request handlers (PTR-31)", () => {
     it("refuses a rejected row without a reason at the database (AC1)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
 
-      // A tab/newline-only reason is the review's gap: `btrim` alone strips plain spaces, not
-      // every whitespace character, so the CHECK now matches on any non-space character instead.
+      // This test covers a reason with only tabs and newlines. `btrim` removes spaces only, so the
+      // CHECK must require a non-whitespace character.
       await Promise.all(
         [null, "   ", "\t\n"].map(rejectionReason =>
           expect(

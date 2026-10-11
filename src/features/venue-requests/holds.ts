@@ -1,6 +1,6 @@
 /**
- * Pure hold-ownership predicates, shared by the calendar projection and the hold writers.
- * Client-safe on purpose: no `#/db`, no server-only imports, so routes may import this.
+ * Share hold-ownership checks between the calendar projection and the hold writers.
+ * Keep this module client-safe: no `#/db` and no server-only imports, so routes may import it.
  */
 
 export interface HoldOwnership {
@@ -9,9 +9,9 @@ export interface HoldOwnership {
 }
 
 /**
- * Who may release: the holder, the event's current assignee, or anyone when both owner
- * references are gone (an orphaned hold has nobody left to free the slot).
- * Conversion callers reuse this as the release half of their gate.
+ * Allow release by the holder or the event's current assignee. Allow release by any signed-in viewer when
+ * both owner references are gone. The hold is then orphaned and nobody else can free the slot.
+ * Conversion reuses this check as the release half of its gate.
  */
 export function canReleaseHold(hold: HoldOwnership, viewerId: string): boolean {
   if (viewerId === "") return false;
@@ -19,7 +19,7 @@ export function canReleaseHold(hold: HoldOwnership, viewerId: string): boolean {
   return hold.heldById === viewerId || hold.assignedCoordinatorId === viewerId;
 }
 
-/** Who may convert: the event's current assignee, while the event is still `submitted`. */
+/** Allow conversion by the event's current assignee while the event is still `submitted`. */
 export function canConvertHold(
   hold: HoldOwnership & { eventStatus: string },
   viewerId: string

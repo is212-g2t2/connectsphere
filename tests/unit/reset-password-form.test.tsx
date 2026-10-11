@@ -101,8 +101,8 @@ describe("ResetPasswordForm component", () => {
       expect(screen.getByRole("alert").textContent).toBe("Too many requests");
     });
 
-    // Resubmitting revalidates, and that write to `errorMap.onSubmit` is what drops the first
-    // message — the form holds no separate error state for anything to reset.
+    // Resubmitting revalidates. That write to `errorMap.onSubmit` drops the first message. The
+    // form holds no separate error state to reset.
     await user.click(screen.getByRole("button", { name: /send reset link/i }));
 
     await waitFor(() => {

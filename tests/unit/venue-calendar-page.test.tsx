@@ -73,9 +73,8 @@ describe("VenueCalendarPage", () => {
     expect(within(results).getByText("Maintenance")).toBeTruthy();
     expect(within(results).getByText("13:00 – 15:00 · Great Hall")).toBeTruthy();
     expect(within(results).getByText("Unavailable / blocked")).toBeTruthy();
-    // The fixture's label and the state badge both read "Confirmed booking" — the row title and
-    // its badge. A real booking is deliberately anonymous (PTR-36 renders "another event" plus
-    // the same badge).
+    // The fixture's row title and badge both say "Confirmed booking". A real booking hides its
+    // event name and shows "another event" with the same badge (PTR-36).
     expect(within(results).getAllByText("Confirmed booking")).toHaveLength(2);
     expect(within(results).getByText("10:00 – 12:00 · Great Hall")).toBeTruthy();
     expect(within(results).getByText("Available")).toBeTruthy();

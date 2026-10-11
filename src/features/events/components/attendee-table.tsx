@@ -32,9 +32,9 @@ import type { RegisteredAttendee } from "#/features/events/access";
 import { formatInstant } from "#/features/event-requests/format";
 
 /**
- * The features this table uses: clickable column sorting, a search box over name and email, and
- * the VIP/Standard type filter. Registered per the React quick start so the bundle carries only
- * these row models and functions.
+ * Register the features this table uses: clickable column sorting, a search box over name and
+ * email, and the VIP/Standard type filter. Follow the React quick start. The bundle then carries
+ * only these row models and functions.
  */
 const features = tableFeatures({
   rowSortingFeature,
@@ -58,7 +58,7 @@ function formatRegisteredAt(value: string): string {
   return Number.isNaN(time) ? value : formatInstant(new Date(time));
 }
 
-/** The arrow a sorted column header shows; nothing while it is unsorted. */
+/** The arrow for a sorted column header. Nothing shows while it is unsorted. */
 function sortedArrow(direction: false | "asc" | "desc"): string | null {
   if (direction === "asc") return " ↑";
   return direction === "desc" ? " ↓" : null;
@@ -101,16 +101,16 @@ const TYPE_FILTERS = [
   { label: "Standard", value: "Standard" },
 ] as const;
 
-/** The visually empty header of the row-action column, still named for assistive technology. */
+/** Visually empty header for the row-action column. It keeps its name for assistive technology. */
 function ActionsHeader() {
   return <span className="sr-only">Actions</span>;
 }
 
 /**
- * The Organiser/Coordinator attendee list, sorted, searched and filtered on the client. The
- * attendees page and the event page's registrations section share it. `tableActions` renders
- * beside the type filters, and `rowActions` renders a trailing action per row — an empty,
- * labelled header keeps the column named for assistive technology.
+ * Sort, search, and filter the Organiser/Coordinator attendee list on the client. Share it
+ * between the attendees page and the event page's registrations section. `tableActions` renders
+ * beside the type filters. `rowActions` renders a trailing action per row. An empty, labelled
+ * header keeps the column named for assistive technology.
  */
 export function AttendeeTable({
   attendees,

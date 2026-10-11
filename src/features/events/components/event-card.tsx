@@ -8,7 +8,7 @@ import { formatLocalDate } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
 import { hasAttendeePage } from "#/features/events/access";
 
-/** The card and the event page title an event the same way: venue staff see the venue. */
+/** Title an event on the card and the event page the same way. Venue Staff see the venue. */
 export function eventTitle(projection: EventProjection): string {
   const { access, event } = projection;
   if (access === "venue_staff") return event.venueRequest?.venueName ?? "Venue request";
@@ -16,8 +16,8 @@ export function eventTitle(projection: EventProjection): string {
 }
 
 /**
- * The dashboard's one card per connected event: whose access it is, the event's stage, its name
- * as the only link, and its date and time. The card surface itself is not clickable.
+ * Show one dashboard card per connected event. It carries the access, the stage, the name as the
+ * only link, and the date and time. The card surface itself is not clickable.
  */
 export function EventCard({ event: projection }: { event: EventProjection }) {
   const { access, event } = projection;

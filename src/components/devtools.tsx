@@ -1,9 +1,9 @@
 import { lazy } from "react";
 
 /**
- * Dev-only. Dynamic imports keep the devtools packages and their fonts out of the production
- * transform. It lives here, not in `__root.tsx`, because the route-module boundary test keeps that
- * file to the route object alone.
+ * Load devtools only in development. Dynamic imports keep their packages and fonts out of the
+ * production bundle. Keep this component outside `__root.tsx`; the route-module test allows only
+ * the route object in that file.
  */
 export const Devtools = import.meta.env.DEV
   ? lazy(async () => {

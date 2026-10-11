@@ -76,8 +76,8 @@ export function ReserveEquipmentDialog({
 
   const form = useForm({
     defaultValues: { quantity: String(requested) },
-    // The same gate as `ReserveEquipmentInput`, so a blank or fractional quantity marks its own
-    // input before any request; the server caps the total at the line's requested quantity.
+    // Use `ReserveEquipmentInput` rules. A blank or fractional quantity marks this input before
+    // submit. The server caps the total at the line's requested quantity.
     validators: { onSubmit: ReserveEquipmentFormInput },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -97,10 +97,9 @@ export function ReserveEquipmentDialog({
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Could not reserve equipment. Try again.";
-        // The refusal marks the quantity itself, the same place a validation issue lands.
+        // Show the refusal on the quantity input, as for a validation error.
         formApi.setErrorMap({ onSubmit: { fields: { quantity: { message } }, form: message } });
-        // A failed submit may have raced another reservation, so the shown number is re-read
-        // rather than left to sit stale under the error.
+        // Another member may have reserved units before this request. Read availability again.
         void refreshAvailability();
       }
     },
@@ -109,9 +108,7 @@ export function ReserveEquipmentDialog({
   useEffect(() => {
     cancelledRef.current = false;
     if (open) {
-      // The dialog stays mounted while closed, so reopening never remounts the form: reset it so
-      // each attempt starts from the requested total, and re-read availability because other
-      // members may have moved it since the last look.
+      // This dialog stays mounted while closed. Reset the form and read availability again each time it opens.
       form.reset();
       // oxlint-disable-next-line react/set-state-in-effect -- opening the controlled dialog is the event that triggers the re-read
       void refreshAvailability();

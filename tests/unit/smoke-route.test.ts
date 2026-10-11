@@ -53,8 +53,8 @@ describe("GET /api/smoke", () => {
   it("returns 401 when SMOKE_TOKEN is not configured", async () => {
     mockEnv.SMOKE_TOKEN = undefined;
 
-    // No header: without the explicit `!env.SMOKE_TOKEN` guard, `undefined === undefined`
-    // would pass the Bearer check and touch the database.
+    // Send no header. Without the explicit `!env.SMOKE_TOKEN` guard, `undefined === undefined`
+    // passes the Bearer check. It touches the database.
     const response = await getGetHandler()({ request: smokeRequest() });
 
     expect(response.status).toBe(401);

@@ -20,13 +20,14 @@ export const Route = createFileRoute("/_authenticated/event-requests/reopenDraft
     }
   },
   loader: async ({ params }): Promise<EventRequestDraft> => {
-    // The same rule the server function applies, so a junk path segment is a 404 without a round trip, as `$requestId.tsx` does.
+    // Apply the server function's rule here. A malformed path segment returns 404 without a server call, as `$requestId.tsx` does.
     const parsed = EventRequestIdInput.safeParse({ id: Number(params.id) });
     if (!parsed.success) {
       throw notFound();
     }
     const { draft } = await getEventRequestDraft({ data: parsed.data });
-    // Another organiser's row, a submitted request, and a missing id all come back `null`, so none of them is reopenable here and all three are this 404.
+    // Another organiser's row, a submitted request, or a missing id returns `null`.
+    // None can be reopened, so each case returns 404.
     if (!draft) {
       throw notFound();
     }

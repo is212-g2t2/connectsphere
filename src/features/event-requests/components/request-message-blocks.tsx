@@ -19,9 +19,9 @@ import {
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 
 /**
- * The clarification thread, change-request history, and cancellation-request history the
- * Organiser's detail page and the universal event page share. The detail page keeps its own
- * opt-in flags; the event page section passes `replyable` and renders the forms itself.
+ * Shared clarification, change-request, and cancellation history for the Organiser's detail page
+ * and the event page. The detail page uses its own flags. The event page passes `replyable` and
+ * renders the forms itself.
  */
 export function ClarificationThread({
   request,
@@ -219,11 +219,10 @@ export function Detail({
 }
 
 /**
- * A reply form's remount key: JSON of only the draft columns its own question's permitted fields
- * cover. A reply to one open question reloads this page and refreshes every form's `initialValues`,
- * but only the submitted question's fields actually changed. Scoping the signature to a question's
- * own fields means a sibling's still-open form only remounts (and loses unsaved input) when a value
- * it could itself amend changed underneath it — not on every reply on the page.
+ * Build a reply form's remount key from the draft columns its question can change. A reply reloads
+ * the page and refreshes every form's `initialValues`, but changes only the submitted question's
+ * fields. A sibling form remounts only when one of its own fields changes, not after every reply.
+ * This keeps its unsaved input.
  */
 function replyValuesSignature(
   permittedFields: readonly ClarificationField[],
@@ -234,7 +233,7 @@ function replyValuesSignature(
   return JSON.stringify(subset);
 }
 
-/** A `jsonb` value is plain JSON, so an object is narrowed by hand before its keys are read. */
+/** A `jsonb` value is plain JSON. Narrow an object by hand before reading its keys. */
 function isObjectValue(
   value: ClarificationAmendmentValue
 ): value is Record<string, ClarificationAmendmentValue> {
@@ -249,7 +248,7 @@ function numberOrNull(value: ClarificationAmendmentValue | undefined): number | 
   return typeof value === "number" ? value : null;
 }
 
-/** A leaf, or the JSON of anything nested, so an unexpected shape is never shown as `[object Object]`. */
+/** Return a leaf value or JSON for nested values so unexpected data never renders as `[object Object]`. */
 function plainAmendmentText(value: ClarificationAmendmentValue): string {
   if (value === null || value === "") return "None";
   if (typeof value === "string") return value;
@@ -258,8 +257,8 @@ function plainAmendmentText(value: ClarificationAmendmentValue): string {
 }
 
 /**
- * One amended value as a reader sees it, per field kind. The field name is what decides the shape:
- * a proposed window, an equipment line, or the four columns an attendee-registration amendment spans.
+ * Format one amended value for a reader. The field name selects its shape: a proposed window, an
+ * equipment line, or all four attendee-registration columns.
  */
 function formatAmendmentValue(
   field: ClarificationField,
@@ -304,7 +303,7 @@ function formatAmendmentValue(
   }
 }
 
-/** PTR-52 AC5: what became of one change request, and who processed it when. */
+/** PTR-52 AC5: What became of one change request, and who processed it when. */
 function changeRequestOutcome(
   item: EventRequestDetail["changeRequests"][number],
   coordinatorName: string | null,
@@ -321,7 +320,7 @@ function changeRequestOutcome(
   return `Declined by ${processedBy(item)}.`;
 }
 
-/** PTR-54 AC7, AC8: what became of one cancellation request, and who decided it when. */
+/** PTR-54 AC7, AC8: What became of one cancellation request, and who decided it when. */
 function cancellationOutcome(
   item: EventRequestDetail["cancellationRequests"][number],
   coordinatorName: string | null
@@ -331,7 +330,7 @@ function cancellationOutcome(
   return `Declined by ${processedBy(item)}.`;
 }
 
-/** Who processed a decided request and when, shared by the change and cancellation records. */
+/** Who processed a decided request and when. The change and cancellation records share it. */
 function processedBy(item: { processedByName: string | null; processedAt: Date | null }): string {
   return `${item.processedByName ?? "the Coordinator"} on ${formatInstant(item.processedAt)}`;
 }

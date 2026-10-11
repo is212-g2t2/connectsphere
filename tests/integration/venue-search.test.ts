@@ -287,7 +287,7 @@ describe("venue search handler (PTR-29)", () => {
       layout: "Theatre seating",
       facilities: "Projector, PA system",
     });
-    // The same-day hotel window is matchable, so the prefill returns the venue it describes.
+    // The prefilled venue must match the request's hotel window on the same day.
     expect(result.venues.map(venue => venue.name)).toContain(venueNames[0]);
   });
 
@@ -305,7 +305,7 @@ describe("venue search handler (PTR-29)", () => {
       startTime: "22:00",
       endTime: "02:00",
     });
-    // Suitability refuses a window that runs past midnight, whatever the venue's hours.
+    // Reject a window that crosses midnight, regardless of the venue's hours.
     expect(result.venues).toEqual([]);
   });
 

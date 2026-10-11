@@ -40,7 +40,7 @@ describe("Venue records (PTR-26)", () => {
   });
 
   beforeEach(async () => {
-    // Only what this file creates; the seeded venues stay for the seed tests.
+    // Delete only rows created by this file. Keep seeded venues for seed tests.
     await database.delete(schema.venues).where(eq(schema.venues.name, record.name));
   });
 
@@ -49,8 +49,8 @@ describe("Venue records (PTR-26)", () => {
     expect(created).toMatchObject(record);
     expect(created.id).toBeGreaterThan(0);
 
-    // Inserts use the database clock; updates use the application clock. Control the latter so
-    // a small host/container clock skew cannot turn an otherwise correct edit into a failure.
+    // Inserts use the database clock and updates use the application clock. Control the application
+    // clock so host/container skew does not fail a correct edit.
     const editedAt = new Date(created.updatedAt.getTime() + 1000);
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(editedAt);
@@ -79,7 +79,7 @@ describe("Venue records (PTR-26)", () => {
     expect(listed.find(venue => venue.id === created.id)?.maxCapacity).toBe(90);
   });
 
-  /** AC3 at the persistence layer, including the CHECK constraint behind the Zod schema. */
+  /** Test AC3 at the persistence layer, including the CHECK constraint behind the Zod schema. */
   it("refuses a capacity that is not a positive whole number (AC3)", async () => {
     await Promise.all(
       [0, -5, 2.5, "60"].map(maxCapacity =>
@@ -89,14 +89,14 @@ describe("Venue records (PTR-26)", () => {
       )
     );
 
-    // Drizzle wraps the driver error, so the constraint name is on the cause, not the message.
+    // Drizzle wraps the driver error. The constraint name is in `cause`, not the message.
     await expect(
       database.insert(schema.venues).values({ ...record, maxCapacity: 0 })
     ).rejects.toMatchObject({ cause: { constraint: "venues_max_capacity_positive" } });
   });
 
-  // Venue Staff hold `venue:update`, so a row that is not there is a missing record and not a
-  // refusal — 403 here would have the form tell them their role forbade an id they mistyped.
+  // Venue Staff have `venue:update`. A missing row must return not found, not 403, or the form
+  // would report a permission error for a mistyped id.
   it("reports an update to a venue that does not exist as not found", async () => {
     await expect(
       handleSaveVenue({ ...record, id: 999_999 }, database as never)

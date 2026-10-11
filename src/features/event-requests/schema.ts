@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 /**
- * The exact shape an `<input type="datetime-local">` submits: no seconds, no offset. Zod's ISO
- * check does the calendar work (rejecting 31 April and non-leap 29 February); the pattern only
- * pins the precision, which that check alone would let widen to seconds.
+ * The shape from `<input type="datetime-local">`: no seconds or timezone offset. Zod's ISO check
+ * rejects invalid dates such as 31 April and a non-leap 29 February. The pattern limits precision
+ * because the ISO check also accepts seconds.
  */
 const LOCAL_DATE_TIME_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
@@ -14,8 +14,8 @@ export const ATTENDANCE_MESSAGE = "Expected attendance must be a positive whole 
 export const EQUIPMENT_QUANTITY_MESSAGE = "Equipment quantity must be a positive whole number";
 export const REGISTRATION_CAPACITY_MESSAGE =
   "Registration capacity must be a positive whole number";
-// As with `venues.max_capacity`: 3_000_000_000 *is* a positive whole number, so the int4 ceiling
-// says so in its own words rather than repeating the criterion-4 sentence.
+// 3_000_000_000 is a positive whole number, so it must fail the int4 limit, not criterion 4.
+// Keep the storage limit separate so each refusal describes the right problem.
 export const REGISTRATION_CAPACITY_TOO_LARGE_MESSAGE =
   "Registration capacity is larger than this record can store";
 export const REGISTRATION_OPENS_MESSAGE = "Enter a valid registration opening date and time";
@@ -60,20 +60,18 @@ const LocalDateTime = (message: string) =>
   z.iso.datetime({ local: true, error: message }).regex(LOCAL_DATE_TIME_SHAPE, message);
 
 /**
- * Compared as instants rather than as strings. Lexicographic order happens to agree while the
- * format is fixed-width, which makes a later widening of `LOCAL_DATE_TIME_SHAPE` a silent
- * behaviour change instead of a caught one. The `Z` is what keeps the comparison free of the
- * host timezone: both sides are read on the same arbitrary meridian, so only the wall-clock
- * difference survives.
+ * Compare these values as instants, not strings. Lexicographic order works only while the format
+ * stays fixed-width; a wider `LOCAL_DATE_TIME_SHAPE` could silently change the result. The `Z`
+ * keeps the host timezone out of the comparison. Both values use the same meridian, so only the
+ * wall-clock difference remains.
  */
 function asInstant(value: string): number {
   return Date.parse(`${value}Z`);
 }
 
 /**
- * One proposed window, both sides optional while the request is still a draft: an organiser may
- * know only the start, or be mid-way through editing a line. The order is checked only once both
- * sides are present, which mirrors how PTR-9's single range behaved.
+ * One proposed window. Drafts may have only a start or may be mid-edit, so both ends are optional.
+ * Check the order only when both ends exist, as PTR-9 did for its single range.
  */
 const ProposedDate = z
   .object({
@@ -92,9 +90,8 @@ export const PositiveWholeNumber = (message: string, tooLargeMessage = message) 
   z.number({ error: message }).int(message).positive(message).max(MAX_INTEGER, tooLargeMessage);
 
 /**
- * All-or-nothing would reject a line the organiser is still typing, so each side is optional on
- * its own — the same draft leniency the proposed dates get. PTR-13 is what refuses a submitted
- * request whose equipment lines are incomplete.
+ * Keep both fields optional while the Organiser edits a draft. This matches proposed-date fields.
+ * PTR-13 rejects submitted requests with incomplete equipment lines.
  */
 const EquipmentRequirement = z.object({
   type: z.string().max(EQUIPMENT_TYPE_MAX_LENGTH, EQUIPMENT_TYPE_MESSAGE).default(""),
@@ -104,9 +101,8 @@ const EquipmentRequirement = z.object({
 export const EventRequestDraftInput = z
   .object({
     /**
-     * Absent while a draft is being created; carried once it exists so a second save updates
-     * the row the organiser is already editing rather than opening another draft beside it.
-     * `int32` for the reason `parseEventRequestId` gives.
+     * Omit this when creating a draft. Include it on later saves to update the same row.
+     * Use `int32` for the reason `parseEventRequestId` gives.
      */
     id: z.int32().positive().optional(),
     eventName: z.string().max(EVENT_NAME_MAX_LENGTH, EVENT_NAME_MESSAGE).default(""),
@@ -141,9 +137,8 @@ export const EventRequestDraftInput = z
       .max(SPECIAL_ARRANGEMENTS_MAX_LENGTH, SPECIAL_ARRANGEMENTS_MESSAGE)
       .default(""),
     /**
-     * PTR-11: whether attendees may register, and on what terms. Unlike every other draft field
-     * these are all-or-nothing — switching registration on asserts terms — so the three below
-     * are required together the moment the flag is set.
+     * PTR-11: Whether attendees may register and on what terms.
+     * Require all three terms when registration is on. Other draft fields can be incomplete.
      */
     registrationEnabled: z.boolean().default(false),
     registrationCapacity: PositiveWholeNumber(
@@ -181,9 +176,8 @@ export const EventRequestDraftInput = z
   })
 
   /**
-   * Criterion 5: a request saved with registration off keeps no active terms. The form input
-   * already omits its inactive fields, so stale strings are never validated; this transform is
-   * what guarantees the parsed output carries none, whatever the caller.
+   * Criterion 5: Omit registration terms when registration is off.
+   * The form already omits inactive fields. This transform also removes stale values from other callers.
    */
   .transform(values =>
     values.registrationEnabled
@@ -207,11 +201,10 @@ export function parseWholeNumber(value: string) {
 }
 
 /**
- * The shape the form holds: every leaf is a string, because that is what its inputs give back.
- * Parsing it drops the rows the organiser left blank and converts the strings into the wire
- * shape, then pipes through `EventRequestDraftInput` so both sides share one set of rules. It is
- * passed to TanStack Form as a standard-schema validator, which reads the issue paths as field
- * names and attaches each message to its input.
+ * The form stores each value as a string because that is what its inputs return.
+ * Parsing drops blank rows and converts strings to the wire shape. Then validate with
+ * `EventRequestDraftInput` so both sides use the same rules. TanStack Form uses this standard
+ * schema to map issue paths to fields and show each message by its input.
  */
 const EventRequestDraftFormShape = z.object({
   eventName: z.string(),
@@ -266,8 +259,7 @@ export const EventRequestDraftFormInput = EventRequestDraftFormShape.transform(
       }),
     specialArrangements: values.specialArrangements,
     registrationEnabled: values.registrationEnabled,
-    // Blank terms are passed as absent, not as malformed strings, so an enabled registration is
-    // told what is missing rather than that an empty field is not a date.
+    // Treat blank terms as absent, not invalid strings. Enabled registration then reports a missing term, not an invalid date.
     ...(values.registrationEnabled
       ? {
           registrationCapacity:
@@ -292,10 +284,10 @@ export function parseDraftInput(data: unknown): EventRequestDraftValues {
 }
 
 /**
- * PTR-13 picks a saved draft by id, the same way PTR-26's venue handlers do. `int32` because
- * `event_requests.id` is an int4 column: an id past that range reaches the `where` clause and
- * Postgres answers 22003 instead of "no such draft". As with `parseVenueId`, every failure says
- * the same thing.
+ * PTR-13 selects a saved draft by id, as the PTR-26 venue handlers do.
+ * Use `int32` because `event_requests.id` is an int4 column. A larger id would cause Postgres
+ * error 22003 in the `where` clause instead of "no such draft". Use one message for every failure,
+ * as `parseVenueId` does.
  */
 export const EVENT_REQUEST_ID_MESSAGE = "Choose an event request";
 export const EventRequestIdInput = z.object(
@@ -339,11 +331,10 @@ export function parseEventChangeRequestInput(data: unknown) {
 }
 
 /**
- * The PTR-10 fields a submission cannot go without, checked against a saved request. Drafting
- * stays lenient — PTR-9 lets absent fields save — so only a submission path calls this: PTR-13
- * refuses the request when the returned list is non-empty. Equipment is one entry rather than one
- * per line because a half-typed line is the same problem wherever it sits, and `null` is accepted
- * for attendance because that is how an absent value comes back from the database.
+ * Check the saved request for required PTR-10 fields. Drafts can omit fields (PTR-9), so only the
+ * submission path calls this. PTR-13 refuses a request when this list is not empty. Report all
+ * incomplete equipment as one item because each partial line has the same issue. Accept `null`
+ * attendance because the database uses it for an absent value.
  */
 export function missingRequiredFields(values: {
   eventName: string;
@@ -365,8 +356,7 @@ export function missingRequiredFields(values: {
   if (values.expectedAttendance === undefined || values.expectedAttendance === null) {
     missing.push("Expected attendance");
   }
-  // PTR-10 criterion 2: a line that was added carries a type and a quantity together. The save
-  // path keeps a half-typed line while the organiser is still writing it; submission does not.
+  // PTR-10 criterion 2: Each added line needs both a type and a quantity. Saves allow half-written lines; submission does not.
   if (
     values.equipmentRequirements.some(
       line => line.type.trim() === "" || line.quantity === undefined
@@ -384,19 +374,17 @@ export function missingFieldsMessage(missing: string[]): string {
 }
 
 /**
- * Criterion 3's direction, shown both when the server refuses a direct edit and in the
- * confirmation that replaces the form after submitting. PTR-19 and PTR-51 are the routes this
- * points at; until they exist the sentence is still the answer an organiser gets.
+ * Criterion 3's direction, shown when the server refuses a direct edit and in the confirmation
+ * after submission. PTR-19 and PTR-51 provide the routes for this direction.
  */
 export const SUBMITTED_EDIT_REFUSAL =
   "This request has been submitted and can no longer be edited. Reply to a clarification request or raise a change request to change it.";
 export const ALREADY_SUBMITTED_MESSAGE = "This request has already been submitted.";
 
 /**
- * PTR-14 criterion 3: every status a request can hold, in the Postgres enum's order (the values
- * were added over several stories, and `tests/unit/db-schema.test.ts` compares the two lists
- * order-sensitively), with what each is called on screen. Client-safe on purpose — the list page
- * renders these — so it is restated here rather than read off the enum in `#/db/schema`.
+ * PTR-14 criterion 3: List every request status in the Postgres enum's order, with its screen label.
+ * `tests/unit/db-schema.test.ts` checks this order. Keep the list client-safe because the list page
+ * renders it; do not import the enum from `#/db/schema`.
  */
 export const EVENT_REQUEST_STATUSES = [
   "draft",
@@ -428,9 +416,9 @@ export const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.
 // ── Processing a change request (PTR-52) ────────────────────────────────────
 
 /**
- * PTR-52 AC2: a change request is applied by saving the event through the PTR-22 edit path with
- * the request attached, and it is applied in every status the request could be raised in, so the
- * alias is deliberate. A direct edit without a request keeps `canUpdateEventInformation`'s gate.
+ * PTR-52 AC2: Apply a change request through the PTR-22 edit path with the request attached.
+ * The alias includes every status where a request can be raised. A direct edit without a request
+ * still uses `canUpdateEventInformation`'s gate.
  */
 export const canApplyEventChangeRequest = canRaiseEventChangeRequest;
 
@@ -463,9 +451,9 @@ export function parseEventChangeRequestDeclineInput(data: unknown) {
 }
 
 /**
- * PTR-53 AC2: an Organiser may ask for cancellation while the event can still change. The alias
- * is deliberate: a cancellation request is open in the same statuses as a PTR-51 change request,
- * and a change to that set applies to both. No deadline applies.
+ * PTR-53 AC2: An Organiser may request cancellation while the event can change.
+ * Use the same statuses as PTR-51 change requests, so one status-set change applies to both.
+ * No deadline applies.
  */
 export const canRequestEventCancellation = canRaiseEventChangeRequest;
 export const EVENT_CANCELLATION_CLOSED = "This event can no longer be cancelled.";
@@ -506,10 +494,10 @@ export const EVENT_REQUEST_STATUS_LABELS: Record<EventRequestStatus, string> = {
 };
 
 /**
- * One `Badge` variant per status. The three status pills docs/DESIGN.md#status-pills defines —
- * `progress` (amber) for anything still pending, including a request waiting on the Organiser,
- * `confirmed` (harbor) for a settled good outcome, `stopped` (coral) for a stop — plus `Badge`'s
- * neutral `outline` for a draft that has not started. Pure data so any page can import it.
+ * Map each status to a `Badge` variant. Use `progress` (amber) for pending states, including a
+ * request waiting on the Organiser. Use `confirmed` (harbor) for a settled good outcome and
+ * `stopped` (coral) for a stopped request. Drafts use the neutral `outline` variant.
+ * See docs/DESIGN.md#status-pills. This data is client-safe, so any page can import it.
  */
 type EventRequestStatusVariant = "outline" | "progress" | "confirmed" | "stopped";
 export const EVENT_REQUEST_STATUS_VARIANTS: Record<EventRequestStatus, EventRequestStatusVariant> =
@@ -527,10 +515,9 @@ export const EVENT_REQUEST_STATUS_VARIANTS: Record<EventRequestStatus, EventRequ
   };
 
 /**
- * What each status says about the request's record: whether a decision stands on it (the
- * database requires the deciding Coordinator and time from `approved` onward), which way that
- * decision went, and the one sentence the detail page adds after the date. Pure data, so no page
- * re-branches the status set when a status is added.
+ * Describe each status: whether a decision is final, which way it went, and the sentence shown
+ * after the date. The database requires a deciding Coordinator and time from `approved` onward.
+ * Keep this data in one place so pages do not repeat the status rules.
  */
 export interface EventRequestStage {
   decided: boolean;
@@ -553,18 +540,17 @@ export const EVENT_REQUEST_STATUS_STAGES: Record<EventRequestStatus, EventReques
 // ── Clarification requests (PTR-18) ─────────────────────────────────────────
 
 /**
- * One ceiling for both the Coordinator's question and the Organiser's reply: the two sit in the
- * same thread, so separate limits would be an arbitrary difference to explain.
+ * Use one size limit for the Coordinator's question and the Organiser's reply. They share a thread,
+ * so separate limits would add no useful distinction.
  */
 export const CLARIFICATION_TEXT_MAX = 2000;
 export const CLARIFICATION_BODY_MESSAGE = `Clarification text must be ${CLARIFICATION_TEXT_MAX} characters or fewer`;
 export const CLARIFICATION_BODY_REQUIRED = "Enter what you need the Organiser to clarify";
 
 /**
- * The request fields a Coordinator may ask about. Most map one-to-one onto an `event_requests`
- * column; `attendeeRegistration` is a single question that spans four columns. This is the one
- * place the server and the reply form read, so a field cannot be offered on screen without being
- * writable on the server.
+ * List the request fields a Coordinator may ask about. Most map to one `event_requests` column.
+ * `attendeeRegistration` is one question that covers four columns. The server and reply form read
+ * this list, so every field shown in the form is writable on the server.
  */
 export const CLARIFICATION_FIELDS = [
   { key: "eventName", label: "Event name" },
@@ -603,8 +589,8 @@ export type ClarificationAmendment = {
 };
 
 /**
- * The JSON-shaped value of an amended field. It is what `jsonb` stores, and naming it rather than
- * `unknown` is what lets TanStack Start prove the detail payload serializes to the client.
+ * The JSON value of an amended field, as stored in `jsonb`. This type lets TanStack Start verify
+ * that the detail payload can serialize to the client.
  */
 export type ClarificationAmendmentValue =
   | string
@@ -655,9 +641,9 @@ export function parseClarificationReply(data: unknown) {
   return parsed.data;
 }
 /**
- * The reply form's validator. `permittedFields` is unwrapped from the wire schema's `.default([])`
- * because a default widens the validator's input to accept `undefined`, and the form's value type
- * always carries the array. Unwrapping keeps the validator's input and output the same shape.
+ * Validate the reply form. The wire schema gives `permittedFields` a default, so it accepts
+ * `undefined`. The form's value always includes the array. Remove the default here so the
+ * validator's input and output have the same shape.
  */
 export const ClarificationFormSchema = ClarificationBodyInput.pick({ body: true }).extend({
   permittedFields: ClarificationBodyInput.shape.permittedFields.unwrap(),
@@ -666,10 +652,10 @@ export const ClarificationFormSchema = ClarificationBodyInput.pick({ body: true 
 // ── Event information updates (PTR-22) ──────────────────────────────────────
 
 /**
- * PTR-22 AC2: the stages in which the assigned Coordinator updates the event's information:
- * approved, planning and confirmed. `planning` is the stage between approval and confirmation
- * (brief §5 steps 6–9). Before approval the Organiser amends the request through a clarification
- * reply (PTR-19). A rejected, completed or cancelled event is closed.
+ * PTR-22 AC2: The assigned Coordinator can update event information in approved, planning, and
+ * confirmed stages. `planning` is between approval and confirmation (brief §5 steps 6–9).
+ * Before approval, the Organiser changes the request through a clarification reply (PTR-19).
+ * Rejected, completed, and cancelled events are closed.
  */
 const EVENT_INFORMATION_EDITABLE_STATUSES = [
   "approved",
@@ -693,10 +679,9 @@ export const EVENT_INFORMATION_AMENDMENTS_MESSAGE = "Choose the event informatio
 export const EVENT_INFORMATION_ONLY_MESSAGE = "Only event information can be updated.";
 
 /**
- * PTR-22: an event information update names the event and carries only the columns the
- * Coordinator changed. Any other key is refused, as a clarification reply refuses a field its
- * question did not permit. The server writes the columns over the locked row and checks the
- * result against the draft rules.
+ * PTR-22: An event update names the event and includes only columns the Coordinator changed.
+ * Refuse other keys, as a clarification reply refuses fields outside its question.
+ * The server writes the columns to the locked row and checks the result with the draft rules.
  */
 const EventInformationInput = EventRequestIdInput.extend({
   amendments: z
@@ -708,14 +693,14 @@ const EventInformationInput = EventRequestIdInput.extend({
       }
     ),
   /**
-   * PTR-23 AC2: the Coordinator has read the warning that names what the event holds. The server
-   * refuses a significant change without it, so the warning cannot be skipped by a direct call.
-   * Absent on an ordinary edit, which needs no warning.
+   * PTR-23 AC2: The Coordinator confirms they read the warning about event arrangements.
+   * The server refuses a significant change without this confirmation, even on a direct call.
+   * Omit it for an ordinary edit.
    */
   acknowledgeSignificant: z.boolean().optional(),
   /**
-   * PTR-52 AC2: the Organiser's change request this save applies. The request is marked applied
-   * in the same transaction and the Organiser is told. Absent on a direct edit.
+   * PTR-52 AC2: The Organiser's change request that this save applies.
+   * Mark it applied in the same transaction and notify the Organiser. Omit it on a direct edit.
    */
   changeRequestId: z
     .int32({ error: CHANGE_REQUEST_ID_MESSAGE })
@@ -732,11 +717,10 @@ export function parseEventInformationInput(data: unknown) {
 // ── Significant changes (PTR-23) ────────────────────────────────────────────
 
 /**
- * PTR-23 AC1: the fields whose change is significant. The proposed dates carry the event's date,
- * its times and so its duration. A change to one of these four warns the Coordinator before it is
- * saved (AC2) and tells the staff holding an arrangement after (AC5). A change to any other field,
- * the room layout and the accessibility requirements included, is ordinary and saves as before
- * (AC4).
+ * PTR-23 AC1: List fields with significant changes. Proposed dates set the event date, times, and
+ * duration. A change to one of these four fields warns the Coordinator before save (AC2) and tells
+ * staff with an arrangement after save (AC5). Changes to other fields, including room layout and
+ * accessibility requirements, remain ordinary edits (AC4).
  */
 export const SIGNIFICANT_FIELDS = [
   "proposedDates",

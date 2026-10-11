@@ -16,10 +16,8 @@ import {
 } from "#/features/venue-requests/requests.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
-/**
- * PTR-35 at the handler boundary: the rejection a Coordinator adjusts from stays on the record
- * beside the new pending request, and the adjusted request is an ordinary pending request that
- * moves nothing else on the event.
+/** PTR-35: keep the original rejection on the record beside the new pending request. The adjusted
+ * request is an ordinary pending request and changes no other event data.
  */
 const { sendEmail } = vi.hoisted(() => ({
   sendEmail: vi
@@ -135,14 +133,14 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       item: "Projector",
       quantity: 2,
     });
-    // One registration on the event, so AC4's "unchanged" comparison has a row to compare.
+    // Add one registration so AC4 can check that the event data stays unchanged.
     await database
       .insert(schema.eventRegistrations)
       .values({ eventId, attendeeId: users.attendee.id })
       .onConflictDoNothing();
   });
 
-  /** The adjusted request on the suggested venue, answering the rejection. */
+  /** The adjusted request for the suggested venue. */
   async function adjustRequest() {
     return handleCreateVenueRequest(
       {
@@ -157,7 +155,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
     );
   }
 
-  /** The event state AC4 compares: status, equipment lines and registrations. */
+  /** Event state for AC4: status, equipment lines, and registrations. */
   async function eventSnapshot() {
     return {
       event: (
@@ -180,7 +178,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
     };
   }
 
-  /** A request on the refused hall, rejected with a full suggestion of the other room. */
+  /** A rejected request for one hall, with a full suggestion for another room. */
   async function rejectedWithSuggestion() {
     const request = await handleCreateVenueRequest(
       {
@@ -240,7 +238,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       requestedById: users.coordinator.id,
     });
     expect(adjusted.id).not.toBe(rejected.id);
-    // The panel on the suggested venue now shows the pending request, withdrawable by its raiser.
+    // The suggested venue's panel shows the pending request, which its raiser can withdraw.
     const context = await handleGetVenueRequestContext(
       { eventId, venueId: suggestedVenueId },
       session(users.coordinator),
@@ -317,7 +315,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
     const after = await eventSnapshot();
     expect(after).toEqual(before);
     expect(before.event.status).toBe("submitted");
-    // Two rows now sit on the event: the rejected one and the pending one; the rejected is intact.
+    // The event has two rows: one rejected and one pending. The rejected row is unchanged.
     const rows = await database
       .select({ status: schema.venueRequests.status, venueId: schema.venueRequests.venueId })
       .from(schema.venueRequests)

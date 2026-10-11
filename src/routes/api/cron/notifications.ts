@@ -4,12 +4,11 @@ import { env } from "#/env";
 import { logger } from "#/lib/logger";
 
 /**
- * PTR-55: the every-minute worker. Cloud Scheduler calls this with the `CRON_TOKEN`
- * bearer; the handler sweeps the registration boundaries first, then runs one delivery
- * batch, and answers with what it did, so a run is observable from
- * the scheduler's own result. The delivery module — and `#/db` with it — is imported dynamically:
- * a static `#/db/schema` import in a route file would ship the whole schema to the client build
- * (the trap AGENTS.md documents, which the bundle-safety test does not scan `src/routes` for).
+ * PTR-55: Cloud Scheduler calls this worker every minute with the `CRON_TOKEN` bearer token.
+ * First sweep registration boundaries, then run one delivery batch.
+ * Return the work result so Cloud Scheduler can show each run.
+ * Import the delivery module and `#/db` dynamically. A static `#/db/schema` import from a route
+ * would ship the full schema to the client build. The bundle-safety test does not scan `src/routes`.
  */
 export const Route = createFileRoute("/api/cron/notifications")({
   server: {
@@ -43,7 +42,7 @@ export const Route = createFileRoute("/api/cron/notifications")({
   },
 });
 
-/** Bearer check mirroring `/api/smoke`, compared in constant time; an unset token fails closed. */
+/** Check the bearer token as `/api/smoke` does. Compare it in constant time, and reject requests if it is unset. */
 async function cronAuthorized(request: Request): Promise<boolean> {
   const expected = env.CRON_TOKEN;
   const presented = request.headers.get("authorization")?.replace(/^Bearer\s+/iu, "");

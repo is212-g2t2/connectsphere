@@ -100,7 +100,7 @@ import {
 } from "#/features/venues/server-fns";
 import { auth } from "#/lib/auth.server";
 
-/** A payload the venue validator accepts, so the allow path runs the whole chain. */
+/** Use a payload the venue validator accepts. The allow path runs the whole chain. */
 const venueRecord = {
   name: "New room",
   location: "Level 3",
@@ -108,23 +108,20 @@ const venueRecord = {
   operatingHours: DEFAULT_OPERATING_HOURS,
 };
 
-/** A selection the availability validator accepts, for the same reason as `venueRecord`. */
+/** Use a selection the availability validator accepts, as with `venueRecord`. */
 const availabilitySelection = {
   venueId: 1,
   startDate: "2026-01-05",
   endDate: "2026-01-09",
 };
 
-/**
- * PTR-69 at the server-function boundary: `__executeServer` is the entry the HTTP route calls,
- * so each case below runs the real function's own middleware chain — not a reconstruction of it —
- * and can catch a function wired to the wrong guard. The request and the session are the two
- * things the runtime supplies, so they are the two things mocked here.
+/** PTR-69 checks the server-function boundary through `__executeServer`, the entry the HTTP
+ * route calls. Each case runs the real function's own middleware chain and catches a wrongly
+ * wired guard. Mock the request and the session; the runtime supplies both.
  *
- * On a refusal the middleware short-circuits: `error` is the status-carrying `Error`,
- * `setResponseStatus` sets the HTTP status code, and the handler below it never runs
- * (the uncompiled test module does not carry a handler body at all — TanStack Start's
- * compiler supplies it in a real build, which the e2e suite exercises end to end).
+ * On refusal the middleware short-circuits: `error` carries the status, `setResponseStatus`
+ * sets the HTTP code, and the handler never runs. The uncompiled test module has no handler
+ * body; the compiler supplies it in a real build, which the e2e suite covers.
  */
 const currentRequest = new Request("http://localhost:3000/_serverFn", { method: "POST" });
 
@@ -137,10 +134,8 @@ vi.mock("#/lib/auth.server", () => ({
   auth: { api: { getSession: vi.fn<() => Promise<unknown>>() } },
 }));
 
-/**
- * TanStack Start's async-local context is what a live server request provides and what the
- * middleware runner reads start options from. Supplying an empty one is what lets the real
- * server-side entry point run outside a request.
+/** A live server request provides the async-local context. The middleware runner reads start
+ * options from it. An empty context runs the real server entry point outside a request.
  */
 vi.mock("@tanstack/start-storage-context", () => ({
   getStartContext: () => ({ startOptions: {}, contextAfterGlobalMiddlewares: {} }),
@@ -157,7 +152,7 @@ async function call(serverFn: ServerFunction, data: unknown, method: "GET" | "PO
   };
 }
 
-/** The refusal the function answered with, reduced to what a caller can observe. */
+/** Reduce the function's refusal to what a caller observes. */
 async function refusalFrom(
   serverFn: ServerFunction,
   data: unknown,
@@ -176,7 +171,7 @@ async function refusalFrom(
   return { status, body };
 }
 
-/** The validator's own refusal message, reduced from the pipeline's Error. */
+/** Reduce the pipeline Error to the validator's own refusal message. */
 async function messageFrom(
   serverFn: ServerFunction,
   data: unknown,
@@ -197,11 +192,10 @@ function signIn(role: string) {
   } as never);
 }
 
-/**
- * PTR-98: runs `run` on the server side of the pipeline behind the real session guard, so its
- * throw reaches `withSession`'s error-class conversion as a handler's would. `.handler` is
- * required to attach `__executeServer`; the terminal body never runs in the uncompiled test
- * module (see the file comment), so the real handler is invoked from the middleware stage.
+/** PTR-98 runs `run` on the server side behind the real session guard. Its throw reaches
+ * `withSession`'s error conversion like a handler's throw. `.handler` must attach
+ * `__executeServer`. The terminal body never runs in the uncompiled module, so the middleware
+ * stage invokes the real handler.
  */
 function seam(run: () => Promise<unknown>) {
   return createServerFn({ method: "POST" })
@@ -417,7 +411,7 @@ describe("server-function authorization (PTR-69)", () => {
   });
 
   describe("venue requests (PTR-31)", () => {
-    /** A payload the request validator accepts, so the allow path runs the whole chain. */
+    /** Use a payload the request validator accepts. The allow path runs the whole chain. */
     const venueRequestInput = {
       eventId: 1,
       venueId: 1,
@@ -744,7 +738,7 @@ describe("server-function authorization (PTR-69)", () => {
     );
   });
 
-  // PTR-53: only an Organiser raises a cancellation request; the handler checks ownership.
+  // PTR-53: only an Organiser raises a cancellation request. The handler checks ownership.
   describe("PTR-53 request event cancellation", () => {
     it("answers 401 without a session", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
@@ -773,8 +767,8 @@ describe("server-function authorization (PTR-69)", () => {
     );
   });
 
-  // PTR-54: only an Event Coordinator processes a cancellation request; the handler checks the
-  // assignment.
+  // PTR-54: only an Event Coordinator processes a cancellation request. The handler checks
+  // the assignment.
   describe.each([
     { name: "cancel event", serverFn: cancelEvent, input: { id: 1 } },
     {
@@ -813,8 +807,8 @@ describe("server-function authorization (PTR-69)", () => {
     );
   });
 
-  // PTR-52: only an Event Coordinator declines a change request; the handler checks the assignment
-  // and the request. Applying one runs through `updateEventInformation` above.
+  // PTR-52: only an Event Coordinator declines a change request. The handler checks the
+  // assignment and the request. Applying one runs through `updateEventInformation` above.
   describe("PTR-52 decline event change request", () => {
     const declineInput = { id: 1, changeRequestId: 3, reason: "The hall holds 80 at most." };
 
@@ -863,7 +857,7 @@ describe("server-function authorization (PTR-69)", () => {
     });
   });
 
-  // PTR-45 AC1: no guest registration path, and no role but the Attendee registers.
+  // PTR-45 AC1: expose no guest registration path. Only the Attendee registers.
   describe("PTR-45 register for an event", () => {
     const registerInput = { id: 1 };
 
@@ -937,8 +931,8 @@ describe("server-function authorization (PTR-69)", () => {
     });
   });
 
-  // PTR-111: only the Organiser and the Coordinator manage VIP registrations; the handler re-reads
-  // that the caller is the event's Organiser or its assigned Coordinator.
+  // PTR-111: only the Organiser and the Coordinator manage VIP registrations. The handler
+  // checks the caller against the event's Organiser and assigned Coordinator.
   describe.each([
     { name: "searchVipAttendees", fn: searchVipAttendees, input: { id: 1, query: "ada" } },
     { name: "addVipRegistration", fn: addVipRegistration, input: { id: 1, attendeeId: "a" } },
@@ -1026,8 +1020,8 @@ describe("server-function authorization (PTR-69)", () => {
     ])("lets a signed-in %s through the session guard", async role => {
       signIn(role);
 
-      // The relationship scoping is data rather than a role permission, so no 403 is owed here;
-      // `tests/integration/event-access.test.ts` runs the handler that decides per row.
+      // Relationship scoping lives in the data. It grants no role permission. No 403 applies
+      // here. `tests/integration/event-access.test.ts` runs the handler that decides per row.
       expect((await call(listEvents, {}, "GET")).error).toBeUndefined();
     });
   });
@@ -1119,7 +1113,7 @@ describe("server-function authorization (PTR-69)", () => {
           status: 403,
           body: "Forbidden",
         });
-        // PTR-42: the release verb sits on the same role and nowhere else.
+        // PTR-42: the release verb belongs to that role alone.
         expect(await refusalFrom(releaseEquipment, releaseInput)).toMatchObject({
           status: 403,
           body: "Forbidden",
@@ -1279,8 +1273,8 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(listAccounts, undefined, "GET")).error).toBeUndefined();
     });
 
-    // `getSessionContext` is intentionally session-optional (the root route reads it to tell a
-    // signed-out visitor they are signed out), so "no session" is the allow path, not a 401.
+    // `getSessionContext` stays session-optional. The root route uses it to report a
+    // signed-out visitor as signed out. A missing session takes the allow path with no 401.
     it("answers the current user with no session, so a rewire to requireSession would fail (PTR-98)", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
 
@@ -1300,16 +1294,13 @@ describe("server-function authorization (PTR-69)", () => {
     });
   });
 
-  /**
-   * PTR-98: the matrix above proves each endpoint refuses at the middleware boundary, and the
-   * handler tests prove each handler throws the right error class. Neither executes the join —
-   * `withSession`'s catch that records the status via `setResponseStatus` and rethrows the
-   * status-carrying `Error`.
+  /** PTR-98: the matrix above proves each endpoint refuses at the middleware boundary. The
+   * handler tests prove each handler throws the right error class. Neither case runs the join
+   * in `withSession`'s catch, which records the status and rethrows the status-carrying `Error`.
    *
-   * The uncompiled test module carries no handler body (the compiler supplies it in a real
-   * build; see the file comment), so each case calls a real handler from a middleware placed
-   * after the real session guard. The handler's throw then travels the same `next()` path a
-   * terminal handler's would, into `withSession`'s handler.
+   * The uncompiled test module has no handler body (see the file comment). Each case calls a
+   * real handler from a middleware after the real session guard. The throw travels the same
+   * `next()` path into `withSession`'s handler.
    */
   describe("refusal seam (PTR-98)", () => {
     let pool: Pool;
@@ -1390,7 +1381,8 @@ describe("server-function authorization (PTR-69)", () => {
     it("refuses a non-owning organiser on delete through the handler, and writes nothing (PTR-98)", async () => {
       signInOrganiser();
 
-      // Owned by someone else: the guard admits the organiser, so the handler's scoping is what refuses.
+      // Another user owns the row. The guard admits the organiser role. The handler's scoping
+      // refuses.
       const [draft] = await database
         .insert(schema.eventRequests)
         .values({ organiserId: "test-user-1", eventName: "PTR-98 non-owner fixture" })
@@ -1436,12 +1428,11 @@ describe("server-function authorization (PTR-69)", () => {
     });
   });
 
-  /**
-   * PTR-98: with the session guard satisfied, the validator the server function declares runs on
-   * the server side of the same pipeline — `execValidator` is reached from the base middleware the
-   * compiler would otherwise fill in. The handler body stays out of a Vitest build (see the file
-   * comment), but the schema is part of the boundary and its refusal is observable here. Each case
-   * signs in a role the guard admits so the failure comes from validation, not permission.
+  /** PTR-98: with the session guard satisfied, the declared validator runs on the server side
+   * of the same pipeline. `execValidator` runs in the base middleware that the compiler fills
+   * in a real build. The handler body stays out of a Vitest build (see the file comment). The
+   * schema is part of the boundary, and its refusal is observable here. Each case signs in an
+   * admitted role, so the failure comes from validation.
    */
   describe("validation at the server-function boundary (PTR-98)", () => {
     it("surfaces each function's own schema message instead of reaching the handler", async () => {

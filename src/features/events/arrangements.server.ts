@@ -15,19 +15,19 @@ import { parseEventRequestId } from "#/features/event-requests/schema";
 import type { OutstandingReleases } from "#/features/events/cancellation";
 
 /**
- * Server-only on purpose, and named for it: `#/db/schema` is a value import here, so this is
- * reached through a dynamic `import()` inside `.handler()` in `server-fns.ts`, or from another
- * `*.server.ts` module. What an event holds — its approved bookings, its held tentative holds and
- * its equipment reservations — is read here for the cancelled event's release list (PTR-54) and
- * for the warning before a significant change (PTR-23).
+ * Keep this module server-only. Its value import of `#/db/schema` builds tables at module scope,
+ * so the bundler keeps the full module. `server-fns.ts` loads it dynamically inside `.handler()`,
+ * or another `*.server.ts` module imports it. Read what an event holds here: approved bookings,
+ * held tentative holds, and equipment reservations. The release list for a cancelled event
+ * (PTR-54) and the significant-change warning (PTR-23) use this read.
  */
 
 type Database = typeof Db;
 
 /**
- * PTR-54 AC2, AC6 and PTR-23 AC3: the approved bookings, the held tentative holds and the reserved
- * equipment of an event. Nothing here is released automatically, so an item stays listed until the
- * staff concerned release it, and leaves the list as soon as they do.
+ * PTR-54 AC2, AC6 and PTR-23 AC3: Return the event's approved bookings, held tentative holds,
+ * and reserved equipment. Release nothing automatically. An item stays listed until the
+ * responsible staff release it. It leaves the list as soon as they do.
  */
 export async function loadOutstandingReleases(
   database: Pick<Database, "select">,
@@ -76,18 +76,18 @@ export async function loadOutstandingReleases(
 }
 
 export interface ArrangementHolders {
-  /** Each approved booking that still has the Venue Staff member who settled it. */
+  /** Each approved booking with the Venue Staff member who settled it. */
   bookings: { staffId: string; venueName: string; startsAt: string; endsAt: string }[];
-  /** Each Technical Support member holding at least one reservation, once. */
+  /** Each Technical Support member with a reservation, listed once. */
   reservationStaffIds: string[];
 }
 
 /**
- * The staff who hold an event's arrangements: the Venue Staff on each approved booking, and each
- * Technical Support member with a reservation on one of the event's lines. A cancellation (PTR-54
- * AC3) and a significant change (PTR-23 AC5) both tell them. A booking or line whose staff account
- * has since been deleted has no one to tell; the cancellation list and the shared queue still
- * carry it. A tentative hold is the Coordinator's own, so it names no one.
+ * List the staff who hold an event's arrangements: the Venue Staff on each approved booking, and
+ * each Technical Support member with a reservation on an event line. A cancellation (PTR-54 AC3)
+ * and a significant change (PTR-23 AC5) both notify them. A booking or line with a deleted staff
+ * account names no one to notify. The cancellation list and the shared queue still carry the
+ * item. A tentative hold belongs to the Coordinator, so it names no one.
  */
 export async function loadArrangementHolders(
   database: Pick<Database, "select" | "selectDistinct">,
@@ -124,10 +124,10 @@ export async function loadArrangementHolders(
 }
 
 /**
- * PTR-23 AC3: what the event holds, for the warning the Coordinator reads before a significant
- * change is saved. Only the assigned Coordinator may read it. A missing event and someone else's
- * event are refused the same way, so the refusal does not say whether the id exists; a draft has
- * no Coordinator, so it is refused here too. Reading never changes an arrangement.
+ * PTR-23 AC3: List what the event holds for the Coordinator's warning before a significant
+ * change. Only the assigned Coordinator may read it. Refuse a missing event and another user's
+ * event in the same way. The refusal then reveals nothing about the id. Refuse a draft too. It
+ * has no Coordinator. Reading changes no arrangement.
  */
 export async function handleListEventArrangements(
   data: unknown,

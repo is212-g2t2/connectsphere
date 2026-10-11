@@ -16,10 +16,10 @@ export function getRouter() {
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
-    // PTR-22 AC3: a revisit waits for its loaders, so a page never renders a cached value that a
-    // later change replaced. The default (`background`) shows the cached copy first. The cost: a
-    // revisit is no longer instant, and with `defaultPreloadStaleTime: 0` a finished hover
-    // preload is fetched again on the click. A preload still in flight is reused.
+    // PTR-22 AC3: wait for loaders on a revisit so the page does not show stale cached data. The
+    // default (`background`) shows cached data first. This makes revisits slower. With
+    // `defaultPreloadStaleTime: 0`, the click fetches a finished hover preload again. It reuses a
+    // preload that is still in flight.
     defaultStaleReloadMode: "blocking",
   });
 
@@ -34,7 +34,7 @@ export function getRouter() {
     if (!globalState.__appSentryInitialized__ && sentryDsn) {
       Sentry.init({
         dsn: sentryDsn,
-        // Derived from the origin so one image stays valid for both environments.
+        // Build the URL from the origin so one image works in both environments.
         environment: location.hostname.startsWith("connectsphere-staging")
           ? "staging"
           : "production",
@@ -42,9 +42,9 @@ export function getRouter() {
         tracesSampleRate: 0.1,
         replaysSessionSampleRate: REPLAY_SESSION_SAMPLE_RATE,
         replaysOnErrorSampleRate: REPLAY_ERROR_SAMPLE_RATE,
-        // Keep this baseline in sync with instrument.server.mjs (server init).
-        // Sentry v11 collects request bodies, cookies and user info by default. Keep the
-        // v10 privacy posture explicitly; widen a category only after reviewing data-handling.
+        // Keep this configuration in sync with the server setup in instrument.server.mjs.
+        // Sentry v11 collects request bodies, cookies, and user information by default. Keep the
+        // v10 privacy settings. Review data handling before you enable another category.
         dataCollection: {
           userInfo: false,
           cookies: false,
@@ -62,14 +62,14 @@ export function getRouter() {
       });
       globalState.__appSentryInitialized__ = true;
 
-      // Replay's rrweb payload is fetched from Sentry's CDN instead of shipping in the entry
-      // chunk; the integration applies its own sampling, so this only gates whether it loads.
-      // Tradeoff: there is no pre-error replay buffer until the CDN fetch resolves.
+      // Fetch Replay's rrweb payload from Sentry's CDN instead of adding it to the entry chunk.
+      // The integration applies its own sampling, so this option only controls whether it loads.
+      // Replay cannot record session data from before an error until the CDN fetch completes.
       if (REPLAY_SESSION_SAMPLE_RATE > 0 || REPLAY_ERROR_SAMPLE_RATE > 0) {
         void Sentry.lazyLoadIntegration("replayIntegration")
           .then(replayIntegration => Sentry.addIntegration(replayIntegration()))
           .catch(() => {
-            // A blocked or failed CDN fetch must not break the app; tracing still works.
+            // Do not let a blocked or failed CDN fetch break the app. Tracing still works.
           });
       }
     }

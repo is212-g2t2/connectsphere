@@ -84,7 +84,7 @@ const approved: CoordinationRequest = {
   equipmentArrangementsCompletedById: null,
 };
 
-/** The server's answer to an ordinary save: no one told. */
+/** An ordinary save that sends no notifications. */
 function saved(changedFields: readonly string[]) {
   return { changedFields, notified: 0 };
 }
@@ -170,7 +170,7 @@ describe("updating event information (PTR-22)", () => {
 
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
     expect(screen.getByLabelText("Purpose (required)")).toBeTruthy();
-    // A form reopened now would be closed by this save, so the toggle waits.
+    // Wait for the reload before reopening; it may show that this save closed the form.
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled).toBe(
       true
     );
@@ -190,8 +190,8 @@ describe("updating event information (PTR-22)", () => {
     await user.click(screen.getByRole("button", { name: "Edit event information" }));
 
     await user.type(screen.getByLabelText("Purpose (required)"), " dinner");
-    // Another panel's action re-reads the page: a new copy of the record, a new name from a
-    // second tab, and the same dates and equipment.
+    // Another panel's action reloads the record. Read the changed name from the second tab and
+    // keep the same dates and equipment.
     rerender(
       <UpdateEventInformation
         request={{
@@ -247,14 +247,14 @@ describe("updating event information (PTR-22)", () => {
 
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
-    // The toast lands at once; the inline message waits for the re-read the toggle is waiting on.
+    // Show the toast at once. Show the inline message after the page reload completes.
     await waitFor(() =>
       expect(error).toHaveBeenCalledWith(
         "This event's information cannot be updated while its status is completed."
       )
     );
     expect(invalidate).toHaveBeenCalled();
-    // A reopened form would sit on stale props, so the toggle waits for the re-read.
+    // Wait for the reload before reopening the form, or it would use stale props.
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Cancel editing" }).disabled).toBe(
       true
     );
@@ -354,10 +354,10 @@ describe("warning before a significant change (PTR-23)", () => {
       "Equipment reservation: Projector × 2",
     ]);
     expect(within(dialog).getByText(/will be notified of the change/)).toBeTruthy();
-    // Nothing is sent while the warning waits, and the form says so: the save button reads
-    // "Save changes", not "Saving…", and the toggle cannot discard the form under the warning.
+    // Do not send anything while the warning is open. Keep the button label "Save changes" and
+    // prevent the toggle from discarding the form.
     expect(updateEventInformation).not.toHaveBeenCalled();
-    // The form sits inert behind the modal, so the queries look through `aria-hidden`.
+    // The modal marks the form `aria-hidden`, so include hidden content in these queries.
     const hidden = { hidden: true };
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Save changes", ...hidden }).disabled
@@ -424,7 +424,7 @@ describe("warning before a significant change (PTR-23)", () => {
 
       await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
       expect(updateEventInformation).not.toHaveBeenCalled();
-      // Focus returns to the save button the warning interrupted.
+      // Return focus to the save button that opened the warning.
       await waitFor(() =>
         expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save changes" }))
       );
@@ -439,7 +439,7 @@ describe("warning before a significant change (PTR-23)", () => {
       ).toBe(false);
       expect(success).not.toHaveBeenCalled();
 
-      // The second save reads again and shows that answer, not the dismissed one.
+      // The second save reloads the page and shows the latest answer.
       listEventArrangements.mockResolvedValue(nothingHeld);
       updateEventInformation.mockResolvedValue({
         changedFields: ["expectedAttendance"],
@@ -476,7 +476,7 @@ describe("warning before a significant change (PTR-23)", () => {
 
     expect(await screen.findByText("Forbidden")).toBeTruthy();
     expect(error).toHaveBeenCalledWith("Forbidden");
-    // As after a failed save: a lost assignment or a closed event removes the form on the re-read.
+    // As after a failed save, the reload removes the form if the event closed or lost its assignee.
     expect(invalidate).toHaveBeenCalled();
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(updateEventInformation).not.toHaveBeenCalled();

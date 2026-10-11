@@ -14,8 +14,8 @@ const badgeVariants = cva(
         outline: "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost: "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
-        // Status pills: a tint background under saturated text from the same family. The only
-        // place amber and coral appear in light-mode chrome — see docs/DESIGN.md#status-pills.
+        // Status pills use a tinted background and saturated text from the same color family.
+        // This is the only amber or coral chrome in light mode; see docs/DESIGN.md#status-pills.
         confirmed: "bg-harbor-tint text-harbor",
         progress: "bg-amber-tint text-amber",
         stopped: "bg-coral-tint text-coral",

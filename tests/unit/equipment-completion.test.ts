@@ -1,4 +1,6 @@
-/** PTR-43 unit tests: the arrangement-completion predicate and read-time guard (pure functions only). */
+/** PTR-43 unit tests cover the arrangement-completion predicate and read-time guard. Both are pure
+ * functions.
+ */
 import { describe, expect, it } from "vitest";
 
 import {

@@ -9,20 +9,19 @@ type Database = typeof Db;
 export type VenueTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 /**
- * PTR-109: the one per-venue serialisation point. Every occupancy writer (hold creation,
- * release and conversion, booking approval, release and amendment) takes this advisory lock
- * before any row lock or DML on `venue_holds`/`venue_requests` for that venue, so concurrent
- * writers queue in one order and cannot deadlock on each other's row locks (40P01). The lock
- * is transaction-scoped (`xact`), released when the surrounding transaction commits or rolls
- * back. Row-lock-only writers (withdraw, reject) do not take it: they hold nothing.
+ * PTR-109: Serialize all occupancy writes for one venue with this advisory lock.
+ * Hold creation, release, conversion, booking approval, release, and amendment take it before
+ * locking rows or changing `venue_holds` or `venue_requests`. This gives writers one lock order
+ * and prevents deadlocks (40P01). The `xact` lock ends when its transaction commits or rolls back.
+ * Withdraw and reject only lock rows because they do not hold venue time.
  */
 export async function lockVenue(tx: VenueTx, venueId: number): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(${venueId})`);
 }
 
 /**
- * The preview read every venue writer starts with: learn which venue's lock to take, then
- * take it. A missing row is Not Found before any lock, matching the handlers' old order.
+ * Read which venue to lock before taking the venue lock. Return Not Found for a missing row before
+ * taking any lock, as the handlers did before.
  */
 async function previewVenueId(
   tx: VenueTx,
@@ -49,10 +48,9 @@ export async function lockVenueForRequest(tx: VenueTx, requestId: string): Promi
 type LockedEvent = { id: number; status: string };
 
 /**
- * Key-share an event before any venue lock, and return its row (`{ id, status }`) as read under
- * that lock, or null when the event is missing. A cancellation holds the event row `FOR UPDATE`
- * (PTR-54), so this lock waits for a cancellation in progress and then reads `cancelled`. While
- * the caller holds it, a cancellation waits for the caller to commit.
+ * Key-share the event before any venue lock. Return `{ id, status }` as read under that lock, or
+ * `null` when the event is missing. Cancellation holds the event `FOR UPDATE` (PTR-54), so this
+ * lock waits for it and then reads the new status. A later cancellation waits for this transaction.
  */
 export async function keyShareEvent(tx: VenueTx, eventId: number): Promise<LockedEvent | null> {
   const rows = await tx
@@ -64,10 +62,10 @@ export async function keyShareEvent(tx: VenueTx, eventId: number): Promise<Locke
 }
 
 /**
- * `keyShareEvent` for a writer that starts from a venue request or a hold, or null when that row
- * is missing. A notification or a venue request inserted later in the transaction takes this lock
- * through its FK. Taking it while holding the request row deadlocks against confirmation, which
- * locks the event first and then the event's venue requests.
+ * Call `keyShareEvent` for a writer that starts from a venue request or hold. Return `null` when
+ * that row is missing. A notification or request insert takes this event lock through its foreign
+ * key. Do not take it while holding the request row; confirmation locks the event before requests,
+ * which would cause a deadlock.
  */
 async function keyShareEventOf(
   tx: VenueTx,
@@ -101,8 +99,8 @@ export async function keyShareEventForHold(
 }
 
 /**
- * Lockless preview for writers that lock more than one venue (amendment): learn the current
- * venue without taking its lock, so the caller takes the sorted pair as its only lock order.
+ * Read the current venue without locking it. Writers that change two venues use this preview, then
+ * lock both venues in sorted order.
  */
 export async function previewVenueForRequest(tx: VenueTx, requestId: string): Promise<number> {
   const rows = await tx
@@ -121,8 +119,8 @@ export async function lockVenueForHold(tx: VenueTx, holdId: string): Promise<num
 }
 
 /**
- * The row re-read under the lock must still belong to the locked venue; a venue change between
- * the preview and the row lock means the wrong serialisation order was taken.
+ * Check that the row still belongs to the locked venue. If it changed after preview, the caller
+ * took locks in the wrong order.
  */
 export function assertSameVenue(lockedVenueId: number, rowVenueId: number): void {
   if (rowVenueId !== lockedVenueId) {

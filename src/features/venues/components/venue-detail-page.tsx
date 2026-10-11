@@ -15,13 +15,13 @@ import type { Venue } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 /**
- * One venue record — editable for `venue:update`, read-only for everyone else the route let in.
- * A Coordinator who arrived from an event search also gets PTR-31's request panel; the loader
- * only supplies a context when that is actually the caller's event.
+ * Show one venue record. Holders of `venue:update` can edit it. Other admitted roles see it
+ * read-only. A Coordinator from an event search also sees PTR-31's request panel. The loader
+ * supplies a context only for the caller's own event.
  *
- * The row, the session user and the just-created flag are props rather than `Route.use*()` calls
- * so the view renders in a unit test without a router (PTR-75); the two router hooks it does keep
- * are the ones that act on navigation, which a test mocks the module for.
+ * Pass the row, session user, and just-created flag as props, not `Route.use*()` calls. This renders
+ * the view in a unit test without a router (PTR-75). The view keeps two router hooks for navigation
+ * actions. Tests mock the module for those hooks.
  */
 export function VenueDetailPage({
   venue,
@@ -36,7 +36,7 @@ export function VenueDetailPage({
   justCreated: boolean;
   requestContext: VenueRequestContext | null;
   requestContextFailed: boolean;
-  /** An adjusted request's window from the rejection card; null means the event's own window. */
+  /** Show an adjusted request window from the rejection card. Null means the event's own window. */
   prefill?: VenueRequestPrefill | null;
 }) {
   const navigate = useNavigate();
@@ -45,10 +45,9 @@ export function VenueDetailPage({
   const canUpdate = can(user.role, { venue: ["update"] });
   const canRequest = can(user.role, { venue_request: ["request"] });
 
-  // The confirmation is seeded from `?saved=true` once, above, and then the param is stripped:
-  // a search param is part of the URL, so F5 would re-evaluate it and re-announce a save that
-  // never happened. `replace` rather than a push so Back still leads out of this page rather
-  // than to the same page with the param restored.
+  // Seed the confirmation from `?saved=true` once, then strip the param. A search param belongs to
+  // the URL, so F5 would re-evaluate it and re-announce a save that never happened. Use `replace`,
+  // not a push. Back then still leaves this page. It does not return with the param restored.
   useEffect(() => {
     if (justCreated) {
       void navigate({
@@ -81,24 +80,22 @@ export function VenueDetailPage({
 
       {canUpdate ? (
         <VenueForm
-          // Remounting is what resets the inputs to the stored values (trimmed,
-          // de-duplicated) rather than what was typed, so the key is the row's identity:
-          // `updatedAt` is the part that changes on a save, and `venue.id` only guards a
-          // venue-to-venue navigation, which the route sets no `remountDeps` for and which
-          // nothing links to today. `initial` is loader-derived either way.
+          // Remount to reset the inputs to stored values (trimmed and de-duplicated), not typed values.
+          // Key the form by the row identity. `updatedAt` changes on each save. `venue.id` guards
+          // venue-to-venue navigation only. The route sets no `remountDeps` for that case, and nothing
+          // links to it today. `initial` stays loader-derived in all cases.
           key={`${venue.id}-${venue.updatedAt.toString()}`}
           initial={venue}
           onSave={async values => {
-            // Dropped and re-raised around the save rather than just set: `<output>` is an
-            // implicit live region, and re-announcing a repeat save needs the node to go
-            // away and come back, not merely to hold the same words.
+            // Drop and re-raise the banner around the save. Do not just set it. `<output>` is an implicit
+            // live region. Re-announcing a repeat save needs the node to leave and return. Holding the same
+            // words is not enough.
             setSaved(false);
             await saveVenue({ data: { ...values, id: venue.id } });
-            // The loader is the only source for the row. Invalidating re-runs it, which
-            // replaces `venue` with the saved values and bumps `updatedAt` (the column is
-            // `$onUpdate`), so the key above changes and the banner arrives together with
-            // the reloaded values. Keeping a local copy of the response instead would let
-            // component state and loader data drift apart.
+            // The loader is the only source for the row. Invalidating re-runs it. The re-run replaces
+            // `venue` with saved values and bumps `updatedAt` (the column is `$onUpdate`). The key above
+            // then changes, and the banner arrives with the reloaded values. Do not keep a local copy of
+            // the response. Component state and loader data would drift apart.
             await router.invalidate();
             setSaved(true);
           }}
@@ -117,8 +114,8 @@ export function VenueDetailPage({
       ) : (
         canRequest &&
         (requestContextFailed ? (
-          // A transient failure, not "no event": the loader could not load the panel, so the
-          // Coordinator can retry the same read instead of being sent back to the search.
+          // Report a transient failure, not "no event". The loader could not load the panel. The
+          // Coordinator can retry the same read. Do not send them back to the search.
           <div role="alert" className="mt-8 body-sm text-destructive">
             Could not load this venue's request panel.{" "}
             <Button type="button" variant="link" size="sm" onClick={() => void router.invalidate()}>

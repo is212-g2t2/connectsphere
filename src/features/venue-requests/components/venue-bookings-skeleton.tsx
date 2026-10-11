@@ -4,7 +4,7 @@ import { Skeleton } from "#/components/ui/skeleton";
 
 const BOOKING_CARDS = [0, 1, 2];
 
-/** Loading shape for the approved-booking heading and cards. */
+/** Reserve space for the approved-booking heading and cards while they load. */
 export function VenueBookingsSkeleton() {
   return (
     <Page width="wide" aria-busy="true">

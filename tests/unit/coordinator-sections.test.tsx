@@ -122,7 +122,7 @@ function renderSection(data: EventPageData, id: string, closing = false) {
   const sections = closing ? coordinatorClosingSections(data) : coordinatorSections(data);
   const section = sections.find(candidate => candidate.id === id);
   expect(section).toBeDefined();
-  // The event page holds the change-request apply its sections share (PTR-52).
+  // The event page holds the change-request apply. Its sections share it (PTR-52).
   return render(<ChangeRequestApplyProvider>{section?.render(data)}</ChangeRequestApplyProvider>);
 }
 

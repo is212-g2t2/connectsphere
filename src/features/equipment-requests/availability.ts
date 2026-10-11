@@ -1,4 +1,4 @@
-/** Pure arithmetic for PTR-40; client-safe, so no server import belongs here. */
+/** Client-safe availability calculations for PTR-40. */
 
 export function summariseAvailability({
   held,
@@ -23,7 +23,7 @@ export function summariseAvailability({
   };
 }
 
-/** AC3: the words shown to Technical Support, stating the shortfall when there is one. */
+/** AC3: Show Technical Support the number of units missing, when units are short. */
 export function availabilityMessage(result: {
   available: number;
   shortfall: number;
@@ -35,9 +35,8 @@ export function availabilityMessage(result: {
 }
 
 /**
- * Parses a date-time string into milliseconds since epoch UTC.
- * Safely handles strings already containing timezone designators ('Z' or offsets like '+08:00'),
- * as well as bare ISO/SQL timestamps needing UTC assumption.
+ * Convert a date-time string to milliseconds since the UTC epoch.
+ * Accept `Z` and offsets such as `+08:00`. Treat timestamps without an offset as UTC.
  */
 export function parseUtcTimestamp(ts: string): number {
   if (ts.endsWith("Z") || /[+-]\d{2}(?::?\d{2})?$/.test(ts)) {
@@ -47,15 +46,12 @@ export function parseUtcTimestamp(ts: string): number {
 }
 
 /**
- * Available units of a type over the target half-open window [startsAt, endsAt), plus the peak
- * concurrent reservation the sweep saw.
+ * Return available units and peak reservations for the half-open window `[startsAt, endsAt)`.
  *
- * Net serviceable capacity is max(0, held - unavailable); a discrete event sweep finds the peak
- * concurrent reservation clamped to the window, with end-events ordered before start-events on
- * touching boundaries so back-to-back periods do not stack. Malformed or non-positive entries
- * are skipped; an invalid window yields 0 available with no peak. The peak is the true observed
- * maximum even when overbooked past capacity, so callers never derive it from the clamped
- * available count.
+ * Serviceable capacity is `max(0, held - unavailable)`. Find the peak reservation count in the
+ * window. Process end events before start events at a shared boundary, so back-to-back periods do
+ * not overlap. Skip malformed or non-positive entries. An invalid window returns zero units and no
+ * peak. Keep the observed peak when it exceeds capacity. Do not calculate it from clamped availability.
  */
 export function computeAvailableEquipmentQuantity(
   quantityHeld: number,

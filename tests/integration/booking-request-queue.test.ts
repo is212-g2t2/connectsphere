@@ -139,9 +139,8 @@ describe("pending booking request reader (PTR-32)", () => {
         endsAt: "2037-05-10 11:00:00",
         createdAt: new Date("2037-04-02T01:00:00Z"),
       },
-      // Two pending rows share a `createdAt`; the reader must fall back to ascending id. The
-      // lexically larger id is inserted first, so heap/insertion order cannot produce the asserted
-      // order on its own — only the `asc(id)` tie-break can.
+      // Two pending rows share `createdAt`, so the reader must sort by ascending id. Insert the
+      // larger id first to prove insertion order does not pass this check.
       {
         id: "ptr32-pending-tie-b",
         eventId: boundaryEventId,
@@ -179,8 +178,8 @@ describe("pending booking request reader (PTR-32)", () => {
         status: "withdrawn",
         createdAt: new Date("2037-04-02T04:00:00Z"),
       },
-      // The queue is shared: a row assigned to another Venue Staff member must still be listed.
-      // Prefix `ptr32assigned-` so the strict `ptr32-` ordering assertions above skip it.
+      // The shared queue must include a row assigned to another Venue Staff member. Use the
+      // `ptr32assigned-` prefix so the ordering checks above skip this row.
       {
         id: "ptr32assigned-pending",
         eventId: incompleteEventId,

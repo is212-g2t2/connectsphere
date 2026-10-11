@@ -35,9 +35,9 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
   ) {
     return "technical_support";
   }
-  // PTR-44: a browsing attendee sees a confirmed event with registration on; the live window is
-  // not a gate here (PTR-45/PTR-50 own it at the registration action). An own registration keeps
-  // a non-draft event visible. This mirrors the attendee leg of `connectedEventCondition` in SQL.
+  // PTR-44: A browsing Attendee sees confirmed events with registration open. The registration
+  // action checks the registration window (PTR-45/PTR-50). An existing registration keeps a
+  // non-draft event visible. This matches `connectedEventCondition` in SQL.
   if (
     input.role === "attendee" &&
     (isPublishedForAttendees(input) || (input.status !== "draft" && input.hasOwnRegistration))
@@ -46,7 +46,7 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
   return null;
 }
 
-/** PTR-44 AC1/AC5: the events a browsing attendee may open — confirmed with registration on. */
+/** PTR-44 AC1/AC5: Events a browsing Attendee may open: confirmed events with registration on. */
 export function isPublishedForAttendees(event: {
   status: EventRequestStatus;
   registrationEnabled?: boolean;
@@ -54,7 +54,7 @@ export function isPublishedForAttendees(event: {
   return event.status === "confirmed" && event.registrationEnabled === true;
 }
 
-/** PTR-50 AC4: the events with an Attendee page — a published one, or one since cancelled. */
+/** PTR-50 AC4: List the events with an Attendee page. A published event has one, and so does a cancelled one. */
 export function hasAttendeePage(event: {
   status: EventRequestStatus;
   registrationEnabled?: boolean;
@@ -63,10 +63,9 @@ export function hasAttendeePage(event: {
 }
 
 /**
- * The one queue rule both staff queues share: a staff member works the rows assigned to them,
- * plus every unassigned one still in an open status. `isVenueQueueRow` and
- * `isEquipmentQueueRow` are thin wrappers over this so the rule has one home. This module is
- * client-reachable, so it carries no `#/db` import.
+ * The one queue rule both staff queues share. Show assigned rows and unassigned rows in an
+ * open status. `isVenueQueueRow` and `isEquipmentQueueRow` wrap this rule, so it has one home.
+ * This module is client-reachable, so do not import `#/db` here.
  */
 function isQueueRow(
   row: { assignedStaffId: string | null; queueStatus: string },
@@ -79,9 +78,8 @@ function isQueueRow(
 }
 
 /**
- * The shared venue queue (PTR-31): a Venue Staff member works the rows assigned to them, plus
- * every unassigned `pending` one. `records.server.ts` scopes its event-list query with the same
- * rule in SQL and calls this for its in-memory readers, so the rule has one home.
+ * PTR-31: Venue Staff can work on their assigned rows and all unassigned `pending` rows.
+ * `records.server.ts` scopes its event-list query with the same rule in SQL. Keep them in sync.
  */
 export function isVenueQueueRow(
   row: { assignedStaffId: string | null; status: string },
@@ -92,7 +90,7 @@ export function isVenueQueueRow(
   ]);
 }
 
-/** The first proposed window with both sides present — a submitted request has at least one. */
+/** Return the first proposed window with both start and end values. Submitted requests have one. */
 export function eventTiming(dates: Array<{ start?: string; end?: string }>) {
   const window = dates.find(date => date.start !== undefined && date.end !== undefined);
   if (window?.start === undefined || window.end === undefined) {
@@ -126,11 +124,11 @@ interface EventRecord {
 }
 
 /**
- * PTR-34 criterion 3: what the requesting Coordinator sees of a rejected venue request, so
- * planning continues rather than restarting. `venueName`/`date`/`startTime`/`endTime` are the
- * rejected booking's own venue and period, not the suggestion — the Coordinator otherwise has no
- * way to tell which booking a bare reason like "Fully booked" refers to. `suggestion` is null when
- * Venue Staff gave none; otherwise each part they did give, with the rest null. Times are `HH:MM`.
+ * PTR-34 criterion 3: Data about a rejected request for the Coordinator. Keep planning without a
+ * new request. `venueName`, `date`, `startTime`, and `endTime` identify the rejected booking, not
+ * the suggestion. This lets the Coordinator tell which booking a reason refers to. `suggestion`
+ * is null when Venue Staff made no suggestion. Missing suggestion fields are also null. Times use
+ * `HH:MM` format.
  */
 export interface VenueRequestRejection {
   /** The rejected venue's id, so an adjusted request can fall back to it. */
@@ -145,7 +143,7 @@ export interface VenueRequestRejection {
   suggestedVenueId: number | null;
 }
 
-/** A released booking remains visible to the Coordinator as an operational audit record. */
+/** Keep released bookings visible to Coordinators as audit records. */
 export interface VenueRequestRelease {
   venueName: string;
   date: string;
@@ -156,10 +154,9 @@ export interface VenueRequestRelease {
 }
 
 /**
- * The card's one venue request. PTR-36: `conflict` is present only when a pending request overlaps
- * an approved booking. PTR-34: `rejection` is the last rejection, which only the assigned
- * Coordinator is shown; it stays beside a newer pending request so the reason that prompted an
- * adjusted request is still on the record.
+ * The venue request shown on an event card. `conflict` is present only when a pending request
+ * overlaps an approved booking (PTR-36). `rejection` is the latest rejection. Only the assigned
+ * Coordinator sees it. Keep it beside a newer pending request to explain the adjustment (PTR-34).
  */
 export interface EventVenueRequest {
   /** The venue_requests row id (text), so the venue-staff decision can load its detail. */
@@ -173,9 +170,9 @@ export interface EventVenueRequest {
 }
 
 /**
- * The current approved booking of an event. The Organiser and the Coordinator see it for confirmed
- * events. An Attendee sees it for the published events and for the events they registered for.
- * Times are `HH:MM`, dates are `YYYY-MM-DD`, and `endDate` is the booking's end day.
+ * The event's current approved booking. Organisers and Coordinators see it for confirmed events.
+ * Attendees see it for published events and events they registered for. Times use `HH:MM` format.
+ * Dates use `YYYY-MM-DD` format. `endDate` is the last booking day.
  */
 export interface EventVenue {
   name: string;
@@ -199,10 +196,8 @@ export interface AttendeeRegistrationProjection {
   venue: EventVenue | null;
 }
 
-/**
- * How many places a published event has taken: its normal `registered` registrations and its
- * `vip` registrations against the place `limit`, the lower of its registration `capacity` and
- * the venue places its VIPs leave.
+/** Count normal and VIP registrations against the event's place limit. The limit is the lower of
+ * registration capacity and venue places after VIPs.
  */
 export interface EventPlaces {
   registered: number;
@@ -211,17 +206,14 @@ export interface EventPlaces {
   capacity: number;
 }
 
-/**
- * PTR-111: an Attendee account as the Organiser and the assigned Coordinator see it when they
- * manage VIPs: a VIP registration, or a search result to add as one.
- */
+/** PTR-111: An Attendee account or search result shown while managing VIP registrations. */
 export interface VipAttendee {
   attendeeId: string;
   name: string;
   email: string;
 }
 
-/** One row of the organiser/coordinator attendee list, with its VIP place and ISO timestamp. */
+/** One attendee-list row for an Organiser or Coordinator, with VIP status and an ISO timestamp. */
 export interface RegisteredAttendee {
   attendeeId: string;
   name: string;
@@ -231,10 +223,8 @@ export interface RegisteredAttendee {
 }
 
 /**
- * PTR-24 AC3: what an Organiser or Coordinator sees of a confirmed event — who confirmed it and
- * when, and the venue booking it was confirmed against. `venue` is null when that booking has
- * since been released: the status does not move by itself (AC6), so the view says the booking is
- * gone rather than hiding the confirmation.
+ * PTR-24 AC3: Show who confirmed an event and when, with its venue booking. Set `venue` to null
+ * if the booking was released. The event stays confirmed (AC6), so keep the confirmation visible.
  */
 export interface EventConfirmation {
   confirmedAt: string;
@@ -243,9 +233,8 @@ export interface EventConfirmation {
 }
 
 /**
- * One equipment line as a client receives it. `arrangementNotes` and `unavailableReason` are
- * Technical Support's annotations (PTR-39); only the Coordinator and Technical Support are given
- * them, so the Organiser's copy of a line carries the state alone.
+ * One equipment line sent to a client. Only Coordinators and Technical Support receive
+ * `arrangementNotes` and `unavailableReason` (PTR-39). Organisers receive the state only.
  */
 export interface EquipmentLineProjection {
   id: string;
@@ -255,28 +244,19 @@ export interface EquipmentLineProjection {
   notes: string | null;
   arrangementNotes?: string | null;
   unavailableReason?: string | null;
-  /**
-   * Technical Support only: whether this member may update the line (`isEquipmentQueueRow`), so
-   * a line a colleague is arranging is shown to them read-only rather than as a form that would
-   * be refused.
-   */
+  /** Technical Support only: Whether this member may update the line. Other members see it read-only. */
   arrangeable?: boolean | undefined;
-  /** Technical Support only: the name of the member arranging the line, null when unclaimed. */
+  /** Technical Support only: The assigned member's name, or null when unassigned. */
   assignedStaffName?: string | null | undefined;
-  /** PTR-41 AC4: the line's reserved units when a reservation exists, so the view can show it. */
+  /** PTR-41 AC4: The line's reserved units, when a reservation exists. */
   reservedQuantity?: number | null | undefined;
-  /**
-   * PTR-42: the most recent reduce or release, so the view can show what changed. Mirrors
-   * `reservedQuantity` above: present for Technical Support and the Coordinator, absent for
-   * the Organiser.
-   */
+  /** PTR-42: The latest reduction or release. Shown to Technical Support and Coordinators only. */
   lastRelease?: EquipmentReleaseRecord | null | undefined;
 }
 
 /**
- * What a client receives: the caller's access plus the fields their story names, and nothing
- * else. The branches below are the whole contract — a field added to `EventRecord` reaches a
- * client only when its branch is changed to carry it.
+ * Return only the fields allowed for the caller's access. Add fields to a branch here before they
+ * can reach a client from `EventRecord`.
  */
 export interface EventProjection {
   access: EventAccess;
@@ -320,11 +300,7 @@ export function isArrangedLine(arrangementStatus: string): boolean {
   return arrangementStatus === "reserved" || arrangementStatus === "not_required";
 }
 
-/**
- * PTR-43 AC4: The recorded completion state is read only while every equipment line is still
- * reserved or not required. If any line is in another state, or no completion was recorded,
- * null is returned.
- */
+/** PTR-43 AC4: Return completion only when every line is `reserved` or `not_required`. Otherwise, return null. */
 export function effectiveEquipmentArrangementsCompletedAt(
   completedAt: Date | null | undefined,
   equipment: Array<{ arrangementStatus: string }>
@@ -336,10 +312,9 @@ export function effectiveEquipmentArrangementsCompletedAt(
 }
 
 /**
- * PTR-43 AC4/AC6, PTR-24 AC5: whether the equipment side of an event is satisfied. An event with
- * no recorded equipment requirements is satisfied without any completion action; an event with
- * lines needs arrangements marked complete while every line is still `reserved` or
- * `not_required`. This is the value PTR-24's confirmation gate reads.
+ * PTR-43 AC4/AC6, PTR-24 AC5: Check whether the event's equipment requirements are met. No lines
+ * means the event is ready without a completion action. Otherwise, all lines must be `reserved`
+ * or `not_required`, and arrangements must be complete. The confirmation gate uses this value.
  */
 export function isEquipmentArrangementsSatisfied(
   equipment: readonly { arrangementStatus: string }[],
@@ -351,11 +326,9 @@ export function isEquipmentArrangementsSatisfied(
 }
 
 /**
- * The role-specific projection (PTR-8 criteria 3 and 4). The attendee branch carries PTR-44
- * AC2's fields — name, description, date/time, the registration period, the attendee's own
- * registration, and the current approved booking (null once released) — plus PTR-45's count of
- * places and PTR-50's registration state, and no booking
- * decisions, equipment, or clarification threads.
+ * PTR-8 criteria 3 and 4: Build each role's event view. The Attendee branch includes event details,
+ * registration dates, the Attendee's registration, and the approved booking. It also includes the
+ * place count and registration state. It excludes booking decisions, equipment, and clarifications.
  */
 export function projectEvent(
   record: EventRecord,
@@ -390,9 +363,8 @@ export function projectEvent(
         },
       };
 
-    // PTR-31 criterion 2: event timing, expected attendance, layout, accessibility and required
-    // facilities — and no other event information, so not even the name. The stage is the one
-    // exception every branch carries (PTR-21 criterion 2): anyone with access sees it.
+    // PTR-31 criterion 2: Return event timing, attendance, layout, accessibility, and facilities
+    // only. Do not return the event name. Every branch also returns the stage (PTR-21 criterion 2).
     case "venue_staff":
       return {
         access,
@@ -446,8 +418,7 @@ export function projectEvent(
           accessibilityRequirements: record.accessibilityRequirements,
           requiredFacilities: record.venueRequirements,
           places,
-          // PTR-39 AC4: the Coordinator sees Technical Support's notes and reasons, the Organiser
-          // sees the state alone.
+          // PTR-39 AC4: Coordinators see Technical Support's notes and reasons. Organisers see only the state.
           equipment: equipment.map(line => ({
             id: line.id,
             item: line.item,
@@ -492,8 +463,7 @@ export function projectEvent(
       };
 
     default: {
-      // Exhaustiveness, not a fallback: a new `EventAccess` member must add its own branch above
-      // rather than inherit the full-record projection meant for the organiser and coordinator.
+      // Add a branch for each new `EventAccess` value. Do not use the full-record view for other roles.
       const unhandled: never = access;
       throw new Error(`No event projection for access "${String(unhandled)}"`);
     }
@@ -501,21 +471,17 @@ export function projectEvent(
 }
 
 /**
- * The shared equipment queue (PTR-38 AC5: submitted events reach the shared queue; assignment
- * still grants its own staff access), mirroring isVenueQueueRow: an unassigned `requested` line
- * of a submitted event is visible to every Technical Support Staff member; once a line is
- * picked up (assignedStaffId set), only that staff member sees it through this row. An
- * unassigned `reserved` line is queueable too: deleting the holder's account nulls the
- * assignment and leaves the reservation holding, so without this leg the units could never be
- * released.
+ * PTR-38 AC5: Show submitted events in the shared equipment queue. All Technical Support members
+ * can see unassigned `requested` lines. After assignment, only the assigned member can see the
+ * line through this queue. Also show unassigned `reserved` lines. If the assigned member's account
+ * is deleted, the line becomes unassigned but still holds units that staff must release.
  */
 export function isEquipmentQueueRow(
   row: { assignedStaffId: string | null; arrangementStatus: string },
   userId: string,
   eventSubmitted: boolean
 ): boolean {
-  // The same shared rule, with the eventSubmitted gate applied only on the unassigned leg: an
-  // unassigned line reaches the queue only once the Coordinator has submitted.
+  // Apply the submission check to unassigned lines only. They enter the queue after submission.
   return (
     isQueueRow(
       { assignedStaffId: row.assignedStaffId, queueStatus: row.arrangementStatus },

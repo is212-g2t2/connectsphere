@@ -22,10 +22,8 @@ test.describe("Protected routes (Signed Out)", () => {
   });
 });
 
-/**
- * The settings server response, reached through a real sign-up. Dashboard role-gating is covered
- * far more cheaply by the unit-tested view and the route guards; this block keeps the one
- * assertion that needs a real session against a real server render.
+/** Check the settings response after a real sign-up. Unit tests cover dashboard role checks, so
+ * this test covers the server render that needs a real session.
  */
 test.describe("Settings after sign-up", () => {
   const password = "Password123!";
@@ -45,16 +43,15 @@ test.describe("Settings after sign-up", () => {
       timeout: 10_000,
     });
 
-    // Sign-up signs the user straight in, so the dashboard is reachable without a sign-in step.
+    // Sign-up creates a session, so the user can open the dashboard without signing in again.
     await page.goto("/dashboard");
     await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible({
       timeout: 10_000,
     });
   }
 
-  /**
-   * PTR-66: linked providers come from the route loader, so they are in the server HTML. A
-   * client-side fetch would leave "Loading…" in the response and only resolve after hydration.
+  /** PTR-66: the route loader includes linked providers in the server HTML. A client-side fetch
+   * would leave "Loading…" until hydration.
    */
   test("renders linked providers in the settings server response", async ({ page }) => {
     await signUpAs(page);

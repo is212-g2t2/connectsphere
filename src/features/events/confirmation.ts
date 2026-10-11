@@ -4,9 +4,9 @@ import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 /**
- * PTR-24 AC1/AC2: the stages an event can be confirmed from. `approved` is where a decision
- * leaves it; `planning` is the stage the brief names between approval and confirmation, kept
- * here so a later story that writes it does not have to widen the gate.
+ * PTR-24 AC1/AC2: List the stages an event can be confirmed from. `approved` is where a decision
+ * leaves the request. `planning` is the stage between approval and confirmation. Keep it here so
+ * a later story that writes it need not widen the gate.
  */
 const CONFIRMABLE_STATUSES = [
   "approved",
@@ -32,12 +32,11 @@ interface ConfirmationInput {
 }
 
 /**
- * Every reason the event cannot be confirmed, or an empty list when it can. A status that cannot
- * be confirmed is the only reason given — the arrangements of a cancelled or completed event are
- * not outstanding. Otherwise the gate needs exactly one approved venue booking, and each missing
- * arrangement is its own entry, so a Coordinator learns of all of them at once rather than fixing
- * one and retrying (AC2). An event with no equipment lines has nothing to settle, so the venue
- * booking alone governs (AC5).
+ * Return every reason the event cannot be confirmed, or an empty list when it can. An
+ * unconfirmable status is the only reason given. Cancelled or completed events have no
+ * outstanding arrangements. Otherwise the gate needs exactly one approved venue booking, and
+ * each missing arrangement is its own entry (AC2). An event with no equipment lines has nothing
+ * to settle, so the venue booking alone governs (AC5).
  */
 export function confirmationBlockers(input: ConfirmationInput): string[] {
   if (!isConfirmableStatus(input.status)) {
@@ -57,7 +56,7 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
       `${line.item} is not arranged (${arrangementStateLabel(line.arrangementStatus).toLowerCase()}).`
     );
   }
-  // Every line arranged but never marked complete (PTR-43): name that, not a line.
+  // All lines are arranged but completion was never marked (PTR-43). Name that, not a line.
   if (
     openLines.length === 0 &&
     !isEquipmentArrangementsSatisfied(input.equipmentLines, input.equipmentArrangementsCompletedAt)
@@ -67,7 +66,7 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
   return blockers;
 }
 
-/** The one message a refusal carries: a heading, then each reason on its own line. */
+/** Build the refusal message: a heading, then each reason on its own line. */
 export function confirmationRefusalMessage(blockers: readonly string[]): string {
   return [CONFIRMATION_REFUSAL_HEADING, ...blockers.map(blocker => `- ${blocker}`)].join("\n");
 }

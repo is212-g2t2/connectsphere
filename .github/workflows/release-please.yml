@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 
-# One run at a time: racing runs would fight over the same release PR.
+# Run one release-please workflow at a time so runs do not update the same release PR together.
 concurrency:
   group: release-please
   cancel-in-progress: false
@@ -21,9 +21,9 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      # RELEASE_PLEASE_TOKEN, not GITHUB_TOKEN: this repository forbids
-      # Actions-created PRs, and a GITHUB_TOKEN PR would not run CI, which
-      # branch protection requires before the release PR can merge.
+      # Use RELEASE_PLEASE_TOKEN, not GITHUB_TOKEN. This repository blocks PRs created by Actions.
+      # A PR created with GITHUB_TOKEN would not run CI, which branch protection requires before
+      # the release PR can merge.
       - uses: googleapis/release-please-action@v5
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}

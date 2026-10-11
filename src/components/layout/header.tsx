@@ -33,13 +33,12 @@ function initialsFor(user: SessionUser): string {
 }
 
 export function Header() {
-  // PTR-73: the user comes from route context, which `__root.tsx` fills during SSR — so the
-  // server markup and the first client render agree, unlike the old client-side `useSession()`.
+  // PTR-73: Route context supplies the user. `__root.tsx` fills it during SSR, so server markup and the first client render match.
+  // The old client-side `useSession()` did not keep them in sync.
   const { user, unreadNotifications } = useRouteContext({ from: "__root__" });
 
-  // PTR-71: signing out is a mutation, so React holds its in-flight flag. The redirect is the
-  // success path and stays inside the action; a refused sign-out lands in the action's error
-  // state rather than leaving the nav pointing at a session that is still open.
+  // PTR-71: Sign-out is a mutation, so React tracks it. Keep the redirect in the success path.
+  // If sign-out fails, show the action error. The nav then reflects the open session.
   const [, signOut, signingOut] = useMutation(async () => {
     const { error } = await authClient.signOut();
     if (error) {

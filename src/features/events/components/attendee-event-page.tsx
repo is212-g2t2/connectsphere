@@ -37,14 +37,14 @@ const LONG_DATE = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
-/** A stored calendar date (`2026-12-05`) as `5 December 2026`-style prose, parsed as UTC so the
- * server render and the hydrated client agree. Anything not in that shape passes through. */
+/** Format a stored calendar date (`2026-12-05`) as `5 December 2026`-style prose. Parse as UTC
+ * so the server render and the hydrated client agree. Pass other shapes through unchanged. */
 function formatLongDate(value: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.exec(value)) return value;
   return LONG_DATE.format(new Date(`${value}T00:00:00Z`));
 }
 
-/** The date block's two lines from a stored calendar date, by string arithmetic. */
+/** Build the date block's two lines from a stored calendar date with string arithmetic. */
 function dateBlockParts(value: string): { month: string; day: string } {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return { month: "", day: "" };
@@ -53,19 +53,19 @@ function dateBlockParts(value: string): { month: string; day: string } {
 }
 
 /**
- * PTR-44: what an attendee sees of a confirmed event with registration on, or of a cancelled event
- * they hold a registration for (PTR-50 AC4). Only the published fields — name, description,
- * date/time, the approved booking's venue, and the registration period — so booking decisions,
- * equipment, and clarification threads never reach this view.
+ * PTR-44: Show an Attendee a confirmed event with registration on, or a cancelled event they hold
+ * a registration for (PTR-50 AC4). Show only the published fields: name, description, date and
+ * time, the approved booking's venue, and the registration period. Booking decisions, equipment,
+ * and clarification threads never reach this view.
  */
 export function AttendeeEventPage({ event }: { event: EventProjection }) {
   const { event: details } = event;
-  // A current approved booking takes precedence over the original proposal.
+  // Prefer a current approved booking over the original proposal.
   const { date, endDate, startTime, endTime, spansDays, crossesMidnight } = eventSchedule(details);
   const isRegistered = details.registration?.status === "registered";
-  // The cancelled leg of the route's `hasAttendeePage`, so the page and the route cannot disagree.
+  // Mirror the cancelled leg of the route's `hasAttendeePage`. The page and the route then agree.
   const isCancelled = details.status === "cancelled";
-  // Completed events take no activity writes, so the page offers no withdrawal for one.
+  // Completed events take no activity writes. The page offers no withdrawal for them.
   const isCompleted = details.status === "completed";
   const availability = details.registrationAvailability;
   const period =
@@ -75,8 +75,8 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
         {formatLocalDateTime(details.registrationClosesAt)}
       </p>
     ) : null;
-  // PTR-45 AC10: the places taken, against the lower of the registration capacity and the venue
-  // places the VIPs leave (PTR-111).
+  // PTR-45 AC10: Places taken, against the lower of the registration capacity and the venue
+  // places left after VIPs (PTR-111).
   const places = details.places ? (
     <p className="mt-1 body-sm text-muted-foreground">
       {`${details.places.registered} / ${details.places.limit} registered`}
@@ -179,8 +179,8 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
               ) : period ? (
                 <>
                   {period}
-                  {/* VIPs can fill the venue after the normal places are taken, so a full event can
-                      show more registrations than places. The reason takes the count's place. */}
+                  {/* VIPs can fill the venue after normal places run out. A full event can then show
+                      more registrations than places. Show the reason instead of the count. */}
                   {availability?.state === "full" ? null : places}
                   {availability?.state === "open" ? (
                     <RegisterAction eventId={details.id} eventName={details.name ?? "this event"} />
@@ -211,8 +211,8 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
 }
 
 /**
- * PTR-50 AC1–AC3: why the Attendee cannot register now, in place of the register action. The
- * server applies the same rule, so a stale page that still shows the action is refused with it.
+ * PTR-50 AC1–AC3: Say why the Attendee cannot register now, in place of the register action. The
+ * server applies the same rule. A stale page that still shows the action meets the same refusal.
  */
 function RegistrationUnavailable({
   availability,
@@ -221,7 +221,7 @@ function RegistrationUnavailable({
 }) {
   const sentence = "mt-4 body-sm font-semibold";
   switch (availability?.state) {
-    // AC1: the period line above the sentence shows the opening date and time.
+    // AC1: The period line above the sentence shows the opening date and time.
     case "not_yet_open":
       return <p className={sentence}>Registration is not yet open.</p>;
     case "closed":

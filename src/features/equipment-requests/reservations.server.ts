@@ -35,10 +35,7 @@ type Database = typeof Db;
 
 const log = logger.getChild("equipment-requests");
 
-/**
- * The shared staff gate both reserve and release apply: the line, the queue gate and the
- * assignment check. `lock` takes the line `FOR UPDATE`.
- */
+/** Reserve and release use this staff gate. It checks the line, queue access, and assignment. */
 async function loadLineForStaff(
   database: Pick<Database, "select">,
   args: { lineId: string; actor: SessionUser; lock?: boolean }
@@ -54,8 +51,8 @@ async function loadLineForStaff(
     throw new NotFoundError("Equipment request not found");
   }
 
-  // The queue gate runs before any event detail is returned: a refused probe reveals at most
-  // that the line id exists, never which event it belongs to or what state it holds.
+  // Check queue access before returning event details. A refused request reveals only whether
+  // the line ID exists. It reveals neither the event nor the state.
   const { submitted } = await loadWorkableLines(database, line.eventId, args.actor);
 
   if (line.assignedStaffId !== null && line.assignedStaffId !== args.actor.id) {
@@ -70,12 +67,10 @@ async function loadLineForStaff(
 }
 
 /**
- * The preamble the reserve paths share on top of the shared gate: the completed-event gate,
- * the state gate, the quantity cap, the booking window and the catalogue type. `lock` takes the booking rows `FOR SHARE`
- * too; the reserve handler takes the equipment_types lock after this returns, so every path
- * takes all locks in line-then-bookings-then-type order (AC5). `quantity` carries the reserve
- * amount so its cap keeps its place before the booking read; the check path passes none and
- * takes no locks.
+ * Apply the shared reserve checks: event completion, line state, quantity limit, booking window,
+ * and equipment type. The reserve path locks in this order: line, booking rows, then equipment
+ * type (AC5). It checks the quantity limit before it reads the booking. The check path passes no
+ * quantity and takes no locks.
  */
 async function loadReservableLine(
   database: Pick<Database, "select">,
@@ -87,10 +82,9 @@ async function loadReservableLine(
     lock: args.lock,
   });
 
-  // PTR-54 AC9: a cancelled event takes no new reservation. In the reserve path the row lock
-  // waits for a cancellation holding the event row, then reads the new status. It is FOR NO KEY
-  // UPDATE, not FOR KEY SHARE, because a reserve can later clear the event's arrangements
-  // completion stamp in this transaction; a key share would have to upgrade, which can deadlock.
+  // PTR-54 AC9: Do not reserve equipment for a cancelled event. The row lock waits for a
+  // cancellation to finish, then reads the new status. Use FOR NO KEY UPDATE because this
+  // transaction can clear the completion stamp. FOR KEY SHARE can deadlock when it upgrades.
   const eventQuery = database
     .select({ status: eventRequests.status })
     .from(eventRequests)
@@ -100,9 +94,9 @@ async function loadReservableLine(
   assertEventAcceptsActivity(event?.status);
   if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
 
-  // PTR-39's hand-set states are not ours to overwrite: a line marked unavailable or not
-  // required stays as Technical Support left it until they move it back to requested. The
-  // check path applies the same gate so its number never invites a reserve the submit refuses.
+  // Do not overwrite states that Technical Support set. Keep unavailable and not_required until
+  // Technical Support changes the line to requested. Apply this check to availability too, so
+  // the shown number does not invite a reserve that the server will refuse.
   if (line.arrangementStatus !== "requested" && line.arrangementStatus !== "reserved") {
     throw new ConflictError(
       `Cannot reserve equipment for a line marked "${arrangementStateLabel(line.arrangementStatus)}"`
@@ -115,8 +109,8 @@ async function loadReservableLine(
     );
   }
 
-  // Lock-independent reads before the type lock: the booking window and the catalogue name
-  // need no lock, while the overlap read and the writes below stay under it.
+  // Read the booking window and type name before the type lock. The overlap read and writes below
+  // run under that lock.
   const bookingQuery = database
     .select({
       id: venueRequests.id,
@@ -126,8 +120,8 @@ async function loadReservableLine(
     .from(venueRequests)
     .where(and(eq(venueRequests.eventId, line.eventId), eq(venueRequests.status, "approved")))
     .limit(2);
-  // `FOR SHARE` in the reserve path only: a concurrent venue amend/release cannot commit
-  // between this read and the reservation insert below.
+  // In the reserve path, FOR SHARE stops a booking change from committing between this read and
+  // the reservation insert.
   const approvedBookings = await (args.lock ? bookingQuery.for("share") : bookingQuery);
 
   const approvedBooking = approvedBookings.at(0);
@@ -166,18 +160,16 @@ async function loadReservableLine(
 }
 
 /**
- * Reserves equipment for an event's approved venue booking period (PTR-41).
+ * Reserve equipment for an event's approved venue booking period (PTR-41).
+ * Store the equipment type, quantity, and booking window at the time of reservation. Later booking
+ * changes do not change this reservation. Availability checks use the stored period. A new
+ * reservation updates the stored values to match the current booking.
  *
- * The reservation row stores the equipment type, quantity and the booking window as it stood at
- * reservation time; later booking changes do not move it — availability and overlap read the
- * stored periods only. Re-reserving a line refreshes its snapshot to the current booking.
- *
- * Enforces:
- * - AC1: Line state becomes 'reserved' when reserved quantity >= requested quantity.
- * - AC1 Note: Partial reservation keeps line as 'requested'.
- * - AC2: Refused with 409 Conflict stating shortfall if requested > available.
- * - AC3: Reserved amount is committed and reduces availability for overlapping bookings.
- * - AC5: Serialises concurrent reservations on equipment_types using SELECT FOR UPDATE.
+ * - AC1: Set the line to `reserved` when the reserved quantity meets or exceeds the requested quantity.
+ * - AC1: Keep the line `requested` when the reservation is partial.
+ * - AC2: Return 409 Conflict and state the shortfall when the request exceeds availability.
+ * - AC3: Reduce availability for overlapping bookings by the reserved quantity.
+ * - AC5: Lock the equipment type row to serialize concurrent reservations.
  */
 export async function handleReserveEquipment(
   data: unknown,
@@ -198,7 +190,7 @@ export async function handleReserveEquipment(
       quantity: input.quantity,
     });
 
-    // Concurrency lock on the equipment_types row (PTR-41 AC5).
+    // Lock the equipment type row to serialize reservations (PTR-41 AC5).
     const equipmentType = (
       await tx
         .select()
@@ -271,7 +263,7 @@ export async function handleReserveEquipment(
       })
       .where(eq(equipmentRequests.id, line.id));
 
-    // A reservation change may move a line out of `reserved`, invalidating a prior completion.
+    // A reservation change can move the line out of `reserved` and invalidate prior completion.
     if (arrangementStatus !== line.arrangementStatus) {
       await clearArrangementsCompletion(tx, line.eventId);
     }
@@ -296,9 +288,9 @@ export async function handleReserveEquipment(
 }
 
 /**
- * PTR-41: how much of the line's own type is free for its booking window, leaving out the line's
- * own reservation so re-reserving does not count against itself. The period is the approved
- * booking the number was measured against, so a re-reserve shows which window it re-scopes to.
+ * PTR-41: Return availability for the line's equipment type and booking window. Exclude the line's
+ * own reservation so it does not reduce its available quantity. Use the approved booking period.
+ * This shows which period a new reservation will use.
  */
 export async function handleCheckLineAvailability(
   data: unknown,
@@ -336,16 +328,14 @@ export async function handleCheckLineAvailability(
 }
 
 /**
- * Reduces a line's reservation to a new total, or releases it outright (PTR-42).
+ * Reduce a line's reservation or release it (PTR-42).
  *
- * A release only frees units, so no availability check runs; the freed units show in every
- * overlapping event's availability at once because the sweep reads the reservation rows
- * (criterion 2). Locks are taken in the reserve path's order — the line, then the
- * `equipment_types` row — so a release and a concurrent reserve on the same type serialise rather
- * than interleave. The line's state returns to `requested`, or to `unavailable` with the reason
- * Technical Support gives (criterion 1); its event's status is never written (criterion 4). The
- * assigned Coordinator's notification is raised with the release, the shape the submit notice uses
- * (criterion 3).
+ * A release only frees units, so it does not need an availability check. The freed units appear in
+ * the availability of every overlapping event (criterion 2). Lock the line, then the equipment
+ * type, as the reserve path does. This serializes releases and reservations for the same type.
+ * Restore the line to `requested`, or set it to `unavailable` with the reason from Technical Support
+ * (criterion 1). Do not change the event status (criterion 4). Raise a notification for the assigned
+ * Coordinator in the same transaction (criterion 3).
  */
 export async function handleReleaseEquipment(
   data: unknown,
@@ -374,11 +364,10 @@ export async function handleReleaseEquipment(
     ).at(0);
     if (!reservation) throw new ConflictError(RELEASE_NO_RESERVATION_MESSAGE);
     if (input.quantity >= reservation.quantity) throw new ConflictError(RELEASE_NOT_LOWER_MESSAGE);
-    // No state gate is needed: a line holding a reservation can only be `requested` or `reserved`
-    // (reserve refuses the hand-set states and the arrangement update freezes a held line), and
-    // both are rewritten below. A state that could coexist with a holding would need a gate here.
+    // A reserved line can only be `requested` or `reserved`. The reserve path refuses other states,
+    // and arrangement changes cannot edit a line with reserved units. Both states are reset below.
 
-    // Serialise with reserve on the type (its AC5 lock), taken after the line as reserve does.
+    // Take the same type lock as the reserve path, after the line lock. This serializes both actions.
     await tx
       .select({ id: equipmentTypes.id })
       .from(equipmentTypes)
@@ -402,7 +391,7 @@ export async function handleReleaseEquipment(
       .set({
         arrangementStatus,
         unavailableReason,
-        // Keeps the line on the releasing member's list, mirroring reserve.
+        // Keep the line on the member's list, as the reserve path does.
         assignedStaffId: line.assignedStaffId ?? actor.id,
         lastReleasedByStaffId: actor.id,
         lastReleasedByStaffName: actor.name?.trim() || actor.email,
@@ -411,11 +400,11 @@ export async function handleReleaseEquipment(
       })
       .where(eq(equipmentRequests.id, line.id));
 
-    // PTR-43 AC4: reducing or releasing a reservation invalidates a prior completion stamp.
+    // PTR-43 AC4: A reduction or release invalidates the prior completion stamp.
     await clearArrangementsCompletion(tx, line.eventId);
 
-    // PTR-42 criterion 3: the Coordinator's notice commits with the change; the worker sends the
-    // email, so a mail outage cannot lose the record of what was given back.
+    // PTR-42 criterion 3: Commit the Coordinator's notice with this change. A mail outage cannot
+    // remove the record of the released units; the worker sends the email later.
     const notificationQueued = await raiseCoordinatorNotification(tx, line.eventId, context => ({
       recipientId: context.coordinatorId,
       eventRequestId: line.eventId,

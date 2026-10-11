@@ -1,14 +1,12 @@
-# The ciav.dev zone is shared with localoco; every resource here is scoped to a
-# connectsphere hostname, never zone-wide.
+# Localoco also uses the ciav.dev zone. Scope every resource here to a ConnectSphere hostname, not
+# the whole zone.
 #
-# The zone's Free Managed WAF ruleset is zone-wide and already claimed by the
-# localoco config; Cloudflare allows one ruleset per phase per zone, so it is
-# not managed here.
+# Localoco already manages the zone-wide Free Managed WAF ruleset. Cloudflare allows one ruleset
+# per phase per zone, so do not manage it here.
 
-# proxied stays false until that environment's Cloud Run managed certificate
-# is issued: Cloudflare's proxy intercepts Google's ACME validation and the
-# certificate stays pending. Flip each environment's entry (staging first)
-# once its mapping is live.
+# Keep `proxied` false until Cloud Run issues the environment's managed certificate. Cloudflare's
+# proxy intercepts Google's ACME validation and leaves the certificate pending. Enable the proxy
+# for each environment, starting with staging, after its mapping is live.
 resource "cloudflare_record" "app" {
   for_each = local.environments
 

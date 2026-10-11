@@ -23,12 +23,10 @@ vi.mock("#/components/ui/sonner", () => ({
   Toaster: () => <div data-testid="toaster" />,
 }));
 
-/**
- * The document shell every render is wrapped in, and the one the error and not-found boundaries
- * reuse. Under jsdom React applies `<html>`'s attributes to the real document element and hoists
- * `<head>` nodes into `document.head`, so the shell's contract is asserted there rather than on
- * the test container: the hydration flag E2E waits on, `lang`, the caller's meta and the
- * theme/toaster wiring at the bottom of the body.
+/** Every render uses this document shell. The error and not-found boundaries reuse it. In jsdom,
+ * React applies `<html>` attributes to the real document and moves `<head>` nodes into
+ * `document.head`. Check the shell on the document, including the hydration flag, `lang`, caller
+ * metadata, and theme and toaster elements.
  */
 describe("RootDocument", () => {
   it("stamps the hydration signal and composes the shell around its children", () => {

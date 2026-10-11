@@ -149,7 +149,7 @@ function ConfirmHoldAction({ holdId, kind }: { holdId: string; kind: HoldActionK
 
 const EMPTY_COORDINATOR_EVENTS: readonly CoordinatorEventOption[] = [];
 
-/** The event select holds its id as text; the schema (and the server) wants numbers. */
+/** The event select stores its id as text; the schema and server require a number. */
 function toHoldInput(
   venueId: number,
   value: { eventId: string; date: string; startTime: string; endTime: string }
@@ -196,9 +196,8 @@ export function PlaceVenueHoldDialog({
       startTime: defaultStartTime,
       endTime: defaultEndTime,
     },
-    // `VenueRequestInput` is the same gate the server uses, so the date and the times are
-    // checked once and every issue marks its own field, the pattern `reject-booking-form.tsx`
-    // follows. The select holds the event id as text, so it is adapted to the schema's number.
+    // `VenueRequestInput` uses the server's rules. Validate the date and times once, then mark each
+    // field with its issue, as `reject-booking-form.tsx` does. Convert the event id from text to a number.
     validators: {
       onSubmit: ({ value }) => {
         const parsed = VenueRequestInput.safeParse(toHoldInput(venueId, value));

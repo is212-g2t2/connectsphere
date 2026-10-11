@@ -61,9 +61,9 @@ const otherOrganiser: SessionUser = {
 };
 
 /**
- * This file owns its organisers so its destructive hooks can scope to them by id. The seeded demo
- * event belongs to `test-user-2`, so it is never in the delete's path and never needs restoring.
- * Deleting the fixture users at the end cascades this file's event requests away with them.
+ * This file owns its organiser fixtures. Hooks delete by these ids. The seeded demo event
+ * belongs to `test-user-2`, so deletes never touch it. Deleting the fixture users removes this
+ * file's event requests.
  */
 const organiserFixtures = [
   {
@@ -210,7 +210,7 @@ describe("Event request drafts", () => {
       status: "draft",
       eventName: "Community workshop",
       purpose: "",
-      // Stored as JSONB, so the `datetime-local` spelling survives untouched.
+      // JSONB storage keeps the `datetime-local` spelling.
       proposedDates: [{ start: "2026-11-18T09:30" }],
       expectedAttendance: null,
       equipmentRequirements: [{ type: "Projector" }],
@@ -230,8 +230,8 @@ describe("Event request drafts", () => {
       database as never
     );
 
-    // A partial payload against an existing id is a PUT, not a PATCH: fields it omits are
-    // blanked, matching how the form always resends the complete draft.
+    // A partial payload with an existing id runs a PUT. Omitted fields go blank. The form
+    // always resends the full draft.
     const updated = await handleSaveEventRequestDraft(
       { id: created.id },
       organiser,
@@ -422,9 +422,9 @@ describe("Event request drafts", () => {
     });
   });
 
-  /** The invariant at the persistence layer, including the three CHECKs behind the Zod schema. */
+  /** Check the persistence invariant with its three CHECK constraints. */
   it("refuses registration rows the CHECK constraints forbid (PTR-11)", async () => {
-    // Drizzle wraps the driver error, so the constraint name is on the cause, not the message.
+    // Drizzle wraps the driver error. Read the constraint name from the cause.
     await expect(
       database
         .insert(schema.eventRequests)
@@ -464,8 +464,8 @@ describe("Event request drafts", () => {
     });
   });
 
-  // No read/list endpoint exists yet (that's the rest of AC4, beyond this ticket), so this
-  // asserts row ownership at the database level rather than any visibility enforcement.
+  // No read or list endpoint exists in this ticket. This test checks row ownership in the
+  // database. It checks no visibility enforcement.
   it("scopes each draft's row to the organiser that created it", async () => {
     await handleSaveEventRequestDraft({ eventName: "Private draft" }, organiser, database as never);
 
@@ -482,9 +482,8 @@ describe("Event request drafts", () => {
     expect(otherRows).toHaveLength(0);
   });
 
-  /**
-   * PTR-13 submits the same stored row `fullRequest` already describes — every mandatory field
-   * present — so each refusal below sends a draft missing exactly one thing.
+  /** PTR-13 submits the stored row that `fullRequest` describes, with every mandatory field
+   * present. Each refusal below sends a draft that misses exactly one field.
    */
   it("refuses an incomplete draft, naming every missing mandatory field (AC1)", async () => {
     const draft = await handleSaveEventRequestDraft(
@@ -535,8 +534,8 @@ describe("Event request drafts", () => {
     expect(submitted).toMatchObject({ id: draft.id, status: "submitted" });
     expect(submitted.submittedAt).toBeInstanceOf(Date);
     expect(submitted.submittedAt?.getTime()).toBeGreaterThanOrEqual(before);
-    // AC5: submission keeps the row readable in place, which is the data the internal review
-    // list will read; PTR-17 builds that view.
+    // AC5: submission keeps the row readable in place. The internal review list reads that
+    // data. PTR-17 builds that view.
     expect(await findById(draft.id)).toEqual(submitted);
   });
 
@@ -594,7 +593,7 @@ describe("Event request drafts", () => {
     expect(await ownedRequestCount(database)).toBe(0);
   });
 
-  /** The invariant at the persistence layer, behind whichever path writes the row. */
+  /** Check the persistence invariant on every path that writes the row. */
   it("refuses a submission time that disagrees with the status", async () => {
     await expect(
       database
@@ -678,8 +677,8 @@ describe("Listing and reading an organiser's requests (PTR-14)", () => {
       organiser,
       database as never
     );
-    // Keep the comparison away from the same millisecond: Postgres timestamps are more precise
-    // than the JavaScript Date used by the save path's updatedAt callback.
+    // Compare across different milliseconds. Postgres timestamps carry more precision than the
+    // save path's JavaScript Date.
     await database
       .update(schema.eventRequests)
       .set({ updatedAt: new Date(Date.now() - 60_000) })
@@ -746,8 +745,8 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
       .where(inArray(schema.eventRequests.organiserId, organiserIds));
   });
 
-  // Criterion 2: reopening returns exactly what was saved, and a request that is not the
-  // organiser's own draft is not reopenable.
+  // Criterion 2: reopening returns exactly what was saved. A draft that is not the
+  // organiser's own never reopens.
   it("reopens a draft with its exact stored values, and answers null for one that is not reopenable (PTR-12)", async () => {
     const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
     const reopened = await handleGetEventRequestDraft(
@@ -777,8 +776,7 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
     ).toBeNull();
   });
 
-  // Criterion 2: "repeatable any number of times" — saved, reopened, edited and saved again,
-  // more than once, always updating the same row.
+  // Criterion 2: repeat the cycle any number of times. Every save updates the same row.
   it("keeps updating the same reopened draft across repeated edits (PTR-12)", async () => {
     const created = await handleSaveEventRequestDraft(
       { eventName: "First name" },
@@ -806,7 +804,7 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
     expect(await ownedRequestCount(database)).toBe(1);
   });
 
-  // Criterion 3: deleting an owned draft removes it, and it can no longer be reopened.
+  // Criterion 3: deleting an owned draft removes it. It never reopens.
   it("deletes an owned draft so it can no longer be listed or reopened (PTR-12)", async () => {
     const draft = await handleSaveEventRequestDraft(
       { eventName: "Throwaway draft" },
@@ -829,8 +827,8 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
     expect(list).toHaveLength(0);
   });
 
-  // Criterion 3's guard: a submitted request is retained even against a direct delete call,
-  // and another organiser's draft can't be deleted either.
+  // Criterion 3 guard: a submitted request survives a direct delete call. Another
+  // organiser's draft survives it too.
   it("refuses to delete a submitted request or another organiser's draft (PTR-12)", async () => {
     const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
 
@@ -868,9 +866,9 @@ describe("Reopening, saving, and deleting a draft (PTR-12)", () => {
 });
 
 /**
- * Two Coordinators beside the seeded one, created in a known order so the tie-break is testable.
- * The dates sit far in the past so both sort before the seeded account however long ago the
- * database was seeded, not only when it was seeded after the fixture dates.
+ * Two Coordinators beside the seeded one, created in a known order for the tie-break test.
+ * Both dates sit far in the past, so both sort before the seeded account no matter when the
+ * database was seeded.
  */
 const extraCoordinators = [
   {
@@ -892,10 +890,10 @@ const extraCoordinators = [
 ];
 
 /**
- * A third file-owned Coordinator, created after the other two. The seeded Coordinator carries the
- * demo event as load, so the tie-break test uses this account for its third step instead of
- * asserting against seed state the file does not own. It stays out of `extraCoordinators` so the
- * two-way race cases keep exactly two racers.
+ * A third file-owned Coordinator, created after the other two. The seeded Coordinator carries
+ * the demo event as load, so the tie-break test uses this account for its third step. It checks
+ * no seed state that this file does not own. It stays out of `extraCoordinators`, so the two-way
+ * race cases keep exactly two racers.
  */
 const tieBreakCoordinator = {
   id: "test-coordinator-c",
@@ -924,8 +922,8 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     database = drizzle(pool, { schema });
-    // Created far in the past so the earliest-account tie-break is testable however long ago the
-    // database was seeded, and later than the two known accounts so they win in order.
+    // Create the fixtures far in the past for the earliest-account tie-break. Date them after
+    // the two known accounts, so those accounts win in order.
     await database.insert(schema.user).values(fixtureCoordinators).onConflictDoNothing();
   });
 
@@ -945,12 +943,12 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       .where(inArray(schema.eventRequests.organiserId, organiserIds));
   });
 
-  /** A freshly submitted request, assigned by the least-loaded rule. */
+  /** Submit a fresh request. The least-loaded rule assigns it. */
   async function assignedRequest() {
     return submitNew(fullRequest, organiser, database);
   }
 
-  /** A submitted row, assigned to `coordinatorId` or left unassigned when it is null. */
+  /** Build a submitted row. Assign it to `coordinatorId`, or leave it unassigned when null. */
   async function submittedRequest(coordinatorId: string | null) {
     const saved = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
     const [row] = await database
@@ -997,7 +995,8 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         expectedCoordinatorId: outgoing.id,
         actorId: "forged",
       };
-      // Its own Coordinator is told to hand over; nothing moves and nothing is audited.
+      // The request's own Coordinator attempts the handover. Nothing moves. Nothing reaches
+      // the audit.
       await expect(
         handleAssignEventRequest(input, outgoing, database as never)
       ).rejects.toMatchObject({ status: 409, message: ASSIGNED_REQUEST_HANDOVER_MESSAGE });
@@ -1009,7 +1008,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         await handleGetEventRequest({ id: request.id }, organiser, database as never)
       ).toMatchObject({ coordinator: { name: outgoing.name, email: outgoing.email } });
 
-      // The handover path still works, and the event does not move until it is accepted.
+      // The handover path still works. The event waits for acceptance before it moves.
       const handover = await handleRequestEventHandover(input, outgoing, database as never);
       expect(handover).toMatchObject({ toCoordinatorId: incoming.id });
       expect(
@@ -1111,9 +1110,9 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
 
     it("refuses to pick up a decided request its deleted Coordinator left unassigned", async () => {
       const request = await decidedRequest();
-      // What deleting the deciding account does to the row (`assigned_coordinator_id` is
-      // ON DELETE SET NULL, which keeps `assigned_at` as the record of the assignment): closed
-      // work with nobody on it, which the unassigned list then shows.
+      // Deleting the deciding account sets `assigned_coordinator_id` to NULL (`ON DELETE SET
+      // NULL). `assigned_at` still records the assignment. The closed request has no owner. The
+      // unassigned list shows it.
       await database
         .update(schema.eventRequests)
         .set({ assignedCoordinatorId: null })
@@ -1188,8 +1187,8 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       });
       expect(handover.requestedAt).toBeInstanceOf(Date);
 
-      // The assignment has not moved, and only the outgoing Coordinator still has access. The
-      // outgoing page shows the live offer; the assigned list labels it.
+      // The assignment stays put. Only the outgoing Coordinator keeps access. The outgoing
+      // page shows the live offer. The assigned list labels it.
       const [stored] = await database
         .select()
         .from(schema.eventRequests)
@@ -1212,8 +1211,8 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       ).rejects.toMatchObject({ status: 403 });
       expect(await database.select().from(schema.eventAssignments)).toEqual([]);
 
-      // The incoming Coordinator sees the offer with everything the page renders, and the
-      // queued notification renders the coordination link.
+      // Show the offer to the incoming Coordinator with all page content. Include the
+      // coordination link in the queued notification.
       const pending = await handleListPendingEventHandovers(incoming, database as never);
       expect(pending).toHaveLength(1);
       expect(pending[0]).toMatchObject({
@@ -1278,10 +1277,10 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         .from(schema.eventRequests)
         .where(eq(schema.eventRequests.id, request.id));
       expect(stored.assignedCoordinatorId).toBe(incoming.id);
-      // The move stamps its own time, not the submission's: it matches the audit entry.
+      // The move stamps its own time. It matches the audit entry.
       expect(stored.assignedAt).toEqual(assignments[0].createdAt);
 
-      // Access changes on both sides, and the Organiser reads the new Coordinator.
+      // Move access to the new Coordinator. Show the new Coordinator to the Organiser.
       await expect(
         handleGetCoordinationRequest({ id: request.id }, outgoing, database as never)
       ).rejects.toMatchObject({ status: 403 });
@@ -1457,7 +1456,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       await expect(
         handleDeclineEventHandover({ id: handover.id }, tieBreakCoordinator, database as never)
       ).rejects.toMatchObject({ status: 403 });
-      // A missing id gets the same refusal, so the serial id space reveals nothing.
+      // Refuse a missing id in the same way. The serial id space reveals nothing.
       await expect(
         handleAcceptEventHandover({ id: 999_999 }, incoming, database as never)
       ).rejects.toMatchObject({ status: 403 });
@@ -1519,8 +1518,8 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
           database as never
         );
 
-        // The outgoing account being deleted sets the assignment null; another Coordinator then
-        // picks the request up for real.
+        // Deleting the outgoing account clears the assignment. Another Coordinator picks the
+        // request up for real.
         await database.delete(schema.user).where(eq(schema.user.id, vacated.id));
         const [vacatedRow] = await database
           .select()
@@ -1533,7 +1532,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
           database as never
         );
 
-        // The new assignee's page does not show the previous assignment's offer as pending.
+        // Hide the previous assignment's offer from the new assignee's page.
         const newAssigneeView = await handleGetCoordinationRequest(
           { id: request.id },
           tieBreakCoordinator,
@@ -1547,7 +1546,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         expect(newAssigneeRow.handoverTo).toBeNull();
         expect(await handleListPendingEventHandovers(incoming, database as never)).toEqual([]);
 
-        // Accepting it anyway still records who and when, and queues no false "you remain" notice.
+        // A late accept still records who answered and when. It queues no false notice.
         await expect(
           handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
         ).rejects.toMatchObject({ status: 409 });
@@ -1643,7 +1642,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       ).rejects.toMatchObject({
         cause: { constraint: "event_handovers_decision_complete" },
       });
-      // The partial unique index keeps one live offer per event.
+      // The partial unique index allows one live offer per event.
       await expect(
         database.insert(schema.eventHandovers).values({
           eventRequestId: request.id,
@@ -1669,7 +1668,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       );
       expect(declined).toMatchObject({ decision: "declined", decidedById: incoming.id });
       expect(declined.decidedAt).toBeInstanceOf(Date);
-      // The outgoing Coordinator is not told they remain the Coordinator: they do not.
+      // Send the outgoing Coordinator no "you remain" notice. They do not remain.
       expect(
         await database
           .select()
@@ -1759,8 +1758,8 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
             isNull(schema.eventHandovers.decision)
           )
         );
-      // Either accept won (the event moved, no offer waits) or the replacement won (the event
-      // stayed, one fresh offer waits): assert the whole outcome in one unconditional check.
+      // Either outcome passes: an accept moves the event with no waiting offer, or the
+      // replacement keeps the event with one fresh offer. Check the whole outcome at once.
       const outcome = {
         assignedCoordinatorId: stored.assignedCoordinatorId,
         liveCount: live.length,
@@ -1792,7 +1791,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         handleDeclineEventHandover({ id: handover.id }, incoming, database as never),
       ]);
 
-      // The raise is always valid; the decline either beats the replacement or finds it gone.
+      // The raise always succeeds. The decline beats the replacement or finds it gone.
       expect(results[0].status).toBe("fulfilled");
       const live = await database
         .select()
@@ -1820,7 +1819,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         const [outgoingRow] = await handleListAssignedEventRequests(outgoing, database as never);
         expect(outgoingRow.handoverTo).toBeNull();
 
-        // The outgoing Coordinator can offer it anew; the dead row is replaced.
+        // The outgoing Coordinator offers it anew. The new row replaces the dead row.
         const replacement = await handleRequestEventHandover(
           {
             id: request.id,
@@ -1838,7 +1837,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
             .where(eq(schema.eventHandovers.eventRequestId, request.id))
         ).toHaveLength(1);
       } finally {
-        // Restore the file-owned fixture the other tests share.
+        // Restore the file-owned fixture that the other tests share.
         await database.insert(schema.user).values(extraCoordinators[1]).onConflictDoNothing();
       }
     });
@@ -1847,7 +1846,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       const { request, handover } = await pendingHandover();
       await database.delete(schema.user).where(eq(schema.user.id, incoming.id));
       try {
-        // Without the share lock this is the FK's raw 23503; with it, a typed refusal.
+        // The share lock turns the raw FK 23503 into a typed refusal.
         await expect(
           handleAcceptEventHandover({ id: handover.id }, incoming, database as never)
         ).rejects.toMatchObject({ status: 409 });
@@ -2150,8 +2149,8 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
         cause: { constraint: "event_requests_rejection_has_reason" },
       });
 
-      // The rejected update above left the row untouched, so the same request still enforces the
-      // attribution CHECK: approved while the decision fields are null fails closed.
+      // The rejected update left the row untouched. The request still enforces the attribution
+      // CHECK. Approval with null decision fields fails closed.
       await expect(
         database
           .update(schema.eventRequests)
@@ -2220,7 +2219,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       });
       expect(await statusOf(request.id)).toBe("awaiting_organiser");
 
-      // Verify either party can view the clarification (AC4)
+      // Check that both parties can view the clarification (AC4).
       const coordView = await handleGetCoordinationRequest(
         { id: request.id },
         actor,
@@ -2345,19 +2344,19 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
   });
 
   it("chooses the least-loaded Coordinator, then the earliest account", async () => {
-    // Nobody loaded: the earliest-created Coordinator wins the tie.
+    // With no load anywhere, the earliest-created Coordinator wins the tie.
     const first = await submitNew(fullRequest, organiser, database);
     expect(first.assignedCoordinatorId).toBe("test-coordinator-a");
 
-    // A now carries one; B is next.
+    // A carries one. B takes the next.
     const second = await submitNew({ ...fullRequest, eventName: "Second" }, organiser, database);
     expect(second.assignedCoordinatorId).toBe("test-coordinator-b");
 
-    // A and B carry one each; the third fixture, created after them, gets the third.
+    // A and B carry one each. The later third fixture takes the third.
     const third = await submitNew({ ...fullRequest, eventName: "Third" }, organiser, database);
     expect(third.assignedCoordinatorId).toBe("test-coordinator-c");
 
-    // Everyone carries one; back to the earliest account.
+    // Everyone carries one. The earliest account takes the next.
     const fourth = await submitNew({ ...fullRequest, eventName: "Fourth" }, organiser, database);
     expect(fourth.assignedCoordinatorId).toBe("test-coordinator-a");
   });
@@ -2435,9 +2434,9 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     const coordinatorIds = [...fixtureCoordinators.map(c => c.id), "seed-coordinator-1"];
 
     it("still records the submission, unassigned, and lists it for pick-up", async () => {
-      // Demote every Coordinator for the test rather than deleting them: the seeded account has
-      // a credential row and sessions hanging off it. Restored in `finally`, so a failed assertion
-      // cannot leave the seeded accounts defunct for the rest of the run.
+      // Demote every Coordinator for the test. Do not delete them: the seeded account has a
+      // credential row and sessions. Restore in `finally`, so a failed assertion leaves no seeded
+      // account defunct.
       await demoteCoordinators();
       try {
         const submitted = await submitNew(fullRequest, organiser, database);
@@ -2479,7 +2478,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
 
     expect(assigned.assignedCoordinatorId).not.toBeNull();
 
-    // Two requests submitted while nobody could take them, in a known order.
+    // Submit two requests while no Coordinator can take them. Keep their order known.
     const [older, newer] = await Promise.all([
       handleSaveEventRequestDraft(
         { ...fullRequest, eventName: "Older wait" },
@@ -2540,8 +2539,8 @@ describe("Status set and decision attribution (PTR-21)", () => {
     decidedAt: new Date(),
   };
 
-  // PTR-24: a confirmed event also records who confirmed it and when, so the decision CHECK is the
-  // only one these writes can trip.
+  // PTR-24: a confirmed event records who confirmed it and when. The decision CHECK is the
+  // only CHECK these writes can trip.
   const confirmed = {
     confirmedById: "seed-coordinator-1",
     confirmedByName: "Seeded Event Coordinator",
@@ -2611,7 +2610,7 @@ describe("Status set and decision attribution (PTR-21)", () => {
       .returning();
     expect(cancelledAfter.decidedByCoordinatorId).toBe("seed-coordinator-1");
 
-    // A time without a decider on the never-decided row is the half-written shape the CHECK refuses.
+    // A timestamp with no decider on the never-decided row fails the CHECK.
     await expect(
       database
         .update(schema.eventRequests)
@@ -2619,7 +2618,7 @@ describe("Status set and decision attribution (PTR-21)", () => {
         .where(eq(schema.eventRequests.id, before.id))
     ).rejects.toMatchObject({ cause: { constraint: "event_requests_decision_matches_status" } });
 
-    // Neither a cancelled event without who and when, nor a cancellation record on another stage.
+    // A cancelled event needs who and when. Another stage takes no cancellation record.
     await expect(
       database
         .update(schema.eventRequests)
@@ -2641,10 +2640,9 @@ describe("Status set and decision attribution (PTR-21)", () => {
 
   it("does not move the status when a venue arrangement changes (AC3)", async () => {
     const request = await submitted();
-    // The only arrangement writes that exist today: the venue record, through its real save
-    // path so an application-level coupling would be caught, and its unavailability, which
-    // has no handler yet. Equipment arrangements have no writer at all yet; when one lands it
-    // belongs here too.
+    // Cover the only arrangement writes that exist: the venue record through its real save
+    // path, which catches application-level coupling, and its unavailability row. Equipment
+    // arrangements have no writer. Add that writer here when it lands.
     const [hall] = await database
       .select()
       .from(schema.venues)
@@ -2667,7 +2665,7 @@ describe("Status set and decision attribution (PTR-21)", () => {
         .where(eq(schema.eventRequests.id, request.id));
       expect(row.status).toBe("submitted");
     } finally {
-      // The seed rows are shared; put the venue back and remove the period even on failure.
+      // The seed rows are shared. Restore the venue and remove the period, even on failure.
       await handleSaveVenue(hall, database as never);
       await database
         .delete(schema.venueUnavailability)

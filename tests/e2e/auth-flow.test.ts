@@ -20,8 +20,8 @@ test.describe("Auth Lifecycle Loop", () => {
       timeout: 10_000,
     });
 
-    // Only the sign-up form has name and confirm-password fields; fillCredentials is shared
-    // with /login, which has neither.
+    // Only the sign-up form has name and confirm-password fields. `fillCredentials` also serves
+    // `/login`, which has neither field.
     await page.locator("#name").fill("E2E User");
     await fillCredentials();
     await page.locator("#confirmPassword").fill(testPassword);
@@ -32,7 +32,7 @@ test.describe("Auth Lifecycle Loop", () => {
       timeout: 10_000,
     });
 
-    // 2. Sign out so we can verify explicit login flow
+    // 2. Sign out before testing login.
     await page.getByRole("button", { name: "Account menu" }).click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
     await page.waitForURL("/", { timeout: 10_000 });
@@ -47,15 +47,15 @@ test.describe("Auth Lifecycle Loop", () => {
     await fillCredentials();
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
-    // After sign-in, redirect completes to dashboard (PTR-6 AC1)
+    // PTR-6 AC1: sign-in redirects to the dashboard.
     await page.waitForURL("/dashboard", { timeout: 10_000 });
 
-    // 4. Verify landing on /dashboard
+    // 4. Check that the page opens on `/dashboard`.
     await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible({
       timeout: 10_000,
     });
 
-    // 5. Sign out and go back — no protected info may display (PTR-6 AC3)
+    // 5. Sign out and go back. PTR-6 AC3: do not show protected information.
     await page.getByRole("button", { name: "Account menu" }).click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
     await page.waitForURL("/", { timeout: 10_000 });
@@ -72,7 +72,7 @@ test.describe("Auth Lifecycle Loop", () => {
     });
     expect(response.ok(), await response.text()).toBe(true);
 
-    // Sign-up leaves a session, and /login turns a signed-in visitor away; clear it first.
+    // Sign-up creates a session, and `/login` redirects signed-in users. Clear the session first.
     const signOut = await page.request.post("/api/auth/sign-out", {
       headers: { Origin: "http://localhost:3000" },
     });
@@ -88,10 +88,9 @@ test.describe("Auth Lifecycle Loop", () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  /**
-   * PTR-73: the guards on /login and /signup read the user from route context now, and /signup's
-   * only fires on arrival — the post-signup panel re-resolves that context in place and must be
-   * allowed to stay. These are the arrivals, which still have to be turned away.
+  /** PTR-73: `/login` and `/signup` read the user from route context. The sign-up guard runs only
+   * on arrival. The post-sign-up panel refreshes that context in place and must stay open, but
+   * these arrival requests must redirect signed-in users.
    */
   test("sends a signed-in visitor away from the sign-in and sign-up forms", async ({ page }) => {
     const response = await page.request.post("/api/auth/sign-up/email", {

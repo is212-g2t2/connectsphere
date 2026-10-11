@@ -11,10 +11,9 @@ interface MailpitMessage {
   To: MailpitAddress[];
 }
 
-/**
- * Delivers anything queued, then polls Mailpit until a message with the exact subject arrives for
- * the recipient, and returns its body. Mailpit stands in for the mail provider so the e2e suites
- * can assert on real mail; the drain is what stands in for the every-minute scheduler.
+/** Deliver queued mail, then poll Mailpit for a message with the exact subject and recipient.
+ * Return its body. Mailpit lets E2E tests check real messages. The drain replaces the one-minute
+ * scheduler during tests.
  */
 export async function waitForEmail(recipient: string, subject: string): Promise<string> {
   await deliverQueuedEmails();

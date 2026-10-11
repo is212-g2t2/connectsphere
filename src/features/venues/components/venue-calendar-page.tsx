@@ -63,11 +63,11 @@ const OCCUPIED_STATES = {
 >;
 
 /**
- * The venue calendar (PTR-28): a venue and an inclusive date range in, its free, confirmed and
- * blocked periods out. The rows and the calendar come from the route loader and the applied search
- * from the route, both as props, so the page renders in a unit test without a router (PTR-75).
- * Selecting a range navigates to the same route with new search parameters, which is what re-runs
- * the loader — there is no separate fetch state to keep in step.
+ * Show the venue calendar (PTR-28). Accept a venue and an inclusive date range. Return free,
+ * confirmed, and blocked periods. The rows and the calendar come from the route loader, and the
+ * applied search comes from the route, both as props. The page then renders in a unit test
+ * without a router (PTR-75). Selecting a range navigates to the same route with new search
+ * parameters. That navigation re-runs the loader, so no fetch state needs to stay in step.
  */
 export function VenueCalendarPage({
   venues,
@@ -414,13 +414,13 @@ export function VenueCalendarPage({
 }
 
 /**
- * The month grid's day cell, with a dot under a day that holds an occupied period. The modifiers
- * come from the day picker itself, so this needs nothing from the page and stays module-level —
- * a component defined during render is a new type on every pass, which React remounts.
+ * Show the month grid day cell. Mark a day that holds an occupied period with a dot. Read modifiers
+ * from the day picker, so this cell needs nothing from the page. Keep it module-level. A component
+ * defined during render becomes a new type on each pass, and React remounts it.
  */
 function OccupiedDayButton(props: React.ComponentProps<typeof CalendarDayButton>) {
-  // The day map holds one state per day, so at most one of these matches; blocked is checked
-  // first to keep the previous precedence if that ever changes.
+  // The day map holds one state per day, so at most one modifier matches. Check blocked first.
+  // Keep the previous precedence if the states ever change.
   const dotState = (["blocked", "tentative_hold", "confirmed"] as const).find(
     state => props.modifiers[state]
   );
@@ -434,8 +434,8 @@ function OccupiedDayButton(props: React.ComponentProps<typeof CalendarDayButton>
 }
 
 /**
- * UTC here represents the civil date the picker and the inputs speak, never the venue's product
- * timezone: every value rendered from it is formatted with `timeZone: "UTC"` for the same reason.
+ * Use UTC for the civil date the picker and inputs use. Never use the venue product timezone.
+ * Format every rendered value with `timeZone: "UTC"`.
  */
 function civilDate(value: string) {
   return new Date(`${value}T00:00:00Z`);
@@ -461,7 +461,7 @@ function dateLabel(value: string) {
   }).format(civilDate(value));
 }
 
-/** A booking that continues past midnight reads as `23:00 – 24:00` when it ends at range end. */
+/** Show a booking past midnight as `23:00 - 24:00` when it ends at range end. */
 function timeRange(period: { startsAt: string; endsAt: string }) {
   const start = timestampTime(period.startsAt).slice(0, 5);
   const endClock = timestampTime(period.endsAt).slice(0, 5);

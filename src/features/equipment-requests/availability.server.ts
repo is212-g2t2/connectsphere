@@ -17,15 +17,14 @@ import { loadWorkableLines } from "#/features/equipment-requests/equipment.serve
 import { parseAvailabilityCheckInput } from "#/features/equipment-requests/schema";
 import { toLocalMinuteValue } from "#/features/venues/availability";
 
-/** Server-only: a value import of `#/db/schema`. See `equipment.server.ts` for why. */
+/** Server-only because it imports `#/db/schema`. See `equipment.server.ts`. */
 
 type Database = typeof Db;
 
 /**
- * Units of one type free for a window, from the stored reservation periods. Loads the type's
- * `quantityHeld` (skipped when the caller already holds the locked row and passes it), the
- * unavailable sum, and the type's reservations whose stored period overlaps
- * the window (half-open, so touching periods do not), then sweeps for the peak.
+ * Return units available during a window. Read `quantityHeld` unless the caller passes a locked
+ * row. Read unavailable units and reservations that overlap the window. Periods use half-open
+ * bounds, so touching periods do not overlap. Then find the peak.
  */
 export async function loadTypeAvailability(
   database: Pick<Database, "select">,
@@ -33,7 +32,7 @@ export async function loadTypeAvailability(
     equipmentTypeId: number;
     window: { startsAt: string; endsAt: string };
     excludeReservationId?: string;
-    /** Already-read `quantityHeld`, so the reserve path reuses its locked row. */
+    /** The reserve path passes `quantityHeld` from its locked row. */
     quantityHeld?: number;
   }
 ): Promise<{
@@ -95,11 +94,11 @@ export async function loadTypeAvailability(
 }
 
 /**
- * PTR-40 AC1-AC4: units of one type free for the event's approved venue booking. Access is the
- * queue rule `handleUpdateArrangement` uses: the actor must be able to work a line of the event.
+ * PTR-40 AC1-AC4: Return units available during an event's approved venue booking. Use the queue
+ * rule from `handleUpdateArrangement`. The actor must be able to work on at least one event line.
  *
- * The event's own reservations count: with several approved bookings, each window is measured and
- * the tightest (least available; tie goes to the earliest) is reported.
+ * Include the event's own reservations. Check each approved booking window. Report the window with
+ * the least availability. If there is a tie, report the earliest window.
  */
 export async function handleCheckEquipmentAvailability(
   data: unknown,
@@ -158,7 +157,7 @@ export async function handleCheckEquipmentAvailability(
   };
 }
 
-/** PTR-40: the catalogue for the availability picker. */
+/** PTR-40: List equipment types for the availability picker. */
 export async function handleListEquipmentTypes(database: Database) {
   return database
     .select({ id: equipmentTypes.id, name: equipmentTypes.name })

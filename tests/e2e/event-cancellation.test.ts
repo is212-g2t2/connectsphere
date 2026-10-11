@@ -1,8 +1,8 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-53, PTR-54: the Organiser asks for a cancellation, the assigned Coordinator cancels or
-// declines it, and a registered Attendee is told. Every test creates and
-// removes its own event, so the tests run in parallel and never touch the shared demo rows.
+// PTR-53, PTR-54: the Organiser requests a cancellation, the assigned Coordinator cancels or
+// declines it, and a registered Attendee learns the outcome. Each test creates and removes its
+// own event. Tests run in parallel with no shared demo rows.
 import { expect, test } from "@playwright/test";
 import type { Browser, Page } from "@playwright/test";
 import { eq, inArray } from "drizzle-orm";
@@ -53,7 +53,7 @@ test.afterAll(async () => {
   await pool?.end();
 });
 
-/** A confirmed event with registration on and an approved booking, assigned to the Coordinator. */
+/** Confirm an event with registration on. Approve its booking. Assign it to the Coordinator. */
 async function createEvent() {
   const name = `PTR-54 E2E ${crypto.randomUUID().slice(0, 8)}`;
   const [row] = await database
@@ -83,7 +83,8 @@ async function createEvent() {
     .returning({ id: schema.eventRequests.id });
   created.push(row.id);
 
-  // A random far-future day per event keeps parallel tests clear of the venue overlap constraint.
+  // Use a random far-future day per event. Parallel tests stay clear of the venue overlap
+  // constraint.
   const year = 2100 + Math.floor(Math.random() * 800);
   const day = 1 + Math.floor(Math.random() * 28);
   const date = `${year}-05-${String(day).padStart(2, "0")}`;
@@ -142,7 +143,7 @@ test("the Organiser requests cancellation, and the event's status waits (PTR-53)
   expect(await statusOf(id)).toBe("confirmed");
   await organiser.context().close();
 
-  // AC3: the assigned Coordinator gets the request by email as well as in the inbox.
+  // AC3: the assigned Coordinator gets the request by email and in the inbox.
   const body = await waitForEmail(COORDINATOR_EMAIL, `Event cancellation requested: ${name}`);
   expect(body).toContain(name);
 });

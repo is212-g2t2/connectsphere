@@ -1,4 +1,5 @@
-// Mirrors event-registration.test.ts: a local node-postgres drizzle instance, not the app's `#/db`.
+// Use a local node-postgres Drizzle instance, as `event-registration.test.ts` does. Keep the app's
+// `#/db` out of this file.
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
@@ -44,11 +45,11 @@ const attendees = Array.from({ length: 12 }, (_, index) =>
   actor(`vip-attendee-${String(index).padStart(2, "0")}`, "attendee")
 );
 const [guest, secondGuest, thirdGuest, fourthGuest, fifthGuest, sixthGuest] = attendees;
-/** The Attendees who only take normal places, kept apart from the six a test names. */
+/** Attendees who use only standard places. Keep them separate from the six named test users. */
 const placeTakers = attendees.slice(6);
 const users = [organiser, otherOrganiser, coordinator, otherCoordinator, ...attendees];
 
-/** A 4-seat venue, so the ceiling is reached in a few rows, a 2-seat one, and a 10-seat one. */
+/** A 4-seat venue, plus 2-seat and 10-seat venues for capacity checks. */
 const VENUE_NAME = "VIP Test Room";
 const VENUE_CAPACITY = 4;
 const SMALL_VENUE_NAME = "VIP Test Booth";
@@ -56,7 +57,7 @@ const SMALL_VENUE_CAPACITY = 2;
 const HALL_NAME = "VIP Test Hall";
 const VENUE_NAMES = [VENUE_NAME, SMALL_VENUE_NAME, HALL_NAME];
 
-/** Inside the event's registration period. */
+/** A time inside the event's registration period. */
 const insidePeriod = new Date("2026-11-15T04:00:00Z");
 
 async function conflict(attempt: Promise<unknown>) {
@@ -132,7 +133,7 @@ describe("VIP registrations (PTR-111)", () => {
 
   afterEach(async () => {
     if (created.length === 0) return;
-    // Registrations, the change log and notifications cascade with the event.
+    // Event deletion cascades to registrations, the change log, and notifications.
     await database
       .delete(schema.venueRequests)
       .where(inArray(schema.venueRequests.eventId, created));
@@ -140,9 +141,9 @@ describe("VIP registrations (PTR-111)", () => {
     created.length = 0;
   });
 
-  /**
-   * A confirmed event with registration on, assigned to `coordinator`, booked at the 4-seat room.
-   * Its expected attendance is apart from both capacities, so no test can pass on it by accident.
+  /** A confirmed event with registration enabled, assigned to `coordinator`, and booked at the
+   * 4-seat venue. Set expected attendance outside both capacity limits so tests cannot pass by
+   * accident.
    */
   async function createEvent(
     options: {
@@ -192,7 +193,7 @@ describe("VIP registrations (PTR-111)", () => {
     created.push(row.id);
 
     if (options.booked ?? true) {
-      // A distant year per booking keeps the overlap constraint from tripping.
+      // Use a different year for each booking so the overlap constraint does not reject it.
       bookingYear += 1;
       await database.insert(schema.venueRequests).values({
         id: crypto.randomUUID(),
@@ -219,7 +220,7 @@ describe("VIP registrations (PTR-111)", () => {
   const register = (eventId: number, as: SessionUser) =>
     handleRegisterForEvent({ id: eventId }, as, database as never, insidePeriod);
 
-  /** Normal registrations written directly: only the counting is under test where this is used. */
+  /** Insert standard registrations directly. Tests using this helper check only the count. */
   const fillNormal = (eventId: number, takers: SessionUser[]) =>
     database
       .insert(schema.eventRegistrations)
@@ -238,7 +239,7 @@ describe("VIP registrations (PTR-111)", () => {
         )
     ).at(0);
 
-  /** The change log for one Attendee, oldest first. */
+  /** The change log for one Attendee, from oldest to newest. */
   const changesFor = async (eventId: number, attendee: SessionUser) =>
     database
       .select()
@@ -299,7 +300,7 @@ describe("VIP registrations (PTR-111)", () => {
       status: "registered",
       vip: true,
     });
-    // Normal registration is still full at its own capacity.
+    // Standard registration still reaches its own capacity limit.
     expect(await conflict(register(event.id, secondGuest))).toBe(EVENT_FULL_MESSAGE);
   });
 
@@ -346,9 +347,9 @@ describe("VIP registrations (PTR-111)", () => {
   test("makes a VIP for the venue's last place wait for the registration ahead of it, then refuses it", async () => {
     const event = await createEvent({ capacity: 4 });
     await fillNormal(event.id, [fifthGuest, sixthGuest, thirdGuest]);
-    // A second connection plays the Attendee's registration ahead: it holds the event row lock
-    // and fills the last venue place, uncommitted. If the VIP handler drops the lock, it counts
-    // three places, adds the VIP too, and the venue ends over capacity.
+    // Use a second connection to register an Attendee first. It holds the event row lock and fills
+    // the last venue place without committing. If the VIP handler drops the lock, it counts only
+    // three places, adds the VIP, and exceeds venue capacity.
     const client = await pool.connect();
     let adding: Promise<unknown> | undefined;
     try {
@@ -400,7 +401,7 @@ describe("VIP registrations (PTR-111)", () => {
       expect.objectContaining({ change: "added", actorId: organiser.id }),
       expect.objectContaining({ change: "removed", actorId: coordinator.id }),
     ]);
-    // The venue was full; the freed place takes another VIP.
+    // The venue was full. Another VIP can use the freed place.
     await addVip(event.id, thirdGuest);
     expect(await registrationOf(event.id, thirdGuest)).toMatchObject({ status: "registered" });
   });
@@ -460,7 +461,7 @@ describe("VIP registrations (PTR-111)", () => {
 
     expect(await conflict(addVip(event.id, guest))).toBe(VIP_ALREADY_REGISTERED_MESSAGE);
     expect(await conflict(addVip(event.id, secondGuest))).toBe(VIP_ALREADY_REGISTERED_MESSAGE);
-    // And a VIP cannot take a normal place on top.
+    // A VIP cannot also take a standard place.
     expect(await conflict(register(event.id, secondGuest))).toBe(ALREADY_REGISTERED_MESSAGE);
   });
 
@@ -521,11 +522,11 @@ describe("VIP registrations (PTR-111)", () => {
     expect(await search(event.id, "VIP-ATTENDEE-01 NAME")).toEqual([
       { attendeeId: secondGuest.id, name: secondGuest.name, email: secondGuest.email },
     ]);
-    // A pasted tab is a space.
+    // Treat a pasted tab as a space.
     expect(
       (await search(event.id, "vip-attendee-00\tname")).map(found => found.attendeeId)
     ).toEqual([guest.id]);
-    // The assigned Coordinator searches the same way.
+    // The assigned Coordinator gets the same search results.
     expect(
       (await search(event.id, "attendee-02@X.TEST", coordinator)).map(found => found.attendeeId)
     ).toEqual([thirdGuest.id]);
@@ -586,7 +587,7 @@ describe("VIP registrations (PTR-111)", () => {
 
     const found = (await search(event.id, "vip-")).map(account => account.attendeeId);
 
-    // A removed VIP holds no registration, so it can be found and added again. Ten at most.
+    // A removed VIP has no registration and can be added again. Allow at most ten.
     expect(found).toEqual([
       thirdGuest.id,
       fourthGuest.id,
@@ -622,7 +623,7 @@ describe("VIP registrations (PTR-111)", () => {
       expect(rows.map(row => row.attendeeId)).toEqual([fifthGuest.id, guest.id, thirdGuest.id]);
     }
 
-    // The two VIPs leave two of the four venue places; the one normal registration has taken one.
+    // Two VIPs use two of four venue places. One standard registration uses one more.
     const [attendeeView] = await handleListEvents(
       { eventId: event.id },
       sixthGuest,
@@ -663,11 +664,11 @@ describe("VIP registrations (PTR-111)", () => {
     const event = await createEvent({ capacity: 4 });
     await fillNormal(event.id, [fifthGuest, sixthGuest]);
 
-    // 2 normal registrations against min(4, 4 − 1) = 3 places: not yet at a mark.
+    // Two standard registrations are below min(4, 4 − 1) = 3 places.
     await addVip(event.id, guest);
     expect(await thresholdNotices(event.id)).toEqual([]);
 
-    // Against min(4, 4 − 2) = 2 places, the 2 normal registrations fill it.
+    // Two standard registrations fill min(4, 4 − 2) = 2 places.
     await addVip(event.id, secondGuest);
     const notices = await thresholdNotices(event.id);
     expect(
@@ -693,7 +694,7 @@ describe("VIP registrations (PTR-111)", () => {
   });
 
   test("tells the full mark when a VIP moves the count onto it from the 90% mark", async () => {
-    // 9 normal registrations at a 10-seat venue are 90% of a limit of 10; a VIP makes the limit 9.
+    // Nine standard registrations use 90% of the 10-seat limit. A VIP reduces that limit to nine.
     const event = await createEvent({ capacity: 10, venue: hallId });
     await fillNormal(event.id, [...attendees.slice(1, 6), ...placeTakers.slice(0, 4)]);
 
@@ -706,7 +707,7 @@ describe("VIP registrations (PTR-111)", () => {
   });
 
   test("tells nothing when a VIP leaves the limit where it was", async () => {
-    // The registration capacity of 2 binds, so a VIP at the 4-seat venue does not move the limit.
+    // The registration limit of two applies, so a VIP at the 4-seat venue does not change it.
     const event = await createEvent({ capacity: 2 });
     await fillNormal(event.id, [fifthGuest, sixthGuest]);
 

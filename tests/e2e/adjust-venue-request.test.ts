@@ -1,7 +1,7 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-35: from a rejection carrying a suggestion, the Coordinator opens the suggested venue
-// pre-filled, sends the adjusted request, and still sees the original rejection on the card.
+// PTR-35: The Coordinator opens the suggested venue with its form filled in, sends an adjusted
+// request, and still sees the original rejection on the card.
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { eq, inArray } from "drizzle-orm";
@@ -74,7 +74,7 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
       })
       .returning({ id: schema.eventRequests.id });
     eventId = event.id;
-    // The rejection as PTR-34 records it: a reason plus a full suggestion of the other room.
+    // PTR-34 records the rejection with a reason and a full suggestion for another room.
     await database.insert(schema.venueRequests).values({
       id: randomUUID(),
       eventId,
@@ -125,8 +125,7 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     expect(rows.map(row => row.status).toSorted()).toEqual(["pending", "rejected"]);
     expect(rows.find(row => row.status === "pending")?.venueId).toBe(venueIds[1]);
 
-    // AC3 and AC4: the event page shows the pending request and still the original
-    // rejection; the event is still submitted.
+    // AC3 and AC4: show the pending request and original rejection. Keep the event submitted.
     await page.goto(`/events/${eventId}`);
     await waitForHydration(page);
     const reloaded = page.locator("section#venue");

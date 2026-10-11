@@ -2,13 +2,13 @@ import { z } from "zod";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 /**
- * Pure data and Zod only: routes and the form import this module, so per AGENTS.md nothing
- * here may reach `#/db/schema` — the table definitions import *types* from here instead.
+ * Routes and forms import this module, so keep it free of `#/db/schema`. Table definitions may
+ * import types from here.
  */
 
 /**
- * The room layouts a venue may declare it supports (PTR-26 criterion 2). The team's own
- * VBOOK-8 story lists these six; `VenueInput` is what refuses a value outside them.
+ * The six room layouts a venue may support (PTR-26 criterion 2). The VBOOK-8 story defines this
+ * list, and `VenueInput` rejects other values.
  */
 export const VENUE_LAYOUTS = [
   "theatre",
@@ -21,17 +21,13 @@ export const VENUE_LAYOUTS = [
 export type VenueLayout = (typeof VENUE_LAYOUTS)[number];
 
 /**
- * What each layout is called on screen. It lives here, next to the values it labels, rather than
- * in the form: the read-only `venue-details.tsx` needs the same words, and importing them from
- * `venue-form.tsx` drags that module — and `@tanstack/react-form` with it — into the read-only
- * path's import graph.
+ * Keep layout labels here so the form and read-only view can use the same words. Importing them
+ * from `venue-form.tsx` would also load `@tanstack/react-form` in the read-only view.
  */
 /**
- * The statuses an assigned Coordinator is still finding a venue for. `submitted` alone refused
- * the very events a Coordinator searches from: a pick-up moves a request to `under_review`, a
- * clarification to `awaiting_organiser`, a decision to `approved` and on to `planning`. A draft,
- * a rejection and anything confirmed or beyond is not looking for a venue. Client-safe so the
- * dashboard offers the search only where it will be answered.
+ * Statuses where an assigned Coordinator can search for a venue: `submitted`, `under_review`,
+ * `awaiting_organiser`, `approved`, and `planning`. Exclude drafts, rejections, and later states.
+ * Keep this list client-safe so the dashboard only offers a search that can return events.
  */
 export const SEARCHABLE_EVENT_STATUSES: readonly EventRequestStatus[] = [
   "submitted",
@@ -51,9 +47,8 @@ export const LAYOUT_LABELS: Record<VenueLayout, string> = {
 };
 
 /**
- * Every layout named in free text, in `VENUE_LAYOUTS` order. Matching is by whole word, so
- * "another layout" names nothing and "Theatre seating" names theatre. A requested layout matches
- * a venue when the venue supports at least one of the layouts named.
+ * Layouts named in free text, in `VENUE_LAYOUTS` order. Match whole words: "another layout" names
+ * nothing, but "Theatre seating" names theatre. A venue matches if it supports one named layout.
  */
 export function parseLayouts(value: string): VenueLayout[] {
   const words = new Set(value.toLocaleLowerCase("en").split(/[^\p{L}\p{N}]+/u));
@@ -63,7 +58,7 @@ export function parseLayouts(value: string): VenueLayout[] {
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
-/** Here for the same reason as `LAYOUT_LABELS`: the read-only view spells the days out too. */
+/** The read-only view also needs the weekday labels. */
 export const WEEKDAY_LABELS: Record<Weekday, string> = {
   mon: "Monday",
   tue: "Tuesday",
@@ -75,8 +70,8 @@ export const WEEKDAY_LABELS: Record<Weekday, string> = {
 };
 
 /**
- * One opening range per weekday, `null` when the venue is closed that day. Times are `"HH:MM"`
- * wall-clock, no offset, so a calendar (PTR-28) compares them to an event's proposed times without any timezone arithmetic.
+ * One opening range per weekday, or `null` when the venue is closed. Times use `HH:MM` wall-clock
+ * values without an offset. The calendar (PTR-28) compares them with proposed event times.
  */
 export interface OpeningRange {
   opens: string;
@@ -94,8 +89,8 @@ export const NAME_TOO_LONG_MESSAGE = `Venue name must be ${VENUE_NAME_MAX_LENGTH
 export const LOCATION_REQUIRED_MESSAGE = "Enter the venue's location";
 export const LOCATION_TOO_LONG_MESSAGE = `Location must be ${LOCATION_MAX_LENGTH} characters or fewer`;
 export const CAPACITY_MESSAGE = "Maximum capacity must be a positive whole number";
-// Criterion 3's sentence would be a lie about 3_000_000_000, which *is* a positive whole number.
-// The int4 ceiling is a storage limit, not a criterion-3 refusal, so it says so in its own words.
+// 3_000_000_000 is a positive whole number, so it must fail the int4 limit, not criterion 3.
+// Keep the storage limit separate so each refusal describes the right problem.
 export const CAPACITY_TOO_LARGE_MESSAGE = "Maximum capacity is larger than this record can store";
 export const TAG_MESSAGE = `Each entry must be between 1 and ${TAG_MAX_LENGTH} characters`;
 export const TAGS_COUNT_MESSAGE = `List ${TAGS_MAX_COUNT} entries or fewer`;
@@ -105,7 +100,7 @@ export const CLOSES_BEFORE_OPENS_MESSAGE = "Closing time must be later than open
 export const DUPLICATE_NAME_MESSAGE = "A venue with this name already exists";
 export const VENUE_ID_MESSAGE = "Choose a venue";
 
-/** What `<input type="time">` submits: 24-hour `HH:MM`, no seconds. Shared with venue requests. */
+/** `<input type="time">` submits 24-hour `HH:MM` values without seconds. Venue requests use this too. */
 export const TIME_SHAPE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const Time = z.string().regex(TIME_SHAPE, TIME_MESSAGE);
 
@@ -117,11 +112,9 @@ const OpeningRangeSchema = z
   });
 
 /**
- * Every weekday present, each either a range or `null` (closed). Fixed-width `HH:MM` strings
- * compare lexicographically as times, which is why `closes > opens` above is a string
- * comparison and no `Date` is ever built — the same reasoning as event-request dates.
- * Spelled out per day rather than built from `WEEKDAYS` so the inferred type is exactly
- * `OperatingHours` with no cast.
+ * Require every weekday. Use a range or `null` for a closed day. Fixed-width `HH:MM` strings
+ * sort as times, so compare `closes > opens` as strings. Build no `Date` object, as with
+ * event-request dates. Spell out each day. The inferred type is then `OperatingHours` with no cast.
  */
 const Day = OpeningRangeSchema.nullable();
 export const OperatingHoursSchema = z.object({
@@ -135,10 +128,9 @@ export const OperatingHoursSchema = z.object({
 }) satisfies z.ZodType<OperatingHours>;
 
 /**
- * A free-text list (facilities, accessibility features): trimmed, blanks dropped, duplicates
- * collapsed, so `"Projector, projector, "` stores one entry. The pipe order matters — the
- * bounds are checked on what will actually be stored, which is also why no lower bound sits in
- * the pipe: the transform has already filtered every empty string out.
+ * Clean a free-text list such as facilities. Trim each entry, drop blanks, and collapse
+ * duplicates, so `"Projector, projector, "` stores one entry. Check bounds after the transform,
+ * so the pipe validates stored values. Skip a lower bound because the transform removes blanks.
  */
 const TagList = z
   .array(z.string())
@@ -148,7 +140,7 @@ const TagList = z
   );
 
 export const VenueInput = z.object({
-  /** Absent when creating; carried when editing so the save updates that row (PTR-26 AC1). */
+  /** Omit `id` when creating. Include it when editing so the save updates that row (PTR-26 AC1). */
   id: z.int32().positive().optional(),
   name: z
     .string()
@@ -160,12 +152,11 @@ export const VenueInput = z.object({
     .trim()
     .min(1, LOCATION_REQUIRED_MESSAGE)
     .max(LOCATION_MAX_LENGTH, LOCATION_TOO_LONG_MESSAGE),
-  // Criterion 3: not a float, not zero, not negative, not a string that happens to look numeric.
-  // `int32`, not `int`, because `venues.max_capacity` is an int4 column: 3_000_000_000 is a
-  // positive whole number, so a plain `int` would pass it to Postgres, which answers with a
-  // numeric-overflow (22003) driver error that `rethrowReadable` has no way to turn into words.
-  // The ceiling answers in its own words: `too_big` is the storage limit, every other issue is
-  // criterion 3, whose sentence would be false about a number that is merely too large.
+  // Criterion 3: reject floats, zero, negatives, and numeric-looking strings.
+  // `venues.max_capacity` is an int4 column, so use `int32`. A plain `int` passes 3_000_000_000
+  // to Postgres, and Postgres returns numeric-overflow error 22003. `rethrowReadable` cannot turn
+  // that driver error into words. Report `too_big` for the storage limit and criterion 3 for other
+  // issues, so each refusal describes the right problem.
   maxCapacity: z
     .int32({
       error: issue => (issue.code === "too_big" ? CAPACITY_TOO_LARGE_MESSAGE : CAPACITY_MESSAGE),
@@ -257,11 +248,10 @@ export const VenueFormInput = VenueFormShape.transform((values): z.input<typeof 
 }).pipe(VenueInput);
 
 /**
- * Every way this can fail carries the same message — on the field *and* on the object, since a
- * caller that posts `"7"` rather than `{ id: 7 }` trips the object check and would otherwise
- * have Zod's own "expected object, received string" rethrown at it by `parseVenueId`.
- * `int32` because `venues.id` is an int4 column: an id past that range reaches the `where`
- * clause and Postgres answers 22003 instead of "no such venue".
+ * Use the same message for every field and object validation error. A caller may send `"7"`
+ * instead of `{ id: 7 }`; the shared message avoids Zod's raw object error in `parseVenueId`.
+ * Use `int32` because `venues.id` is an int4 column. A larger id would cause Postgres error 22003
+ * in the `where` clause instead of "no such venue".
  */
 export const VenueIdInput = z.object(
   { id: z.int32({ error: VENUE_ID_MESSAGE }).positive(VENUE_ID_MESSAGE) },
@@ -328,9 +318,8 @@ const OptionalSearchText = z.preprocess(
 const OptionalSearchTime = z.preprocess(blankToUndefined, Time.optional());
 
 /**
- * URL-shaped venue filters for PTR-29. Strings are kept as entered so an event's free-text
- * requirements can be shown back to the Coordinator; the suitability evaluator normalises them
- * when it compares the venue's structured tags and layout values.
+ * URL filters for venue search (PTR-29). Keep strings as entered so the Coordinator can see the
+ * event's free-text requirements. The suitability evaluator normalizes them before comparison.
  */
 export const VenueSearchSchema = z
   .object({
@@ -387,7 +376,7 @@ export const VenueSearchSchema = z
         message: VENUE_SEARCH_TIME_ORDER_MESSAGE,
       });
     }
-    // A typo'd layout would otherwise silently match no venue, which reads as "none available".
+    // A typo must not silently match nothing. An empty result reads as "none available".
     if (value.layout !== undefined && parseLayouts(value.layout).length === 0) {
       ctx.addIssue({ code: "custom", path: ["layout"], message: LAYOUT_MESSAGE });
     }
@@ -427,10 +416,9 @@ export const VenueSearchFormInput = VenueSearchFormShape.transform(
 ).pipe(VenueSearchSchema);
 
 /**
- * Whether a start/end pair names a window running past midnight. `VenueSearchSchema` still accepts
- * `22:00`→`02:00` when a later `endDate` makes the range order valid; suitability refuses it,
- * because "10:00 to 12:00 on each day" is the only shape a daily hosting window can take. The UI
- * imports this to explain the refusal rather than showing a silent zero.
+ * Check whether a start/end pair crosses midnight. `VenueSearchSchema` accepts `22:00` to `02:00`
+ * when a later `endDate` makes the range valid. Suitability rejects it because each day needs one
+ * daily window, such as `10:00` to `12:00`. The UI uses this result to explain the refusal.
  */
 export function crossesMidnight(filters: Pick<VenueSearch, "startTime" | "endTime">) {
   return (
@@ -440,13 +428,13 @@ export function crossesMidnight(filters: Pick<VenueSearch, "startTime" | "endTim
   );
 }
 
-/** Invalid hand-edited search parameters open a blank form instead of a route error. */
+/** Open a blank form for invalid hand-edited search parameters. Do not raise a route error. */
 export function parseVenueSearch(input: unknown): VenueSearch {
   const parsed = VenueSearchSchema.safeParse(input);
   return parsed.success ? parsed.data : {};
 }
 
-/** Server-function and form boundary: return typed filters or the first readable refusal. */
+/** Parse server-function and form input. Return typed filters or the first readable refusal. */
 export function parseVenueSearchRequest(input: unknown): VenueSearch {
   const parsed = VenueSearchSchema.safeParse(input);
   if (!parsed.success) {
@@ -456,10 +444,9 @@ export function parseVenueSearchRequest(input: unknown): VenueSearch {
 }
 
 /**
- * The calendar selection: a venue and an inclusive civil-date range (PTR-28 criterion 1).
- * `z.iso.date()` already rejects a date that does not exist (`2026-02-30`), and the fixed-width
- * values compare as strings, as `OperatingHours` does. Separate from `VenueInput` because this is
- * a read, not a record: nothing here is ever written back.
+ * A venue and an inclusive date range for the calendar (PTR-28 criterion 1). `z.iso.date()` rejects
+ * dates such as `2026-02-30`. Fixed-width values compare as strings, as in `OperatingHours`.
+ * Keep this separate from `VenueInput`: the calendar reads these values and never saves them.
  */
 const AvailabilityFields = z.object({
   venueId: z.coerce
@@ -495,9 +482,9 @@ export const AvailabilitySelectionFormInput = AvailabilitySelectionFormShape.tra
 ).pipe(AvailabilitySelectionSchema);
 
 /**
- * The same fields as search parameters, each optional: the page opens before a venue is chosen,
- * and a visitor may hand-edit the URL. `validateSearch` uses this so a partial selection is a
- * blank form rather than a route error.
+ * Describe optional calendar search fields. The page opens before a venue is chosen, and visitors
+ * can edit the URL. `validateSearch` uses this schema, so partial input opens a blank form. It
+ * raises no route error.
  */
 export const AvailabilitySearchSchema = AvailabilityFields.partial();
 export type AvailabilitySearch = z.infer<typeof AvailabilitySearchSchema>;
@@ -507,7 +494,7 @@ export function parseAvailabilitySearch(input: unknown): AvailabilitySearch {
   return parsed.success ? parsed.data : {};
 }
 
-/** For the server function's validator: a genuine selection or the first reason it is not one. */
+/** Validate a calendar selection for the server function. Return the selection or the first reason it fails. */
 export function parseAvailabilityRequest(input: unknown): AvailabilitySelection {
   const parsed = AvailabilitySelectionSchema.safeParse(input);
   if (!parsed.success) {
@@ -516,13 +503,13 @@ export function parseAvailabilityRequest(input: unknown): AvailabilitySelection 
   return parsed.data;
 }
 
-/** For the loader: `null` when the search does not yet spell a complete range. */
+/** Support the loader. Return `null` when the search spells no complete range. */
 export function parseAvailabilitySelection(input: unknown): AvailabilitySelection | null {
   const parsed = AvailabilitySelectionSchema.safeParse(input);
   return parsed.success ? parsed.data : null;
 }
 
-/** A venue open Monday to Friday, closed at the weekend — the form's starting point. */
+/** Start the form with a venue open Monday to Friday and closed at the weekend. */
 export const DEFAULT_OPERATING_HOURS: OperatingHours = {
   mon: { opens: "08:00", closes: "22:00" },
   tue: { opens: "08:00", closes: "22:00" },

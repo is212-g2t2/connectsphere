@@ -6,8 +6,7 @@ import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/reset-password")({
   head: () => createSeoHead({ title: "Reset Password — ConnectSphere", noindex: true }),
-  // Kept as strings: a hand-typed `?token=` or `?error=` is for the form to explain, not for the
-  // route's error boundary to refuse.
+  // Keep these as strings. The form explains hand-typed `?token=` or `?error=` values; the route should not reject them.
   validateSearch: z.object({ token: z.string().optional(), error: z.string().optional() }),
   component: () => <ResetPasswordPage {...Route.useSearch()} />,
 });

@@ -1,8 +1,8 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-41: Technical Support reserves equipment from the event page lines section. Every test
-// creates its own type, venue, booking and event through its own pool and removes them again,
-// so it never touches the shared demo rows and can run in parallel.
+// PTR-41: Technical Support reserves equipment from the event page lines section. Each test
+// creates its own type, venue, booking, and event through its own pool and removes them again.
+// It touches no shared demo row. Tests run in parallel.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -35,7 +35,7 @@ test.afterAll(async () => {
 });
 
 test.afterEach(async () => {
-  // Events cascade to bookings, lines and reservations; reservations restrict their type.
+  // Events cascade to bookings, lines, and reservations. Reservations restrict their type.
   if (eventIds.length > 0) {
     await database.delete(schema.eventRequests).where(inArray(schema.eventRequests.id, eventIds));
   }
@@ -57,7 +57,7 @@ async function createType(quantityHeld: number) {
   return row;
 }
 
-/** An approved, equipment-submitted event on 1 Jan 2030 with one requested line. */
+/** Approve an event on 1 Jan 2030 with equipment submitted. Request one line. */
 async function createEvent(typeName: string, typeId: number, quantity: number) {
   const [row] = await database
     .insert(schema.eventRequests)
@@ -100,7 +100,7 @@ async function createEvent(typeName: string, typeId: number, quantity: number) {
   return { id: row.id, name: row.name, item: typeName };
 }
 
-/** An approved booking of `eventId` on its own venue (the overlap constraint is per venue). */
+/** Approve a booking of `eventId` on its own venue. The overlap constraint applies per venue. */
 async function addBooking(eventId: number, [start, end]: [string, string]) {
   const [venue] = await database
     .insert(schema.venues)

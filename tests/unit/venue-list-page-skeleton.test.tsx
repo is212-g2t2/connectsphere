@@ -3,10 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { VenueListPageSkeleton } from "#/features/venues/components/venue-list-page-skeleton";
 
-/**
- * The pending component mirrors the venue list: the wide shell and the five-column results table.
- * The search card is role-gated, so the skeleton must not draw it (the `DashboardPageSkeleton`
- * rule); these assertions hold that shape even though nothing has text.
+/** The pending component must match the venue list's wide shell and five-column table. The search
+ * card is role-gated, so the skeleton must not show it. These tests keep that shape when the
+ * skeleton has no text.
  */
 describe("VenueListPageSkeleton", () => {
   it("draws the wide loading shell with the five-column results table", () => {

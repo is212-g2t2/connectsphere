@@ -32,10 +32,9 @@ const VALUES: VenueValues = {
   operatingHours: DEFAULT_OPERATING_HOURS,
 };
 
-/**
- * The page's only job is to wrap `VenueForm` and turn its `onSave` into the save-then-navigate
- * hand-off; the form's own fields are covered by `venue-form.test.tsx`. Standing the form in as a
- * button that calls the same `onSave` the page passed makes both hand-off outcomes observable.
+/** The page only wraps `VenueForm` and turns its `onSave` into the save-then-navigate hand-off.
+ * `venue-form.test.tsx` covers the form's own fields. A stub button calls the same `onSave` the
+ * page passed. Both hand-off outcomes stay observable.
  */
 vi.mock("#/features/venues/components/venue-form", () => ({
   VenueForm: ({
@@ -49,8 +48,8 @@ vi.mock("#/features/venues/components/venue-form", () => ({
       type="button"
       onClick={() => {
         const save = onSave(VALUES);
-        // Observed here so a refusal is not reported as an unhandled rejection while the test is
-        // still awaiting the click; the test still asserts on the original promise.
+        // Observe the promise here. A refusal never reports as an unhandled rejection while the
+        // test awaits the click. The test still asserts on the original promise.
         save.catch(() => undefined);
         onSaveCalls.push(save);
       }}

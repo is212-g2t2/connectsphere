@@ -1,6 +1,5 @@
-# Monthly spend cap. Attached to the billing account and filtered to this
-# project, so it follows the project even if the number changes. Alert
-# thresholds fire at 50%, 90% and 100% of 10 SGD.
+# Monthly billing budget for this project. Attach it to the billing account and filter by project.
+# Alerts fire at 50%, 90%, and 100% of 10 SGD.
 resource "google_billing_budget" "connectsphere" {
   billing_account = var.billing_account_id
   display_name    = "ConnectSphere monthly (SGD 10)"

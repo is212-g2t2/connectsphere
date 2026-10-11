@@ -48,7 +48,7 @@ import {
 } from "#/features/events/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 
-/** How long the typing must pause before the search runs, so each keystroke does not run one. */
+/** Time in ms to wait after typing stops before the search runs. */
 const SEARCH_DEBOUNCE_MS = 300;
 
 const NAMED_REFUSALS = new Set([
@@ -59,17 +59,17 @@ const NAMED_REFUSALS = new Set([
   REGISTRATION_NOT_OPEN_MESSAGE,
 ]);
 
-/** The server's named refusal, or "" for any other failure, which the caller words generically. */
+/** Return the server's named refusal. Return "" for any other failure. The caller words those generically. */
 function refusalOf(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   return NAMED_REFUSALS.has(message) || message.startsWith(EVENT_FULL_MESSAGE) ? message : "";
 }
 
 /**
- * PTR-111: the dialog that adds a VIP registration to a published event, for its Organiser and
- * its assigned Coordinator. The registrations section renders it beside the attendee table's
- * filters. The VIPs are counted apart from the normal registrations (AC4). The server checks
- * the venue places when a VIP is added, and its refusal names the venue capacity (AC3).
+ * PTR-111: Add a VIP registration to a published event with this dialog. Its Organiser and
+ * assigned Coordinator use it. The registrations section renders it beside the attendee table's
+ * filters. Count VIPs apart from normal registrations (AC4). The server checks the venue places
+ * on add. Its refusal names the venue capacity (AC3).
  */
 export function AddVipDialog({ eventId }: { eventId: number }) {
   return (
@@ -99,7 +99,7 @@ type SearchState =
   | { status: "done"; query: string; attendees: VipAttendee[] }
   | { status: "error"; error: string };
 
-/** What the status line says about a search, for sighted users and screen readers alike. */
+/** Status-line text for a search, for sighted users and screen readers alike. */
 function searchStatus(search: SearchState): string | null {
   if (search.status === "searching") return "Searching…";
   if (search.status !== "done") return null;
@@ -112,17 +112,17 @@ function searchStatus(search: SearchState): string | null {
 }
 
 /**
- * AC1: find an Attendee account by part of its name or email, and add it as a VIP. The search
- * runs when the typing pauses, or at once on Enter.
+ * AC1: Find an Attendee account by part of its name or email, and add it as a VIP. The search
+ * runs when typing pauses, or at once on Enter.
  */
 function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
   const router = useRouter();
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
   const input = useRef<HTMLInputElement>(null);
-  // Each search takes the next number, and only the latest may show its answer. A slow answer to
-  // an older query therefore never replaces the answer to a newer one.
+  // Number each search. Only the latest shows its answer. A slow answer to an older query never
+  // replaces a newer answer.
   const latest = useRef(0);
-  // The term of the search that ran last, so the paused-typing search does not repeat an Enter.
+  // The term of the last search run. The paused-typing search does not repeat it.
   const ran = useRef<string | null>(null);
 
   async function runSearch(term: string) {
@@ -148,19 +148,19 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
 
   const form = useForm({
     defaultValues: { query: "" },
-    // Enter searches at once; the schema refuses a query too short to search, in its own words.
+    // Enter searches at once. The schema refuses a too-short query in its own words.
     validators: { onSubmit: VipSearchInput.omit({ id: true }) },
     onSubmit: ({ value }) => runSearch(value.query.trim()),
   });
 
-  /** Each keystroke drops any answer still on its way, which is for the query as it was. */
+  /** Each keystroke drops any answer still on its way. That answer belongs to the old query. */
   function typed(value: string) {
     latest.current += 1;
     ran.current = null;
     if (value.trim().length < VIP_SEARCH_MIN_LENGTH) setSearch({ status: "idle" });
   }
 
-  /** After an addition the search starts again, unless the user has typed a new one since. */
+  /** After an addition the search starts again, unless the user typed a new query since. */
   function added(term: string) {
     if (form.getFieldValue("query").trim() === term) {
       form.reset();
@@ -222,7 +222,7 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
         </form>
       </search>
 
-      {/* Mounted throughout, and only visually hidden while empty, so a screen reader announces
+      {/* Keep this mounted throughout. Hide it visually while empty. A screen reader then announces
           each change to it. */}
       <output className="block body-sm text-muted-foreground empty:sr-only">
         {searchStatus(search)}
@@ -248,7 +248,7 @@ function VipSearch({ eventId, inputId }: { eventId: number; inputId: string }) {
   );
 }
 
-/** One search result and its addition as a VIP. A refusal stays beside the Attendee it names. */
+/** Show one search result with its add-as-VIP action. Keep a refusal beside the Attendee it names. */
 function CandidateRow({
   eventId,
   attendee,
@@ -298,9 +298,8 @@ function CandidateRow({
 }
 
 /**
- * AC6: the removal of one VIP registration. The removal frees a venue place that a normal
- * registration can take at once, so it is confirmed first. The registrations section renders it
- * as the action of a VIP attendee row.
+ * AC6: Remove one VIP registration. The removal frees a venue place for a normal registration.
+ * Confirm it first. The registrations section renders it as a VIP row action.
  */
 export function RemoveVipButton({ eventId, vip }: { eventId: number; vip: VipAttendee }) {
   const router = useRouter();
@@ -313,7 +312,8 @@ export function RemoveVipButton({ eventId, vip }: { eventId: number; vip: VipAtt
       await router.invalidate();
       const refusal = refusalOf(error);
       if (!refusal) throw new Error("", { cause: error });
-      // The reload can take this row away, so a named refusal goes in a toast, which outlives it.
+      // The reload can take this row away. Show a named refusal in a toast. The toast outlives
+      // the row.
       setDialogOpen(false);
       toast.error(refusal);
       return;

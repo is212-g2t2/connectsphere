@@ -15,11 +15,8 @@ function gate<T>() {
   return { promise, resolve, reject };
 }
 
-/**
- * PTR-71: the lifecycle these assertions stand on is React's, not a set of `useState` flags moved
- * in step by hand. Each one names a way the hand-rolled version drifted — a flag left set after a
- * rejection, an unhandled promise, an id that only reached the next run if a caller remembered to
- * put it there.
+/** PTR-71: React owns the lifecycle. These tests cover bugs in the old `useState` version: a flag
+ * left set after rejection, an unhandled promise, and an id lost between runs.
  */
 describe("useMutation", () => {
   it("starts idle with nothing in flight", () => {
@@ -154,7 +151,7 @@ describe("useMutation", () => {
       await result.current[1]("third");
     });
 
-    // The retry still carried the row, so it was an update rather than a second insert.
+    // The retry still carries the row, so it updates the row with no second insert.
     expect(run).toHaveBeenLastCalledWith("third", "row-1");
     expect(result.current[0]).toEqual({ status: "success", data: "row-1", error: undefined });
   });

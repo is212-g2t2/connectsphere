@@ -15,9 +15,8 @@ import { raiseNotifications } from "#/features/notifications/raise.server";
 type Database = typeof Db;
 
 /**
- * PTR-51: the requests in the order the Organiser raised them, with the outcome PTR-52 recorded.
- * The Organiser's page and the Coordinator's page both show them, so the processor's id stays out
- * of the projection as it does for a cancellation request.
+ * Return change requests in the order the Organiser raised them, with their outcomes (PTR-51/52).
+ * Both the Organiser and Coordinator pages show them, so the projection omits the processor's id.
  */
 export async function listEventChangeRequests(
   eventRequestId: number,
@@ -40,10 +39,9 @@ export async function listEventChangeRequests(
 }
 
 /**
- * Records an owned post-submission request without writing any `event_requests` field. The row lock
- * keeps a concurrent completion or cancellation from passing the eligibility check and committing
- * beside the new request. An assigned Coordinator receives a notification in the same transaction;
- * an unassigned event already remains visible in the unassigned queue.
+ * Record an owned request after submission without changing an `event_requests` field. The row
+ * lock prevents completion or cancellation from passing the eligibility check at the same time.
+ * Notify an assigned Coordinator in the same transaction. Unassigned events remain in the queue.
  */
 export async function handleRaiseEventChangeRequest(
   data: unknown,

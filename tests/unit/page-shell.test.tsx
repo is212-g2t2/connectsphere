@@ -11,15 +11,15 @@ vi.mock("@sentry/tanstackstart-react", () => ({
   captureException: vi.fn<(error: unknown) => void>(),
 }));
 
-// The boundaries render the real document shell; this stands it in so the assertions stay on the
-// Sentry reporting and the error copy rather than on `<html>` nesting.
+// The boundaries render the real document shell. This mock keeps assertions on Sentry reports and
+// error text, not on nested `<html>` elements.
 vi.mock("#/components/layout/root-document", () => ({
   RootDocument: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
 /**
- * The shared shell implements docs/DESIGN.md §Layout: one centered column at 880px or 1120px,
- * and a 1.6:1 two-column from 860px up when a sidebar is present.
+ * The shared shell follows `docs/DESIGN.md` §Layout: a centered 880px or 1120px column, or a
+ * 1.6:1 two-column layout from 860px when a sidebar is present.
  */
 describe("Page", () => {
   it("centers the 880px column by default width and the 1120px wide column", () => {
@@ -78,8 +78,7 @@ describe("RootErrorPage", () => {
   it("reports the failure during SSR too, where no effect can run", () => {
     const error = new Error("ssr-kaboom");
 
-    // `renderToString` reaches the branch a browser render cannot: without a window the capture
-    // cannot wait for the effect, so the page reports synchronously.
+    // Without `window`, `renderToString` cannot wait for the effect. This branch reports at once.
     vi.stubGlobal("window", undefined);
     try {
       renderToString(<RootErrorPage error={error} reset={vi.fn<() => void>()} />);

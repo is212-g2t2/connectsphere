@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SignupForm } from "#/features/auth/components/signup-form";
 
 const mockNavigate = vi.fn<() => void>();
-// PTR-73: signing up puts the header's user on route context, so the form re-resolves it.
+// PTR-73: Sign-up updates the route context, so the form resolves the header's user again.
 const mockInvalidate = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
 
 vi.mock("@tanstack/react-router", () => ({
@@ -25,7 +25,7 @@ vi.mock("#/lib/auth-client", () => ({
   },
 }));
 
-// "Password" and "Confirm password" both match /password/i, so every lookup here is anchored.
+// Both labels match `/password/i`, so each query uses an exact label.
 const labels = {
   name: /^name$/i,
   email: /^email$/i,
@@ -40,9 +40,8 @@ const VALID = {
   password: "long-enough-pass1!",
 };
 
-/**
- * Fills every field with something valid, so a test only has to say what it wants to be wrong.
- * `confirmPassword` follows `password` unless a test overrides it explicitly.
+/** Fill every field with valid data. A test only needs to set the value it wants to make invalid.
+ * `confirmPassword` matches `password` unless a test overrides it.
  */
 async function fillSignupForm(
   user: ReturnType<typeof userEvent.setup>,
@@ -54,8 +53,8 @@ async function fillSignupForm(
     ...overrides,
   };
 
-  // Sequential on purpose — user-event dispatches real keystrokes, so typing these in parallel
-  // would interleave them across fields.
+  // Type in order because user-event dispatches real keystrokes. Parallel typing would interleave
+  // the fields.
   const type = async (label: RegExp, value: string): Promise<void> => {
     if (value !== "") {
       await user.type(screen.getByLabelText(label), value);
@@ -208,8 +207,8 @@ describe("SignupForm component", () => {
     });
     expect(mockNavigate).not.toHaveBeenCalled();
 
-    // Staying put is what makes this necessary: nothing else re-resolves the route context the
-    // header reads its user from (PTR-73), so the nav would still say signed out.
+    // The page stays in place, and nothing else resolves the header's route context again (PTR-73).
+    // Without this step, the navigation still shows the user as signed out.
     await waitFor(() => {
       expect(mockInvalidate).toHaveBeenCalled();
     });
@@ -268,8 +267,8 @@ describe("SignupForm component", () => {
       expect(screen.getByRole("alert").textContent).toBe("Account already exists");
     });
 
-    // Resubmitting revalidates, and that write to `errorMap.onSubmit` is what drops the first
-    // message — the form holds no separate error state for anything to reset.
+    // Resubmitting validates again and updates `errorMap.onSubmit`, which removes the first message.
+    // The form has no separate error state to reset.
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {

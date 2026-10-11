@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
   useTheme: vi.fn<() => unknown>(),
 }));
 
-// `next-themes` reads the document at render; standing it in keeps the assertion on the props
-// this wrapper supplies, which is the whole file, and forwards children so they still render.
+// `next-themes` reads the document when it renders. This mock keeps the assertion on this wrapper's
+// props and still renders its children.
 vi.mock("next-themes", () => ({
   ThemeProvider: (props: { children?: React.ReactNode }) => {
     mocks.provider(props);

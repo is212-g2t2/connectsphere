@@ -78,8 +78,8 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     database = drizzle(pool, { schema });
     await cleanup();
-    // The delivery worker claims every pending row, and this file runs against the suite's
-    // shared database; start from an empty queue so counts are this suite's own.
+    // The delivery worker claims every pending row. This file shares the suite database.
+    // Start from an empty queue, so counts belong to this suite.
     await database.delete(schema.notifications);
     await Promise.all(
       Object.values(users).map(u => database.insert(schema.user).values(u).onConflictDoNothing())
@@ -133,8 +133,8 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
   });
 
   async function cleanup() {
-    // Events cascade to venue requests, handovers and notifications; the queue is cleared
-    // separately so the worker's counts are this suite's own.
+    // Events cascade to venue requests, handovers, and notifications. Clear the queue
+    // separately, so the worker's counts belong to this suite.
     await database.delete(schema.notifications);
     await database
       .delete(schema.eventRequests)
@@ -149,7 +149,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       .update(schema.venueRequests)
       .set({ status: "pending", assignedStaffId: null })
       .where(eq(schema.venueRequests.id, venueRequestId));
-    // Tests may reassign the event; restore the suite's default so they stay independent.
+    // Tests can reassign the event. Restore the suite default to keep tests independent.
     await database
       .update(schema.eventRequests)
       .set({ assignedCoordinatorId: users.coordinator.id })
@@ -176,7 +176,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
     return row;
   }
 
-  /** `count` confirmed-event rows for one recipient, a second apart from `baseMs`, oldest first. */
+  /** Raise `count` confirmed-event rows for one recipient, oldest first, a second apart from `baseMs`. */
   async function raiseMany(recipientId: string, count: number, baseMs: number) {
     return database
       .insert(schema.notifications)
@@ -248,7 +248,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
     });
 
     it("neutralises a row whose event the caller no longer reaches (AC5)", async () => {
-      // The other Coordinator is not assigned to this event, so it is not in reach.
+      // The other Coordinator has no assignment on this event. It stays out of reach.
       await raise(session("otherCoordinator").id, "event_confirmed", confirmedPayload(), eventId);
 
       const items = await handleListNotifications(session("otherCoordinator"), database);
@@ -282,8 +282,8 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         href: "/coordination",
       });
 
-      // A direct reassignment vacates the offer without answering it: the event no longer
-      // belongs to the Coordinator who offered it, so the notification must not leak the event.
+      // A direct reassignment vacates the offer with no answer. The event leaves the offering
+      // Coordinator, so the notification hides the event.
       await database
         .update(schema.eventRequests)
         .set({ assignedCoordinatorId: null })
@@ -326,8 +326,8 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       });
       expect(JSON.stringify(pendingItems)).not.toContain("Notification Gala");
 
-      // Once another staff member settles it, the deciding member stays connected and the link
-      // moves to the bookings list; a released or rejected request has no page to send them to.
+      // After another staff member settles the request, the deciding member stays connected.
+      // The link moves to the bookings list. A released or rejected request links nowhere.
       await database
         .update(schema.venueRequests)
         .set({ status: "approved", assignedStaffId: users.venueStaff.id })
@@ -358,7 +358,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
 
     it("caps the inbox at 50 rows, newest first", async () => {
       const coordinator = session("coordinator");
-      // One bulk insert with explicit increasing instants; 51 rows must exceed the 50-row page.
+      // Insert 51 rows in one bulk write with increasing instants. 51 rows exceed the 50-row page.
       const rows = await raiseMany(coordinator.id, 51, Date.UTC(2032, 0, 1, 0, 0, 0));
 
       const items = await handleListNotifications(coordinator, database);
@@ -418,7 +418,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
     });
 
     it("neutralises a reassigned raiser (intended: reachability is the caller's current event relationship, not the notification's subject)", async () => {
-      // The raiser is the assigned Coordinator when the decision lands...
+      // The raiser holds the assignment when the decision lands. Reassignment follows below.
       await raise(
         session("coordinator").id,
         "venue_booking_approved",
@@ -431,7 +431,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         },
         eventId
       );
-      // ...and is then reassigned away from the event.
+      // Reassign the raiser away from the event.
       await database
         .update(schema.eventRequests)
         .set({ assignedCoordinatorId: users.otherCoordinator.id })
@@ -449,7 +449,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       await raiseMany(coordinator.id, 52, Date.UTC(2034, 0, 1, 0, 0, 0));
 
       const inbox = await handleReadInbox(coordinator, database as never);
-      // Counted past the page: a count derived from the listed rows would say 50.
+      // Count past the page. The listed rows would report 50.
       expect(inbox.notifications).toHaveLength(50);
       expect(inbox.unreadCount).toBe(52);
     });
@@ -475,7 +475,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       const older = await raise(coordinator.id, "event_confirmed", confirmedPayload());
       const newer = await raise(coordinator.id, "event_confirmed", confirmedPayload());
 
-      // Marking the newest by id must leave the older unread row alone, unlike a mark-through.
+      // Marking the newest by id leaves the older unread row alone. A mark-through marks both.
       await handleMarkNotificationsRead({ id: newer.id }, coordinator, database as never);
       await handleMarkNotificationsRead({ id: alreadyRead.id }, coordinator, database as never);
 
@@ -511,13 +511,14 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
 
     it("marks all read up to the cutoff id, beyond the 50-row page, and only the caller's (AC3)", async () => {
       const coordinator = session("coordinator");
-      // Raised first, so its id sits below the cutoff: only the recipient scope can spare it.
+      // Raise the organiser row first. Its id sits below the cutoff. Only the recipient scope
+      // spares it.
       await raise(session("organiser").id, "event_confirmed", confirmedPayload());
       const rows = await raiseMany(coordinator.id, 52, Date.UTC(2033, 0, 1, 0, 0, 0));
-      // The count is not capped by the page.
+      // The count ignores the page cap.
       expect(await handleCountUnreadNotifications(coordinator, database)).toBe(52);
 
-      // rows[51] stands in for a notification raised after the page rendered: above the cutoff.
+      // rows[51] arrives after the page renders. It sits above the cutoff.
       const cutoff = rows[50].id;
       await handleMarkNotificationsRead({ throughId: cutoff }, coordinator, database as never);
 
@@ -590,7 +591,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         expect(row.emailedAt).not.toBeNull();
         expect(row.claimedAt).toBeNull();
         expect(row.failedAt).toBeNull();
-        // The claim increments the version the ownership guard compares against.
+        // The claim bumps the version that the ownership guard compares.
         expect(row.emailAttempts).toBe(1);
       }
     });
@@ -615,7 +616,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       expect(afterFirst.failedAt).toBeNull();
       expect(afterFirst.emailAttempts).toBe(1);
       expect(afterFirst.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
-      // Only the error's name is persisted; the message can echo the recipient address.
+      // Persist only the error name. The message can echo the recipient address.
       expect(afterFirst.lastEmailError).toBe("Error");
       expect(JSON.stringify(afterFirst)).not.toContain("ntf-coordinator@example.com");
 
@@ -709,8 +710,8 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         eventId
       );
 
-      // A second connection holds the row the way an overlapping worker's claim would. Without
-      // FOR UPDATE SKIP LOCKED, the claim below would block on it until the test times out.
+      // A second connection holds the row like an overlapping worker's claim. With no FOR
+      // UPDATE SKIP LOCKED, the claim below blocks on it until the test times out.
       const lockPool = new Pool({ connectionString: process.env.DATABASE_URL });
       const client = await lockPool.connect();
       try {
@@ -776,7 +777,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
             claimedAt: new Date(),
           })
           .where(eq(schema.notifications.id, row.id));
-        // Resolves, so the worker reaches its success write with a stale claim version.
+        // The mock resolves. The worker reaches its success write with a stale claim version.
       });
 
       const result = await deliverPendingNotifications(database as never);

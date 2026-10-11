@@ -36,8 +36,8 @@ vi.mock("@tanstack/react-router", () => ({
   useLocation,
 }));
 
-// Deliberately without `useSession`: a header that still reached for it would throw on render
-// rather than quietly pass, which is the acceptance criterion these tests stand on.
+// Omit `useSession` on purpose. A header that still reaches for it throws on render. It never
+// quietly passes. That throw is the acceptance criterion.
 vi.mock("#/lib/auth-client", () => ({ authClient: { signOut } }));
 
 vi.mock("sonner", () => ({ toast }));
@@ -58,15 +58,14 @@ beforeEach(() => {
 
 async function openAccountMenu(visitor: ReturnType<typeof userEvent.setup>) {
   await visitor.click(screen.getByRole("button", { name: "Account menu" }));
-  // The menu popup mounts asynchronously (floating-ui positioning), so wait for it.
+  // The menu popup mounts asynchronously for floating-ui positioning. Wait for it.
   await screen.findByRole("menuitem", { name: "Sign out" });
   return visitor;
 }
 
-/**
- * PTR-73: the nav is a pure function of the session the router already resolved. The component
- * asking Better Auth for it on the client is the regression these assertions stand against —
- * that answer only arrives after hydration, so the header rendered signed-out and then shifted.
+/** PTR-73: the nav is a pure function of the session the router already resolved. These
+ * assertions stand against the regression where the component asks Better Auth on the client.
+ * That answer arrives only after hydration. The header rendered signed-out, then shifted.
  */
 describe("Header component", () => {
   it("reads the session from the root route context", () => {
@@ -74,7 +73,7 @@ describe("Header component", () => {
 
     render(<Header />);
 
-    // The root route is the one every page matches, so the nav works outside `_authenticated`.
+    // Every page matches the root route. The nav works outside `_authenticated`.
     expect(useRouteContext).toHaveBeenCalledWith({ from: "__root__" });
   });
 
@@ -232,11 +231,9 @@ describe("Header role links", () => {
   });
 });
 
-/**
- * PTR-71: signing out is a mutation, so React holds its in-flight flag. A refused sign-out lands
- * in the action's error state rather than leaving the nav pointing at a session that is still
- * open — and while the run is in flight the menu item carries the disabled state, which clears
- * once the run settles.
+/** PTR-71: signing out is a mutation with React holding its in-flight flag. A refused sign-out
+ * lands in the action's error state and never leaves the nav on a still-open session. While the
+ * run is in flight the menu item stays disabled, then clears on settle.
  */
 describe("Header sign-out", () => {
   it("signs out from the account menu", async () => {
@@ -275,7 +272,7 @@ describe("Header sign-out", () => {
     await openAccountMenu(visitor);
     await visitor.click(screen.getByRole("menuitem", { name: "Sign out" }));
 
-    // The menu closes on click, so reopen it while the promise is still pending.
+    // The menu closes on click. Reopen it while the promise is still pending.
     await openAccountMenu(visitor);
     const item = screen.getByRole("menuitem", { name: "Sign out" });
     expect(item.getAttribute("aria-disabled")).toBe("true");

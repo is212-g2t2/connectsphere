@@ -23,34 +23,33 @@ import { loadArrangementHolders } from "#/features/events/arrangements.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 
-// Server-only on purpose, and named for it: `#/db/schema` is a value import here, so this is
-// reached through a dynamic `import()` inside `.handler()` in `server-fns.ts`. The middleware
-// pipeline has already verified the session and `event_request:coordinate`.
+// Keep this module server-only. It imports `#/db/schema` as a value. `server-fns.ts` loads it
+// dynamically inside `.handler()`. Middleware already verified the session and
+// `event_request:coordinate`.
 
 type Database = typeof Db;
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 export interface EventInformationUpdated {
   changedFields: ClarificationField[];
-  /** PTR-23 AC5: how many notices went to staff holding an arrangement; 0 for an ordinary edit. */
+  /** PTR-23 AC5: Notice count for staff with an arrangement. Ordinary edits report 0. */
   notified: number;
 }
 
 /**
- * PTR-22 AC2/AC4: the assigned Coordinator updates an approved, planning or confirmed event. The
- * event row is locked first, and the amendments are written over the locked values, so a field
- * the Coordinator did not touch keeps its stored value. Each changed field gets one change-log
- * row, in the same transaction as the update. A save that changes nothing writes nothing. Every
- * view reads the row live, so the next read shows the new values (AC3).
+ * PTR-22 AC2/AC4: The assigned Coordinator updates an approved, planning, or confirmed event.
+ * Lock the event row first. Write amendments over the locked values, so untouched fields keep
+ * their stored values. Write one change-log row per changed field in the same transaction. A
+ * save with no changes writes nothing. Every view reads the row live, so the next read shows
+ * the new values (AC3).
  *
- * PTR-23: a significant change (AC1) is refused until the Coordinator acknowledges the warning
- * that names what the event holds (AC2), and once saved it tells the staff holding a booking or a
- * reservation (AC5). The arrangements themselves are not touched (AC3).
+ * PTR-23: Refuse a significant change (AC1) until the Coordinator acknowledges the warning that
+ * names what the event holds (AC2). After save, tell the staff with a booking or reservation
+ * (AC5). Touch no arrangement (AC3).
  *
- * PTR-52: a save that carries `changeRequestId` applies the Organiser's waiting change request. It
- * is open in every status the request could be raised in, it must change something, and the
- * request is marked applied and the Organiser told in the same transaction (AC2, AC5). Nothing
- * else moves (AC4).
+ * PTR-52: A save with `changeRequestId` applies the Organiser's waiting change request. It stays
+ * open in every status where a request can be raised. It must change something. Mark the request
+ * applied and tell the Organiser in the same transaction (AC2, AC5). Move nothing else (AC4).
  */
 export async function handleUpdateEventInformation(
   data: unknown,
@@ -88,13 +87,13 @@ export async function handleUpdateEventInformation(
     const values = amendedValues(request, input.amendments);
     const changes = amendmentsBetween(request, values, EVENT_INFORMATION_FIELDS);
     if (changes.length === 0) {
-      // An apply must change the record; a no-change save is refused so the request stays waiting.
+      // An apply must change the record. Refuse a no-change save so the request stays waiting.
       if (changeRequest) throw new ConflictError(CHANGE_REQUEST_APPLY_NO_CHANGE_MESSAGE);
       return { changedFields: [], notified: 0 };
     }
 
-    // Decided on what actually changed, not on what the form touched: a field typed over and
-    // restored is no change. The refusal rolls the locked row back untouched.
+    // Decide on what changed, not on what the form touched. A field typed over and restored is
+    // no change. The refusal leaves the locked row untouched.
     const significant = significantFields(changes.map(change => change.field));
     if (significant.length > 0 && input.acknowledgeSignificant !== true) {
       throw new ConflictError(SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE);
@@ -120,21 +119,20 @@ export async function handleUpdateEventInformation(
         amendment: { from, to },
         changedById: actor.id,
         changedByName: actorName || actor.email,
-        // `now()` defaults to the transaction timestamp, which predates a wait on the row lock,
-        // so overlapping saves could be logged out of order.
+        // `now()` defaults to the transaction timestamp. It predates a wait on the row lock, so
+        // overlapping saves could log out of order.
         changedAt: appliedAt,
       }))
     );
 
-    // The event's name as it now is, so a notice never names an event by a name the same save
-    // replaced.
+    // Use the event's current name. A notice must not use a name this save replaced.
     const notices =
       significant.length > 0
         ? await significantChangeNotices(
             tx,
             { id: request.id, eventName: values.eventName },
             significant,
-            // A role word, never the address: the notice goes to staff outside the event's team.
+            // Send a role word, not the address. The notice goes to staff outside the event's team.
             actorName || "The Coordinator"
           )
         : [];
@@ -172,17 +170,17 @@ export async function handleUpdateEventInformation(
         : notices
     );
 
-    // The toast counts the holders told (PTR-23 AC5); the Organiser's notice is not one of them.
+    // The toast counts the holders told (PTR-23 AC5). It excludes the Organiser's notice.
     return { changedFields: changes.map(change => change.field), notified: notices.length };
   });
 }
 
 /**
- * PTR-52: the waiting change request named by `changeRequestId`, locked, on an event the actor is
- * the assigned Coordinator of, also locked. The event lock goes first, as every writer on the event
- * takes it, so an apply, a decline and a cancellation serialise. A missing event, a draft and
- * someone else's event are refused the same way; a request that is not this event's or is already
- * processed answers 409, so a double click or a stale page cannot process it twice.
+ * PTR-52: Lock the waiting change request named by `changeRequestId`. Lock it on an event where
+ * the actor is the assigned Coordinator. Take the event lock first, as every event writer does.
+ * An apply, a decline, and a cancellation then order against each other. Refuse a missing event,
+ * a draft, and another user's event in the same way. Answer 409 for a request outside this event
+ * or already processed. A double click or stale page then cannot process it twice.
  */
 async function lockWaitingChangeRequest(
   tx: Tx,
@@ -215,9 +213,9 @@ async function lockWaitingChangeRequest(
 }
 
 /**
- * PTR-52 AC2, AC5: the assigned Coordinator declines a waiting change request with a reason. The
- * event is left as it is in every status, as a cancellation request is; the request keeps its
- * outcome and reason on the record, and the Organiser is told in the same transaction.
+ * PTR-52 AC2, AC5: The assigned Coordinator declines a waiting change request with a reason.
+ * Leave the event unchanged in every status, as with a cancellation request. Keep the outcome
+ * and reason on the request record. Tell the Organiser in the same transaction.
  */
 export async function handleDeclineEventChangeRequest(
   data: unknown,
@@ -265,10 +263,10 @@ export async function handleDeclineEventChangeRequest(
 }
 
 /**
- * PTR-23 AC5: the Venue Staff on each approved booking and each Technical Support member holding
- * a reservation are told which significant fields changed. The Venue Staff copy names the booking,
- * never the event (PTR-8). A tentative hold is the Coordinator's own and names no one. The rows
- * commit with the update; the worker sends the emails.
+ * PTR-23 AC5: Name the changed significant fields to each arrangement holder. Tell the Venue
+ * Staff on each approved booking and each Technical Support member with a reservation. The Venue
+ * Staff copy names the booking, never the event (PTR-8). A tentative hold belongs to the
+ * Coordinator and names no one. Commit the rows with the update. The worker sends the emails.
  */
 async function significantChangeNotices(
   tx: Tx,

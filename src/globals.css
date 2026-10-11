@@ -9,13 +9,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ConnectSphere design system — documented in docs/DESIGN.md, the doc to change alongside this
-   file. Two layers on purpose: the palette is the source of truth and the shadcn semantic roles
-   below it are aliases onto it, so a primitive names a role and a token rename never has to be
-   chased through src/components/ui/. */
+/* See docs/DESIGN.md for this design system. Update it with this file. The palette is the source
+   of truth; shadcn roles alias its values. Components use role names, so a token rename does not
+   require changes in src/components/ui/. */
 :root {
-  /* Palette. Ink at three opacities carries the whole text hierarchy; harbor is the only
-     accent; amber and coral are reserved for status semantics. */
+  /* Palette: three ink opacities set the text hierarchy. Harbor is the accent. Amber and coral
+     identify status. */
   --paper: #f6f6f4;
   --paper-tint: #efefec;
   --surface: #ffffff;
@@ -30,20 +29,20 @@
   --coral-tint: #fbeae6;
   --mist: rgba(21, 21, 21, 0.08);
   --mist-dark: rgba(21, 21, 21, 0.14);
-  /* Form-control borders, not dividers: mist is a hairline at 1.3:1, which is fine for a
-     decorative rule and fails WCAG 1.4.11 for the border that *identifies* an input. */
+  /* Use this color for form borders, not dividers. Mist has 1.3:1 contrast. It meets decorative
+     rule needs but fails WCAG 1.4.11 for borders that identify inputs. */
   --stroke: rgba(21, 21, 21, 0.46);
 
-  /* The one expressive color moment: event cover art on the attendee event page. */
+  /* Use this gradient for event cover art on the attendee event page. */
   --accent-gradient: linear-gradient(90deg, #d93384, #f59e0b);
 
-  /* Radii. Pill for anything you act on, soft rectangle for anything you read inside. 8px is the
-     floor for a surface; control glyphs and nested inner corners are the documented exceptions. */
+  /* Use pill corners for controls and soft rectangles for content. Surfaces have an 8px minimum
+     radius, except for control icons and nested corners. See docs/DESIGN.md. */
   --rounded-sm: 8px;
   --rounded-md: 16px;
   --rounded-lg: 20px;
 
-  /* shadcn semantic roles, aliased onto the palette. */
+  /* Map shadcn semantic roles to the palette. */
   --background: var(--paper);
   --foreground: var(--ink);
   --card: var(--surface);
@@ -67,10 +66,10 @@
   --radius: var(--rounded-sm);
 }
 
-/* Class-based, driven by next-themes on <html>, not prefers-color-scheme. Only the palette
-   inverts; every semantic alias above follows from it. Amber and coral are the exception to a
-   straight inversion: their light values land near 2:1 on the dark tints, so both are lightened
-   to clear AA. See docs/DESIGN.md before changing either. */
+/* `next-themes` sets `.dark` on <html>; the theme does not use `prefers-color-scheme`. Only the
+   palette changes. Layout, elevation, and type stay the same. Semantic aliases follow the palette.
+   Lighten amber and coral because direct inversion gives them about 2:1 contrast on dark tints.
+   Check both colors against AA before you change them. See docs/DESIGN.md. */
 .dark {
   --paper: #131313;
   --paper-tint: #1a1a1a;
@@ -111,9 +110,8 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* The palette as utilities. A semantic alias covers the common case; these are for the
-     places the system names a colour directly — the status pills below reach for amber and
-     coral this way. */
+  /* Expose palette colors as utilities. Use semantic aliases by default. Use amber and coral
+     utilities for status pills. */
   --color-paper: var(--paper);
   --color-paper-tint: var(--paper-tint);
   --color-surface: var(--surface);
@@ -130,13 +128,13 @@
   --color-mist-dark: var(--mist-dark);
   --color-stroke: var(--stroke);
 
-  /* One family, no display/body split — voice comes from weight and negative tracking.
-     `mono` is Inter too: it signals "data" — timestamps, reference codes — not a mono rhythm. */
+  /* Use one font family. Weight and negative tracking distinguish headings from body text.
+     `mono` also uses Inter for data such as timestamps and reference codes. */
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-heading: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 
-  /* Tailwind's radius scale mapped onto the two corner languages. */
+  /* Map Tailwind's radius scale to the two corner styles. */
   --radius-sm: var(--rounded-sm);
   --radius-md: var(--rounded-sm);
   --radius-lg: var(--rounded-md);
@@ -144,7 +142,9 @@
   --radius-2xl: var(--rounded-lg);
 }
 
-/* The type roles in docs/DESIGN.md. They are `@utility` classes rather than `--text-*` theme tokens because `cn` merges an unknown `text-*` class as a text color, and would drop one of `eyebrow text-muted-foreground`. */
+/* Define the type roles from docs/DESIGN.md as `@utility` classes, not `--text-*` theme tokens.
+   `cn` treats unknown `text-*` classes as text colors and can drop `eyebrow` from
+   `eyebrow text-muted-foreground`. */
 @utility display-h1 {
   font-size: 1.75rem;
   letter-spacing: -0.03em;
@@ -215,22 +215,22 @@
   background-image: var(--accent-gradient);
 }
 
-/* The elevation, layout and overlay scales in docs/DESIGN.md. */
+/* Elevation, layout, and overlay scales from docs/DESIGN.md. */
 @theme {
-  /* The single card shadow: a barely-there lift over hairline borders. */
+  /* Use one subtle shadow for cards above the thin border. */
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.03);
 
-  /* The one page column, 880px and 1120px. */
+  /* Page widths: 880px and 1120px. */
   --container-page: 55rem;
   --container-wide: 70rem;
 
-  /* The documented two-column breakpoint. */
+  /* Breakpoint for the two-column layout. */
   --breakpoint-split: 860px;
 
-  /* Modal scrims: the one place a raw black fills a surface. */
+  /* Use black for the modal overlay. */
   --color-overlay: rgb(0 0 0 / 0.1);
 
-  /* The accordion panel's open and close animation, used by components/ui/accordion.tsx. */
+  /* Open and close animation for components/ui/accordion.tsx. */
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
 
@@ -278,7 +278,7 @@ body,
     @apply font-semibold tracking-[-0.03em];
   }
 
-  /* One focus affordance, so links and bare buttons never need their own. */
+  /* Apply the same focus style to links and buttons. */
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;

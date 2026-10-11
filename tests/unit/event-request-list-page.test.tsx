@@ -141,7 +141,7 @@ describe("EventRequestListPage (PTR-14)", () => {
     expect(within(rows[0]).getByText("1 Dec 2030, 18:00")).toBeTruthy();
     expect(within(rows[0]).getByText("Submitted")).toBeTruthy();
 
-    // A draft has no event page yet, so its name links straight to the reopen route.
+    // A draft has no event page. Its name links straight to the reopen route.
     expect(
       within(rows[1]).getByRole("link", { name: "Community workshop" }).getAttribute("href")
     ).toBe("/event-requests/reopenDraft/41");

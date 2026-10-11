@@ -39,10 +39,9 @@ export function ClarificationReplyForm({
       },
     });
 
-    // The mutation committed even if a route reload has a transient failure. Lock this form so
-    // retrying the browser action cannot create a second reply while the page is stale. The
-    // Coordinator's email is queued with the reply now, so there is no delivery failure to report
-    // here — only the route reload can fail.
+    // The reply is committed even if the route reload fails. Lock this form so a retry cannot
+    // create a second reply from stale data. The same transaction queues the Coordinator's email,
+    // so only the route reload can fail here.
     setSaved(true);
     toast.success("Reply sent — the Coordinator will be notified.");
 

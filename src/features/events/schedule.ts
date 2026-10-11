@@ -8,8 +8,8 @@ interface EventScheduleInput {
   venue?: EventVenue | null;
 }
 
-/** Whether `end` is the calendar day after `start` (`YYYY-MM-DD`), parsed as UTC so the
- * server render and the hydrated client agree. Anything not in that shape is not next-day. */
+/** Check whether `end` is the calendar day after `start` (`YYYY-MM-DD`). Parse as UTC so the
+ * server render and the hydrated client agree. Return false for other shapes. */
 function isNextDay(start: string, end: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.exec(start) || !/^\d{4}-\d{2}-\d{2}$/.exec(end)) return false;
   const next = new Date(`${start}T00:00:00Z`);
@@ -18,7 +18,7 @@ function isNextDay(start: string, end: string): boolean {
   return next.toISOString().slice(0, 10) === end;
 }
 
-/** An event's date and time: the current approved booking first, then the original proposal. */
+/** Read the event's date and time from the current approved booking first, then the proposal. */
 export function eventSchedule(details: EventScheduleInput) {
   const date = details.venue?.date ?? details.eventDate;
   const endDate = details.venue?.endDate ?? details.endDate;

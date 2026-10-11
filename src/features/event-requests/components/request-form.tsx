@@ -46,12 +46,12 @@ const DEFAULT_VALUES: EventRequestDraftFormValues = {
 };
 
 /**
- * The draft fields plus the reply body a clarification reply carries in the same form. The draft
- * schema does not know `replyBody`; its transform drops it on parse.
+ * Draft fields with the clarification reply body. The draft schema does not include `replyBody`,
+ * so its transform drops that field when it parses the draft.
  */
 type EventRequestFormValues = EventRequestDraftFormValues & { replyBody: string };
 
-/** What the caller gets with the parsed values: the reply text and the fields the organiser touched. */
+/** Parsed values, reply text, and the fields the Organiser changed. */
 export interface EventRequestFormSubmitContext {
   changedFields: readonly string[];
   replyBody: string;
@@ -66,7 +66,7 @@ const OPTIONAL_TEXT_FIELDS = [
   ["specialArrangements", "Special arrangements"],
 ] as const;
 
-/** The registration rows vary only by name, label and input type, exactly like the equipment ones. */
+/** Registration rows vary by name, label, and input type, like the equipment rows. */
 const REGISTRATION_FIELDS = [
   {
     name: "registrationCapacity",
@@ -88,8 +88,8 @@ const REGISTRATION_FIELDS = [
 ] as const;
 
 /**
- * The stored shape and the form shape differ where a value would not survive a round trip through
- * an input: a number, an absent quantity, or no date line at all. This is the one-way mapping.
+ * Map stored values to the form shape. Inputs cannot preserve some stored values, such as numbers,
+ * absent quantities, or a missing date row. This mapping only goes from stored data to the form.
  */
 function toFormValues(initial: EventRequestDraftValues): EventRequestDraftFormValues {
   return {
@@ -126,18 +126,18 @@ function toDefaultFormValues(initial?: EventRequestDraftValues): EventRequestFor
 }
 
 /**
- * A form-level `onSubmit` error is the schema's issue map after a failed validation or the
- * server's message after a failed save; only the latter is a string.
+ * A form-level `onSubmit` error is either the schema's issue map or the server's save message.
+ * Only the save message is a string.
  */
 function toFormError(error: unknown): string | undefined {
   return typeof error === "string" ? error : undefined;
 }
 
 /**
- * The top-level names of every field the organiser has changed since the form loaded. A nested name
- * (`proposedDates[0].start`) is folded onto its parent, because the server records one amendment
- * per clarification field, not per input. Untouched fields are never echoed back, so a reply to a
- * second question cannot resend the page-load snapshot and revert the first reply's amendment.
+ * Return the top-level names of fields the Organiser changed after the form loaded. Fold nested
+ * names such as `proposedDates[0].start` into their parent. The server records one amendment per
+ * clarification field, not per input. Do not send untouched fields; a reply to a second question
+ * must not restore the page-load snapshot over the first reply's changes.
  */
 function changedFieldNames(
   fieldMeta: Record<string, { isDefaultValue?: boolean } | undefined>
@@ -149,7 +149,7 @@ function changedFieldNames(
   return [...names];
 }
 
-/** Tells the caller whether the form is dirty, from inside an effect so render stays pure. */
+/** Tell the caller whether the form is dirty from an effect, so render stays pure. */
 function DirtyReporter({
   dirty,
   onDirtyChange,
@@ -163,7 +163,7 @@ function DirtyReporter({
   return null;
 }
 
-/** The top-level field each label `missingRequiredFields` returns belongs to. */
+/** The top-level field for each label `missingRequiredFields` returns. */
 const MISSING_FIELD_KEYS: Partial<Record<string, string>> = {
   "Event name": "eventName",
   Purpose: "purpose",
@@ -173,9 +173,8 @@ const MISSING_FIELD_KEYS: Partial<Record<string, string>> = {
 };
 
 /**
- * Where a missing required field shows: the scalar's own name, or the first incomplete row of an
- * array. The row index is read off the form value, because the parsed draft has already dropped the
- * rows the organiser left entirely blank.
+ * Return where to show a missing-field error: the scalar field or the first incomplete array row.
+ * Read the row index from the form value because the parsed draft drops fully blank rows.
  */
 function missingFieldPath(key: string, value: EventRequestFormValues): string {
   if (key === "proposedDates") {
@@ -192,11 +191,10 @@ function missingFieldPath(key: string, value: EventRequestFormValues): string {
 }
 
 /**
- * A submission needs the PTR-10 fields complete; a draft does not, so the form shape maps a blank
- * permitted field to an absent one and the schema passes it. In a reply or an update that would let
- * a cleared required field reach the server, which answers with its form-level sentence above the
- * action row. This turns each missing field into a field-level error, at the control that owns it,
- * for the fields the caller can edit. Locked fields are complete by construction and skipped.
+ * PTR-10 fields must be complete on submit, but drafts allow blank fields. The form maps a blank
+ * field to absent, so the draft schema accepts it. A reply or update must not send a cleared
+ * required field to the server. Show an error at each editable field instead. Skip locked fields;
+ * they are complete by construction.
  */
 function missingFieldErrors(
   value: EventRequestFormValues,
@@ -215,15 +213,13 @@ function missingFieldErrors(
 }
 
 /**
- * The form-level validator. The draft schema is a standard schema, so the library maps each issue
- * path (`proposedDates[0].end`) onto the field the form should show it at. The schema validates the
- * draft fields; the reply body is validated at its own field, so this widens the form validator to
- * accept a value carrying `replyBody` without restating the schema.
+ * Validate the form with the draft schema. The library maps each issue path, such as
+ * `proposedDates[0].end`, to its field. Validate the reply body at its own field, so this validator
+ * accepts `replyBody` without repeating the draft schema.
  *
- * When the record must stay complete (a reply, or an event information update), the schema alone
- * is too lenient: it accepts a cleared required field because absence is valid while drafting.
- * `missingFieldErrors` adds those omissions back as field errors, merged so the schema's own issues
- * stay put.
+ * A reply or event update must keep the record complete. The draft schema accepts a cleared
+ * required field because drafts allow absence. `missingFieldErrors` adds those omissions as field
+ * errors and keeps the schema's own issues.
  */
 function draftValidator({
   value,
@@ -267,12 +263,12 @@ export function EventRequestForm({
     values: EventRequestDraftValues,
     context: EventRequestFormSubmitContext
   ) => Promise<void>;
-  /** Absent while the caller has nowhere to submit to yet; the control is dropped with it. */
+  /** Omit this while the caller has nowhere to submit to. The submit control drops out with it. */
   onSubmitRequest?: (
     values: EventRequestDraftValues,
     context: EventRequestFormSubmitContext
   ) => Promise<void>;
-  /** When replying to a clarification, every other control remains visible but read-only. */
+  /** When replying to a clarification, other controls stay visible but read-only. */
   editableFields?: readonly string[];
   saveLabel?: string;
   busyLabel?: string;
@@ -281,17 +277,15 @@ export function EventRequestForm({
   replyBody?: { label: string };
   idPrefix?: string;
   /**
-   * PTR-22: the record is already submitted, so a required field left blank is refused at its
-   * control rather than saved. Reply mode implies it.
+   * PTR-22: The record is submitted, so reject a blank required field at its control. Reply mode implies this check.
    */
   requireComplete?: boolean;
-  /** Reports live whether any field differs from its mount default. Ignored when omitted. */
+  /** Report live whether any field differs from its mount default. Ignore when omitted. */
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   /**
-   * Which control is submitting. A ref rather than state because the click and the submit are two
-   * events the browser fires back to back — the intent has to be readable by the handler this
-   * render already closed over.
+   * The submitting control. Use a ref because the browser fires click and submit back to back.
+   * The handler reads the current intent from the ref.
    */
   const intent = useRef<"save" | "submit">("save");
   const replyMode = editableFields !== undefined;
@@ -299,9 +293,8 @@ export function EventRequestForm({
   const editable = (field: string) => !editableFields || editableFields.includes(field);
   const inputId = (name: string) => (idPrefix ? `${idPrefix}-${name}` : name);
 
-  // Fixed for the mount: `isDefaultValue` compares against these, and rebuilding them on a parent
-  // re-render (new row keys, a re-read record) would mark untouched fields as changed. A caller
-  // that wants new values remounts the form with a new `key`.
+  // Keep these values for this mount. `isDefaultValue` compares against them; rebuilding them after
+  // a parent render would mark untouched fields as changed. Remount with a new `key` to load new values.
   const [defaultValues] = useState(() => toDefaultFormValues(initialValues));
   const form = useForm({
     defaultValues,
@@ -320,7 +313,7 @@ export function EventRequestForm({
           ? onSubmitRequest(values, context)
           : onSave(values, context));
       } catch (error) {
-        // `fields` is what makes the library read this as a global error and store `form` verbatim.
+        // `fields` marks this as a global error and stores `form` verbatim.
         formApi.setErrorMap({
           onSubmit: {
             fields: {},
@@ -598,8 +591,8 @@ export function EventRequestForm({
   );
 
   /**
-   * The form's own fields in the order the draft form presents them. Reply mode splits this list by
-   * whether the Coordinator permitted each field, so the amendable ones lead and the rest fold away.
+   * The form fields in draft order. Reply mode splits them by Coordinator permission, so editable
+   * fields appear first and the others stay hidden.
    */
   const canonicalFields: { key: ClarificationField; render: () => React.ReactNode }[] = [
     { key: "eventName", render: renderEventName },

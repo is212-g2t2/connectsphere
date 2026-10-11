@@ -10,30 +10,30 @@ import { confirmationBlockers, confirmationRefusalMessage } from "#/features/eve
 import { raiseNotifications } from "#/features/notifications/raise.server";
 
 /**
- * Server-only on purpose, and named for it: `#/db/schema` is a value import here, so this is
- * reached through a dynamic `import()` inside `.handler()` in `server-fns.ts`. The middleware
- * pipeline has already verified the session and `event_request:coordinate`.
+ * Keep this module server-only. Its value import of `#/db/schema` builds tables at module scope,
+ * so the bundler keeps the full module. `server-fns.ts` loads it dynamically inside `.handler()`.
+ * Middleware already verified the session and `event_request:coordinate`.
  */
 
 type Database = typeof Db;
 
 /**
- * PTR-24 AC1/AC2/AC4: the assigned Coordinator confirms an event once its arrangements are in
- * place. The event's equipment lines, the event row and its venue requests are locked before the gate
- * reads them, so a booking released or a line changed at the same moment makes this wait and then
- * see the new state, rather than confirming against arrangements that no longer hold. Who and
- * when are recorded on the event in the same statement as the status.
+ * PTR-24 AC1/AC2/AC4: The assigned Coordinator confirms an event once its arrangements are in
+ * place. Lock the equipment lines, the event row, and the venue requests before the gate reads
+ * them. A booking released or a line changed at the same moment then waits and shows its new
+ * state. Confirm against the new state, not against arrangements that no longer hold. Record who
+ * confirmed and when on the event in the same statement as the status.
  *
- * The Organiser's notification is raised with the confirmation; the worker delivers the email.
+ * Raise the Organiser's notification with the confirmation. The worker delivers the email.
  */
 export async function handleConfirmEvent(data: unknown, actor: SessionUser, database: Database) {
   const input = parseEventRequestId(data);
 
   const confirmed = await database.transaction(async tx => {
-    // Locks: lines, then event, then venue requests. Line saves (`loadEditableEvent`) take the
-    // event before their line, so a save or remove racing this confirmation can deadlock; Postgres
-    // aborts the loser with 40P01. No ADR-5 `lockVenue`: this transaction writes no venue row, and
-    // a future venue write here must take that lock first.
+    // Take locks in this order: lines, then event, then venue requests. Line saves
+    // (`loadEditableEvent`) take the event before their line. A racing save or remove can deadlock.
+    // Postgres aborts the loser with 40P01. This transaction writes no venue row, so it takes no
+    // ADR-5 `lockVenue`. A future venue write here must take that lock first.
     const equipmentRows = await tx
       .select()
       .from(equipmentRequests)
@@ -43,8 +43,8 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
     ).at(0);
 
-    // A missing event and someone else's event are refused the same way, so the refusal does not
-    // say whether the id exists.
+    // Refuse a missing event and another user's event in the same way. The refusal then reveals
+    // nothing about the id.
     if (!request || request.status === "draft" || request.assignedCoordinatorId !== actor.id) {
       throw new AuthorizationError("Forbidden");
     }
@@ -69,7 +69,7 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
     });
     if (blockers.length > 0) throw new ConflictError(confirmationRefusalMessage(blockers));
 
-    // The gate guarantees exactly one approved booking; the throw only narrows the type.
+    // The gate guarantees exactly one approved booking. The throw only narrows the type.
     const booking = venueRows.find(row => row.status === "approved");
     if (!booking) {
       throw new Error("Confirmation gate passed without an approved venue booking");
@@ -86,7 +86,7 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       .where(eq(eventRequests.id, request.id))
       .returning();
 
-    // The confirmation and the Organiser's notification commit together; the worker sends it.
+    // Commit the confirmation and the Organiser's notification together. The worker sends the email.
     await raiseNotifications(tx, [
       {
         recipientId: request.organiserId,

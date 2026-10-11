@@ -4,8 +4,7 @@ import { formatLocalDateTime } from "#/features/event-requests/format";
 import { TIME_SHAPE, VENUE_ID_MESSAGE, VENUE_SEARCH_EVENT_MESSAGE } from "#/features/venues/schema";
 
 /**
- * Pure data and Zod only: routes and the form import this module, so per AGENTS.md nothing here
- * may reach `#/db/schema` or any other server-only dependency.
+ * Routes and the form import this module. Keep it free of `#/db/schema` and other server-only dependencies.
  */
 
 export const VENUE_REQUEST_DATE_MESSAGE = "Choose a date";
@@ -22,8 +21,8 @@ export const VENUE_REQUEST_DECIDED_MESSAGE = "This request has already been deci
 export const VENUE_BOOKING_NOT_APPROVED_MESSAGE =
   "Only an approved booking can be released or amended.";
 /**
- * PTR-36: the backstop sentence when the exclusion constraint refuses a write the locked
- * pre-check did not see — a writer outside `handleApproveVenueRequest`.
+ * PTR-36: The fallback message when the exclusion constraint rejects an overlap the locked
+ * pre-check missed, such as a write outside `handleApproveVenueRequest`.
  */
 export const VENUE_REQUEST_CONFLICT_MESSAGE =
   "This venue is already booked for an overlapping period.";
@@ -41,10 +40,9 @@ export const VENUE_RELEASE_REASON_MAX_LENGTH = 2000;
 export const VENUE_REJECTION_TIME_PAIR_MESSAGE = "Enter both a start and end time";
 
 /**
- * PTR-36 criterion 2: the refusal names the venue and the conflicting period, never the other
- * event's name — Venue Staff keep the nameless projection PTR-8/PTR-31 established. The times
- * arrive in the loader's normalized `YYYY-MM-DDTHH:MM:SS` spelling and are read the way the rest
- * of the app reads wall-clock values (`formatLocalDateTime`), not as the stored string.
+ * PTR-36 criterion 2: Name the venue and conflicting period in the refusal, but not the other
+ * event's name. This keeps Venue Staff's projection anonymous (PTR-8/PTR-31). The loader returns
+ * times as `YYYY-MM-DDTHH:MM:SS`. Format them as wall-clock values with `formatLocalDateTime`.
  */
 export function venueRequestConflictMessage(
   conflict: {
@@ -71,10 +69,10 @@ const EventId = z.int32({ error: VENUE_SEARCH_EVENT_MESSAGE }).positive(VENUE_SE
 const VenueId = z.int32({ error: VENUE_ID_MESSAGE }).positive(VENUE_ID_MESSAGE);
 
 /**
- * PTR-31 criterion 1: a venue, a civil date and a start/end time — all required. Fixed-width
- * `HH:MM` strings compare as times, so the refinement is a string comparison and no `Date` is
- * built, the same reasoning the search filters follow. One civil day only: a window running past
- * midnight fits no daily hosting window, exactly as `crossesMidnight` refuses in PTR-29.
+ * PTR-31 criterion 1: Require a venue, date, start time, and end time. Fixed-width `HH:MM` strings
+ * compare as times, so the refinement can use a string comparison without building a `Date`.
+ * Allow one civil day only. A window past midnight does not fit a daily window, as
+ * `crossesMidnight` rejects for PTR-29.
  */
 export const VenueRequestInput = z
   .object({
@@ -100,8 +98,8 @@ export const VenueRequestContextInput = z.object({ eventId: EventId, venueId: Ve
 export type VenueRequestContextSelection = z.infer<typeof VenueRequestContextInput>;
 
 /**
- * A text id, not `z.uuid()`: the column is text and the seed's fixture row spells its own id, so
- * a shape check would refuse a request the UI can legitimately show.
+ * Validate an id as text, not as a UUID. The column and seed fixture use text ids, so a UUID check
+ * would reject a request the UI can show.
  */
 export const VenueRequestIdInput = z.object(
   {
@@ -142,9 +140,9 @@ export function parseVenueRequestContext(data: unknown): VenueRequestContextSele
 }
 
 /**
- * PTR-34 criteria 1 and 2: a rejection is a reason, plus whatever alternative Venue Staff choose
- * to suggest. Every part of the suggestion is optional and independent; only a time is a pair,
- * and its end must come after its start, the rule the request itself follows.
+ * PTR-34 criteria 1 and 2: Require a reason for rejection and accept any alternative Venue Staff
+ * choose to suggest. Suggestion fields are independent and optional, except start and end times.
+ * Require the end time to follow the start time, as for the request itself.
  */
 export const VenueRejectionInput = z
   .object({
@@ -213,8 +211,8 @@ export const VenueAmendmentInput = z
 export type VenueAmendmentValues = z.infer<typeof VenueAmendmentInput>;
 
 /**
- * PTR-34 criterion 2 as it is shown back: whichever parts of a suggestion Venue Staff gave, and
- * null for the rest. The email and the Coordinator's event card share it. Times are `HH:MM`.
+ * PTR-34 criterion 2: Return the parts of the suggestion that Venue Staff gave, with `null` for
+ * the rest. The email and Coordinator's event card share this shape. Times use `HH:MM`.
  */
 export interface VenueSuggestion {
   venueName: string | null;
@@ -224,11 +222,9 @@ export interface VenueSuggestion {
 }
 
 /**
- * PTR-34: whichever parts of a suggestion were given, joined into one line — shared by the
- * Coordinator's event card and the rejection email, which previously each wrote this join
- * themselves. `formatDate` is the caller's own date display, since the card and the email format
- * dates differently. A suggestion that is only a time range is labelled ("New time: …") rather
- * than left as a bare `10:00–13:30`, which reads as a fragment with nothing to attach it to.
+ * PTR-34: Join the suggestion fields into one line for the Coordinator's event card and rejection
+ * email. The card and email pass their own `formatDate` because they format dates differently.
+ * Label a time-only suggestion as "New time: …" so it does not appear as an unattached time range.
  */
 export function formatVenueSuggestion(
   suggestion: VenueSuggestion,
@@ -281,19 +277,18 @@ export function venueHoldConflictMessage(conflict: {
 }
 
 /**
- * PTR-109: the generic backstop when the `venue_holds_no_overlap` exclusion constraint refuses a
- * write the locked pre-check did not see — a writer outside `handleCreateVenueHold`. Under the
- * advisory lock this is unreachable for callers through the handler, where the named refusal above
- * is what the Coordinator reads.
+ * PTR-109: Generic fallback when `venue_holds_no_overlap` rejects an overlap missed by the locked
+ * pre-check, such as a write outside `handleCreateVenueHold`. Handler callers hold the advisory
+ * lock and receive the named refusal above instead.
  */
 export const VENUE_HOLD_OVERLAP_MESSAGE =
   "This venue is tentatively held for an overlapping period.";
 
 /**
- * The phrases a venue conflict refusal can carry, so the client can tell a genuine conflict (the
- * named booking or hold sentence, or either generic backstop) from an unrelated failure without
- * matching the whole formatted message. `venueRequestConflictMessage` says "already booked";
- * `venueHoldConflictMessage` says "tentatively held".
+ * List venue-conflict messages so the client can distinguish conflicts from other failures
+ * without matching the full text. Include named booking or hold messages and both generic
+ * fallbacks. `venueRequestConflictMessage` says "already booked"; `venueHoldConflictMessage` says
+ * "tentatively held".
  */
 export const VENUE_CONFLICT_PHRASES = ["already booked", "tentatively held"] as const;
 

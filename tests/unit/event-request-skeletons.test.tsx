@@ -4,10 +4,8 @@ import { describe, expect, it } from "vitest";
 import { EventRequestListPageSkeleton } from "#/features/event-requests/components/request-list-page-skeleton";
 import { EventRequestsPageSkeleton } from "#/features/event-requests/components/request-page-skeleton";
 
-/**
- * The pending components for the event request routes mirror the pages they stand in for. These
- * assertions pin the shells, the card and row counts, and the field grids, so a skeleton that
- * stops drawing a section is caught even though nothing has text.
+/** Pending components must match their event request pages. These tests check the shells, card and
+ * row counts, and field grids. They catch a missing section when the skeleton has no text.
  */
 describe("EventRequestListPageSkeleton", () => {
   it("draws the wide loading shell with the table's header and rows", () => {

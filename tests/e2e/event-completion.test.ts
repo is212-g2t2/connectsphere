@@ -106,7 +106,7 @@ test("the action explains that a confirmed event has not ended", async ({ page }
   const trigger = page.getByRole("button", { name: `Complete event: ${event.name}` });
   await expect(trigger).toBeDisabled();
 
-  // The reason lives on the info icon beside the disabled button, not the button itself.
+  // Read the reason on the info icon beside the disabled button.
   await page.getByRole("button", { name: "Complete event is disabled:" }).hover();
   await expect(page.locator('[data-slot="tooltip-content"]')).toContainText(
     "The event end date and time has not passed."

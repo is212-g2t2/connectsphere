@@ -17,35 +17,32 @@ import {
 } from "#/features/event-requests/schema";
 
 /**
- * Server-only on purpose, and named for it. `#/db/schema` is a value import here: the table
- * builders run at module scope, so a bundler cannot treat the module as side-effect free and
- * drops nothing — importing this from anywhere the browser can reach would ship the whole
- * database schema, Better Auth tables included. `server-fns.ts` reaches it through a dynamic
- * `import()` inside `.handler()`, which is the seam that keeps it off the client.
+ * Keep this module server-only. Its value import of `#/db/schema` builds tables at module scope, so
+ * the bundler keeps the full module. A client-reachable import would ship the database schema,
+ * including Better Auth tables. `server-fns.ts` imports it dynamically inside `.handler()`.
  *
- * The middleware pipeline has already verified the session and `event_request:create` before
- * this runs; `user` here is the verified organiser.
+ * Middleware verifies the session and `event_request:create` before this runs. `user` is the verified organiser.
  */
 
 type Database = typeof Db;
 export type EventRequest = typeof eventRequests.$inferSelect;
 
-/** Who a request can be traced to: the Coordinator handling it, or the Organiser who raised it. */
+/** The Coordinator handling the request or the Organiser who raised it. */
 export interface Contact {
   name: string;
   email: string;
 }
 
-/** A request with its Coordinator resolved, for the organiser's list (PTR-15 AC3); the detail adds clarifications. */
+/** A request with its Coordinator for the Organiser's list (PTR-15 AC3). The detail view adds clarifications. */
 export type EventRequestWithCoordinator = EventRequest & { coordinator: Contact | null };
 
 /** A submitted request nobody is handling yet, with its Organiser, for the unassigned list (AC5). */
 export type EventRequestWithOrganiser = EventRequest & { organiser: Contact };
 
 /**
- * The selection every read of a request goes through: the row plus the assigned Coordinator's
- * name and email, via a left join. Drizzle folds a nested selection whose columns are all null —
- * the unassigned case — into `coordinator: null`, which is the contract the pages render against.
+ * Select the request row and its assigned Coordinator's name and email with a left join.
+ * Drizzle returns `coordinator: null` when the joined columns are all null. Pages use that shape
+ * for unassigned requests.
  */
 const withCoordinator = {
   ...getTableColumns(eventRequests),
@@ -56,8 +53,7 @@ function ownRequest(id: number, organiserId: string) {
   return and(eq(eventRequests.id, id), eq(eventRequests.organiserId, organiserId));
 }
 
-// The status clause is what keeps a submitted request from being written again, whichever path
-// is asking.
+// The status clause prevents any path from writing a submitted request again.
 function ownDraft(id: number, organiserId: string) {
   return and(
     eq(eventRequests.id, id),
@@ -67,10 +63,9 @@ function ownDraft(id: number, organiserId: string) {
 }
 
 /**
- * A write that matched no draft is either not the organiser's at all or theirs but no longer a
- * draft. Only the message differs: "Forbidden" would blame the role for a request that was
- * submitted in this or another sitting, so the submitted case answers with the direction the
- * calling path asks for instead.
+ * A write may match no draft because the row belongs to another organiser or is no longer a draft.
+ * Use a different message for each case. "Forbidden" would blame the user's role when the request
+ * was submitted in another tab. Use the direction requested by the caller for submitted rows.
  */
 async function ownRowExists(id: number, organiserId: string, database: Database): Promise<boolean> {
   const rows = await database
@@ -82,10 +77,9 @@ async function ownRowExists(id: number, organiserId: string, database: Database)
 }
 
 /**
- * Full-replace (PUT-style), not merge: an update writes every field from `data`, defaulting
- * anything absent to blank/null exactly as a create would. The form always resends the complete
- * draft, so this matches actual usage; a partial payload against an existing `id` blanks the
- * fields it omits rather than leaving them untouched.
+ * Replace the full draft, like a PUT; do not merge. Write every field from `data`, with absent
+ * values set to blank or `null`, as on create. The form sends the full draft. A partial payload
+ * blanks omitted fields instead of leaving them unchanged.
  */
 export async function handleSaveEventRequestDraft(
   data: unknown,
@@ -94,8 +88,8 @@ export async function handleSaveEventRequestDraft(
 ): Promise<EventRequest> {
   const { id, ...values } = parseDraftInput(data);
 
-  // The registration transform has already dropped the terms when registration is off; `?? null`
-  // is what writes that drop, and what keeps a half-written draft's absent terms null.
+  // The registration transform drops the terms when registration is off. `?? null` saves that
+  // change and keeps absent terms `null` in a partial draft.
   const fields = {
     ...values,
     expectedAttendance: values.expectedAttendance ?? null,
@@ -113,9 +107,8 @@ export async function handleSaveEventRequestDraft(
     return created;
   }
 
-  // Scoped to the organiser's own drafts, so an id belonging to someone else updates nothing.
-  // Refusing rather than falling back to an insert is what stops one save from silently
-  // becoming two drafts.
+  // Update only this Organiser's drafts. If another user owns the id, update nothing.
+  // Do not insert instead; one save must not create a second draft.
   const updated = await database
     .update(eventRequests)
     .set(fields)
@@ -134,13 +127,12 @@ export async function handleSaveEventRequestDraft(
 }
 
 /**
- * PTR-13: submits the organiser's own draft, refusing it while a mandatory field is missing
- * (criterion 1) and recording the time it was submitted (criterion 2).
+ * PTR-13: Submit the Organiser's draft. Refuse it if a required field is missing (criterion 1),
+ * and record the submission time (criterion 2).
  *
- * The stored row is the source of truth rather than whatever the page last held, so a submission
- * cannot carry values that were never saved. PTR-11's registration terms are not re-checked
- * here: a stored draft cannot have them missing or half-set — the save path requires all three
- * together and the database CHECKs refuse the row — so their absence is never reachable.
+ * Read the stored row, not the page's last values. This prevents a submission from including
+ * unsaved data. Do not re-check PTR-11 registration terms: the save path requires all three terms
+ * together, and database checks reject incomplete values.
  */
 export async function handleSubmitEventRequest(
   data: unknown,
@@ -149,10 +141,9 @@ export async function handleSubmitEventRequest(
 ): Promise<EventRequest> {
   const { id } = parseEventRequestId(data);
 
-  // One transaction, with the row locked while it is read: a save in another tab must not blank
-  // a mandatory field between the completeness check and the update below. Only the update needs
-  // the lock — the save path's own predicate already refuses a submitted row, and it will block
-  // here until this transaction commits if it arrives mid-flight.
+  // Lock the row while this transaction checks completeness and submits it. A save in another tab
+  // must not clear a required field in between. The save path also refuses submitted rows, so it
+  // waits here until this transaction commits.
   return database.transaction(async tx => {
     const ownRows = await tx
       .select()
@@ -173,9 +164,8 @@ export async function handleSubmitEventRequest(
       throw new Error(missingFieldsMessage(missing));
     }
 
-    // PTR-15 criterion 1: the Coordinator is chosen in the same transaction that submits, so a
-    // submitted row never exists without one while one could be had. `null` when the system has
-    // no Coordinator at all (criterion 5); the row then waits in the unassigned list.
+    // PTR-15 criterion 1: Choose a Coordinator in the submission transaction when one is available.
+    // Use `null` when the system has no Coordinator (criterion 5). The request then waits unassigned.
     const coordinator = await pickLeastLoadedCoordinator(tx);
     const now = new Date();
 
@@ -195,17 +185,17 @@ export async function handleSubmitEventRequest(
 }
 
 /**
- * The assignment rule (PTR-15 criterion 1): the Event Coordinator currently handling the fewest
- * submitted requests, ties broken by the earliest account so the rule is deterministic and
- * testable. Each submission re-reads the load at the moment it runs. Two submissions that overlap
- * can read the same counts and land on the same Coordinator — the `for update` lock in the
- * submit transaction covers the draft row, not this read — which criterion 1 permits; serialising
- * the pick is a trade against contention to weigh if burst fairness ever matters.
+ * The assignment rule (PTR-15 criterion 1): pick the Event Coordinator with the fewest
+ * submitted requests. Break ties by earliest account, so the rule stays deterministic and
+ * testable. Re-read the load on each submission. Overlapping submissions can read the same
+ * counts and pick the same Coordinator. The submit transaction locks the draft row, not this
+ * read. Criterion 1 permits that. Serialising the pick would trade contention for fairness.
+ * Weigh that trade only if burst fairness ever matters.
  *
- * A rejected request is terminal and no longer counts as active coordination load. Approved
- * requests still count because approval opens their downstream venue and equipment work.
+ * A rejected request is terminal and counts no coordination load. Approved requests still count.
+ * Approval opens their venue and equipment work.
  *
- * Exported for the integration test; its one application caller is `handleSubmitEventRequest`.
+ * Export this for the integration test. Its one application caller is `handleSubmitEventRequest`.
  */
 export async function pickLeastLoadedCoordinator(
   database: Pick<Database, "select">
@@ -230,8 +220,8 @@ export async function pickLeastLoadedCoordinator(
 }
 
 /**
- * PTR-14 criterion 1: the organiser's own requests, drafts included. Most recently changed
- * first, then newest id, so two rows saved in the same instant still list in a stable order.
+ * PTR-14 criterion 1: Return the Organiser's requests, including drafts. Sort by most recent change,
+ * then by id, so rows saved at the same time keep a stable order.
  */
 export async function handleListEventRequests(
   organiser: SessionUser,
@@ -246,9 +236,8 @@ export async function handleListEventRequests(
 }
 
 /**
- * PTR-14 criterion 4: one request, as recorded. Scoped to the organiser so a row that belongs
- * to someone else reads as absent — the route answers both with the same not-found view, which
- * is what keeps another organiser's ids from being probed.
+ * PTR-14 criterion 4: Return one request as recorded. Scope it to the Organiser so another user's
+ * row appears absent. The route uses the same not-found view for both cases, so ids cannot be probed.
  */
 export async function handleGetEventRequest(
   data: unknown,
@@ -278,9 +267,9 @@ export async function handleGetEventRequest(
 }
 
 /**
- * PTR-15 criterion 5: every submitted request with nobody handling it, oldest wait first, with
- * the Organiser who raised it. Read by any Event Coordinator; PTR-16's coordination detail
- * checks the current assignment again before letting a Coordinator pick one up.
+ * PTR-15 criterion 5: Return submitted requests with no assigned Coordinator, oldest first, with
+ * the Organiser's details. Any Event Coordinator can read them. PTR-16 checks the assignment
+ * before a Coordinator can take one.
  */
 export async function handleListUnassignedEventRequests(
   database: Database
@@ -296,10 +285,9 @@ export async function handleListUnassignedEventRequests(
     .orderBy(asc(eventRequests.submittedAt), asc(eventRequests.id));
 }
 /**
- * Criterion 2: loads one owned draft so the edit route can seed the form with it. Scoped through
- * `ownDraft`, the same helper the save path uses, so a submitted request can never be fetched
- * back into the editable form. `null` for a row that is not theirs, no longer a draft, or does
- * not exist, as `handleGetEventRequest` does; the route answers all three with the same 404.
+ * Criterion 2: Load an owned draft to seed the edit form. Use `ownDraft`, as the save path does,
+ * so the route cannot fetch a submitted request for editing. Return `null` for another user's row,
+ * a submitted request, or a missing row. The route uses the same 404 for all three cases.
  */
 export async function handleGetEventRequestDraft(
   data: unknown,
@@ -314,9 +302,9 @@ export async function handleGetEventRequestDraft(
 }
 
 /**
- * Criterion 3: deletes the organiser's own draft. Scoped through `ownDraft`, so a submitted
- * request can never be deleted here — mirrors `handleSaveEventRequestDraft`'s distinction between
- * "not yours" and "yours, but no longer a draft".
+ * Criterion 3: Delete the Organiser's draft. Use `ownDraft` so a submitted request cannot be
+ * deleted. This matches `handleSaveEventRequestDraft`'s distinction between another user's row
+ * and an owned row that is no longer a draft.
  */
 export async function handleDeleteEventRequestDraft(
   data: unknown,

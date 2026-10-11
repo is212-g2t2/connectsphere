@@ -128,9 +128,9 @@
         "no-base-to-string": "off"
       }
     },
-    // shadcn/ui primitives, restyled in place for the design system. The rules that are off here
-    // need a component's internals, not its call sites: appearance, structural values and the
-    // variant functions that own them. Token and inline-style checks still run.
+    // These shadcn/ui primitives are restyled for the design system. The disabled rules need to
+    // inspect each component's internals: its appearance, structural values, and variant functions.
+    // Token and inline-style checks still run.
     {
       "files": ["src/components/ui/**"],
       "rules": {
@@ -158,15 +158,15 @@
         "typescript/restrict-template-expressions": "off"
       }
     },
-    // React Email renders inline styles; email clients need them.
+    // React Email renders inline styles because email clients need them.
     {
       "files": ["src/features/emails/**"],
       "rules": {
         "shadcn/no-inline-styles": "off"
       }
     },
-    // Upstream shadcn/ui internals the design system cannot verify: sonner targets
-    // the library's own `toaster` class.
+    // The design system cannot check this upstream shadcn/ui detail. Sonner targets the library's
+    // own `toaster` class.
     {
       "files": ["src/components/ui/sonner.tsx"],
       "rules": {

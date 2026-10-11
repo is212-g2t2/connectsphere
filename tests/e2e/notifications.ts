@@ -1,9 +1,8 @@
 // oxlint-disable node/no-process-env
 
-/**
- * PTR-55: drains the notification email queue through the same token-guarded route Cloud
- * Scheduler calls every minute. E2E asks for delivery explicitly just before it waits on Mailpit,
- * so the tests stay deterministic without a scheduler running.
+/** PTR-55: drain the notification email queue through the token-guarded route that Cloud Scheduler
+ * calls every minute. E2E tests request delivery before polling Mailpit, so they do not need a
+ * running scheduler.
  */
 export async function deliverQueuedEmails(): Promise<void> {
   const token = process.env.CRON_TOKEN ?? "e2e-cron-token";

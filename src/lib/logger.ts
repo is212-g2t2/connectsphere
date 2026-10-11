@@ -15,9 +15,8 @@ interface AppLoggingOptions {
 
 export const logger = getLogger(["app"]);
 
-// The default console formatter renders only the message, so the properties
-// that callers attach (request method and path, email recipient, …) are
-// visible to the Sentry sink but never to the operator reading stdout.
+// The default console formatter shows only the message. It hides properties such as the request
+// method, path, and email recipient from operators who read stdout. The Sentry sink still receives them.
 export const consoleFormatter: ConsoleFormatter = record =>
   Object.keys(record.properties).length === 0
     ? defaultConsoleFormatter(record)

@@ -2,13 +2,10 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
 
-// integration-setup.ts provides the database (container, DATABASE_URL, schema, seed), but `#/db`
-// builds its client from `bun:sql`, which vitest.config.ts aliases to a no-op stub
-// (tests/shims/bun.ts) — so `db` cannot execute a query no matter what DATABASE_URL says.
-// Suites that take `db` as a parameter sidestep this; `betterAuth()` captures the
-// module-level `db` at import time and exposes no such seam, so the module itself has to be
-// replaced. Mocking it rather than rebuilding `betterAuth()` keeps src/lib/auth.server.ts under test.
-// Built via vi.hoisted so the mock factory and afterAll share one pool this file can close.
+// `integration-setup.ts` provides the database. Vitest stubs `bun:sql` with a no-op
+// (`tests/shims/bun.ts`), so the app's `#/db` client cannot query it. `betterAuth()` captures the
+// module-level client at import time, so inject no database here. Mock `#/db` so
+// `src/lib/auth.server.ts` stays under test, sharing the pool with `afterAll` through `vi.hoisted`.
 const { pool } = await vi.hoisted(async () => {
   const { Pool } = await import("pg");
   return { pool: new Pool({ connectionString: process.env.DATABASE_URL }) };
@@ -20,10 +17,9 @@ vi.mock("#/db", async () => {
   return { client: pool, db: drizzle(pool, { schema }) };
 });
 
-// The mailer is mocked to *observe* the verification email, not to keep the suite passing:
-// sendOnSignUp runs as a background task, so a real RESEND_API_KEY failure is swallowed and never
-// reaches the response. That is exactly why criterion 6 needs a test — a broken verification email
-// is invisible from the outside. Holding the element also yields the link, so no token spelunking.
+// Mock the mailer to observe the verification email. `sendOnSignUp` runs in the background and
+// hides provider failures from the response. Criterion 6 needs this test because users cannot see
+// a failed email otherwise. Capture the message to get its link without reading the token directly.
 const { sendEmail } = vi.hoisted(() => ({
   sendEmail: vi
     .fn<(to: string, subject: string, react: ReactElement<{ url?: string }>) => Promise<unknown>>()
@@ -46,7 +42,7 @@ async function isEmailVerified(email: string): Promise<boolean> {
   return result.rows[0]?.email_verified ?? false;
 }
 
-/** sendOnSignUp dispatches in the background, so the send trails the sign-up response. */
+/** `sendOnSignUp` sends email in the background, after the sign-up response. */
 async function verificationLinkFor(email: string): Promise<string> {
   await vi.waitFor(() => {
     expect(sendEmail).toHaveBeenCalledWith(email, expect.any(String), expect.anything());
@@ -61,9 +57,8 @@ afterAll(async () => {
   await pool.end();
 });
 
-/**
- * These go through `auth.handler` rather than `auth.api.*` on purpose: the point is to prove the
- * guards hold on the raw HTTP path an attacker would actually use, bypassing the sign-up form.
+/** Send these requests through `auth.handler`, not `auth.api.*`. This tests the raw HTTP path and
+ * bypasses the sign-up form, as a direct caller would.
  */
 const BASE_URL = "http://localhost:3000";
 
@@ -131,11 +126,9 @@ describe("auth server-side validation (PTR-5)", () => {
       expect(response.status).toBe(200);
     });
 
-    /**
-     * `event_organiser` is the case that matters (PTR-7): it is self-assignable at sign-up, so
-     * the field validator would let it through and only the `/update-user` guard refuses it.
-     * `event_coordinator` rides along to cover an internal role. `admin` is left to the sign-up
-     * tests above — it takes the identical branch and costs a round trip to say the same thing.
+    /** `event_organiser` is self-assignable at sign-up (PTR-7). The field validator accepts it,
+     * but the `/update-user` guard must refuse it. Also test the internal `event_coordinator` role.
+     * The sign-up tests already cover `admin`, which uses the same branch.
      */
     it.each(["event_coordinator", "event_organiser"])(
       "refuses escalation to %s through /update-user after a valid sign-up",
@@ -156,8 +149,8 @@ describe("auth server-side validation (PTR-5)", () => {
         expect(response.status).toBe(403);
         expect(await messageOf(response)).toMatch(/role cannot be changed/i);
 
-        // The assertion that matters: the stored role is unchanged, not merely that the request
-        // was refused. Criterion 2 requires that the function is not performed either.
+        // Check that the stored role is unchanged. Refusing the request alone does not prove that
+        // the function did not update it. Criterion 2 requires both checks.
         const session = await auth.handler(
           new Request(`${BASE_URL}/api/auth/get-session`, { headers: { cookie: cookie as string } })
         );
@@ -166,8 +159,8 @@ describe("auth server-side validation (PTR-5)", () => {
       }
     );
 
-    // The guard must refuse the role without breaking legitimate updates, and must not let a
-    // rename quietly reset the role to its sign-up default either.
+    // Refuse the role update but allow valid changes. Renaming must not reset the role to its
+    // sign-up default.
     it("still allows /update-user to change a field that is not the role", async () => {
       const email = uniqueEmail("rename");
       const signUp = await auth.handler(
@@ -227,9 +220,9 @@ describe("auth server-side validation (PTR-5)", () => {
       expect(await messageOf(response)).toMatch(/must contain at least one number/i);
     });
 
-    // These two prove the hook actually matches the path. The middleware runs before the endpoint,
-    // so a deliberately bogus token / absent session still surfaces the policy error first — which
-    // is exactly the signal that the path is covered, without standing up a real reset token.
+    // Check that the hook matches the path. Middleware runs before the endpoint, so a bad token or
+    // missing session must return the policy error first. This proves the path is covered without
+    // creating a real reset token.
     it("covers /reset-password", async () => {
       const response = await auth.handler(
         post("/reset-password", { newPassword: "passwordd", token: "not-a-real-token" })
@@ -251,7 +244,7 @@ describe("auth server-side validation (PTR-5)", () => {
         post("/sign-in/email", { email: "john.doe@example.com", password: "weak" })
       );
 
-      // Wrong credentials, not a policy rejection — the point is which error comes back.
+      // Check the credentials error, not a policy refusal.
       expect(await messageOf(response)).not.toMatch(/must contain/i);
     });
   });

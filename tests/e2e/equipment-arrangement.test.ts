@@ -1,9 +1,8 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-39: the dashboard card leading into the event page, the Technical Support lines section,
-// and the Coordinator seeing the result. Every test creates and removes its own event, so it
-// never touches the shared demo row that equipment-requests.spec.ts snapshots and restores,
-// and the tests can run in parallel.
+// PTR-39: Check the dashboard card, the Technical Support lines, and the Coordinator's result.
+// Each test creates and removes its own event. It does not change the shared demo row used by
+// equipment-requests.spec.ts, so these tests can run in parallel.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { eq, inArray } from "drizzle-orm";
@@ -54,7 +53,7 @@ interface LineSeed {
   assignedStaffId?: string;
 }
 
-/** An approved event on 1 Jan 2030, 09:00–17:00, with its equipment submitted (or not). */
+/** An approved event on 1 Jan 2030, 09:00–17:00, with equipment marked as submitted or not. */
 async function createEvent(lines: LineSeed[], submitted = true) {
   const name = `PTR-39 E2E ${crypto.randomUUID().slice(0, 8)}`;
   const [row] = await database
@@ -134,8 +133,7 @@ test.describe("AC1: the dashboard card", () => {
     const { id, name } = await createEvent([{ item: "Projector", quantity: 2 }]);
     await signInAsStaff(page, "technical_support_staff");
 
-    // The work list route is gone: it answers 404. The submitted request surfaces on the
-    // dashboard instead.
+    // The work list route returns 404. The dashboard shows the submitted request.
     await page.goto("/equipment-requests");
     await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
     await page.goto("/dashboard");
@@ -181,7 +179,7 @@ test.describe("AC2: the event page lines", () => {
   });
 
   test("does not open a request the member is not connected to", async ({ page }) => {
-    // Not submitted, so the draft still belongs to the Coordinator alone.
+    // The Coordinator still owns the draft because it has not been submitted.
     const { id, name } = await createEvent([{ item: "Projector" }], false);
     await signInAsStaff(page, "technical_support_staff");
 
@@ -189,7 +187,7 @@ test.describe("AC2: the event page lines", () => {
     await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
     await expect(page.getByText(name)).toHaveCount(0);
 
-    // An id that does not exist is refused the same way, so neither confirms anything.
+    // Reject a missing id in the same way, without confirming anything.
     await page.goto("/events/2147483000");
     await expect(page.getByRole("heading", { name: "404 - Not Found" })).toBeVisible();
   });

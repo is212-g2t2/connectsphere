@@ -2,9 +2,8 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_authenticated")({
   /**
-   * `__root.tsx` resolved the session for this load already (PTR-73), so the boundary is
-   * just the refusal now. The re-emit narrows `SessionUser | null` to `SessionUser`: every route
-   * beneath this one reads `context.user` and never repeats the check.
+   * `__root.tsx` already resolved the session for this load (PTR-73), so this boundary only refuses access.
+   * Re-emit context with a non-null `SessionUser`. Routes can then read `context.user` without repeating the check.
    */
   beforeLoad: ({ context }) => {
     if (!context.user) {

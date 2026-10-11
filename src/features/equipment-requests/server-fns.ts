@@ -18,9 +18,9 @@ import { logger } from "#/lib/logger";
 const log = logger.getChild("equipment-requests");
 
 /**
- * Routes import this module, so it stays free of any static server import — the middleware
- * pipeline is client-safe, and `./equipment.server` and `#/db` are both reached inside the
- * handlers, which TanStack Start strips from the client build.
+ * Routes import this module, so do not add static server imports here. The middleware can run on
+ * the client. Load `./equipment.server` and `#/db` inside handlers. TanStack Start removes them
+ * from the client build.
  */
 async function loadServer() {
   return Promise.all([import("#/db"), import("#/features/equipment-requests/equipment.server")]);
@@ -39,9 +39,9 @@ export const requireEquipmentArrange = requirePermission({
 });
 
 /**
- * PTR-39 AC3: Technical Support sets a line's arrangement state, adds notes, or both. The work
- * list and the request detail need no function of their own: they read the caller's events
- * through `listEvents`, which already scopes and projects them.
+ * PTR-39 AC3: Technical Support sets a line's state, adds notes, or does both. The work list and
+ * request detail use `listEvents` to read the caller's events. That function applies access rules
+ * and selects the required fields.
  */
 export const updateEquipmentArrangement = createServerFn({ method: "POST" })
   .validator(parseArrangementUpdateInput)
@@ -60,10 +60,7 @@ export const updateEquipmentArrangement = createServerFn({ method: "POST" })
     return line;
   });
 
-/**
- * PTR-43 AC1: Technical Support Staff marks an event's technical arrangements complete.
- * Refused if any line is not in 'reserved' or 'not_required'.
- */
+/** PTR-43 AC1: Mark technical arrangements complete if each line is `reserved` or `not_required`. */
 export const completeEquipmentArrangements = createServerFn({ method: "POST" })
   .validator(parseCompleteArrangementsInput)
   .middleware([requireEquipmentArrange])
@@ -79,10 +76,7 @@ export const completeEquipmentArrangements = createServerFn({ method: "POST" })
     return event;
   });
 
-/**
- * PTR-43 AC2: Technical Support Staff records that requested equipment cannot be provided.
- * Stores the reason and notifies the assigned Coordinator.
- */
+/** PTR-43 AC2: Record why Technical Support cannot provide the requested equipment. Notify the assigned Coordinator. */
 export const recordEquipmentUnavailable = createServerFn({ method: "POST" })
   .validator(parseRecordUnavailableInput)
   .middleware([requireEquipmentArrange])
@@ -100,7 +94,7 @@ export const recordEquipmentUnavailable = createServerFn({ method: "POST" })
     return line;
   });
 
-/** PTR-38 AC1/AC4: add a new line or update an existing one. */
+/** PTR-38 AC1/AC4: Add a line or update an existing line. */
 export const saveEquipmentLine = createServerFn({ method: "POST" })
   .validator(parseEquipmentLineInput)
   .middleware([requireEquipmentManage])
@@ -117,7 +111,7 @@ export const saveEquipmentLine = createServerFn({ method: "POST" })
     return line;
   });
 
-/** PTR-38 AC4: remove one line. */
+/** PTR-38 AC4: Remove one line. */
 export const removeEquipmentLine = createServerFn({ method: "POST" })
   .validator(parseRemoveEquipmentLineInput)
   .middleware([requireEquipmentManage])
@@ -135,8 +129,8 @@ export const removeEquipmentLine = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-38 AC5: submit the full equipment list to Technical Support. The handler raises every
- * Technical Support member's notification with the submission; the worker delivers the emails.
+ * PTR-38 AC5: Submit the full equipment list to Technical Support. The handler creates a
+ * notification for each Technical Support member. The worker sends the emails.
  */
 export const submitEquipmentRequest = createServerFn({ method: "POST" })
   .validator(parseSubmitEquipmentInput)
@@ -155,7 +149,7 @@ export const submitEquipmentRequest = createServerFn({ method: "POST" })
     return result;
   });
 
-/** PTR-40: how much of an equipment type is free for the event's approved booking period. */
+/** PTR-40: Check how many units of an equipment type are free during the event's approved booking. */
 export const checkEquipmentAvailability = createServerFn({ method: "POST" })
   .validator(parseAvailabilityCheckInput)
   .middleware([requireEquipmentArrange])
@@ -167,7 +161,7 @@ export const checkEquipmentAvailability = createServerFn({ method: "POST" })
     return handleCheckEquipmentAvailability(data, context.user, db);
   });
 
-/** PTR-40: the equipment types Technical Support can check, for the availability picker. */
+/** PTR-40: List the equipment types for Technical Support's availability picker. */
 export const listEquipmentTypes = createServerFn({ method: "GET" })
   .middleware([requireEquipmentArrange])
   .handler(async () => {
@@ -178,7 +172,7 @@ export const listEquipmentTypes = createServerFn({ method: "GET" })
     return handleListEquipmentTypes(db);
   });
 
-/** PTR-41: Technical Support Staff reserve equipment for an event's approved venue booking period. */
+/** PTR-41: Reserve equipment for an event's approved venue booking period. */
 export const requireEquipmentReserve = requirePermission({ equipment: ["reserve"] });
 
 export const reserveEquipment = createServerFn({ method: "POST" })
@@ -192,7 +186,7 @@ export const reserveEquipment = createServerFn({ method: "POST" })
     return handleReserveEquipment(data, context.user, db);
   });
 
-/** PTR-41: how much of the line's own type is free for its booking window. */
+/** PTR-41: Check how many units of the line's type are free during its booking. */
 export const checkLineAvailability = createServerFn({ method: "POST" })
   .validator(parseCheckLineAvailabilityInput)
   .middleware([requireEquipmentReserve])
@@ -204,7 +198,7 @@ export const checkLineAvailability = createServerFn({ method: "POST" })
     return handleCheckLineAvailability(data, context.user, db);
   });
 
-/** PTR-42: Technical Support Staff reduce a line's reservation to a new total, or release it. */
+/** PTR-42: Reduce a line's reservation or release it. */
 export const requireEquipmentRelease = requirePermission({ equipment: ["release"] });
 
 export const releaseEquipment = createServerFn({ method: "POST" })

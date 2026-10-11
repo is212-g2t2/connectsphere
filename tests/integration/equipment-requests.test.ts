@@ -1,6 +1,5 @@
-// Mirrors event-list.test.ts: a local node-postgres drizzle instance, not the app's `#/db`
-// (which is configured with the bun-sql driver and does not accept this codebase's query shapes
-// in a test context — see the "client.unsafe is not a function" failure this replaces).
+// Like `event-list.test.ts`, use a local node-postgres Drizzle instance. The app's `#/db` uses the
+// bun-sql driver, which does not support these query shapes in tests.
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { render } from "@react-email/render";
@@ -50,8 +49,8 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
     database = drizzle(pool, { schema });
     await runSeed(database);
 
-    // The stranger coordinator isn't part of runSeed's fixtures; insert it so
-    // handleAssignEventRequest-style lookups (and this file's own checks) have a real row.
+    // `runSeed` does not create this unrelated Coordinator. Insert it so assignment lookups have a
+    // real row to check.
     await database
       .insert(schema.user)
       .values([
@@ -89,9 +88,8 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
     created.length = 0;
   });
 
-  // Statuses only reachable in real use after handleDecideEventRequest has run, so the DB's
-  // `event_requests_decision_matches_status` CHECK expects the decision columns to be set
-  // alongside them. "planning" and "confirmed" both follow an approval in this app's lifecycle.
+  // These statuses follow `handleDecideEventRequest` in normal use. The database check requires
+  // decision columns for them. In this app, both `planning` and `confirmed` follow approval.
   const DECIDED_STATUSES = new Set(["approved", "rejected", "planning", "confirmed"]);
 
   async function createEvent(
@@ -106,7 +104,7 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
           decisionReason: status === "rejected" ? "Test rejection" : null,
         }
       : {};
-    // PTR-24: a confirmed event always records who confirmed it and when.
+    // PTR-24: a confirmed event records who confirmed it and when.
     const confirmationDefaults =
       status === "confirmed"
         ? {
@@ -507,8 +505,8 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       expect(row.status).toBe("approved");
     });
 
-    // A row saved before the draft cap could carry more lines than the panel allows. The seed
-    // slices to the cap so the panel's invariant holds whatever a legacy draft holds.
+    // A saved row may exceed the panel's draft limit. Keep the seeded row within the limit so the
+    // panel invariant also holds for older drafts.
     test("AC2: a legacy draft over the cap seeds only EQUIPMENT_MAX_LINES", async () => {
       const legacy = Array.from({ length: EQUIPMENT_MAX_LINES + 20 }, (_, i) => ({
         type: `Legacy ${i}`,
@@ -527,10 +525,9 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
 
   // ── Row locks & concurrency ───────────────────────────────────────────────────────────────
   describe("row locks serialize submit against edits", () => {
-    // Each test drives a second raw connection holding the event row lock, while the handler
-    // under test runs on the pooled drizzle connection. The handler's `FOR UPDATE` must block
-    // on that lock; if `loadEditableEvent` drops `.for("update")`, the handler reads the row
-    // before the submit commits and its write succeeds, so the assertion flips.
+    // Each test holds the event row lock on a second connection while the handler uses the pool.
+    // The handler's `FOR UPDATE` must wait for the lock. If `loadEditableEvent` drops
+    // `.for("update")`, it reads before submit commits and the assertion fails.
     test("a save racing a submit commit is refused and inserts nothing", async () => {
       const id = await createEvent("approved");
       const client = await pool.connect();
@@ -543,7 +540,7 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
           coordinator,
           database as never
         );
-        // Give the save time to reach its locked read before the submit commits.
+        // Let the save reach its locked read before submit commits.
         await sleep(150);
         await client.query(
           "update event_requests set equipment_submitted_at = now() where id = $1",
@@ -626,7 +623,7 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
         .from(schema.eventRequests)
         .where(eq(schema.eventRequests.id, id));
       expect(row.equipmentSubmittedAt).toBeNull();
-      // The refused submission rolls back, so no notification rows are left behind.
+      // The refused submission rolls back and leaves no notification rows.
       expect(
         await database
           .select()
@@ -826,9 +823,9 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       ).rejects.toBeInstanceOf(AuthorizationError);
     });
 
-    // AC5 queue gate: an unassigned `requested` line joins the shared Technical Support work
-    // list only once the event is submitted — before that the draft belongs to the Coordinator
-    // alone, while a line assigned to a staffer connects them regardless.
+    // AC5: an unassigned `requested` line enters the shared Technical Support list when the event
+    // is submitted. Before submission, only the Coordinator can see the draft. An assigned line
+    // stays visible to its staff member.
     test("AC5: after submit, technical support can see the event (work list)", async () => {
       const id = await createEvent("approved");
       await handleSaveEquipmentLine(
@@ -855,9 +852,9 @@ describe("equipment handlers (PTR-38 / PTR-39)", () => {
       ).rejects.toBeInstanceOf(AuthorizationError);
     });
 
-    // PTR-42: deleting the holder's account nulls the assignment and leaves the reservation
-    // holding, so an unassigned `reserved` line must stay reachable — otherwise no member could
-    // ever release its units. Assigned lines still connect only their assignee (next test).
+    // PTR-42: deleting the holder's account clears the assignment but keeps the reservation. Keep
+    // an unassigned `reserved` line visible so a member can release its units. The next test checks
+    // that assigned lines stay visible only to their assignee.
     test("AC5: a reserved unassigned line on a submitted event connects technical support", async () => {
       const id = await createEvent("approved");
       const line = await handleSaveEquipmentLine(

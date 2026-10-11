@@ -53,7 +53,7 @@ describe("list event registrations (PTR-48)", () => {
         ])
       );
 
-    // Seed actors
+    // Create test users.
     await database.insert(schema.user).values(
       [
         organiser,
@@ -76,7 +76,7 @@ describe("list event registrations (PTR-48)", () => {
       }))
     );
 
-    // Seed event
+    // Create the test event.
     const [event] = await database
       .insert(schema.eventRequests)
       .values({
@@ -104,7 +104,7 @@ describe("list event registrations (PTR-48)", () => {
       .returning();
     eventId = event.id;
 
-    // Seed registrations
+    // Create test registrations.
     await database.insert(schema.eventRegistrations).values([
       { eventId, attendeeId: attendee.id, status: "registered", vip: false },
       { eventId, attendeeId: secondAttendee.id, status: "registered", vip: false },

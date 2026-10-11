@@ -2,7 +2,7 @@ import { COMPLETION_REFUSAL_HEADING } from "#/features/events/completion";
 import { completeEvent } from "#/features/events/server-fns";
 import { EventTransitionAction } from "#/features/events/components/event-transition-action";
 
-/** PTR-25: the assigned Coordinator explicitly closes an event after it ends. */
+/** PTR-25: The assigned Coordinator explicitly closes an event after it ends. */
 export function CompleteEventAction({
   eventId,
   eventName,

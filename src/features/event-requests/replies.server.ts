@@ -90,7 +90,7 @@ export async function handleReplyToClarification(
       })
       .where(eq(eventRequests.id, request.id));
 
-    // The reply and the Coordinator's notification commit together; the worker sends the email.
+    // Commit the reply and the Coordinator's notification together. The worker sends the email.
     await raiseNotifications(tx, [
       {
         recipientId: coordinator.id,

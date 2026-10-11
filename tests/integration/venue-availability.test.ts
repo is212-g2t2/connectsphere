@@ -8,7 +8,7 @@ import * as schema from "#/db/schema";
 import { handleGetVenueAvailability } from "#/features/venues/records.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
-/** 2027-03-15 is a Monday, so `DEFAULT_OPERATING_HOURS` opens it 08:00–22:00. */
+/** 2027-03-15 is a Monday. `DEFAULT_OPERATING_HOURS` opens it from 08:00 to 22:00. */
 const record = {
   name: "Integration Arena",
   location: "Level 1, ConnectSphere Tower",
@@ -33,14 +33,13 @@ describe("Venue availability (PTR-28)", () => {
   });
 
   beforeEach(async () => {
-    // Only what this file creates; the seeded venues stay for the seed tests. Blocks cascade.
+    // Delete only rows from this file. Keep seeded venues for seed tests. Blocks cascade on delete.
     await database.delete(schema.venues).where(eq(schema.venues.name, record.name));
   });
 
-  /**
-   * The one path the unit tests cannot cover: Postgres hands `timestamp without time zone` back
-   * as `"2027-03-15 09:00:00"`, and the calendar must normalise it to the floating `T` form and
-   * subtract it from the venue's opening hours without ever building a `Date`.
+  /** Unit tests cannot cover this database path. PostgreSQL returns `timestamp without time zone`
+   * as `"2027-03-15 09:00:00"`. The calendar must normalize it to the local `T` form and subtract
+   * it from venue hours without creating a `Date`.
    */
   it("round-trips a recorded block into the schedule for its exact period (AC4)", async () => {
     const venue = await database.transaction(async tx => {
@@ -77,8 +76,8 @@ describe("Venue availability (PTR-28)", () => {
     ]);
   });
 
-  // The read convention `$venueId.tsx` uses: a missing row is `null` for the route to turn into
-  // the router's `notFound()`, not a 404 the loader would surface through the error boundary.
+  // Match `$venueId.tsx`: return null for a missing row so the route can call `notFound()` instead
+  // of sending a 404 through the error boundary.
   it("answers null for a venue that does not exist", async () => {
     expect(
       await handleGetVenueAvailability(

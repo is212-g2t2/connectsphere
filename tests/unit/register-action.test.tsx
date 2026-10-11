@@ -54,7 +54,7 @@ describe("RegisterAction (PTR-45)", () => {
 
     expect((await screen.findByRole("alert")).textContent).toBe(message);
     expect(success).not.toHaveBeenCalled();
-    // The places or the period may have moved since the page loaded.
+    // The places or the period can move after the page loads.
     expect(invalidate).toHaveBeenCalled();
   });
 

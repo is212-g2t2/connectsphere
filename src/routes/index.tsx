@@ -12,8 +12,7 @@ export const Route = createFileRoute("/")({
       path: "/",
       structuredData: getStructuredData(),
     }),
-  // The session `__root.tsx` already resolved (PTR-73) — asking the server again here would
-  // spend a second roundtrip on the same navigation.
+  // `__root.tsx` already resolved the session for this navigation (PTR-73). A second server call adds one round trip.
   beforeLoad: ({ context }) => {
     if (context.user) {
       throw redirect({ to: "/dashboard" });

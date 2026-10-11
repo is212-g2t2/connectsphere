@@ -122,7 +122,7 @@ const validPayloads = {
   event_change_processed: { outcome: "applied", eventName: "Gala", whatShouldChange: "Date" },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
-/** Parses or fails the test with the kind named, so a bad fixture is not a silent null. */
+/** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
 function parse(kind: NotificationKind, payload: unknown): NotificationPayload {
   const parsed = parseNotificationPayload(kind, payload);
   if (!parsed) throw new Error(`Expected ${kind} to parse`);
@@ -219,7 +219,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     expect(
       notificationHref({ ...requested, eventRequestId: 7 }, { venueRequestStatus: "approved" })
     ).toBe("/venue-bookings");
-    // No surface still shows a rejected or released request, so those rows carry no link.
+    // No surface shows a rejected or released request. Those rows carry no link.
     expect(
       notificationHref({ ...requested, eventRequestId: 7 }, { venueRequestStatus: "rejected" })
     ).toBeNull();
@@ -399,7 +399,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
         throw new Error(`Expected ${kind} href to be ${expected[kind]}, got ${href}`);
       }
     }
-    // The map must cover every kind: a kind added without an arm fails here.
+    // The map covers every kind. A kind added with no arm fails here.
     expect(Object.keys(expected).toSorted()).toEqual([...NOTIFICATION_KINDS].toSorted());
   });
 });

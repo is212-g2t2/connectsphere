@@ -16,13 +16,9 @@ vi.mock("better-auth/client/plugins", () => ({
   inferAdditionalFields: mocks.inferAdditionalFields,
 }));
 
-/**
- * The file is a single expression: build Better Auth's client and tell it to infer the additional
- * profile fields declared on the server's `auth`. Mocking both constructors is the only way to
- * observe that wiring, since the returned client is otherwise opaque.
- *
- * The import is dynamic because the calls happen once at module evaluation, and the suite's global
- * `clearMocks` wipes them before every test; re-importing after `resetModules` records them here.
+/** Build the client and verify that it infers the server's additional auth fields.
+ * Mock both constructors because the returned client is opaque. Re-import after `resetModules`:
+ * `clearMocks` runs before each test, and the import runs once per module load.
  */
 describe("authClient", () => {
   it("creates the client with the additional fields inferred from the server auth", async () => {

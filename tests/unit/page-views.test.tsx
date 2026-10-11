@@ -12,21 +12,17 @@ import type { SessionUser } from "#/features/auth/session";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
 
-/**
- * PTR-75 criterion 4: a page view renders without a router.
- *
- * These pages used to be declared inside their route files, where the only way to reach one was
- * `Route.useRouteContext()` — so rendering the dashboard in a test meant standing up a router,
- * a memory history and a matching route tree first. They now take their route data as props,
- * and the two router hooks the venue page still needs (navigate, invalidate) are mocked at the
- * module, the way `login-form.test.tsx` already mocks them for the forms.
+/** PTR-75 criterion 4: page views must render without a router. The views used to live in route
+ * files and call `Route.useRouteContext()`. Tests then needed a router, memory history, and route
+ * tree. Views now take route data as props. Mock the venue page's `navigate` and `invalidate`
+ * hooks, as `login-form.test.tsx` does for forms.
  */
 const { routerInvalidate } = vi.hoisted(() => ({
   routerInvalidate: vi.fn<() => Promise<void>>(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  // Params and search are composed so a test can read where a link leads.
+  // Compose params and search so tests can read each link's destination.
   Link: ({
     children,
     to,
@@ -160,13 +156,13 @@ describe("DashboardPage", () => {
     }
   });
 
-  /** The route's `pendingComponent`: the dashboard's shape while `listEvents` is in flight. */
+  /** Dashboard shape while the route's `listEvents` call is pending. */
   it("shows the dashboard's loading shape while the loader is pending", () => {
     const { container } = render(<DashboardPageSkeleton />);
 
     expect(screen.getByRole("status").textContent).toBe("Loading your dashboard…");
     expect(container.querySelector("main")?.getAttribute("aria-busy")).toBe("true");
-    // The card-only dashboard: the header plus the card grid, with no workspace section.
+    // Check the header and card grid. This dashboard has no workspace section.
     expect(container.querySelector("section")).toBeNull();
     expect(container.querySelector("dl")).toBeNull();
   });
@@ -202,9 +198,8 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: "Yes, delete my account" })).toBeTruthy();
   });
 
-  /**
-   * PTR-71: the deletion used to run as a bare `void handleDeleteAccount()` with nothing tracking
-   * it, so both danger-zone buttons stayed live through the most destructive call in the app.
+  /** PTR-71: `handleDeleteAccount()` ran without tracked state. Both danger-zone buttons stayed
+   * active while the account deletion was in progress.
    */
   it("locks the danger zone for as long as the deletion is in flight", async () => {
     const user = userEvent.setup();
@@ -357,7 +352,7 @@ describe("VenueDetailPage", () => {
     expect(screen.getByRole("alert").textContent).toContain(
       "Could not load this venue's request panel."
     );
-    // The dead-end search hint belongs to "no event", not to a transient failure.
+    // Show the dead-end search hint when no event exists, not after a temporary failure.
     expect(screen.queryByRole("link", { name: "dashboard" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Try again" }));
@@ -378,11 +373,9 @@ describe("VenueDetailPage", () => {
     expect(screen.queryByText(/use Find venues for this event/)).toBeNull();
   });
 
-  /**
-   * PTR-31: a successful send or withdraw swaps the panel's branch under the same heading, so
-   * focus would otherwise fall to `<body>` and the new state go unannounced. The panel watches its
-   * own event/venue/request identity and moves focus only when a request changes within the same
-   * context, never on the first paint.
+  /** PTR-31: sending or withdrawing replaces the panel under the same heading. Without focus
+   * management, focus falls to `<body>` and the new state goes unannounced. Move focus only when a
+   * request changes within the same event, venue, and request context, not on first render.
    */
   it("focuses the panel heading when the request changes, but not on first paint", () => {
     const openContext: VenueRequestContext = {

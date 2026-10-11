@@ -10,7 +10,7 @@ import { DEFAULT_OPERATING_HOURS } from "../../src/features/venues/schema";
 import { waitForHydration } from "./hydration";
 import { signInAsStaff } from "./staff-auth";
 
-// The seeded Coordinator the dashboard signs in as (`scripts/seed.ts`).
+// The seeded Coordinator who signs in to the dashboard (`scripts/seed.ts`).
 const SEED_COORDINATOR_ID = "seed-coordinator-1";
 
 let pool: Pool;
@@ -88,7 +88,7 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
     const decision = page.locator("section#decision");
     await expect(decision).toBeVisible();
 
-    // AC1: a rejection without a reason is refused before anything is sent.
+    // AC1: refuse a rejection without a reason before sending it.
     await decision.getByRole("button", { name: "Reject request" }).click();
     await expect(page.getByText("Enter a reason to reject this request")).toBeVisible();
     expect(
@@ -100,7 +100,7 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
       )[0].status
     ).toBe("pending");
 
-    // AC2: a reason plus a suggested venue, date and times.
+    // AC2: include a reason, suggested venue, date, and times.
     await page.getByLabel("Reason for rejection (required)").fill(reason);
     await page.getByLabel("Suggested venue").click();
     await page.getByRole("option", { name: alternativeName }).click();
@@ -110,8 +110,8 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
     await decision.getByRole("button", { name: "Reject request" }).click();
 
     await expect(page.getByText(`Booking rejected for ${venueName}.`)).toBeVisible();
-    // The page refreshes in place: no navigation back to a queue, and the decision is gone.
-    // The event page stays with the settled outcome; only the decision block drops out.
+    // The page refreshes in place and does not return to the queue. It keeps the settled outcome
+    // and removes the decision block.
     await expect(page).toHaveURL(new RegExp(`/events/${eventId}$`));
     await expect(page.locator("section#decision")).toHaveCount(0);
 
@@ -128,8 +128,8 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
       suggestedEndTime: "13:30:00",
     });
 
-    // AC5: the decided request leaves the actionable queue: the decision block is gone
-    // (asserted above) and the dashboard card is now the settled record linking to it.
+    // AC5: remove the decided request from the actionable queue. The dashboard card now links to
+    // the settled record; the decision block is already checked above.
     await page.goto("/dashboard");
     await waitForHydration(page);
     await page.getByRole("link", { name: venueName, exact: true }).click();
@@ -139,9 +139,8 @@ test("[PTR-34] Venue Staff reject with a reason and a suggestion, and the Coordi
     await expect(outcome.getByText("Request declined.")).toBeVisible();
     await expect(outcome.getByText(reason)).toBeVisible();
     await expect(outcome.getByText(`${alternativeName}, 14 Oct 2037, 10:00–13:30`)).toBeVisible();
-    // AC3: the requesting Coordinator finds the rejection on the event page, with reason and
-    // suggestion. Better Auth refuses a second sign-in that carries the first session's cookie
-    // and no Origin.
+    // AC3: show the rejection, reason, and suggestion on the requesting Coordinator's event page.
+    // Better Auth rejects sign-in with the first session's cookie when no Origin header is sent.
     await page.context().clearCookies();
     await signInAsStaff(page, "event_coordinator");
     await page.goto("/dashboard");

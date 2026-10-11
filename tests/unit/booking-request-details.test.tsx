@@ -46,7 +46,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(detailValue("Accessibility").textContent).toBe(
       "Step-free access and two reserved wheelchair spaces."
     );
-    // The canonical requirements treatment labels this pair "Facilities".
+    // The requirements call this pair "Facilities".
     expect(detailValue("Facilities").textContent).toBe("Projector\nTwo wireless microphones");
     expect(screen.getByText("Conflicting booking")).toBeTruthy();
   });
@@ -85,7 +85,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(detailValue("Starts at").textContent).toBe("1 Dec 2030, 18:00");
     expect(detailValue("Expected attendance").textContent).toBe("200");
     expect(detailValue("Facilities").textContent).toBe("Stage lighting");
-    // The previous request's identity must not survive alongside the replacement.
+    // Keep the previous request's identity out of the replacement.
     expect(screen.queryByText("Orchid Room")).toBeNull();
     expect(screen.queryByText("18 Nov 2030, 09:30")).toBeNull();
     expect(screen.queryByText("85")).toBeNull();
@@ -128,7 +128,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     );
     expect(timing.textContent).toBe(longMultilineTiming);
     expect(timing.className).toContain("whitespace-pre-line");
-    // The canonical requirements treatment drops a blank term rather than naming a fallback.
+    // The requirements skip blank terms with no fallback text.
     expect(screen.queryByText("Expected attendance")).toBeNull();
     expect(screen.queryByText("Layout")).toBeNull();
     expect(screen.queryByText("Accessibility")).toBeNull();

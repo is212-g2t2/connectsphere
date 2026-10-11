@@ -1,12 +1,12 @@
 import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schema";
 
-// Formatted in UTC so server and client render the same calendar day.
+// Format in UTC. Server and client then render the same calendar day.
 const releaseDateFormatter = new Intl.DateTimeFormat("en-GB", {
   dateStyle: "medium",
   timeZone: "UTC",
 });
 
-/** The most recent reduce/release on a line, kept after the reservation row is gone. */
+/** Show the most recent reduce/release on a line. Keep it after the reservation row is gone. */
 export function LastReleaseNote({
   release,
 }: {

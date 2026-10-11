@@ -21,7 +21,7 @@ import { venueRequestSections } from "#/features/venue-requests/components/venue
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
-/** The section map for one event access, in section map order. */
+/** Map the sections for one event access, in display order. */
 export function eventSections(data: EventPageData): EventSectionDef[] {
   if (data.kind === "triage") {
     return [...coordinatorSections(data), ...venueSections(data)].filter(section =>
@@ -64,9 +64,9 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
 }
 
 /**
- * The compact actions that ride the sticky rail instead of the main stack: the Coordinator's
- * assignment, cancellation, confirm and complete, and Venue Staff's record-a-decision. Every
- * other section is a record, a wide table, or a heavy form that needs the main column.
+ * Place compact actions on the sticky rail instead of the main stack. These are the Coordinator's
+ * assignment, cancellation, confirm, and complete, plus Venue Staff's record-a-decision. Every
+ * other section is a record, a wide table, or a heavy form. Those need the main column.
  */
 export function railSectionIds(data: EventPageData): Set<string> {
   if (data.kind === "triage") return new Set(["assignment"]);
@@ -81,8 +81,9 @@ export function railSectionIds(data: EventPageData): Set<string> {
 }
 
 /**
- * The anchored sections below the header block. Single column where the access has no rail
- * actions; record stack beside a sticky action rail above the `split` breakpoint.
+ * Render the anchored sections below the header block. Use a single column where the access has
+ * no rail actions. Show the record stack beside a sticky action rail above the `split`
+ * breakpoint.
  */
 function SectionStack({ data, sections }: { data: EventPageData; sections: EventSectionDef[] }) {
   const rail = railSectionIds(data);
@@ -140,10 +141,10 @@ function SectionStack({ data, sections }: { data: EventPageData; sections: Event
 }
 
 /**
- * The universal event page shell: the attendee keeps their unchanged page, and every staff access
- * gets the header block and the visible sections with `id` anchors — the
- * record stack beside a sticky action rail where the access has rail actions.
- * Renders without a router (PTR-75).
+ * Render the universal event page shell. The Attendee keeps their unchanged page. Every staff
+ * access gets the header block and the visible sections with `id` anchors. Show the record stack
+ * beside a sticky action rail where the access has rail actions. It renders without a router
+ * (PTR-75).
  */
 export function EventDetailPage({ data }: { data: EventPageData }) {
   if (data.kind === "triage") {
@@ -194,8 +195,8 @@ export function EventDetailPage({ data }: { data: EventPageData }) {
       </div>
 
       <div className="mt-6">
-        {/* The apply bridges two coordinator-only sections (PTR-52), so only that access
-            mounts the provider. */}
+        {/* The apply bridges two coordinator-only sections (PTR-52). Mount the provider for that
+            access only. */}
         {access === "coordinator" ? (
           <ChangeRequestApplyProvider>
             <SectionStack data={data} sections={sections} />
@@ -209,8 +210,8 @@ export function EventDetailPage({ data }: { data: EventPageData }) {
 }
 
 /**
- * A coordinator opening an event they are not assigned to: the staff header read off the
- * coordination request, with the triage section set below.
+ * Show a Coordinator opening an unassigned event. Read the staff header off the coordination
+ * request. Place the triage sections below.
  */
 function TriagePage({ data }: { data: Extract<EventPageData, { kind: "triage" }> }) {
   const { request } = data;

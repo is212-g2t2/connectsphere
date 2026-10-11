@@ -1,7 +1,7 @@
 import { Page } from "#/components/layout/page";
 import { Skeleton } from "#/components/ui/skeleton";
 
-/** One label-over-value pair of the record grid; the long lists span both columns. */
+/** Show one label-over-value pair of the record grid. Span long lists across both columns. */
 function DetailSkeleton({ wide = false }: { wide?: boolean }) {
   return (
     <div className={wide ? "sm:col-span-2" : undefined}>
@@ -12,10 +12,10 @@ function DetailSkeleton({ wide = false }: { wide?: boolean }) {
 }
 
 /**
- * The venue detail's loading shape: back link, name and description, then the record's field
- * grid. The edit form, the read-only record and PTR-31's request panel are all role-gated, so
- * the skeleton draws the neutral grid rather than promising controls the arriving user may not
- * have (the rule `VenueListPageSkeleton` states).
+ * Show the venue detail loading shape: back link, name, description, and the record field grid.
+ * The edit form, read-only record, and PTR-31 request panel are role-gated. Draw the neutral grid.
+ * The skeleton must not promise controls the arriving user may lack (the rule
+ * `VenueListPageSkeleton` states).
  */
 export function VenueDetailPageSkeleton() {
   return (

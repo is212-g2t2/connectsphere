@@ -35,7 +35,7 @@ interface EventTransitionActionProps {
   invalidateOnRefusal?: boolean;
 }
 
-/** One confirm/complete dialog. A refusal rethrows the server text; any other failure is generic. */
+/** Show one confirm/complete dialog. A refusal rethrows the server text. Other failures are generic. */
 export function EventTransitionAction({
   eventName,
   disabledReason,
@@ -71,7 +71,7 @@ export function EventTransitionAction({
     try {
       await router.invalidate();
     } catch {
-      // The transition already committed; a failed refresh must not report it as a failure.
+      // The transition already committed. A failed refresh must not report it as a failure.
     }
     toast.success(successMessage);
   }, failureMessage);
@@ -119,7 +119,7 @@ export function EventTransitionAction({
                 {transitioning ? pendingLabel : actionLabel}
               </AlertDialogAction>
             </AlertDialogFooter>
-            {/* One copy at a time: two live role="alert" nodes would announce twice. */}
+            {/* Show one copy at a time. Two live alert nodes would announce twice. */}
             {dialogOpen && refusal}
           </AlertDialogContent>
         </AlertDialog>

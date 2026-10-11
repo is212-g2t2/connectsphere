@@ -11,22 +11,22 @@ type Database = typeof Db;
 type BoundaryKind = "registration_opened" | "registration_closed";
 
 /**
- * PTR-49: raises registration_opened and registration_closed notifications for
- * confirmed events with registration windows. Events confirmed after their
- * closesAt are suppressed entirely, so no late opened or closed notice fires.
+ * PTR-49: Raise `registration_opened` and `registration_closed` notices for confirmed events with
+ * registration windows. Suppress events confirmed after their `closesAt`. No late opened or
+ * closed notice fires.
  */
 export async function sweepRegistrationWindows(
   db: Database,
   now: Date = new Date()
 ): Promise<number> {
   const nowMinute = toLocalMinuteValue(venueLocalTimestamp(now));
-  // Catch-up ceiling: only windows whose close is at/after this horizon are swept.
+  // Catch-up ceiling: sweep only windows closing at or after this horizon.
   const limitDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const limitMinute = toLocalMinuteValue(venueLocalTimestamp(limitDate));
 
   return db.transaction(async tx => {
-    // Serialize overlapping cron runs, else both pass the check and double-insert.
-    // (49, 0) is this worker's space, distinct from the venue locks' single-int keys.
+    // Order overlapping cron runs with an advisory lock. Without it, both runs pass the check
+    // and insert twice. `(49, 0)` is this worker's key space. Venue locks use single-int keys.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(49, 0)`);
 
     const events = await tx
@@ -51,7 +51,7 @@ export async function sweepRegistrationWindows(
 
     const notificationsToRaise: NewNotification[] = [];
 
-    // Dedupe keyed event:kind:recipient: a shifted or re-opened window does not re-notify.
+    // Dedupe on event, kind, and recipient. A shifted or reopened window sends no second notice.
     const existingNotifs = new Set<string>();
     if (events.length > 0) {
       const rows = await tx
@@ -101,14 +101,14 @@ export async function sweepRegistrationWindows(
       const confirmedAt = event.confirmedAt;
       if (!opensAt || !closesAt || !confirmedAt) continue;
 
-      // Compare at second precision: a 12:00:30 confirmation must not pass a 12:00 close.
+      // Compare at second precision. A 12:00:30 confirmation must not pass a 12:00 close.
       const confirmedLocalInstant = venueLocalTimestamp(confirmedAt).replace(" ", "T");
       const confirmedBeforeClose = confirmedLocalInstant < closesAt;
       const hasOpened = opensAt <= nowMinute && confirmedBeforeClose;
       const isClosed = closesAt <= nowMinute && confirmedBeforeClose;
 
-      // Boundary notice tracks the registration window only; released approved bookings
-      // (venueCapacity null => unavailable) are checked at registration by registrationAvailability.
+      // Boundary notices track the registration window only. `registrationAvailability` checks
+      // released bookings at registration time.
       raiseBoundary(
         event,
         "registration_opened",

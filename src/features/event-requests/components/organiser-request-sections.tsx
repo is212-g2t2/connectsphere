@@ -25,9 +25,8 @@ import type { EventPageData, EventSectionDef } from "#/features/events/page-data
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 /**
- * The Organiser's recorded decision and request history: the decision once it stands, then the
- * clarification answers, change requests, and the cancellation record. A draft has no history,
- * so the message block drops out.
+ * Show the Organiser's decision and request history: the decision, clarification replies, change
+ * requests, and cancellation. Drafts have no history, so hide the message block.
  */
 export function organiserRequestSections(data: EventPageData): EventSectionDef[] {
   if (data.kind !== "event" || data.event.access !== "organiser") return [];
@@ -55,7 +54,7 @@ export function organiserRequestSections(data: EventPageData): EventSectionDef[]
   ];
 }
 
-/** The decision as recorded: which way it went, who recorded it, when, and why. */
+/** The recorded decision: its outcome, author, time, and reason. */
 function DecisionBody({ data }: { data: EventPageData }) {
   if (data.kind !== "event") return null;
   const request = data.organiserRequest ?? null;
@@ -99,21 +98,21 @@ function DecisionBody({ data }: { data: EventPageData }) {
 }
 
 /**
- * Every affordance the old detail page offers its organiser, with the same status gates: the
- * reply form only on an open question while the request waits on the organiser, the change and
- * cancellation forms only while the event can still change (and no cancellation already waits).
- * The section is always mounted, so the gates live here in the render.
+ * Show the actions the Organiser can use, with the same status rules as the old detail page.
+ * Show the reply form only for an open question while the request waits on the Organiser.
+ * Show change and cancellation forms only while the event can change and no cancellation is pending.
+ * The section always mounts, so apply these rules here.
  */
 function RequestsBody({ data }: { data: EventPageData }) {
   if (data.kind !== "event") return null;
   const request = data.organiserRequest ?? null;
   if (!request) return null;
-  // PTR-53: one request waits at a time, so the action returns once the Coordinator decides.
+  // PTR-53: One request waits at a time. The action returns once the Coordinator decides.
   const cancellationWaiting = request.cancellationRequests.some(item => item.outcome === null);
   const canRequestChange = canRaiseEventChangeRequest(request.status);
   const canRequestCancellation =
     canRequestEventCancellation(request.status) && !cancellationWaiting;
-  // PTR-53 AC3: an unassigned event has no Coordinator to ask yet.
+  // PTR-53 AC3: An unassigned event has no Coordinator to ask yet.
   const coordinatorName = request.coordinator?.name ?? null;
 
   return (
@@ -175,7 +174,7 @@ function RequestsBody({ data }: { data: EventPageData }) {
   );
 }
 
-/** PTR-15 criterion 3: the named point of contact and the route to reach them. */
+/** PTR-15 criterion 3: The named point of contact and the route to reach them. */
 function CoordinatorContact({ request }: { request: EventRequestDetail }) {
   return (
     <Card>

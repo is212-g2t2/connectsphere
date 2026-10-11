@@ -8,13 +8,10 @@ import { seed } from "../../scripts/seed";
 
 const APP_URL = "http://localhost:3000";
 
-/**
- * Owns the whole E2E environment, in order: a postgres testcontainer on a random host port, the
- * committed migrations, the seed, then a fresh production build served on :3000 against that
- * database. Playwright runs this before the workers start and propagates `process.env` changes
- * to them, so the specs, the app, and this setup all share one `DATABASE_URL`. Every failure
- * throws instead of warning; teardown stops the server and the container, discarding the
- * database with it.
+/** Start the E2E environment in order: PostgreSQL Testcontainer on a random port, migrations, seed,
+ * and a production build on port 3000. Playwright runs this before the workers and passes
+ * `process.env` changes to them, so setup, tests, and app share one `DATABASE_URL`. Failures throw.
+ * Teardown stops the server and container. Removing the container also removes the database.
  */
 export default async function globalSetup(): Promise<() => Promise<void>> {
   // PTR-55: the E2E suite drains the notification queue through the cron route, and the server
@@ -65,7 +62,7 @@ async function startServer(databaseUrl: string): Promise<ChildProcess> {
   const server = spawn("bun", ["run", "start"], {
     env: { ...process.env, DATABASE_URL: databaseUrl, PORT: "3000" },
     stdio: "inherit",
-    // A process group on POSIX so teardown can signal the whole tree; Windows uses taskkill /T.
+    // Use a process group on POSIX so teardown can stop the full process tree. Windows uses taskkill /T.
     detached: process.platform !== "win32",
   });
   try {
@@ -102,7 +99,7 @@ async function waitForServer(server: ChildProcess): Promise<void> {
       const response = await fetch(APP_URL, { signal: AbortSignal.timeout(1_000) });
       if (response.status < 500) return;
     } catch {
-      // Not accepting connections yet.
+      // The server does not accept connections yet.
     }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
@@ -115,7 +112,7 @@ function stopServer(server: ChildProcess): void {
     try {
       execFileSync("taskkill", ["/pid", String(server.pid), "/T", "/F"], { stdio: "ignore" });
     } catch {
-      // The process already exited; nothing left to kill.
+      // The process exited. Nothing remains to stop.
     }
   } else {
     try {

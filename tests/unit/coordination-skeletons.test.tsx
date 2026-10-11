@@ -3,10 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { CoordinationPageSkeleton } from "#/features/coordination/components/coordination-page-skeleton";
 
-/**
- * The pending components (PTR-16) mirror the pages they stand in for. These assertions pin the
- * structure — the wide column, the `aria-busy` shell, the posted row counts and the two-card
- * detail — so a skeleton that stops drawing a section is caught even though nothing has text.
+/** The pending components (PTR-16) must match their pages. These tests check the wide column,
+ * `aria-busy` shell, row counts, and two-card detail. They catch a missing section when the
+ * skeleton has no text.
  */
 describe("CoordinationPageSkeleton", () => {
   it("draws the wide loading shell with both assignment sections", () => {

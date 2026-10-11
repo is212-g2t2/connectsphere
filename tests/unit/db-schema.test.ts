@@ -105,8 +105,8 @@ describe("Database Schema Definitions", () => {
   it("defines the venue request columns (PTR-31)", () => {
     expect(getTableColumns(venueRequests).venueId.name).toBe("venue_id");
     expect(getTableColumns(venueRequests).requestedById.name).toBe("requested_by_id");
-    // Nullable with `set null`, matching `assignedCoordinatorId`: deleting a staff account must
-    // not delete the requests they raised.
+    // Use nullable `set null`, as with `assignedCoordinatorId`. Deleting a staff account deletes
+    // no raised request.
     expect(getTableColumns(venueRequests).requestedById.notNull).toBe(false);
     expect(getTableColumns(venueRequests).startsAt.name).toBe("starts_at");
     expect(getTableColumns(venueRequests).endsAt.name).toBe("ends_at");
@@ -144,7 +144,7 @@ describe("Database Schema Definitions", () => {
     expect(columns.suggestedDate.name).toBe("suggested_date");
     expect(columns.suggestedStartTime.name).toBe("suggested_start_time");
     expect(columns.suggestedEndTime.name).toBe("suggested_end_time");
-    // Only a rejection carries them, so every one is nullable.
+    // Only a rejection carries these columns. All stay nullable.
     for (const column of [
       columns.rejectionReason,
       columns.suggestedVenueId,

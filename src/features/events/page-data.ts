@@ -16,10 +16,10 @@ export interface VenueOption {
 }
 
 /**
- * Everything the universal event page needs, gathered by the route loader. Every field beyond
- * `event` is present only for the access that reads it. A coordinator opening an event they are
- * not assigned to gets no projection at all — the triage view of the underlying request instead —
- * so the shell and the section modules stay client-safe. This module carries types alone.
+ * Gather everything the universal event page needs in the route loader. Include each field beyond
+ * `event` only for the access that reads it. A coordinator opening an unassigned event gets no
+ * projection. They get the triage view of the underlying request instead. The shell and the
+ * section modules then stay client-safe. This module carries types alone.
  */
 export type EventPageData =
   | {
@@ -45,7 +45,7 @@ export type EventPageData =
       coordinators: Coordinator[];
     };
 
-/** One stacked block of the staff event page: its section map entry, its gate, and its body. */
+/** One stacked block of the staff event page with its section entry, gate, and body. */
 export interface EventSectionDef {
   id: string;
   label: string;

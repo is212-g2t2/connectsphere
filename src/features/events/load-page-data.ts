@@ -14,11 +14,11 @@ import { logger } from "#/lib/logger";
 const log = logger.getChild("event-page");
 
 /**
- * Everything the universal event page needs, gathered per access. The route calls this and maps
- * `null` to its 404, so a hidden, foreign, or nonexistent event reveals nothing.
+ * Gather everything the universal event page needs per access. The route maps `null` to its 404.
+ * A hidden, foreign, or missing event then reveals nothing.
  *
- * Client-safe on purpose: only the server-function modules and the pure permission and access
- * helpers — no `#/db`, so `client-bundle-safety` holds.
+ * Keep this module client-safe. Import only server-function modules and pure permission and
+ * access helpers. Import no `#/db`, so `client-bundle-safety` holds.
  */
 export async function loadEventPageData(
   eventId: number,
@@ -44,8 +44,8 @@ export async function loadEventPageData(
       if (!hasAttendeePage(projection.event)) return null;
       return { kind: "event", event: projection, viewerId };
     case "organiser": {
-      // Each extra degrades to `null` on failure, so a failed read leaves the page rendering
-      // from the projection rather than 500ing it, as the venue and tech branches do.
+      // Degrade each extra to `null` on failure. A failed read then leaves the page rendering
+      // from the projection. The venue and tech branches do the same.
       const [organiserRequest, attendees] = await Promise.all([
         getEventRequest({ data: { id: eventId } }).then(
           ({ request }) => request,
@@ -68,9 +68,9 @@ export async function loadEventPageData(
     case "venue_staff": {
       const venueRequest = projection.event.venueRequest;
       if (venueRequest?.status !== "pending") return { kind: "event", event: projection, viewerId };
-      // A race settles the request between the list and the detail read; the read then answers
-      // `null` and the page shows the projection without a decision block. Anything else is
-      // unexpected, so it is logged before the same degrade.
+      // A race can settle the request between the list and the detail read. The read then
+      // answers `null`. The page shows the projection without a decision block. Log anything else
+      // before the same degrade.
       const request = await getPendingVenueRequest({ data: { id: venueRequest.id } }).catch(
         error => {
           log.warn("Venue decision read failed", {
@@ -82,12 +82,12 @@ export async function loadEventPageData(
         }
       );
       if (!request) return { kind: "event", event: projection, viewerId };
-      // Only a role that may decide offers a suggested venue, as the detail route did.
+      // Offer a suggested venue only to a role that may decide, as the detail route did.
       const venues = can(role, { venue_request: ["decide"] }) ? await listVenueOptions() : [];
       return { kind: "event", event: projection, viewerId, venueDecision: { request, venues } };
     }
     case "technical_support": {
-      // A catalogue fault must not take the page down; `null` lets it say the list failed.
+      // A catalogue fault must not take the page down. `null` lets the page report the failed list.
       const equipmentTypes = await listEquipmentTypes().catch(() => null);
       return { kind: "event", event: projection, viewerId, equipmentTypes };
     }
@@ -97,8 +97,8 @@ export async function loadEventPageData(
 }
 
 /**
- * The registration list the organiser and the coordinator share. Statuses with no record skip
- * the fetch entirely; a failed read degrades to `null` like every other extra.
+ * Load the registration list the Organiser and the Coordinator share. Skip the fetch for statuses
+ * with no record. Degrade a failed read to `null`, like every other extra.
  */
 async function loadAttendees(
   projection: EventProjection,
@@ -108,7 +108,7 @@ async function loadAttendees(
   return listEventRegistrations({ data: { id: eventId } }).catch(() => null);
 }
 
-/** The coordinator triage fallback: the request behind an event no projection covers. */
+/** Coordinator triage fallback: the request behind an event with no projection. */
 async function loadTriage(
   eventId: number,
   role: string | null | undefined,
@@ -122,8 +122,8 @@ async function loadTriage(
     ]);
     return { kind: "triage", viewerId, request, coordinators };
   } catch (error) {
-    // A refusal means the request settled or vanished under the fallback; anything else is a
-    // fault the route must see.
+    // A refusal means the request settled or vanished under the fallback. Rethrow any other fault
+    // for the route to see.
     if (error instanceof Error && error.message === "Forbidden") {
       log.info("Triage fallback refused", { eventId });
       return null;

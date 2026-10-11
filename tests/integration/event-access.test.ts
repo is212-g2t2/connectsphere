@@ -7,12 +7,10 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
 
-/**
- * PTR-8 criterion 5 at the handler boundary: the server-function middleware has already
- * established the session, and `handleListEvents` is what decides relationships against the
- * database and refuses a named event. The e2e suite covers the projections through the dashboard;
- * this is the cheap deterministic half for the refusal, which needs no fixture: an id that exists
- * nowhere and a caller connected to nothing must look identical.
+/** PTR-8 criterion 5: middleware establishes the session, then `handleListEvents` checks database
+ * relationships and refuses access to a named event. E2E tests cover dashboard projections. This
+ * test checks refusal without a fixture: an unknown id and an event with no caller relationship
+ * must look the same.
  */
 describe("event access handler (PTR-8)", () => {
   let pool: Pool;
@@ -27,7 +25,7 @@ describe("event access handler (PTR-8)", () => {
     if (pool) await pool.end();
   });
 
-  /** No seeded account carries this id, so no relationship query can match it. */
+  /** No seeded account has this id, so no relationship can match it. */
   const unrelated: SessionUser = {
     id: "unrelated-user",
     email: "unrelated@example.invalid",

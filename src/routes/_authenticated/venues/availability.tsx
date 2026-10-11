@@ -35,7 +35,8 @@ export const Route = createFileRoute("/_authenticated/venues/availability")({
     const selection = parseAvailabilitySelection(deps);
     if (!selection) return { venues, schedule: null, coordinatorEvents };
     const { availability } = await getVenueAvailability({ data: selection });
-    // A venue id that no row holds answers `null`, the same read convention `$venueId.tsx` uses: the router's own not-found boundary, not the error boundary a 404 response would raise.
+    // If no row has this venue id, the read returns `null`, as `$venueId.tsx` does.
+    // This uses the router's not-found boundary, not the error boundary for a 404 response.
     if (!availability) throw notFound();
     return { venues, schedule: availability, coordinatorEvents };
   },

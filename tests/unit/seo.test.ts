@@ -20,8 +20,8 @@ describe("SEO utilities", () => {
     });
 
     it("uses the window origin when no explicit URL is given", () => {
-      // A distinctive non-default origin, so the assertion cannot pass via the localhost fallback
-      // if the window branch is deleted.
+      // Use a distinctive non-default origin. It blocks the localhost fallback path after
+      // window-branch deletion.
       vi.stubGlobal("window", { location: { origin: "https://window-origin.example.com/" } });
       try {
         expect(getBaseUrl(undefined)).toBe("https://window-origin.example.com");
@@ -31,8 +31,8 @@ describe("SEO utilities", () => {
     });
 
     it("falls back to env.SERVER_URL when the window has no origin", async () => {
-      // Stub `#/env` and re-import so the env branch runs with a value that differs from the
-      // window origin. Without both, the assertion would hold for the wrong reason.
+      // Stub `#/env` and re-import. The env branch runs with a value that differs from the
+      // window origin. Skip either step, and the assertion holds for the wrong reason.
       vi.resetModules();
       vi.doMock("#/env", () => ({ env: { SERVER_URL: "https://env-fallback.example.com" } }));
       vi.stubGlobal("window", { location: { origin: "" } });
@@ -130,7 +130,7 @@ describe("SEO utilities", () => {
       expect(robots).toContain("Disallow: /dashboard");
       expect(robots).toContain("Disallow: /settings");
       expect(robots).toContain("Disallow: /event-requests");
-      // Prefix match: covers /venues, /venues/new and /venues/$venueId alike.
+      // Match by prefix. It covers `/venues`, `/venues/new`, and `/venues/$venueId`.
       expect(robots).toContain("Disallow: /venues");
       expect(robots).toContain("Disallow: /coordination");
       expect(robots).not.toContain("/verify-otp");

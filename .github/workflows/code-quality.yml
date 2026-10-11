@@ -3,7 +3,7 @@ name: Code Quality
 on:
   workflow_call:
   pull_request:
-    # Not a default activity type; without it, marking a draft ready starts no run.
+    # This activity type is not enabled by default. Include it so marking a draft ready starts a run.
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "**.md"
@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 
-# Literal, not `github.workflow`: a called workflow sees the caller's name.
+# Set a literal name because a called workflow sees the caller's name in `github.workflow`.
 concurrency:
   group: code-quality-${{ github.ref }}
   cancel-in-progress: true
@@ -37,8 +37,8 @@ jobs:
       - name: Check migrations are generated
         run: bun run db:generate && git diff --exit-code -- src/db/drizzle
         env:
-          # generate only reads the schema; both vars satisfy drizzle.config.ts's import
-          # of src/env.ts.
+          # `generate` only reads the schema. Set both variables because drizzle.config.ts imports
+          # src/env.ts.
           DATABASE_URL: postgresql://postgres:password@localhost:5432/app
           BETTER_AUTH_SECRET: connectsphere-migration-only-secret-0000
       - name: Check migration files

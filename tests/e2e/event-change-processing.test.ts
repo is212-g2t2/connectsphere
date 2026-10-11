@@ -1,9 +1,8 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-52: the Organiser's change request is applied by the assigned Coordinator through the event
-// information form, or declined with a reason, and the Organiser sees the outcome on their request.
-// Every test creates and removes its own event, so the tests run in parallel and never touch the
-// shared demo rows.
+// PTR-52: the assigned Coordinator applies the Organiser's change request through the event
+// information form, or declines it with a reason. The Organiser sees the outcome on the request.
+// Each test creates and removes its own event. Tests run in parallel with no shared demo rows.
 import { expect, test } from "@playwright/test";
 import type { Browser, Page } from "@playwright/test";
 import { and, eq, inArray } from "drizzle-orm";
@@ -42,7 +41,7 @@ test.afterAll(async () => {
   await pool?.end();
 });
 
-/** An approved event assigned to the seeded Coordinator, with one waiting change request. */
+/** Approve an event for the seeded Coordinator with one waiting change request. */
 async function createEventWithRequest(whatShouldChange: string, requestedValue: string) {
   const name = `PTR-52 E2E ${crypto.randomUUID().slice(0, 8)}`;
   const [row] = await database
@@ -111,7 +110,8 @@ test("the Coordinator applies a change request through the event information for
   const { id, name, requestId } = await createEventWithRequest("Event name", "Add Dinner");
 
   const coordinator = await openAs(browser, COORDINATOR_EMAIL, "/coordination");
-  // Scoped to this event's row: a sibling test may leave another waiting request on the list.
+  // Scope the query to this event's row. A sibling test can leave another waiting request on
+  // the list.
   await expect(
     coordinator
       .getByRole("listitem")
@@ -160,7 +160,8 @@ test("the Coordinator confirms the significant-change warning when applying an a
   );
 
   const coordinator = await openAs(browser, COORDINATOR_EMAIL, "/coordination");
-  // Scoped to this event's row: a sibling test may leave another waiting request on the list.
+  // Scope the query to this event's row. A sibling test can leave another waiting request on
+  // the list.
   await expect(
     coordinator
       .getByRole("listitem")
@@ -177,7 +178,7 @@ test("the Coordinator confirms the significant-change warning when applying an a
   await coordinator.getByLabel("Expected attendance (required)").fill("80");
   await coordinator.getByRole("button", { name: "Save and mark applied" }).click();
 
-  // Expected attendance is significant, so the warning comes first; the event holds nothing.
+  // Expected attendance is significant. The warning comes first. The event holds nothing.
   const dialog = coordinator.getByRole("alertdialog");
   await expect(dialog.getByText("This is a significant change")).toBeVisible();
   await expect(

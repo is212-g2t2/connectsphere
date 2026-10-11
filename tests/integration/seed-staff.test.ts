@@ -6,12 +6,10 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
 import { DEMO_EVENT_NAME, runSeed, seedStaffUsers, SEED_STAFF_PASSWORD } from "../../scripts/seed";
 
-// integration-setup.ts provides the database (container, DATABASE_URL, schema, seed), but `#/db`
-// builds its client from `bun:sql`, which vitest.config.ts aliases to a no-op stub
-// (tests/shims/bun.ts) — so `db` cannot execute a query no matter what DATABASE_URL says.
-// `betterAuth()` captures the module-level `db` at import time and exposes no other seam,
-// so the module itself has to be replaced. (Same seam as auth-validation.test.ts.)
-// Built via vi.hoisted so the mock factory and afterAll share one pool this file can close.
+// `integration-setup.ts` provides the database, but Vitest aliases `bun:sql` to a no-op stub
+// (`tests/shims/bun.ts`). The app's `#/db` client cannot query this database. `betterAuth()` captures
+// the module-level client at import time, so mock `#/db`, as in `auth-validation.test.ts`. Use
+// `vi.hoisted` so the mock and `afterAll` can close the same pool.
 const { pool } = await vi.hoisted(async () => {
   const { Pool } = await import("pg");
   return { pool: new Pool({ connectionString: process.env.DATABASE_URL }) };
@@ -23,7 +21,7 @@ vi.mock("#/db", async () => {
   return { client: pool, db: drizzleNode(pool, { schema: nodeSchema }) };
 });
 
-// Sign-in sends no email, but keep the mailer stubbed so no test path can trigger a real send.
+// Sign-in sends no email. Keep the mailer stubbed so tests cannot send real email.
 vi.mock("#/lib/mailer.server", () => ({
   createMailer: vi.fn<() => null>(() => null),
   getMailer: vi.fn<() => null>(() => null),
@@ -99,7 +97,7 @@ describe("seeded staff accounts (PTR-59)", () => {
   });
 
   it("records one demo request when two seeds run at once", async () => {
-    // Remove the seeded demo request so both calls race the insert path, not the update path.
+    // Remove the seeded demo request so both calls test insertion, not update.
     await db
       .delete(schema.eventRequests)
       .where(

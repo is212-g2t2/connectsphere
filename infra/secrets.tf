@@ -1,5 +1,5 @@
-# Empty Secret Manager containers. Values are never in Terraform; operators
-# populate versions via `gcloud secrets versions add` before the first apply.
+# Create empty Secret Manager containers. Do not store values in Terraform. Before the first apply,
+# operators add secret versions with `gcloud secrets versions add`.
 
 locals {
   app_secrets = [
@@ -30,9 +30,9 @@ resource "google_secret_manager_secret" "app" {
   }
 }
 
-# Each environment's runtime service account can read only its own six
-# secrets, so cs-staging-run cannot read prod-DATABASE_URL even though both
-# live in one project. This grant is what makes the single-project design safe.
+# Give each environment's runtime service account access to only its six secrets. For example,
+# cs-staging-run cannot read prod-DATABASE_URL, even though both use one project. This grant keeps
+# the environments isolated.
 resource "google_secret_manager_secret_iam_member" "runtime" {
   for_each = local.env_secrets
 

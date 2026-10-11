@@ -14,14 +14,12 @@ const SAVE_FAILED = "Could not save this draft. Try again.";
 const SUBMIT_FAILED = "Could not submit this request. Try again.";
 
 /**
- * Capturing a new draft, or continuing one loaded by the `$id` route. `existingDraft`'s id is the
- * fallback the *first* save after a reopen uses: `useMutation`'s own `previous` (PTR-71) only
- * carries an id across saves within this sitting, and starts undefined here since no save has
- * happened yet — without the fallback, the first save after reopening would insert a second row
- * instead of updating the one that was loaded.
+ * Create a draft or edit one loaded by the `$id` route. After reopening a draft, use its id on the
+ * first save. `useMutation`'s `previous` value (PTR-71) carries an id only after a save in this
+ * session. Without this fallback, the first save would insert a second row.
  *
- * Exported for the Coordinator's `UpdateEventInformation`. A request detail carries every draft field plus its
- * relations, so the row is assignable as-is.
+ * `UpdateEventInformation` also uses this component. A request detail includes all draft fields
+ * and relations, so it can be passed here as-is.
  */
 export function toDraftValues(row: EventRequestDraft): EventRequestDraftValues {
   return {
@@ -93,8 +91,7 @@ export function EventRequestsPage({ existingDraft }: { existingDraft?: EventRequ
           )}
 
           <div className="mt-10">
-            {/* The draft is fixed for this mount: the form derives `isDefaultValue` from the values
-                it started with, so a save's reload must not reseed them underneath it. */}
+            {/* Keep the draft fixed for this mount. The form derives `isDefaultValue` from its first values, so a reload must not replace them. */}
             <EventRequestForm
               key={existingDraft?.id ?? "new"}
               initialValues={existingDraft ? toDraftValues(existingDraft) : undefined}

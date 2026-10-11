@@ -1,8 +1,8 @@
 // oxlint-disable node/no-process-env
 //
-// PTR-40: the availability check in the Technical Support section of the event page. Every test
-// creates its own type, venue, booking and event through its own pool and removes them again, so
-// it never touches the shared demo rows and can run in parallel.
+// PTR-40: Check equipment availability in the Technical Support section of the event page. Each
+// test creates and removes its own type, venue, booking, and event through its own pool. It does
+// not touch shared demo rows, so tests can run in parallel.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -35,7 +35,7 @@ test.afterAll(async () => {
 });
 
 test.afterEach(async () => {
-  // Events cascade to bookings, lines and reservations; reservations restrict their type.
+  // Event deletion cascades to bookings, lines, and reservations. Reservations restrict type deletion.
   if (eventIds.length > 0) {
     await database.delete(schema.eventRequests).where(inArray(schema.eventRequests.id, eventIds));
   }

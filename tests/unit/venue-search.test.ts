@@ -98,7 +98,7 @@ describe("PTR-29 venue-search input", () => {
 
 type Evaluate = Parameters<typeof evaluateVenueSuitability>;
 
-/** PTR-29's yes/no reading of the verdict PTR-30 widened it into; no bookings unless given. */
+/** PTR-29 returned a yes/no verdict. PTR-30 added reasons. Search is allowed without bookings. */
 function suits(
   candidate: Evaluate[0],
   search: Evaluate[1],
@@ -218,7 +218,7 @@ describe("PTR-29 suitability rules", () => {
   });
 
   it("matches a multi-day window when the venue is open on every day", () => {
-    // 2026-10-05 and 2026-10-06 are Monday and Tuesday; `DEFAULT_OPERATING_HOURS` closes the weekend.
+    // 2026-10-05 and 2026-10-06 are Monday and Tuesday. `DEFAULT_OPERATING_HOURS` closes weekends.
     expect(
       suits(
         venue,
@@ -247,7 +247,7 @@ describe("PTR-29 suitability rules", () => {
       endsAt: "2026-10-06T13:00:00",
     };
 
-    // Monday is free, Tuesday's requested 10:00–12:00 sits inside the block.
+    // Monday is free. Tuesday's 10:00–12:00 request falls inside the blocked period.
     expect(
       suits(
         venue,
@@ -292,14 +292,14 @@ describe("PTR-30 suitability reasons", () => {
   });
 
   it("names the capacity shortfall in seats (AC2)", () => {
-    // The stricter of the two lower bounds (attendance 120, minimum capacity 150) is the number.
+    // Use the larger lower bound: max(120 attendance, 150 minimum capacity) = 150.
     expect(failures({ ...venue, maxCapacity: 119 }, filters, [])).toEqual([
       { criterion: "capacity", message: "Holds 119; 150 needed" },
     ]);
     expect(
       failures({ ...venue, maxCapacity: 119 }, { ...filters, capacity: undefined }, [])
     ).toEqual([{ criterion: "capacity", message: "Holds 119; 120 needed" }]);
-    // Exactly enough is enough.
+    // A venue that meets the minimum capacity qualifies.
     expect(criteria({ ...venue, maxCapacity: 150 }, filters, [])).toEqual([]);
   });
 
@@ -407,7 +407,7 @@ describe("PTR-30 suitability reasons", () => {
       startsAt: "2026-10-06T00:00:00",
       endsAt: "2026-10-07T00:00:00",
     };
-    // The 5th and the 7th are open; a venue booked right through the 6th cannot host the range.
+    // The 5th and 7th are open. A booking through the 6th still blocks the full range.
     expect(failures(venue, { date: "2026-10-05", endDate: "2026-10-07" }, [], [booking])).toEqual([
       { criterion: "booking", message: "Booked for Annual dinner on 2026-10-06" },
     ]);

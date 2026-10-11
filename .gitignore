@@ -21,10 +21,10 @@ scratch
 .gstack/
 .claude
 /skills/
-# Local scratch space (briefs, prototypes) — not part of the app
+# Local scratch files, briefs, and prototypes. These are not app files.
 .scratch/
 
-# Terraform
+# Terraform files to ignore.
 infra/.terraform/
 *.tfstate
 *.tfstate.*
@@ -33,5 +33,5 @@ infra/*.tfplan
 infra/crash.log
 infra/crash.*.log
 
-# Git worktrees for parallel sub-issue work
+# Git worktrees for parallel issue work.
 .worktrees/

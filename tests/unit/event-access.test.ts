@@ -48,20 +48,20 @@ describe("event access", () => {
   });
 
   it("allows attendees only confirmed events with registration on, or events they are already registered for (PTR-44)", () => {
-    // Confirmed and enabled: the browsing attendee sees it.
+    // A confirmed, enabled event shows to the browsing attendee.
     expect(getEventAccess(relationship)).toBe("attendee");
-    // Either half of the pair missing denies a browsing attendee.
+    // A missing half of the pair denies a browsing attendee.
     expect(getEventAccess({ ...relationship, status: "submitted" })).toBeNull();
     expect(getEventAccess({ ...relationship, registrationEnabled: false })).toBeNull();
-    // An own registration keeps a non-draft event visible regardless.
+    // An own registration keeps a non-draft event visible.
     expect(getEventAccess({ ...relationship, status: "submitted", hasOwnRegistration: true })).toBe(
       "attendee"
     );
-    // A draft stays hidden even with an own registration; a submitted one with one is granted.
+    // A draft stays hidden with an own registration. A submitted event with one shows.
     expect(getEventAccess({ ...relationship, status: "draft", hasOwnRegistration: true })).toBe(
       null
     );
-    // Never through another role's relationship.
+    // Each role uses its own relationship. No role borrows another's.
     expect(
       getEventAccess({ ...relationship, role: "event_organiser", userId: "organiser-1" })
     ).toBe("organiser");

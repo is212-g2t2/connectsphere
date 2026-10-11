@@ -1,11 +1,9 @@
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-/**
- * Waits for React to attach, via the root route's hydration effect. Use it before typing into a
- * controlled input or clicking server-rendered markup, where an action that lands on inert HTML is
- * silently discarded. For a page whose next step is just an assertion, assert on that element
- * directly instead — Playwright auto-waits, and network silence is not a hydration signal.
+/** Wait for the root route's hydration effect before typing into a controlled input or clicking
+ * server-rendered markup. React ignores actions on inert HTML. For assertions, query the element
+ * directly. Playwright waits for it, and an idle network does not prove hydration finished.
  */
 export async function waitForHydration(page: Page): Promise<void> {
   await expect(page.locator("body")).toHaveAttribute("data-hydrated", "true");

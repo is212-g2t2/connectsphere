@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { parseEventListInput } from "#/features/events/schema";
 
-/**
- * `listEvents` validates its payload through this helper, and `parseEventListInput` rethrows the
- * first issue message so a raw `ZodError` never reaches the route. The cases below are the ones
- * that separate a usable `eventId` from an int4 the `where` clause would answer with 22003.
+/** `listEvents` validates its payload through this helper. `parseEventListInput` rethrows the
+ * first issue message, so a raw `ZodError` never reaches the route. The cases below separate a
+ * usable `eventId` from an int4 that the `where` clause answers with 22003.
  */
 describe("parseEventListInput", () => {
   it("defaults to an unfiltered list when the server function is called with no payload", () => {

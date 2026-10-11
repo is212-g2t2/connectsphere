@@ -1,4 +1,4 @@
-// These mutations share fixtures and notification rows; their assertions must run in sequence.
+// These mutations share fixtures and notifications, so run their assertions in sequence.
 // oxlint-disable node/no-process-env, no-await-in-loop
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { render } from "@react-email/render";
@@ -192,7 +192,7 @@ describe("Organiser clarification replies", () => {
     expect(html).toContain("Please confirm attendance and layout.");
     expect(html).toContain(input.body);
     expect(html).toContain(`/events/${request.id}`);
-    // The stale assignee gets nothing.
+    // Do not notify the former assignee.
     expect(await repliedNotifications(request.id, coordinator.id)).toHaveLength(0);
   });
   it("saves only the concerned fields with the reply and preserves all other request values", async () => {
@@ -228,7 +228,7 @@ describe("Organiser clarification replies", () => {
         ...input,
         amendments: {
           expectedAttendance: 120,
-          // Identical to the fixture: permitted, but not an amendment.
+          // The value matches the fixture, so it is valid but not an amendment.
           roomLayoutPreference: "Theatre",
           registrationEnabled: true,
           registrationCapacity: 50,

@@ -1,6 +1,6 @@
-# One-time bootstrap for the ConnectSphere GCP project: billing, APIs, and the
-# GCS state bucket Terraform cannot create for itself. Run once before the
-# first `terraform init`. Idempotent.
+# One-time setup for the ConnectSphere GCP project: billing, APIs, and the GCS state bucket.
+# Terraform cannot create its own backend bucket. Run this once before `terraform init`.
+# This script is idempotent.
 #
 #   pwsh infra/bootstrap.ps1
 #
@@ -8,7 +8,7 @@
 #   terraform init
 #   terraform import google_storage_bucket.tfstate connectsphere-is212-tfstate
 #   terraform apply -target=google_secret_manager_secret.app
-#   # populate the 14 secret versions
+#   # Add the 14 secret versions.
 #   terraform apply
 param(
   [string]$Project = "connectsphere-is212",

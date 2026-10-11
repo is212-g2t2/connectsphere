@@ -38,7 +38,7 @@ import { useMutation } from "#/hooks/use-mutation";
 interface EquipmentPanelProps {
   eventId: number;
   lines: EquipmentLine[];
-  /** Event status — the panel is only editable on `approved` or `planning`. */
+  /** The event status. The panel accepts edits only on `approved` or `planning`. */
   status: string;
   submittedAt: string | null;
   arrangementsCompletedAt?: string | null;
@@ -46,10 +46,7 @@ interface EquipmentPanelProps {
 
 const EMPTY_FORM = { item: "", quantity: "", notes: "" };
 
-/**
- * The toast text for a settled submit. Delivery is the worker's job now, so the only distinction
- * left at submit time is whether anyone was there to notify.
- */
+/** Return toast text after submit. The worker sends the email later. The toast says whether anyone was notified. */
 export function submitToastMessage(result: { recipientCount: number }): string {
   if (result.recipientCount === 0) {
     return "Equipment requirements submitted. No Technical Support Staff to notify.";
@@ -58,13 +55,12 @@ export function submitToastMessage(result: { recipientCount: number }): string {
 }
 
 /**
- * PTR-38: the Coordinator's equipment management surface on the event card. Renders the current
- * lines with edit/remove controls, an inline add form, and a submit button that notifies
- * Technical Support Staff. The panel is read-only when the event is confirmed or past.
+ * PTR-38: The Coordinator's equipment panel on the event card. It shows the current lines, edit
+ * and remove controls, an add form, and a submit button that notifies Technical Support. It is
+ * read-only when the event is confirmed or past.
  *
- * Each line's remove dialog owns its own mutation, so a failure can only show inside that line's
- * dialog; the submit section owns its dialog state the same way. The panel itself only tracks
- * which inline form is open.
+ * Each remove dialog owns its mutation, so errors stay in that dialog. The submit section owns its
+ * dialog state. The panel tracks only which inline form is open.
  */
 export function EquipmentPanel({
   eventId,
@@ -181,17 +177,14 @@ export function EquipmentPanel({
   );
 }
 
-// ── Per-line remove dialog ────────────────────────────────────────────────────────────────────
+// Per-line remove dialog.
 
 interface RemoveLineDialogProps {
   eventId: number;
   line: EquipmentLine;
 }
 
-/**
- * One line's remove confirmation. Owning the mutation here is what scopes a failure to the
- * dialog that caused it, instead of a panel-wide error that follows the user between lines.
- */
+/** Confirm removal of one line. Keep errors in this dialog. Do not show them across the panel. */
 function RemoveLineDialog({ eventId, line }: RemoveLineDialogProps) {
   const router = useRouter();
   const [state, remove, removing] = useMutation(async () => {
@@ -244,22 +237,18 @@ function RemoveLineDialog({ eventId, line }: RemoveLineDialogProps) {
   );
 }
 
-// ── Submit-to-Technical-Support section ───────────────────────────────────────────────────────
+// Submit to Technical Support.
 
 interface SubmitSectionProps {
   eventId: number;
   lineCount: number;
   alreadySubmitted: boolean;
-  /** Present only while the empty-state paragraph is rendered, so the trigger never dangles. */
+  /** Render this only with the empty-state text, so its trigger has a target. */
   emptyStateId: string | undefined;
   submittedCaptionId: string;
 }
 
-/**
- * The submit control, its confirmation dialog and its own dialog-scoped state. A same-tick
- * double dispatch never reaches the mutation twice: `disabled` only drops the second click after
- * a re-render, which two dispatches in one tick can both beat.
- */
+/** Submit the list with a confirmation dialog. The local guard prevents duplicate dispatches in one tick. */
 function SubmitSection({
   eventId,
   lineCount,
@@ -269,7 +258,7 @@ function SubmitSection({
 }: SubmitSectionProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  // Whether the current dialog sitting has been confirmed, so a stale error is not shown on reopen.
+  // Track confirmation for this opening so an old error does not appear when the dialog reopens.
   const [attempted, setAttempted] = useState(false);
   const inFlight = useRef(false);
 
@@ -289,7 +278,7 @@ function SubmitSection({
       if (result.status === "success") {
         setOpen(false);
       } else {
-        // Losing a cross-tab race leaves this view stale; refresh so the panel catches up.
+        // Another tab may change the data first. Refresh this panel after that conflict.
         void router.invalidate();
       }
     } finally {
@@ -360,7 +349,7 @@ function SubmitSection({
   );
 }
 
-// ── Inline add / edit form ────────────────────────────────────────────────────────────────────
+// Inline add or edit form.
 
 interface LineFormProps {
   eventId: number;

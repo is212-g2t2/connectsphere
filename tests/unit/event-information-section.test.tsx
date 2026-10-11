@@ -102,7 +102,7 @@ describe("event information section", () => {
     render(<>{defs[0].render(data)}</>);
 
     expect(screen.getByRole("heading", { name: "Event information" })).toBeTruthy();
-    // The coordinator contact lives in Requests & messages; it renders once.
+    // The coordinator contact lives in Requests & messages. It renders once.
     expect(screen.queryByText("Jonas Weber")).toBeNull();
     expect(screen.getByText("Welcome new members.")).toBeTruthy();
     expect(screen.getByText("Open day")).toBeTruthy();
@@ -115,7 +115,7 @@ describe("event information section", () => {
     const defs = eventInformationSections(data);
     expect(defs).toHaveLength(1);
     expect(defs[0].label).toBe("Update event information");
-    // The event page holds the change-request apply this form shares with the decisions card.
+    // The event page holds the change-request apply. This form shares it with the decisions card.
     render(<ChangeRequestApplyProvider>{defs[0].render(data)}</ChangeRequestApplyProvider>);
 
     expect(screen.getByRole("heading", { name: "Update event information" })).toBeTruthy();

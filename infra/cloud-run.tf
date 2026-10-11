@@ -1,5 +1,5 @@
-# One resource block, two services. The placeholder image is replaced by the
-# release pipeline; Terraform never reverts it (see the lifecycle block).
+# One resource block defines two services. The release pipeline replaces the placeholder image.
+# The lifecycle block prevents Terraform from restoring it.
 
 resource "google_cloud_run_v2_service" "app" {
   for_each = local.environments
@@ -8,15 +8,15 @@ resource "google_cloud_run_v2_service" "app" {
   location = var.region
   project  = var.project_id
 
-  # The secret accessor grants must exist before the first revision tries to
-  # read them, or the service create fails with "Permission denied on secret".
+  # Create the secret accessor grants before the first revision reads the secrets. Otherwise,
+  # service creation fails with "Permission denied on secret".
   depends_on = [
     google_project_service.apis,
     google_secret_manager_secret_iam_member.runtime,
   ]
 
-  # Service-level scaling, not template-level: a template-level minimum applies
-  # per revision, so a tagged 0%-traffic revision would hold a billed instance.
+  # Set scaling at the service level. A template-level minimum applies to each revision, so a
+  # tagged revision with no traffic would keep a billed instance.
   scaling {
     min_instance_count = each.value.min_instances
     max_instance_count = each.value.max_instances
@@ -38,8 +38,7 @@ resource "google_cloud_run_v2_service" "app" {
         startup_cpu_boost = true
       }
 
-      # A TCP-only check routes traffic to a process that has not finished
-      # booting; wait for the health route instead.
+      # A TCP-only check can route traffic before the process finishes starting. Wait for the health route.
       startup_probe {
         period_seconds    = 5
         failure_threshold = 10
@@ -49,10 +48,9 @@ resource "google_cloud_run_v2_service" "app" {
         }
       }
 
-      # <env>-DATABASE_URL is the Secret Manager container name; the container
-      # sees it as plain DATABASE_URL, because the prefix is a Secret Manager
-      # naming concern. Versions must exist before the first apply: a revision
-      # referencing a secret with no version never goes ready.
+      # Use <env>-DATABASE_URL as the Secret Manager container name. The container receives it as
+      # DATABASE_URL; the prefix applies only to the Secret Manager name. Add a secret version
+      # before the first apply. A revision cannot become ready without one.
       dynamic "env" {
         for_each = local.app_secrets
         content {
@@ -66,8 +64,8 @@ resource "google_cloud_run_v2_service" "app" {
         }
       }
 
-      # BETTER_AUTH_URL must equal the environment's public origin: Better Auth
-      # derives trusted origins from it and there is no trustedOrigins override.
+      # Set BETTER_AUTH_URL to the environment's public origin. Better Auth uses it for trusted
+      # origins; this configuration has no `trustedOrigins` override.
       dynamic "env" {
         for_each = {
           BETTER_AUTH_URL    = "https://${each.value.hostname}"
@@ -83,9 +81,9 @@ resource "google_cloud_run_v2_service" "app" {
     }
   }
 
-  # The release pipeline deploys images and moves traffic with gcloud; without
-  # these ignores, an unrelated apply would restore the placeholder image and
-  # reset traffic to 100% LATEST, bypassing the stage/smoke gate.
+  # The release pipeline deploys images and moves traffic with gcloud. These ignores prevent an
+  # unrelated apply from restoring the placeholder image or routing all traffic to LATEST. That
+  # could bypass the staging and smoke checks.
   lifecycle {
     ignore_changes = [
       template[0].containers[0].image,
@@ -93,11 +91,11 @@ resource "google_cloud_run_v2_service" "app" {
     ]
   }
 
-  # deletion_protection keeps the provider default of true: dropping an
-  # environment from the map fails the apply instead of deleting a live service.
+  # Keep the provider's default `deletion_protection = true`. Removing an environment from the map
+  # then fails the apply instead of deleting a live service.
 }
 
-# Public invoker so the proxied Cloudflare edge can reach the origin.
+# Allow public invocation so the Cloudflare proxy can reach this service.
 resource "google_cloud_run_v2_service_iam_member" "public" {
   for_each = local.environments
 
@@ -108,9 +106,8 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
   member   = "allUsers"
 }
 
-# Serves each environment's hostname. Requires the zone verified in Webmaster
-# Central for this project (manual bootstrap step); gated off until then so
-# apply stays green.
+# Serve each environment's hostname. First verify the zone in Webmaster Central as a manual setup
+# step. Keep this resource disabled until then so apply succeeds.
 resource "google_cloud_run_domain_mapping" "app" {
   for_each = var.enable_domain_mapping ? local.environments : {}
 
@@ -124,8 +121,8 @@ resource "google_cloud_run_domain_mapping" "app" {
 
   spec {
     route_name = google_cloud_run_v2_service.app[each.key].name
-    # The previous project still holds these hostnames; the deactivated
-    # account means its mappings cannot be deleted by hand.
+    # The previous project still has these hostnames. Its account is inactive, so no one can delete
+    # the mappings by hand.
     force_override = true
   }
 }

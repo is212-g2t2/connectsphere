@@ -16,10 +16,10 @@ function ResultRowSkeleton() {
 }
 
 /**
- * The venue list's loading shape: back link, heading, and the results table's five columns.
+ * Show the venue list loading shape: back link, heading, and the results table five columns.
  *
- * The search card is deliberately not drawn because it is role-gated, and a pending state must
- * not promise controls the arriving user may not have (the rule `DashboardPageSkeleton` states).
+ * The search card is role-gated, so do not draw it. A pending state must not promise controls the
+ * arriving user may lack (the rule `DashboardPageSkeleton` states).
  */
 export function VenueListPageSkeleton() {
   return (
