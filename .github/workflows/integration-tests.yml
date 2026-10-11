@@ -10,6 +10,16 @@ on:
       - "docs/**"
       - ".vscode/**"
       - ".idea/**"
+    paths:
+      - "src/**"
+      - "tests/integration/**"
+      - "tests/setup.ts"
+      - "tests/shims/**"
+      - "scripts/seed.ts"
+      - "drizzle.config.ts"
+      - "vitest.config.ts"
+      - "package.json"
+      - "bun.lock"
 
 permissions:
   contents: read
@@ -25,6 +35,10 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/3", "2/3", "3/3"]
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-bun
@@ -35,11 +49,4 @@ jobs:
         # cannot hide a missing secret.
         env:
           BETTER_AUTH_SECRET: "12345678901234567890123456789012"
-        run: bun run test:integration
-      - name: Upload test artifacts
-        uses: actions/upload-artifact@v7
-        if: ${{ always() }}
-        with:
-          name: integration-test-results
-          path: coverage/
-          retention-days: 3
+        run: bun run test:integration -- --shard=${{ matrix.shard }} --coverage.enabled=false

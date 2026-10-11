@@ -5,6 +5,22 @@ on:
   pull_request:
     # This activity type is not enabled by default. Include it so marking a draft ready starts a run.
     types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/seed.ts"
+      - "vitest.config.ts"
+      - "playwright.config.ts"
+      - "drizzle.config.ts"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - ".oxlintrc.json"
+      - ".oxfmtrc.json"
+      - "vite.config.ts"
+      - "instrument.server.mjs"
+      - "Dockerfile"
+      - ".github/**"
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -20,8 +36,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  code-quality:
-    name: Lint, type check, and build
+  fast:
+    name: Format and lint
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -30,21 +46,26 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - name: Check formatting
         run: bun run format:check
-      - name: Check linting and types
+      - name: Check linting
         run: bun run lint:check
+  slow:
+    name: Type check, migrations, and build
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # `generate` only reads the schema. Set both variables because drizzle.config.ts imports
+      # src/env.ts.
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/app
+      BETTER_AUTH_SECRET: connectsphere-migration-only-secret-0000
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-bun
       - name: Check types
         run: bun run type:check
       - name: Check migrations are generated
         run: bun run db:generate && git diff --exit-code -- src/db/drizzle
-        env:
-          # `generate` only reads the schema. Set both variables because drizzle.config.ts imports
-          # src/env.ts.
-          DATABASE_URL: postgresql://postgres:password@localhost:5432/app
-          BETTER_AUTH_SECRET: connectsphere-migration-only-secret-0000
       - name: Check migration files
         run: bunx drizzle-kit check
-        env:
-          DATABASE_URL: postgresql://postgres:password@localhost:5432/app
-          BETTER_AUTH_SECRET: connectsphere-migration-only-secret-0000
       - name: Build for production
         run: bun run build

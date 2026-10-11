@@ -3,6 +3,7 @@ name: Release Please
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", ".vscode/**", ".idea/**"]
 
 permissions:
   contents: read

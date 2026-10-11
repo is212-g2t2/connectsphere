@@ -10,6 +10,14 @@ on:
       - "docs/**"
       - ".vscode/**"
       - ".idea/**"
+    paths:
+      - "src/**"
+      - "tests/unit/**"
+      - "tests/setup.ts"
+      - "tests/shims/**"
+      - "vitest.config.ts"
+      - "package.json"
+      - "bun.lock"
 
 permissions:
   contents: read
@@ -32,7 +40,7 @@ jobs:
         run: bun run test:unit
       - name: Upload test artifacts
         uses: actions/upload-artifact@v7
-        if: ${{ always() }}
+        if: ${{ failure() }}
         with:
           name: unit-test-results
           path: coverage/

@@ -14,9 +14,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pullfrog-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pullfrog:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       id-token: write
       contents: read
