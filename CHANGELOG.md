@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-11
+
+### Added
+
+- **Attendee event discovery**: an Attendee opens the page of a confirmed event with registration on and sees a published view with no internal planning fields. A loading shape covers the page while it loads.
+- **Event registration**: an Attendee registers for a confirmed event inside its registration period. The registration refuses a full event, a full venue that names its capacity, and a second registration, and the last place goes to one Attendee. The Attendee sees "N / M registered", and the Organiser and the assigned Coordinator get a notice at 90% and at the place limit.
+- **Registration state**: the event page offers Register exactly when a registration succeeds. It shows the opening time before the period opens and says when the period has closed or the event is full, and it counts VIPs against the venue. A cancelled event keeps its page for a registered Attendee and says it is cancelled.
+- **My registrations**: the dashboard shows the signed-in Attendee their registration on each event card, with the event's name, date, time, venue, and status and the registration's state.
+- **Withdrawal and re-registration**: an Attendee withdraws a registration and registers again later. A withdrawal that frees a place in a full event sends a freed-place notice.
+- **Registration boundary notices**: the Organiser and the assigned Coordinator get a notice when registration opens and when it closes for a confirmed event.
+- **Registration list for organisers and coordinators**: the Organiser and the assigned Coordinator see the active registrations with the count against capacity, and the list marks VIPs apart and counts them. The Registrations section carries a searchable, sortable, filterable table.
+- **VIP registration**: the Organiser or the assigned Coordinator finds an Attendee by name or email, adds them as a VIP, and removes them after a confirmation. A VIP skips the registration capacity and period, with the venue on the approved booking as the only capacity limit, and VIPs count against the venue for normal registration. The record shows who added or removed each VIP and when.
+- **Change requests**: the Organiser requests changes to a submitted event from the event request page. The assigned Coordinator applies a waiting request by saving the event information with the request attached, or declines it with a required reason, and tells the Organiser either way. The Organiser and the Coordinator see each request and its outcome on the record, and the coordination list counts the waiting requests on each event.
+- **Event information update**: the assigned Coordinator edits an approved, planning, or confirmed event from the coordination page. Each save writes one history entry per changed field with its previous and new value, the Coordinator, and the time.
+- **Significant-change warning**: the form treats a change to the proposed dates and times, expected attendance, venue requirements, or equipment requirements as significant. It names each held booking, tentative hold, and reservation, or says none is held, before the save, and the server refuses a significant change without the acknowledgement. Once saved, the Venue Staff on each approved booking and each Technical Support member holding a reservation get a notice, and the save changes no arrangement.
+- **Cancellation requests**: the Organiser asks for cancellation of their event from the event request page, one waiting at a time, with no deadline. The event status stays unchanged until the Coordinator processes the request, and the assigned Coordinator gets a notice.
+- **Cancellation processing**: the assigned Coordinator cancels the event, recording who and when, or declines the request with a required reason. The page lists what the cancelled event still holds (approved bookings, tentative holds, equipment reservations), and nothing releases automatically. Venue Staff and Technical Support Staff holding arrangements, every registered Attendee including VIPs, and the Organiser get a notice, and a cancelled event refuses new bookings, reservations, holds, requests, and registrations.
+- **Event completion**: the assigned Coordinator completes a confirmed event after the event's own end passes. Completion records who completed it and when, and blocks new venue bookings, equipment reservations, and registrations.
+
+### Changed
+
+- **Staff event page layout**: the staff event page shows a two-column record beside a sticky action rail, with the ownership summary split from the handover form and the venue as one card.
+- **Seed catalogue**: the seed grows to 100 people, 47 venues, 7 equipment types, and 20 events, stays re-runnable, and keeps bookings inside operating hours. The seed sets a new shared password.
+- **Performance**: mutation invalidations scope below the root, and staff sections load on demand. Event, equipment, and venue reads batch, with new indexes on venue periods, registration status, and the unread bell. Coverage gates, a slimmer unit env, a reused E2E server, and cached statics shorten the suites.
+- **Continuous integration**: E2E and integration suites shard three ways with failure-only artifacts, and code-quality gates split into fast and slow jobs. Per-tier path filters merge into one list, Playwright browsers cache, and deploy polling hardens, with promotion gated on migration.
+- **Toolchain**: Bun moves to 1.4.3 across the package manager, CI, and Dockerfile, and `type:check` runs `bun check`. Fourteen dependencies move to newer minor and patch versions, among them `logtape` 2.3.10 to 2.4.0 and the Sentry SDK 11.4.0 to 11.5.0, with `seroval` pinned to the patched 1.6.8.
+- **Documentation**: code comments follow ASD-STE100 Simplified Technical English.
+
+### Fixed
+
+- A dummy `DATABASE_URL` keeps unit suites that import the environment green, and the integration suites isolate from the expanded seed catalogue: venue-staff fixtures check by containment, the Submitted badge scopes to one card, and the blocked-date fixture scopes to one venue.
+
 ## [0.3.0] - 2026-10-04
 
 ### Added
