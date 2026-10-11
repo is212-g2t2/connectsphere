@@ -54,7 +54,11 @@ test("[PTR-29][AC4] an unavailable date and time renders an explicit empty resul
   await page.getByLabel("Location", { exact: true }).fill("Marina Centre");
   await page.getByLabel("Accessibility features", { exact: true }).fill("Step-free access");
   await page.getByLabel("Supported layout", { exact: true }).fill("theatre");
-  await page.getByLabel("Required facilities", { exact: true }).fill("Projector, PA system");
+  // Catering prep area isolates Harbour Hall. Other Marina Centre venues match the looser
+  // filters, so the blocked date alone would still return rows after the seed expansion.
+  await page
+    .getByLabel("Required facilities", { exact: true })
+    .fill("Projector, PA system, Catering prep area");
   await page.getByRole("button", { name: "Search venues", exact: true }).click();
 
   await expect(page.getByText("No venue meets every requirement.", { exact: true })).toBeVisible();
