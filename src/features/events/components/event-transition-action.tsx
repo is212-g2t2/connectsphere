@@ -132,7 +132,7 @@ export function EventTransitionAction({
                 <button
                   type="button"
                   aria-label={`${triggerLabel} is disabled: ${disabledReason}`}
-                  className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex size-6 items-center justify-center"
                 />
               }
             >

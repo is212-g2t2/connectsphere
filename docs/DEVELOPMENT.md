@@ -4,7 +4,7 @@ This guide covers the local development environment, the scripts catalogue, data
 
 ## Prerequisites
 
-- **[Bun](https://bun.sh/)** v1.4.2 or later
+- **[Bun](https://bun.sh/)** v1.4.3 or later
 - **[Docker](https://www.docker.com/)** and Docker Compose (for local PostgreSQL and Redis, and for Testcontainers)
 
 ## Local Setup
@@ -116,7 +116,7 @@ The scripts that `package.json` defines:
 | `bun run preview`          | Preview the production build locally                                                        |
 | `bun run start`            | Run the production build server with Nitro and server instrumentation                       |
 | `bun run clean`            | Remove build artifacts, caches, coverage, and generated route trees                         |
-| `bun run type:check`       | Run the TypeScript compiler check without emitting output (`tsc --noEmit`)                  |
+| `bun run type:check`       | Run Bun's native type checker (`bun check`)                                                 |
 | `bun run lint:check`       | Check code with Oxlint (denies warnings)                                                    |
 | `bun run lint:fix`         | Automatically fix lint issues with Oxlint                                                   |
 | `bun run format:check`     | Check code and doc formatting with Oxfmt                                                    |

@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.2-alpine AS builder
+FROM oven/bun:1.4.3-alpine AS builder
 WORKDIR /app
 ARG VITE_SENTRY_DSN
 ARG VITE_SENTRY_ORG
@@ -16,7 +16,7 @@ COPY . .
 RUN --mount=type=secret,id=sentry_auth_token \
     SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token 2>/dev/null)" bun run build
 
-FROM oven/bun:1.4.2-alpine AS runner
+FROM oven/bun:1.4.3-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
