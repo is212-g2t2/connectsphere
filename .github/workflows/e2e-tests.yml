@@ -10,6 +10,16 @@ on:
       - "docs/**"
       - ".vscode/**"
       - ".idea/**"
+    paths:
+      - "src/**"
+      - "tests/e2e/**"
+      - "scripts/seed.ts"
+      - "vite.config.ts"
+      - "instrument.server.mjs"
+      - "drizzle.config.ts"
+      - "playwright.config.ts"
+      - "package.json"
+      - "bun.lock"
 
 permissions:
   contents: read
@@ -25,6 +35,10 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/3", "2/3", "3/3"]
     services:
       mailpit:
         image: axllent/mailpit:v1.31.1
@@ -39,13 +53,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-bun
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-playwright-
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
       - name: Run E2E tests
         # globalSetup starts a Postgres test container on a random port, then migrates and seeds it.
         # It also starts a production server on port 3000 against that database. Docker must be
         # reachable from this job, so do not use a job container. Mailpit runs as a service above.
-        run: bun run test:e2e
+        run: bun run test:e2e -- --shard=${{ matrix.shard }}
         env:
           BETTER_AUTH_SECRET: "12345678901234567890123456789012"
           BETTER_AUTH_URL: "http://localhost:3000"
@@ -56,9 +77,9 @@ jobs:
           CRON_TOKEN: e2e-cron-token
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() }}
+        if: ${{ failure() }}
         with:
-          name: playwright-report
+          name: playwright-report-${{ strategy.job-index }}
           path: playwright-report/
           retention-days: 3
       - name: Report Playwright results
@@ -71,8 +92,8 @@ jobs:
           create-comment: false
       - name: Upload test results
         uses: actions/upload-artifact@v7
-        if: ${{ always() }}
+        if: ${{ failure() }}
         with:
-          name: e2e-test-results
+          name: e2e-test-results-${{ strategy.job-index }}
           path: test-results/
           retention-days: 3

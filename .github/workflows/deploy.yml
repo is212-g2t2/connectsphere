@@ -40,7 +40,7 @@ jobs:
   publish:
     name: Publish image
     runs-on: ubuntu-latest
-    # The build wait can take 30 minutes. Let this job run longer so its own timeout reports a
+    # The build wait can take 20 minutes. Let this job run longer so its own timeout reports a
     # failure instead of cancelling the wait.
     timeout-minutes: 40
     permissions:
@@ -71,7 +71,7 @@ jobs:
         run: |
           tag="${{ steps.meta.outputs.tag }}"
           digest=""
-          for i in $(seq 1 60); do
+          for i in $(seq 1 80); do
             digest="$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' \
               2>/dev/null | jq -r '.digest // empty')"
             if [ -n "$digest" ]; then
@@ -80,12 +80,12 @@ jobs:
             if [ "$REQUIRE_EXISTING_IMAGE" != "true" ]; then
               break
             fi
-            echo "Waiting for $tag to be published ($i/60)"
-            sleep 30
+            echo "Waiting for $tag to be published ($i/80)"
+            sleep 15
           done
 
           if [ -z "$digest" ] && [ "$REQUIRE_EXISTING_IMAGE" = "true" ]; then
-            echo "::error::No image for $tag after 30 minutes; re-run this workflow once the staging deploy has published it."
+            echo "::error::No image for $tag after 20 minutes; re-run this workflow once the staging deploy has published it."
             exit 1
           fi
 
@@ -270,7 +270,7 @@ jobs:
     name: Promote
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [publish, deploy-stage, smoke]
+    needs: [publish, deploy-stage, migrate, smoke]
     permissions:
       contents: read
       id-token: write
