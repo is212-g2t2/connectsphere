@@ -51,6 +51,7 @@ import { parseEventListInput } from "#/features/events/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { loadVenueRequestOutcomesForEvents } from "#/features/venue-requests/records.server";
+import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 
 /**
@@ -430,6 +431,9 @@ export async function handleListEvents(
               eq(venueRequests.status, "pending")
             )
           );
+  // Compare the hold's occupied period, not its requested times: a hold conflicts through its
+  // stored buffers too. `loadVenueHolds` applies the same rule, so the badge and this flag agree.
+  const { occupiedStart, occupiedEnd } = holdOccupancy();
   const holdConflictRead =
     pendingIds.length === 0
       ? Promise.resolve([])
@@ -441,8 +445,8 @@ export async function handleListEvents(
             and(
               eq(venueHolds.venueId, venueRequests.venueId),
               eq(venueHolds.status, "held"),
-              lt(venueRequests.startsAt, venueHolds.endsAt),
-              gt(venueRequests.endsAt, venueHolds.startsAt)
+              lt(venueRequests.startsAt, occupiedEnd),
+              gt(venueRequests.endsAt, occupiedStart)
             )
           )
           .where(and(inArray(venueRequests.id, pendingIds), eq(venueRequests.status, "pending")));

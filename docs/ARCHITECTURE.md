@@ -159,6 +159,7 @@ erDiagram
     venues ||--o{ venue_requests : "receives"
     venues ||--o{ venue_holds : "receives"
     venues ||--o{ venue_unavailability : "has"
+    venues ||--o{ venue_buffer_changes : "records"
 
     equipment_types ||--o{ equipment_unavailability : "has"
     equipment_types |o--o{ equipment_requests : "classifies"
@@ -213,6 +214,18 @@ erDiagram
         int id PK
         text name UK
         int max_capacity
+        int setup_minutes
+        int turnaround_minutes
+    }
+    venue_buffer_changes {
+        int id PK
+        int venue_id FK
+        int previous_setup_minutes
+        int previous_turnaround_minutes
+        int setup_minutes
+        int turnaround_minutes
+        text changed_by_id
+        timestamp changed_at
     }
     venue_unavailability {
         int id PK
@@ -231,6 +244,8 @@ erDiagram
         int event_id FK
         int venue_id FK
         text status
+        int setup_minutes
+        int turnaround_minutes
     }
     equipment_requests {
         text id PK

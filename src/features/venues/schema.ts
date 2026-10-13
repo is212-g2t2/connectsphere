@@ -139,6 +139,34 @@ const TagList = z
     z.array(z.string().max(TAG_MAX_LENGTH, TAG_MESSAGE)).max(TAGS_MAX_COUNT, TAGS_COUNT_MESSAGE)
   );
 
+function bufferMessage(label: string) {
+  return `${label} must be a whole number of minutes, 0 or more`;
+}
+
+/**
+ * Optional on purpose. An absent key leaves the stored columns out of the update, and an insert
+ * takes the database default 0.
+ */
+function bufferMinutes(label: string) {
+  return z
+    .int32({
+      error: issue =>
+        issue.code === "too_big"
+          ? `${label} is larger than this record can store`
+          : bufferMessage(label),
+    })
+    .nonnegative(bufferMessage(label))
+    .optional();
+}
+
+/**
+ * The form holds buffer values as text. Accept digits only, so `Number` cannot read a blank field
+ * as 0 or read `1e3` and `0x10` as minutes.
+ */
+function bufferField(label: string) {
+  return z.string().trim().regex(/^\d+$/, bufferMessage(label));
+}
+
 export const VenueInput = z.object({
   /** Omit `id` when creating. Include it when editing so the save updates that row (PTR-26 AC1). */
   id: z.int32().positive().optional(),
@@ -162,6 +190,8 @@ export const VenueInput = z.object({
       error: issue => (issue.code === "too_big" ? CAPACITY_TOO_LARGE_MESSAGE : CAPACITY_MESSAGE),
     })
     .positive(CAPACITY_MESSAGE),
+  setupMinutes: bufferMinutes("Setup time"),
+  turnaroundMinutes: bufferMinutes("Turnaround time"),
   facilities: TagList.default([]),
   accessibilityFeatures: TagList.default([]),
   supportedLayouts: z
@@ -204,6 +234,8 @@ export const VenueFormShape = z.object({
   name: z.string(),
   location: z.string(),
   maxCapacity: z.string(),
+  setupMinutes: bufferField("Setup time"),
+  turnaroundMinutes: bufferField("Turnaround time"),
   facilities: FormTagString,
   accessibilityFeatures: FormTagString,
   supportedLayouts: z.array(z.enum(VENUE_LAYOUTS, { error: LAYOUT_MESSAGE })),
@@ -240,6 +272,8 @@ export const VenueFormInput = VenueFormShape.transform((values): z.input<typeof 
     name: values.name,
     location: values.location,
     maxCapacity: Number(values.maxCapacity),
+    setupMinutes: Number(values.setupMinutes),
+    turnaroundMinutes: Number(values.turnaroundMinutes),
     facilities: values.facilities.split(","),
     accessibilityFeatures: values.accessibilityFeatures.split(","),
     supportedLayouts: values.supportedLayouts,

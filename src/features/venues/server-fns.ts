@@ -77,7 +77,7 @@ export const saveVenue = createServerFn({ method: "POST" })
   .middleware([requireVenueWrite])
   .handler(async ({ data, context }) => {
     const [{ db }, { handleSaveVenue }] = await loadServer();
-    const venue = await handleSaveVenue(data, db);
+    const venue = await handleSaveVenue(data, db, context.user.id);
 
     log.info(venueAction(data) === "create" ? "Venue created" : "Venue updated", {
       venueId: venue.id,

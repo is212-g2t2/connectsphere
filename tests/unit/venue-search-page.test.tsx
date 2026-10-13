@@ -29,6 +29,8 @@ const matchingVenue = {
   name: "Great Hall",
   location: "East Wing",
   maxCapacity: 200,
+  setupMinutes: 0,
+  turnaroundMinutes: 0,
   facilities: ["Projector", "PA system"],
   accessibilityFeatures: ["Step-free access"],
   supportedLayouts: ["theatre" as const],
@@ -219,6 +221,8 @@ describe("VenueListPage suitability (PTR-30)", () => {
     id: 8,
     name: "Small Room",
     maxCapacity: 40,
+    setupMinutes: 0,
+    turnaroundMinutes: 0,
     facilities: ["Whiteboard"],
   };
 

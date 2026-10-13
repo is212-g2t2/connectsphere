@@ -62,6 +62,8 @@ function toFormValues(initial?: VenueFormInitial): VenueFormValues {
     name: initial?.name ?? "",
     location: initial?.location ?? "",
     maxCapacity: initial ? String(initial.maxCapacity) : "",
+    setupMinutes: String(initial?.setupMinutes ?? 0),
+    turnaroundMinutes: String(initial?.turnaroundMinutes ?? 0),
     facilities: (initial?.facilities ?? []).join(", "),
     accessibilityFeatures: (initial?.accessibilityFeatures ?? []).join(", "),
     supportedLayouts: [...(initial?.supportedLayouts ?? [])],
@@ -80,13 +82,13 @@ interface TextFieldApi {
   handleBlur: () => void;
 }
 
-/** List what the five plain fields vary by beyond their label. Only capacity uses `min`/`step`. */
+/** Set the input type, numeric bounds, and optional description for a text field. */
 type TextFieldOptions = Pick<React.ComponentProps<"input">, "type" | "min" | "step"> & {
   description?: string;
 };
 
 /**
- * The five single-input fields render an identical row: label, input, optional hint, and error.
+ * The single-input fields render an identical row: label, input, optional hint, and error.
  * Build the row once here. Each `form.Field` hands its own `field` to the result. Keep
  * `<form.Field>` at the call site so `name` still checks against the form keys. That name also
  * serves as the input `id`. Unit tests and `tests/e2e/venues.test.ts` reach these inputs through
@@ -156,6 +158,22 @@ export function VenueForm({
         <form.Field name="location">{textField("Location")}</form.Field>
         <form.Field name="maxCapacity">
           {textField("Maximum capacity", { type: "number", min: "1", step: "1" })}
+        </form.Field>
+        <form.Field name="setupMinutes">
+          {textField("Setup time (minutes)", {
+            type: "number",
+            min: "0",
+            step: "1",
+            description: "Time needed before a booking or hold. Use 0 if none is needed.",
+          })}
+        </form.Field>
+        <form.Field name="turnaroundMinutes">
+          {textField("Turnaround time (minutes)", {
+            type: "number",
+            min: "0",
+            step: "1",
+            description: "Time needed after a booking or hold. Use 0 if none is needed.",
+          })}
         </form.Field>
         <form.Field name="facilities">
           {textField("Facilities", {

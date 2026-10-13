@@ -27,6 +27,8 @@ const VALUES: VenueValues = {
   name: "Seminar Room 2A",
   location: "Level 2",
   maxCapacity: 40,
+  setupMinutes: 0,
+  turnaroundMinutes: 0,
   facilities: ["Projector"],
   accessibilityFeatures: ["Step-free access"],
   supportedLayouts: ["classroom"],

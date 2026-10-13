@@ -36,6 +36,8 @@ const harbourHall: Omit<VenueValues, "id"> = {
   name: "Harbour Hall",
   location: "Level 1, Marina Centre",
   maxCapacity: 300,
+  setupMinutes: 30,
+  turnaroundMinutes: 45,
   facilities: ["Stage", "Projector"],
   accessibilityFeatures: ["Step-free access"],
   supportedLayouts: ["theatre", "banquet"],
@@ -81,6 +83,8 @@ describe("VenueForm (PTR-26)", () => {
         name: "Seminar Room 2A",
         location: "Level 2",
         maxCapacity: 40,
+        setupMinutes: 0,
+        turnaroundMinutes: 0,
         facilities: ["Projector", "Whiteboard"],
         accessibilityFeatures: ["Step-free access"],
         supportedLayouts: ["classroom", "boardroom"],
@@ -96,6 +100,8 @@ describe("VenueForm (PTR-26)", () => {
 
     expect(valueOf("Venue name")).toBe("Harbour Hall");
     expect(valueOf("Maximum capacity")).toBe("300");
+    expect(valueOf("Setup time (minutes)")).toBe("30");
+    expect(valueOf("Turnaround time (minutes)")).toBe("45");
     expect(valueOf("Facilities")).toBe("Stage, Projector");
     expect(isChecked("Theatre")).toBe(true);
     expect(isChecked("Saturday")).toBe(true);
@@ -149,6 +155,35 @@ describe("VenueForm (PTR-26)", () => {
       expect(screen.getByRole("button", { name: "Save venue" })).not.toBeNull();
     }
   );
+
+  it.each([
+    ["Setup time (minutes)", "Setup time", "-1"],
+    ["Turnaround time (minutes)", "Turnaround time", "1.5"],
+  ])("refuses invalid %s and names the field", async (label, message, value) => {
+    const user = userEvent.setup();
+    const onSave = saveSpy();
+    render(<VenueForm initial={harbourHall} onSave={onSave} />);
+    fill(label, value);
+    await user.click(screen.getByRole("button", { name: "Save venue" }));
+    expect(
+      await screen.findByText(`${message} must be a whole number of minutes, 0 or more`)
+    ).not.toBeNull();
+    expect(screen.getByLabelText(label).getAttribute("aria-invalid")).toBe("true");
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("refuses a cleared buffer field with the same message", async () => {
+    const user = userEvent.setup();
+    const onSave = saveSpy();
+    render(<VenueForm initial={harbourHall} onSave={onSave} />);
+    fill("Setup time (minutes)", "");
+    await user.click(screen.getByRole("button", { name: "Save venue" }));
+    expect(
+      await screen.findByText("Setup time must be a whole number of minutes, 0 or more")
+    ).not.toBeNull();
+    expect(screen.getByLabelText("Setup time (minutes)").getAttribute("aria-invalid")).toBe("true");
+    expect(onSave).not.toHaveBeenCalled();
+  });
 });
 
 describe("VenueDetails (PTR-26 criterion 4, read-only)", () => {
@@ -158,6 +193,8 @@ describe("VenueDetails (PTR-26 criterion 4, read-only)", () => {
     for (const text of [
       "Level 1, Marina Centre",
       "300",
+      "30 minutes",
+      "45 minutes",
       "Stage, Projector",
       "Step-free access",
       "Theatre, Banquet",

@@ -67,6 +67,8 @@ const venue: Venue = {
   name: "Great Hall",
   location: "Level 2, East Wing",
   maxCapacity: 200,
+  setupMinutes: 0,
+  turnaroundMinutes: 0,
   facilities: [],
   accessibilityFeatures: [],
   supportedLayouts: [],
