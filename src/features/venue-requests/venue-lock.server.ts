@@ -11,8 +11,9 @@ export type VenueTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 /**
  * PTR-109: Serialize all occupancy writes for one venue with this advisory lock.
  * Hold creation, release, conversion, booking approval, release, and amendment take it before
- * locking rows or changing `venue_holds` or `venue_requests`. This gives writers one lock order
- * and prevents deadlocks (40P01). The `xact` lock ends when its transaction commits or rolls back.
+ * locking rows or changing `venue_holds` or `venue_requests`. The venue save takes it too, and
+ * relies on it alone to serialize the buffer columns. This gives writers one lock order and
+ * prevents deadlocks (40P01). The `xact` lock ends when its transaction commits or rolls back.
  * Withdraw and reject only lock rows because they do not hold venue time.
  */
 export async function lockVenue(tx: VenueTx, venueId: number): Promise<void> {

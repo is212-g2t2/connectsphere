@@ -164,7 +164,7 @@ export function VenueForm({
             type: "number",
             min: "0",
             step: "1",
-            description: "Time needed before a booking. Use 0 if none is needed.",
+            description: "Time needed before a booking or hold. Use 0 if none is needed.",
           })}
         </form.Field>
         <form.Field name="turnaroundMinutes">
@@ -172,7 +172,7 @@ export function VenueForm({
             type: "number",
             min: "0",
             step: "1",
-            description: "Time needed after a booking. Use 0 if none is needed.",
+            description: "Time needed after a booking or hold. Use 0 if none is needed.",
           })}
         </form.Field>
         <form.Field name="facilities">

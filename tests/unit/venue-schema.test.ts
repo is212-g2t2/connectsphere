@@ -23,6 +23,8 @@ const valid = {
   name: "Harbour Hall",
   location: "Level 1, Marina Centre",
   maxCapacity: 300,
+  setupMinutes: 30,
+  turnaroundMinutes: 45,
   facilities: ["Stage", "Projector"],
   accessibilityFeatures: ["Step-free access"],
   supportedLayouts: ["theatre", "banquet"],
@@ -31,12 +33,24 @@ const valid = {
 
 describe("VenueInput (PTR-26)", () => {
   it("accepts a complete record and keeps every criterion-2 field", () => {
-    expect(parseVenueInput(valid)).toEqual({ ...valid, setupMinutes: 0, turnaroundMinutes: 0 });
+    expect(parseVenueInput(valid)).toEqual(valid);
   });
 
   describe("setup and turnaround minutes (PTR-131)", () => {
-    it("defaults omitted buffers to zero", () => {
-      expect(parseVenueInput(valid)).toMatchObject({ setupMinutes: 0, turnaroundMinutes: 0 });
+    it("omits an absent buffer, accepts 0, and refuses a negative or fractional value", () => {
+      const withoutBuffers: Record<string, unknown> = { ...valid };
+      delete withoutBuffers.setupMinutes;
+      delete withoutBuffers.turnaroundMinutes;
+      const parsed = parseVenueInput(withoutBuffers);
+      expect(parsed).not.toHaveProperty("setupMinutes");
+      expect(parsed).not.toHaveProperty("turnaroundMinutes");
+      expect(parseVenueInput({ ...withoutBuffers, setupMinutes: 0 }).setupMinutes).toBe(0);
+      expect(() => parseVenueInput({ ...valid, setupMinutes: -1 })).toThrow(
+        "Setup time must be a whole number of minutes, 0 or more"
+      );
+      expect(() => parseVenueInput({ ...valid, turnaroundMinutes: 0.5 })).toThrow(
+        "Turnaround time must be a whole number of minutes, 0 or more"
+      );
     });
 
     it.each(["setupMinutes", "turnaroundMinutes"] as const)(
@@ -52,17 +66,14 @@ describe("VenueInput (PTR-26)", () => {
       ["setupMinutes", "Setup time"],
       ["turnaroundMinutes", "Turnaround time"],
     ])("names the invalid field %s", (field, label) => {
-      for (const minutes of [
-        -1,
-        0.5,
-        "30",
-        null,
-        Number.NaN,
-        Number.POSITIVE_INFINITY,
-        2_147_483_648,
-      ]) {
-        expect(() => parseVenueInput({ ...valid, [field]: minutes })).toThrow(label);
+      for (const minutes of [-1, 0.5, "30", null, Number.NaN, Number.POSITIVE_INFINITY]) {
+        expect(() => parseVenueInput({ ...valid, [field]: minutes })).toThrow(
+          `${label} must be a whole number of minutes, 0 or more`
+        );
       }
+      expect(() => parseVenueInput({ ...valid, [field]: 2_147_483_648 })).toThrow(
+        `${label} is larger than this record can store`
+      );
     });
   });
 

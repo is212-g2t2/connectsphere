@@ -166,9 +166,22 @@ describe("VenueForm (PTR-26)", () => {
     fill(label, value);
     await user.click(screen.getByRole("button", { name: "Save venue" }));
     expect(
-      await screen.findByText(`${message} must be whole minutes of zero or more`)
+      await screen.findByText(`${message} must be a whole number of minutes, 0 or more`)
     ).not.toBeNull();
     expect(screen.getByLabelText(label).getAttribute("aria-invalid")).toBe("true");
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("refuses a cleared buffer field with the same message", async () => {
+    const user = userEvent.setup();
+    const onSave = saveSpy();
+    render(<VenueForm initial={harbourHall} onSave={onSave} />);
+    fill("Setup time (minutes)", "");
+    await user.click(screen.getByRole("button", { name: "Save venue" }));
+    expect(
+      await screen.findByText("Setup time must be a whole number of minutes, 0 or more")
+    ).not.toBeNull();
+    expect(screen.getByLabelText("Setup time (minutes)").getAttribute("aria-invalid")).toBe("true");
     expect(onSave).not.toHaveBeenCalled();
   });
 });

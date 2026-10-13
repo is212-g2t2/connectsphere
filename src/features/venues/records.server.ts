@@ -14,6 +14,7 @@ import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import { eventTiming } from "#/features/events/access";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
+import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { lockVenue } from "#/features/venue-requests/venue-lock.server";
 import {
   nextCivilDate,
@@ -401,8 +402,10 @@ export type VenueHold = AvailabilityRecord & {
 
 /**
  * Return active tentative holds that overlap a range, grouped by venue (PTR-109). The calendar
- * and search show these holds as occupied. Join the event to check ownership, but return only the
- * derived `canRelease` and `canConvert` values, not either id.
+ * and search show these holds as occupied. A returned `startsAt`/`endsAt` pair is the occupied
+ * period: the requested times extended by the hold's stored buffers, clamped to years 0001 to
+ * 9999 for display. The overlap filter compares the unclamped period. The event join checks
+ * ownership, but the result carries only the derived `canRelease` and `canConvert` values.
  */
 export async function loadVenueHolds(
   database: Pick<Database, "select">,
@@ -412,8 +415,7 @@ export async function loadVenueHolds(
 ): Promise<VenueHold[]> {
   if (venueIds.length === 0) return [];
 
-  const occupiedStart = sql`${venueHolds.startsAt} - make_interval(mins => ${venueHolds.setupMinutes})`;
-  const occupiedEnd = sql`${venueHolds.endsAt} + make_interval(mins => ${venueHolds.turnaroundMinutes})`;
+  const { occupiedStart, occupiedEnd } = holdOccupancy();
 
   const rows = await database
     .select({
@@ -636,7 +638,8 @@ function rethrowReadable(error: unknown): never {
 /**
  * Create a venue when `data` has no `id`. Replace the full row when `data` has an `id`
  * (PTR-26 criterion 1). Middleware checks `venue:create` or `venue:update` from `data.id` before
- * `.validator(parseVenueInput)` runs. Return 404 below for a missing row.
+ * `.validator(parseVenueInput)` runs. Return 404 below for a missing row. `actorId` is the acting
+ * user, recorded in `venue_buffer_changes.changed_by_id`.
  */
 export async function handleSaveVenue(
   data: unknown,
@@ -651,9 +654,16 @@ export async function handleSaveVenue(
     if (id === undefined) {
       [saved] = await tx.insert(venues).values(fields).returning().catch(rethrowReadable);
     } else {
-      // Use the hold writer's lock before the row lock, so new holds read one buffer version.
+      // Take the hold writer's advisory lock first. It serializes every writer of the buffer
+      // columns, so the read below is the current version.
       await lockVenue(tx, id);
-      const previousRows = await tx.select().from(venues).where(eq(venues.id, id)).for("update");
+      const previousRows = await tx
+        .select({
+          setupMinutes: venues.setupMinutes,
+          turnaroundMinutes: venues.turnaroundMinutes,
+        })
+        .from(venues)
+        .where(eq(venues.id, id));
       const previous = previousRows.at(0);
       if (!previous) throw new NotFoundError("Not Found");
       previousSetupMinutes = previous.setupMinutes;

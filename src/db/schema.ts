@@ -482,7 +482,10 @@ export const venueBufferChanges = pgTable(
     setupMinutes: integer("setup_minutes").notNull(),
     turnaroundMinutes: integer("turnaround_minutes").notNull(),
     changedById: text("changed_by_id").notNull(),
-    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+    // `clock_timestamp()` records the write time. `now()` returns the transaction start time.
+    changedAt: timestamp("changed_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
   },
   table => [index("venue_buffer_changes_venue_id_idx").on(table.venueId)]
 );
@@ -708,6 +711,13 @@ export const venueHolds = pgTable(
     check("venue_holds_turnaround_minutes_nonnegative", sql`${table.turnaroundMinutes} >= 0`),
     index("venue_holds_event_id_idx").on(table.eventId),
     index("venue_holds_venue_id_starts_at_idx").on(table.venueId, table.startsAt),
+    // `loadVenueHolds` reads the occupied start, so the plain `starts_at` index cannot serve it.
+    // The expression is immutable only while `starts_at` stays `timestamp without time zone`:
+    // `timestamptz - interval` is stable, so a later type change would break this index DDL.
+    index("venue_holds_venue_id_occupied_start_idx").on(
+      table.venueId,
+      sql`(${table.startsAt} - make_interval(mins => ${table.setupMinutes}))`
+    ),
     index("venue_holds_held_by_id_idx").on(table.heldById),
     index("venue_holds_released_by_id_idx").on(table.releasedById),
   ]

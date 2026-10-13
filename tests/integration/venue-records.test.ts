@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -213,6 +213,73 @@ describe("Venue records (PTR-26)", () => {
     });
   });
 
+  // One transaction fixes `now()` for both rows. Only `clock_timestamp()` moves between them, so
+  // this case fails when the column default records the transaction start instead of the write.
+  it("records the write time rather than the transaction start (PTR-131)", async () => {
+    const created = await handleSaveVenue(record, database as never, "staff-one");
+    const changes = await database.transaction(async tx => {
+      await tx.insert(schema.venueBufferChanges).values({
+        venueId: created.id,
+        previousSetupMinutes: 0,
+        previousTurnaroundMinutes: 0,
+        setupMinutes: 10,
+        turnaroundMinutes: 20,
+        changedById: "staff-one",
+      });
+      await tx.execute(sql`select pg_sleep(0.05)`);
+      await tx.insert(schema.venueBufferChanges).values({
+        venueId: created.id,
+        previousSetupMinutes: 10,
+        previousTurnaroundMinutes: 20,
+        setupMinutes: 30,
+        turnaroundMinutes: 40,
+        changedById: "staff-two",
+      });
+      return tx
+        .select()
+        .from(schema.venueBufferChanges)
+        .where(eq(schema.venueBufferChanges.venueId, created.id))
+        .orderBy(schema.venueBufferChanges.id);
+    });
+    expect(changes).toHaveLength(2);
+    expect(changes[1].changedAt.getTime()).toBeGreaterThan(changes[0].changedAt.getTime());
+  });
+
+  it("leaves the stored buffers and the audit alone when a save omits them", async () => {
+    const created = await handleSaveVenue(
+      { ...record, setupMinutes: 30, turnaroundMinutes: 45 },
+      database as never,
+      "staff-one"
+    );
+    // A form that never renders the buffer fields sends neither key. An absent key must leave the
+    // stored columns and the audit alone, not read as 0.
+    const payload: Partial<typeof created> = {
+      ...created,
+      location: "Level 5, ConnectSphere Tower",
+    };
+    delete payload.setupMinutes;
+    delete payload.turnaroundMinutes;
+    await handleSaveVenue(payload, database as never, "staff-two");
+
+    expect(await handleGetVenue({ id: created.id }, database as never)).toMatchObject({
+      setupMinutes: 30,
+      turnaroundMinutes: 45,
+    });
+    const changes = await database
+      .select()
+      .from(schema.venueBufferChanges)
+      .where(eq(schema.venueBufferChanges.venueId, created.id))
+      .orderBy(schema.venueBufferChanges.id);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({
+      previousSetupMinutes: 0,
+      previousTurnaroundMinutes: 0,
+      setupMinutes: 30,
+      turnaroundMinutes: 45,
+      changedById: "staff-one",
+    });
+  });
+
   it("keeps the record and its audit unchanged when a save fails", async () => {
     const created = await handleSaveVenue(record, database as never, "staff-one");
     await expect(
@@ -241,7 +308,7 @@ describe("Venue records (PTR-26)", () => {
         [-1, 1.5].map(value =>
           expect(
             handleSaveVenue({ ...created, [field]: value }, database as never, "staff-two")
-          ).rejects.toThrow(/time must be whole minutes/)
+          ).rejects.toThrow(/time must be a whole number of minutes/)
         )
       );
       await expect(

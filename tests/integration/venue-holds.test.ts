@@ -1223,6 +1223,39 @@ describe("tentative venue holds (PTR-109)", () => {
       const detail = await handleGetPendingVenueRequest({ id: request.id }, database as never);
       expect(detail?.conflict).toBe("booking");
     });
+
+    it("refuses an approval and flags the request when only a hold's buffers overlap", async () => {
+      // The hold occupies 09:00 to 12:45. The request's own times do not overlap it.
+      await database
+        .update(schema.venues)
+        .set({ turnaroundMinutes: 45 })
+        .where(eq(schema.venues.id, venueId));
+      await handleCreateVenueHold(
+        { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+        session(users.coordinatorA),
+        database as never
+      );
+      const request = await handleCreateVenueRequest(
+        { ...HOLD_WINDOW, startTime: "12:30", endTime: "13:00", eventId: eventIdB, venueId },
+        session(users.coordinatorB),
+        database as never
+      );
+
+      await expect(
+        handleApproveVenueRequest({ id: request.id }, session(users.venueStaff), database as never)
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: expect.stringContaining(VENUE_NAME),
+      });
+
+      const [projection] = await handleListEvents(
+        { eventId: eventIdB },
+        session(users.coordinatorB),
+        database as never
+      );
+      expect(projection.event.venueRequest).toMatchObject({ status: "pending", conflict: "hold" });
+    });
   });
 
   /** Hold a session-level advisory lock on the venue while both writers start, then release it.

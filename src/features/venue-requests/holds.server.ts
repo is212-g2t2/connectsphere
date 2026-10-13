@@ -64,6 +64,8 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
         name: venues.name,
         setupMinutes: venues.setupMinutes,
         turnaroundMinutes: venues.turnaroundMinutes,
+        // Return the two bounds as text. `loadVenueBookings` and `loadVenueHolds` read both
+        // values as `timestamp` range parameters.
         occupiedStart: sql<string>`(${startsAt}::timestamp - make_interval(mins => ${venues.setupMinutes}))::text`,
         occupiedEnd: sql<string>`(${endsAt}::timestamp + make_interval(mins => ${venues.turnaroundMinutes}))::text`,
       })
