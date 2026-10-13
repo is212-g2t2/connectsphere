@@ -64,7 +64,7 @@ The custom files `0019` and `0024` stay in the journal as history. The 0047 pred
 - Cons: no constraint spans bookings, holds and blocks. A block cannot refuse a booking.
 - Rejected: the cross-table guarantee stays on the advisory lock alone.
 
-### Keep the ledger with triggers
+### Write ledger rows with triggers
 
 - Pros: a writer cannot forget the ledger.
 - Cons: triggers fire outside the writers' lock order, and they bring ordering, foreign key and rollback hazards.

@@ -12,9 +12,8 @@ import {
   parseVenueReleaseInput,
 } from "#/features/venue-requests/schema";
 import {
-  loadVenueBuffers,
+  checkVenueFree,
   occupyVenue,
-  refuseVenueConflict,
   vacateVenue,
 } from "#/features/venue-requests/occupancy.server";
 import {
@@ -243,8 +242,6 @@ export async function handleAmendVenueBooking(
       await lockVenue(tx, venueId);
     }
 
-    const venue = await loadVenueBuffers(tx, input.venueId);
-
     const rows = await tx
       .select({
         status: venueRequests.status,
@@ -267,15 +264,12 @@ export async function handleAmendVenueBooking(
     // Remove the booking's own rows first, so the check below cannot refuse it against itself.
     // A refusal rolls the deletion back.
     await vacateVenue(tx, { venueRequestId: input.id });
-    const occupancy = {
+    const occupancy = await checkVenueFree(tx, {
       venueId: input.venueId,
       eventId: row.eventId,
       startsAt,
       endsAt,
-      setupMinutes: venue.setupMinutes,
-      turnaroundMinutes: venue.turnaroundMinutes,
-    };
-    await refuseVenueConflict(tx, venue.name, occupancy);
+    });
 
     const [updated] = await tx
       .update(venueRequests)

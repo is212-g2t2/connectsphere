@@ -21,11 +21,7 @@ import {
   parseVenueRequestId,
   parseVenueRequestInput,
 } from "#/features/venue-requests/schema";
-import {
-  loadVenueBuffers,
-  occupyVenue,
-  refuseVenueConflict,
-} from "#/features/venue-requests/occupancy.server";
+import { checkVenueFree, occupyVenue } from "#/features/venue-requests/occupancy.server";
 import {
   assertSameVenue,
   keyShareEvent,
@@ -528,16 +524,12 @@ export async function handleApproveVenueRequest(
     // PTR-54 AC9: a cancelled event takes no new booking.
     if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
 
-    const venue = await loadVenueBuffers(tx, row.venueId);
-    const occupancy = {
+    const occupancy = await checkVenueFree(tx, {
       venueId: row.venueId,
       eventId: row.eventId,
       startsAt: row.startsAt,
       endsAt: row.endsAt,
-      setupMinutes: venue.setupMinutes,
-      turnaroundMinutes: venue.turnaroundMinutes,
-    };
-    await refuseVenueConflict(tx, venue.name, occupancy);
+    });
 
     // The row lock and status check make this the only writer of the row.
     const [approved] = await tx
@@ -569,8 +561,7 @@ export async function handleApproveVenueRequest(
  * PTR-34: Reject a pending request with a reason. Venue Staff may also suggest a venue, date, or
  * time. Use the approval path's row lock and queue rule, so approval and rejection settle a request
  * only once. No venue lock is needed because a pending request has no `venue_occupancy` row to
- * remove. Add a notification for the requesting Coordinator; the
- * worker delivers it.
+ * remove. Add a notification for the requesting Coordinator; the worker delivers it.
  * A rejected request is final. Refuse later approve, withdraw, or reject actions and tell the
  * Coordinator to raise a new request. The partial unique index covers pending rows, so a new
  * request can be raised.

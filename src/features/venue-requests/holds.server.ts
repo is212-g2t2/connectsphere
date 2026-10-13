@@ -13,9 +13,8 @@ import {
 import { parseVenueHoldId, parseVenueHoldInput } from "#/features/venue-requests/schema";
 import { canReleaseHold } from "#/features/venue-requests/holds";
 import {
-  loadVenueBuffers,
+  checkVenueFree,
   occupyVenue,
-  refuseVenueConflict,
   vacateVenue,
 } from "#/features/venue-requests/occupancy.server";
 import {
@@ -57,16 +56,12 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
     await lockVenue(tx, input.venueId);
     const startsAt = `${input.date} ${input.startTime}:00`;
     const endsAt = `${input.date} ${input.endTime}:00`;
-    const venue = await loadVenueBuffers(tx, input.venueId);
-    const occupancy = {
+    const occupancy = await checkVenueFree(tx, {
       venueId: input.venueId,
       eventId: event.id,
       startsAt,
       endsAt,
-      setupMinutes: venue.setupMinutes,
-      turnaroundMinutes: venue.turnaroundMinutes,
-    };
-    await refuseVenueConflict(tx, venue.name, occupancy);
+    });
 
     const [created] = await tx
       .insert(venueHolds)

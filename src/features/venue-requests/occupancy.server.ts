@@ -79,35 +79,33 @@ export async function vacateVenue(tx: VenueTx, source: OccupancySource): Promise
 }
 
 /**
- * Read the venue's name and buffers. Call it under the venue lock: a venue save takes the same
- * lock, so the buffers are current until the transaction ends.
+ * Read the venue's buffers and refuse a commitment that would overlap an active ledger row. Name
+ * the venue and the other row's occupied period, a booking before a hold, then the earliest, so
+ * the refusal is stable. Return the row to write. Call it under the venue lock: a venue save and
+ * every app writer take the same lock, so the buffers and the rows stay current until the
+ * transaction ends. The constraint stays the authority for a writer outside the lock.
  */
-export async function loadVenueBuffers(tx: VenueTx, venueId: number) {
-  const rows = await tx
+export async function checkVenueFree(
+  tx: VenueTx,
+  commitment: Omit<Occupancy, "setupMinutes" | "turnaroundMinutes">
+): Promise<Occupancy> {
+  const venueRows = await tx
     .select({
       name: venues.name,
       setupMinutes: venues.setupMinutes,
       turnaroundMinutes: venues.turnaroundMinutes,
     })
     .from(venues)
-    .where(eq(venues.id, venueId))
+    .where(eq(venues.id, commitment.venueId))
     .limit(1);
-  const venue = rows.at(0);
+  const venue = venueRows.at(0);
   if (!venue) throw new NotFoundError("Not Found");
-  return venue;
-}
+  const occupancy = {
+    ...commitment,
+    setupMinutes: venue.setupMinutes,
+    turnaroundMinutes: venue.turnaroundMinutes,
+  };
 
-/**
- * Refuse a commitment that would overlap an active ledger row, and name the venue and the other
- * row's occupied period. The caller holds the venue lock, so no other app writer changes the rows
- * between this read and its insert. The constraint stays the authority for a writer outside the
- * lock. Name a booking before a hold, then the earliest, so the refusal is stable.
- */
-export async function refuseVenueConflict(
-  tx: VenueTx,
-  venueName: string,
-  occupancy: Occupancy
-): Promise<void> {
   // Keep this expression identical to the constraint's, so the GiST index serves the overlap.
   const occupiedStart = sql`${venueOccupancy.startsAt} - make_interval(mins => ${venueOccupancy.setupMinutes})`;
   const occupiedEnd = sql`${venueOccupancy.endsAt} + make_interval(mins => ${venueOccupancy.turnaroundMinutes})`;
@@ -133,10 +131,10 @@ export async function refuseVenueConflict(
     .orderBy(isHold, asc(occupiedStart))
     .limit(1);
   const conflict = rows.at(0);
-  if (!conflict) return;
+  if (!conflict) return occupancy;
 
   const message = conflict.isHold ? venueHoldConflictMessage : venueRequestConflictMessage;
   throw new ConflictError(
-    message({ venueName, startsAt: conflict.startsAt, endsAt: conflict.endsAt })
+    message({ venueName: venue.name, startsAt: conflict.startsAt, endsAt: conflict.endsAt })
   );
 }
