@@ -79,11 +79,12 @@ export async function vacateVenue(tx: VenueTx, source: OccupancySource): Promise
 }
 
 /**
- * Read the venue's buffers and refuse a commitment that would overlap an active ledger row. Name
- * the venue and the other row's occupied period, a booking before a hold, then the earliest, so
- * the refusal is stable. Return the row to write. Call it under the venue lock: a venue save and
- * every app writer take the same lock, so the buffers and the rows stay current until the
- * transaction ends. The constraint stays the authority for a writer outside the lock.
+ * Read the venue's name and buffers (Not Found for a missing venue), then refuse a commitment that
+ * would overlap an active ledger row. Name the venue and the other row's occupied period, a
+ * booking before a hold, then the earliest. Return the row to write.
+ *
+ * Call it under the venue lock. A venue save and the other writers take the same lock, so the
+ * buffers and the rows stay current. The constraint refuses a writer outside the lock.
  */
 export async function checkVenueFree(
   tx: VenueTx,
