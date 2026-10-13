@@ -330,6 +330,20 @@
       "when": 1791876388660,
       "tag": "0046_hard_nehzno",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791880121164,
+      "tag": "0047_previous_puck",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791880125739,
+      "tag": "0048_venue-occupancy-ledger",
+      "breakpoints": true
     }
   ]
 }

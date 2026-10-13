@@ -54,8 +54,9 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 - [ADR-2: Modular monolith over microservices](./adrs/ADR-2-monolith.md)
 - [ADR-3: Google Cloud Run in a single GCP project](./adrs/ADR-3-cloud-run.md)
 - [ADR-4: Trunk-based main with release-gated production](./adrs/ADR-4-trunk-based-main.md)
-- [ADR-5: Overlap-free approved bookings, enforced by a PostgreSQL exclusion constraint](./adrs/ADR-5-venue-booking-overlap.md)
+- [ADR-5: Overlap-free approved bookings, enforced by a PostgreSQL exclusion constraint](./adrs/ADR-5-venue-booking-overlap.md) (superseded by ADR-7)
 - [ADR-6: Notification emails from a transactional queue drained by a scheduled worker](./adrs/ADR-6-notification-delivery.md)
+- [ADR-7: One venue occupancy ledger, guarded by a buffered exclusion constraint](./adrs/ADR-7-venue-occupancy-ledger.md)
 
 ## Directory Structure
 
@@ -119,6 +120,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 6. **Authentication flow**: forms in `src/features/auth/components/` call `src/lib/auth-client.ts`. The routes are `/login`, `/signup`, and `/reset-password` (`?token=`).
 7. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The record in the application and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute, and the worker delivers the pending rows and marks them. The reasoning, the failure policy, and the P0 bypass are in [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
 8. **Loader freshness**: the router sets `defaultStaleReloadMode: "blocking"`. A revisit waits for its loaders, so a page never renders a cached value that a later change replaced.
+9. **Venue occupancy**: each approved booking and held hold has a `venue_occupancy` row, and `venue_occupancy_no_overlap` refuses two active rows whose periods overlap once setup and turnaround count ([ADR-7](./adrs/ADR-7-venue-occupancy-ledger.md)).
 
 ## Database and Migrations
 
@@ -127,7 +129,7 @@ The application accesses PostgreSQL with Drizzle ORM and Bun's native SQL driver
 - **Schemas**: `src/db/schema.ts` holds the application tables and re-exports the authentication tables. `src/db/auth-schema.ts` holds the Better Auth tables: `user` with `role`, `session`, `account`, and `verification`.
 - **Migrations**: Drizzle Kit generates migrations into `src/db/drizzle/`. Run `bun run db:generate` after each schema change. Run `bun run db:migrate` to apply the migrations.
 
-Never handwrite SQL. The two reviewed exceptions are the `EXCLUDE` constraints that Drizzle cannot express, added with `db:generate --custom`. The booking constraint is `venue_requests_no_overlap` (migration 0019). The venue-hold constraint is `venue_holds_no_overlap` (migration 0024, with its `IMMUTABLE` `venue_hold_occupies_venue` status wrapper). Both are documented in [ADR-5](./adrs/ADR-5-venue-booking-overlap.md). Workflow: [`DEVELOPMENT.md`](./DEVELOPMENT.md#database-management-and-migrations).
+Never handwrite SQL. The reviewed exception is the `EXCLUDE` constraint that Drizzle cannot express, `venue_occupancy_no_overlap` (migration 0048), added with `db:generate --custom`. [ADR-7](./adrs/ADR-7-venue-occupancy-ledger.md) documents it and the exceptions that it replaced. Workflow: [`DEVELOPMENT.md`](./DEVELOPMENT.md#database-management-and-migrations).
 
 ### Entity Relationships
 
@@ -160,6 +162,11 @@ erDiagram
     venues ||--o{ venue_holds : "receives"
     venues ||--o{ venue_unavailability : "has"
     venues ||--o{ venue_buffer_changes : "records"
+    venues ||--o{ venue_occupancy : "is occupied by"
+    event_requests ||--o{ venue_occupancy : "occupies"
+    venue_requests ||--o{ venue_occupancy : "occupies"
+    venue_holds ||--o{ venue_occupancy : "occupies"
+    venue_unavailability ||--o{ venue_occupancy : "occupies"
 
     equipment_types ||--o{ equipment_unavailability : "has"
     equipment_types |o--o{ equipment_requests : "classifies"
@@ -246,6 +253,19 @@ erDiagram
         text status
         int setup_minutes
         int turnaround_minutes
+    }
+    venue_occupancy {
+        int id PK
+        int venue_id FK
+        int event_id FK
+        text venue_request_id FK
+        text venue_hold_id FK
+        int venue_unavailability_id FK
+        timestamp starts_at
+        timestamp ends_at
+        int setup_minutes
+        int turnaround_minutes
+        boolean active
     }
     equipment_requests {
         text id PK

@@ -68,7 +68,7 @@ describe("equipment availability (PTR-40)", () => {
     return row;
   }
 
-  /** Book `eventId` at its own venue. The overlap constraint is per venue. */
+  /** Book `eventId` at its own venue, so that no two bookings overlap. */
   async function addBooking(
     eventId: number,
     [start, end]: [string, string],
@@ -100,7 +100,7 @@ describe("equipment availability (PTR-40)", () => {
   }
 
   /** Create an approved event with one submitted line and a booking at its own venue. Each event
-   * needs its own venue because the overlap constraint is per venue. Use 2030-01-01 for the
+   * needs its own venue, so that no two bookings overlap. Use 2030-01-01 for the
    * booking window. Pass `null` for an event without an approved booking.
    */
   async function createEvent(window: [string, string] | null) {

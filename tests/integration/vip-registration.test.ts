@@ -193,7 +193,7 @@ describe("VIP registrations (PTR-111)", () => {
     created.push(row.id);
 
     if (options.booked ?? true) {
-      // Use a different year for each booking so the overlap constraint does not reject it.
+      // Use a different year for each booking, so that no two bookings overlap.
       bookingYear += 1;
       await database.insert(schema.venueRequests).values({
         id: crypto.randomUUID(),

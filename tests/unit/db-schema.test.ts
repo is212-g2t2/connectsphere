@@ -127,6 +127,14 @@ describe("Database Schema Definitions", () => {
     expect(columns.releasedById.notNull).toBe(false);
   });
 
+  it("defines the venue occupancy ledger columns (PTR-133)", () => {
+    const columns = getTableColumns(schema.venueOccupancy);
+    // A block row belongs to no event.
+    expect(columns.eventId.notNull).toBe(false);
+    expect(columns.venueUnavailabilityId.name).toBe("venue_unavailability_id");
+    expect(columns.active.notNull).toBe(true);
+  });
+
   it("keeps the venue request status list identical to the Postgres enum (PTR-31, PTR-36, PTR-34)", () => {
     expect([...schema.venueRequestStatus.enumValues]).toEqual([
       "pending",

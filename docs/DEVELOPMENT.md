@@ -141,7 +141,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
 
 ### Schema Locations
 
-- `src/db/schema.ts`: application domain schemas. The module re-exports the authentication tables, and it holds `eventRequests`, its assignment history (`eventAssignments`), pending handovers (`eventHandovers`), and clarifications (`clarificationRequests`). It also holds the venue catalogue (`venues`, `venueUnavailability`), the venue and equipment requests (`venueRequests`, `equipmentRequests`), the equipment catalogue (`equipmentTypes`, `equipmentUnavailability`, `equipmentReservations`), and event registrations (`eventRegistrations`).
+- `src/db/schema.ts`: application domain schemas. The module re-exports the authentication tables, and it holds `eventRequests`, its assignment history (`eventAssignments`), pending handovers (`eventHandovers`), and clarifications (`clarificationRequests`). It also holds the venue catalogue (`venues`, `venueUnavailability`), the venue and equipment requests (`venueRequests`, `equipmentRequests`), the venue occupancy ledger (`venueOccupancy`), the equipment catalogue (`equipmentTypes`, `equipmentUnavailability`, `equipmentReservations`), and event registrations (`eventRegistrations`).
 - `src/db/auth-schema.ts`: Better Auth tables (`user` with `role`, `session`, `account`, `verification`).
 - `src/db/drizzle/`: generated SQL migration files and metadata.
 
@@ -151,7 +151,7 @@ The project uses [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL 
   ```bash
   bun run db:generate
   ```
-- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`, and handwritten migrations cause snapshot drift. One reviewed exception is the booking exclusion constraint that Drizzle cannot express ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)), created with `db:generate --custom`. The migrator runs all pending migrations in one transaction, so the constraint's predicate calls an `IMMUTABLE` wrapper function. It does not compare the newly added enum label.
+- **Never handwrite SQL migrations**: Drizzle Kit maintains schema snapshots in `src/db/drizzle/meta/`, and handwritten migrations cause snapshot drift. One reviewed exception is the venue occupancy exclusion constraint that Drizzle cannot express, created with `db:generate --custom` ([ADR-7](./adrs/ADR-7-venue-occupancy-ledger.md)).
 - **Commit schema and migrations together**: always commit the schema changes with the generated files in `src/db/drizzle/`.
 - **Apply migrations**: run `bun run db:migrate` to apply the pending migrations.
 - **Prototyping**: during early exploration, `bun run db:push` synchronizes the schema directly without a migration file. Never use `db:push` in production.

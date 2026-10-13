@@ -89,4 +89,4 @@ When you touch a schema file (`src/db/schema.ts`, `src/db/auth-schema.ts`), run 
 
 Never handwrite SQL. Never use `db:push` outside local prototyping, because it records no migration history.
 
-Two reviewed exceptions are the exclusion constraints that Drizzle cannot express. Add them with `db:generate --custom`: `venue_requests_no_overlap` (migration 0019) and `venue_holds_no_overlap` (migration 0024). ADR-5 documents both (`docs/adrs/ADR-5-venue-booking-overlap.md`). Workflow: `docs/DEVELOPMENT.md` §Migration Rules.
+One reviewed exception is the exclusion constraint that Drizzle cannot express, `venue_occupancy_no_overlap`, added with `db:generate --custom` in migration 0048. ADR-7 documents it and the exceptions that it replaced (`docs/adrs/ADR-7-venue-occupancy-ledger.md`). Workflow: `docs/DEVELOPMENT.md` §Migration Rules.

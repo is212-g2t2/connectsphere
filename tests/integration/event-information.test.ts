@@ -64,7 +64,7 @@ let pool: Pool;
 let database: Database;
 let venueId: number;
 let equipmentTypeId: number;
-// Use a different year for each booking, hold, and reservation to avoid overlap constraints.
+// Use a different year for each booking, hold, and reservation, so that no two overlap.
 let year = 2070;
 
 beforeAll(async () => {

@@ -521,9 +521,9 @@ export * from "./auth-schema";
  * PTR-8: statuses for event child records. As with `eventRequestStatus`, include only statuses
  * used by current stories. Add new statuses with a generated `ALTER TYPE` migration. PTR-31 added
  * `withdrawn`; keep withdrawn requests so their history remains. PTR-36 added `approved`; an
- * approved request reserves the venue. Migration 0019's exclusion constraint checks the status
- * label, not its order. PTR-34 added `rejected` and PTR-37 added `released`; neither reserves a
- * venue because the constraint checks only `approved`.
+ * approved request reserves the venue through its `venue_occupancy` row. PTR-34 added `rejected`
+ * and PTR-37 added `released`; neither reserves a venue. A release deletes the booking's row, and a
+ * rejected request never had one.
  */
 export const venueRequestStatus = pgEnum("venue_request_status", [
   "pending",
@@ -562,9 +562,8 @@ export const eventRegistrationStatus = pgEnum("event_registration_status", [
  * and `equipment_requests` go to Venue Staff and Technical Support (PTR-8 criterion 3). PTR-31
  * added the venue request fields.
  *
- * PTR-36: approved rows for one venue cannot overlap. Migration
- * `0019_booking-overlap-constraint` adds the partial exclusion constraint. Drizzle cannot express
- * it here and never drops it. See docs/adrs/ADR-5-venue-booking-overlap.md.
+ * PTR-36: approved rows for one venue cannot overlap. The `venue_occupancy` ledger below holds
+ * that guarantee. See docs/adrs/ADR-7-venue-occupancy-ledger.md.
  */
 export const venueRequests = pgTable(
   "venue_requests",
@@ -661,25 +660,22 @@ export const venueRequests = pgTable(
     // the caller can see.
     index("venue_requests_event_id_idx").on(table.eventId),
     index("venue_requests_assigned_staff_id_idx").on(table.assignedStaffId),
-    // The availability calendar and search read approved bookings by venue and period, and
-    // the amend path checks the same shape for conflicts. The partial predicate keeps this
-    // index to rows that occupy the venue.
+    // The availability calendar and search read approved bookings by venue and period. The
+    // partial predicate keeps this index to rows that occupy the venue.
     index("venue_requests_venue_period_idx")
       .on(table.venueId, table.startsAt, table.endsAt)
       .where(sql`${table.status} = 'approved'`),
     // PTR-37's shared approved-booking queue filters by status and start time.
     index("venue_requests_approved_starts_at_idx")
       .on(table.startsAt)
-      // This IMMUTABLE wrapper exists for ADR-5. It also lets this migration use the enum value
-      // that it added earlier in the same transaction; PostgreSQL 15 otherwise refuses that use.
-      .where(sql`venue_request_occupies_venue(${table.status})`),
+      .where(sql`${table.status} = 'approved'`),
   ]
 );
 
 /**
  * PTR-109: tentative venue holds from an event's assigned Coordinator. A hold reserves a venue
- * before final booking confirmation. Each venue and time slot can have one active hold or one
- * approved booking.
+ * before final booking confirmation through its `venue_occupancy` row. Each venue and time slot
+ * can have one active hold or one approved booking.
  */
 export const venueHolds = pgTable(
   "venue_holds",
@@ -720,6 +716,60 @@ export const venueHolds = pgTable(
     ),
     index("venue_holds_held_by_id_idx").on(table.heldById),
     index("venue_holds_released_by_id_idx").on(table.releasedById),
+  ]
+);
+
+/**
+ * PTR-133: the venue occupancy ledger. Each active commitment has a row: an approved booking, a
+ * held hold, or a venue block. A row stores its own buffers, because an index expression cannot
+ * read `venues`. The writer copies them in when it writes the row, and a later venue edit does not
+ * change them. Migration 0048 adds `venue_occupancy_no_overlap`, the exclusion constraint over
+ * `tsrange(starts_at - setup, ends_at + turnaround, '[)')` for active rows. Drizzle cannot
+ * express it here and never drops it. The advisory-locked writers maintain these rows; no trigger
+ * does. See docs/adrs/ADR-7-venue-occupancy-ledger.md.
+ */
+export const venueOccupancy = pgTable(
+  "venue_occupancy",
+  {
+    id: serial("id").primaryKey(),
+    venueId: integer("venue_id")
+      .notNull()
+      .references(() => venues.id, { onDelete: "cascade" }),
+    // Null only for a block, which belongs to no event.
+    eventId: integer("event_id").references(() => eventRequests.id, { onDelete: "cascade" }),
+    // Exactly one source per row. A source has one row until a block splits it (PTR-136).
+    venueRequestId: text("venue_request_id").references(() => venueRequests.id, {
+      onDelete: "cascade",
+    }),
+    venueHoldId: text("venue_hold_id").references(() => venueHolds.id, { onDelete: "cascade" }),
+    venueUnavailabilityId: integer("venue_unavailability_id").references(
+      () => venueUnavailability.id,
+      { onDelete: "cascade" }
+    ),
+    startsAt: timestamp("starts_at", { mode: "string" }).notNull(),
+    endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
+    setupMinutes: integer("setup_minutes").notNull().default(0),
+    turnaroundMinutes: integer("turnaround_minutes").notNull().default(0),
+    // The constraint checks active rows only. A block suspends the rows it covers (PTR-136).
+    active: boolean("active").notNull().default(true),
+  },
+  table => [
+    check(
+      "venue_occupancy_one_source",
+      sql`num_nonnulls(${table.venueRequestId}, ${table.venueHoldId}, ${table.venueUnavailabilityId}) = 1`
+    ),
+    check(
+      "venue_occupancy_event_matches_source",
+      sql`(${table.eventId} is null) = (${table.venueUnavailabilityId} is not null)`
+    ),
+    check("venue_occupancy_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
+    check("venue_occupancy_setup_minutes_nonnegative", sql`${table.setupMinutes} >= 0`),
+    check("venue_occupancy_turnaround_minutes_nonnegative", sql`${table.turnaroundMinutes} >= 0`),
+    // Writers delete a source's rows by source id. The foreign key cascades use these indexes too.
+    index("venue_occupancy_venue_request_id_idx").on(table.venueRequestId),
+    index("venue_occupancy_venue_hold_id_idx").on(table.venueHoldId),
+    index("venue_occupancy_venue_unavailability_id_idx").on(table.venueUnavailabilityId),
+    index("venue_occupancy_event_id_idx").on(table.eventId),
   ]
 );
 

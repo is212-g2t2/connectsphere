@@ -343,8 +343,7 @@ export type VenueBooking = AvailabilityRecord & { venueId: number };
  * Return approved bookings that overlap a range, grouped by venue (PTR-30 criterion 4). An
  * approved `venue_requests` row is the booking (PTR-36). Search and the availability calendar
  * both call this function. An integration test injects a loader into the search. Keep `label`
- * anonymous so the calendar and search do not reveal another event's name. The approval refusal
- * names only the venue and period.
+ * anonymous so the calendar and search do not reveal another event's name.
  */
 export type VenueBookingLoader = (
   database: Pick<Database, "select">,
@@ -379,8 +378,7 @@ export const loadVenueBookings: VenueBookingLoader = async (
         gt(venueRequests.endsAt, startsAt)
       )
     )
-    // Sort by start time so refusals always name the same booking when several overlap. The
-    // projection sorts the results again.
+    // Sort by start time so the result order is stable. The projection sorts the results again.
     .orderBy(asc(venueRequests.startsAt));
 
   return rows.map(row => ({

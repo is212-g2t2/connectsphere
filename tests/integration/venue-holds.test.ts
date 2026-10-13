@@ -24,7 +24,10 @@ import {
   loadVenueHolds,
 } from "#/features/venues/records.server";
 import { handleListEvents } from "#/features/events/records.server";
-import { VENUE_REQUEST_DUPLICATE_MESSAGE } from "#/features/venue-requests/schema";
+import {
+  VENUE_OCCUPANCY_CONFLICT_MESSAGE,
+  VENUE_REQUEST_DUPLICATE_MESSAGE,
+} from "#/features/venue-requests/schema";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 
 /**
@@ -1484,13 +1487,15 @@ describe("tentative venue holds (PTR-109)", () => {
       );
 
       // Both operations may succeed, or the loser may receive a mapped refusal. Fail on deadlock
-      // (40P01) or an unmapped 500 response.
+      // (40P01) or an unmapped 500 response. The ledger insert maps a deadlock to the generic
+      // occupancy refusal, and these windows never overlap, so that refusal also means 40P01.
       for (const result of results) {
         if (result.status === "fulfilled") continue;
         const reason = result.reason as Error & { status?: number; cause?: { code?: string } };
         expect([409, 403, 404]).toContain(reason?.status);
         expect(reason?.cause?.code).not.toBe("40P01");
         expect(reason?.message ?? "").not.toMatch(/40P01|deadlock/i);
+        expect(reason?.message).not.toBe(VENUE_OCCUPANCY_CONFLICT_MESSAGE);
       }
       expect(results.some(result => result.status === "fulfilled")).toBe(true);
 
@@ -1565,79 +1570,6 @@ describe("tentative venue holds (PTR-109)", () => {
           database as never
         )
       ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // DB exclusion constraint tests (PTR-109 / ADR-5)
-  // ---------------------------------------------------------------------------
-  describe("the venue_holds_no_overlap exclusion constraint itself (ADR-5)", () => {
-    it("refuses a second overlapping active hold directly at the database", async () => {
-      await database.insert(schema.venueHolds).values({
-        id: "ptr-109-direct-1",
-        eventId: eventIdA,
-        venueId,
-        startsAt: "2027-06-15 09:00:00",
-        endsAt: "2027-06-15 12:00:00",
-        status: "held",
-        heldById: users.coordinatorA.id,
-      });
-
-      await expect(
-        database.insert(schema.venueHolds).values({
-          id: "ptr-109-direct-2",
-          eventId: eventIdB,
-          venueId,
-          startsAt: "2027-06-15 11:00:00",
-          endsAt: "2027-06-15 14:00:00",
-          status: "held",
-          heldById: users.coordinatorB.id,
-        })
-      ).rejects.toMatchObject({
-        cause: { code: "23P01", constraint: "venue_holds_no_overlap" },
-      });
-    });
-
-    it("allows boundary-touching holds and overlapping holds when one is released", async () => {
-      await database.insert(schema.venueHolds).values({
-        id: "ptr-109-direct-3",
-        eventId: eventIdA,
-        venueId,
-        startsAt: "2027-06-15 09:00:00",
-        endsAt: "2027-06-15 12:00:00",
-        status: "held",
-        heldById: users.coordinatorA.id,
-      });
-
-      // Allow a boundary touch from 12:00 to 14:00.
-      const [touching] = await database
-        .insert(schema.venueHolds)
-        .values({
-          id: "ptr-109-direct-4",
-          eventId: eventIdB,
-          venueId,
-          startsAt: "2027-06-15 12:00:00",
-          endsAt: "2027-06-15 14:00:00",
-          status: "held",
-          heldById: users.coordinatorB.id,
-        })
-        .returning();
-      expect(touching.id).toBe("ptr-109-direct-4");
-
-      // Allow an overlapping hold when the existing hold has status `released`.
-      const [released] = await database
-        .insert(schema.venueHolds)
-        .values({
-          id: "ptr-109-direct-5",
-          eventId: eventIdB,
-          venueId,
-          startsAt: "2027-06-15 09:00:00",
-          endsAt: "2027-06-15 12:00:00",
-          status: "released",
-          heldById: users.coordinatorB.id,
-        })
-        .returning();
-      expect(released.id).toBe("ptr-109-direct-5");
     });
   });
 

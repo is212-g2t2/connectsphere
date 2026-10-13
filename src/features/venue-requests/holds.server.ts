@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests, user, venueHolds, venueRequests, venues } from "#/db/schema";
@@ -10,14 +10,14 @@ import {
   raiseVenueRequestNotifications,
   rethrowDuplicate,
 } from "#/features/venue-requests/requests.server";
-import {
-  parseVenueHoldId,
-  parseVenueHoldInput,
-  VENUE_HOLD_OVERLAP_MESSAGE,
-  venueHoldConflictMessage,
-  venueRequestConflictMessage,
-} from "#/features/venue-requests/schema";
+import { parseVenueHoldId, parseVenueHoldInput } from "#/features/venue-requests/schema";
 import { canReleaseHold } from "#/features/venue-requests/holds";
+import {
+  loadVenueBuffers,
+  occupyVenue,
+  refuseVenueConflict,
+  vacateVenue,
+} from "#/features/venue-requests/occupancy.server";
 import {
   assertSameVenue,
   keyShareEvent,
@@ -26,8 +26,6 @@ import {
   lockVenueForHold,
 } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
-import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
-import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 
 type Database = typeof Db;
@@ -42,6 +40,7 @@ const log = logger.getChild("venue-holds");
  * AC4: Return 409 and name the venue and period when an approved booking overlaps.
  * AC7: Store the acting user's id (`heldById`) and timestamp.
  * PTR-54 AC9: Refuse a new hold for a cancelled event.
+ * PTR-134 AC2: Write the hold's ledger row, with the hold's buffers, in the same transaction.
  */
 export async function handleCreateVenueHold(data: unknown, actor: SessionUser, database: Database) {
   const input = parseVenueHoldInput(data);
@@ -58,71 +57,22 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
     await lockVenue(tx, input.venueId);
     const startsAt = `${input.date} ${input.startTime}:00`;
     const endsAt = `${input.date} ${input.endTime}:00`;
-    const venueRows = await tx
-      .select({
-        id: venues.id,
-        name: venues.name,
-        setupMinutes: venues.setupMinutes,
-        turnaroundMinutes: venues.turnaroundMinutes,
-        // Return the two bounds as text. `loadVenueBookings` and `loadVenueHolds` read both
-        // values as `timestamp` range parameters.
-        occupiedStart: sql<string>`(${startsAt}::timestamp - make_interval(mins => ${venues.setupMinutes}))::text`,
-        occupiedEnd: sql<string>`(${endsAt}::timestamp + make_interval(mins => ${venues.turnaroundMinutes}))::text`,
-      })
-      .from(venues)
-      .where(eq(venues.id, input.venueId))
-      .limit(1);
-    const venue = venueRows.at(0);
-    if (!venue) throw new NotFoundError("Not Found");
-
-    const bookings = await loadVenueBookings(
-      tx,
-      [venue.id],
-      venue.occupiedStart,
-      venue.occupiedEnd
-    );
-    const bookingConflict = bookings.at(0);
-    if (bookingConflict) {
-      throw new ConflictError(
-        venueRequestConflictMessage({
-          venueName: venue.name,
-          startsAt: bookingConflict.startsAt,
-          endsAt: bookingConflict.endsAt,
-        })
-      );
-    }
-
-    const holds = await loadVenueHolds(tx, [venue.id], venue.occupiedStart, venue.occupiedEnd);
-    const holdConflict = holds.at(0);
-    if (holdConflict) {
-      throw new ConflictError(
-        venueHoldConflictMessage({
-          venueName: venue.name,
-          startsAt: holdConflict.startsAt,
-          endsAt: holdConflict.endsAt,
-        })
-      );
-    }
+    const venue = await loadVenueBuffers(tx, input.venueId);
+    const occupancy = {
+      venueId: input.venueId,
+      eventId: event.id,
+      startsAt,
+      endsAt,
+      setupMinutes: venue.setupMinutes,
+      turnaroundMinutes: venue.turnaroundMinutes,
+    };
+    await refuseVenueConflict(tx, venue.name, occupancy);
 
     const [created] = await tx
       .insert(venueHolds)
-      .values({
-        id: crypto.randomUUID(),
-        eventId: event.id,
-        venueId: venue.id,
-        startsAt,
-        endsAt,
-        setupMinutes: venue.setupMinutes,
-        turnaroundMinutes: venue.turnaroundMinutes,
-        heldById: actor.id,
-      })
-      .returning()
-      .catch(error => {
-        if (isConstraintViolation(error, "venue_holds_no_overlap")) {
-          throw new ConflictError(VENUE_HOLD_OVERLAP_MESSAGE);
-        }
-        throw error;
-      });
+      .values({ ...occupancy, id: crypto.randomUUID(), heldById: actor.id })
+      .returning();
+    await occupyVenue(tx, { ...occupancy, venueHoldId: created.id });
 
     return created;
   });
@@ -178,14 +128,15 @@ async function releaseActiveHold(
       id: venueHolds.id,
       status: venueHolds.status,
     });
+  await vacateVenue(tx, { venueHoldId: id });
 
   return { hold, released };
 }
 
 /**
  * PTR-109 AC5: Release a tentative hold and mark it `released`.
- * This frees the period for other events. Return 403 for a non-creator, 404 for a missing id, and
- * 409 for a hold that is already released.
+ * This frees the period for other events: the hold's ledger row goes in the same transaction.
+ * Return 403 for a non-creator, 404 for a missing id, and 409 for a hold that is already released.
  */
 export async function handleReleaseVenueHold(
   data: unknown,
@@ -203,6 +154,7 @@ export async function handleReleaseVenueHold(
 /**
  * PTR-109 AC5: Convert a tentative hold to a pending venue request.
  * Release the hold, create a request for the same venue, period, and event, and notify Venue Staff.
+ * The release removes the hold's ledger row. A pending request holds no venue time, so it gets none.
  * PTR-54 AC9: A cancelled event cannot get a new request, so its hold can only be released.
  */
 export async function handleConvertVenueHold(
