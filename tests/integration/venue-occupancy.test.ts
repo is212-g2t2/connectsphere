@@ -31,8 +31,7 @@ import { runSeed } from "../../scripts/seed";
 /**
  * PTR-133 and PTR-134: the venue occupancy ledger. The database refuses overlapping active rows
  * (`venue_occupancy_no_overlap`), and every write path keeps the ledger in step with its source
- * in one transaction. The migration's backfill and pre-flight are in
- * `venue-occupancy-migration.test.ts`.
+ * in one transaction.
  */
 
 const users = {
@@ -275,6 +274,17 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
   }
 
   describe("the venue_occupancy_no_overlap constraint (PTR-133 AC1, AC2)", () => {
+    it("replaces the per-table constraints and their status wrappers (PTR-133 AC5)", async () => {
+      const constraints = await database.execute<{ conname: string }>(
+        sql`select conname from pg_constraint where conname like '%no_overlap' order by conname`
+      );
+      expect(constraints.rows.map(row => row.conname)).toEqual(["venue_occupancy_no_overlap"]);
+      const wrappers = await database.execute<{ count: string }>(
+        sql`select count(*)::text as count from pg_proc where proname like 'venue_%_occupies_venue'`
+      );
+      expect(wrappers.rows[0].count).toBe("0");
+    });
+
     it("refuses a booking or a hold row that overlaps a block row once buffers count", async () => {
       const blockId = await insertBlock("10:00", "11:00");
       await database.insert(schema.venueOccupancy).values({

@@ -48,13 +48,9 @@ PTR-136 builds this path on the columns that this ADR adds.
 
 ### Migration exemption
 
-Drizzle Kit cannot express an EXCLUDE constraint. `0048_venue-occupancy-ledger` is the reviewed `db:generate --custom` exception, and it runs these steps in order:
+Drizzle Kit cannot express an EXCLUDE constraint. `0048_venue-occupancy-ledger` is the reviewed `db:generate --custom` exception. It adds `venue_occupancy_no_overlap`, then drops `venue_requests_no_overlap`, `venue_holds_no_overlap` and their status wrappers `venue_request_occupies_venue` and `venue_hold_occupies_venue`.
 
-1. Backfill. Each approved booking gets its venue's buffers at migration time. Each held hold gets the buffers that it stored.
-2. Pre-flight report. Find every pair of rows that the constraint would refuse. If any exist, raise one error that lists them all. The migrate transaction rolls back, so nothing applies.
-3. Add `venue_occupancy_no_overlap`, then drop `venue_requests_no_overlap`, `venue_holds_no_overlap` and their status wrappers `venue_request_occupies_venue` and `venue_hold_occupies_venue`.
-
-The custom files `0019` and `0024` stay in the journal as history. The 0047 predicate of `venue_requests_approved_starts_at_idx` and the 0048 backfill compare enum labels directly (`status = 'approved'`, `status = 'held'`). A deployed database committed those labels long ago. A fresh database creates each enum type in the same transaction, and PostgreSQL then allows its labels.
+The custom files `0019` and `0024` stay in the journal as history. The 0047 predicate of `venue_requests_approved_starts_at_idx` compares an enum label directly (`status = 'approved'`). A deployed database committed that label long ago. A fresh database creates the enum type in the same transaction, and PostgreSQL then allows its labels.
 
 ## Alternatives Considered
 
@@ -82,7 +78,7 @@ The custom files `0019` and `0024` stay in the journal as history. The 0047 pred
 
 - As in ADR-5, the Drizzle snapshot, `db:push` and `db:pull` do not know the constraint. Never run `db:push` against a database that has 0048. `btree_gist` from 0019 stays required.
 - The lock order of ADR-5 stays: the event key-share lock, then the venue advisory locks in ascending venue order, then the row locks. `handleConfirmEvent` writes no venue or occupancy row, so it takes no venue lock.
-- `drizzle-kit migrate` does not print the error of a failed migration. Read the pre-flight report in the database's Postgres log.
+- 0048 copies no existing booking or hold into the ledger, because no deployed database held live data when it shipped. A booking or hold from before 0048 blocks no other write until an amendment, or a release and a new hold, writes its row.
 - Only the server functions and the seed write ledger rows. A hand-written change to a booking or a hold must change its `venue_occupancy` row in the same transaction.
 - The seed takes no venue lock. The constraint is its only guard.
 - Availability, search, the request queue and the conflict flags still read the source tables until PTR-135 moves them to the ledger. Until then, they show bookings without buffers.
