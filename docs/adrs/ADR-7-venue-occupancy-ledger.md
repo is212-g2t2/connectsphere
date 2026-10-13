@@ -81,4 +81,4 @@ The custom files `0019` and `0024` stay in the journal as history. The 0047 pred
 - 0048 copies no existing booking or hold into the ledger, because no deployed database held live data when it shipped. A booking or hold from before 0048 blocks no other write until an amendment, or a release and a new hold, writes its row.
 - Only the server functions and the seed write ledger rows. A hand-written change to a booking or a hold must change its `venue_occupancy` row in the same transaction.
 - The seed takes no venue lock. The constraint is its only guard.
-- Availability, search, the request queue and the conflict flags still read the source tables until PTR-135 moves them to the ledger. Until then, they show bookings without buffers.
+- Availability, search, the request queue and the conflict flags still read the source tables until PTR-135 moves them to the ledger. Until then, they show bookings without buffers. A request in the buffer of a booking therefore shows no conflict flag, and approval then refuses it.

@@ -372,8 +372,8 @@ export const loadVenueBookings: VenueBookingLoader = async (
       and(
         inArray(venueRequests.venueId, venueIds),
         eq(venueRequests.status, "approved"),
-        // Use the same half-open overlap as the projection and exclusion constraint. Periods that
-        // touch at a boundary do not conflict.
+        // Use the same half-open overlap as the projection, without buffers. Periods that touch at
+        // a boundary do not conflict.
         lt(venueRequests.startsAt, endsAt),
         gt(venueRequests.endsAt, startsAt)
       )

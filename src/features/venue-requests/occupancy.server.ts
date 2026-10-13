@@ -81,7 +81,7 @@ export async function vacateVenue(tx: VenueTx, source: OccupancySource): Promise
 /**
  * Read the venue's name and buffers (Not Found for a missing venue), then refuse a commitment that
  * would overlap an active ledger row. Name the venue and the other row's occupied period, a
- * booking before a hold, then the earliest. Return the row to write.
+ * booking before a hold, then the earliest. Do not name the other event. Return the row to write.
  *
  * Call it under the venue lock. A venue save and the other writers take the same lock, so the
  * buffers and the rows stay current. The constraint refuses a writer outside the lock.
@@ -112,6 +112,7 @@ export async function checkVenueFree(
   const occupiedEnd = sql`${venueOccupancy.endsAt} + make_interval(mins => ${venueOccupancy.turnaroundMinutes})`;
   const requestedStart = sql`${occupancy.startsAt}::timestamp - make_interval(mins => ${occupancy.setupMinutes}::integer)`;
   const requestedEnd = sql`${occupancy.endsAt}::timestamp + make_interval(mins => ${occupancy.turnaroundMinutes}::integer)`;
+  // No writer adds block rows before PTR-136. Until then, a block row gets the booking message.
   const isHold = sql<boolean>`${venueOccupancy.venueHoldId} is not null`;
 
   const rows = await tx
