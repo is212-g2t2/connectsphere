@@ -100,7 +100,7 @@ async function createEvent(typeName: string, typeId: number, quantity: number) {
   return { id: row.id, name: row.name, item: typeName };
 }
 
-/** Approve a booking of `eventId` on its own venue. The overlap constraint applies per venue. */
+/** Approve a booking of `eventId` on its own venue, so that no two bookings overlap. */
 async function addBooking(eventId: number, [start, end]: [string, string]) {
   const [venue] = await database
     .insert(schema.venues)

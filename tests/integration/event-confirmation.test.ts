@@ -159,7 +159,7 @@ describe("confirming an event (PTR-24)", () => {
       eventId,
       venueId,
       requestedById: coordinator.id,
-      // Use a different year for each event to avoid the overlap constraint.
+      // Use a different year for each event, so that no two bookings overlap.
       startsAt: `${2040 + created.length}-03-10 09:00:00`,
       endsAt: `${2040 + created.length}-03-10 12:30:00`,
       status,
@@ -270,7 +270,7 @@ describe("confirming an event (PTR-24)", () => {
     test("refuses more than one approved booking and leaves the event untouched", async () => {
       const eventId = await createEvent();
       await createBooking(eventId);
-      // Use a distant second window to avoid the overlap constraint.
+      // Use a distant second window, so that the two bookings do not overlap.
       await database.insert(schema.venueRequests).values({
         id: crypto.randomUUID(),
         eventId,

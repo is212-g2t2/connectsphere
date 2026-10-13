@@ -735,6 +735,45 @@ const DEMO_EVENT_SEED_LOCK_KEY = 970_097;
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 /**
+ * Keep a seeded venue request's `venue_occupancy` row in step with its status, as the app writers
+ * do: delete the request's rows, then insert one for an approved booking, with the venue's current
+ * buffers. The seed takes no venue lock, so `venue_occupancy_no_overlap` is its only guard: a
+ * seeded booking that overlaps another commitment stops the seed.
+ */
+async function syncSeedOccupancy(
+  tx: Pick<Database, "select" | "insert" | "delete">,
+  request: {
+    id: string;
+    eventId: number;
+    venueId: number;
+    startsAt: string;
+    endsAt: string;
+    status: "pending" | "approved";
+  }
+): Promise<void> {
+  await tx
+    .delete(schema.venueOccupancy)
+    .where(eq(schema.venueOccupancy.venueRequestId, request.id));
+  if (request.status !== "approved") return;
+  const [venue] = await tx
+    .select({
+      setupMinutes: schema.venues.setupMinutes,
+      turnaroundMinutes: schema.venues.turnaroundMinutes,
+    })
+    .from(schema.venues)
+    .where(eq(schema.venues.id, request.venueId));
+  await tx.insert(schema.venueOccupancy).values({
+    venueId: request.venueId,
+    eventId: request.eventId,
+    venueRequestId: request.id,
+    startsAt: request.startsAt,
+    endsAt: request.endsAt,
+    setupMinutes: venue.setupMinutes,
+    turnaroundMinutes: venue.turnaroundMinutes,
+  });
+}
+
+/**
  * Insert seed users and staff credentials. Repeated runs do not add duplicates.
  */
 export async function runSeed(database: Database): Promise<void> {
@@ -952,6 +991,15 @@ export async function runSeed(database: Database): Promise<void> {
         .set({ ...demoVenueRequest, status: "pending" })
         .where(eq(schema.venueRequests.id, "demo-venue-request-1"));
     }
+    // A pending request holds no venue time. This removes the row that an approval in the app wrote.
+    await syncSeedOccupancy(tx, {
+      id: "demo-venue-request-1",
+      eventId: demoRequestId,
+      venueId: demoVenueId,
+      startsAt: demoVenueRequest.startsAt,
+      endsAt: demoVenueRequest.endsAt,
+      status: "pending",
+    });
 
     // This is the booking shown on the attendee page (PTR-44 AC2). Use Seminar Room 2A, not
     // Harbour Hall, so it does not overlap the pending Harbour Hall request above or show the
@@ -1076,6 +1124,14 @@ export async function runSeed(database: Database): Promise<void> {
         .set(attendeeVenueRequest)
         .where(eq(schema.venueRequests.id, "demo-attendee-venue-request-1"));
     }
+    await syncSeedOccupancy(tx, {
+      id: "demo-attendee-venue-request-1",
+      eventId: attendeeEventId,
+      venueId: attendeeVenueId,
+      startsAt: attendeeVenueRequest.startsAt,
+      endsAt: attendeeVenueRequest.endsAt,
+      status: attendeeVenueRequest.status,
+    });
 
     const projectorTypeId = equipmentTypeIdByName.get("Portable Projector");
 
@@ -1242,6 +1298,14 @@ export async function runSeed(database: Database): Promise<void> {
           .set({ ...extraVenueRequest, eventId: extraEventId })
           .where(eq(schema.venueRequests.id, venueRequestId));
       }
+      await syncSeedOccupancy(tx, {
+        id: venueRequestId,
+        eventId: extraEventId,
+        venueId: extraVenueId,
+        startsAt: extraVenueRequest.startsAt,
+        endsAt: extraVenueRequest.endsAt,
+        status: extraVenueRequest.status,
+      });
 
       const equipmentRequestId = `seed-extra-equipment-request-${String(index + 1).padStart(2, "0")}`;
       const equipmentName = EXTRA_EQUIPMENT_ITEMS[index % EXTRA_EQUIPMENT_ITEMS.length];

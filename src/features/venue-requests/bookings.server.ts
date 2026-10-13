@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
@@ -8,12 +8,14 @@ import type { SessionUser } from "#/features/auth/session";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
   VENUE_BOOKING_NOT_APPROVED_MESSAGE,
-  VENUE_REQUEST_CONFLICT_MESSAGE,
   parseVenueAmendmentInput,
   parseVenueReleaseInput,
-  venueHoldConflictMessage,
-  venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
+import {
+  checkVenueFree,
+  occupyVenue,
+  vacateVenue,
+} from "#/features/venue-requests/occupancy.server";
 import {
   assertSameVenue,
   keyShareEventForRequest,
@@ -22,8 +24,6 @@ import {
   previewVenueForRequest,
 } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
-import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
-import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 
 type Database = typeof Db;
@@ -31,13 +31,6 @@ type Database = typeof Db;
 const log = logger.getChild("venue-bookings");
 const assignedCoordinator = alias(user, "assigned_coordinator");
 const requestingCoordinator = alias(user, "requesting_coordinator");
-
-function rethrowOverlap(error: unknown): never {
-  if (isConstraintViolation(error, "venue_requests_no_overlap")) {
-    throw new ConflictError(VENUE_REQUEST_CONFLICT_MESSAGE);
-  }
-  throw error;
-}
 
 interface BookingChangeNotice {
   eventId: number;
@@ -137,7 +130,7 @@ export async function handleListVenueBookings(database: Database, now = new Date
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
     .where(
       and(
-        sql`venue_request_occupies_venue(${venueRequests.status})`,
+        eq(venueRequests.status, "approved"),
         gt(venueRequests.startsAt, venueLocalTimestamp(now))
       )
     )
@@ -169,7 +162,10 @@ function actorLabel(actor: SessionUser): string {
   return actor.name?.trim() || actor.email;
 }
 
-/** Release an approved booking, retain its history, and notify its requesting Coordinator. */
+/**
+ * Release an approved booking, retain its history, and notify its requesting Coordinator. Delete
+ * its ledger rows in the same transaction, so the period is free when the release commits.
+ */
 export async function handleReleaseVenueBooking(
   data: unknown,
   actor: SessionUser,
@@ -207,6 +203,7 @@ export async function handleReleaseVenueBooking(
       })
       .where(eq(venueRequests.id, input.id))
       .returning();
+    await vacateVenue(tx, { venueRequestId: input.id });
     const notice = await loadBookingChangeNotice(tx, input.id);
     if (notice) {
       await raiseBookingChangeNotification(tx, input.id, notice, "released", input.reason);
@@ -217,7 +214,11 @@ export async function handleReleaseVenueBooking(
   return released;
 }
 
-/** Amend an approved booking without bypassing the overlap guarantee. */
+/**
+ * Amend an approved booking without bypassing the overlap guarantee. PTR-134 AC3: delete the
+ * booking's ledger rows and insert a new one with the target venue's current buffers. Never edit a
+ * row in place.
+ */
 export async function handleAmendVenueBooking(
   data: unknown,
   actor: SessionUser,
@@ -227,101 +228,76 @@ export async function handleAmendVenueBooking(
   const startsAt = `${input.date} ${input.startTime}:00`;
   const endsAt = `${input.date} ${input.endTime}:00`;
 
-  const amended = await database
-    .transaction(async tx => {
-      // Lock the event before the venues. The notification insert takes this lock through its
-      // foreign key, and confirmation also locks the event before its requests.
-      await keyShareEventForRequest(tx, input.id);
-      const currentVenueId = await previewVenueForRequest(tx, input.id);
+  return database.transaction(async tx => {
+    // Lock the event before the venues. The notification insert takes this lock through its
+    // foreign key, and confirmation also locks the event before its requests.
+    await keyShareEventForRequest(tx, input.id);
+    const currentVenueId = await previewVenueForRequest(tx, input.id);
 
-      const venueRows = await tx
-        .select({ name: venues.name })
-        .from(venues)
-        .where(eq(venues.id, input.venueId))
-        .limit(1);
-      const venue = venueRows.at(0);
-      if (!venue) throw new NotFoundError("Not Found");
+    // The preview took no lock. Lock venues in sorted order so crossed amendments cannot
+    // deadlock while each waits for the other's second lock.
+    const venueIds = [...new Set([currentVenueId, input.venueId])].toSorted((a, b) => a - b);
+    for (const venueId of venueIds) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- every transaction takes locks in this order
+      await lockVenue(tx, venueId);
+    }
 
-      // The preview took no lock. Lock venues in sorted order so crossed amendments cannot
-      // deadlock while each waits for the other's second lock.
-      const venueIds = [...new Set([currentVenueId, input.venueId])].toSorted((a, b) => a - b);
-      for (const venueId of venueIds) {
-        // oxlint-disable-next-line eslint/no-await-in-loop -- every transaction takes locks in this order
-        await lockVenue(tx, venueId);
-      }
+    const rows = await tx
+      .select({
+        status: venueRequests.status,
+        assignedStaffId: venueRequests.assignedStaffId,
+        eventId: venueRequests.eventId,
+        venueId: venueRequests.venueId,
+        venueName: venues.name,
+        startsAt: venueRequests.startsAt,
+        endsAt: venueRequests.endsAt,
+      })
+      .from(venueRequests)
+      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+      .where(eq(venueRequests.id, input.id))
+      .limit(1)
+      .for("update", { of: venueRequests });
+    const row = rows.at(0);
+    assertActionableApprovedBooking(row, actor);
+    assertSameVenue(currentVenueId, row.venueId);
 
-      const rows = await tx
-        .select({
-          status: venueRequests.status,
-          assignedStaffId: venueRequests.assignedStaffId,
-          venueId: venueRequests.venueId,
-          venueName: venues.name,
-          startsAt: venueRequests.startsAt,
-          endsAt: venueRequests.endsAt,
-        })
-        .from(venueRequests)
-        .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-        .where(eq(venueRequests.id, input.id))
-        .limit(1)
-        .for("update", { of: venueRequests });
-      const row = rows.at(0);
-      assertActionableApprovedBooking(row, actor);
-      assertSameVenue(currentVenueId, row.venueId);
+    // Remove the booking's own rows first, so the check below cannot refuse it against itself.
+    // A refusal rolls the deletion back.
+    await vacateVenue(tx, { venueRequestId: input.id });
+    const occupancy = await checkVenueFree(tx, {
+      venueId: input.venueId,
+      eventId: row.eventId,
+      startsAt,
+      endsAt,
+    });
 
-      const conflict = (await loadVenueBookings(tx, [input.venueId], startsAt, endsAt)).find(
-        booking => booking.id !== input.id
+    const [updated] = await tx
+      .update(venueRequests)
+      .set({
+        venueId: input.venueId,
+        startsAt,
+        endsAt,
+        lastChangedByStaffId: actor.id,
+        lastChangedByStaffName: actorLabel(actor),
+        lastChangedAt: new Date(),
+      })
+      .where(eq(venueRequests.id, input.id))
+      .returning();
+    await occupyVenue(tx, { ...occupancy, venueRequestId: input.id });
+    const notice = await loadBookingChangeNotice(tx, input.id);
+    if (notice) {
+      await raiseBookingChangeNotification(
+        tx,
+        input.id,
+        {
+          ...notice,
+          previousVenueName: row.venueName,
+          previousStartsAt: row.startsAt,
+          previousEndsAt: row.endsAt,
+        },
+        "amended"
       );
-      if (conflict) {
-        throw new ConflictError(
-          venueRequestConflictMessage({
-            venueName: venue.name,
-            startsAt: conflict.startsAt,
-            endsAt: conflict.endsAt,
-          })
-        );
-      }
-
-      const holds = await loadVenueHolds(tx, [input.venueId], startsAt, endsAt);
-      const holdConflict = holds.at(0);
-      if (holdConflict) {
-        throw new ConflictError(
-          venueHoldConflictMessage({
-            venueName: venue.name,
-            startsAt: holdConflict.startsAt,
-            endsAt: holdConflict.endsAt,
-          })
-        );
-      }
-
-      const [updated] = await tx
-        .update(venueRequests)
-        .set({
-          venueId: input.venueId,
-          startsAt,
-          endsAt,
-          lastChangedByStaffId: actor.id,
-          lastChangedByStaffName: actorLabel(actor),
-          lastChangedAt: new Date(),
-        })
-        .where(eq(venueRequests.id, input.id))
-        .returning();
-      const notice = await loadBookingChangeNotice(tx, input.id);
-      if (notice) {
-        await raiseBookingChangeNotification(
-          tx,
-          input.id,
-          {
-            ...notice,
-            previousVenueName: row.venueName,
-            previousStartsAt: row.startsAt,
-            previousEndsAt: row.endsAt,
-          },
-          "amended"
-        );
-      }
-      return updated;
-    })
-    .catch(rethrowOverlap);
-
-  return amended;
+    }
+    return updated;
+  });
 }

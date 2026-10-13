@@ -173,7 +173,7 @@ describe("registering for an event (PTR-45)", () => {
 
     const bookedVenue = options.bookedVenue === undefined ? venueId : options.bookedVenue;
     if (bookedVenue !== null) {
-      // Use a distant year per booking. The overlap constraint never trips.
+      // Use a distant year per booking, so that no two bookings overlap.
       bookingYear += 1;
       await database.insert(schema.venueRequests).values({
         id: crypto.randomUUID(),
@@ -316,7 +316,7 @@ describe("registering for an event (PTR-45)", () => {
       eventId: event.id,
       venueId,
       requestedById: coordinator.id,
-      // Released bookings sit outside the overlap constraint. Any window works.
+      // A released booking holds no venue time. Any window works.
       startsAt: `${bookingYear}-12-05 10:00:00`,
       endsAt: `${bookingYear}-12-05 16:00:00`,
       status: "released",

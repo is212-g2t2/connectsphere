@@ -50,9 +50,9 @@ async function renderQueuedEmail(row: { kind: string; payload: unknown; eventReq
 }
 
 /** PTR-31: test request creation, notification, and withdrawal at the handler boundary. PTR-36
- * tests approval, overlap refusal, and the exclusion constraint. Middleware provides the session
- * and `venue_request` permission. This file tests event assignment, queued rows and notifications,
- * withdrawal, and the booking invariant.
+ * tests approval and overlap refusal. Middleware provides the session and `venue_request`
+ * permission. This file tests event assignment, queued rows and notifications, withdrawal, and the
+ * booking invariant.
  */
 
 const users = {
@@ -230,21 +230,6 @@ describe("venue request handlers (PTR-31)", () => {
       .from(schema.venueRequests)
       .where(eq(schema.venueRequests.id, id));
     return row;
-  }
-
-  function insertRequest(values: {
-    id: string;
-    eventId: number;
-    venueId?: number;
-    startsAt: string;
-    endsAt: string;
-    status: "pending" | "withdrawn" | "approved" | "released";
-  }) {
-    return database.insert(schema.venueRequests).values({
-      requestedById: users.coordinator.id,
-      venueId,
-      ...values,
-    });
   }
 
   async function createPtr37AlternativeVenue() {
@@ -1478,108 +1463,6 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
       expect(availability?.occupied ?? []).toEqual([]);
-    });
-  });
-
-  describe("the overlap constraint itself (PTR-36 AC1, AC3)", () => {
-    it("refuses a second overlapping approved booking at the database", async () => {
-      await insertRequest({
-        id: "ptr-36-direct-1",
-        eventId,
-        startsAt: "2027-04-20 09:00:00",
-        endsAt: "2027-04-20 12:00:00",
-        status: "approved",
-      });
-
-      // Drizzle wraps the driver error. The constraint name is in `cause`, not the message.
-      await expect(
-        insertRequest({
-          id: "ptr-36-direct-2",
-          eventId: foreignEventId,
-          startsAt: "2027-04-20 11:00:00",
-          endsAt: "2027-04-20 13:00:00",
-          status: "approved",
-        })
-      ).rejects.toMatchObject({
-        cause: { code: "23P01", constraint: "venue_requests_no_overlap" },
-      });
-    });
-
-    it("allows a boundary touch, another venue, and overlapping non-approved rows", async () => {
-      await insertRequest({
-        id: "ptr-36-direct-3",
-        eventId,
-        startsAt: "2027-04-20 09:00:00",
-        endsAt: "2027-04-20 12:00:00",
-        status: "approved",
-      });
-      await insertRequest({
-        id: "ptr-36-direct-4",
-        eventId: foreignEventId,
-        startsAt: "2027-04-20 12:00:00",
-        endsAt: "2027-04-20 14:00:00",
-        status: "approved",
-      });
-
-      const [otherVenue] = await database
-        .insert(schema.venues)
-        .values({
-          name: "PTR-36 Spillover Hall",
-          location: "Overflow Wing",
-          maxCapacity: 50,
-          operatingHours: DEFAULT_OPERATING_HOURS,
-        })
-        .returning({ id: schema.venues.id });
-      await insertRequest({
-        id: "ptr-36-direct-5",
-        eventId,
-        venueId: otherVenue.id,
-        startsAt: "2027-04-20 09:00:00",
-        endsAt: "2027-04-20 12:00:00",
-        status: "approved",
-      });
-      await database
-        .delete(schema.venueRequests)
-        .where(eq(schema.venueRequests.id, "ptr-36-direct-5"));
-      await database.delete(schema.venues).where(eq(schema.venues.id, otherVenue.id));
-
-      // The predicate covers approved rows only. Pending requests can overlap, and withdrawn rows
-      // do not hold the venue.
-      await insertRequest({
-        id: "ptr-36-direct-6",
-        eventId,
-        startsAt: "2027-04-20 10:00:00",
-        endsAt: "2027-04-20 11:00:00",
-        status: "pending",
-      });
-      await insertRequest({
-        id: "ptr-36-direct-7",
-        eventId: foreignEventId,
-        startsAt: "2027-04-20 10:30:00",
-        endsAt: "2027-04-20 11:30:00",
-        status: "pending",
-      });
-      await insertRequest({
-        id: "ptr-36-direct-8",
-        eventId,
-        startsAt: "2027-04-20 09:00:00",
-        endsAt: "2027-04-20 12:00:00",
-        status: "withdrawn",
-      });
-
-      const rows = await database
-        .select({ id: schema.venueRequests.id })
-        .from(schema.venueRequests)
-        .where(eq(schema.venueRequests.venueId, venueId));
-      expect(rows.map(row => row.id).toSorted()).toEqual(
-        [
-          "ptr-36-direct-3",
-          "ptr-36-direct-4",
-          "ptr-36-direct-6",
-          "ptr-36-direct-7",
-          "ptr-36-direct-8",
-        ].toSorted()
-      );
     });
   });
 

@@ -37,7 +37,7 @@ New features must have one or more unit tests that cover the core behaviour. New
 
 ## Database changes
 
-Commit schema changes (`src/db/schema.ts`, `src/db/auth-schema.ts`) with their generated migration in `src/db/drizzle/`. The migration must apply cleanly against your local database. Never handwrite migrations. One reviewed exception is the booking exclusion constraint Drizzle cannot express, added with `db:generate --custom` ([ADR-5](./adrs/ADR-5-venue-booking-overlap.md)).
+Commit schema changes (`src/db/schema.ts`, `src/db/auth-schema.ts`) with their generated migration in `src/db/drizzle/`. The migration must apply cleanly against your local database. Never handwrite migrations. One reviewed exception is the venue occupancy exclusion constraint that Drizzle cannot express, added with `db:generate --custom` ([ADR-7](./adrs/ADR-7-venue-occupancy-ledger.md)).
 
 A code-quality job regenerates migrations and fails if `src/db/drizzle/` differs. The same job runs `drizzle-kit check` for conflicting or broken migration files. Regenerate after the last schema change.
 

@@ -1,7 +1,7 @@
 ---
 date: 2026-09-23
 adr-number: ADR-5
-status: accepted
+status: superseded by ADR-7
 ---
 
 # ADR-5: Overlap-free approved bookings, enforced by a PostgreSQL exclusion constraint

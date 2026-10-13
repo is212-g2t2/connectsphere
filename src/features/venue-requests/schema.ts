@@ -21,11 +21,12 @@ export const VENUE_REQUEST_DECIDED_MESSAGE = "This request has already been deci
 export const VENUE_BOOKING_NOT_APPROVED_MESSAGE =
   "Only an approved booking can be released or amended.";
 /**
- * PTR-36: The fallback message when the exclusion constraint rejects an overlap the locked
- * pre-check missed, such as a write outside `handleApproveVenueRequest`.
+ * PTR-134: the fallback message when `venue_occupancy_no_overlap` refuses a ledger write that the
+ * locked pre-check did not catch, such as a race with a writer that takes no venue lock. The
+ * constraint covers bookings and holds together, so the message names both.
  */
-export const VENUE_REQUEST_CONFLICT_MESSAGE =
-  "This venue is already booked for an overlapping period.";
+export const VENUE_OCCUPANCY_CONFLICT_MESSAGE =
+  "This venue is already booked or held for an overlapping period, including setup and turnaround time.";
 
 /** PTR-34: a rejected request is final; the Coordinator raises a new one instead. */
 export const VENUE_REQUEST_REJECTED_MESSAGE =
@@ -277,18 +278,10 @@ export function venueHoldConflictMessage(conflict: {
 }
 
 /**
- * PTR-109: Generic fallback when `venue_holds_no_overlap` rejects an overlap missed by the locked
- * pre-check, such as a write outside `handleCreateVenueHold`. Handler callers hold the advisory
- * lock and receive the named refusal above instead.
- */
-export const VENUE_HOLD_OVERLAP_MESSAGE =
-  "This venue is tentatively held for an overlapping period.";
-
-/**
  * List venue-conflict messages so the client can distinguish conflicts from other failures
- * without matching the full text. Include named booking or hold messages and both generic
- * fallbacks. `venueRequestConflictMessage` says "already booked"; `venueHoldConflictMessage` says
- * "tentatively held".
+ * without matching the full text. Include named booking or hold messages and the generic
+ * fallback. `venueRequestConflictMessage` and `VENUE_OCCUPANCY_CONFLICT_MESSAGE` say "already
+ * booked"; `venueHoldConflictMessage` says "tentatively held".
  */
 export const VENUE_CONFLICT_PHRASES = ["already booked", "tentatively held"] as const;
 

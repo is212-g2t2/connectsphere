@@ -12,7 +12,6 @@ import { loadAssignedEvent } from "#/features/events/records.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 import {
-  VENUE_REQUEST_CONFLICT_MESSAGE,
   VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
@@ -21,9 +20,8 @@ import {
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
-  venueHoldConflictMessage,
-  venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
+import { checkVenueFree, occupyVenue } from "#/features/venue-requests/occupancy.server";
 import {
   assertSameVenue,
   keyShareEvent,
@@ -109,16 +107,6 @@ export function rethrowDuplicate(error: unknown): never {
     "venue_requests_pending_event_venue_idx",
     VENUE_REQUEST_DUPLICATE_MESSAGE
   );
-}
-
-/**
- * Protect writers outside `handleApproveVenueRequest`. Another connection can commit a booking
- * after the locked pre-check and before the update; the constraint catches it. Use the generic
- * `VENUE_REQUEST_CONFLICT_MESSAGE` here. Handler callers get the named
- * `venueRequestConflictMessage` from the locked pre-check.
- */
-function rethrowOverlap(error: unknown): never {
-  rethrowConstraintViolation(error, "venue_requests_no_overlap", VENUE_REQUEST_CONFLICT_MESSAGE);
 }
 
 /**
@@ -483,10 +471,11 @@ export async function handleWithdrawVenueRequest(
 }
 
 /**
- * PTR-36: Approve a pending request and reserve its exact venue period.
- * The `venue_requests_no_overlap` exclusion constraint guarantees no overlap. The advisory lock
- * serializes approvals for one venue and prevents an index deadlock. The locked pre-check returns
- * a named refusal; the constraint catches writes outside this function with the same conflict.
+ * PTR-36: Approve a pending request and reserve its venue period.
+ * PTR-134 AC1: write one ledger row with the venue's current buffers in the same transaction.
+ * `venue_occupancy_no_overlap` guarantees no overlap. The advisory lock serializes writers for one
+ * venue and prevents an index deadlock. The locked pre-check returns a named refusal; the
+ * constraint refuses a write outside the lock convention with the generic conflict message.
  * Only unassigned pending rows are shared (PTR-31). Do not settle a row assigned to another staff
  * member. Store the decision-maker in `assignedStaffId` to keep the event linked to that staff member.
  */
@@ -497,104 +486,82 @@ export async function handleApproveVenueRequest(
 ) {
   const { id } = parseVenueRequestId(data);
 
-  const decided = await database
-    .transaction(async tx => {
-      // Lock the event before any venue. The notification insert takes this lock through its
-      // foreign key, and confirmation also locks the event before its requests.
-      // For each venue, take the advisory lock before the row lock. Read the venue first, then
-      // re-read it under the lock to confirm it did not change.
-      // A cancellation holds the event row. This lock waits for it, then reads the new status (PTR-54 AC9).
-      const event = await keyShareEventForRequest(tx, id);
-      const lockedVenueId = await lockVenueForRequest(tx, id);
+  return database.transaction(async tx => {
+    // Lock the event before any venue. The notification insert takes this lock through its
+    // foreign key, and confirmation also locks the event before its requests.
+    // For each venue, take the advisory lock before the row lock. Read the venue first, then
+    // re-read it under the lock to confirm it did not change.
+    // A cancellation holds the event row. This lock waits for it, then reads the new status (PTR-54 AC9).
+    const event = await keyShareEventForRequest(tx, id);
+    const lockedVenueId = await lockVenueForRequest(tx, id);
 
-      const rows = await tx
-        .select({
-          status: venueRequests.status,
-          assignedStaffId: venueRequests.assignedStaffId,
-          venueId: venueRequests.venueId,
-          startsAt: venueRequests.startsAt,
-          endsAt: venueRequests.endsAt,
-        })
-        .from(venueRequests)
-        .where(eq(venueRequests.id, id))
-        .limit(1)
-        // The row lock makes these reads current. A second approval waits, then sees the settled
-        // row and gets a rejection or decided message, not an overlap message about itself.
-        .for("update");
-      const row = rows.at(0);
-      if (!row) throw new NotFoundError("Not Found");
-      assertSameVenue(lockedVenueId, row.venueId);
-      // Check settled status before the queue. A decision can change row ownership. Otherwise,
-      // another staff member would get `Forbidden` instead of the settled message (PTR-34 AC5).
-      // `assertNotRejected` handles rejected rows.
-      assertNotRejected(row.status);
-      if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
-      if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
-      // Check event status after ownership so a probe of another member's row reveals nothing.
-      assertEventAcceptsActivity(event?.status);
-      // PTR-54 AC9: a cancelled event takes no new booking.
-      if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+    const rows = await tx
+      .select({
+        status: venueRequests.status,
+        assignedStaffId: venueRequests.assignedStaffId,
+        eventId: venueRequests.eventId,
+        venueId: venueRequests.venueId,
+        startsAt: venueRequests.startsAt,
+        endsAt: venueRequests.endsAt,
+      })
+      .from(venueRequests)
+      .where(eq(venueRequests.id, id))
+      .limit(1)
+      // The row lock makes these reads current. A second approval waits, then sees the settled
+      // row and gets a rejection or decided message, not an overlap message about itself.
+      .for("update");
+    const row = rows.at(0);
+    if (!row) throw new NotFoundError("Not Found");
+    assertSameVenue(lockedVenueId, row.venueId);
+    // Check settled status before the queue. A decision can change row ownership. Otherwise,
+    // another staff member would get `Forbidden` instead of the settled message (PTR-34 AC5).
+    // `assertNotRejected` handles rejected rows.
+    assertNotRejected(row.status);
+    if (row.status !== "pending") throw new ConflictError(VENUE_REQUEST_DECIDED_MESSAGE);
+    if (!isVenueQueueRow(row, actor.id)) throw new AuthorizationError("Forbidden");
+    // Check event status after ownership so a probe of another member's row reveals nothing.
+    assertEventAcceptsActivity(event?.status);
+    // PTR-54 AC9: a cancelled event takes no new booking.
+    if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
 
-      // The lock prevents another approval from racing this check. The constraint catches writes
-      // outside this function. Read in sequence: the transaction holds one connection.
-      const conflicts = await loadVenueBookings(tx, [row.venueId], row.startsAt, row.endsAt);
-      const holdConflicts = await loadVenueHolds(tx, [row.venueId], row.startsAt, row.endsAt);
-      const conflict = conflicts.at(0);
-      const holdConflict = holdConflicts.at(0);
-      const activeConflict = conflict
-        ? { message: venueRequestConflictMessage, record: conflict }
-        : holdConflict
-          ? { message: venueHoldConflictMessage, record: holdConflict }
-          : null;
-      if (activeConflict) {
-        const venueRows = await tx
-          .select({ name: venues.name })
-          .from(venues)
-          .where(eq(venues.id, row.venueId))
-          .limit(1);
-        throw new ConflictError(
-          activeConflict.message({
-            venueName: venueRows.at(0)?.name ?? "This venue",
-            startsAt: activeConflict.record.startsAt,
-            endsAt: activeConflict.record.endsAt,
-          })
-        );
-      }
+    const occupancy = await checkVenueFree(tx, {
+      venueId: row.venueId,
+      eventId: row.eventId,
+      startsAt: row.startsAt,
+      endsAt: row.endsAt,
+    });
 
-      // The row lock and status check make this the only writer of the row.
-      const [approved] = await tx
-        .update(venueRequests)
-        .set({ status: "approved", assignedStaffId: actor.id })
-        .where(eq(venueRequests.id, id))
-        .returning();
+    // The row lock and status check make this the only writer of the row.
+    const [approved] = await tx
+      .update(venueRequests)
+      .set({ status: "approved", assignedStaffId: actor.id })
+      .where(eq(venueRequests.id, id))
+      .returning();
+    await occupyVenue(tx, { ...occupancy, venueRequestId: id });
 
-      // Commit the decision and notification together. The worker sends the email.
-      const notice = await loadDecisionNotice(tx, id);
-      await raiseDecisionNotification(tx, id, notice, context => ({
-        recipientId: context.requesterId,
-        eventRequestId: context.eventRequestId,
-        kind: "venue_booking_approved",
-        payload: {
-          venueRequestId: id,
-          eventName: context.eventName,
-          venueName: context.venueName,
-          startsAt: approved.startsAt,
-          endsAt: approved.endsAt,
-        },
-      }));
-      return approved;
-    })
-    .catch(rethrowOverlap);
-
-  return decided;
+    // Commit the decision and notification together. The worker sends the email.
+    const notice = await loadDecisionNotice(tx, id);
+    await raiseDecisionNotification(tx, id, notice, context => ({
+      recipientId: context.requesterId,
+      eventRequestId: context.eventRequestId,
+      kind: "venue_booking_approved",
+      payload: {
+        venueRequestId: id,
+        eventName: context.eventName,
+        venueName: context.venueName,
+        startsAt: approved.startsAt,
+        endsAt: approved.endsAt,
+      },
+    }));
+    return approved;
+  });
 }
 
 /**
  * PTR-34: Reject a pending request with a reason. Venue Staff may also suggest a venue, date, or
  * time. Use the approval path's row lock and queue rule, so approval and rejection settle a request
- * only once. No venue lock is needed because rejection does not reserve a slot. The exclusion
- * constraint only checks approved rows. Add a notification for the requesting Coordinator; the
- * worker delivers it.
+ * only once. No venue lock is needed because a pending request has no `venue_occupancy` row to
+ * remove. Add a notification for the requesting Coordinator; the worker delivers it.
  * A rejected request is final. Refuse later approve, withdraw, or reject actions and tell the
  * Coordinator to raise a new request. The partial unique index covers pending rows, so a new
  * request can be raised.

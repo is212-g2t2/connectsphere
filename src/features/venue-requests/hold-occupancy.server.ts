@@ -4,8 +4,8 @@ import { venueHolds } from "#/db/schema";
 
 /**
  * The occupied period of a hold: the requested times extended by the buffers stored on the hold.
- * `loadVenueHolds` reads it, and the event list's hold-conflict read compares it, so both agree
- * with the refusal in `handleApproveVenueRequest`.
+ * `loadVenueHolds` reads it, and the event list's hold-conflict read compares it. These readers
+ * use the source tables until PTR-135 moves them to `venue_occupancy`.
  */
 export function holdOccupancy() {
   return {

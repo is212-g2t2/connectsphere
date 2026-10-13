@@ -1179,7 +1179,7 @@ describe("event list handler (PTR-8)", () => {
     });
 
     it("keeps the earliest-created approved booking when a later one exists (determinism)", async () => {
-      // Use another venue so the ADR-5 overlap rule does not apply. The later `createdAt` proves
+      // Use another venue, so that the two bookings do not overlap. The later `createdAt` proves
       // that the earliest-created booking wins, not the newest row.
       await database.insert(schema.venueRequests).values({
         id: "el-venue-confirmed-open-second",

@@ -32,8 +32,8 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
   const confirmed = await database.transaction(async tx => {
     // Take locks in this order: lines, then event, then venue requests. Line saves
     // (`loadEditableEvent`) take the event before their line. A racing save or remove can deadlock.
-    // Postgres aborts the loser with 40P01. This transaction writes no venue row, so it takes no
-    // ADR-5 `lockVenue`. A future venue write here must take that lock first.
+    // Postgres aborts the loser with 40P01. This transaction writes no venue or occupancy row, so it
+    // takes no ADR-7 `lockVenue`. A future venue write here must take that lock first.
     const equipmentRows = await tx
       .select()
       .from(equipmentRequests)
