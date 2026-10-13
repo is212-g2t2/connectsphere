@@ -1,2 +1,0 @@
-ALTER TABLE "venue_buffer_changes" ALTER COLUMN "changed_at" SET DEFAULT clock_timestamp();--> statement-breakpoint
-CREATE INDEX "venue_holds_venue_id_occupied_start_idx" ON "venue_holds" USING btree ("venue_id",("starts_at" - make_interval(mins => "setup_minutes")));

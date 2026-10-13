@@ -1,5 +1,5 @@
 {
-  "id": "7878fc41-edb9-4e15-859d-5ca06ee4f0ca",
+  "id": "bea0162e-ab14-44ba-bc19-b1f0145da9aa",
   "prevId": "938664d7-8554-4056-a3bd-65234bc05131",
   "version": "7",
   "dialect": "postgresql",
@@ -1806,7 +1806,7 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "default": "clock_timestamp()"
         }
       },
       "indexes": {
@@ -1955,6 +1955,27 @@
               "expression": "starts_at",
               "isExpression": false,
               "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_holds_venue_id_occupied_start_idx": {
+          "name": "venue_holds_venue_id_occupied_start_idx",
+          "columns": [
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "(\"starts_at\" - make_interval(mins => \"setup_minutes\"))",
+              "asc": true,
+              "isExpression": true,
               "nulls": "last"
             }
           ],

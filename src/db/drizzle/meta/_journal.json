@@ -327,15 +327,8 @@
     {
       "idx": 46,
       "version": "7",
-      "when": 1791868348284,
+      "when": 1791876388660,
       "tag": "0046_hard_nehzno",
-      "breakpoints": true
-    },
-    {
-      "idx": 47,
-      "version": "7",
-      "when": 1791872656214,
-      "tag": "0047_known_the_twelve",
       "breakpoints": true
     }
   ]
