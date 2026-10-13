@@ -10,6 +10,8 @@ export function VenueDetails({ venue }: { venue: Omit<VenueValues, "id"> }) {
     <dl className="grid gap-6 sm:grid-cols-2">
       <Detail term="Location">{venue.location}</Detail>
       <Detail term="Maximum capacity">{venue.maxCapacity}</Detail>
+      <Detail term="Setup time">{venue.setupMinutes} minutes</Detail>
+      <Detail term="Turnaround time">{venue.turnaroundMinutes} minutes</Detail>
       <Detail term="Facilities">{listOrNone(venue.facilities)}</Detail>
       <Detail term="Accessibility features">{listOrNone(venue.accessibilityFeatures)}</Detail>
       <Detail term="Supported room layouts">

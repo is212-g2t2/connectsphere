@@ -443,6 +443,8 @@ export const venues = pgTable(
     // Keep criterion 3 in the database too. The integer column and CHECK require a positive whole
     // number, whichever path writes the row.
     maxCapacity: integer("max_capacity").notNull(),
+    setupMinutes: integer("setup_minutes").notNull().default(0),
+    turnaroundMinutes: integer("turnaround_minutes").notNull().default(0),
     facilities: text("facilities").array().notNull().default([]),
     accessibilityFeatures: text("accessibility_features").array().notNull().default([]),
     // `VenueInput` limits values to `VENUE_LAYOUTS`. This is not a PostgreSQL enum, so widening
@@ -460,7 +462,29 @@ export const venues = pgTable(
       .defaultNow()
       .$onUpdate(() => /* @__PURE__ */ new Date()),
   },
-  table => [check("venues_max_capacity_positive", sql`${table.maxCapacity} > 0`)]
+  table => [
+    check("venues_max_capacity_positive", sql`${table.maxCapacity} > 0`),
+    check("venues_setup_minutes_nonnegative", sql`${table.setupMinutes} >= 0`),
+    check("venues_turnaround_minutes_nonnegative", sql`${table.turnaroundMinutes} >= 0`),
+  ]
+);
+
+/** Keep each buffer change and its actor after later edits or account deletion. */
+export const venueBufferChanges = pgTable(
+  "venue_buffer_changes",
+  {
+    id: serial("id").primaryKey(),
+    venueId: integer("venue_id")
+      .notNull()
+      .references(() => venues.id, { onDelete: "cascade" }),
+    previousSetupMinutes: integer("previous_setup_minutes").notNull(),
+    previousTurnaroundMinutes: integer("previous_turnaround_minutes").notNull(),
+    setupMinutes: integer("setup_minutes").notNull(),
+    turnaroundMinutes: integer("turnaround_minutes").notNull(),
+    changedById: text("changed_by_id").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [index("venue_buffer_changes_venue_id_idx").on(table.venueId)]
 );
 
 /**
@@ -666,6 +690,9 @@ export const venueHolds = pgTable(
       .references(() => venues.id),
     startsAt: timestamp("starts_at", { mode: "string" }).notNull(),
     endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
+    // Keep the requested times and the buffers in effect when the hold was placed.
+    setupMinutes: integer("setup_minutes").notNull().default(0),
+    turnaroundMinutes: integer("turnaround_minutes").notNull().default(0),
     status: venueHoldStatus("status").default("held").notNull(),
     heldById: text("held_by_id").references(() => user.id, { onDelete: "set null" }),
     releasedById: text("released_by_id").references(() => user.id, { onDelete: "set null" }),
@@ -677,6 +704,8 @@ export const venueHolds = pgTable(
   },
   table => [
     check("venue_holds_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
+    check("venue_holds_setup_minutes_nonnegative", sql`${table.setupMinutes} >= 0`),
+    check("venue_holds_turnaround_minutes_nonnegative", sql`${table.turnaroundMinutes} >= 0`),
     index("venue_holds_event_id_idx").on(table.eventId),
     index("venue_holds_venue_id_starts_at_idx").on(table.venueId, table.startsAt),
     index("venue_holds_held_by_id_idx").on(table.heldById),

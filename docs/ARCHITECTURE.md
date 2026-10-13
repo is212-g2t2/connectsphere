@@ -133,6 +133,15 @@ Never handwrite SQL. The two reviewed exceptions are the `EXCLUDE` constraints t
 
 The diagram shows the application tables and their relationships. Better Auth owns `user`, `session`, `account`, and `verification`. It shows the principal relationships only. The history tables store user ids as snapshots, and the diagram omits the secondary staff and venue links.
 
+Venue and hold buffers use nonnegative whole minutes and default to zero.
+Each buffer change stores old and new values, actor id, and time in `venue_buffer_changes`.
+The change and venue update commit in one transaction.
+
+A hold keeps its requested times and copies venue buffers at creation.
+Later venue edits keep this copy unchanged.
+Hold occupancy includes setup before the requested start and turnaround after the requested end.
+Maintenance uses its recorded times.
+
 ```mermaid
 erDiagram
     direction LR
@@ -159,6 +168,7 @@ erDiagram
     venues ||--o{ venue_requests : "receives"
     venues ||--o{ venue_holds : "receives"
     venues ||--o{ venue_unavailability : "has"
+    venues ||--o{ venue_buffer_changes : "records"
 
     equipment_types ||--o{ equipment_unavailability : "has"
     equipment_types |o--o{ equipment_requests : "classifies"
@@ -213,6 +223,18 @@ erDiagram
         int id PK
         text name UK
         int max_capacity
+        int setup_minutes
+        int turnaround_minutes
+    }
+    venue_buffer_changes {
+        int id PK
+        int venue_id FK
+        int previous_setup_minutes
+        int previous_turnaround_minutes
+        int setup_minutes
+        int turnaround_minutes
+        text changed_by_id
+        timestamp changed_at
     }
     venue_unavailability {
         int id PK
@@ -231,6 +253,8 @@ erDiagram
         int event_id FK
         int venue_id FK
         text status
+        int setup_minutes
+        int turnaround_minutes
     }
     equipment_requests {
         text id PK

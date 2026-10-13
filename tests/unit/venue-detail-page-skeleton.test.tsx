@@ -20,9 +20,9 @@ describe("VenueDetailPageSkeleton", () => {
     expect(container.querySelector("form")).toBeNull();
     expect(screen.queryByRole("button")).toBeNull();
 
-    // Five plain fields plus the wide operating-hours block.
+    // Seven plain fields plus the wide operating-hours block.
     const fields = container.querySelectorAll("dl > div");
-    expect(fields).toHaveLength(6);
-    expect(fields.item(5).className).toContain("sm:col-span-2");
+    expect(fields).toHaveLength(8);
+    expect(fields.item(7).className).toContain("sm:col-span-2");
   });
 });

@@ -1342,7 +1342,13 @@ describe("server-function authorization (PTR-69)", () => {
       signInOrganiser();
 
       const refused = await refusalFrom(
-        seam(() => handleSaveVenue({ ...venueRecord, id: 2_147_483_647 }, database as never)),
+        seam(() =>
+          handleSaveVenue(
+            { ...venueRecord, id: 2_147_483_647 },
+            database as never,
+            "venue-record-test-staff"
+          )
+        ),
         {}
       );
 

@@ -2648,7 +2648,11 @@ describe("Status set and decision attribution (PTR-21)", () => {
       .from(schema.venues)
       .where(eq(schema.venues.name, "Harbour Hall"));
     try {
-      await handleSaveVenue({ ...hall, maxCapacity: 999 }, database as never);
+      await handleSaveVenue(
+        { ...hall, maxCapacity: 999 },
+        database as never,
+        "venue-record-test-staff"
+      );
       await database
         .insert(schema.venueUnavailability)
         .values({
@@ -2666,7 +2670,7 @@ describe("Status set and decision attribution (PTR-21)", () => {
       expect(row.status).toBe("submitted");
     } finally {
       // The seed rows are shared. Restore the venue and remove the period, even on failure.
-      await handleSaveVenue(hall, database as never);
+      await handleSaveVenue(hall, database as never, "venue-record-test-staff");
       await database
         .delete(schema.venueUnavailability)
         .where(eq(schema.venueUnavailability.reason, "PTR-21 AC3"));

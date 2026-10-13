@@ -31,7 +31,39 @@ const valid = {
 
 describe("VenueInput (PTR-26)", () => {
   it("accepts a complete record and keeps every criterion-2 field", () => {
-    expect(parseVenueInput(valid)).toEqual(valid);
+    expect(parseVenueInput(valid)).toEqual({ ...valid, setupMinutes: 0, turnaroundMinutes: 0 });
+  });
+
+  describe("setup and turnaround minutes (PTR-131)", () => {
+    it("defaults omitted buffers to zero", () => {
+      expect(parseVenueInput(valid)).toMatchObject({ setupMinutes: 0, turnaroundMinutes: 0 });
+    });
+
+    it.each(["setupMinutes", "turnaroundMinutes"] as const)(
+      "accepts whole minutes for %s",
+      field => {
+        for (const minutes of [0, 1, 45, 2_147_483_647]) {
+          expect(parseVenueInput({ ...valid, [field]: minutes })[field]).toBe(minutes);
+        }
+      }
+    );
+
+    it.each([
+      ["setupMinutes", "Setup time"],
+      ["turnaroundMinutes", "Turnaround time"],
+    ])("names the invalid field %s", (field, label) => {
+      for (const minutes of [
+        -1,
+        0.5,
+        "30",
+        null,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        2_147_483_648,
+      ]) {
+        expect(() => parseVenueInput({ ...valid, [field]: minutes })).toThrow(label);
+      }
+    });
   });
 
   it("defaults the three lists to empty when absent", () => {

@@ -17,7 +17,12 @@ import {
   handleCreateVenueRequest,
   handleGetPendingVenueRequest,
 } from "#/features/venue-requests/requests.server";
-import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venues/records.server";
+import {
+  handleGetVenueAvailability,
+  handleSearchVenues,
+  handleSaveVenue,
+  loadVenueHolds,
+} from "#/features/venues/records.server";
 import { handleListEvents } from "#/features/events/records.server";
 import { VENUE_REQUEST_DUPLICATE_MESSAGE } from "#/features/venue-requests/schema";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
@@ -166,6 +171,151 @@ describe("tentative venue holds (PTR-109)", () => {
       })
       .returning({ id: schema.eventRequests.id });
     underReviewEventId = underReview.id;
+  });
+
+  it("counts a hold's setup and turnaround across date boundaries (PTR-131 AC5)", async () => {
+    await database
+      .update(schema.venues)
+      .set({ setupMinutes: 30, turnaroundMinutes: 45 })
+      .where(eq(schema.venues.id, venueId));
+    const hold = await handleCreateVenueHold(
+      { venueId, eventId: eventIdA, date: "2027-06-15", startTime: "00:15", endTime: "23:45" },
+      session(users.coordinatorA),
+      database as never
+    );
+    expect(hold).toMatchObject({ setupMinutes: 30, turnaroundMinutes: 45 });
+    const previousDay = await loadVenueHolds(
+      database,
+      [venueId],
+      "2027-06-14 23:45:00",
+      "2027-06-15 00:00:00"
+    );
+    const nextDay = await loadVenueHolds(
+      database,
+      [venueId],
+      "2027-06-16 00:00:00",
+      "2027-06-16 00:30:00"
+    );
+    expect(previousDay).toMatchObject([
+      { id: hold.id, startsAt: "2027-06-14T23:45:00", endsAt: "2027-06-16T00:30:00" },
+    ]);
+    expect(nextDay).toHaveLength(1);
+  });
+
+  it("refuses buffer-only hold overlap and accepts an exact occupied boundary", async () => {
+    await database
+      .update(schema.venues)
+      .set({ setupMinutes: 30, turnaroundMinutes: 45 })
+      .where(eq(schema.venues.id, venueId));
+    await handleCreateVenueHold(
+      { venueId, eventId: eventIdA, ...HOLD_WINDOW },
+      session(users.coordinatorA),
+      database as never
+    );
+    await expect(
+      handleCreateVenueHold(
+        { venueId, eventId: eventIdB, ...HOLD_WINDOW, startTime: "12:45", endTime: "14:00" },
+        session(users.coordinatorB),
+        database as never
+      )
+    ).rejects.toMatchObject({ name: "ConflictError", status: 409 });
+    const adjacent = await handleCreateVenueHold(
+      { venueId, eventId: eventIdB, ...HOLD_WINDOW, startTime: "13:15", endTime: "14:00" },
+      session(users.coordinatorB),
+      database as never
+    );
+    expect(adjacent.status).toBe("held");
+  });
+
+  it.each([
+    ["2027-06-15", "startsAt", "0001-01-01T00:00:00"],
+    ["9000-06-15", "endsAt", "9999-12-31T23:59:59"],
+  ] as const)(
+    "reads maximum buffers within calendar years for %s",
+    async (date, field, boundary) => {
+      await database
+        .update(schema.venues)
+        .set({ setupMinutes: 2_147_483_647, turnaroundMinutes: 2_147_483_647 })
+        .where(eq(schema.venues.id, venueId));
+      const hold = await handleCreateVenueHold(
+        { venueId, eventId: eventIdA, ...HOLD_WINDOW, date },
+        session(users.coordinatorA),
+        database as never
+      );
+      const occupied = await loadVenueHolds(
+        database,
+        [venueId],
+        `${date} 08:00:00`,
+        `${date} 13:00:00`
+      );
+      expect(occupied).toHaveLength(1);
+      expect(occupied[0].id).toBe(hold.id);
+      expect(occupied[0][field]).toBe(boundary);
+      const calendar = await handleGetVenueAvailability(
+        { venueId, startDate: date, endDate: date },
+        users.coordinatorA.id,
+        database as never
+      );
+      expect(calendar?.occupied).toHaveLength(1);
+      expect(calendar?.available).toEqual([]);
+    }
+  );
+
+  it("retains a hold's buffer snapshot after a venue edit and converts its original times", async () => {
+    await database
+      .update(schema.venues)
+      .set({ setupMinutes: 30, turnaroundMinutes: 45 })
+      .where(eq(schema.venues.id, venueId));
+    const hold = await handleCreateVenueHold(
+      { venueId, eventId: eventIdA, ...HOLD_WINDOW },
+      session(users.coordinatorA),
+      database as never
+    );
+    const [venue] = await database
+      .select()
+      .from(schema.venues)
+      .where(eq(schema.venues.id, venueId));
+    await handleSaveVenue(
+      { ...venue, setupMinutes: 120, turnaroundMinutes: 120 },
+      database as never,
+      users.venueStaff.id
+    );
+    expect(
+      await loadVenueHolds(database, [venueId], "2027-06-15 08:00:00", "2027-06-15 13:00:00")
+    ).toMatchObject([{ startsAt: "2027-06-15T08:30:00", endsAt: "2027-06-15T12:45:00" }]);
+    const converted = await handleConvertVenueHold(
+      { id: hold.id },
+      session(users.coordinatorA),
+      database as never
+    );
+    expect(converted.request).toMatchObject({
+      startsAt: "2027-06-15 09:00:00",
+      endsAt: "2027-06-15 12:00:00",
+    });
+    expect(
+      await loadVenueHolds(database, [venueId], "2027-06-15 08:00:00", "2027-06-15 13:00:00")
+    ).toEqual([]);
+  });
+
+  it("keeps maintenance periods at their recorded times when buffers are set", async () => {
+    await database
+      .update(schema.venues)
+      .set({ setupMinutes: 30, turnaroundMinutes: 45 })
+      .where(eq(schema.venues.id, venueId));
+    await database.insert(schema.venueUnavailability).values({
+      venueId,
+      startsAt: "2027-06-15 10:00:00",
+      endsAt: "2027-06-15 11:00:00",
+      reason: "Maintenance",
+    });
+    const calendar = await handleGetVenueAvailability(
+      { venueId, startDate: "2027-06-15", endDate: "2027-06-15" },
+      users.coordinatorA.id,
+      database as never
+    );
+    expect(calendar?.occupied).toMatchObject([
+      { state: "blocked", startsAt: "2027-06-15T10:00:00", endsAt: "2027-06-15T11:00:00" },
+    ]);
   });
 
   // ---------------------------------------------------------------------------

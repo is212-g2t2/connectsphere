@@ -32,6 +32,8 @@ export function VenueDetailPageSkeleton() {
         <DetailSkeleton />
         <DetailSkeleton />
         <DetailSkeleton />
+        <DetailSkeleton />
+        <DetailSkeleton />
         {/* Operating hours: the one field the read-only record and the form both span wide. */}
         <DetailSkeleton wide />
       </dl>

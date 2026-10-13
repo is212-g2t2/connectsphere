@@ -123,6 +123,8 @@ test.describe("Venue records", () => {
 
     await page.getByLabel("Venue name", { exact: true }).fill(renamed);
     await page.getByLabel("Maximum capacity", { exact: true }).fill("77");
+    await page.getByLabel("Setup time (minutes)", { exact: true }).fill("30");
+    await page.getByLabel("Turnaround time (minutes)", { exact: true }).fill("45");
     await page.getByRole("button", { name: "Save venue" }).click();
 
     await expect(page.getByText("Venue saved.")).toBeVisible();
@@ -134,6 +136,8 @@ test.describe("Venue records", () => {
     await page.reload();
     await expect(page.getByRole("heading", { name: renamed })).toBeVisible();
     await expect(page.getByLabel("Maximum capacity", { exact: true })).toHaveValue("77");
+    await expect(page.getByLabel("Setup time (minutes)", { exact: true })).toHaveValue("30");
+    await expect(page.getByLabel("Turnaround time (minutes)", { exact: true })).toHaveValue("45");
     await expect(page.getByText(original)).toHaveCount(0);
   });
 

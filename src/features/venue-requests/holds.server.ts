@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests, user, venueHolds, venueRequests, venues } from "#/db/schema";
@@ -54,21 +54,31 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
     const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
     if (!event) throw new AuthorizationError("Forbidden");
 
+    // Serialize before reading buffers. A simultaneous venue edit uses the same lock.
+    await lockVenue(tx, input.venueId);
+    const startsAt = `${input.date} ${input.startTime}:00`;
+    const endsAt = `${input.date} ${input.endTime}:00`;
     const venueRows = await tx
-      .select({ id: venues.id, name: venues.name })
+      .select({
+        id: venues.id,
+        name: venues.name,
+        setupMinutes: venues.setupMinutes,
+        turnaroundMinutes: venues.turnaroundMinutes,
+        occupiedStart: sql<string>`(${startsAt}::timestamp - make_interval(mins => ${venues.setupMinutes}))::text`,
+        occupiedEnd: sql<string>`(${endsAt}::timestamp + make_interval(mins => ${venues.turnaroundMinutes}))::text`,
+      })
       .from(venues)
       .where(eq(venues.id, input.venueId))
       .limit(1);
     const venue = venueRows.at(0);
     if (!venue) throw new NotFoundError("Not Found");
 
-    // Serialize by venue before checking conflicts.
-    await lockVenue(tx, venue.id);
-
-    const startsAt = `${input.date} ${input.startTime}:00`;
-    const endsAt = `${input.date} ${input.endTime}:00`;
-
-    const bookings = await loadVenueBookings(tx, [venue.id], startsAt, endsAt);
+    const bookings = await loadVenueBookings(
+      tx,
+      [venue.id],
+      venue.occupiedStart,
+      venue.occupiedEnd
+    );
     const bookingConflict = bookings.at(0);
     if (bookingConflict) {
       throw new ConflictError(
@@ -80,7 +90,7 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
       );
     }
 
-    const holds = await loadVenueHolds(tx, [venue.id], startsAt, endsAt);
+    const holds = await loadVenueHolds(tx, [venue.id], venue.occupiedStart, venue.occupiedEnd);
     const holdConflict = holds.at(0);
     if (holdConflict) {
       throw new ConflictError(
@@ -100,6 +110,8 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
         venueId: venue.id,
         startsAt,
         endsAt,
+        setupMinutes: venue.setupMinutes,
+        turnaroundMinutes: venue.turnaroundMinutes,
         heldById: actor.id,
       })
       .returning()

@@ -1,12 +1,20 @@
-import { and, asc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, venueHolds, venueRequests, venueUnavailability, venues } from "#/db/schema";
+import {
+  eventRequests,
+  venueBufferChanges,
+  venueHolds,
+  venueRequests,
+  venueUnavailability,
+  venues,
+} from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import { eventTiming } from "#/features/events/access";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
+import { lockVenue } from "#/features/venue-requests/venue-lock.server";
 import {
   nextCivilDate,
   normalizeDatabaseTimestamp,
@@ -404,13 +412,17 @@ export async function loadVenueHolds(
 ): Promise<VenueHold[]> {
   if (venueIds.length === 0) return [];
 
+  const occupiedStart = sql`${venueHolds.startsAt} - make_interval(mins => ${venueHolds.setupMinutes})`;
+  const occupiedEnd = sql`${venueHolds.endsAt} + make_interval(mins => ${venueHolds.turnaroundMinutes})`;
+
   const rows = await database
     .select({
       id: venueHolds.id,
       venueId: venueHolds.venueId,
       eventId: venueHolds.eventId,
-      startsAt: venueHolds.startsAt,
-      endsAt: venueHolds.endsAt,
+      // Bound display timestamps to the calendar's civil years. Compare full extents below.
+      startsAt: sql<string>`greatest(${occupiedStart}, timestamp '0001-01-01 00:00:00')::text`,
+      endsAt: sql<string>`least(${occupiedEnd}, timestamp '9999-12-31 23:59:59')::text`,
       heldById: venueHolds.heldById,
       assignedCoordinatorId: eventRequests.assignedCoordinatorId,
       eventStatus: eventRequests.status,
@@ -421,11 +433,11 @@ export async function loadVenueHolds(
       and(
         inArray(venueHolds.venueId, venueIds),
         eq(venueHolds.status, "held"),
-        lt(venueHolds.startsAt, endsAt),
-        gt(venueHolds.endsAt, startsAt)
+        lt(occupiedStart, sql`${endsAt}::timestamp`),
+        gt(occupiedEnd, sql`${startsAt}::timestamp`)
       )
     )
-    .orderBy(asc(venueHolds.startsAt));
+    .orderBy(asc(occupiedStart), asc(venueHolds.id));
 
   return rows.map(row => ({
     id: row.id,
@@ -626,30 +638,46 @@ function rethrowReadable(error: unknown): never {
  * (PTR-26 criterion 1). Middleware checks `venue:create` or `venue:update` from `data.id` before
  * `.validator(parseVenueInput)` runs. Return 404 below for a missing row.
  */
-export async function handleSaveVenue(data: unknown, database: Database): Promise<Venue> {
+export async function handleSaveVenue(
+  data: unknown,
+  database: Database,
+  actorId: string
+): Promise<Venue> {
   const { id, ...fields } = parseVenueInput(data);
-
-  if (id === undefined) {
-    const [created] = await database
-      .insert(venues)
-      .values(fields)
-      .returning()
-      .catch(rethrowReadable);
-    return created;
-  }
-
-  const updated = await database
-    .update(venues)
-    .set(fields)
-    .where(eq(venues.id, id))
-    .returning()
-    .catch(rethrowReadable);
-
-  if (updated.length === 0) {
-    // Return 404 for a missing venue. A 403 would wrongly say that Venue Staff lacks
-    // `venue:update` when the id is mistyped or someone else deleted the row.
-    throw new NotFoundError("Not Found");
-  }
-
-  return updated[0];
+  return database.transaction(async tx => {
+    let previousSetupMinutes = 0;
+    let previousTurnaroundMinutes = 0;
+    let saved: Venue;
+    if (id === undefined) {
+      [saved] = await tx.insert(venues).values(fields).returning().catch(rethrowReadable);
+    } else {
+      // Use the hold writer's lock before the row lock, so new holds read one buffer version.
+      await lockVenue(tx, id);
+      const previousRows = await tx.select().from(venues).where(eq(venues.id, id)).for("update");
+      const previous = previousRows.at(0);
+      if (!previous) throw new NotFoundError("Not Found");
+      previousSetupMinutes = previous.setupMinutes;
+      previousTurnaroundMinutes = previous.turnaroundMinutes;
+      [saved] = await tx
+        .update(venues)
+        .set(fields)
+        .where(eq(venues.id, id))
+        .returning()
+        .catch(rethrowReadable);
+    }
+    if (
+      previousSetupMinutes !== saved.setupMinutes ||
+      previousTurnaroundMinutes !== saved.turnaroundMinutes
+    ) {
+      await tx.insert(venueBufferChanges).values({
+        venueId: saved.id,
+        previousSetupMinutes,
+        previousTurnaroundMinutes,
+        setupMinutes: saved.setupMinutes,
+        turnaroundMinutes: saved.turnaroundMinutes,
+        changedById: actorId,
+      });
+    }
+    return saved;
+  });
 }

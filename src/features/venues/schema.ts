@@ -139,6 +139,17 @@ const TagList = z
     z.array(z.string().max(TAG_MAX_LENGTH, TAG_MESSAGE)).max(TAGS_MAX_COUNT, TAGS_COUNT_MESSAGE)
   );
 
+function bufferMinutes(label: string) {
+  const message = `${label} must be whole minutes of zero or more`;
+  return z
+    .int32({
+      error: issue =>
+        issue.code === "too_big" ? `${label} is larger than this record can store` : message,
+    })
+    .nonnegative(message)
+    .default(0);
+}
+
 export const VenueInput = z.object({
   /** Omit `id` when creating. Include it when editing so the save updates that row (PTR-26 AC1). */
   id: z.int32().positive().optional(),
@@ -162,6 +173,8 @@ export const VenueInput = z.object({
       error: issue => (issue.code === "too_big" ? CAPACITY_TOO_LARGE_MESSAGE : CAPACITY_MESSAGE),
     })
     .positive(CAPACITY_MESSAGE),
+  setupMinutes: bufferMinutes("Setup time"),
+  turnaroundMinutes: bufferMinutes("Turnaround time"),
   facilities: TagList.default([]),
   accessibilityFeatures: TagList.default([]),
   supportedLayouts: z
@@ -204,6 +217,8 @@ export const VenueFormShape = z.object({
   name: z.string(),
   location: z.string(),
   maxCapacity: z.string(),
+  setupMinutes: z.string(),
+  turnaroundMinutes: z.string(),
   facilities: FormTagString,
   accessibilityFeatures: FormTagString,
   supportedLayouts: z.array(z.enum(VENUE_LAYOUTS, { error: LAYOUT_MESSAGE })),
@@ -240,6 +255,8 @@ export const VenueFormInput = VenueFormShape.transform((values): z.input<typeof 
     name: values.name,
     location: values.location,
     maxCapacity: Number(values.maxCapacity),
+    setupMinutes: Number(values.setupMinutes),
+    turnaroundMinutes: Number(values.turnaroundMinutes),
     facilities: values.facilities.split(","),
     accessibilityFeatures: values.accessibilityFeatures.split(","),
     supportedLayouts: values.supportedLayouts,
