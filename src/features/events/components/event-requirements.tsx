@@ -16,9 +16,9 @@ interface Requirement {
 }
 
 /**
- * List the operational requirements for Venue Staff as labelled pairs. The Coordinator checks
- * them before and after sending. Drop empty terms. A wholly empty event leaves nothing to
- * restate. Show a named layout by its label. Show other text as stored.
+ * List the operational requirements for Venue Staff as labelled pairs. Drop empty terms. A wholly
+ * empty event leaves nothing to restate. Show a named layout by its label. Show other text as
+ * stored.
  */
 function requirementPairs(event: EventRequirementFields): Requirement[] {
   // Treat whitespace-only text as absent. A blank-looking field drops out. Keep `0`. It is a
@@ -48,9 +48,9 @@ export function hasEventRequirements(event: EventRequirementFields, hasExtra: bo
 }
 
 /**
- * Share one requirements treatment between the request panel and the dashboard event cards. Show
- * four labelled facts from the event's fields. Show nothing when the event is bare. `className`
- * sets the host's outer spacing.
+ * Share one requirements treatment between the event page's venue section and the Venue Staff
+ * request details. Show four labelled facts from the given fields. Show nothing when they are all
+ * blank. `className` sets the host's outer spacing.
  */
 export function EventRequirements({
   event,
