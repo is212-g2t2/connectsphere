@@ -1,19 +1,5 @@
-import {
-  and,
-  asc,
-  eq,
-  exists,
-  getTableColumns,
-  gt,
-  inArray,
-  isNotNull,
-  isNull,
-  lt,
-  ne,
-  or,
-} from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import {
@@ -21,7 +7,6 @@ import {
   equipmentReservations,
   eventRegistrations,
   eventRequests,
-  venueHolds,
   venueRequests,
   venues,
 } from "#/db/schema";
@@ -41,7 +26,6 @@ import type {
   EventPlaces,
   EventProjection,
   EventVenue,
-  EventVenueRequest,
 } from "#/features/events/access";
 import { registrationCounts } from "#/features/events/register.server";
 import { placeLimit, registrationAvailability } from "#/features/events/registration";
@@ -51,10 +35,12 @@ import { parseEventListInput } from "#/features/events/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import {
+  adjustableRejectionIds,
   eventVenueRequestFromRow,
-  latestVenueRequestId,
+  loadPendingConflictKinds,
+  suggestedVenue,
+  venueRequestEntryColumns,
 } from "#/features/venue-requests/records.server";
-import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 
 /**
@@ -303,13 +289,12 @@ export async function handleListEvents(
   }
 
   const requestIds = requestRows.map(row => row.id);
-  const suggestedVenue = alias(venues, "suggested_venue");
   const [venueRows, equipmentRows, registrationRows] = await Promise.all([
     database
       .select({
-        ...getTableColumns(venueRequests),
-        venueName: venues.name,
-        suggestedVenueName: suggestedVenue.name,
+        eventId: venueRequests.eventId,
+        assignedStaffId: venueRequests.assignedStaffId,
+        ...venueRequestEntryColumns,
       })
       .from(venueRequests)
       .innerJoin(venues, eq(venues.id, venueRequests.venueId))
@@ -379,7 +364,6 @@ export async function handleListEvents(
     confirmedIds.length > 0;
 
   // Every branch needs only `requestIds` and the rows above, so read them together.
-  const approvedBooking = alias(venueRequests, "approved_booking");
   const holderRead =
     holderIds.length === 0
       ? Promise.resolve([])
@@ -402,59 +386,13 @@ export async function handleListEvents(
         )
         .groupBy(eventRegistrations.eventId)
     : Promise.resolve([]);
-  // PTR-36 criterion 4: Find pending requests that overlap an approved booking for the same
-  // venue. Use a self-join, not a per-request read. Do not scope it to `venueRows`. The approved
-  // booking can belong to an event the caller cannot see. Send only the conflict kind to the
-  // client, never the other event. Flag active holds with a second join. They conflict the same
-  // way (the staff queue's "Conflicting hold").
-  const bookingConflictRead =
-    pendingIds.length === 0
-      ? Promise.resolve([])
-      : database
-          .select({ id: venueRequests.id })
-          .from(venueRequests)
-          .innerJoin(
-            approvedBooking,
-            and(
-              eq(approvedBooking.venueId, venueRequests.venueId),
-              eq(approvedBooking.status, "approved"),
-              lt(venueRequests.startsAt, approvedBooking.endsAt),
-              gt(venueRequests.endsAt, approvedBooking.startsAt)
-            )
-          )
-          .where(
-            and(
-              inArray(venueRequests.id, pendingIds),
-              // The id list comes from an earlier statement. A row approved since then would self-join
-              // and flag as conflicting. A period always overlaps itself.
-              eq(venueRequests.status, "pending")
-            )
-          );
-  // Compare the hold's occupied period, not its requested times: a hold conflicts through its
-  // stored buffers too. `loadVenueHolds` applies the same rule, so the badge and this flag agree.
-  const { occupiedStart, occupiedEnd } = holdOccupancy();
-  const holdConflictRead =
-    pendingIds.length === 0
-      ? Promise.resolve([])
-      : database
-          .select({ id: venueRequests.id })
-          .from(venueRequests)
-          .innerJoin(
-            venueHolds,
-            and(
-              eq(venueHolds.venueId, venueRequests.venueId),
-              eq(venueHolds.status, "held"),
-              lt(venueRequests.startsAt, occupiedEnd),
-              gt(venueRequests.endsAt, occupiedStart)
-            )
-          )
-          .where(and(inArray(venueRequests.id, pendingIds), eq(venueRequests.status, "pending")));
-  const [holderRows, bookings, countRows, bookingConflicts, holdConflicts] = await Promise.all([
+  // PTR-36 criterion 4: Flag pending requests that overlap an approved booking or an active
+  // hold. Send only the conflict kind to the client, never the other event.
+  const [holderRows, bookings, countRows, conflictKinds] = await Promise.all([
     holderRead,
     bookingRead,
     countRead,
-    bookingConflictRead,
-    holdConflictRead,
+    loadPendingConflictKinds(database, pendingIds),
   ]);
 
   const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
@@ -478,13 +416,6 @@ export async function handleListEvents(
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
     countRows.map(row => [row.eventId, { registered: row.registered, vips: row.vips }])
   );
-
-  const conflictKinds = new Map<string, "booking" | "hold">();
-  for (const row of bookingConflicts) conflictKinds.set(row.id, "booking");
-  for (const row of holdConflicts) {
-    // A booking outranks a hold for the same row, matching the staff queue's precedence.
-    if (!conflictKinds.has(row.id)) conflictKinds.set(row.id, "hold");
-  }
 
   // PTR-50: Read the venue's wall clock in the spelling of the stored registration period.
   const venueNow = toLocalMinuteValue(venueLocalTimestamp(now));
@@ -544,42 +475,24 @@ export async function handleListEvents(
           : undefined,
     }));
     // List one entry per venue-request row, earliest window first (`venueRows` arrives in that
-    // order). Coordinator: every non-withdrawn row with its own rejection or release. Organiser:
-    // pending and approved rows only, never with details. Venue Staff: only rows the queue rule
-    // grants (`isVenueQueueRow`), with details only on their own rows. Attendees and Technical
-    // Support receive no `venueRequests` key at all (`projectEvent` omits it there).
-    const visibleVenueRequests: EventVenueRequest[] = [];
-    if (access === "coordinator" || access === "organiser" || access === "venue_staff") {
-      const latestCandidates: Array<{ id: string; updatedAt: Date }> = [];
-      for (const row of eventVenueRows) {
-        if (row.status === "withdrawn") continue;
-        if (access === "organiser" && row.status !== "pending" && row.status !== "approved") {
-          continue;
-        }
-        if (access === "venue_staff" && !isVenueQueueRow(row, user.id)) continue;
-        const entry = eventVenueRequestFromRow(row);
-        const seesDetails =
-          access === "coordinator" || (access === "venue_staff" && row.assignedStaffId === user.id);
-        const conflictKind = row.status === "pending" ? conflictKinds.get(row.id) : undefined;
-        visibleVenueRequests.push({
-          id: entry.id,
-          status: entry.status,
-          venueName: entry.venueName,
-          date: entry.date,
-          startTime: entry.startTime,
-          endTime: entry.endTime,
-          ...(conflictKind ? { conflict: conflictKind } : {}),
-          ...(seesDetails && entry.rejection ? { rejection: entry.rejection } : {}),
-          ...(seesDetails && entry.release ? { release: entry.release } : {}),
-        });
-        latestCandidates.push({ id: row.id, updatedAt: row.updatedAt });
-      }
-      const latestId = latestVenueRequestId(latestCandidates);
-      if (latestId !== null) {
-        const latestEntry = visibleVenueRequests.find(entry => entry.id === latestId);
-        if (latestEntry) latestEntry.latest = true;
-      }
-    }
+    // order). Coordinator: every non-withdrawn row. Organiser: pending and approved rows only, so
+    // no rejection or release reaches them. Venue Staff: only rows the queue rule grants
+    // (`isVenueQueueRow`). A decided row in their queue is their own, so it keeps its details.
+    // Attendees and Technical Support receive no `venueRequests` key (`projectEvent` omits it).
+    const visibleRows = eventVenueRows.filter(row => {
+      if (row.status === "withdrawn") return false;
+      if (access === "organiser") return row.status === "pending" || row.status === "approved";
+      if (access === "venue_staff") return isVenueQueueRow(row, user.id);
+      return access === "coordinator";
+    });
+    const adjustable =
+      access === "coordinator" ? adjustableRejectionIds(visibleRows) : new Set<string>();
+    const visibleVenueRequests = visibleRows.map(row =>
+      eventVenueRequestFromRow(row, {
+        conflict: conflictKinds.get(row.id),
+        adjustable: adjustable.has(row.id),
+      })
+    );
 
     return [
       projectEvent(

@@ -8,6 +8,7 @@ import {
   parseVenueAmendmentInput,
   parseVenueReleaseInput,
   parseVenueRequestContext,
+  parseVenueRequestEventInput,
   parseVenueRequestId,
   parseVenueRequestInput,
 } from "#/features/venue-requests/schema";
@@ -38,20 +39,22 @@ export const requireVenueRequest = requirePermission({ venue_request: ["request"
 /** PTR-32: Venue Staff may read the shared pending queue without gaining the approval verb. */
 export const requireVenueRequestRead = requirePermission({ venue_request: ["read"] });
 
-/** A pending row as the queue table and the decision controls read it. */
+/** A pending row as the decision controls read it. */
 export type PendingVenueRequest = Omit<PendingVenueRequestDetail, "requirements">;
 
-export const getPendingVenueRequest = createServerFn({ method: "GET" })
-  .validator(parseVenueRequestId)
+/** PTR-32 AC3, PTR-138: every pending request of one event in the caller's queue, in one read. */
+export const getPendingVenueRequestsForEvent = createServerFn({ method: "GET" })
+  .validator(parseVenueRequestEventInput)
   .middleware([requireVenueRequestRead])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleGetPendingVenueRequest }] = await loadServer();
-    return handleGetPendingVenueRequest(data, context.user, db);
+    const [{ db }, { handleGetPendingVenueRequestsForEvent }] = await loadServer();
+    return handleGetPendingVenueRequestsForEvent(data, context.user, db);
   });
 
-export type PendingVenueRequestDetail = NonNullable<
-  Awaited<ReturnType<typeof getPendingVenueRequest>>
->;
+/** One pending request with its venue, period, conflict, and the event's requirements. */
+export type PendingVenueRequestDetail = Awaited<
+  ReturnType<typeof getPendingVenueRequestsForEvent>
+>[number];
 
 /**
  * Read the context for the venue page. Return it in `{ context }` because a nullable top-level

@@ -32,13 +32,14 @@ export type EventPageData =
         coordinators: Coordinator[];
       } | null;
       /**
-       * One loaded pending request with its venue options, in projection order. A pending
-       * entry whose read failed stays visible from the projection but has no entry here.
+       * Venue Staff only: the full pending requests that one read loaded, and the venue options
+       * the decision forms offer. Unset when nothing was pending or the read failed. A pending
+       * projection entry with no request here was decided after the projection loaded.
        */
-      venueDecisions?: Array<{
-        request: PendingVenueRequestDetail;
+      venueDecisions?: {
+        requests: PendingVenueRequestDetail[];
         venues: VenueOption[];
-      }>;
+      };
       equipmentTypes?: EquipmentTypeOption[] | null;
       attendees?: RegisteredAttendee[] | null;
     }

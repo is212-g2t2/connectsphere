@@ -1,7 +1,6 @@
 import { useRouter } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
-import { Badge } from "#/components/ui/badge";
 import { Card, CardContent } from "#/components/ui/card";
 import { Detail } from "#/features/event-requests/components/request-message-blocks";
 import type { EventVenueRequest } from "#/features/events/access";
@@ -9,9 +8,12 @@ import { formatLocalDate, formatProposedWindow } from "#/features/event-requests
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import { ApproveBookingButton } from "#/features/venue-requests/components/approve-booking-button";
 import { BookingRequestDetails } from "#/features/venue-requests/components/booking-request-details";
+import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
 import { RejectBookingForm } from "#/features/venue-requests/components/reject-booking-form";
-import { VenueStateBadge } from "#/features/venue-requests/components/venue-state-badge";
+import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
+import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
+import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { skipRootFilter } from "#/lib/invalidate";
 
 /**
@@ -48,49 +50,61 @@ function pendingEntries(data: EventPageData): EventVenueRequest[] {
   return (data.event.event.venueRequests ?? []).filter(entry => entry.status === "pending");
 }
 
-/** One projection window as the decision headings show it, so every window reads the same. */
-function projectionWindow(entry: { date: string; startTime: string; endTime: string }): string {
+/** One projection period as the decision headings show it, so every period reads the same. */
+function projectionPeriod(entry: { date: string; startTime: string; endTime: string }): string {
   return formatProposedWindow({
     start: `${entry.date}T${entry.startTime.slice(0, 5)}`,
     end: `${entry.date}T${entry.endTime.slice(0, 5)}`,
   });
 }
 
-/** Show one block per projection entry: the loaded detail, a read-only fallback, or the outcome. */
+/** The short note under a settled entry's heading. */
+const OUTCOME_NOTES: Record<string, string> = {
+  approved: "Booking approved.",
+  rejected: "Request declined.",
+  released: "Booking released.",
+};
+
+/** The note for a pending entry when the read of the full requests failed. */
+const PENDING_NOT_LOADED_NOTE = "The full request did not load. Reload the page to decide it.";
+/** The note for a pending entry that the read no longer returns: someone decided it meanwhile. */
+const PENDING_DECIDED_NOTE =
+  "This request was decided after the page loaded. Reload the page to see the outcome.";
+
+/**
+ * Pair each pending projection entry with its loaded request, in projection order. An entry
+ * with no loaded request was decided after the projection loaded.
+ */
+function loadedRequests(data: EventPageData): PendingVenueRequestDetail[] {
+  if (data.kind !== "event" || !data.venueDecisions) return [];
+  const loadedById = new Map(data.venueDecisions.requests.map(request => [request.id, request]));
+  return pendingEntries(data).flatMap(entry => loadedById.get(entry.id) ?? []);
+}
+
+/** Show one block per projection entry: the loaded pending request, or the entry's outcome. */
 function RequestBody({ data }: { data: EventPageData }) {
   if (data.kind !== "event") return null;
-  const entries = data.event.event.venueRequests ?? [];
-  const loadedById = new Map(
-    (data.venueDecisions ?? []).map(decision => [decision.request.id, decision.request])
-  );
+  const loadedById = new Map(loadedRequests(data).map(request => [request.id, request]));
+  const pendingNote = data.venueDecisions ? PENDING_DECIDED_NOTE : PENDING_NOT_LOADED_NOTE;
   return (
     <>
-      {entries.map(entry => {
+      {(data.event.event.venueRequests ?? []).map(entry => {
         const loaded = loadedById.get(entry.id);
-        if (entry.status === "pending" && loaded)
-          return (
-            <div
-              key={entry.id}
-              className="mt-8 border-t border-border pt-8 first:mt-0 first:border-t-0 first:pt-0"
-            >
-              <BookingRequestDetails request={loaded} />
-            </div>
-          );
-        if (entry.status === "pending")
-          return (
-            <div
-              key={entry.id}
-              className="mt-8 border-t border-border pt-8 first:mt-0 first:border-t-0 first:pt-0"
-            >
-              <PendingRequestFallback entry={entry} />
-            </div>
-          );
         return (
           <div
             key={entry.id}
             className="mt-8 border-t border-border pt-8 first:mt-0 first:border-t-0 first:pt-0"
           >
-            <VenueRequestOutcome outcome={entry} />
+            {loaded ? (
+              <BookingRequestDetails request={loaded} />
+            ) : (
+              <VenueRequestOutcome
+                entry={entry}
+                note={
+                  entry.status === "pending" ? pendingNote : (OUTCOME_NOTES[entry.status] ?? null)
+                }
+              />
+            )}
           </div>
         );
       })}
@@ -105,35 +119,38 @@ function RequestBody({ data }: { data: EventPageData }) {
  */
 function DecisionBody({ data }: { data: EventPageData }) {
   const router = useRouter();
-  const venueDecisions = data.kind === "event" ? (data.venueDecisions ?? []) : [];
-  const groupIds = venueDecisions.map(decision => decision.request.id).join(",");
+  const requests = loadedRequests(data);
+  const venues = data.kind === "event" ? (data.venueDecisions?.venues ?? []) : [];
+  const groupCount = requests.length;
   const firstGroupRef = useRef<HTMLHeadingElement | null>(null);
-  const previousIds = useRef<string | null>(null);
   const previousCount = useRef<number | null>(null);
   // A decision removes its group. Move focus to the first group that remains, so a reader
   // hears what still needs a decision. Follow the `venue-request-panel` pattern.
   useEffect(() => {
-    const previous = previousIds.current;
-    const prevCount = previousCount.current;
-    previousIds.current = groupIds;
-    previousCount.current = venueDecisions.length;
-    if (previous === null || previous === groupIds) return;
-    if (prevCount !== null && venueDecisions.length < prevCount && venueDecisions.length > 0)
+    const previous = previousCount.current;
+    previousCount.current = groupCount;
+    if (previous !== null && groupCount > 0 && groupCount < previous) {
       firstGroupRef.current?.focus();
-  }, [groupIds, venueDecisions.length]);
+    }
+  }, [groupCount]);
   if (data.kind !== "event") return null;
   const refresh = () => router.invalidate({ filter: skipRootFilter });
-  // Every detail read failed, but pending entries remain. Say so instead of hiding the section.
-  if (venueDecisions.length === 0) {
+  // Pending entries remain, but no full request loaded. Say why instead of hiding the section.
+  if (groupCount === 0) {
     return (
       <div>
         <h2 className="display-h3">Record a decision</h2>
         <p className="mt-2 body-sm text-muted-foreground">
-          The full request did not load. Reload the page to decide it.
+          {data.venueDecisions
+            ? "These requests were decided after the page loaded. Reload the page to see the outcome."
+            : PENDING_NOT_LOADED_NOTE}
         </p>
       </div>
     );
   }
+  // Approval refuses an event outside the request statuses, so offer only the rejection there.
+  // A rejection still clears a stale request.
+  const approvable = SEARCHABLE_EVENT_STATUSES.includes(data.event.event.status);
   return (
     <div>
       <h2 className="display-h3">Record a decision</h2>
@@ -141,7 +158,7 @@ function DecisionBody({ data }: { data: EventPageData }) {
         Approving holds the venue for this exact period. Rejecting needs a reason, and you can
         suggest an alternative. Either way the requesting Coordinator is notified.
       </p>
-      {venueDecisions.map(({ request, venues }, index) => (
+      {requests.map((request, index) => (
         <div key={request.id} className="mt-6 border-t border-border pt-6">
           <h3
             ref={index === 0 ? firstGroupRef : undefined}
@@ -151,14 +168,15 @@ function DecisionBody({ data }: { data: EventPageData }) {
             {request.venueName},{" "}
             {formatProposedWindow({ start: request.startsAt, end: request.endsAt })}
           </h3>
-          {request.conflict ? (
-            <Badge className="mt-2" variant="stopped">
-              {request.conflict === "hold" ? "Conflicting hold" : "Conflicting booking"}
-            </Badge>
-          ) : null}
-          <div className="mt-4">
-            <ApproveBookingButton request={request} onDecided={refresh} />
-          </div>
+          {approvable ? (
+            <div className="mt-4">
+              <ApproveBookingButton request={request} onDecided={refresh} />
+            </div>
+          ) : (
+            <p className="mt-4 body-sm text-muted-foreground">
+              This event cannot take a new booking. You can only reject this request.
+            </p>
+          )}
           <div className="mt-6">
             <h4 className="body-md font-semibold">Reject this request</h4>
             <div className="mt-4">
@@ -172,80 +190,34 @@ function DecisionBody({ data }: { data: EventPageData }) {
 }
 
 /**
- * Show a pending entry whose detail read failed. Venue and period come from the projection, so
- * the entry stays visible. Its decision group is absent; when no group loads at all, the
- * decision section says the request did not load instead of hiding.
+ * Show one projection entry without its full request: a settled outcome, or a pending request
+ * whose read failed. The heading names the venue and period once. A rejection adds its reason
+ * and any suggested alternative. A release adds its reason and who released it.
  */
-function PendingRequestFallback({ entry }: { entry: EventVenueRequest }) {
-  const window = projectionWindow(entry);
-  const headingId = `booking-request-fallback-heading-${entry.id}`;
-  return (
-    <section aria-labelledby={headingId}>
-      <h2 id={headingId} className="display-h3">
-        Booking request details: {entry.venueName}, {window}
-      </h2>
-      <p className="mt-2 body-sm text-muted-foreground">
-        The full request did not load. Reload the page to decide it.
-      </p>
-      <Card className="mt-4">
-        <CardContent>
-          <dl className="grid gap-6 sm:grid-cols-2">
-            <Detail term="Status">
-              <VenueStateBadge status="pending" />
-            </Detail>
-            <Detail term="Venue">{entry.venueName}</Detail>
-            <Detail term="Period" wide>
-              {window}
-            </Detail>
-          </dl>
-        </CardContent>
-      </Card>
-    </section>
-  );
-}
-
-/**
- * Show a settled request's status and venue, rejection and suggested alternative, or release
- * record. Use the same labels as the dashboard's venue request block.
- *
- * Show the settled outcome's short banner above the detail rows.
- */
-const OUTCOME_BANNERS: Record<string, string> = {
-  approved: "Booking approved.",
-  rejected: "Request declined.",
-  released: "Booking released.",
-};
-
-function VenueRequestOutcome({ outcome }: { outcome: EventVenueRequest }) {
-  const suggestion = outcome.rejection?.suggestion
-    ? formatVenueSuggestion(outcome.rejection.suggestion, formatLocalDate)
+function VenueRequestOutcome({ entry, note }: { entry: EventVenueRequest; note: string | null }) {
+  const suggestion = entry.rejection?.suggestion
+    ? formatVenueSuggestion(entry.rejection.suggestion, formatLocalDate)
     : "";
-  const banner = OUTCOME_BANNERS[outcome.status] ?? null;
-  const headingId = `booking-request-outcome-heading-${outcome.id}`;
-  const window = projectionWindow(outcome);
+  const headingId = `booking-request-outcome-heading-${entry.id}`;
   return (
     <section aria-labelledby={headingId}>
       <h2 id={headingId} className="display-h3">
-        Booking request details: {outcome.venueName}, {window}
+        Booking request details: {entry.venueName}, {projectionPeriod(entry)}
       </h2>
-      {banner ? <p className="mt-2 body-md font-medium">{banner}</p> : null}
+      {note ? <p className="mt-2 body-md font-medium">{note}</p> : null}
       <Card className="mt-4">
         <CardContent>
           <dl className="grid gap-6 sm:grid-cols-2">
             <Detail term="Status">
-              <VenueStateBadge status={outcome.status} />
+              <span className="flex flex-wrap items-center gap-2">
+                <VenueRequestStatusBadge status={entry.status} />
+                {entry.conflict ? <ConflictBadge conflict={entry.conflict} /> : null}
+              </span>
             </Detail>
-            {outcome.venueName ? <Detail term="Venue">{outcome.venueName}</Detail> : null}
-            <Detail term="Period" wide>
-              {window}
-            </Detail>
-            {outcome.rejection ? (
+            {entry.rejection ? (
               <>
-                <Detail term="Rejected booking" wide>
-                  {`${outcome.rejection.venueName}, ${formatLocalDate(outcome.rejection.date)}, ${outcome.rejection.startTime}–${outcome.rejection.endTime}`}
-                </Detail>
                 <Detail term="Rejection reason" wide>
-                  {outcome.rejection.reason}
+                  {entry.rejection.reason}
                 </Detail>
                 {suggestion ? (
                   <Detail term="Suggested alternative" wide>
@@ -254,16 +226,13 @@ function VenueRequestOutcome({ outcome }: { outcome: EventVenueRequest }) {
                 ) : null}
               </>
             ) : null}
-            {outcome.release ? (
+            {entry.release ? (
               <>
-                <Detail term="Released booking" wide>
-                  {`${outcome.release.venueName}, ${formatLocalDate(outcome.release.date)}, ${outcome.release.startTime}–${outcome.release.endTime}`}
-                </Detail>
                 <Detail term="Release reason" wide>
-                  {outcome.release.reason}
+                  {entry.release.reason}
                 </Detail>
-                {outcome.release.changedByName ? (
-                  <Detail term="Released by">{outcome.release.changedByName}</Detail>
+                {entry.release.changedByName ? (
+                  <Detail term="Released by">{entry.release.changedByName}</Detail>
                 ) : null}
               </>
             ) : null}

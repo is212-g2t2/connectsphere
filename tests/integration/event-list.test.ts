@@ -58,6 +58,14 @@ const fixtureUsers = {
     emailVerified: true,
     role: "venue_staff",
   },
+  /** A second staff member who decided none of the fixture rows. */
+  otherVenueStaff: {
+    id: "el-other-venue-staff",
+    name: "Event List Other Venue Staff",
+    email: "el.other.venue.staff@example.com",
+    emailVerified: true,
+    role: "venue_staff",
+  },
   tech: {
     id: "el-tech",
     name: "Event List Tech Support",
@@ -759,7 +767,6 @@ describe("event list handler (PTR-8)", () => {
           startTime: "14:30",
           endTime: "18:45",
           conflict: "booking",
-          latest: true,
         },
       ]);
 
@@ -778,7 +785,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "15:00",
           endTime: "16:00",
-          latest: true,
         },
         {
           id: "el-venue-review",
@@ -806,7 +812,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
         },
       ]);
     });
@@ -831,7 +836,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
         },
       ]);
       expect(projection.event).not.toHaveProperty("name");
@@ -857,7 +861,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
           rejection: {
             venueId: fixtureVenueId,
             venueName: FIXTURE_VENUE_NAME,
@@ -895,7 +898,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-11-01",
           startTime: "09:00",
           endTime: "12:00",
-          latest: true,
         },
       ]);
     });
@@ -920,12 +922,7 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
           release: {
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-10-12",
-            startTime: "14:30",
-            endTime: "18:45",
             reason: "Air-conditioning failure",
             changedByName: null,
           },
@@ -958,7 +955,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
         },
       ]);
     });
@@ -980,7 +976,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
-            latest: true,
+            adjustable: true,
             rejection: {
               venueId: fixtureVenueId,
               venueName: FIXTURE_VENUE_NAME,
@@ -1010,7 +1006,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
-            latest: true,
+            adjustable: true,
             rejection: {
               venueId: fixtureVenueId,
               venueName: FIXTURE_VENUE_NAME,
@@ -1065,7 +1061,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
-            latest: true,
+            adjustable: true,
             rejection: {
               venueId: fixtureVenueId,
               venueName: FIXTURE_VENUE_NAME,
@@ -1150,9 +1146,12 @@ describe("event list handler (PTR-8)", () => {
           lastChangedByStaffId: fixtureUsers.venueStaff.id,
           lastChangedByStaffName: fixtureUsers.venueStaff.name,
           lastChangedAt: new Date("2026-10-05T00:00:00Z"),
+          createdAt: new Date("2026-10-02T00:00:00Z"),
           updatedAt: new Date("2026-10-05T00:00:00Z"),
         });
 
+        // The released row is newer and sits at the rejected venue, so the rejection is no
+        // longer adjustable.
         expect(await coordinatorCard(fixtures.closed.id)).toEqual([
           {
             id: "el-venue-rejected-before-release",
@@ -1179,12 +1178,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-05",
             startTime: "09:00",
             endTime: "12:00",
-            latest: true,
             release: {
-              venueName: FIXTURE_VENUE_NAME,
-              date: "2026-11-05",
-              startTime: "09:00",
-              endTime: "12:00",
               reason: "Air-conditioning failure",
               changedByName: fixtureUsers.venueStaff.name,
             },
@@ -1250,9 +1244,61 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-10-12",
             startTime: "14:30",
             endTime: "18:45",
-            latest: true,
           },
         ]);
+      });
+
+      it("keeps decided rows and their details from the Organiser and from other Venue Staff", async () => {
+        await insertRejected("el-venue-rejected-private", { eventId: fixtures.main.id });
+        await database.insert(schema.venueRequests).values([
+          {
+            id: "el-venue-released-private",
+            eventId: fixtures.main.id,
+            venueId: fixtureVenueId,
+            requestedById: fixtureUsers.coordinator.id,
+            assignedStaffId: fixtureUsers.venueStaff.id,
+            startsAt: "2026-11-03 09:00:00",
+            endsAt: "2026-11-03 12:00:00",
+            status: "released",
+            releaseReason: "Air-conditioning failure",
+          },
+          {
+            // An unassigned pending row connects every Venue Staff member to the event.
+            id: "el-venue-shared-queue",
+            eventId: fixtures.main.id,
+            venueId: fixtureVenue2Id,
+            requestedById: fixtureUsers.coordinator.id,
+            startsAt: "2026-11-04 09:00:00",
+            endsAt: "2026-11-04 12:00:00",
+          },
+        ]);
+
+        const [organiserView] = await handleListEvents(
+          { eventId: fixtures.main.id },
+          session("organiser"),
+          database as never
+        );
+        const [otherStaffView] = await handleListEvents(
+          { eventId: fixtures.main.id },
+          session("otherVenueStaff"),
+          database as never
+        );
+
+        expect(organiserView.event.venueRequests?.map(entry => entry.id)).toEqual([
+          "el-venue-main",
+          "el-venue-shared-queue",
+        ]);
+        expect(otherStaffView.event.venueRequests?.map(entry => entry.id)).toEqual([
+          "el-venue-shared-queue",
+        ]);
+        for (const entry of [
+          ...(organiserView.event.venueRequests ?? []),
+          ...(otherStaffView.event.venueRequests ?? []),
+        ]) {
+          expect(entry).not.toHaveProperty("rejection");
+          expect(entry).not.toHaveProperty("release");
+          expect(entry).not.toHaveProperty("adjustable");
+        }
       });
     });
 

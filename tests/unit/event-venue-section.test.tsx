@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { EventProjection } from "#/features/events/access";
+import type { EventProjection, EventVenueRequest } from "#/features/events/access";
 import { venueSections } from "#/features/events/components/venue-section";
 import type { EventPageData } from "#/features/events/page-data";
 
@@ -76,7 +76,7 @@ const pendingEntry = {
   startTime: "17:00",
   endTime: "21:00",
   conflict: "booking",
-} as const;
+} satisfies EventVenueRequest;
 
 const approvedEntry = {
   id: "vr-2",
@@ -85,16 +85,16 @@ const approvedEntry = {
   date: "2026-12-06",
   startTime: "10:00",
   endTime: "12:00",
-} as const;
+} satisfies EventVenueRequest;
 
-const rejectedLatest = {
+const rejectedAdjustable = {
   id: "vr-3",
   status: "rejected",
   venueName: "Harbor Hall",
   date: "2026-12-05",
   startTime: "17:00",
   endTime: "21:00",
-  latest: true,
+  adjustable: true,
   rejection: {
     venueId: 3,
     venueName: "Harbor Hall",
@@ -105,9 +105,9 @@ const rejectedLatest = {
     suggestion: null,
     suggestedVenueId: null,
   },
-} as const;
+} satisfies EventVenueRequest;
 
-const rejectedNotLatest = {
+const rejectedAnswered = {
   id: "vr-3",
   status: "rejected",
   venueName: "Harbor Hall",
@@ -124,7 +124,7 @@ const rejectedNotLatest = {
     suggestion: null,
     suggestedVenueId: null,
   },
-} as const;
+} satisfies EventVenueRequest;
 
 const releasedEntry = {
   id: "vr-4",
@@ -133,16 +133,11 @@ const releasedEntry = {
   date: "2026-12-05",
   startTime: "17:00",
   endTime: "21:00",
-  latest: true,
   release: {
-    venueName: "Harbor Hall",
-    date: "2026-12-05",
-    startTime: "17:00",
-    endTime: "21:00",
     reason: "The organiser moved the session.",
     changedByName: "Ruth Staff",
   },
-} as const;
+} satisfies EventVenueRequest;
 
 describe("venue section", () => {
   it("shows the confirmed booking for the organiser", () => {
@@ -168,7 +163,7 @@ describe("venue section", () => {
   it("renders one block per entry with venue, period, and state badges", () => {
     renderVenue("coordinator", {
       status: "planning",
-      venueRequests: [{ ...pendingEntry }, { ...approvedEntry, latest: true as const }],
+      venueRequests: [{ ...pendingEntry }, { ...approvedEntry }],
     });
 
     expect(screen.getByText("Harbor Hall")).toBeTruthy();
@@ -180,42 +175,74 @@ describe("venue section", () => {
     expect(screen.getByText("Conflicting booking")).toBeTruthy();
   });
 
-  it("shows every rejected entry's reason, and the adjust link only on the latest in a searchable status", () => {
+  it("shows every rejected entry's reason, and the adjust link on each adjustable entry", () => {
     const { unmount } = renderVenue("coordinator", {
       status: "submitted",
-      venueRequests: [{ ...approvedEntry }, { ...rejectedLatest }],
-    } as never);
+      venueRequests: [{ ...rejectedAdjustable }, { ...approvedEntry }],
+    });
 
+    // A later booking at another venue leaves the rejected entry adjustable.
     expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Adjust request at Harbor Hall" })).toBeTruthy();
     unmount();
 
     renderVenue("coordinator", {
       status: "submitted",
-      venueRequests: [{ ...rejectedNotLatest }, { ...approvedEntry, latest: true as const }],
-    } as never);
+      venueRequests: [
+        { ...rejectedAdjustable },
+        {
+          ...rejectedAdjustable,
+          id: "vr-5",
+          venueName: "Second Hall",
+          rejection: { ...rejectedAdjustable.rejection, venueId: 5, venueName: "Second Hall" },
+        },
+      ],
+    });
+
+    // The flag is per entry: two adjustable rejections give two links.
+    expect(screen.getAllByText("The main hall is being rewired that weekend.")).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "Adjust request at Harbor Hall" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Adjust request at Second Hall" })).toBeTruthy();
+  });
+
+  it("hides the adjust link once a newer request answers the rejection", () => {
+    renderVenue("coordinator", {
+      status: "submitted",
+      venueRequests: [{ ...rejectedAnswered }, { ...pendingEntry }],
+    });
 
     expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
   });
 
-  it("groups each entry's rows in its own band", () => {
-    renderVenue("coordinator", {
+  it("gives each entry its own named description list beside the requirements", () => {
+    const { container } = renderVenue("coordinator", {
       status: "planning",
-      venueRequests: [{ ...pendingEntry }, { ...approvedEntry, latest: true as const }],
+      venueRequests: [{ ...pendingEntry }, { ...approvedEntry }],
     });
 
-    const groups = screen.getAllByRole("group");
-    expect(groups).toHaveLength(2);
-    expect(groups[0].getAttribute("aria-label")).toBe("Harbor Hall, 5 Dec 2026, 17:00–21:00");
-    expect(groups[1].getAttribute("aria-label")).toBe("Second Hall, 6 Dec 2026, 10:00–12:00");
+    // The requirements list and one list per entry sit side by side; no list nests in another.
+    const lists = [...container.querySelectorAll("dl")];
+    expect(lists.map(list => list.getAttribute("aria-label"))).toEqual([
+      null,
+      "Harbor Hall, 5 Dec 2026, 17:00–21:00",
+      "Second Hall, 6 Dec 2026, 10:00–12:00",
+    ]);
+    expect(container.querySelector("dl dl")).toBeNull();
+    expect(screen.queryAllByRole("group")).toHaveLength(0);
+    // Every list holds only term and description groups.
+    for (const list of lists) {
+      for (const child of list.children) {
+        expect([...child.children].map(node => node.tagName)).toEqual(["DT", "DD"]);
+      }
+    }
   });
 
   it("keeps the rejection reason without the adjust link outside searchable statuses", () => {
     renderVenue("coordinator", {
       status: "confirmed",
-      venueRequests: [{ ...rejectedLatest }],
-    } as never);
+      venueRequests: [{ ...rejectedAdjustable }],
+    });
 
     expect(screen.getByText("Rejected")).toBeTruthy();
     expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
@@ -226,7 +253,7 @@ describe("venue section", () => {
     const { unmount } = renderVenue("coordinator", {
       status: "planning",
       venueRequests: [{ ...approvedEntry }, { ...releasedEntry }],
-    } as never);
+    });
 
     expect(screen.getByText("Released")).toBeTruthy();
     expect(screen.getByText("The organiser moved the session.")).toBeTruthy();
@@ -236,7 +263,7 @@ describe("venue section", () => {
     renderVenue("organiser", {
       status: "planning",
       venueRequests: [{ ...pendingEntry, conflict: undefined }, { ...approvedEntry }],
-    } as never);
+    });
 
     expect(screen.getByText("Harbor Hall")).toBeTruthy();
     expect(screen.getByText("Second Hall")).toBeTruthy();
@@ -253,13 +280,13 @@ describe("venue section", () => {
     expect(
       isVenueVisible("coordinator", {
         status: "submitted",
-        venueRequests: [{ ...rejectedNotLatest }],
+        venueRequests: [{ ...rejectedAnswered }],
       })
     ).toBe(true);
     expect(
       isVenueVisible("organiser", {
         status: "submitted",
-        venueRequests: [{ ...rejectedNotLatest }],
+        venueRequests: [{ ...rejectedAnswered }],
       })
     ).toBe(false);
   });
@@ -289,7 +316,7 @@ describe("venue section", () => {
         roomLayoutPreference: "Workshop rows",
         accessibilityRequirements: "",
         venueRequirements: "10 power sockets, whiteboards",
-        venueRequests: [{ ...approvedEntry }, { ...rejectedLatest }],
+        venueRequests: [{ ...approvedEntry }, { ...rejectedAdjustable }],
       },
       coordinators: [],
     } as unknown as EventPageData;
@@ -303,7 +330,7 @@ describe("venue section", () => {
     expect(screen.getByRole("link", { name: "Adjust request at Harbor Hall" })).toBeTruthy();
   });
 
-  it("hides the triage adjust link when the rejected entry is not latest", () => {
+  it("hides the triage adjust link when the rejected entry is not adjustable", () => {
     const data = {
       kind: "triage",
       viewerId: "viewer-1",
@@ -314,7 +341,7 @@ describe("venue section", () => {
         roomLayoutPreference: "Workshop rows",
         accessibilityRequirements: "",
         venueRequirements: "10 power sockets, whiteboards",
-        venueRequests: [{ ...rejectedNotLatest }, { ...approvedEntry, latest: true as const }],
+        venueRequests: [{ ...rejectedAnswered }, { ...approvedEntry }],
       },
       coordinators: [],
     } as unknown as EventPageData;
@@ -340,8 +367,8 @@ describe("venue section", () => {
   it("hides the adjust-request link from the organiser", () => {
     renderVenue("organiser", {
       status: "submitted",
-      venueRequests: [{ ...rejectedLatest }],
-    } as never);
+      venueRequests: [{ ...rejectedAdjustable }],
+    });
 
     expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
   });

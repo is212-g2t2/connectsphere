@@ -7,20 +7,26 @@ import { EventRequestStatusBadge } from "#/features/event-requests/components/st
 import { formatLocalDate } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
 import { hasAttendeePage } from "#/features/events/access";
+import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 
-/** Title an event on the card and the event page the same way. Venue Staff see the venue. */
+/**
+ * Title an event on the card and the event page the same way. Venue Staff never see the event
+ * name (PTR-31 AC2), so they see the distinct venues of their requests, in list order.
+ */
 export function eventTitle(projection: EventProjection): string {
   const { access, event } = projection;
   if (access === "venue_staff") {
-    const pending = event.venueRequests?.find(entry => entry.status === "pending");
-    return pending?.venueName ?? event.venueRequests?.[0]?.venueName ?? "Venue request";
+    const venueNames = [...new Set((event.venueRequests ?? []).map(entry => entry.venueName))];
+    return venueNames.length > 0 ? venueNames.join(", ") : "Venue request";
   }
   return event.name ?? "Untitled event";
 }
 
 /**
  * Show one dashboard card per connected event. It carries the access, the stage, the name as the
- * only link, and the date and time. The card surface itself is not clickable.
+ * only link, and the date and time. A Venue Staff card lists each request with its venue, period
+ * and state instead of the event's proposed date (PTR-138 AC5). The card surface itself is not
+ * clickable.
  */
 export function EventCard({ event: projection }: { event: EventProjection }) {
   const { access, event } = projection;
@@ -60,20 +66,42 @@ export function EventCard({ event: projection }: { event: EventProjection }) {
         {event.description && (
           <p className="mt-4 body-sm text-muted-foreground">{event.description}</p>
         )}
-        <div className="mt-5 grid gap-3 body-sm text-muted-foreground sm:grid-cols-2">
-          {event.eventDate && (
-            <span className="flex items-center gap-2">
-              <CalendarDays className="size-4" />
-              {formatLocalDate(event.eventDate)}
-            </span>
-          )}
-          {event.startTime && event.endTime && (
-            <span className="flex items-center gap-2">
-              <Clock3 className="size-4" />
-              {event.startTime}–{event.endTime}
-            </span>
-          )}
-        </div>
+        {access === "venue_staff" ? (
+          <ul
+            className="mt-5 grid gap-3 body-sm text-muted-foreground"
+            aria-label="Booking requests"
+          >
+            {(event.venueRequests ?? []).map(entry => (
+              <li key={entry.id} className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="font-medium text-foreground">{entry.venueName}</span>
+                <span className="flex items-center gap-2">
+                  <CalendarDays className="size-4" />
+                  {formatLocalDate(entry.date)}
+                </span>
+                <span className="flex items-center gap-2">
+                  <Clock3 className="size-4" />
+                  {entry.startTime}–{entry.endTime}
+                </span>
+                <VenueRequestStatusBadge status={entry.status} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="mt-5 grid gap-3 body-sm text-muted-foreground sm:grid-cols-2">
+            {event.eventDate && (
+              <span className="flex items-center gap-2">
+                <CalendarDays className="size-4" />
+                {formatLocalDate(event.eventDate)}
+              </span>
+            )}
+            {event.startTime && event.endTime && (
+              <span className="flex items-center gap-2">
+                <Clock3 className="size-4" />
+                {event.startTime}–{event.endTime}
+              </span>
+            )}
+          </div>
+        )}
 
         {access === "attendee" && !canOpen && (
           <p className="mt-4 body-sm text-muted-foreground">

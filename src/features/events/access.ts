@@ -1,7 +1,7 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schema";
 import type { RegistrationAvailability } from "#/features/events/registration";
-import type { VenueSuggestion } from "#/features/venue-requests/schema";
+import type { VenueRequestStatus, VenueSuggestion } from "#/features/venue-requests/schema";
 
 export type EventAccess =
   | "organiser"
@@ -143,12 +143,11 @@ export interface VenueRequestRejection {
   suggestedVenueId: number | null;
 }
 
-/** Keep released bookings visible to Coordinators as audit records. */
+/**
+ * Keep released bookings visible to Coordinators as audit records. The entry that carries the
+ * release names its venue and window.
+ */
 export interface VenueRequestRelease {
-  venueName: string;
-  date: string;
-  startTime: string;
-  endTime: string;
   reason: string;
   changedByName: string | null;
 }
@@ -156,14 +155,16 @@ export interface VenueRequestRelease {
 /**
  * One venue booking request on an event card. One event holds several venue requests (one row
  * per event, venue and window). `conflict` is present only when a pending request overlaps an
- * approved booking (PTR-36). `rejection` and `release` ride on their own row. The coordinator
- * event list and the coordinator triage read carry every row with its details; the organiser
- * and venue-staff lists do not.
+ * approved booking or an active hold (PTR-36). `rejection` and `release` ride on their own row.
+ * The Coordinator's event list and triage read carry every non-withdrawn row with its details.
+ * The Organiser's list carries pending and approved rows only, so it has no details. The Venue
+ * Staff list carries their queue rows. A decided row in that queue is their own, so it keeps
+ * its details.
  */
 export interface EventVenueRequest {
   /** The venue_requests row id (text), so the venue-staff decision can load its detail. */
   id: string;
-  status: string;
+  status: VenueRequestStatus;
   /** The requested venue's name. */
   venueName: string;
   /** The requested window: date as `YYYY-MM-DD`, times as `HH:MM`. */
@@ -173,9 +174,9 @@ export interface EventVenueRequest {
   conflict?: "booking" | "hold";
   rejection?: VenueRequestRejection;
   release?: VenueRequestRelease;
-  /** True on the newest non-withdrawn row among the entries this list carries (by `updatedAt`,
-   * tie-break greater id). Set on one entry per list only; other entries omit the field. */
-  latest?: boolean;
+  /** Coordinator only (PTR-35): set on a rejected entry while the Coordinator can still adjust
+   * it. Other entries omit the field. */
+  adjustable?: true;
 }
 
 /**
