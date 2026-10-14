@@ -651,10 +651,11 @@ export const venueRequests = pgTable(
       "venue_requests_release_has_reason",
       sql`${table.status}::text <> 'released' or coalesce(${table.releaseReason}, '') ~ '[^[:space:]]'`
     ),
-    // Criterion 1: prevent two live requests for one venue and event. This partial index frees the
-    // pair after withdrawal.
-    uniqueIndex("venue_requests_pending_event_venue_idx")
-      .on(table.eventId, table.venueId)
+    // Criterion 1: refuse an exact double-submit, a second pending request for the same event,
+    // venue and window. An event can have several pending requests at one venue at different
+    // windows (PTR-138 AC4). This partial index frees the window after withdrawal.
+    uniqueIndex("venue_requests_pending_event_venue_window_idx")
+      .on(table.eventId, table.venueId, table.startsAt, table.endsAt)
       .where(sql`${table.status} = 'pending'`),
     // Look up both directions for each request: a caller's assignments and requests for events
     // the caller can see.

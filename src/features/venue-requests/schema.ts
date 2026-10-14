@@ -13,9 +13,12 @@ export const VENUE_REQUEST_DATE_MESSAGE = "Choose a date";
 export const VENUE_REQUEST_TIME_MESSAGE = "Enter start and end times as HH:MM";
 export const VENUE_REQUEST_TIME_ORDER_MESSAGE = "End time must be later than start time";
 export const VENUE_REQUEST_ID_MESSAGE = "Choose a booking request";
-/** The partial unique index on `(event_id, venue_id)` answers with this rather than a driver error. */
+/**
+ * The partial unique index on `(event_id, venue_id, starts_at, ends_at)` answers an exact
+ * double-submit with this message, not a driver error.
+ */
 export const VENUE_REQUEST_DUPLICATE_MESSAGE =
-  "A request for this venue is already pending for this event";
+  "This event already has a pending request for this venue and window.";
 export const VENUE_REQUEST_SETTLED_MESSAGE =
   "This request has already been settled and can no longer be withdrawn.";
 /** PTR-36: a request that is no longer pending cannot be approved again. */

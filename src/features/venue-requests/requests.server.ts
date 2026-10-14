@@ -100,13 +100,14 @@ function rethrowConstraintViolation(error: unknown, constraint: string, message:
 }
 
 /**
- * The partial unique index prevents duplicate requests. A racing double-submit reaches the driver
- * error that `isConstraintViolation` reads. Return the message shown by the panel.
+ * The partial unique index refuses a second pending request for the same event, venue and window.
+ * Request creation and hold conversion reach the driver error that `isConstraintViolation` reads.
+ * Return the message shown by the panel.
  */
 export function rethrowDuplicate(error: unknown): never {
   rethrowConstraintViolation(
     error,
-    "venue_requests_pending_event_venue_idx",
+    "venue_requests_pending_event_venue_window_idx",
     VENUE_REQUEST_DUPLICATE_MESSAGE
   );
 }
@@ -446,7 +447,8 @@ function assertNotRejected(status: string): void {
 /**
  * PTR-31 criterion 5: Let the Coordinator who raised a pending request withdraw it.
  * Keep the row as `withdrawn` to preserve its history. The partial unique index then allows a new
- * request for the event and venue. Refuse settled requests; withdrawal must not undo approval (PTR-36).
+ * request for the event, venue and window. Refuse settled requests; withdrawal must not undo
+ * approval (PTR-36).
  * Check `requestedById`, not the event's current assignee. Reassignment must not let a new
  * Coordinator withdraw someone else's request.
  */

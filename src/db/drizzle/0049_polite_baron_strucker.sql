@@ -1,0 +1,2 @@
+DROP INDEX "venue_requests_pending_event_venue_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "venue_requests_pending_event_venue_window_idx" ON "venue_requests" USING btree ("event_id","venue_id","starts_at","ends_at") WHERE "venue_requests"."status" = 'pending';
