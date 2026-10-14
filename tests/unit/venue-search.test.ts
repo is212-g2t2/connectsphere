@@ -323,14 +323,13 @@ describe("PTR-30 suitability reasons", () => {
   });
 
   it("names every failing criterion, not only the first (AC5)", () => {
-    // The shared requirement rule names its failures first, then search adds location.
     expect(
       criteria(
         { ...venue, maxCapacity: 10, location: "West Wing", supportedLayouts: ["other"] as const },
         filters,
         []
       )
-    ).toEqual(["capacity", "layout", "location"]);
+    ).toEqual(["capacity", "location", "layout"]);
   });
 
   it("names an approved booking that overlaps the requested window (AC4)", () => {
@@ -549,11 +548,21 @@ describe("PTR-138 requirementFailures", () => {
     ]);
   });
 
-  it("gives search the same requirement failures, before location and availability", () => {
-    const candidate = { ...venue, maxCapacity: 40, location: "West Wing" };
+  it("gives search the same requirement failures, with location after capacity", () => {
+    const candidate = {
+      ...venue,
+      maxCapacity: 40,
+      location: "West Wing",
+      supportedLayouts: ["boardroom"] as const,
+    };
     const searched = failures(candidate, filters, []);
     const required = requirementFailures(candidate, filters);
-    expect(searched.slice(0, required.length)).toEqual(required);
-    expect(searched.slice(required.length).map(failure => failure.criterion)).toEqual(["location"]);
+    expect(searched.filter(failure => failure.criterion !== "location")).toEqual(required);
+    expect(searched.map(failure => failure.criterion)).toEqual(["capacity", "location", "layout"]);
+    // Without a capacity failure, location comes first.
+    expect(criteria({ ...candidate, maxCapacity: 200 }, filters, [])).toEqual([
+      "location",
+      "layout",
+    ]);
   });
 });

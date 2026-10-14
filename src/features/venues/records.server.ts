@@ -286,8 +286,9 @@ export function requirementFailures(
 /**
  * Apply the PTR-29 search filters and PTR-30 suitability rules in one function. A venue cannot
  * pass a filter and fail suitability on the same criterion (PTR-29 AC2). Check every filter and
- * name every failure (PTR-30 AC5): the requirements first, then location and availability.
- * Search filters on `suitable`. This function has one caller: `handleSearchVenues`.
+ * name every failure (PTR-30 AC5), in this order: capacity, location, layout, accessibility,
+ * facilities, availability. Search filters on `suitable`. This function has one caller:
+ * `handleSearchVenues`.
  */
 export function evaluateVenueSuitability(
   venue: VenueSuitabilityCandidate,
@@ -298,7 +299,9 @@ export function evaluateVenueSuitability(
 ): SuitabilityVerdict {
   const failures = requirementFailures(venue, filters);
   if (filters.location && !normalise(venue.location).includes(normalise(filters.location))) {
-    failures.push({
+    // `requirementFailures` names capacity first. Location goes after it.
+    const afterCapacity = failures[0]?.criterion === "capacity" ? 1 : 0;
+    failures.splice(afterCapacity, 0, {
       criterion: "location",
       message: `Not in ${filters.location} (${venue.location})`,
     });
