@@ -269,7 +269,7 @@ describe("coordination request venue summary", () => {
     for (const entry of after.venueRequests) expect(entry).not.toHaveProperty("adjustable");
   });
 
-  it("is null when the event has no venue request", async () => {
+  it("lists no entries when the event has no venue request", async () => {
     const request = await handleGetCoordinationRequest(
       { id: eventId },
       session(),

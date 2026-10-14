@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,16 +7,19 @@ import type { EventPageData } from "#/features/events/page-data";
 import { venueRequestSections } from "#/features/venue-requests/components/venue-request-sections";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
-const { approveVenueRequest, navigate, invalidate, success, error } = vi.hoisted(() => ({
-  approveVenueRequest: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
-  navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
-  invalidate: vi.fn<() => Promise<void>>(),
-  success: vi.fn<(message: string) => void>(),
-  error: vi.fn<(message: string) => void>(),
-}));
+const { approveVenueRequest, rejectVenueRequest, navigate, invalidate, success, error } =
+  vi.hoisted(() => ({
+    approveVenueRequest: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
+    rejectVenueRequest:
+      vi.fn<(input: { data: { id: string; reason: string } }) => Promise<unknown>>(),
+    navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
+    invalidate: vi.fn<() => Promise<void>>(),
+    success: vi.fn<(message: string) => void>(),
+    error: vi.fn<(message: string) => void>(),
+  }));
 vi.mock("#/features/venue-requests/server-fns", () => ({
   approveVenueRequest,
-  rejectVenueRequest: vi.fn<() => Promise<unknown>>(),
+  rejectVenueRequest,
 }));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -128,6 +131,7 @@ function renderSection(data: EventPageData, id: string) {
 
 beforeEach(() => {
   approveVenueRequest.mockReset().mockResolvedValue({});
+  rejectVenueRequest.mockReset().mockResolvedValue({});
   navigate.mockReset().mockResolvedValue();
   invalidate.mockReset().mockResolvedValue();
   success.mockReset();
@@ -189,6 +193,30 @@ describe("venueRequestSections", () => {
 
     const ids = [...document.querySelectorAll("[id]")].map(element => element.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("submits each group's own request id when approving or rejecting", async () => {
+    renderSection(page({ details: [pending, secondPending] }), "decision");
+
+    // Reject from the first group. Its form submits the first request only.
+    const firstForm = screen.getByRole("form", { name: /Reject request for Riverside Loft/ });
+    await userEvent.type(
+      within(firstForm).getByRole("textbox", { name: /Reason for rejection/ }),
+      "Closed for floor resurfacing"
+    );
+    await userEvent.click(
+      within(firstForm).getByRole("button", { name: /Reject request for Riverside Loft/ })
+    );
+    await waitFor(() => expect(rejectVenueRequest).toHaveBeenCalledOnce());
+    expect(rejectVenueRequest).toHaveBeenCalledWith({
+      data: { id: "request-001", reason: "Closed for floor resurfacing" },
+    });
+
+    // Approve from the second group. Its button submits the second request only.
+    await userEvent.click(screen.getByRole("button", { name: /Approve request for Harbor Hall/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(approveVenueRequest).toHaveBeenCalledOnce());
+    expect(approveVenueRequest).toHaveBeenCalledWith({ data: { id: "request-002" } });
   });
 
   it("says a pending entry missing from a loaded read was decided after the page loaded", () => {

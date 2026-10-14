@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { EventProjection } from "#/features/events/access";
+import type { EventProjection, EventVenueRequest } from "#/features/events/access";
 import { venueSections } from "#/features/events/components/venue-section";
 import type { EventPageData } from "#/features/events/page-data";
 
@@ -76,7 +76,7 @@ const pendingEntry = {
   startTime: "17:00",
   endTime: "21:00",
   conflict: "booking",
-} as const;
+} satisfies EventVenueRequest;
 
 const approvedEntry = {
   id: "vr-2",
@@ -85,7 +85,7 @@ const approvedEntry = {
   date: "2026-12-06",
   startTime: "10:00",
   endTime: "12:00",
-} as const;
+} satisfies EventVenueRequest;
 
 const rejectedAdjustable = {
   id: "vr-3",
@@ -105,7 +105,7 @@ const rejectedAdjustable = {
     suggestion: null,
     suggestedVenueId: null,
   },
-} as const;
+} satisfies EventVenueRequest;
 
 const rejectedAnswered = {
   id: "vr-3",
@@ -124,7 +124,7 @@ const rejectedAnswered = {
     suggestion: null,
     suggestedVenueId: null,
   },
-} as const;
+} satisfies EventVenueRequest;
 
 const releasedEntry = {
   id: "vr-4",
@@ -137,7 +137,7 @@ const releasedEntry = {
     reason: "The organiser moved the session.",
     changedByName: "Ruth Staff",
   },
-} as const;
+} satisfies EventVenueRequest;
 
 describe("venue section", () => {
   it("shows the confirmed booking for the organiser", () => {
@@ -179,7 +179,7 @@ describe("venue section", () => {
     const { unmount } = renderVenue("coordinator", {
       status: "submitted",
       venueRequests: [{ ...rejectedAdjustable }, { ...approvedEntry }],
-    } as never);
+    });
 
     // A later booking at another venue leaves the rejected entry adjustable.
     expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
@@ -197,7 +197,7 @@ describe("venue section", () => {
           rejection: { ...rejectedAdjustable.rejection, venueId: 5, venueName: "Second Hall" },
         },
       ],
-    } as never);
+    });
 
     // The flag is per entry: two adjustable rejections give two links.
     expect(screen.getAllByText("The main hall is being rewired that weekend.")).toHaveLength(2);
@@ -209,7 +209,7 @@ describe("venue section", () => {
     renderVenue("coordinator", {
       status: "submitted",
       venueRequests: [{ ...rejectedAnswered }, { ...pendingEntry }],
-    } as never);
+    });
 
     expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
@@ -242,7 +242,7 @@ describe("venue section", () => {
     renderVenue("coordinator", {
       status: "confirmed",
       venueRequests: [{ ...rejectedAdjustable }],
-    } as never);
+    });
 
     expect(screen.getByText("Rejected")).toBeTruthy();
     expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
@@ -253,7 +253,7 @@ describe("venue section", () => {
     const { unmount } = renderVenue("coordinator", {
       status: "planning",
       venueRequests: [{ ...approvedEntry }, { ...releasedEntry }],
-    } as never);
+    });
 
     expect(screen.getByText("Released")).toBeTruthy();
     expect(screen.getByText("The organiser moved the session.")).toBeTruthy();
@@ -263,7 +263,7 @@ describe("venue section", () => {
     renderVenue("organiser", {
       status: "planning",
       venueRequests: [{ ...pendingEntry, conflict: undefined }, { ...approvedEntry }],
-    } as never);
+    });
 
     expect(screen.getByText("Harbor Hall")).toBeTruthy();
     expect(screen.getByText("Second Hall")).toBeTruthy();
@@ -368,7 +368,7 @@ describe("venue section", () => {
     renderVenue("organiser", {
       status: "submitted",
       venueRequests: [{ ...rejectedAdjustable }],
-    } as never);
+    });
 
     expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
   });
