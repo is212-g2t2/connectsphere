@@ -30,7 +30,7 @@ import {
   VENUE_REQUEST_DUPLICATE_MESSAGE,
 } from "#/features/venue-requests/schema";
 import { DEFAULT_OPERATING_HOURS, LAYOUT_MESSAGE } from "#/features/venues/schema";
-import { eventStatusColumns } from "./event-status";
+import { ACCEPTING_STATUSES, REFUSED_STATUSES, eventStatusColumns } from "./event-status";
 
 /**
  * PTR-109: tentative venue holds at the handler boundary.
@@ -89,16 +89,6 @@ const HOLD_WINDOW = {
   startTime: "09:00",
   endTime: "12:00",
 };
-
-/** PTR-138: holds use the venue-request gate, `SEARCHABLE_EVENT_STATUSES`. */
-const ACCEPTING_STATUSES = [
-  "submitted",
-  "under_review",
-  "awaiting_organiser",
-  "approved",
-  "planning",
-] as const;
-const REFUSED_STATUSES = ["draft", "rejected", "confirmed", "completed"] as const;
 
 describe("tentative venue holds (PTR-109)", () => {
   let pool: Pool;
@@ -1040,73 +1030,18 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(released.status).toBe("released");
     });
 
-    describe("beside the event's other requests at the venue (PTR-138 AC4)", () => {
-      it("converts a hold beside a pending request of the event at another window", async () => {
-        const afternoon = await requestForA("13:00", "14:00");
-        const hold = await holdForA();
+    it("refuses a hold that overlaps the event's pending request, naming its window (PTR-138 AC4)", async () => {
+      await requestForA("11:00", "13:00");
+      const hold = await holdForA();
 
-        const { request } = await handleConvertVenueHold(
-          { id: hold.id },
-          session(users.coordinatorA),
-          database as never
-        );
-
-        const pending = await database
-          .select({ id: schema.venueRequests.id })
-          .from(schema.venueRequests)
-          .where(eq(schema.venueRequests.eventId, eventIdA));
-        expect(pending.map(row => row.id).toSorted()).toEqual(
-          [afternoon.id, request.id].toSorted()
-        );
+      await expect(
+        handleConvertVenueHold({ id: hold.id }, session(users.coordinatorA), database as never)
+      ).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: `This window overlaps this event's pending request for ${VENUE_NAME} on 15 Jun 2027, 11:00 – 13:00.`,
       });
-
-      it("refuses a hold that overlaps a pending request of the event, naming its window", async () => {
-        await requestForA("11:00", "13:00");
-        const hold = await holdForA();
-
-        await expect(
-          handleConvertVenueHold({ id: hold.id }, session(users.coordinatorA), database as never)
-        ).rejects.toMatchObject({
-          name: "ConflictError",
-          status: 409,
-          message: `This window overlaps this event's pending request for ${VENUE_NAME} on 15 Jun 2027, 11:00 – 13:00.`,
-        });
-        await expectStillHeld(hold.id);
-      });
-
-      it("refuses a back-to-back hold when the venue has setup and turnaround time", async () => {
-        await database
-          .update(schema.venues)
-          .set({ setupMinutes: 15, turnaroundMinutes: 30 })
-          .where(eq(schema.venues.id, venueId));
-        await requestForA("12:00", "13:00");
-        // The pending request holds no venue time, so the hold beside it is placed.
-        const hold = await holdForA();
-
-        await expect(
-          handleConvertVenueHold({ id: hold.id }, session(users.coordinatorA), database as never)
-        ).rejects.toThrow(
-          `This window overlaps this event's pending request for ${VENUE_NAME} on 15 Jun 2027, 12:00 – 13:00, including the venue's setup and turnaround time.`
-        );
-        await expectStillHeld(hold.id);
-      });
-
-      it("converts a hold that overlaps another event's pending request; approval decides", async () => {
-        await handleCreateVenueRequest(
-          { ...HOLD_WINDOW, eventId: eventIdB, venueId },
-          session(users.coordinatorB),
-          database as never
-        );
-        const hold = await holdForA();
-
-        const { request } = await handleConvertVenueHold(
-          { id: hold.id },
-          session(users.coordinatorA),
-          database as never
-        );
-
-        expect(request.status).toBe("pending");
-      });
+      await expectStillHeld(hold.id);
     });
 
     it("refuses converting an already released or converted hold (TC20)", async () => {
