@@ -32,7 +32,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
-import { VenueRequestInput } from "#/features/venue-requests/schema";
+import {
+  SESSION_REQUIREMENT_INPUTS,
+  VenueHoldConversionInput,
+  VenueRequestInput,
+  sessionRequirementFormValues,
+  sessionRequirementInput,
+} from "#/features/venue-requests/schema";
+import type {
+  SessionRequirementFormValues,
+  SessionRequirements,
+} from "#/features/venue-requests/schema";
 import {
   convertVenueHold,
   createVenueHold,
@@ -53,14 +63,7 @@ export function ReleaseVenueHoldButton({ holdId }: { holdId: string }) {
   return <ConfirmHoldAction holdId={holdId} kind="release" />;
 }
 
-/**
- * PTR-109: Coordinator converts an active tentative hold to a booking request.
- */
-export function ConvertVenueHoldButton({ holdId }: { holdId: string }) {
-  return <ConfirmHoldAction holdId={holdId} kind="convert" />;
-}
-
-type HoldActionKind = "release" | "convert";
+type HoldActionKind = "release";
 
 const HOLD_ACTIONS: Record<
   HoldActionKind,
@@ -89,20 +92,140 @@ const HOLD_ACTIONS: Record<
     errorMessage: "Could not release this hold. Try again.",
     run: holdId => releaseVenueHold({ data: { id: holdId } }),
   },
-  convert: {
-    title: "Convert hold to booking request",
-    description:
-      "This will convert the tentative hold into a pending booking request and notify Venue Staff for approval.",
-    triggerLabel: "Convert to request",
-    pendingLabel: "Converting…",
-    confirmLabel: "Confirm conversion",
-    ariaLabel: "Convert tentative hold to booking request",
-    variant: "default",
-    successMessage: "Hold converted to booking request.",
-    errorMessage: "Could not convert this hold. Try again.",
-    run: holdId => convertVenueHold({ data: { id: holdId } }),
-  },
 };
+
+/** The conversion's server input: the hold and the session requirements as the form holds them. */
+function toConversionInput(holdId: string, values: SessionRequirementFormValues) {
+  return { id: holdId, ...sessionRequirementInput(values) };
+}
+
+/**
+ * PTR-109 AC5: Coordinator converts an active tentative hold to a booking request.
+ * PTR-138 AC1: the request carries session requirements. They start from the event's
+ * requirements, and the venue must meet them. Show each issue by its field, and a server refusal
+ * in the form, as `reject-booking-form.tsx` does.
+ */
+export function ConvertVenueHoldButton({
+  holdId,
+  requirements,
+}: {
+  holdId: string;
+  requirements: SessionRequirements;
+}) {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+  const form = useForm({
+    defaultValues: sessionRequirementFormValues(requirements),
+    validators: {
+      onSubmit: ({ value }) => {
+        const parsed = VenueHoldConversionInput.safeParse(toConversionInput(holdId, value));
+        if (parsed.success) return undefined;
+        const fields: Record<string, { message: string }> = {};
+        for (const issue of parsed.error.issues) {
+          fields[String(issue.path[0])] ??= { message: issue.message };
+        }
+        return { fields };
+      },
+    },
+    onSubmit: async ({ value, formApi }) => {
+      try {
+        await convertVenueHold({ data: toConversionInput(holdId, value) });
+      } catch (error) {
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form:
+              error instanceof Error ? error.message : "Could not convert this hold. Try again.",
+          },
+        });
+        // The hold may have changed since the calendar loaded. Reload it, keeping the message.
+        await router.invalidate({ filter: skipRootFilter }).catch(() => {});
+        return;
+      }
+      toast.success("Hold converted to booking request.");
+      setOpen(false);
+      await router.invalidate({ filter: skipRootFilter });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={<Button size="sm" aria-label="Convert tentative hold to booking request" />}
+      >
+        Convert to request
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Convert hold to booking request</DialogTitle>
+          <DialogDescription>
+            This converts the tentative hold into a pending booking request and notifies Venue
+            Staff. The session requirements start from the event&apos;s, and the venue must meet
+            them.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-4"
+          noValidate
+          onSubmit={event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (form.state.isSubmitting) return;
+            void form.handleSubmit();
+          }}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            {SESSION_REQUIREMENT_INPUTS.map(({ name, label, type, placeholder }) => (
+              <form.Field key={name} name={name}>
+                {field => (
+                  <Field data-invalid={field.state.meta.errors.length > 0}>
+                    <FieldLabel htmlFor={`convert-${holdId}-${name}`}>{label}</FieldLabel>
+                    <Input
+                      id={`convert-${holdId}-${name}`}
+                      type={type}
+                      {...(type === "number" ? { min: "1", step: "1" } : {})}
+                      placeholder={placeholder || undefined}
+                      value={field.state.value}
+                      onChange={changeEvent => field.handleChange(changeEvent.target.value)}
+                      onBlur={field.handleBlur}
+                      aria-invalid={field.state.meta.errors.length > 0}
+                    />
+                    <FieldError errors={field.state.meta.errors} />
+                  </Field>
+                )}
+              </form.Field>
+            ))}
+          </div>
+          <form.Subscribe selector={state => [state.isSubmitting, state.errorMap.onSubmit]}>
+            {([isSubmitting, onSubmitError]) => (
+              <>
+                {typeof onSubmitError === "string" ? (
+                  <p role="alert" className="body-sm text-destructive">
+                    {onSubmitError}
+                  </p>
+                ) : null}
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setOpen(false)}
+                    disabled={Boolean(isSubmitting)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" disabled={Boolean(isSubmitting)}>
+                    {isSubmitting ? "Converting…" : "Confirm conversion"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </form.Subscribe>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function ConfirmHoldAction({ holdId, kind }: { holdId: string; kind: HoldActionKind }) {
   const copy = HOLD_ACTIONS[kind];

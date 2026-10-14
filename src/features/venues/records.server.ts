@@ -12,6 +12,7 @@ import {
 import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import type { SessionRequirements } from "#/features/venue-requests/schema";
 import { eventTiming } from "#/features/events/access";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
@@ -423,6 +424,8 @@ export type VenueHold = AvailabilityRecord & {
   heldById: string | null;
   assignedCoordinatorId: string | null;
   eventStatus: EventRequestStatus;
+  /** The event's requirements, which a conversion starts from (PTR-138 AC1). */
+  eventRequirements: SessionRequirements;
 };
 
 /**
@@ -430,7 +433,8 @@ export type VenueHold = AvailabilityRecord & {
  * and search show these holds as occupied. A returned `startsAt`/`endsAt` pair is the occupied
  * period: the requested times extended by the hold's stored buffers, clamped to years 0001 to
  * 9999 for display. The overlap filter compares the unclamped period. The event join checks
- * ownership, but the result carries only the derived `canRelease` and `canConvert` values.
+ * ownership, but the calendar sends only the derived `canRelease` and `canConvert` values, and
+ * the event's requirements only to a viewer who can convert.
  */
 export async function loadVenueHolds(
   database: Pick<Database, "select">,
@@ -453,6 +457,12 @@ export async function loadVenueHolds(
       heldById: venueHolds.heldById,
       assignedCoordinatorId: eventRequests.assignedCoordinatorId,
       eventStatus: eventRequests.status,
+      eventRequirements: {
+        expectedAttendance: eventRequests.expectedAttendance,
+        layout: eventRequests.roomLayoutPreference,
+        accessibility: eventRequests.accessibilityRequirements,
+        facilities: eventRequests.venueRequirements,
+      },
     })
     .from(venueHolds)
     .innerJoin(eventRequests, eq(venueHolds.eventId, eventRequests.id))
@@ -476,6 +486,7 @@ export async function loadVenueHolds(
     heldById: row.heldById,
     assignedCoordinatorId: row.assignedCoordinatorId,
     eventStatus: row.eventStatus,
+    eventRequirements: row.eventRequirements,
   }));
 }
 
@@ -618,7 +629,8 @@ export async function handleGetVenueAvailability(
   // Ownership controls whether the calendar offers Release or Convert. Keep both ids on the
   // server; return only booleans so Venue Staff cannot learn who owns another user's hold.
   // Coordinators can release orphan holds to free a slot, but cannot convert them. Conversion
-  // also requires an event in `SEARCHABLE_EVENT_STATUSES`.
+  // also requires an event in `SEARCHABLE_EVENT_STATUSES`. Only a viewer who can convert gets the
+  // event's requirements, which the conversion form starts from (PTR-138 AC1).
   // Copy rows before adding viewer flags. The loader shares these rows with other callers.
   // oxlint-disable-next-line oxc/no-map-spread
   const manageableHolds = holds.map(hold => {
@@ -628,6 +640,7 @@ export async function handleGetVenueAvailability(
       ...hold,
       canRelease,
       canConvert,
+      convertDefaults: canConvert ? hold.eventRequirements : undefined,
     };
   });
 

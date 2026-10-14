@@ -1201,6 +1201,31 @@ describe("tentative venue holds (PTR-109)", () => {
         expect(pending.requirements.expectedAttendance).toBe(40);
       });
 
+      it("gives the calendar the event's requirements only for a hold the viewer can convert", async () => {
+        const hold = await holdForA();
+        const range = { venueId, startDate: HOLD_WINDOW.date, endDate: HOLD_WINDOW.date };
+
+        const assignee = await handleGetVenueAvailability(
+          range,
+          users.coordinatorA.id,
+          database as never
+        );
+        expect(assignee?.occupied.find(entry => entry.id === hold.id)?.convertDefaults).toEqual({
+          expectedAttendance: 100,
+          layout: "",
+          accessibility: "",
+          facilities: "",
+        });
+        const stranger = await handleGetVenueAvailability(
+          range,
+          users.coordinatorB.id,
+          database as never
+        );
+        const strangerHold = stranger?.occupied.find(entry => entry.id === hold.id);
+        expect(strangerHold?.canConvert).toBe(false);
+        expect(strangerHold?.convertDefaults).toBeUndefined();
+      });
+
       it("refuses a session layout that names no supported layout", async () => {
         const hold = await holdForA();
 

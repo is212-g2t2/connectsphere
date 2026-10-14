@@ -1,3 +1,4 @@
+import type { SessionRequirements } from "#/features/venue-requests/schema";
 import { WEEKDAYS } from "#/features/venues/schema";
 import type { OperatingHours } from "#/features/venues/schema";
 
@@ -134,6 +135,8 @@ export interface AvailabilityRecord extends AvailabilityPeriod {
   /** Show whether the viewer can release or convert this record (PTR-109). */
   canRelease?: boolean;
   canConvert?: boolean;
+  /** A hold the viewer can convert: the event's requirements, which the form starts from. */
+  convertDefaults?: SessionRequirements;
 }
 
 export interface OccupiedPeriod extends AvailabilityPeriod {
@@ -146,6 +149,7 @@ export interface OccupiedPeriod extends AvailabilityPeriod {
   /** Copy this value from the source record. Omit it for bookings and blocks. */
   canRelease?: boolean;
   canConvert?: boolean;
+  convertDefaults?: SessionRequirements;
 }
 
 export interface AvailabilityProjection {
@@ -209,6 +213,7 @@ export function projectAvailability(
       visibleEnd: visible.endsAt,
       canRelease: record.canRelease,
       canConvert: record.canConvert,
+      convertDefaults: record.convertDefaults,
     });
   }
   for (const booking of source.bookings) addOccupied(booking, "confirmed");

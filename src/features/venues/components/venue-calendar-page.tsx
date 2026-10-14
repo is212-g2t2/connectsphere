@@ -172,6 +172,7 @@ export function VenueCalendarPage({
             endsAt: period.visibleEnd,
             canRelease: period.canRelease,
             canConvert: period.canConvert,
+            convertDefaults: period.convertDefaults,
           })),
         ].toSorted((left, right) => compareTimestamps(left.startsAt, right.startsAt))
       : [];
@@ -399,7 +400,12 @@ export function VenueCalendarPage({
                         canHold &&
                         (period.canRelease || period.canConvert) && (
                           <div className="flex items-center gap-2">
-                            {period.canConvert && <ConvertVenueHoldButton holdId={period.id} />}
+                            {period.canConvert && period.convertDefaults && (
+                              <ConvertVenueHoldButton
+                                holdId={period.id}
+                                requirements={period.convertDefaults}
+                              />
+                            )}
                             {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
                           </div>
                         )}
