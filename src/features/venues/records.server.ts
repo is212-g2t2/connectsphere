@@ -15,7 +15,6 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { SessionRequirements } from "#/features/venue-requests/schema";
 import { eventTiming } from "#/features/events/access";
 import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
-import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { lockVenue } from "#/features/venue-requests/venue-lock.server";
 import {
   nextCivilDate,
@@ -446,7 +445,10 @@ export async function loadVenueHolds(
 ): Promise<VenueHold[]> {
   if (venueIds.length === 0) return [];
 
-  const { occupiedStart, occupiedEnd } = holdOccupancy();
+  // The hold's occupied period: its requested times extended by the buffers stored on the hold.
+  // This reader uses the source table until PTR-135 moves it to `venue_occupancy`.
+  const occupiedStart = sql`${venueHolds.startsAt} - make_interval(mins => ${venueHolds.setupMinutes})`;
+  const occupiedEnd = sql`${venueHolds.endsAt} + make_interval(mins => ${venueHolds.turnaroundMinutes})`;
 
   const rows = await database
     .select({

@@ -766,6 +766,14 @@ describe("event list handler (PTR-8)", () => {
         endsAt: "2026-10-12 16:00:00",
         status: "approved",
       });
+      // Approval writes a ledger row for its booking (ADR-7). The conflict flag reads that row.
+      await database.insert(schema.venueOccupancy).values({
+        venueId: fixtureVenueId,
+        eventId: fixtures.review.id,
+        venueRequestId: "el-venue-approved",
+        startsAt: "2026-10-12 15:00:00",
+        endsAt: "2026-10-12 16:00:00",
+      });
 
       const [flagged] = await handleListEvents(
         { eventId: fixtures.main.id },

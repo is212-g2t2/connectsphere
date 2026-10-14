@@ -1454,6 +1454,34 @@ describe("venue request handlers (PTR-31)", () => {
       expect((await approve(second.id, users.venueStaffB)).status).toBe("approved");
     });
 
+    it("flags a request that only the buffers make conflict, as approval refuses it (PTR-138)", async () => {
+      // The other event's booking stores 30 minutes each side, so it occupies 08:30–10:30.
+      await setBuffers(30);
+      const otherEventId = await createEvent("PTR-138 buffered booking event");
+      await approve((await raiseRequest(otherEventId, "09:00", "10:00")).id, users.venueStaffA);
+      await setBuffers(0);
+      const pending = await raiseRequest(eventId, "10:15", "10:30");
+
+      const [staffRead] = await handleGetPendingVenueRequestsForEvent(
+        { eventId },
+        session(users.venueStaffA),
+        database as never
+      );
+      expect(staffRead).toMatchObject({ id: pending.id, conflict: "booking" });
+      await expect(approve(pending.id, users.venueStaffA)).rejects.toThrow(
+        `${VENUE_NAME} is already booked 20 Apr 2027, 08:30 – 10:30`
+      );
+
+      // Outside the stored buffers, the flag and approval agree again.
+      const clear = await raiseRequest(eventId, "10:30", "11:00");
+      const reread = await handleGetPendingVenueRequestsForEvent(
+        { eventId },
+        session(users.venueStaffA),
+        database as never
+      );
+      expect(reread.find(row => row.id === clear.id)?.conflict).toBeNull();
+    });
+
     it("refuses a request assigned to another staff member", async () => {
       await database.insert(schema.venueRequests).values({
         id: "ptr-36-assigned-other",

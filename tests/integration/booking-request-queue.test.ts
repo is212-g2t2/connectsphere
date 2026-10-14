@@ -191,6 +191,14 @@ describe("pending booking request reader (PTR-32)", () => {
         createdAt: new Date("2037-04-02T05:00:00Z"),
       },
     ]);
+    // Approval writes a ledger row for its booking (ADR-7). The conflict flag reads that row.
+    await database.insert(schema.venueOccupancy).values({
+      venueId: conflictVenueId,
+      eventId: boundaryEventId,
+      venueRequestId: "ptr32-approved-booking",
+      startsAt: APPROVED_START,
+      endsAt: APPROVED_END,
+    });
   });
 
   it("returns every pending request of one event in window order, each with its own conflict", async () => {

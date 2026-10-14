@@ -1,16 +1,16 @@
-import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { SelectedFields } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
-import { eventRequests, venueHolds, venueRequests, venues } from "#/db/schema";
+import { eventRequests, venueOccupancy, venueRequests, venues } from "#/db/schema";
 import type {
   EventVenueRequest,
   VenueRequestRejection,
   VenueRequestRelease,
 } from "#/features/events/access";
-import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
+import { isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
 import type { SessionRequirements, VenueRequestStatus } from "#/features/venue-requests/schema";
 
 /**
@@ -115,15 +115,14 @@ interface VenueRequestEntryRow {
   requirements: SessionRequirements;
 }
 
-/** An approved booking that a pending request can overlap. */
-const approvedBooking = alias(venueRequests, "approved_booking");
-
 /**
  * PTR-36 criterion 4: Return the conflict kind of each pending row in `pendingIds`. A row
- * conflicts when it overlaps an approved booking or an active hold at its venue. A booking
- * outranks a hold, as the staff queue shows it. Use one self-join per kind, not a read per row.
- * Do not scope the joins to the caller's events: the booking or hold can belong to an event the
- * caller cannot see. Return only the kind, never the other event.
+ * conflicts when approval would refuse it against the ledger: it overlaps an approved booking or
+ * a held hold at its venue once the buffers count. Read the ledger with approval's expression
+ * (`overlapsLedger`): the stored buffers of each ledger row, and the venue's current buffers
+ * around the request. A booking outranks a hold, as approval names it. Use one join, not a read
+ * per row. Do not scope the join to the caller's events: the booking or hold can belong to an
+ * event the caller cannot see. Return only the kind, never the other event.
  */
 export async function loadPendingConflictKinds(
   database: Pick<Database, "select">,
@@ -131,48 +130,30 @@ export async function loadPendingConflictKinds(
 ): Promise<Map<string, "booking" | "hold">> {
   const kinds = new Map<string, "booking" | "hold">();
   if (pendingIds.length === 0) return kinds;
-  // Compare the hold's occupied period, not its requested times: a hold conflicts through its
-  // stored buffers too. `loadVenueHolds` applies the same rule, so the badge and the calendar
-  // agree.
-  const { occupiedStart, occupiedEnd } = holdOccupancy();
-  const [bookingConflicts, holdConflicts] = await Promise.all([
-    database
-      .select({ id: venueRequests.id })
-      .from(venueRequests)
-      .innerJoin(
-        approvedBooking,
-        and(
-          eq(approvedBooking.venueId, venueRequests.venueId),
-          eq(approvedBooking.status, "approved"),
-          lt(venueRequests.startsAt, approvedBooking.endsAt),
-          gt(venueRequests.endsAt, approvedBooking.startsAt)
-        )
+  const conflicts = await database
+    .select({ id: venueRequests.id, isHold: isHoldRow })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .innerJoin(
+      venueOccupancy,
+      overlapsLedger({
+        venueId: venueRequests.venueId,
+        startsAt: venueRequests.startsAt,
+        endsAt: venueRequests.endsAt,
+        setupMinutes: venues.setupMinutes,
+        turnaroundMinutes: venues.turnaroundMinutes,
+      })
+    )
+    .where(
+      and(
+        inArray(venueRequests.id, [...pendingIds]),
+        // The ids come from an earlier statement. A row approved since then would meet its own
+        // ledger row and flag as conflicting.
+        eq(venueRequests.status, "pending")
       )
-      .where(
-        and(
-          inArray(venueRequests.id, [...pendingIds]),
-          // The ids come from an earlier statement. A row approved since then would join itself
-          // and flag as conflicting, because a period always overlaps itself.
-          eq(venueRequests.status, "pending")
-        )
-      ),
-    database
-      .select({ id: venueRequests.id })
-      .from(venueRequests)
-      .innerJoin(
-        venueHolds,
-        and(
-          eq(venueHolds.venueId, venueRequests.venueId),
-          eq(venueHolds.status, "held"),
-          lt(venueRequests.startsAt, occupiedEnd),
-          gt(venueRequests.endsAt, occupiedStart)
-        )
-      )
-      .where(and(inArray(venueRequests.id, [...pendingIds]), eq(venueRequests.status, "pending"))),
-  ]);
-  for (const row of bookingConflicts) kinds.set(row.id, "booking");
-  for (const row of holdConflicts) {
-    if (!kinds.has(row.id)) kinds.set(row.id, "hold");
+    );
+  for (const row of conflicts) {
+    if (!row.isHold || !kinds.has(row.id)) kinds.set(row.id, row.isHold ? "hold" : "booking");
   }
   return kinds;
 }
