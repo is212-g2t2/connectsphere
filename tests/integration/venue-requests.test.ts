@@ -727,8 +727,8 @@ describe("venue request handlers (PTR-31)", () => {
     });
   });
 
-  describe("the context after the event leaves `submitted` (AC5)", () => {
-    it("still answers the raiser under review, and lets them withdraw", async () => {
+  describe("the context after the event leaves the request gate (AC5)", () => {
+    it("still answers the raiser once the event is rejected, and lets them withdraw", async () => {
       const request = await handleCreateVenueRequest(
         { ...WINDOW, eventId, venueId },
         session(users.coordinator),
@@ -737,7 +737,7 @@ describe("venue request handlers (PTR-31)", () => {
 
       await database
         .update(schema.eventRequests)
-        .set({ status: "under_review" })
+        .set(eventStatusColumns("rejected", users.coordinator))
         .where(eq(schema.eventRequests.id, eventId));
 
       const context = await handleGetVenueRequestContext(
@@ -755,7 +755,7 @@ describe("venue request handlers (PTR-31)", () => {
       expect(withdrawn.status).toBe("withdrawn");
     });
 
-    it("answers null for a non-assignee, non-raiser once the event is under review", async () => {
+    it("answers null for a non-assignee, non-raiser once the event is rejected", async () => {
       await handleCreateVenueRequest(
         { ...WINDOW, eventId, venueId },
         session(users.coordinator),
@@ -764,7 +764,7 @@ describe("venue request handlers (PTR-31)", () => {
 
       await database
         .update(schema.eventRequests)
-        .set({ status: "under_review" })
+        .set(eventStatusColumns("rejected", users.coordinator))
         .where(eq(schema.eventRequests.id, eventId));
 
       expect(
