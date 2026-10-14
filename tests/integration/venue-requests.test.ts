@@ -21,8 +21,6 @@ import {
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
-  venueRequestEventStatusMessage,
-  venueRequirementsMessage,
 } from "#/features/venue-requests/schema";
 import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
 import {
@@ -32,6 +30,8 @@ import {
   handleGetVenueRequestContext,
   handleRejectVenueRequest,
   handleWithdrawVenueRequest,
+  venueRequestEventStatusMessage,
+  venueRequirementsMessage,
 } from "#/features/venue-requests/requests.server";
 import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venues/records.server";
 import { DEFAULT_OPERATING_HOURS, LAYOUT_MESSAGE } from "#/features/venues/schema";

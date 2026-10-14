@@ -16,6 +16,7 @@ import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
   handleGetPendingVenueRequestsForEvent,
+  venueRequirementsMessage,
 } from "#/features/venue-requests/requests.server";
 import {
   handleGetVenueAvailability,
@@ -27,7 +28,6 @@ import { handleListEvents } from "#/features/events/records.server";
 import {
   VENUE_OCCUPANCY_CONFLICT_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
-  venueRequirementsMessage,
 } from "#/features/venue-requests/schema";
 import { DEFAULT_OPERATING_HOURS, LAYOUT_MESSAGE } from "#/features/venues/schema";
 import { eventStatusColumns } from "./event-status";

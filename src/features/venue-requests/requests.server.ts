@@ -7,7 +7,9 @@ import type { SessionUser } from "#/features/auth/session";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { assertEventAcceptsActivity } from "#/features/events/completion";
-import { formatProposedWindow } from "#/features/event-requests/format";
+import { formatProposedWindow, formatVenuePeriod } from "#/features/event-requests/format";
+import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 import {
@@ -20,9 +22,6 @@ import {
   parseVenueRequestEventInput,
   parseVenueRequestId,
   parseVenueRequestInput,
-  venueRequestEventOverlapMessage,
-  venueRequestEventStatusMessage,
-  venueRequirementsMessage,
 } from "#/features/venue-requests/schema";
 import type {
   SessionRequirementInput,
@@ -58,6 +57,43 @@ import { logger } from "#/lib/logger";
 type Database = typeof Db;
 
 const log = logger.getChild("venue-requests");
+
+/**
+ * PTR-138: approval refuses a request when its event is outside `SEARCHABLE_EVENT_STATUSES`, for
+ * example after confirmation or rejection. Name the status in the words that the status badge uses.
+ */
+export function venueRequestEventStatusMessage(status: EventRequestStatus): string {
+  const label = EVENT_REQUEST_STATUS_LABELS[status].toLowerCase();
+  return `This event is ${label}, so it cannot take a new venue booking.`;
+}
+
+/**
+ * PTR-138 AC4: refuse a window that overlaps a pending request or an approved booking of the same
+ * event at the same venue. Name that request's window and state. The venue's setup and turnaround
+ * time count between two sessions of one event, as approval counts them (ADR-7), so the message
+ * says so when the venue has buffers.
+ */
+export function venueRequestEventOverlapMessage(overlap: {
+  venueName: string;
+  status: "pending" | "approved";
+  startsAt: string;
+  endsAt: string;
+  buffered: boolean;
+}): string {
+  const existing = overlap.status === "approved" ? "approved booking" : "pending request";
+  const period = formatVenuePeriod(overlap.startsAt, overlap.endsAt);
+  const buffers = overlap.buffered ? ", including the venue's setup and turnaround time" : "";
+  return `This window overlaps this event's ${existing} for ${overlap.venueName} on ${period}${buffers}.`;
+}
+
+/**
+ * PTR-138 AC1: refuse a venue that does not meet the session's requirements. List every failure
+ * in the words that search uses, for example "Room B does not meet this session's requirements:
+ * Holds 40; 120 needed. Missing facilities: projector."
+ */
+export function venueRequirementsMessage(venueName: string, failures: readonly string[]): string {
+  return `${venueName} does not meet this session's requirements: ${failures.join(". ")}.`;
+}
 
 export interface VenueRequestNotification {
   venueRequestId: string;

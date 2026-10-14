@@ -27,8 +27,6 @@ import {
   parseVenueRequestInput,
   venueHoldConflictMessage,
   venueRequestConflictMessage,
-  venueRequestEventStatusMessage,
-  venueRequirementsMessage,
 } from "#/features/venue-requests/schema";
 
 const VALID = {
@@ -138,14 +136,6 @@ describe("session requirements on a request (PTR-138 AC1)", () => {
       LAYOUT_MESSAGE
     );
   });
-
-  it("names the venue and every failure in one refusal", () => {
-    expect(
-      venueRequirementsMessage("Room B", ["Holds 40; 120 needed", "Missing facilities: projector"])
-    ).toBe(
-      "Room B does not meet this session's requirements: Holds 40; 120 needed. Missing facilities: projector."
-    );
-  });
 });
 
 describe("venue request ids (PTR-31 criterion 5)", () => {
@@ -181,17 +171,6 @@ describe("venueRequestConflictMessage (PTR-36 criterion 2)", () => {
         endsAt: "2027-06-02T01:00:00",
       })
     ).toBe("Harbour Hall is already booked 1 Jun 2027, 22:00 – 2 Jun 2027, 01:00");
-  });
-});
-
-describe("venueRequestEventStatusMessage (PTR-138)", () => {
-  it("names the event status in the badge's words", () => {
-    expect(venueRequestEventStatusMessage("confirmed")).toBe(
-      "This event is confirmed, so it cannot take a new venue booking."
-    );
-    expect(venueRequestEventStatusMessage("rejected")).toBe(
-      "This event is rejected, so it cannot take a new venue booking."
-    );
   });
 });
 
