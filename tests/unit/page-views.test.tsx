@@ -425,8 +425,6 @@ describe("VenueDetailPage", () => {
               requirements: {
                 expectedAttendance: 80,
                 layout: "Theatre seating",
-                accessibilityRequirements: "",
-                requiredFacilities: "",
               },
               canWithdraw: true,
             },

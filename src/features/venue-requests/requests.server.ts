@@ -30,7 +30,7 @@ import type {
 import { checkVenueFree, occupyVenue } from "#/features/venue-requests/occupancy.server";
 import {
   loadPendingConflictKinds,
-  sessionRequirementColumns,
+  selectVenueRequestEntries,
 } from "#/features/venue-requests/records.server";
 import {
   assertSameVenue,
@@ -358,7 +358,7 @@ async function raiseDecisionNotification(
  * (`isVenueQueueRow`), earliest window first. The Venue Staff event page decides them all from
  * this one read. Read the rows and their conflicts in batched queries, never one read per row.
  * Return each request's own session requirements (PTR-138 AC1); a row from before them returns
- * the event's current requirements (`sessionRequirementColumns`).
+ * the event's current requirements (`selectVenueRequestEntries`).
  * Return only the venue, requested period, submission time, and operational requirements. Do
  * not expose event names or conflicting-event details to Venue Staff (TC12). An event with no
  * such request returns `[]`, so the answer reveals nothing about other events.
@@ -369,23 +369,10 @@ export async function handleGetPendingVenueRequestsForEvent(
   database: Database
 ) {
   const { eventId } = parseVenueRequestEventInput(data);
-  const rows = await database
-    .select({
-      id: venueRequests.id,
-      eventId: venueRequests.eventId,
-      venueId: venueRequests.venueId,
-      venueName: venues.name,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-      submittedAt: venueRequests.createdAt,
-      assignedStaffId: venueRequests.assignedStaffId,
-      status: venueRequests.status,
-      proposedDates: eventRequests.proposedDates,
-      requirements: sessionRequirementColumns,
-    })
-    .from(venueRequests)
-    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+  const rows = await selectVenueRequestEntries(database, {
+    assignedStaffId: venueRequests.assignedStaffId,
+    proposedDates: eventRequests.proposedDates,
+  })
     .where(and(eq(venueRequests.eventId, eventId), eq(venueRequests.status, "pending")))
     .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
   // An unassigned pending row stays readable by every staff member. A row assigned to another
@@ -398,13 +385,12 @@ export async function handleGetPendingVenueRequestsForEvent(
 
   return visible.map(row => ({
     id: row.id,
-    eventId: row.eventId,
     // The reject form's suggestion picker needs this to exclude the venue being rejected.
     venueId: row.venueId,
     venueName: row.venueName,
     startsAt: toLocalMinuteValue(row.startsAt),
     endsAt: toLocalMinuteValue(row.endsAt),
-    submittedAt: row.submittedAt,
+    submittedAt: row.createdAt,
     conflict: conflicts.get(row.id) ?? null,
     requirements: {
       eventTiming: formatProposedWindow(
@@ -457,17 +443,7 @@ export async function handleGetVenueRequestContext(
       .from(eventRequests)
       .where(eq(eventRequests.id, eventId))
       .limit(1),
-    database
-      .select({
-        id: venueRequests.id,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-        status: venueRequests.status,
-        requestedById: venueRequests.requestedById,
-        requirements: sessionRequirementColumns,
-      })
-      .from(venueRequests)
-      .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+    selectVenueRequestEntries(database, { requestedById: venueRequests.requestedById })
       .where(
         and(
           eq(venueRequests.eventId, eventId),
@@ -506,7 +482,11 @@ export async function handleGetVenueRequestContext(
         startsAt: toLocalMinuteValue(row.startsAt),
         endsAt: toLocalMinuteValue(row.endsAt),
         status,
-        requirements: row.requirements,
+        // The panel tells two sessions apart by attendance and layout only.
+        requirements: {
+          expectedAttendance: row.requirements.expectedAttendance,
+          layout: row.requirements.layout,
+        },
         canWithdraw: status === "pending" && row.requestedById === actor.id,
       };
     }),

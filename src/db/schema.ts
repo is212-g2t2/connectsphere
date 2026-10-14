@@ -628,11 +628,10 @@ export const venueRequests = pgTable(
     suggestedStartTime: time("suggested_start_time"),
     suggestedEndTime: time("suggested_end_time"),
     /**
-     * PTR-138 AC1: the session requirements of this request. They start from the event's
-     * requirements, and creation refuses a venue that does not meet them. Creation always writes
-     * the three text columns. A null in them marks a row from before session requirements, so
-     * readers use the event's current requirements (`sessionRequirementColumns`). Attendance is
-     * also null when neither the session nor the event states one.
+     * PTR-138 AC1: the session requirements of this request, which start from the event's. Creation
+     * always writes `layout`, so a null `layout` marks a row from before session requirements, and
+     * readers then use the event's current requirements (`selectVenueRequestEntries`). Attendance
+     * is null when neither the session nor the event states one.
      */
     expectedAttendance: integer("expected_attendance"),
     layout: text("layout"),

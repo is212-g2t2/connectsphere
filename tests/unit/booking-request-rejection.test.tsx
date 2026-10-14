@@ -35,7 +35,6 @@ vi.mock("sonner", () => ({ toast: { success, error: toastError } }));
 
 const detail: PendingVenueRequestDetail = {
   id: "request-001",
-  eventId: 41,
   venueId: 3,
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",

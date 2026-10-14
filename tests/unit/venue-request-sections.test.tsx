@@ -31,7 +31,6 @@ vi.mock("sonner", () => ({ toast: { success, error } }));
 
 const pending: PendingVenueRequestDetail = {
   id: "request-001",
-  eventId: 41,
   venueId: 3,
   venueName: "Riverside Loft",
   startsAt: "2026-11-21T18:00",
@@ -49,7 +48,6 @@ const pending: PendingVenueRequestDetail = {
 
 const secondPending: PendingVenueRequestDetail = {
   id: "request-002",
-  eventId: 41,
   venueId: 4,
   venueName: "Harbor Hall",
   startsAt: "2026-11-22T10:00",

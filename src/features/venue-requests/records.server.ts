@@ -1,5 +1,7 @@
 import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import type { SQLWrapper } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import type { SelectedFields } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import { eventRequests, venueHolds, venueRequests, venues } from "#/db/schema";
@@ -21,27 +23,41 @@ import type { SessionRequirements, VenueRequestStatus } from "#/features/venue-r
 type Database = typeof Db;
 
 /**
- * PTR-138 AC1: a request's own session requirements. A row from before session requirements
- * stores nulls, so read the event's current requirement in their place. Every reader of session
- * requirements selects this object and joins `event_requests` on the request's event.
+ * PTR-138 AC1: a row from before session requirements. Creation always stores a layout, blank or
+ * not, so a null layout marks only these rows.
  */
-export const sessionRequirementColumns = {
-  expectedAttendance: sql<
-    number | null
-  >`coalesce(${venueRequests.expectedAttendance}, ${eventRequests.expectedAttendance})`,
-  layout: sql<string>`coalesce(${venueRequests.layout}, ${eventRequests.roomLayoutPreference})`,
-  accessibilityRequirements: sql<string>`coalesce(${venueRequests.accessibilityRequirements}, ${eventRequests.accessibilityRequirements})`,
-  requiredFacilities: sql<string>`coalesce(${venueRequests.requiredFacilities}, ${eventRequests.venueRequirements})`,
-};
+const isLegacyRow = sql`${venueRequests.layout} is null`;
 
-/** The venue that Venue Staff suggested on a rejection. Join it with `leftJoin`. */
-export const suggestedVenue = alias(venues, "suggested_venue");
+/** Read the stored session value, or the event's current value for a legacy row. */
+function sessionValue<T>(stored: SQLWrapper, event: SQLWrapper) {
+  return sql<T>`case when ${isLegacyRow} then ${event} else ${stored} end`;
+}
 
 /**
- * The columns that one event-card entry reads. Both entry readers select these, join `venues`
- * on the requested venue and `event_requests` on its event, and left-join `suggestedVenue`.
+ * PTR-138 AC1: a request's own session requirements. A legacy row reads the event's current
+ * requirements in their place. A newer row returns what it stores, a null attendance included.
  */
-export const venueRequestEntryColumns = {
+const sessionRequirementColumns = {
+  expectedAttendance: sessionValue<number | null>(
+    venueRequests.expectedAttendance,
+    eventRequests.expectedAttendance
+  ),
+  layout: sessionValue<string>(venueRequests.layout, eventRequests.roomLayoutPreference),
+  accessibilityRequirements: sessionValue<string>(
+    venueRequests.accessibilityRequirements,
+    eventRequests.accessibilityRequirements
+  ),
+  requiredFacilities: sessionValue<string>(
+    venueRequests.requiredFacilities,
+    eventRequests.venueRequirements
+  ),
+};
+
+/** The venue that Venue Staff suggested on a rejection. */
+const suggestedVenue = alias(venues, "suggested_venue");
+
+/** The columns that one event-card entry reads. `selectVenueRequestEntries` adds their joins. */
+const venueRequestEntryColumns = {
   id: venueRequests.id,
   status: venueRequests.status,
   createdAt: venueRequests.createdAt,
@@ -60,6 +76,23 @@ export const venueRequestEntryColumns = {
   suggestedEndTime: venueRequests.suggestedEndTime,
   requirements: sessionRequirementColumns,
 };
+
+/**
+ * Select venue-request rows with their entry columns, session requirements included, plus
+ * `extra`. Join the requested venue, the event that legacy rows read, and the suggested venue.
+ * Every reader of entries or session requirements starts here, then adds `where` and `orderBy`.
+ */
+export function selectVenueRequestEntries<TExtra extends SelectedFields>(
+  database: Pick<Database, "select">,
+  extra: TExtra
+) {
+  return database
+    .select({ ...venueRequestEntryColumns, ...extra })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+    .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId));
+}
 
 /** One venue-request row as `venueRequestEntryColumns` selects it. */
 interface VenueRequestEntryRow {
@@ -246,12 +279,7 @@ export async function loadVenueRequestsForEvent(
   database: Pick<Database, "select">,
   eventId: number
 ): Promise<EventVenueRequest[]> {
-  const rows = await database
-    .select(venueRequestEntryColumns)
-    .from(venueRequests)
-    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
-    .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
+  const rows = await selectVenueRequestEntries(database, {})
     .where(eq(venueRequests.eventId, eventId))
     .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
 

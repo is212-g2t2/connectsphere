@@ -113,6 +113,8 @@ const EVENT_REQUIREMENTS = {
   requiredFacilities: "Projector, PA system",
 };
 const userIds = Object.values(users).map(user => user.id);
+/** What the venue page shows of those requirements: the attendance and layout of each session. */
+const EVENT_SESSION_SUMMARY = { expectedAttendance: 80, layout: "Theatre seating" };
 
 function session(user: (typeof users)[keyof typeof users]): SessionUser {
   return { id: user.id, email: user.email, name: user.name, role: user.role };
@@ -627,7 +629,9 @@ describe("venue request handlers (PTR-31)", () => {
         session(users.coordinator),
         database as never
       );
-      expect(context?.requests.map(row => row.requirements)).toEqual([stored]);
+      expect(context?.requests.map(row => row.requirements)).toEqual([
+        { expectedAttendance: 30, layout: "Boardroom" },
+      ]);
 
       const [coordinatorCard] = await handleListEvents(
         { eventId },
@@ -687,7 +691,9 @@ describe("venue request handlers (PTR-31)", () => {
         session(users.coordinator),
         database as never
       );
-      expect(context?.requests.map(row => row.requirements)).toEqual([current]);
+      expect(context?.requests.map(row => row.requirements)).toEqual([
+        { expectedAttendance: 90, layout: current.layout },
+      ]);
       const [coordinatorCard] = await handleListEvents(
         { eventId },
         session(users.coordinator),
@@ -702,6 +708,37 @@ describe("venue request handlers (PTR-31)", () => {
           entry => entry.requirements
         )
       ).toEqual([current]);
+    });
+
+    it("keeps a new request's blank attendance blank after the event states one", async () => {
+      // The event states no attendance, so the request stores none and creation checks none.
+      await database
+        .update(schema.eventRequests)
+        .set({ expectedAttendance: null })
+        .where(eq(schema.eventRequests.id, eventId));
+      const request = await requestRoom(venueId);
+      expect(await readRow(request.id)).toMatchObject({
+        expectedAttendance: null,
+        layout: "Theatre seating",
+      });
+      // A new attendance on the event was never checked against this venue.
+      await database
+        .update(schema.eventRequests)
+        .set({ expectedAttendance: 500 })
+        .where(eq(schema.eventRequests.id, eventId));
+
+      const [staffRead] = await handleGetPendingVenueRequestsForEvent(
+        { eventId },
+        session(users.venueStaffA),
+        database as never
+      );
+      expect(staffRead.requirements.expectedAttendance).toBeNull();
+      const [coordinatorCard] = await handleListEvents(
+        { eventId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(coordinatorCard.event.venueRequests?.[0].requirements?.expectedAttendance).toBeNull();
     });
   });
 
@@ -957,7 +994,7 @@ describe("venue request handlers (PTR-31)", () => {
           startsAt: "2027-04-20T09:00",
           endsAt: "2027-04-20T12:30",
           status: "pending",
-          requirements: EVENT_REQUIREMENTS,
+          requirements: EVENT_SESSION_SUMMARY,
           canWithdraw: true,
         },
       ]);
@@ -1018,7 +1055,7 @@ describe("venue request handlers (PTR-31)", () => {
           startsAt: "2027-04-20T14:00",
           endsAt: "2027-04-20T15:00",
           status: "pending",
-          requirements: EVENT_REQUIREMENTS,
+          requirements: EVENT_SESSION_SUMMARY,
           canWithdraw: true,
         },
       ]);

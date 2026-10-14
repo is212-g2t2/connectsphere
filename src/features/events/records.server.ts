@@ -37,8 +37,7 @@ import {
   adjustableRejectionIds,
   eventVenueRequestFromRow,
   loadPendingConflictKinds,
-  suggestedVenue,
-  venueRequestEntryColumns,
+  selectVenueRequestEntries,
 } from "#/features/venue-requests/records.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 
@@ -254,16 +253,10 @@ export async function handleListEvents(
 
   const requestIds = requestRows.map(row => row.id);
   const [venueRows, equipmentRows, registrationRows] = await Promise.all([
-    database
-      .select({
-        eventId: venueRequests.eventId,
-        assignedStaffId: venueRequests.assignedStaffId,
-        ...venueRequestEntryColumns,
-      })
-      .from(venueRequests)
-      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-      .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
-      .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
+    selectVenueRequestEntries(database, {
+      eventId: venueRequests.eventId,
+      assignedStaffId: venueRequests.assignedStaffId,
+    })
       .where(inArray(venueRequests.eventId, requestIds))
       .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id)),
     database
