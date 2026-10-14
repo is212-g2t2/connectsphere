@@ -7,7 +7,7 @@ import type { EventProjection, RegisteredAttendee } from "#/features/events/acce
 import { hasRegistrationRecord } from "#/features/events/components/registrations-section";
 import type { EventPageData } from "#/features/events/page-data";
 import { listEventRegistrations, listEvents } from "#/features/events/server-fns";
-import { getPendingVenueRequest } from "#/features/venue-requests/server-fns";
+import { getPendingVenueRequestsForEvent } from "#/features/venue-requests/server-fns";
 import { listVenueOptions } from "#/features/venues/server-fns";
 import { logger } from "#/lib/logger";
 
@@ -66,34 +66,31 @@ export async function loadEventPageData(
       return { kind: "event", event: projection, viewerId, coordination, attendees };
     }
     case "venue_staff": {
-      // Decide every pending entry, in projection order. Each read degrades alone: a failed
-      // read logs and leaves its entry to render read-only from the projection. A race can
-      // settle a request between the list and the detail read; the read then answers `null`.
-      // The venue catalogue read needs no request data, so it runs with the detail reads.
-      const pendingIds = (projection.event.venueRequests ?? [])
-        .filter(entry => entry.status === "pending")
-        .map(entry => entry.id);
-      if (pendingIds.length === 0) return { kind: "event", event: projection, viewerId };
+      // Load the full request of every pending entry in one read. A failed read logs and leaves
+      // `venueDecisions` unset; each pending entry then renders read-only from the projection.
+      // A request decided between the list and this read is missing from the result. The venue
+      // catalogue read needs no request data, so it runs beside the request read.
+      const hasPending = (projection.event.venueRequests ?? []).some(
+        entry => entry.status === "pending"
+      );
+      if (!hasPending) return { kind: "event", event: projection, viewerId };
       const [requests, venues] = await Promise.all([
-        Promise.all(
-          pendingIds.map(id =>
-            getPendingVenueRequest({ data: { id } }).catch(error => {
-              log.warn("Venue decision read failed", {
-                eventId,
-                requestId: id,
-                reason: error instanceof Error ? error.message : String(error),
-              });
-              return null;
-            })
-          )
-        ),
+        getPendingVenueRequestsForEvent({ data: { eventId } }).catch((error: unknown) => {
+          log.warn("Venue decision read failed", {
+            eventId,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        }),
         // Offer a suggested venue only to a role that may decide, as the detail route did.
         can(role, { venue_request: ["decide"] }) ? listVenueOptions() : Promise.resolve([]),
       ]);
-      const venueDecisions = requests.flatMap(request =>
-        request === null ? [] : [{ request, venues }]
-      );
-      return { kind: "event", event: projection, viewerId, venueDecisions };
+      return {
+        kind: "event",
+        event: projection,
+        viewerId,
+        venueDecisions: requests === null ? undefined : { requests, venues },
+      };
     }
     case "technical_support": {
       // A catalogue fault must not take the page down. `null` lets the page report the failed list.

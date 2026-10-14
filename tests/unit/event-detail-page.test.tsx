@@ -143,9 +143,9 @@ describe("EventDetailPage", () => {
                 },
               ],
             }),
-            venueDecisions: [
-              {
-                request: {
+            venueDecisions: {
+              requests: [
+                {
                   id: "vr-1",
                   venueId: 3,
                   venueName: "Riverside Loft",
@@ -161,9 +161,9 @@ describe("EventDetailPage", () => {
                     requiredFacilities: "6 power drops, WiFi",
                   },
                 },
-                venues: [],
-              },
-            ],
+              ],
+              venues: [],
+            },
           } as unknown as EventPageData
         }
       />

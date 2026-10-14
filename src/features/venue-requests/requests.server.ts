@@ -18,12 +18,14 @@ import {
   VENUE_REQUEST_SETTLED_MESSAGE,
   parseVenueRejectionInput,
   parseVenueRequestContext,
+  parseVenueRequestEventInput,
   parseVenueRequestId,
   parseVenueRequestInput,
   venueRequestEventOverlapMessage,
   venueRequestEventStatusMessage,
 } from "#/features/venue-requests/schema";
 import { checkVenueFree, occupyVenue } from "#/features/venue-requests/occupancy.server";
+import { loadPendingConflictKinds } from "#/features/venue-requests/records.server";
 import {
   assertSameVenue,
   keyShareEvent,
@@ -33,7 +35,6 @@ import {
 } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
-import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
@@ -254,61 +255,20 @@ async function raiseDecisionNotification(
 }
 
 /**
- * Return the overlap for one request. An approved booking takes precedence over an active hold.
- * Return `null` when neither exists.
+ * PTR-32 AC3, PTR-138: Read every pending request of one event that the caller's queue grants
+ * (`isVenueQueueRow`), earliest window first. The Venue Staff event page decides them all from
+ * this one read. Read the rows and their conflicts in batched queries, never one read per row.
+ * `venue_requests` stores no requirement snapshot, so return the event's current requirements.
+ * Return only the venue, requested period, submission time, and operational requirements. Do
+ * not expose event names or conflicting-event details to Venue Staff (TC12). An event with no
+ * such request returns `[]`, so the answer reveals nothing about other events.
  */
-async function loadConflictKind(
-  database: Database,
-  venueId: number,
-  startsAt: string,
-  endsAt: string
-): Promise<"booking" | "hold" | null> {
-  const [bookings, holds] = await Promise.all([
-    loadVenueBookings(database, [venueId], startsAt, endsAt),
-    loadVenueHolds(database, [venueId], startsAt, endsAt),
-  ]);
-  if (bookings.length > 0) return "booking";
-  if (holds.length > 0) return "hold";
-  return null;
-}
-
-function summarizePendingVenueRequest(
-  row: {
-    id: string;
-    eventId: number;
-    venueId: number;
-    venueName: string;
-    startsAt: string;
-    endsAt: string;
-    submittedAt: Date;
-  },
-  conflict: "booking" | "hold" | null
-) {
-  return {
-    id: row.id,
-    // The venue-request route forwards to the event page, so include the event id in every row.
-    eventId: row.eventId,
-    // The reject form's suggestion picker needs this to exclude the venue being rejected.
-    venueId: row.venueId,
-    venueName: row.venueName,
-    startsAt: toLocalMinuteValue(row.startsAt),
-    endsAt: toLocalMinuteValue(row.endsAt),
-    submittedAt: row.submittedAt,
-    conflict,
-  };
-}
-
-/**
- * PTR-32 AC3: Read current event requirements for the detail view. `venue_requests` does not store
- * a requirement snapshot. Return only the venue, requested period, submission time, and operational
- * requirements. Do not expose event names or conflicting-event details to Venue Staff (TC12).
- */
-export async function handleGetPendingVenueRequest(
+export async function handleGetPendingVenueRequestsForEvent(
   data: unknown,
   actor: SessionUser,
   database: Database
 ) {
-  const { id } = parseVenueRequestId(data);
+  const { eventId } = parseVenueRequestEventInput(data);
   const rows = await database
     .select({
       id: venueRequests.id,
@@ -329,23 +289,29 @@ export async function handleGetPendingVenueRequest(
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
     .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
-    .where(and(eq(venueRequests.id, id), eq(venueRequests.status, "pending")))
-    .limit(1);
-  const row = rows.at(0);
-  // A missing row or a row that left `pending` is an ordinary result. The route returns 404, as
-  // `handleGetVenue` and `handleGetEventRequest` do.
-  if (!row) return null;
+    .where(and(eq(venueRequests.eventId, eventId), eq(venueRequests.status, "pending")))
+    .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
   // An unassigned pending row stays readable by every staff member. A row assigned to another
   // staff member is invisible to the caller, so its venue, window, and requirements stay hidden.
-  if (!isVenueQueueRow(row, actor.id)) return null;
+  const visible = rows.filter(row => isVenueQueueRow(row, actor.id));
+  const conflicts = await loadPendingConflictKinds(
+    database,
+    visible.map(row => row.id)
+  );
 
-  const conflict = await loadConflictKind(database, row.venueId, row.startsAt, row.endsAt);
-
-  return {
-    ...summarizePendingVenueRequest(row, conflict),
+  return visible.map(row => ({
+    id: row.id,
+    eventId: row.eventId,
+    // The reject form's suggestion picker needs this to exclude the venue being rejected.
+    venueId: row.venueId,
+    venueName: row.venueName,
+    startsAt: toLocalMinuteValue(row.startsAt),
+    endsAt: toLocalMinuteValue(row.endsAt),
+    submittedAt: row.submittedAt,
+    conflict: conflicts.get(row.id) ?? null,
     requirements: {
       eventTiming: formatProposedWindow(
-        row.proposedDates.find(window => window.start !== undefined && window.end !== undefined) ??
+        row.proposedDates.find(period => period.start !== undefined && period.end !== undefined) ??
           {}
       ),
       expectedAttendance: row.expectedAttendance,
@@ -353,7 +319,7 @@ export async function handleGetPendingVenueRequest(
       accessibility: row.accessibility,
       requiredFacilities: row.requiredFacilities,
     },
-  };
+  }));
 }
 
 /**

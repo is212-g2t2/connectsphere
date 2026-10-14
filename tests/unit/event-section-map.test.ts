@@ -251,7 +251,7 @@ describe("eventSections", () => {
             },
           ],
         }),
-        venueDecisions: [{ request: {}, venues: [] }],
+        venueDecisions: { requests: [{ id: "vr-1" }], venues: [] },
       } as unknown as EventPageData)
     ).toEqual(["request", "decision"]);
   });

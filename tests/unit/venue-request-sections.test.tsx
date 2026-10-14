@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,16 +7,19 @@ import type { EventPageData } from "#/features/events/page-data";
 import { venueRequestSections } from "#/features/venue-requests/components/venue-request-sections";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
-const { approveVenueRequest, navigate, invalidate, success, error } = vi.hoisted(() => ({
-  approveVenueRequest: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
-  navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
-  invalidate: vi.fn<() => Promise<void>>(),
-  success: vi.fn<(message: string) => void>(),
-  error: vi.fn<(message: string) => void>(),
-}));
+const { approveVenueRequest, rejectVenueRequest, navigate, invalidate, success, error } =
+  vi.hoisted(() => ({
+    approveVenueRequest: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
+    rejectVenueRequest:
+      vi.fn<(input: { data: { id: string; reason: string } }) => Promise<unknown>>(),
+    navigate: vi.fn<(input: { to: string }) => Promise<void>>(),
+    invalidate: vi.fn<() => Promise<void>>(),
+    success: vi.fn<(message: string) => void>(),
+    error: vi.fn<(message: string) => void>(),
+  }));
 vi.mock("#/features/venue-requests/server-fns", () => ({
   approveVenueRequest,
-  rejectVenueRequest: vi.fn<() => Promise<unknown>>(),
+  rejectVenueRequest,
 }));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -62,6 +65,16 @@ const secondPending: PendingVenueRequestDetail = {
   },
 };
 
+/** A pending projection entry with no loaded request. */
+const harborHallEntry = {
+  id: "request-002",
+  status: "pending",
+  venueName: "Harbor Hall",
+  date: "2026-11-22",
+  startTime: "10:00",
+  endTime: "12:00",
+};
+
 /** One projection entry for a loaded detail. Settled entries carry their outcome instead. */
 function entryOf(detail: PendingVenueRequestDetail) {
   return {
@@ -78,6 +91,8 @@ function page(input: {
   details?: PendingVenueRequestDetail[];
   entries?: unknown[];
   status?: string;
+  /** The batched request read failed, so the loader set no `venueDecisions`. */
+  readFailed?: boolean;
 }): EventPageData {
   const details = input.details ?? [];
   return {
@@ -93,13 +108,15 @@ function page(input: {
         venueRequests: input.entries ?? details.map(entryOf),
       },
     },
-    venueDecisions: details.map(request => ({
-      request,
-      venues: [
-        { id: 3, name: "Riverside Loft" },
-        { id: 4, name: "Harbor Hall" },
-      ],
-    })),
+    venueDecisions: input.readFailed
+      ? undefined
+      : {
+          requests: details,
+          venues: [
+            { id: 3, name: "Riverside Loft" },
+            { id: 4, name: "Harbor Hall" },
+          ],
+        },
   } as unknown as EventPageData;
 }
 
@@ -114,6 +131,7 @@ function renderSection(data: EventPageData, id: string) {
 
 beforeEach(() => {
   approveVenueRequest.mockReset().mockResolvedValue({});
+  rejectVenueRequest.mockReset().mockResolvedValue({});
   navigate.mockReset().mockResolvedValue();
   invalidate.mockReset().mockResolvedValue();
   success.mockReset();
@@ -133,10 +151,17 @@ describe("venueRequestSections", () => {
     renderSection(data, "decision");
     expect(screen.getByRole("heading", { name: "Record a decision" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Approve request for Riverside Loft/ })).toBeTruthy();
-    expect(screen.getByText("Conflicting booking")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Reject request for Riverside Loft/ })).toBeTruthy();
     expect(screen.getByLabelText("Reason for rejection (required)")).toBeTruthy();
     expect(screen.getByRole("form", { name: /Reject request for Riverside Loft/ })).toBeTruthy();
+  });
+
+  it("shows a conflicting request's badge once across the staff page", () => {
+    const data = page({ details: [pending] });
+    const sections = venueRequestSections(data).filter(section => section.visible(data));
+    render(<>{sections.map(section => section.render(data))}</>);
+
+    expect(screen.getAllByText("Conflicting booking")).toHaveLength(1);
   });
 
   it("renders one details block and one decision group per pending request, with unique ids", () => {
@@ -170,32 +195,49 @@ describe("venueRequestSections", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("renders a read-only block without controls for a pending entry whose read failed", () => {
+  it("submits each group's own request id when approving or rejecting", async () => {
+    renderSection(page({ details: [pending, secondPending] }), "decision");
+
+    // Reject from the first group. Its form submits the first request only.
+    const firstForm = screen.getByRole("form", { name: /Reject request for Riverside Loft/ });
+    await userEvent.type(
+      within(firstForm).getByRole("textbox", { name: /Reason for rejection/ }),
+      "Closed for floor resurfacing"
+    );
+    await userEvent.click(
+      within(firstForm).getByRole("button", { name: /Reject request for Riverside Loft/ })
+    );
+    await waitFor(() => expect(rejectVenueRequest).toHaveBeenCalledOnce());
+    expect(rejectVenueRequest).toHaveBeenCalledWith({
+      data: { id: "request-001", reason: "Closed for floor resurfacing" },
+    });
+
+    // Approve from the second group. Its button submits the second request only.
+    await userEvent.click(screen.getByRole("button", { name: /Approve request for Harbor Hall/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(approveVenueRequest).toHaveBeenCalledOnce());
+    expect(approveVenueRequest).toHaveBeenCalledWith({ data: { id: "request-002" } });
+  });
+
+  it("says a pending entry missing from a loaded read was decided after the page loaded", () => {
     const data = page({
       details: [pending],
-      entries: [
-        entryOf(pending),
-        {
-          id: "request-002",
-          status: "pending",
-          venueName: "Harbor Hall",
-          date: "2026-11-22",
-          startTime: "10:00",
-          endTime: "12:00",
-        },
-      ],
+      entries: [entryOf(pending), harborHallEntry],
     });
 
     renderSection(data, "request");
     expect(
-      screen.getByRole("heading", { name: /Booking request details: Harbor Hall/ })
+      screen.getByRole("heading", {
+        name: "Booking request details: Harbor Hall, 22 Nov 2026, 10:00 – 12:00",
+      })
     ).toBeTruthy();
-    expect(screen.getByText("Harbor Hall")).toBeTruthy();
-    expect(screen.getByText("22 Nov 2026, 10:00 – 12:00")).toBeTruthy();
     expect(screen.getAllByText("Pending")).toHaveLength(2);
     expect(
-      screen.getByText("The full request did not load. Reload the page to decide it.")
+      screen.getByText(
+        "This request was decided after the page loaded. Reload the page to see the outcome."
+      )
     ).toBeTruthy();
+    expect(screen.queryByText(/did not load/)).toBeNull();
 
     renderSection(data, "decision");
     expect(screen.getAllByRole("button", { name: /Approve request/ })).toHaveLength(1);
@@ -204,34 +246,41 @@ describe("venueRequestSections", () => {
     expect(document.getElementById("rejection-reason-request-002")).toBeNull();
   });
 
-  it("explains in the decision section when no detail read loaded", () => {
+  it("says every pending entry did not load when the read failed", () => {
     const data = page({
-      details: [],
-      entries: [
-        entryOf(pending),
-        {
-          id: "request-002",
-          status: "pending",
-          venueName: "Harbor Hall",
-          date: "2026-11-22",
-          startTime: "10:00",
-          endTime: "12:00",
-        },
-      ],
+      readFailed: true,
+      entries: [entryOf(pending), harborHallEntry],
     });
+
+    renderSection(data, "request");
+    expect(
+      screen.getAllByText("The full request did not load. Reload the page to decide it.")
+    ).toHaveLength(2);
+    expect(screen.queryByText(/decided after the page loaded/)).toBeNull();
 
     expect(
       venueRequestSections(data)
         .filter(section => section.visible(data))
         .map(section => section.id)
     ).toEqual(["request", "decision"]);
-
     renderSection(data, "decision");
     expect(
       screen.getByText("The full request did not load. Reload the page to decide it.")
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
     expect(screen.queryByLabelText("Reason for rejection (required)")).toBeNull();
+  });
+
+  it("says in the decision section when every pending request was decided after load", () => {
+    const data = page({ details: [], entries: [entryOf(pending), harborHallEntry] });
+
+    renderSection(data, "decision");
+    expect(
+      screen.getByText(
+        "These requests were decided after the page loaded. Reload the page to see the outcome."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
   });
 
   it("moves focus to the first remaining decision group after a decision", async () => {
@@ -289,12 +338,15 @@ describe("venueRequestSections", () => {
     ).toEqual(["request"]);
 
     renderSection(data, "request");
+    // The heading names the venue and period. The card does not repeat them.
     expect(
-      screen.getByRole("heading", { name: /Booking request details: Harbor Hall/ })
+      screen.getByRole("heading", {
+        name: "Booking request details: Harbor Hall, 21 Nov 2026, 18:00 – 22:00",
+      })
     ).toBeTruthy();
+    expect(screen.getAllByText(/Harbor Hall/)).toHaveLength(1);
+    expect(screen.getAllByText(/21 Nov 2026/)).toHaveLength(1);
     expect(screen.getByText("Booking approved.")).toBeTruthy();
-    expect(screen.getByText("Harbor Hall")).toBeTruthy();
-    expect(screen.getByText("21 Nov 2026, 18:00 – 22:00")).toBeTruthy();
     expect(screen.getByText("Approved")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
   });
@@ -307,6 +359,24 @@ describe("venueRequestSections", () => {
         .filter(section => section.visible(data))
         .map(section => section.id)
     ).toEqual(["request"]);
+  });
+
+  it("offers only the rejection once the event cannot take a new booking", () => {
+    for (const status of ["confirmed", "completed", "rejected"]) {
+      renderSection(page({ details: [pending], status }), "decision");
+
+      expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
+      expect(
+        screen.getByText("This event cannot take a new booking. You can only reject this request.")
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: /Reject request for Riverside Loft/ })
+      ).toBeTruthy();
+    }
+
+    renderSection(page({ details: [pending], status: "submitted" }), "decision");
+    expect(screen.getByRole("button", { name: /Approve request for Riverside Loft/ })).toBeTruthy();
+    expect(screen.queryByText(/cannot take a new booking/)).toBeNull();
   });
 
   it("gates the decision block on the visible data, not the built data", () => {
@@ -365,10 +435,6 @@ describe("venueRequestSections", () => {
           startTime: "18:00",
           endTime: "22:00",
           release: {
-            venueName: "Harbor Hall",
-            date: "2026-11-21",
-            startTime: "18:00",
-            endTime: "22:00",
             reason: "Organiser moved the event outdoors.",
             changedByName: "Priya Nair",
           },

@@ -221,7 +221,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
         date: "2027-05-10",
         startTime: "09:00",
         endTime: "12:00",
-        latest: true,
+        adjustable: true,
         rejection: {
           venueId: refusedVenueId,
           venueName: VENUE_NAMES[0],
@@ -294,6 +294,63 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       },
     ]);
     expect(card.event.venueRequests?.[1]).not.toHaveProperty("rejection");
+    // The adjusted request answers the rejection at the venue the link opens, so the link goes.
+    expect(card.event.venueRequests?.[0]).not.toHaveProperty("adjustable");
+  });
+
+  it("keeps a rejection adjustable when the next request names another venue", async () => {
+    // Hall A refuses with no suggestion, so the adjust link reopens Hall A.
+    const refused = await handleCreateVenueRequest(
+      {
+        eventId,
+        venueId: refusedVenueId,
+        date: "2027-05-10",
+        startTime: "09:00",
+        endTime: "12:00",
+      },
+      session(users.coordinator),
+      database as never
+    );
+    await handleRejectVenueRequest(
+      { id: refused.id, reason: "Closed for floor resurfacing" },
+      session(users.venueStaff),
+      database as never
+    );
+    // A later request for the annex is approved. It does not answer the Hall A rejection.
+    const annex = await adjustRequest();
+    await handleApproveVenueRequest({ id: annex.id }, session(users.venueStaff), database as never);
+
+    const [card] = await handleListEvents(
+      { eventId },
+      session(users.coordinator),
+      database as never
+    );
+    expect(card.event.venueRequests).toMatchObject([
+      { id: refused.id, status: "rejected", adjustable: true },
+      { id: annex.id, status: "approved" },
+    ]);
+    expect(card.event.venueRequests?.[1]).not.toHaveProperty("adjustable");
+
+    // A newer request at Hall A answers the rejection.
+    await handleCreateVenueRequest(
+      {
+        eventId,
+        venueId: refusedVenueId,
+        date: "2027-05-12",
+        startTime: "09:00",
+        endTime: "12:00",
+      },
+      session(users.coordinator),
+      database as never
+    );
+    const [answered] = await handleListEvents(
+      { eventId },
+      session(users.coordinator),
+      database as never
+    );
+    expect(answered.event.venueRequests?.find(entry => entry.id === refused.id)).not.toHaveProperty(
+      "adjustable"
+    );
   });
 
   it("shows the Organiser only the pending request without the rejection", async () => {
@@ -313,7 +370,6 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
         date: "2027-05-11",
         startTime: "10:00",
         endTime: "13:30",
-        latest: true,
       },
     ]);
   });

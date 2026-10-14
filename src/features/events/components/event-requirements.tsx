@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { cn } from "cn";
 
 import { LAYOUT_LABELS, parseLayouts } from "#/features/venues/schema";
@@ -40,9 +39,9 @@ function requirementPairs(event: EventRequirementFields): Requirement[] {
 }
 
 /**
- * Check whether the requirements block would render anything. Count any requirement pair and
- * extra rows the host adds (its venue request and any rejection). Hosts skip their eyebrow when
- * the block is empty.
+ * Check whether the host's requirements block would render anything. Count any requirement pair
+ * and the extra blocks the host shows beside it (its venue requests). Hosts skip their eyebrow
+ * when the block is empty.
  */
 export function hasEventRequirements(event: EventRequirementFields, hasExtra: boolean): boolean {
   return hasExtra || requirementPairs(event).length > 0;
@@ -51,20 +50,17 @@ export function hasEventRequirements(event: EventRequirementFields, hasExtra: bo
 /**
  * Share one requirements treatment between the request panel and the dashboard event cards. Show
  * four labelled facts from the event's fields. Show nothing when the event is bare. `className`
- * sets the host's outer spacing. `children` adds extra rows (its venue request and any
- * rejection).
+ * sets the host's outer spacing.
  */
 export function EventRequirements({
   event,
   className,
-  children,
 }: {
   event: EventRequirementFields;
   className?: string;
-  children?: ReactNode;
 }) {
   const items = requirementPairs(event);
-  if (items.length === 0 && !children) return null;
+  if (items.length === 0) return null;
 
   return (
     <dl className={cn("grid gap-3 sm:grid-cols-2", className)}>
@@ -74,7 +70,6 @@ export function EventRequirements({
           <dd className="mt-1 body-sm whitespace-pre-line text-foreground">{item.value}</dd>
         </div>
       ))}
-      {children}
     </dl>
   );
 }

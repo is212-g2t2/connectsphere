@@ -8,6 +8,7 @@ import {
   isVenueQueueRow,
   projectEvent,
 } from "#/features/events/access";
+import type { EventVenueRequest } from "#/features/events/access";
 
 const request = {
   id: 1,
@@ -191,10 +192,6 @@ describe("event access", () => {
         startTime: "09:00",
         endTime: "12:00",
         release: {
-          venueName: "Hall A",
-          date: "2026-10-10",
-          startTime: "09:00",
-          endTime: "12:00",
           reason: "Air-conditioning failure",
           changedByName: null,
         },
@@ -387,7 +384,7 @@ describe("projectEvent with a rejected venue request (PTR-34 AC3)", () => {
       },
       suggestedVenueId: 9,
     },
-  };
+  } satisfies EventVenueRequest;
 
   it("carries the rejection's reason and suggestion to the coordinator", () => {
     const result = projectEvent(request, "coordinator", null, [], [rejected]);

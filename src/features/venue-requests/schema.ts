@@ -173,6 +173,17 @@ export function parseVenueRequestContext(data: unknown): VenueRequestContextSele
   return parsed.data;
 }
 
+/** The Venue Staff event page's selection: the event whose pending requests it decides. */
+export const VenueRequestEventInput = z.object({ eventId: EventId });
+
+export function parseVenueRequestEventInput(data: unknown): z.infer<typeof VenueRequestEventInput> {
+  const parsed = VenueRequestEventInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
 /**
  * PTR-34 criteria 1 and 2: Require a reason for rejection and accept any alternative Venue Staff
  * choose to suggest. Suggestion fields are independent and optional, except start and end times.
@@ -273,6 +284,33 @@ export function formatVenueSuggestion(
   }
   return parts.join(", ");
 }
+
+/** The states of one venue request, as the `venue_request_status` enum stores them. */
+export type VenueRequestStatus = "pending" | "withdrawn" | "approved" | "rejected" | "released";
+
+/** PTR-138: the plain-language label every screen shows for a venue-request state. */
+export const VENUE_REQUEST_STATUS_LABELS: Record<VenueRequestStatus, string> = {
+  pending: "Pending",
+  withdrawn: "Withdrawn",
+  approved: "Approved",
+  rejected: "Rejected",
+  released: "Released",
+};
+
+/**
+ * Map each venue-request state to a `Badge` variant, as `EVENT_REQUEST_STATUS_VARIANTS` does.
+ * Use `progress` (amber) for a request that waits, `confirmed` (harbor) for a held booking, and
+ * `stopped` (coral) for a refused or released one. A withdrawn request is neutral `outline`.
+ */
+type VenueRequestStatusVariant = "outline" | "progress" | "confirmed" | "stopped";
+export const VENUE_REQUEST_STATUS_VARIANTS: Record<VenueRequestStatus, VenueRequestStatusVariant> =
+  {
+    pending: "progress",
+    withdrawn: "outline",
+    approved: "confirmed",
+    rejected: "stopped",
+    released: "stopped",
+  };
 
 export function parseVenueRejectionInput(data: unknown): VenueRejectionValues {
   const parsed = VenueRejectionInput.safeParse(data);

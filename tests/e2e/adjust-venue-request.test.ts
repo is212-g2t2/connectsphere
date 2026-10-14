@@ -126,8 +126,9 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     expect(rows.map(row => row.status).toSorted()).toEqual(["pending", "rejected"]);
     expect(rows.find(row => row.status === "pending")?.venueId).toBe(venueIds[1]);
 
-    // AC3 and AC4: both entries stay on the card with their own states. The rejected entry is
-    // no longer `latest`, so per D5 its adjust link hides while its reason and Rejected state stay.
+    // AC3 and AC4: both entries stay on the card with their own states. The new request at the
+    // suggested venue answers the rejection, so its adjust link hides. Its reason and Rejected
+    // state stay.
     await page.goto(`/events/${eventId}`);
     await waitForHydration(page);
     const reloaded = page.locator("section#venue");

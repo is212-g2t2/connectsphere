@@ -20,7 +20,7 @@ import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { EventRequirements } from "#/features/events/components/event-requirements";
-import { VenueStateBadge } from "#/features/venue-requests/components/venue-state-badge";
+import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import { VenueRequestInput } from "#/features/venue-requests/schema";
 import type { VenueRequestPrefill, VenueRequestValues } from "#/features/venue-requests/schema";
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
@@ -163,7 +163,7 @@ function VenueRequestRow({ row, venueName }: { row: VenueRequestContextRow; venu
     <li className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="body-sm font-medium text-foreground">{period}</span>
-        <VenueStateBadge status={row.status} />
+        <VenueRequestStatusBadge status={row.status} />
       </div>
       <VenueRequestRowAction row={row} venueName={venueName} period={period} />
     </li>
