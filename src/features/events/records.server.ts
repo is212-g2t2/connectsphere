@@ -51,8 +51,8 @@ import { parseEventListInput } from "#/features/events/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import {
+  adjustableRejectionIds,
   eventVenueRequestFromRow,
-  latestVenueRequestId,
 } from "#/features/venue-requests/records.server";
 import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
@@ -550,7 +550,8 @@ export async function handleListEvents(
     // Support receive no `venueRequests` key at all (`projectEvent` omits it there).
     const visibleVenueRequests: EventVenueRequest[] = [];
     if (access === "coordinator" || access === "organiser" || access === "venue_staff") {
-      const latestCandidates: Array<{ id: string; updatedAt: Date }> = [];
+      const adjustable =
+        access === "coordinator" ? adjustableRejectionIds(eventVenueRows) : new Set<string>();
       for (const row of eventVenueRows) {
         if (row.status === "withdrawn") continue;
         if (access === "organiser" && row.status !== "pending" && row.status !== "approved") {
@@ -571,13 +572,8 @@ export async function handleListEvents(
           ...(conflictKind ? { conflict: conflictKind } : {}),
           ...(seesDetails && entry.rejection ? { rejection: entry.rejection } : {}),
           ...(seesDetails && entry.release ? { release: entry.release } : {}),
+          ...(adjustable.has(row.id) ? { adjustable: true as const } : {}),
         });
-        latestCandidates.push({ id: row.id, updatedAt: row.updatedAt });
-      }
-      const latestId = latestVenueRequestId(latestCandidates);
-      if (latestId !== null) {
-        const latestEntry = visibleVenueRequests.find(entry => entry.id === latestId);
-        if (latestEntry) latestEntry.latest = true;
       }
     }
 

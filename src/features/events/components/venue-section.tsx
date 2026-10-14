@@ -87,7 +87,7 @@ function VenueRequestEntry({
   const showRejection = entry.status === "rejected" && entry.rejection !== undefined;
   const showAdjust =
     access === "coordinator" &&
-    entry.latest === true &&
+    entry.adjustable === true &&
     SEARCHABLE_EVENT_STATUSES.includes(eventStatus);
   return (
     <div

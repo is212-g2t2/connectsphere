@@ -30,8 +30,8 @@ type VenueRequestOutcome =
 interface VenueRequestOutcomeRow {
   id: string;
   status: string;
+  createdAt: Date;
   updatedAt: Date;
-  assignedStaffId: string | null;
   venueId: number;
   venueName: string;
   startsAt: string;
@@ -99,23 +99,35 @@ function venueRequestOutcomeFromRow(row: VenueRequestOutcomeRow): VenueRequestOu
 }
 
 /**
- * Return the id of the newest row by `updatedAt` (tie-break greater id), or null when empty.
- * Each reader marks `latest` over its own visible rows, so each passes its own candidate set.
+ * PTR-35: Return the ids of the rejected rows that the Coordinator can still adjust. The adjust
+ * link opens the suggested venue, else the rejected venue. A rejected row stops being adjustable
+ * when another non-withdrawn row at that venue was created after the rejection. On a rejected
+ * row, `updatedAt` is the rejection time. Pass the rows of one event.
  */
-export function latestVenueRequestId(
-  rows: ReadonlyArray<{ id: string; updatedAt: Date }>
-): string | null {
-  if (rows.length === 0) return null;
-  let latest = rows[0];
-  for (const row of rows.slice(1)) {
-    if (
-      row.updatedAt.getTime() > latest.updatedAt.getTime() ||
-      (row.updatedAt.getTime() === latest.updatedAt.getTime() && row.id > latest.id)
-    ) {
-      latest = row;
-    }
+export function adjustableRejectionIds(
+  rows: ReadonlyArray<{
+    id: string;
+    status: string;
+    venueId: number;
+    suggestedVenueId: number | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>
+): Set<string> {
+  const adjustable = new Set<string>();
+  for (const row of rows) {
+    if (row.status !== "rejected") continue;
+    const targetVenueId = row.suggestedVenueId ?? row.venueId;
+    const answered = rows.some(
+      other =>
+        other.id !== row.id &&
+        other.status !== "withdrawn" &&
+        other.venueId === targetVenueId &&
+        other.createdAt.getTime() > row.updatedAt.getTime()
+    );
+    if (!answered) adjustable.add(row.id);
   }
-  return latest.id;
+  return adjustable;
 }
 
 /**
@@ -140,9 +152,9 @@ export function eventVenueRequestFromRow(row: VenueRequestOutcomeRow): EventVenu
 
 /**
  * Return one event's venue requests in the projection's shape, earliest window first. Ignore
- * withdrawn rows. Each row carries its own state and its own rejection or release. Mark the
- * newest non-withdrawn row (by `updatedAt`, tie-break greater id) with `latest`. The triage
- * page reads this through the coordination request, which has no venue data.
+ * withdrawn rows. Each row carries its own state and its own rejection or release. Mark each
+ * rejected row that the Coordinator can still adjust. The triage page reads this through the
+ * coordination request, which has no venue data.
  */
 export async function loadVenueRequestsForEvent(
   database: Pick<Database, "select">,
@@ -153,8 +165,8 @@ export async function loadVenueRequestsForEvent(
     .select({
       id: venueRequests.id,
       status: venueRequests.status,
+      createdAt: venueRequests.createdAt,
       updatedAt: venueRequests.updatedAt,
-      assignedStaffId: venueRequests.assignedStaffId,
       venueId: venueRequests.venueId,
       venueName: venues.name,
       startsAt: venueRequests.startsAt,
@@ -175,11 +187,10 @@ export async function loadVenueRequestsForEvent(
     .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
 
   const kept = rows.filter(row => row.status !== "withdrawn");
-  const entries = kept.map(row => eventVenueRequestFromRow(row));
-  const latestId = latestVenueRequestId(kept);
-  if (latestId !== null) {
-    const latestEntry = entries.find(entry => entry.id === latestId);
-    if (latestEntry) latestEntry.latest = true;
-  }
-  return entries;
+  const adjustable = adjustableRejectionIds(kept);
+  return kept.map(row => {
+    const entry = eventVenueRequestFromRow(row);
+    if (adjustable.has(row.id)) entry.adjustable = true;
+    return entry;
+  });
 }

@@ -127,7 +127,7 @@ describe("coordination request venue summary", () => {
         date: "2027-05-10",
         startTime: "09:00",
         endTime: "12:00",
-        latest: true,
+        adjustable: true,
         rejection: {
           venueName: "Triage Refused Hall",
           date: "2027-05-10",
@@ -168,35 +168,36 @@ describe("coordination request venue summary", () => {
         id: "triage-vr-pending",
         status: "pending",
         venueName: "Triage Refused Hall",
-        latest: true,
       },
     ]);
     expect(request.venueRequests).toHaveLength(1);
     expect(request.venueRequests[0]).not.toHaveProperty("rejection");
   });
 
-  it("marks the greater id latest when two rows share updatedAt", async () => {
-    const sharedAt = new Date("2027-05-01T00:00:00Z");
+  it("keeps a rejection adjustable beside a newer request at another venue", async () => {
     await database.insert(schema.venueRequests).values([
       {
-        id: "triage-vr-tie-a",
+        id: "triage-vr-hall-a-rejected",
         eventId,
         venueId: refusedVenueId,
         startsAt: "2027-05-10 09:00:00",
         endsAt: "2027-05-10 12:00:00",
         requestedById: users.coordinator.id,
-        status: "pending",
-        updatedAt: sharedAt,
+        status: "rejected",
+        rejectionReason: "The main hall is being rewired that weekend.",
+        createdAt: new Date("2027-04-01T00:00:00Z"),
+        updatedAt: new Date("2027-04-02T00:00:00Z"),
       },
       {
-        id: "triage-vr-tie-b",
+        id: "triage-vr-annex-approved",
         eventId,
         venueId: suggestedVenueId,
-        startsAt: "2027-05-10 09:00:00",
-        endsAt: "2027-05-10 12:00:00",
+        startsAt: "2027-05-10 13:00:00",
+        endsAt: "2027-05-10 15:00:00",
         requestedById: users.coordinator.id,
-        status: "pending",
-        updatedAt: sharedAt,
+        status: "approved",
+        createdAt: new Date("2027-04-03T00:00:00Z"),
+        updatedAt: new Date("2027-04-04T00:00:00Z"),
       },
     ]);
 
@@ -206,11 +207,66 @@ describe("coordination request venue summary", () => {
       database as never
     );
 
+    // The adjust link opens the rejected venue. The newer request is at another venue.
     expect(request.venueRequests).toMatchObject([
-      { id: "triage-vr-tie-a", status: "pending" },
-      { id: "triage-vr-tie-b", status: "pending", latest: true },
+      { id: "triage-vr-hall-a-rejected", status: "rejected", adjustable: true },
+      { id: "triage-vr-annex-approved", status: "approved" },
     ]);
-    expect(request.venueRequests[0]).not.toHaveProperty("latest");
+    expect(request.venueRequests[1]).not.toHaveProperty("adjustable");
+  });
+
+  it("stops a rejection being adjustable once a newer request opens at its target venue", async () => {
+    await database.insert(schema.venueRequests).values([
+      {
+        id: "triage-vr-suggested-rejected",
+        eventId,
+        venueId: refusedVenueId,
+        startsAt: "2027-05-10 09:00:00",
+        endsAt: "2027-05-10 12:00:00",
+        requestedById: users.coordinator.id,
+        status: "rejected",
+        rejectionReason: "The main hall is being rewired that weekend.",
+        suggestedVenueId,
+        createdAt: new Date("2027-04-01T00:00:00Z"),
+        updatedAt: new Date("2027-04-02T00:00:00Z"),
+      },
+      {
+        // A request at the rejected venue does not answer a suggestion for another venue.
+        id: "triage-vr-refused-again",
+        eventId,
+        venueId: refusedVenueId,
+        startsAt: "2027-05-10 13:00:00",
+        endsAt: "2027-05-10 15:00:00",
+        requestedById: users.coordinator.id,
+        status: "pending",
+        createdAt: new Date("2027-04-03T00:00:00Z"),
+      },
+    ]);
+
+    const before = await handleGetCoordinationRequest(
+      { id: eventId },
+      session(),
+      database as never
+    );
+    expect(before.venueRequests[0]).toMatchObject({
+      id: "triage-vr-suggested-rejected",
+      adjustable: true,
+    });
+
+    await database.insert(schema.venueRequests).values({
+      id: "triage-vr-suggested-pending",
+      eventId,
+      venueId: suggestedVenueId,
+      startsAt: "2027-05-11 09:00:00",
+      endsAt: "2027-05-11 12:00:00",
+      requestedById: users.coordinator.id,
+      status: "pending",
+      createdAt: new Date("2027-04-03T00:00:00Z"),
+    });
+
+    const after = await handleGetCoordinationRequest({ id: eventId }, session(), database as never);
+    expect(after.venueRequests.map(entry => entry.id)).toContain("triage-vr-suggested-rejected");
+    for (const entry of after.venueRequests) expect(entry).not.toHaveProperty("adjustable");
   });
 
   it("is null when the event has no venue request", async () => {

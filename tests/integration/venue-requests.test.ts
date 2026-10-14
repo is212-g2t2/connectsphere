@@ -518,7 +518,6 @@ describe("venue request handlers (PTR-31)", () => {
             date: "2027-04-20",
             startTime: "09:00",
             endTime: "12:30",
-            latest: true,
           },
         ],
         [
@@ -529,7 +528,6 @@ describe("venue request handlers (PTR-31)", () => {
             date: "2027-04-20",
             startTime: "09:00",
             endTime: "12:30",
-            latest: true,
           },
         ],
       ]);
@@ -2082,7 +2080,10 @@ describe("venue request handlers (PTR-31)", () => {
           rejection: { reason: "Closed for floor resurfacing" },
         },
       ]);
-      expect((projection.event.venueRequests ?? []).filter(entry => entry.latest)).toHaveLength(1);
+      // Only the rejected row offers an adjustment. No later request exists at its venue.
+      expect(
+        (projection.event.venueRequests ?? []).map(entry => entry.adjustable ?? false)
+      ).toEqual([false, true]);
     });
 
     it("AC3 (PTR-138): releasing one approved booking keeps the sibling; amending onto the sibling's period is refused", async () => {

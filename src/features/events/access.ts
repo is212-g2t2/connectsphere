@@ -173,9 +173,9 @@ export interface EventVenueRequest {
   conflict?: "booking" | "hold";
   rejection?: VenueRequestRejection;
   release?: VenueRequestRelease;
-  /** True on the newest non-withdrawn row among the entries this list carries (by `updatedAt`,
-   * tie-break greater id). Set on one entry per list only; other entries omit the field. */
-  latest?: boolean;
+  /** Coordinator only (PTR-35): set on a rejected entry while the Coordinator can still adjust
+   * it. Other entries omit the field. */
+  adjustable?: true;
 }
 
 /**

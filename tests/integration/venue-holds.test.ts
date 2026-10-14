@@ -1161,7 +1161,6 @@ describe("tentative venue holds (PTR-109)", () => {
           startTime: "10:00",
           endTime: "14:00",
           conflict: "hold",
-          latest: true,
         },
       ]);
     });

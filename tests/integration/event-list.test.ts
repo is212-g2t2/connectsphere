@@ -759,7 +759,6 @@ describe("event list handler (PTR-8)", () => {
           startTime: "14:30",
           endTime: "18:45",
           conflict: "booking",
-          latest: true,
         },
       ]);
 
@@ -778,7 +777,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "15:00",
           endTime: "16:00",
-          latest: true,
         },
         {
           id: "el-venue-review",
@@ -806,7 +804,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
         },
       ]);
     });
@@ -831,7 +828,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
         },
       ]);
       expect(projection.event).not.toHaveProperty("name");
@@ -857,7 +853,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
           rejection: {
             venueId: fixtureVenueId,
             venueName: FIXTURE_VENUE_NAME,
@@ -895,7 +890,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-11-01",
           startTime: "09:00",
           endTime: "12:00",
-          latest: true,
         },
       ]);
     });
@@ -920,7 +914,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
           release: {
             venueName: FIXTURE_VENUE_NAME,
             date: "2026-10-12",
@@ -958,7 +951,6 @@ describe("event list handler (PTR-8)", () => {
           date: "2026-10-12",
           startTime: "14:30",
           endTime: "18:45",
-          latest: true,
         },
       ]);
     });
@@ -980,7 +972,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
-            latest: true,
+            adjustable: true,
             rejection: {
               venueId: fixtureVenueId,
               venueName: FIXTURE_VENUE_NAME,
@@ -1010,7 +1002,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
-            latest: true,
+            adjustable: true,
             rejection: {
               venueId: fixtureVenueId,
               venueName: FIXTURE_VENUE_NAME,
@@ -1065,7 +1057,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
-            latest: true,
+            adjustable: true,
             rejection: {
               venueId: fixtureVenueId,
               venueName: FIXTURE_VENUE_NAME,
@@ -1150,9 +1142,12 @@ describe("event list handler (PTR-8)", () => {
           lastChangedByStaffId: fixtureUsers.venueStaff.id,
           lastChangedByStaffName: fixtureUsers.venueStaff.name,
           lastChangedAt: new Date("2026-10-05T00:00:00Z"),
+          createdAt: new Date("2026-10-02T00:00:00Z"),
           updatedAt: new Date("2026-10-05T00:00:00Z"),
         });
 
+        // The released row is newer and sits at the rejected venue, so the rejection is no
+        // longer adjustable.
         expect(await coordinatorCard(fixtures.closed.id)).toEqual([
           {
             id: "el-venue-rejected-before-release",
@@ -1179,7 +1174,6 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-05",
             startTime: "09:00",
             endTime: "12:00",
-            latest: true,
             release: {
               venueName: FIXTURE_VENUE_NAME,
               date: "2026-11-05",
@@ -1250,7 +1244,6 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-10-12",
             startTime: "14:30",
             endTime: "18:45",
-            latest: true,
           },
         ]);
       });
