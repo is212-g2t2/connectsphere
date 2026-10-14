@@ -52,10 +52,12 @@ interface ConfirmationInput {
 
 /**
  * Return every reason the event cannot be confirmed, or an empty list when it can. An
- * unconfirmable status is the only reason given. Cancelled or completed events have no
- * outstanding arrangements. Otherwise the gate needs exactly one approved venue booking and no
- * pending venue request. Each pending request and each missing arrangement is its own entry (AC2).
- * An event with no equipment lines has nothing to settle, so the venue booking alone governs (AC5).
+ * unconfirmable status is the only reason given: cancelled or completed events have no
+ * outstanding arrangements.
+ *
+ * Otherwise the gate needs exactly one approved venue booking and no pending venue request. Each
+ * pending request and each missing arrangement is its own entry (AC2). An event with no equipment
+ * lines has nothing to settle, so the venue booking alone governs (AC5).
  */
 export function confirmationBlockers(input: ConfirmationInput): string[] {
   if (!isConfirmableStatus(input.status)) {

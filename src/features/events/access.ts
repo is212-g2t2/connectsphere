@@ -153,13 +153,13 @@ export interface VenueRequestRelease {
 }
 
 /**
- * One venue booking request on an event card. One event holds several venue requests (one row
- * per event, venue and window). `conflict` is present only on a pending request that approval
- * would refuse now (PTR-36, PTR-138 AC1). `rejection` and `release` ride on their own row.
- * The Coordinator's event list and triage read carry every non-withdrawn row with its details.
- * The Organiser's list carries pending and approved rows only, so it has no details. The Venue
- * Staff list carries their queue rows. A decided row in that queue is their own, so it keeps
- * its details.
+ * One venue booking request on an event card. An event can have several venue requests, one row
+ * for each event, venue and window. `conflict` is present only on a pending request that approval
+ * would refuse now (PTR-36, PTR-138 AC1). Only a rejected row has `rejection`, and only a released
+ * row has `release`.
+ *
+ * Each role sees a different set of rows. The visibility filter in `handleListEvents`
+ * (`events/records.server.ts`) states the rule.
  */
 export interface EventVenueRequest {
   /** The venue_requests row id (text), so the venue-staff decision can load its detail. */

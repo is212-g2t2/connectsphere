@@ -432,12 +432,13 @@ export async function handleListEvents(
           ? (holderNames.get(row.assignedStaffId ?? "") ?? null)
           : undefined,
     }));
-    // List one entry per venue-request row, earliest window first (`venueRows` arrives in that
-    // order). Coordinator: every non-withdrawn row. Organiser: pending and approved rows only, so
-    // no rejection or release reaches them. Venue Staff: only rows the queue rule grants
-    // (`isVenueQueueRow`). A decided row in their queue is their own, so it keeps its details.
-    // Only the Coordinator's entries carry their session requirements (PTR-138 AC1).
-    // Attendees and Technical Support receive no `venueRequests` key (`projectEvent` omits it).
+    // The venue-request visibility rule. List one entry for each visible row, earliest window
+    // first (`venueRows` arrives in that order):
+    // - Coordinator: every non-withdrawn row, with its session requirements (PTR-138 AC1).
+    // - Organiser: pending and approved rows only, so no rejection or release reaches them.
+    // - Venue Staff: the rows that the queue rule grants (`isVenueQueueRow`). A decided row in
+    //   their queue is their own, so it keeps its details.
+    // `projectEvent` gives Attendees and Technical Support no `venueRequests` key.
     const visibleRows = eventVenueRows.filter(row => {
       if (row.status === "withdrawn") return false;
       if (access === "organiser") return row.status === "pending" || row.status === "approved";

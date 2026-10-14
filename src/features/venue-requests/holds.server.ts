@@ -162,13 +162,15 @@ export async function handleReleaseVenueHold(
 }
 
 /**
- * PTR-109 AC5: Convert a tentative hold to a pending venue request.
- * Release the hold, create a request for the same venue, period, and event, and notify Venue Staff.
- * The release removes the hold's ledger row. A pending request holds no venue time, so it gets none.
- * The new request follows the creation rules. PTR-138 AC1: it carries session requirements, which
- * default to the event's, and the venue must meet them. PTR-138 AC4: the overlap check and the
- * duplicate index apply. Every check runs in the release's transaction, so a refusal rolls the
- * release back and leaves the hold held.
+ * PTR-109 AC5: Convert a tentative hold to a pending venue request. Release the hold, create a
+ * request for the same venue, period, and event, and notify Venue Staff. The release removes the
+ * hold's ledger row. A pending request holds no venue time, so it gets none.
+ *
+ * The new request follows the creation rules: the venue must meet the session requirements, which
+ * default to the event's (PTR-138 AC1), and the overlap check and duplicate index apply (AC4).
+ * Every check runs in the release's transaction, so a refusal rolls the release back and leaves
+ * the hold held.
+ *
  * PTR-54 AC9: A cancelled event cannot get a new request, so its hold can only be released.
  */
 export async function handleConvertVenueHold(

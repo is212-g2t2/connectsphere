@@ -220,6 +220,7 @@ export async function handleReleaseVenueBooking(
  * Amend an approved booking without bypassing the overlap guarantee. PTR-134 AC3: delete the
  * booking's ledger rows and insert a new one with the target venue's current buffers. Never edit a
  * row in place.
+ *
  * PTR-138: an amendment is a new booking at the target venue and window, so it gets approval's
  * checks (`checkVenueTakesBooking`) with the booking's own session requirements. It also gets the
  * same-event overlap rule (`assertNoEventOverlap`), so it cannot overlap the event's pending

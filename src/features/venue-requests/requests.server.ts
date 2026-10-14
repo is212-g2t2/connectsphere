@@ -126,6 +126,7 @@ export interface VenueRequestNotification {
 /**
  * PTR-31 criterion 4: Notify every Venue Staff member about a booking request (§6). The email
  * carries the request's session requirements (PTR-138 AC1).
+ *
  * Insert notification rows in the caller's transaction, so rollback also removes them. The worker
  * sends the emails later, so a mail outage cannot undo the request or notification.
  * The caller logs an empty recipient list; it does not refuse the request.
@@ -458,11 +459,11 @@ async function raiseDecisionNotification(
  * PTR-32 AC3, PTR-138: Read every pending request of one event that the caller's queue grants
  * (`isVenueQueueRow`), earliest window first. The Venue Staff event page decides them all from
  * this one read. Read the rows and their conflicts in batched queries, never one read per row.
- * Return each request's own session requirements (PTR-138 AC1); a row from before them returns
- * the event's current requirements (`selectVenueRequestEntries`).
- * Return only the venue, requested period, submission time, and operational requirements. Do
- * not expose event names or conflicting-event details to Venue Staff (TC12). An event with no
- * such request returns `[]`, so the answer reveals nothing about other events.
+ *
+ * Return only the venue, period, submission time, conflict kind, and operational requirements.
+ * They are the request's own requirements (PTR-138 AC1), or the event's current ones for a legacy
+ * row. Do not expose event names or conflicting-event details to Venue Staff (TC12). An event
+ * with no such request returns `[]`, so the answer reveals nothing about other events.
  */
 export async function handleGetPendingVenueRequestsForEvent(
   data: unknown,
@@ -595,17 +596,18 @@ export async function handleGetVenueRequestContext(
 }
 
 /**
- * PTR-31 criteria 1–4: Create one unassigned `pending` row and notify all Venue Staff.
- * Refuse a window that does not describe a real civil day. The event must stand in
- * `SEARCHABLE_EVENT_STATUSES` and be assigned to the caller, as the PTR-29 search allows. Hold
- * creation and conversion use the same gate.
+ * PTR-31 criteria 1–4: Create one unassigned `pending` row and notify all Venue Staff. Refuse a
+ * window that does not describe a real civil day. The event must be in `SEARCHABLE_EVENT_STATUSES`
+ * and assigned to the caller, as the PTR-29 search allows. Hold creation and conversion use the
+ * same gate. A cancelled event cannot receive a request (PTR-54 AC9).
+ *
  * PTR-138 AC1: store the session requirements, and refuse a venue that does not meet them
- * (`checkSessionRequirements`). Do not refuse an unavailable venue here; a block can be lifted and
- * hours can change. Approval checks availability and the ledger checks conflicts.
+ * (`checkSessionRequirements`). Do not refuse an unavailable venue here: a block can be lifted and
+ * hours can change. Approval checks availability, and the ledger checks conflicts.
+ *
  * PTR-138 AC4: refuse a window that overlaps the same event's pending request, approved booking or
  * held hold at this venue (`assertNoEventOverlap`). Pending requests of other events can overlap;
  * approval checks them (PTR-36).
- * A cancelled event cannot receive a request (PTR-54 AC9).
  */
 export async function handleCreateVenueRequest(
   data: unknown,
@@ -693,6 +695,7 @@ function assertNotRejected(status: string): void {
  * Keep the row as `withdrawn` to preserve its history. The partial unique index then allows a new
  * request for the event, venue and window. Refuse settled requests; withdrawal must not undo
  * approval (PTR-36).
+ *
  * Check `requestedById`, not the event's current assignee. Reassignment must not let a new
  * Coordinator withdraw someone else's request.
  */
@@ -730,16 +733,18 @@ export async function handleWithdrawVenueRequest(
 }
 
 /**
- * PTR-36: Approve a pending request and reserve its venue period.
+ * PTR-36: Approve a pending request and reserve its venue period. Only unassigned pending rows are
+ * shared (PTR-31). Do not settle a row assigned to another staff member. Store the decision-maker
+ * in `assignedStaffId` to keep the event linked to that staff member.
+ *
  * PTR-134 AC1: write one ledger row with the venue's current buffers in the same transaction.
  * `venue_occupancy_no_overlap` guarantees no overlap. The advisory lock serializes writers for one
  * venue and prevents an index deadlock. The locked pre-check returns a named refusal; the
  * constraint refuses a write outside the lock convention with the generic conflict message.
- * Only unassigned pending rows are shared (PTR-31). Do not settle a row assigned to another staff
- * member. Store the decision-maker in `assignedStaffId` to keep the event linked to that staff member.
- * PTR-138 AC1: refuse a booking that the venue cannot take now: it fails the session's requirements,
- * or it is closed or blocked for the window (`checkVenueTakesBooking`). A request from before
- * session requirements is checked against the event's current requirements.
+ *
+ * PTR-138: refuse an event outside `SEARCHABLE_EVENT_STATUSES`. Refuse a booking that the venue
+ * cannot take now: it fails the session's requirements, or it is closed or blocked for the window
+ * (`checkVenueTakesBooking`). A legacy request uses the event's current requirements.
  */
 export async function handleApproveVenueRequest(
   data: unknown,
@@ -820,9 +825,11 @@ export async function handleApproveVenueRequest(
  * time. Use the approval path's row lock and queue rule, so approval and rejection settle a request
  * only once. No venue lock is needed because a pending request has no `venue_occupancy` row to
  * remove. Add a notification for the requesting Coordinator; the worker delivers it.
+ *
  * A rejected request is final. Refuse later approve, withdraw, or reject actions and tell the
  * Coordinator to raise a new request. The partial unique index covers pending rows, so a new
  * request can be raised.
+ *
  * Do not check the event status. Staff can then clear a stale request on a confirmed or rejected
  * event, which approval refuses.
  */

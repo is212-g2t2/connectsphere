@@ -287,8 +287,7 @@ export function requirementFailures(
  * Apply the PTR-29 search filters and PTR-30 suitability rules in one function. A venue cannot
  * pass a filter and fail suitability on the same criterion (PTR-29 AC2). Check every filter and
  * name every failure (PTR-30 AC5), in this order: capacity, location, layout, accessibility,
- * facilities, availability. Search filters on `suitable`. This function has one caller:
- * `handleSearchVenues`.
+ * facilities, availability. Search filters on `suitable`. The one caller is `handleSearchVenues`.
  */
 export function evaluateVenueSuitability(
   venue: VenueSuitabilityCandidate,

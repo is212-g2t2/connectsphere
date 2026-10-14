@@ -19,10 +19,10 @@ import type {
 import { loadWindowAvailabilityFailures } from "#/features/venues/records.server";
 
 /**
- * Keep this module server-only. A client-reachable value import of `#/db/schema` would ship the
- * full database schema to the browser. `events/records.server.ts` imports this module directly;
- * both files use the `.server.ts` suffix to stay out of client bundles. `requests.server.ts`
- * imports it for the Venue Staff decision read.
+ * Keep this module server-only. A client-reachable value import of `#/db/schema` would send the
+ * full database schema to the browser. Only `.server.ts` modules import it:
+ * `events/records.server.ts`, `coordination/assignments.server.ts`, `requests.server.ts`, and
+ * `bookings.server.ts`.
  */
 
 type Database = typeof Db;
@@ -248,9 +248,10 @@ function releaseFromRow(row: VenueRequestEntryRow): VenueRequestRelease {
 /**
  * Build one event-card entry from one venue-request row. Never spread the database row:
  * `requestedById` and `assignedStaffId` must not reach a client. A rejected row carries its
- * rejection and a released row its release; other rows carry only their window. The caller
- * supplies the conflict kind and the `adjustable` mark, which need other rows. It also sets
- * `requirements` for the Coordinator, who states each session's requirements.
+ * rejection, and a released row carries its release.
+ *
+ * The caller sets the marks, which need other rows or the viewer's role: the conflict kind, the
+ * `adjustable` mark, and `requirements` (Coordinator only).
  */
 export function eventVenueRequestFromRow(
   row: VenueRequestEntryRow,
