@@ -14,7 +14,6 @@ import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { SessionRequirements } from "#/features/venue-requests/schema";
 import { eventTiming } from "#/features/events/access";
-import { loadAssignedEvent } from "#/features/events/records.server";
 import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
 import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { lockVenue } from "#/features/venue-requests/venue-lock.server";
@@ -491,6 +490,39 @@ export async function loadVenueHolds(
 }
 
 /**
+ * Read the caller's own event request through the venue gate. The event must belong to the asking
+ * Coordinator and stand in `SEARCHABLE_EVENT_STATUSES`. The venue search that prefills the request
+ * form, request creation, hold creation and hold conversion use it. `null` is the refusal. Every
+ * caller turns it into `AuthorizationError("Forbidden")`.
+ */
+export async function loadAssignedEvent(
+  database: Pick<Database, "select">,
+  eventId: number,
+  coordinatorId: string
+) {
+  const rows = await database
+    .select({
+      id: eventRequests.id,
+      name: eventRequests.eventName,
+      proposedDates: eventRequests.proposedDates,
+      expectedAttendance: eventRequests.expectedAttendance,
+      roomLayoutPreference: eventRequests.roomLayoutPreference,
+      accessibilityRequirements: eventRequests.accessibilityRequirements,
+      venueRequirements: eventRequests.venueRequirements,
+    })
+    .from(eventRequests)
+    .where(
+      and(
+        eq(eventRequests.id, eventId),
+        inArray(eventRequests.status, [...SEARCHABLE_EVENT_STATUSES]),
+        eq(eventRequests.assignedCoordinatorId, coordinatorId)
+      )
+    )
+    .limit(1);
+  return rows.at(0) ?? null;
+}
+
+/**
  * Run PTR-29 venue search and PTR-30 suitability checks. Only the assigned Coordinator can supply
  * an event id; refuse other users without revealing whether the event exists. Use the event's
  * first complete proposed window and hard requirements as defaults. Evaluate explicit filters
@@ -510,14 +542,8 @@ export async function handleSearchVenues(
 
   if (eventId !== undefined) {
     // Refuse before the catalogue read. A forbidden event never pays for the venue list.
-    const assignedRecord = await loadAssignedEvent(
-      database,
-      eventId,
-      user.id,
-      SEARCHABLE_EVENT_STATUSES
-    );
-    if (!assignedRecord) throw new AuthorizationError("Forbidden");
-    const record = assignedRecord;
+    const record = await loadAssignedEvent(database, eventId, user.id);
+    if (!record) throw new AuthorizationError("Forbidden");
     event = { id: record.id, name: record.name };
 
     const timing = eventTiming(record.proposedDates);

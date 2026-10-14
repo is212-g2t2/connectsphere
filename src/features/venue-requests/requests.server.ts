@@ -8,7 +8,6 @@ import { eventTiming, isVenueQueueRow } from "#/features/events/access";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { assertEventAcceptsActivity } from "#/features/events/completion";
 import { formatProposedWindow } from "#/features/event-requests/format";
-import { loadAssignedEvent } from "#/features/events/records.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 import {
@@ -43,7 +42,7 @@ import {
 } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
-import { requirementFailures } from "#/features/venues/records.server";
+import { loadAssignedEvent, requirementFailures } from "#/features/venues/records.server";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import type { VenueLayout } from "#/features/venues/schema";
 import { isConstraintViolation } from "#/lib/db-errors";
@@ -508,7 +507,7 @@ export async function handleCreateVenueRequest(
     // later cancellation waits for this transaction to commit.
     const locked = await keyShareEvent(tx, input.eventId);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
-    const event = await loadAssignedEvent(tx, input.eventId, actor.id, SEARCHABLE_EVENT_STATUSES);
+    const event = await loadAssignedEvent(tx, input.eventId, actor.id);
     if (!event) throw new AuthorizationError("Forbidden");
 
     // Take the venue lock after the event lock, as every venue writer does. It serializes two

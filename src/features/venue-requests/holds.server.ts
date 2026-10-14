@@ -5,7 +5,6 @@ import { eventRequests, user, venueHolds, venueRequests } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
-import { loadAssignedEvent } from "#/features/events/records.server";
 import {
   assertNoEventOverlap,
   checkSessionRequirements,
@@ -33,7 +32,7 @@ import {
   lockVenueForHold,
 } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
-import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
+import { loadAssignedEvent } from "#/features/venues/records.server";
 import { logger } from "#/lib/logger";
 
 type Database = typeof Db;
@@ -59,7 +58,7 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
     // cancellation waits for this transaction to commit.
     const locked = await keyShareEvent(tx, input.eventId);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
-    const event = await loadAssignedEvent(tx, input.eventId, actor.id, SEARCHABLE_EVENT_STATUSES);
+    const event = await loadAssignedEvent(tx, input.eventId, actor.id);
     if (!event) throw new AuthorizationError("Forbidden");
 
     // Serialize before reading buffers. A simultaneous venue edit uses the same lock.
@@ -195,12 +194,7 @@ export async function handleConvertVenueHold(
     // `SEARCHABLE_EVENT_STATUSES`. `loadAssignedEvent` re-checks this in the transaction. If a
     // handover or a status change makes the calendar's Convert action stale, refuse it. The hold
     // then stays `held`.
-    const assignedEvent = await loadAssignedEvent(
-      tx,
-      hold.eventId,
-      actor.id,
-      SEARCHABLE_EVENT_STATUSES
-    );
+    const assignedEvent = await loadAssignedEvent(tx, hold.eventId, actor.id);
     if (!assignedEvent) throw new AuthorizationError("Forbidden");
 
     // `lockActiveHold` took the venue lock, so the venue and the event's requests stay current.

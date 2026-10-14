@@ -33,7 +33,6 @@ import type { RegistrationAvailability } from "#/features/events/registration";
 import { completionRefusalForEvent } from "#/features/events/completion";
 import { parseEventListInput } from "#/features/events/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
-import type { EventRequestStatus } from "#/features/event-requests/schema";
 import {
   adjustableRejectionIds,
   eventVenueRequestFromRow,
@@ -53,41 +52,6 @@ import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/avail
  */
 
 type Database = typeof Db;
-
-/**
- * Read the caller's own event request through the venue gate. The event must belong to the asking
- * Coordinator and stand in `statuses`. Every caller passes `SEARCHABLE_EVENT_STATUSES`: the venue
- * search that prefills the request form, request creation, hold creation and hold conversion. It
- * lives here with the event reads. `null` is the refusal. Every caller turns it into
- * `AuthorizationError("Forbidden")`.
- */
-export async function loadAssignedEvent(
-  database: Pick<Database, "select">,
-  eventId: number,
-  coordinatorId: string,
-  statuses: readonly EventRequestStatus[]
-) {
-  const rows = await database
-    .select({
-      id: eventRequests.id,
-      name: eventRequests.eventName,
-      proposedDates: eventRequests.proposedDates,
-      expectedAttendance: eventRequests.expectedAttendance,
-      roomLayoutPreference: eventRequests.roomLayoutPreference,
-      accessibilityRequirements: eventRequests.accessibilityRequirements,
-      venueRequirements: eventRequests.venueRequirements,
-    })
-    .from(eventRequests)
-    .where(
-      and(
-        eq(eventRequests.id, eventId),
-        inArray(eventRequests.status, [...statuses]),
-        eq(eventRequests.assignedCoordinatorId, coordinatorId)
-      )
-    )
-    .limit(1);
-  return rows.at(0) ?? null;
-}
 
 /**
  * The one SQL statement for PTR-8's relationship rule. It lists the event requests a caller
