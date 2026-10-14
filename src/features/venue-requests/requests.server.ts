@@ -30,6 +30,7 @@ import {
 } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
+import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 
@@ -211,7 +212,11 @@ function summarizePendingVenueRequest(
  * a requirement snapshot. Return only the venue, requested period, submission time, and operational
  * requirements. Do not expose event names or conflicting-event details to Venue Staff (TC12).
  */
-export async function handleGetPendingVenueRequest(data: unknown, database: Database) {
+export async function handleGetPendingVenueRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
   const { id } = parseVenueRequestId(data);
   const rows = await database
     .select({
@@ -222,6 +227,8 @@ export async function handleGetPendingVenueRequest(data: unknown, database: Data
       startsAt: venueRequests.startsAt,
       endsAt: venueRequests.endsAt,
       submittedAt: venueRequests.createdAt,
+      assignedStaffId: venueRequests.assignedStaffId,
+      status: venueRequests.status,
       proposedDates: eventRequests.proposedDates,
       expectedAttendance: eventRequests.expectedAttendance,
       layout: eventRequests.roomLayoutPreference,
@@ -237,6 +244,9 @@ export async function handleGetPendingVenueRequest(data: unknown, database: Data
   // A missing row or a row that left `pending` is an ordinary result. The route returns 404, as
   // `handleGetVenue` and `handleGetEventRequest` do.
   if (!row) return null;
+  // An unassigned pending row stays readable by every staff member. A row assigned to another
+  // staff member is invisible to the caller, so its venue, window, and requirements stay hidden.
+  if (!isVenueQueueRow(row, actor.id)) return null;
 
   const conflict = await loadConflictKind(database, row.venueId, row.startsAt, row.endsAt);
 
@@ -259,7 +269,7 @@ export async function handleGetPendingVenueRequest(data: unknown, database: Data
  * Return event defaults and the pending request for the venue page's request panel.
  * Load the event by id, not by current assignee. This lets the request raiser withdraw after the
  * event changes status or assignment. `loadAssignedEvent` would block withdrawal because it
- * requires a submitted event assigned to the caller.
+ * requires an event in a searchable status assigned to the caller.
  * Return context to the current Coordinator while the event awaits a booking decision, or to the
  * requester while their request is pending. Return `null` otherwise. A stranger's stale `?eventId=`
  * leaves the venue page readable and reveals no information.
@@ -314,9 +324,10 @@ export async function handleGetVenueRequestContext(
 
   const request = requestRows.at(0);
 
-  // Check access before returning any data. Only the current assignee of a submitted event or the
-  // requester of a pending request receives context.
-  const canRequest = event.assignedCoordinatorId === actor.id && event.status === "submitted";
+  // Check access before returning any data. Only the current assignee of an event in a
+  // searchable status or the requester of a pending request receives context.
+  const canRequest =
+    event.assignedCoordinatorId === actor.id && SEARCHABLE_EVENT_STATUSES.includes(event.status);
   const raisedByCaller = request?.requestedById === actor.id;
   if (!canRequest && !raisedByCaller) return null;
 
@@ -343,8 +354,9 @@ export async function handleGetVenueRequestContext(
 
 /**
  * PTR-31 criteria 1–4: Create one unassigned `pending` row and notify all Venue Staff.
- * Refuse a window that does not describe a real civil day. The event must be submitted and
- * assigned to the caller, as the PTR-29 search requires.
+ * Refuse a window that does not describe a real civil day. The event must stand in a searchable
+ * status and be assigned to the caller, as the PTR-29 search allows (PTR-138 D2).
+ * Hold creation and conversion deliberately stay `submitted`-only.
  * Do not check overlaps here. Pending requests can overlap; approval checks them (PTR-36).
  * A cancelled event cannot receive a request (PTR-54 AC9).
  */
@@ -360,7 +372,7 @@ export async function handleCreateVenueRequest(
     // later cancellation waits for this transaction to commit.
     const locked = await keyShareEvent(tx, input.eventId);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
-    const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
+    const event = await loadAssignedEvent(tx, input.eventId, actor.id, SEARCHABLE_EVENT_STATUSES);
     if (!event) throw new AuthorizationError("Forbidden");
 
     const venueRows = await tx

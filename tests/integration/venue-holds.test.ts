@@ -1152,12 +1152,18 @@ describe("tentative venue holds (PTR-109)", () => {
         session(users.coordinatorA),
         database as never
       );
-      expect(projection.event.venueRequest).toEqual({
-        id: expect.any(String),
-        status: "pending",
-        conflict: "hold",
-        venueName: "PTR-109 Auditorium",
-      });
+      expect(projection.event.venueRequests).toEqual([
+        {
+          id: expect.any(String),
+          status: "pending",
+          venueName: "PTR-109 Auditorium",
+          date: "2027-06-15",
+          startTime: "10:00",
+          endTime: "14:00",
+          conflict: "hold",
+          latest: true,
+        },
+      ]);
     });
 
     it("suppresses canConvert once the event+venue already has a pending request", async () => {
@@ -1201,7 +1207,11 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      const detail = await handleGetPendingVenueRequest({ id: request.id }, database as never);
+      const detail = await handleGetPendingVenueRequest(
+        { id: request.id },
+        session(users.venueStaff),
+        database as never
+      );
       expect(detail?.conflict).toBe("hold");
     });
 
@@ -1223,7 +1233,11 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      const detail = await handleGetPendingVenueRequest({ id: request.id }, database as never);
+      const detail = await handleGetPendingVenueRequest(
+        { id: request.id },
+        session(users.venueStaff),
+        database as never
+      );
       expect(detail?.conflict).toBe("booking");
     });
 
@@ -1257,7 +1271,16 @@ describe("tentative venue holds (PTR-109)", () => {
         session(users.coordinatorB),
         database as never
       );
-      expect(projection.event.venueRequest).toMatchObject({ status: "pending", conflict: "hold" });
+      expect(projection.event.venueRequests).toMatchObject([
+        {
+          status: "pending",
+          conflict: "hold",
+          venueName: "PTR-109 Auditorium",
+          date: "2027-06-15",
+          startTime: "12:30",
+          endTime: "13:00",
+        },
+      ]);
     });
   });
 
@@ -1562,7 +1585,8 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("refuses a hold when the event is not in a holdable status (TC13)", async () => {
-      // This infers the same status check as `handleCreateVenueRequest`: the event must be "submitted".
+      // Hold creation and conversion deliberately stay `submitted`-only (PTR-138 D2): an
+      // `under_review` event refuses here even though `handleCreateVenueRequest` accepts it.
       await expect(
         handleCreateVenueHold(
           { ...HOLD_WINDOW, eventId: underReviewEventId, venueId },

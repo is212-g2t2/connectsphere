@@ -240,9 +240,18 @@ describe("eventSections", () => {
       ids({
         kind: "event",
         event: projection("venue_staff", {
-          venueRequest: { id: "vr-1", status: "pending", venueName: "Harbor Hall" },
+          venueRequests: [
+            {
+              id: "vr-1",
+              status: "pending",
+              venueName: "Harbor Hall",
+              date: "2026-11-21",
+              startTime: "18:00",
+              endTime: "22:00",
+            },
+          ],
         }),
-        venueDecision: { request: {}, venues: [] },
+        venueDecisions: [{ request: {}, venues: [] }],
       } as unknown as EventPageData)
     ).toEqual(["request", "decision"]);
   });
@@ -253,7 +262,16 @@ describe("eventSections", () => {
         kind: "event",
         viewerId: "viewer-1",
         event: projection("venue_staff", {
-          venueRequest: { id: "vr-1", status: "approved", venueName: "Harbor Hall" },
+          venueRequests: [
+            {
+              id: "vr-1",
+              status: "approved",
+              venueName: "Harbor Hall",
+              date: "2026-11-21",
+              startTime: "18:00",
+              endTime: "22:00",
+            },
+          ],
         }),
       })
     ).toEqual(["request"]);
@@ -274,6 +292,7 @@ describe("eventSections", () => {
         status: "submitted",
         cancellationRequests: [],
         changeRequests: [],
+        venueRequests: [],
       },
       coordinators: [],
     } as unknown as EventPageData);

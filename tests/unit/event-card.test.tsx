@@ -48,7 +48,16 @@ describe("EventCard", () => {
           startTime: "09:00",
           endTime: "17:00",
           status: "submitted",
-          venueRequest: { id: "vr-1", status: "pending", venueName: "Harbor Hall" },
+          venueRequests: [
+            {
+              id: "vr-1",
+              status: "pending",
+              venueName: "Harbor Hall",
+              date: "2026-12-05",
+              startTime: "17:00",
+              endTime: "21:00",
+            },
+          ],
         })}
       />
     );
@@ -64,12 +73,104 @@ describe("EventCard", () => {
           startTime: "09:00",
           endTime: "17:00",
           status: "submitted",
-          venueRequest: { id: "vr-1", status: "pending" },
+          venueRequests: [],
         })}
       />
     );
 
     expect(screen.getByRole("heading", { name: "Venue request" })).toBeTruthy();
+  });
+
+  it("titles a venue staff card with the pending entry's venue, falling back to the first entry", () => {
+    expect(
+      eventTitle(
+        projection("venue_staff", {
+          id: 7,
+          eventDate: "2026-10-01",
+          startTime: "09:00",
+          endTime: "17:00",
+          status: "submitted",
+          venueRequests: [
+            {
+              id: "vr-1",
+              status: "approved",
+              venueName: "Second Hall",
+              date: "2026-12-06",
+              startTime: "10:00",
+              endTime: "12:00",
+            },
+            {
+              id: "vr-2",
+              status: "pending",
+              venueName: "Harbor Hall",
+              date: "2026-12-05",
+              startTime: "17:00",
+              endTime: "21:00",
+            },
+          ],
+        })
+      )
+    ).toBe("Harbor Hall");
+
+    expect(
+      eventTitle(
+        projection("venue_staff", {
+          id: 7,
+          eventDate: "2026-10-01",
+          startTime: "09:00",
+          endTime: "17:00",
+          status: "submitted",
+          venueRequests: [
+            {
+              id: "vr-1",
+              status: "approved",
+              venueName: "Second Hall",
+              date: "2026-12-06",
+              startTime: "10:00",
+              endTime: "12:00",
+            },
+            {
+              id: "vr-2",
+              status: "released",
+              venueName: "Harbor Hall",
+              date: "2026-12-05",
+              startTime: "17:00",
+              endTime: "21:00",
+            },
+          ],
+        })
+      )
+    ).toBe("Second Hall");
+
+    expect(
+      eventTitle(
+        projection("venue_staff", {
+          id: 7,
+          eventDate: "2026-10-01",
+          startTime: "09:00",
+          endTime: "17:00",
+          status: "submitted",
+          venueRequests: [
+            {
+              id: "vr-1",
+              status: "rejected",
+              venueName: "Harbor Hall",
+              date: "2026-12-05",
+              startTime: "17:00",
+              endTime: "21:00",
+            },
+            {
+              id: "vr-2",
+              status: "pending",
+              venueName: "Second Hall",
+              date: "2026-12-06",
+              startTime: "10:00",
+              endTime: "12:00",
+            },
+          ],
+        })
+      )
+    ).toBe("Second Hall");
   });
 
   it("always links a staff card title to the event page", () => {
@@ -87,7 +188,7 @@ describe("EventCard", () => {
     );
   });
 
-  it("titles an untitled event without a venue request", () => {
+  it("titles an untitled event without venue entries", () => {
     expect(
       eventTitle(
         projection("organiser", {
@@ -107,7 +208,7 @@ describe("EventCard", () => {
           startTime: null,
           endTime: null,
           status: "submitted",
-          venueRequest: { id: "vr-1", status: "pending" },
+          venueRequests: [],
         })
       )
     ).toBe("Venue request");

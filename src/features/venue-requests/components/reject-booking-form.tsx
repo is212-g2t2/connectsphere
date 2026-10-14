@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Textarea } from "#/components/ui/textarea";
+import { formatProposedWindow } from "#/features/event-requests/format";
 import {
   VENUE_REJECTION_REASON_MAX_LENGTH,
   VENUE_REQUEST_DECIDED_MESSAGE,
@@ -55,14 +56,14 @@ function toRejectionInput(id: string, values: FormValues) {
 
 /** The suggestion's plain inputs; the reason and the venue select differ enough to stay inline. */
 const SUGGESTION_INPUTS = [
-  { name: "suggestedDate", id: "rejection-date", label: "Suggested date", type: "date" },
+  { name: "suggestedDate", base: "rejection-date", label: "Suggested date", type: "date" },
   {
     name: "suggestedStartTime",
-    id: "rejection-start",
+    base: "rejection-start",
     label: "Suggested start time",
     type: "time",
   },
-  { name: "suggestedEndTime", id: "rejection-end", label: "Suggested end time", type: "time" },
+  { name: "suggestedEndTime", base: "rejection-end", label: "Suggested end time", type: "time" },
 ] as const;
 
 /**
@@ -78,7 +79,7 @@ export function RejectBookingForm({
   venues,
   onDecided,
 }: {
-  request: Pick<PendingVenueRequest, "id" | "venueId" | "venueName">;
+  request: Pick<PendingVenueRequest, "id" | "venueId" | "venueName" | "startsAt" | "endsAt">;
   venues: readonly VenueOption[];
   /**
    * Where to go after a decision. The old detail page returns to the queue.
@@ -143,9 +144,15 @@ export function RejectBookingForm({
     },
   });
 
+  // Key every control id by request: the staff page renders one reject form per pending request.
+  // Name the form and its submit with the venue and window: several forms share the page.
+  const reasonId = `rejection-reason-${request.id}`;
+  const venueId = `rejection-venue-${request.id}`;
+  const formName = `Reject request for ${request.venueName}, ${formatProposedWindow({ start: request.startsAt, end: request.endsAt })}`;
   return (
     <form
       noValidate
+      aria-label={formName}
       className="space-y-4"
       onSubmit={event => {
         event.preventDefault();
@@ -157,9 +164,9 @@ export function RejectBookingForm({
       <form.Field name="reason">
         {field => (
           <Field data-invalid={field.state.meta.errors.length > 0}>
-            <FieldLabel htmlFor="rejection-reason">Reason for rejection (required)</FieldLabel>
+            <FieldLabel htmlFor={reasonId}>Reason for rejection (required)</FieldLabel>
             <Textarea
-              id="rejection-reason"
+              id={reasonId}
               value={field.state.value}
               maxLength={VENUE_REJECTION_REASON_MAX_LENGTH}
               aria-invalid={field.state.meta.errors.length > 0}
@@ -177,13 +184,13 @@ export function RejectBookingForm({
           <form.Field name="suggestedVenueId">
             {field => (
               <Field data-invalid={field.state.meta.errors.length > 0}>
-                <FieldLabel htmlFor="rejection-venue">Suggested venue</FieldLabel>
+                <FieldLabel htmlFor={venueId}>Suggested venue</FieldLabel>
                 <Select
                   value={field.state.value === "" ? null : field.state.value}
                   onValueChange={value => field.handleChange(value ?? "")}
                 >
                   <SelectTrigger
-                    id="rejection-venue"
+                    id={venueId}
                     className="w-full"
                     aria-invalid={field.state.meta.errors.length > 0}
                     onBlur={field.handleBlur}
@@ -207,13 +214,13 @@ export function RejectBookingForm({
               </Field>
             )}
           </form.Field>
-          {SUGGESTION_INPUTS.map(({ name, id, label, type }) => (
+          {SUGGESTION_INPUTS.map(({ name, base, label, type }) => (
             <form.Field key={name} name={name}>
               {field => (
                 <Field data-invalid={field.state.meta.errors.length > 0}>
-                  <FieldLabel htmlFor={id}>{label}</FieldLabel>
+                  <FieldLabel htmlFor={`${base}-${request.id}`}>{label}</FieldLabel>
                   <Input
-                    id={id}
+                    id={`${base}-${request.id}`}
                     type={type}
                     value={field.state.value}
                     aria-invalid={field.state.meta.errors.length > 0}
@@ -230,7 +237,13 @@ export function RejectBookingForm({
 
       <form.Subscribe selector={state => state.isSubmitting}>
         {isSubmitting => (
-          <Button type="submit" variant="destructive" className="w-fit" disabled={isSubmitting}>
+          <Button
+            type="submit"
+            variant="destructive"
+            className="w-fit"
+            disabled={isSubmitting}
+            aria-label={formName}
+          >
             {isSubmitting ? "Rejecting…" : "Reject request"}
           </Button>
         )}

@@ -131,14 +131,14 @@ const equipment = (status: string) => [
 ];
 describe("projectEvent completion field (PTR-43 AC4)", () => {
   it.each(["technical_support", "coordinator"] as const)("%s sees the completion time", access => {
-    const p = projectEvent(record(at), access, null, equipment("reserved"), null);
+    const p = projectEvent(record(at), access, null, equipment("reserved"), []);
     expect(p.event.equipmentArrangementsCompletedAt).toBe(at.toISOString());
   });
 
   it.each(["technical_support", "coordinator"] as const)(
     "%s sees null when a line is no longer arranged (stale stamp hidden)",
     access => {
-      const p = projectEvent(record(at), access, null, equipment("requested"), null);
+      const p = projectEvent(record(at), access, null, equipment("requested"), []);
       expect(p.event.equipmentArrangementsCompletedAt).toBeNull();
     }
   );
@@ -146,7 +146,7 @@ describe("projectEvent completion field (PTR-43 AC4)", () => {
   it.each(["technical_support", "coordinator"] as const)(
     "%s sees null when nothing was recorded",
     access => {
-      const p = projectEvent(record(null), access, null, equipment("reserved"), null);
+      const p = projectEvent(record(null), access, null, equipment("reserved"), []);
       expect(p.event.equipmentArrangementsCompletedAt).toBeNull();
     }
   );
@@ -154,13 +154,13 @@ describe("projectEvent completion field (PTR-43 AC4)", () => {
   it.each(["organiser", "venue_staff", "attendee"] as const)(
     "%s never receives the field",
     access => {
-      const p = projectEvent(record(at), access, null, equipment("reserved"), null);
+      const p = projectEvent(record(at), access, null, equipment("reserved"), []);
       expect(p.event).not.toHaveProperty("equipmentArrangementsCompletedAt");
     }
   );
 
   it("technical_support sees no completion for an event with no lines (AC6)", () => {
-    const p = projectEvent(record(at), "technical_support", null, [], null);
+    const p = projectEvent(record(at), "technical_support", null, [], []);
     expect(p.event.equipmentArrangementsCompletedAt).toBeNull();
     expect(p.event.equipmentArrangementsSatisfied).toBe(true);
   });
@@ -168,11 +168,11 @@ describe("projectEvent completion field (PTR-43 AC4)", () => {
   it("coordinator sees the gate satisfied only after completion on arranged lines", () => {
     const arranged = equipment("reserved");
     expect(
-      projectEvent(record(null), "coordinator", null, arranged, null).event
+      projectEvent(record(null), "coordinator", null, arranged, []).event
         .equipmentArrangementsSatisfied
     ).toBe(false);
     expect(
-      projectEvent(record(at), "coordinator", null, arranged, null).event
+      projectEvent(record(at), "coordinator", null, arranged, []).event
         .equipmentArrangementsSatisfied
     ).toBe(true);
   });

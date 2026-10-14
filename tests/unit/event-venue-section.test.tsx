@@ -57,7 +57,7 @@ function renderVenue(access: EventProjection["access"], event: Partial<EventProj
   const data = eventData(access, event);
   const defs = venueSections(data);
   expect(defs).toHaveLength(1);
-  render(<>{defs[0].render(data)}</>);
+  return render(<>{defs[0].render(data)}</>);
 }
 
 function isVenueVisible(
@@ -68,9 +68,33 @@ function isVenueVisible(
   return venueSections(data).some(section => section.visible(data));
 }
 
-const rejectedVenueRequest = {
+const pendingEntry = {
   id: "vr-1",
+  status: "pending",
+  venueName: "Harbor Hall",
+  date: "2026-12-05",
+  startTime: "17:00",
+  endTime: "21:00",
+  conflict: "booking",
+} as const;
+
+const approvedEntry = {
+  id: "vr-2",
+  status: "approved",
+  venueName: "Second Hall",
+  date: "2026-12-06",
+  startTime: "10:00",
+  endTime: "12:00",
+} as const;
+
+const rejectedLatest = {
+  id: "vr-3",
   status: "rejected",
+  venueName: "Harbor Hall",
+  date: "2026-12-05",
+  startTime: "17:00",
+  endTime: "21:00",
+  latest: true,
   rejection: {
     venueId: 3,
     venueName: "Harbor Hall",
@@ -80,6 +104,43 @@ const rejectedVenueRequest = {
     reason: "The main hall is being rewired that weekend.",
     suggestion: null,
     suggestedVenueId: null,
+  },
+} as const;
+
+const rejectedNotLatest = {
+  id: "vr-3",
+  status: "rejected",
+  venueName: "Harbor Hall",
+  date: "2026-12-05",
+  startTime: "17:00",
+  endTime: "21:00",
+  rejection: {
+    venueId: 3,
+    venueName: "Harbor Hall",
+    date: "2026-12-05",
+    startTime: "17:00",
+    endTime: "21:00",
+    reason: "The main hall is being rewired that weekend.",
+    suggestion: null,
+    suggestedVenueId: null,
+  },
+} as const;
+
+const releasedEntry = {
+  id: "vr-4",
+  status: "released",
+  venueName: "Harbor Hall",
+  date: "2026-12-05",
+  startTime: "17:00",
+  endTime: "21:00",
+  latest: true,
+  release: {
+    venueName: "Harbor Hall",
+    date: "2026-12-05",
+    startTime: "17:00",
+    endTime: "21:00",
+    reason: "The organiser moved the session.",
+    changedByName: "Ruth Staff",
   },
 } as const;
 
@@ -104,24 +165,87 @@ describe("venue section", () => {
     expect(screen.getByText(/Jonas Weber/)).toBeTruthy();
   });
 
-  it("shows the pending venue request with its conflict", () => {
+  it("renders one block per entry with venue, period, and state badges", () => {
     renderVenue("coordinator", {
       status: "planning",
-      venueRequest: { id: "vr-1", status: "pending", conflict: "booking" },
+      venueRequests: [{ ...pendingEntry }, { ...approvedEntry, latest: true as const }],
     });
 
+    expect(screen.getByText("Harbor Hall")).toBeTruthy();
+    expect(screen.getByText("Second Hall")).toBeTruthy();
+    expect(screen.getByText("5 Dec 2026, 17:00–21:00")).toBeTruthy();
+    expect(screen.getByText("6 Dec 2026, 10:00–12:00")).toBeTruthy();
     expect(screen.getByText("Pending")).toBeTruthy();
+    expect(screen.getByText("Approved")).toBeTruthy();
     expect(screen.getByText("Conflicting booking")).toBeTruthy();
   });
 
-  it("offers the adjust-request link to the coordinator on a rejected submitted request", () => {
-    renderVenue("coordinator", { status: "submitted", venueRequest: { ...rejectedVenueRequest } });
+  it("shows every rejected entry's reason, and the adjust link only on the latest in a searchable status", () => {
+    const { unmount } = renderVenue("coordinator", {
+      status: "submitted",
+      venueRequests: [{ ...approvedEntry }, { ...rejectedLatest }],
+    } as never);
 
     expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Adjust request at Harbor Hall" })).toBeTruthy();
+    unmount();
+
+    renderVenue("coordinator", {
+      status: "submitted",
+      venueRequests: [{ ...rejectedNotLatest }, { ...approvedEntry, latest: true as const }],
+    } as never);
+
+    expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
   });
 
-  it("keeps review statuses mounted for the coordinator search, and for the organiser only while a rejected request waits", () => {
+  it("groups each entry's rows in its own band", () => {
+    renderVenue("coordinator", {
+      status: "planning",
+      venueRequests: [{ ...pendingEntry }, { ...approvedEntry, latest: true as const }],
+    });
+
+    const groups = screen.getAllByRole("group");
+    expect(groups).toHaveLength(2);
+    expect(groups[0].getAttribute("aria-label")).toBe("Harbor Hall, 5 Dec 2026, 17:00–21:00");
+    expect(groups[1].getAttribute("aria-label")).toBe("Second Hall, 6 Dec 2026, 10:00–12:00");
+  });
+
+  it("keeps the rejection reason without the adjust link outside searchable statuses", () => {
+    renderVenue("coordinator", {
+      status: "confirmed",
+      venueRequests: [{ ...rejectedLatest }],
+    } as never);
+
+    expect(screen.getByText("Rejected")).toBeTruthy();
+    expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
+  });
+
+  it("shows release details to the coordinator and none to the organiser", () => {
+    const { unmount } = renderVenue("coordinator", {
+      status: "planning",
+      venueRequests: [{ ...approvedEntry }, { ...releasedEntry }],
+    } as never);
+
+    expect(screen.getByText("Released")).toBeTruthy();
+    expect(screen.getByText("The organiser moved the session.")).toBeTruthy();
+    expect(screen.getByText("Ruth Staff")).toBeTruthy();
+    unmount();
+
+    renderVenue("organiser", {
+      status: "planning",
+      venueRequests: [{ ...pendingEntry, conflict: undefined }, { ...approvedEntry }],
+    } as never);
+
+    expect(screen.getByText("Harbor Hall")).toBeTruthy();
+    expect(screen.getByText("Second Hall")).toBeTruthy();
+    expect(screen.queryByText("The main hall is being rewired that weekend.")).toBeNull();
+    expect(screen.queryByText("The organiser moved the session.")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
+  });
+
+  it("keeps review statuses mounted for the coordinator search only", () => {
     for (const status of ["submitted", "under_review", "awaiting_organiser"] as const) {
       expect(isVenueVisible("coordinator", { status })).toBe(true);
       expect(isVenueVisible("organiser", { status })).toBe(false);
@@ -129,15 +253,15 @@ describe("venue section", () => {
     expect(
       isVenueVisible("coordinator", {
         status: "submitted",
-        venueRequest: { ...rejectedVenueRequest },
+        venueRequests: [{ ...rejectedNotLatest }],
       })
     ).toBe(true);
     expect(
       isVenueVisible("organiser", {
         status: "submitted",
-        venueRequest: { ...rejectedVenueRequest },
+        venueRequests: [{ ...rejectedNotLatest }],
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("always shows approved, planning and confirmed events", () => {
@@ -154,7 +278,7 @@ describe("venue section", () => {
     }
   });
 
-  it("shows the triage venue with the rejected booking and the adjust link", () => {
+  it("shows the triage venue entries with the rejection reason and the adjust link", () => {
     const data = {
       kind: "triage",
       viewerId: "viewer-1",
@@ -165,7 +289,7 @@ describe("venue section", () => {
         roomLayoutPreference: "Workshop rows",
         accessibilityRequirements: "",
         venueRequirements: "10 power sockets, whiteboards",
-        venueRequest: { ...rejectedVenueRequest },
+        venueRequests: [{ ...approvedEntry }, { ...rejectedLatest }],
       },
       coordinators: [],
     } as unknown as EventPageData;
@@ -176,15 +300,37 @@ describe("venue section", () => {
 
     expect(screen.getByRole("heading", { name: "Venue" })).toBeTruthy();
     expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
-    expect(screen.getByText("Harbor Hall, 5 Dec 2026, 17:00–21:00")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Adjust request at Harbor Hall" })).toBeTruthy();
   });
 
-  it("hides the triage venue without a venue request", () => {
+  it("hides the triage adjust link when the rejected entry is not latest", () => {
     const data = {
       kind: "triage",
       viewerId: "viewer-1",
-      request: { id: 1036, status: "submitted", venueRequest: null },
+      request: {
+        id: 1036,
+        status: "submitted",
+        expectedAttendance: 60,
+        roomLayoutPreference: "Workshop rows",
+        accessibilityRequirements: "",
+        venueRequirements: "10 power sockets, whiteboards",
+        venueRequests: [{ ...rejectedNotLatest }, { ...approvedEntry, latest: true as const }],
+      },
+      coordinators: [],
+    } as unknown as EventPageData;
+    const defs = venueSections(data);
+    render(<>{defs[0].render(data)}</>);
+
+    expect(screen.getByText("Second Hall")).toBeTruthy();
+    expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
+  });
+
+  it("hides the triage venue without venue entries", () => {
+    const data = {
+      kind: "triage",
+      viewerId: "viewer-1",
+      request: { id: 1036, status: "submitted", venueRequests: [] },
       coordinators: [],
     } as unknown as EventPageData;
 
@@ -192,7 +338,10 @@ describe("venue section", () => {
   });
 
   it("hides the adjust-request link from the organiser", () => {
-    renderVenue("organiser", { status: "submitted", venueRequest: { ...rejectedVenueRequest } });
+    renderVenue("organiser", {
+      status: "submitted",
+      venueRequests: [{ ...rejectedLatest }],
+    } as never);
 
     expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
   });

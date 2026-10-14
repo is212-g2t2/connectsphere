@@ -119,25 +119,31 @@ describe("coordination request venue summary", () => {
       database as never
     );
 
-    expect(request.venueRequest).toMatchObject({
-      id: "triage-vr-rejected",
-      status: "rejected",
-      venueName: "Triage Refused Hall",
-      rejection: {
+    expect(request.venueRequests).toMatchObject([
+      {
+        id: "triage-vr-rejected",
+        status: "rejected",
         venueName: "Triage Refused Hall",
         date: "2027-05-10",
         startTime: "09:00",
         endTime: "12:00",
-        reason: "The main hall is being rewired that weekend.",
-        suggestedVenueId,
-        suggestion: {
-          venueName: "Triage Suggested Room",
-          date: "2027-05-11",
+        latest: true,
+        rejection: {
+          venueName: "Triage Refused Hall",
+          date: "2027-05-10",
           startTime: "09:00",
           endTime: "12:00",
+          reason: "The main hall is being rewired that weekend.",
+          suggestedVenueId,
+          suggestion: {
+            venueName: "Triage Suggested Room",
+            date: "2027-05-11",
+            startTime: "09:00",
+            endTime: "12:00",
+          },
         },
       },
-    });
+    ]);
   });
 
   it("carries a pending request without a rejection", async () => {
@@ -157,12 +163,54 @@ describe("coordination request venue summary", () => {
       database as never
     );
 
-    expect(request.venueRequest).toMatchObject({
-      id: "triage-vr-pending",
-      status: "pending",
-      venueName: "Triage Refused Hall",
-    });
-    expect(request.venueRequest).not.toHaveProperty("rejection");
+    expect(request.venueRequests).toMatchObject([
+      {
+        id: "triage-vr-pending",
+        status: "pending",
+        venueName: "Triage Refused Hall",
+        latest: true,
+      },
+    ]);
+    expect(request.venueRequests).toHaveLength(1);
+    expect(request.venueRequests[0]).not.toHaveProperty("rejection");
+  });
+
+  it("marks the greater id latest when two rows share updatedAt", async () => {
+    const sharedAt = new Date("2027-05-01T00:00:00Z");
+    await database.insert(schema.venueRequests).values([
+      {
+        id: "triage-vr-tie-a",
+        eventId,
+        venueId: refusedVenueId,
+        startsAt: "2027-05-10 09:00:00",
+        endsAt: "2027-05-10 12:00:00",
+        requestedById: users.coordinator.id,
+        status: "pending",
+        updatedAt: sharedAt,
+      },
+      {
+        id: "triage-vr-tie-b",
+        eventId,
+        venueId: suggestedVenueId,
+        startsAt: "2027-05-10 09:00:00",
+        endsAt: "2027-05-10 12:00:00",
+        requestedById: users.coordinator.id,
+        status: "pending",
+        updatedAt: sharedAt,
+      },
+    ]);
+
+    const request = await handleGetCoordinationRequest(
+      { id: eventId },
+      session(),
+      database as never
+    );
+
+    expect(request.venueRequests).toMatchObject([
+      { id: "triage-vr-tie-a", status: "pending" },
+      { id: "triage-vr-tie-b", status: "pending", latest: true },
+    ]);
+    expect(request.venueRequests[0]).not.toHaveProperty("latest");
   });
 
   it("is null when the event has no venue request", async () => {
@@ -172,6 +220,6 @@ describe("coordination request venue summary", () => {
       database as never
     );
 
-    expect(request.venueRequest).toBeNull();
+    expect(request.venueRequests).toEqual([]);
   });
 });

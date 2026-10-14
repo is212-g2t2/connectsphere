@@ -87,7 +87,7 @@ describe("event access", () => {
     it.each(["organiser", "coordinator"] as const)(
       "projects who confirmed, when, and the booked venue for the %s",
       access => {
-        const result = projectEvent(confirmedRequest, access, null, [], null, booking);
+        const result = projectEvent(confirmedRequest, access, null, [], [], booking);
         expect(result.event.confirmation).toEqual({
           confirmedAt: "2026-10-02T03:00:00.000Z",
           confirmedByName: "Casey Coordinator",
@@ -97,19 +97,19 @@ describe("event access", () => {
     );
 
     it("carries a null venue once the booking has been released", () => {
-      const result = projectEvent(confirmedRequest, "organiser", null, [], null);
+      const result = projectEvent(confirmedRequest, "organiser", null, [], []);
       expect(result.event.confirmation?.venue).toBeNull();
     });
 
     it("carries no confirmation before the event is confirmed", () => {
-      const result = projectEvent(request, "organiser", null, [], null, booking);
+      const result = projectEvent(request, "organiser", null, [], [], booking);
       expect(result.event.confirmation).toBeNull();
     });
 
     it.each(["venue_staff", "technical_support", "attendee"] as const)(
       "withholds the confirmation record from %s",
       access => {
-        const result = projectEvent(confirmedRequest, access, null, [], null, booking);
+        const result = projectEvent(confirmedRequest, access, null, [], [], booking);
         expect(result.event).not.toHaveProperty("confirmation");
       }
     );
@@ -129,7 +129,16 @@ describe("event access", () => {
           notes: "Private note",
         },
       ],
-      { id: "vr-9", status: "pending", venueName: "Hall A" }
+      [
+        {
+          id: "vr-9",
+          status: "pending",
+          venueName: "Hall A",
+          date: "2026-10-01",
+          startTime: "09:00",
+          endTime: "17:00",
+        },
+      ]
     );
     expect(result.event).toMatchObject({
       eventDate: "2026-10-01",
@@ -139,7 +148,7 @@ describe("event access", () => {
       layout: "Theatre",
       accessibilityRequirements: "Step-free access",
       requiredFacilities: "Projector",
-      venueRequest: { status: "pending", venueName: "Hall A" },
+      venueRequests: [{ status: "pending", venueName: "Hall A" }],
     });
     expect(result.event).not.toHaveProperty("name");
     expect(result.event).not.toHaveProperty("description");
@@ -148,11 +157,21 @@ describe("event access", () => {
 
   it("carries a venue staff member's settled request with its outcome", () => {
     for (const venueRequest of [
-      { id: "vr-9", status: "approved", venueName: "Hall A" },
+      {
+        id: "vr-9",
+        status: "approved",
+        venueName: "Hall A",
+        date: "2026-10-10",
+        startTime: "09:00",
+        endTime: "12:00",
+      },
       {
         id: "vr-9",
         status: "rejected",
         venueName: "Hall A",
+        date: "2026-10-10",
+        startTime: "09:00",
+        endTime: "12:00",
         rejection: {
           venueId: 5,
           venueName: "Hall A",
@@ -168,6 +187,9 @@ describe("event access", () => {
         id: "vr-9",
         status: "released",
         venueName: "Hall A",
+        date: "2026-10-10",
+        startTime: "09:00",
+        endTime: "12:00",
         release: {
           venueName: "Hall A",
           date: "2026-10-10",
@@ -178,8 +200,8 @@ describe("event access", () => {
         },
       },
     ] as const) {
-      const result = projectEvent(request, "venue_staff", null, [], venueRequest);
-      expect(result.event.venueRequest).toEqual(venueRequest);
+      const result = projectEvent(request, "venue_staff", null, [], [venueRequest]);
+      expect(result.event.venueRequests).toEqual([venueRequest]);
       expect(result.event).not.toHaveProperty("name");
     }
   });
@@ -197,7 +219,7 @@ describe("event access", () => {
           notes: "Private note",
         },
       ],
-      null
+      []
     );
     expect(result.event.equipment).toHaveLength(1);
     expect(result.event.name).toBe("ConnectSphere Demo");
@@ -219,8 +241,7 @@ describe("event access", () => {
 
     it("projects arrangement notes and the unavailable reason for the coordinator and technical support", () => {
       for (const access of ["coordinator", "technical_support"] as const) {
-        const [projected] =
-          projectEvent(request, access, null, arranged, null).event.equipment ?? [];
+        const [projected] = projectEvent(request, access, null, arranged, []).event.equipment ?? [];
         expect(projected).toMatchObject({
           arrangementStatus: "unavailable",
           notes: "Coordinator note",
@@ -232,7 +253,7 @@ describe("event access", () => {
 
     it("withholds Technical Support notes and reasons from the organiser", () => {
       const [projected] =
-        projectEvent(request, "organiser", null, arranged, null).event.equipment ?? [];
+        projectEvent(request, "organiser", null, arranged, []).event.equipment ?? [];
       expect(projected).toMatchObject({
         arrangementStatus: "unavailable",
         notes: "Coordinator note",
@@ -244,7 +265,7 @@ describe("event access", () => {
     it("keeps the holder's name and arrangeable flag to technical support alone", () => {
       const held = [{ ...arranged[0], arrangeable: true, assignedStaffName: "Sam" }];
       const project = (access: "coordinator" | "organiser" | "technical_support") =>
-        projectEvent(request, access, null, held, null).event.equipment?.[0];
+        projectEvent(request, access, null, held, []).event.equipment?.[0];
       expect(project("technical_support")).toMatchObject({
         arrangeable: true,
         assignedStaffName: "Sam",
@@ -270,7 +291,7 @@ describe("event access", () => {
       "attendee",
       { status: "registered", registeredAt: "2026-09-13T10:00:00.000Z" },
       [],
-      null,
+      [],
       venue,
       { registered: 12, limit: 40, vip: 2, capacity: 40 }
     );
@@ -310,24 +331,35 @@ describe("event access", () => {
   it.each(["attendee", "venue_staff", "technical_support", "organiser", "coordinator"] as const)(
     "carries the event's stage for the %s, who has access to it (PTR-21 AC2)",
     access => {
-      const result = projectEvent(request, access, null, [], null);
+      const result = projectEvent(request, access, null, [], []);
       expect(result.event.status).toBe("submitted");
     }
   );
 
   it.each(["organiser", "coordinator"] as const)("projects the full record for the %s", access => {
-    const result = projectEvent(request, access, null, [], {
-      id: "vr-9",
-      status: "pending",
-      venueName: "Hall A",
-    });
+    const result = projectEvent(
+      request,
+      access,
+      null,
+      [],
+      [
+        {
+          id: "vr-9",
+          status: "pending",
+          venueName: "Hall A",
+          date: "2026-10-01",
+          startTime: "09:00",
+          endTime: "17:00",
+        },
+      ]
+    );
 
     expect(result.event).toMatchObject({
       name: "ConnectSphere Demo",
       status: "submitted",
       expectedAttendance: 100,
       equipment: [],
-      venueRequest: { status: "pending" },
+      venueRequests: [{ status: "pending" }],
     });
   });
 });
@@ -337,6 +369,9 @@ describe("projectEvent with a rejected venue request (PTR-34 AC3)", () => {
     id: "vr-5",
     status: "rejected",
     venueName: "Main Hall",
+    date: "2026-10-10",
+    startTime: "09:00",
+    endTime: "12:00",
     rejection: {
       venueId: 5,
       venueName: "Main Hall",
@@ -355,9 +390,9 @@ describe("projectEvent with a rejected venue request (PTR-34 AC3)", () => {
   };
 
   it("carries the rejection's reason and suggestion to the coordinator", () => {
-    const result = projectEvent(request, "coordinator", null, [], rejected);
+    const result = projectEvent(request, "coordinator", null, [], [rejected]);
 
-    expect(result.event.venueRequest).toEqual(rejected);
+    expect(result.event.venueRequests).toEqual([rejected]);
   });
 });
 

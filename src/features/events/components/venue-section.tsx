@@ -1,3 +1,4 @@
+// oxlint-disable jsx-a11y/prefer-tag-over-role -- a group inside a description list has no semantic element.
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
@@ -7,6 +8,7 @@ import { Card, CardContent } from "#/components/ui/card";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { formatInstant, formatLocalDate } from "#/features/event-requests/format";
 import { AdjustRequestRow } from "#/features/events/components/adjust-request-row";
+import { VenueStateBadge } from "#/features/venue-requests/components/venue-state-badge";
 import {
   EventRequirements,
   hasEventRequirements,
@@ -16,18 +18,11 @@ import type { EventPageData, EventSectionDef } from "#/features/events/page-data
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 
-/** Review statuses. Only these keep the block mounted for a rejected request. */
-const REVIEW_STATUSES: readonly EventRequestStatus[] = [
-  "submitted",
-  "under_review",
-  "awaiting_organiser",
-];
-
 interface VenueSource {
   eventId: number;
   access: "organiser" | "coordinator";
   status: EventRequestStatus;
-  venueRequest: EventVenueRequest | null;
+  venueRequests: EventVenueRequest[];
   requirements: {
     expectedAttendance?: number | null;
     layout?: string | null;
@@ -53,7 +48,7 @@ function venueSource(data: EventPageData): VenueSource | null {
       eventId: data.request.id,
       access: "coordinator",
       status: data.request.status,
-      venueRequest: data.request.venueRequest ?? null,
+      venueRequests: data.request.venueRequests,
       requirements: {
         expectedAttendance: data.request.expectedAttendance,
         layout: data.request.roomLayoutPreference,
@@ -70,21 +65,92 @@ function venueSource(data: EventPageData): VenueSource | null {
     eventId: event.id,
     access: data.event.access,
     status: event.status,
-    venueRequest: event.venueRequest ?? null,
+    venueRequests: event.venueRequests ?? [],
     requirements: event,
     confirmation: event.confirmation ?? null,
     searchable: true,
   };
 }
 
-/** Render the venue block as the old dashboard card did: requirements, request, confirmation. */
+/** One venue-request entry: venue, period, state, and its own rejection or release. */
+function VenueRequestEntry({
+  entry,
+  access,
+  eventId,
+  eventStatus,
+}: {
+  entry: EventVenueRequest;
+  access: "organiser" | "coordinator";
+  eventId: number;
+  eventStatus: EventRequestStatus;
+}) {
+  const showRejection = entry.status === "rejected" && entry.rejection !== undefined;
+  const showAdjust =
+    access === "coordinator" &&
+    entry.latest === true &&
+    SEARCHABLE_EVENT_STATUSES.includes(eventStatus);
+  return (
+    <div
+      role="group"
+      aria-label={`${entry.venueName}, ${formatLocalDate(entry.date)}, ${entry.startTime}–${entry.endTime}`}
+      className="grid gap-3 border-t border-border pt-3 first:border-t-0 first:pt-0 sm:col-span-2 sm:grid-cols-2"
+    >
+      <VenueDetail label="Venue" value={entry.venueName} />
+      <VenueDetail
+        label="Period"
+        value={`${formatLocalDate(entry.date)}, ${entry.startTime}–${entry.endTime}`}
+      />
+      <VenueDetail
+        label="Status"
+        value={
+          <span className="flex flex-wrap items-center gap-2">
+            <VenueStateBadge status={entry.status} />
+            {entry.status === "pending" && entry.conflict && (
+              <Badge variant="stopped">
+                {entry.conflict === "hold" ? "Conflicting hold" : "Conflicting booking"}
+              </Badge>
+            )}
+          </span>
+        }
+      />
+      {showRejection && entry.rejection && (
+        <>
+          <VenueDetail
+            label="Rejection reason"
+            value={<span className="whitespace-pre-line">{entry.rejection.reason}</span>}
+          />
+          {entry.rejection.suggestion && (
+            <VenueDetail
+              label="Suggested alternative"
+              value={formatVenueSuggestion(entry.rejection.suggestion, formatLocalDate)}
+            />
+          )}
+          {showAdjust && <AdjustRequestRow eventId={eventId} rejection={entry.rejection} />}
+        </>
+      )}
+      {entry.release && (
+        <>
+          <VenueDetail
+            label="Release reason"
+            value={<span className="whitespace-pre-line">{entry.release.reason}</span>}
+          />
+          {entry.release.changedByName && (
+            <VenueDetail label="Released by" value={entry.release.changedByName} />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Render the venue block as the old dashboard card did: requirements, requests, confirmation. */
 function VenueBody({ data }: { data: EventPageData }) {
   const source = venueSource(data);
   if (!source) return null;
-  const { access, status, venueRequest } = source;
+  const { access, status, venueRequests } = source;
   const hasActions =
     source.searchable && access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(status);
-  const hasRequested = hasEventRequirements(source.requirements, venueRequest !== null);
+  const hasRequested = hasEventRequirements(source.requirements, venueRequests.length > 0);
   if (!hasRequested && !source.confirmation && !hasActions) return null;
   return (
     <div>
@@ -95,94 +161,15 @@ function VenueBody({ data }: { data: EventPageData }) {
             <>
               <p className="eyebrow text-muted-foreground">What was requested</p>
               <EventRequirements event={source.requirements} className="mt-2">
-                {venueRequest && (
-                  <>
-                    <VenueDetail
-                      label="Venue request"
-                      value={
-                        <span className="flex flex-wrap items-center gap-2">
-                          {venueRequest.status === "rejected" ? (
-                            <Badge variant="stopped">Rejected</Badge>
-                          ) : venueRequest.status === "released" ? (
-                            <Badge variant="stopped">Released</Badge>
-                          ) : (
-                            <Badge variant="progress">Pending</Badge>
-                          )}
-                          {venueRequest.conflict && (
-                            <Badge variant="stopped">
-                              {venueRequest.conflict === "hold"
-                                ? "Conflicting hold"
-                                : "Conflicting booking"}
-                            </Badge>
-                          )}
-                        </span>
-                      }
-                    />
-                    {venueRequest.rejection && (
-                      <>
-                        <VenueDetail
-                          label={
-                            venueRequest.status === "rejected"
-                              ? "Rejected booking"
-                              : "Previously rejected booking"
-                          }
-                          value={`${venueRequest.rejection.venueName}, ${formatLocalDate(
-                            venueRequest.rejection.date
-                          )}, ${venueRequest.rejection.startTime}–${venueRequest.rejection.endTime}`}
-                        />
-                        <VenueDetail
-                          label="Rejection reason"
-                          value={
-                            <span className="whitespace-pre-line">
-                              {venueRequest.rejection.reason}
-                            </span>
-                          }
-                        />
-                        {venueRequest.rejection.suggestion && (
-                          <VenueDetail
-                            label="Suggested alternative"
-                            value={formatVenueSuggestion(
-                              venueRequest.rejection.suggestion,
-                              formatLocalDate
-                            )}
-                          />
-                        )}
-                        {access === "coordinator" &&
-                          venueRequest.status === "rejected" &&
-                          status === "submitted" && (
-                            <AdjustRequestRow
-                              eventId={source.eventId}
-                              rejection={venueRequest.rejection}
-                            />
-                          )}
-                      </>
-                    )}
-                    {venueRequest.release && (
-                      <>
-                        <VenueDetail
-                          label="Released booking"
-                          value={`${venueRequest.release.venueName}, ${formatLocalDate(
-                            venueRequest.release.date
-                          )}, ${venueRequest.release.startTime}–${venueRequest.release.endTime}`}
-                        />
-                        <VenueDetail
-                          label="Release reason"
-                          value={
-                            <span className="whitespace-pre-line">
-                              {venueRequest.release.reason}
-                            </span>
-                          }
-                        />
-                        {venueRequest.release.changedByName && (
-                          <VenueDetail
-                            label="Released by"
-                            value={venueRequest.release.changedByName}
-                          />
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
+                {venueRequests.map(entry => (
+                  <VenueRequestEntry
+                    key={entry.id}
+                    entry={entry}
+                    access={access}
+                    eventId={source.eventId}
+                    eventStatus={status}
+                  />
+                ))}
               </EventRequirements>
             </>
           )}
@@ -235,7 +222,7 @@ function VenueBody({ data }: { data: EventPageData }) {
   );
 }
 
-/** Show one labelled row beside the shared requirements: the card's pending request. */
+/** Show one labelled row beside the shared requirements: one fact per venue entry. */
 function VenueDetail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
@@ -247,13 +234,13 @@ function VenueDetail({ label, value }: { label: string; value: ReactNode }) {
 
 /**
  * Share the venue block between the Organiser and the Coordinator. Show it always for approved,
- * planning, and confirmed events. Show it in review statuses only while a rejected request waits
- * for adjustment. The Coordinator keeps it for every searchable status. It carries the venue
- * search action there. Triage shows it while the request carries a venue request.
+ * planning, and confirmed events. The Coordinator keeps it for every searchable status. It
+ * carries the venue search action there. Triage shows it while the request carries venue
+ * entries.
  */
 export function venueSections(data: EventPageData): EventSectionDef[] {
   if (data.kind === "triage") {
-    const exists = (data.request.venueRequest ?? null) !== null;
+    const exists = data.request.venueRequests.length > 0;
     return [
       {
         id: "venue",
@@ -273,19 +260,16 @@ export function venueSections(data: EventPageData): EventSectionDef[] {
       visible: inner => {
         const source = venueSource(inner);
         if (!source) return false;
-        const { access, status, venueRequest } = source;
+        const { access, status, venueRequests } = source;
         const settled = status === "approved" || status === "planning" || status === "confirmed";
-        const adjusting =
-          REVIEW_STATUSES.some(candidate => candidate === status) &&
-          (venueRequest?.status ?? null) === "rejected";
         const searchable = access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(status);
-        if (!settled && !adjusting && !searchable) return false;
+        if (!settled && !searchable) return false;
         const hasActions =
           source.searchable &&
           access === "coordinator" &&
           SEARCHABLE_EVENT_STATUSES.includes(status);
         return (
-          hasEventRequirements(source.requirements, venueRequest !== null) ||
+          hasEventRequirements(source.requirements, venueRequests.length > 0) ||
           source.confirmation !== null ||
           hasActions
         );

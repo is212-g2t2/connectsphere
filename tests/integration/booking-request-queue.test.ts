@@ -196,6 +196,7 @@ describe("pending booking request reader (PTR-32)", () => {
   it("maps the live PTR-31 requirement fields and returns null once the request leaves pending", async () => {
     const detail = await handleGetPendingVenueRequest(
       { id: "ptr32-pending-overlap" },
+      { id: otherStaff.id } as never,
       database as never
     );
 
@@ -223,6 +224,7 @@ describe("pending booking request reader (PTR-32)", () => {
 
     const detailAfterWithdraw = await handleGetPendingVenueRequest(
       { id: "ptr32-pending-overlap" },
+      { id: otherStaff.id } as never,
       database as never
     );
     expect(detailAfterWithdraw).toBeNull();
@@ -231,6 +233,7 @@ describe("pending booking request reader (PTR-32)", () => {
   it("surfaces 'Not yet chosen' when the event has no complete proposed window", async () => {
     const detail = await handleGetPendingVenueRequest(
       { id: "ptr32assigned-pending" },
+      { id: otherStaff.id } as never,
       database as never
     );
 

@@ -14,13 +14,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "#/components/ui/alert-dialog";
-import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { EventRequirements } from "#/features/events/components/event-requirements";
+import { VenueStateBadge } from "#/features/venue-requests/components/venue-state-badge";
 import { VenueRequestInput } from "#/features/venue-requests/schema";
 import type { VenueRequestPrefill, VenueRequestValues } from "#/features/venue-requests/schema";
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
@@ -175,7 +175,7 @@ export function VenueRequestPanel({
             >
               {request ? "Venue request" : "Request this venue"}
             </h2>
-            {request && <Badge variant="progress">Pending</Badge>}
+            {request && <VenueStateBadge status="pending" />}
           </div>
 
           {request ? (

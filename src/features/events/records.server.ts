@@ -1,5 +1,6 @@
 import {
   and,
+  asc,
   eq,
   exists,
   getTableColumns,
@@ -46,11 +47,13 @@ import { registrationCounts } from "#/features/events/register.server";
 import { placeLimit, registrationAvailability } from "#/features/events/registration";
 import type { RegistrationAvailability } from "#/features/events/registration";
 import { completionRefusalForEvent } from "#/features/events/completion";
-import type { VenueRequestOutcome } from "#/features/venue-requests/records.server";
 import { parseEventListInput } from "#/features/events/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import { loadVenueRequestOutcomesForEvents } from "#/features/venue-requests/records.server";
+import {
+  eventVenueRequestFromRow,
+  latestVenueRequestId,
+} from "#/features/venue-requests/records.server";
 import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 
@@ -67,10 +70,9 @@ type Database = typeof Db;
 
 /**
  * Read the caller's own event request through the gate both venue callers use. The event must
- * belong to the asking Coordinator and stand in a working status. `submitted` alone allows a
- * venue request (PTR-31). The wider set allows assignment search (PTR-30). Two application
- * callers use this: the venue search that prefills the request form and the request create
- * handler. It lives here with the event reads. `null` is the refusal. Both callers turn it into
+ * belong to the asking Coordinator and stand in `SEARCHABLE_EVENT_STATUSES`. Both callers pass
+ * that set: the venue search that prefills the request form and the request create handler. It
+ * lives here with the event reads. `null` is the refusal. Both callers turn it into
  * `AuthorizationError("Forbidden")`.
  */
 export async function loadAssignedEvent(
@@ -301,13 +303,19 @@ export async function handleListEvents(
   }
 
   const requestIds = requestRows.map(row => row.id);
+  const suggestedVenue = alias(venues, "suggested_venue");
   const [venueRows, equipmentRows, registrationRows] = await Promise.all([
     database
-      .select({ ...getTableColumns(venueRequests), venueName: venues.name })
+      .select({
+        ...getTableColumns(venueRequests),
+        venueName: venues.name,
+        suggestedVenueName: suggestedVenue.name,
+      })
       .from(venueRequests)
       .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+      .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
       .where(inArray(venueRequests.eventId, requestIds))
-      .orderBy(venueRequests.id),
+      .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id)),
     database
       .select({
         id: equipmentRequests.id,
@@ -379,15 +387,6 @@ export async function handleListEvents(
           .select({ id: userTable.id, name: userTable.name })
           .from(userTable)
           .where(inArray(userTable.id, holderIds));
-  // Show rejections and releases only to the assigned Coordinator. Other roles skip the lookup.
-  // Scope Venue Staff to their own settled rows. `venue-requests` owns the event's live
-  // operational outcome.
-  const outcomeRead =
-    role === "event_coordinator"
-      ? loadVenueRequestOutcomesForEvents(database, requestIds)
-      : role === "venue_staff"
-        ? loadVenueRequestOutcomesForEvents(database, requestIds, user.id)
-        : Promise.resolve(new Map<number, VenueRequestOutcome>());
   const bookingRead = wantsBookings
     ? loadCurrentBookings(database, role === "attendee" ? requestIds : confirmedIds)
     : Promise.resolve(new Map<number, { venue: EventVenue; maxCapacity: number }>());
@@ -450,15 +449,13 @@ export async function handleListEvents(
             )
           )
           .where(and(inArray(venueRequests.id, pendingIds), eq(venueRequests.status, "pending")));
-  const [holderRows, venueRequestOutcomes, bookings, countRows, bookingConflicts, holdConflicts] =
-    await Promise.all([
-      holderRead,
-      outcomeRead,
-      bookingRead,
-      countRead,
-      bookingConflictRead,
-      holdConflictRead,
-    ]);
+  const [holderRows, bookings, countRows, bookingConflicts, holdConflicts] = await Promise.all([
+    holderRead,
+    bookingRead,
+    countRead,
+    bookingConflictRead,
+    holdConflictRead,
+  ]);
 
   const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
 
@@ -546,71 +543,43 @@ export async function handleListEvents(
           ? (holderNames.get(row.assignedStaffId ?? "") ?? null)
           : undefined,
     }));
-    // PTR-31 criterion 5: A withdrawn request leaves the card. Report only a pending row. Never
-    // fall back to an older withdrawn request. An event with no pending request shows no venue
-    // request. Several pending rows can share one event. Report the newest one the caller may see.
-    // Break ties by update time, then by greater id string. The outcome reader uses the same
-    // stable rule. A Venue Staff caller sees only rows the queue rule grants.
-    let pendingRequest: (typeof venueRows)[number] | null = null;
-    for (const row of eventVenueRows) {
-      if (row.status !== "pending") continue;
-      if (access === "venue_staff" && !isVenueQueueRow(row, user.id)) continue;
-      if (
-        !pendingRequest ||
-        row.updatedAt.getTime() > pendingRequest.updatedAt.getTime() ||
-        (row.updatedAt.getTime() === pendingRequest.updatedAt.getTime() &&
-          row.id > pendingRequest.id)
-      ) {
-        pendingRequest = row;
-      }
-    }
-    // Show the assigned Coordinator the current rejection or release outcome. With a request
-    // pending, the last rejection still rides along. With more than one request pending, it may
-    // answer a different request. Show Venue Staff only their own settled outcome, never beside a
-    // pending request. Their pending card carries no reason.
-    const outcome =
-      access === "coordinator" || access === "venue_staff"
-        ? (venueRequestOutcomes.get(record.id) ?? null)
-        : null;
-    const conflictKind = pendingRequest ? conflictKinds.get(pendingRequest.id) : undefined;
-    // Keep a settled request on the Venue Staff card after its decision. Pick the newest assigned
-    // row that is neither pending nor withdrawn. A rejection or release arrives as the outcome
-    // above. An approval carries no outcome, so build it from the row itself.
-    let ownSettled: (typeof venueRows)[number] | null = null;
-    if (access === "venue_staff" && !pendingRequest) {
+    // List one entry per venue-request row, earliest window first (`venueRows` arrives in that
+    // order). Coordinator: every non-withdrawn row with its own rejection or release. Organiser:
+    // pending and approved rows only, never with details. Venue Staff: only rows the queue rule
+    // grants (`isVenueQueueRow`), with details only on their own rows. Attendees and Technical
+    // Support receive no `venueRequests` key at all (`projectEvent` omits it there).
+    const visibleVenueRequests: EventVenueRequest[] = [];
+    if (access === "coordinator" || access === "organiser" || access === "venue_staff") {
+      const latestCandidates: Array<{ id: string; updatedAt: Date }> = [];
       for (const row of eventVenueRows) {
-        if (row.assignedStaffId !== user.id) continue;
-        if (row.status === "pending" || row.status === "withdrawn") continue;
-        if (
-          !ownSettled ||
-          row.updatedAt.getTime() > ownSettled.updatedAt.getTime() ||
-          (row.updatedAt.getTime() === ownSettled.updatedAt.getTime() && row.id > ownSettled.id)
-        ) {
-          ownSettled = row;
+        if (row.status === "withdrawn") continue;
+        if (access === "organiser" && row.status !== "pending" && row.status !== "approved") {
+          continue;
         }
+        if (access === "venue_staff" && !isVenueQueueRow(row, user.id)) continue;
+        const entry = eventVenueRequestFromRow(row);
+        const seesDetails =
+          access === "coordinator" || (access === "venue_staff" && row.assignedStaffId === user.id);
+        const conflictKind = row.status === "pending" ? conflictKinds.get(row.id) : undefined;
+        visibleVenueRequests.push({
+          id: entry.id,
+          status: entry.status,
+          venueName: entry.venueName,
+          date: entry.date,
+          startTime: entry.startTime,
+          endTime: entry.endTime,
+          ...(conflictKind ? { conflict: conflictKind } : {}),
+          ...(seesDetails && entry.rejection ? { rejection: entry.rejection } : {}),
+          ...(seesDetails && entry.release ? { release: entry.release } : {}),
+        });
+        latestCandidates.push({ id: row.id, updatedAt: row.updatedAt });
+      }
+      const latestId = latestVenueRequestId(latestCandidates);
+      if (latestId !== null) {
+        const latestEntry = visibleVenueRequests.find(entry => entry.id === latestId);
+        if (latestEntry) latestEntry.latest = true;
       }
     }
-    const settledRequest: EventVenueRequest | null =
-      access === "venue_staff" && ownSettled
-        ? outcome && outcome.id === ownSettled.id
-          ? { ...outcome }
-          : { id: ownSettled.id, status: ownSettled.status, venueName: ownSettled.venueName }
-        : null;
-    const venueRequest: EventVenueRequest | null = pendingRequest
-      ? {
-          id: pendingRequest.id,
-          status: pendingRequest.status,
-          venueName: pendingRequest.venueName,
-          ...(conflictKind ? { conflict: conflictKind } : {}),
-          ...(access === "coordinator" && outcome?.status === "rejected"
-            ? { rejection: outcome.rejection }
-            : {}),
-        }
-      : access === "venue_staff"
-        ? settledRequest
-        : outcome
-          ? { ...outcome }
-          : null;
 
     return [
       projectEvent(
@@ -625,7 +594,7 @@ export async function handleListEvents(
             }
           : null,
         equipment,
-        venueRequest,
+        visibleVenueRequests,
         currentVenues.get(record.id) ?? null,
         eventPlaces(
           record.registrationCapacity,

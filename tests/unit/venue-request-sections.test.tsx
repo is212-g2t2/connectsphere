@@ -44,11 +44,42 @@ const pending: PendingVenueRequestDetail = {
   },
 };
 
+const secondPending: PendingVenueRequestDetail = {
+  id: "request-002",
+  eventId: 41,
+  venueId: 4,
+  venueName: "Harbor Hall",
+  startsAt: "2026-11-22T10:00",
+  endsAt: "2026-11-22T12:00",
+  submittedAt: new Date("2026-10-14T02:00:00Z"),
+  conflict: null,
+  requirements: {
+    eventTiming: "22 Nov 2026, 10:00–12:00",
+    expectedAttendance: 80,
+    layout: "Theatre",
+    accessibility: "Step-free entrance",
+    requiredFacilities: "PA system",
+  },
+};
+
+/** One projection entry for a loaded detail. Settled entries carry their outcome instead. */
+function entryOf(detail: PendingVenueRequestDetail) {
+  return {
+    id: detail.id,
+    status: "pending",
+    venueName: detail.venueName,
+    date: detail.startsAt.slice(0, 10),
+    startTime: detail.startsAt.slice(11, 16),
+    endTime: detail.endsAt.slice(11, 16),
+  };
+}
+
 function page(input: {
-  pending?: PendingVenueRequestDetail;
-  venueRequest?: EventPageData extends never ? never : unknown;
+  details?: PendingVenueRequestDetail[];
+  entries?: unknown[];
   status?: string;
 }): EventPageData {
+  const details = input.details ?? [];
   return {
     kind: "event",
     event: {
@@ -59,18 +90,16 @@ function page(input: {
         startTime: "18:00",
         endTime: "22:00",
         status: input.status ?? "planning",
-        venueRequest: (input.venueRequest as never) ?? null,
+        venueRequests: input.entries ?? details.map(entryOf),
       },
     },
-    venueDecision: input.pending
-      ? {
-          request: input.pending,
-          venues: [
-            { id: 3, name: "Riverside Loft" },
-            { id: 4, name: "Harbor Hall" },
-          ],
-        }
-      : null,
+    venueDecisions: details.map(request => ({
+      request,
+      venues: [
+        { id: 3, name: "Riverside Loft" },
+        { id: 4, name: "Harbor Hall" },
+      ],
+    })),
   } as unknown as EventPageData;
 }
 
@@ -92,20 +121,140 @@ beforeEach(() => {
 
 describe("venueRequestSections", () => {
   it("renders the pending request details with the decision controls", () => {
-    const data = page({ pending });
+    const data = page({ details: [pending] });
 
     renderSection(data, "request");
-    expect(screen.getByText("Riverside Loft")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: /Booking request details: Riverside Loft/ })
+    ).toBeTruthy();
     expect(screen.getByText("Conflicting booking")).toBeTruthy();
+    expect(screen.getByText("Pending")).toBeTruthy();
 
     renderSection(data, "decision");
     expect(screen.getByRole("heading", { name: "Record a decision" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Approve request for Riverside Loft/ })).toBeTruthy();
+    expect(screen.getByText("Conflicting booking")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Reject request for Riverside Loft/ })).toBeTruthy();
     expect(screen.getByLabelText("Reason for rejection (required)")).toBeTruthy();
+    expect(screen.getByRole("form", { name: /Reject request for Riverside Loft/ })).toBeTruthy();
+  });
+
+  it("renders one details block and one decision group per pending request, with unique ids", () => {
+    const data = page({ details: [pending, secondPending] });
+
+    renderSection(data, "request");
+    expect(screen.getAllByRole("heading", { name: /Booking request details/ })).toHaveLength(2);
+    expect(
+      screen.getByRole("heading", { name: /Booking request details: Riverside Loft/ })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: /Booking request details: Harbor Hall/ })
+    ).toBeTruthy();
+    expect(screen.getAllByText("Pending")).toHaveLength(2);
+    expect(screen.getByText("Riverside Loft")).toBeTruthy();
+    expect(screen.getByText("Harbor Hall")).toBeTruthy();
+
+    renderSection(data, "decision");
+    expect(
+      screen.getByRole("heading", { name: /Riverside Loft, 21 Nov 2026, 18:00/ })
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Harbor Hall, 22 Nov 2026, 10:00/ })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Approve request/ })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /Reject request for/ })).toHaveLength(2);
+    expect(screen.getAllByRole("form", { name: /Reject request for/ })).toHaveLength(2);
+    expect(screen.getAllByLabelText("Reason for rejection (required)")).toHaveLength(2);
+    expect(document.getElementById("rejection-reason-request-001")).toBeTruthy();
+    expect(document.getElementById("rejection-reason-request-002")).toBeTruthy();
+
+    const ids = [...document.querySelectorAll("[id]")].map(element => element.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("renders a read-only block without controls for a pending entry whose read failed", () => {
+    const data = page({
+      details: [pending],
+      entries: [
+        entryOf(pending),
+        {
+          id: "request-002",
+          status: "pending",
+          venueName: "Harbor Hall",
+          date: "2026-11-22",
+          startTime: "10:00",
+          endTime: "12:00",
+        },
+      ],
+    });
+
+    renderSection(data, "request");
+    expect(
+      screen.getByRole("heading", { name: /Booking request details: Harbor Hall/ })
+    ).toBeTruthy();
+    expect(screen.getByText("Harbor Hall")).toBeTruthy();
+    expect(screen.getByText("22 Nov 2026, 10:00 – 12:00")).toBeTruthy();
+    expect(screen.getAllByText("Pending")).toHaveLength(2);
+    expect(
+      screen.getByText("The full request did not load. Reload the page to decide it.")
+    ).toBeTruthy();
+
+    renderSection(data, "decision");
+    expect(screen.getAllByRole("button", { name: /Approve request/ })).toHaveLength(1);
+    expect(screen.queryByRole("heading", { name: /Harbor Hall/ })).toBeNull();
+    expect(screen.getAllByLabelText("Reason for rejection (required)")).toHaveLength(1);
+    expect(document.getElementById("rejection-reason-request-002")).toBeNull();
+  });
+
+  it("explains in the decision section when no detail read loaded", () => {
+    const data = page({
+      details: [],
+      entries: [
+        entryOf(pending),
+        {
+          id: "request-002",
+          status: "pending",
+          venueName: "Harbor Hall",
+          date: "2026-11-22",
+          startTime: "10:00",
+          endTime: "12:00",
+        },
+      ],
+    });
+
+    expect(
+      venueRequestSections(data)
+        .filter(section => section.visible(data))
+        .map(section => section.id)
+    ).toEqual(["request", "decision"]);
+
+    renderSection(data, "decision");
+    expect(
+      screen.getByText("The full request did not load. Reload the page to decide it.")
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
+    expect(screen.queryByLabelText("Reason for rejection (required)")).toBeNull();
+  });
+
+  it("moves focus to the first remaining decision group after a decision", async () => {
+    const data = page({ details: [pending, secondPending] });
+    const decision = venueRequestSections(data).find(section => section.id === "decision");
+    expect(decision).toBeDefined();
+    const { rerender } = render(<>{decision?.render(data)}</>);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Approve request for Riverside Loft/ })
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+
+    const remaining = page({ details: [secondPending] });
+    rerender(<>{decision?.render(remaining)}</>);
+
+    const heading = screen.getByRole("heading", { name: /Harbor Hall, 22 Nov 2026/ });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
   });
 
   it("refreshes the event page in place after an approval, without leaving for the queue", async () => {
-    renderSection(page({ pending }), "decision");
+    renderSection(page({ details: [pending] }), "decision");
 
     await userEvent.click(
       screen.getByRole("button", { name: /Approve request for Riverside Loft/ })
@@ -121,7 +270,16 @@ describe("venueRequestSections", () => {
 
   it("renders the decided outcome with its banner, without the decision block", () => {
     const data = page({
-      venueRequest: { id: "vr-1", status: "approved", venueName: "Harbor Hall" },
+      entries: [
+        {
+          id: "vr-1",
+          status: "approved",
+          venueName: "Harbor Hall",
+          date: "2026-11-21",
+          startTime: "18:00",
+          endTime: "22:00",
+        },
+      ],
     });
 
     expect(
@@ -131,15 +289,18 @@ describe("venueRequestSections", () => {
     ).toEqual(["request"]);
 
     renderSection(data, "request");
-    expect(screen.getByRole("heading", { name: "Booking request details" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: /Booking request details: Harbor Hall/ })
+    ).toBeTruthy();
     expect(screen.getByText("Booking approved.")).toBeTruthy();
     expect(screen.getByText("Harbor Hall")).toBeTruthy();
+    expect(screen.getByText("21 Nov 2026, 18:00 – 22:00")).toBeTruthy();
     expect(screen.getByText("Approved")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
   });
 
   it("hides the decision block when the event is cancelled", () => {
-    const data = page({ pending, status: "cancelled" });
+    const data = page({ details: [pending], status: "cancelled" });
 
     expect(
       venueRequestSections(data)
@@ -149,36 +310,41 @@ describe("venueRequestSections", () => {
   });
 
   it("gates the decision block on the visible data, not the built data", () => {
-    const sections = venueRequestSections(page({ pending, status: "planning" }));
+    const sections = venueRequestSections(page({ details: [pending], status: "planning" }));
     const decision = sections.find(section => section.id === "decision");
     expect(decision).toBeDefined();
 
-    expect(decision?.visible(page({ pending, status: "cancelled" }))).toBe(false);
-    expect(decision?.visible(page({ pending, status: "planning" }))).toBe(true);
+    expect(decision?.visible(page({ details: [pending], status: "cancelled" }))).toBe(false);
+    expect(decision?.visible(page({ details: [pending], status: "planning" }))).toBe(true);
   });
 
   it("shows the rejection reason and the suggested alternative", () => {
     const data = page({
-      venueRequest: {
-        id: "vr-1",
-        status: "rejected",
-        venueName: "Riverside Loft",
-        rejection: {
-          venueId: 3,
+      entries: [
+        {
+          id: "vr-1",
+          status: "rejected",
           venueName: "Riverside Loft",
           date: "2026-11-21",
           startTime: "18:00",
           endTime: "22:00",
-          reason: "Fully booked for a private hire that weekend.",
-          suggestion: {
-            venueName: "Harbor Hall",
+          rejection: {
+            venueId: 3,
+            venueName: "Riverside Loft",
             date: "2026-11-21",
             startTime: "18:00",
             endTime: "22:00",
+            reason: "Fully booked for a private hire that weekend.",
+            suggestion: {
+              venueName: "Harbor Hall",
+              date: "2026-11-21",
+              startTime: "18:00",
+              endTime: "22:00",
+            },
+            suggestedVenueId: 4,
           },
-          suggestedVenueId: 4,
         },
-      },
+      ],
     });
 
     renderSection(data, "request");
@@ -190,19 +356,24 @@ describe("venueRequestSections", () => {
 
   it("shows the release banner with the release record", () => {
     const data = page({
-      venueRequest: {
-        id: "vr-1",
-        status: "released",
-        venueName: "Harbor Hall",
-        release: {
+      entries: [
+        {
+          id: "vr-1",
+          status: "released",
           venueName: "Harbor Hall",
           date: "2026-11-21",
           startTime: "18:00",
           endTime: "22:00",
-          reason: "Organiser moved the event outdoors.",
-          changedByName: "Priya Nair",
+          release: {
+            venueName: "Harbor Hall",
+            date: "2026-11-21",
+            startTime: "18:00",
+            endTime: "22:00",
+            reason: "Organiser moved the event outdoors.",
+            changedByName: "Priya Nair",
+          },
         },
-      },
+      ],
     });
 
     renderSection(data, "request");

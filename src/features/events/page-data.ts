@@ -31,10 +31,14 @@ export type EventPageData =
         request: CoordinationRequest;
         coordinators: Coordinator[];
       } | null;
-      venueDecision?: {
+      /**
+       * One loaded pending request with its venue options, in projection order. A pending
+       * entry whose read failed stays visible from the projection but has no entry here.
+       */
+      venueDecisions?: Array<{
         request: PendingVenueRequestDetail;
         venues: VenueOption[];
-      } | null;
+      }>;
       equipmentTypes?: EquipmentTypeOption[] | null;
       attendees?: RegisteredAttendee[] | null;
     }

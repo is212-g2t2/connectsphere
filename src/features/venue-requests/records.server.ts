@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
@@ -19,17 +19,15 @@ import type {
 type Database = typeof Db;
 
 /**
- * Return the latest operational outcome for each event. Ignore withdrawals because they contain
- * no staff decision. A release replaces an older rejection and remains visible with its reason and
- * actor label. Join the suggested venue name for rejection cards.
+ * The decided outcome one venue-request row carries. Rejections and releases stay visible on
+ * their own row beside other rows. Join the suggested venue name for rejection cards.
  */
-export type VenueRequestOutcome =
+type VenueRequestOutcome =
   | { id: string; status: "rejected"; venueName: string; rejection: VenueRequestRejection }
   | { id: string; status: "released"; venueName: string; release: VenueRequestRelease };
 
 /** One venue-request row with its venue names, as the outcome readers select it. */
-export interface VenueRequestOutcomeRow {
-  eventId: number;
+interface VenueRequestOutcomeRow {
   id: string;
   status: string;
   updatedAt: Date;
@@ -48,10 +46,11 @@ export interface VenueRequestOutcomeRow {
   suggestedEndTime: string | null;
 }
 
-/** The decided outcome one row carries, or null when the row holds no staff decision. */
-export function venueRequestOutcomeFromRow(
-  row: VenueRequestOutcomeRow
-): VenueRequestOutcome | null {
+/**
+ * Return the decided outcome one row carries, or null when the row holds no staff decision.
+ * Approved and pending rows carry none.
+ */
+function venueRequestOutcomeFromRow(row: VenueRequestOutcomeRow): VenueRequestOutcome | null {
   if (row.status === "released") {
     if (row.releaseReason === null) {
       throw new Error(`Released venue request ${row.id} has no reason recorded`);
@@ -99,78 +98,59 @@ export function venueRequestOutcomeFromRow(
   };
 }
 
-export async function loadVenueRequestOutcomesForEvents(
-  database: Pick<Database, "select">,
-  eventIds: readonly number[],
-  assignedStaffId?: string
-): Promise<Map<number, VenueRequestOutcome>> {
-  if (eventIds.length === 0) return new Map();
-
-  const suggestedVenue = alias(venues, "suggested_venue");
-  const rows = await database
-    .select({
-      eventId: venueRequests.eventId,
-      id: venueRequests.id,
-      status: venueRequests.status,
-      updatedAt: venueRequests.updatedAt,
-      assignedStaffId: venueRequests.assignedStaffId,
-      venueId: venueRequests.venueId,
-      venueName: venues.name,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-      rejectionReason: venueRequests.rejectionReason,
-      releaseReason: venueRequests.releaseReason,
-      lastChangedByStaffName: venueRequests.lastChangedByStaffName,
-      suggestedVenueId: venueRequests.suggestedVenueId,
-      suggestedVenueName: suggestedVenue.name,
-      suggestedDate: venueRequests.suggestedDate,
-      suggestedStartTime: venueRequests.suggestedStartTime,
-      suggestedEndTime: venueRequests.suggestedEndTime,
-    })
-    .from(venueRequests)
-    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
-    .where(inArray(venueRequests.eventId, [...eventIds]));
-
-  // Select the newest decided row per event. Ignore withdrawals and later pending requests; a
-  // pending adjusted request must not hide the rejection it answers. Break equal-time ties by the
-  // greater id string, as the single-event reader does.
-  const newestByEvent = new Map<number, (typeof rows)[number]>();
-  for (const row of rows) {
-    if (row.status === "withdrawn" || row.status === "pending") continue;
-    // Staff see only their own settled rows. The Coordinator's unfiltered call stays the same.
-    if (assignedStaffId !== undefined && row.assignedStaffId !== assignedStaffId) continue;
-    const current = newestByEvent.get(row.eventId);
+/**
+ * Return the id of the newest row by `updatedAt` (tie-break greater id), or null when empty.
+ * Each reader marks `latest` over its own visible rows, so each passes its own candidate set.
+ */
+export function latestVenueRequestId(
+  rows: ReadonlyArray<{ id: string; updatedAt: Date }>
+): string | null {
+  if (rows.length === 0) return null;
+  let latest = rows[0];
+  for (const row of rows.slice(1)) {
     if (
-      !current ||
-      row.updatedAt.getTime() > current.updatedAt.getTime() ||
-      (row.updatedAt.getTime() === current.updatedAt.getTime() && row.id > current.id)
+      row.updatedAt.getTime() > latest.updatedAt.getTime() ||
+      (row.updatedAt.getTime() === latest.updatedAt.getTime() && row.id > latest.id)
     ) {
-      newestByEvent.set(row.eventId, row);
+      latest = row;
     }
   }
-
-  const outcomes = new Map<number, VenueRequestOutcome>();
-  for (const [eventId, row] of newestByEvent) {
-    const outcome = venueRequestOutcomeFromRow(row);
-    if (outcome) outcomes.set(eventId, outcome);
-  }
-  return outcomes;
+  return latest.id;
 }
 
 /**
- * Return one event's latest live venue request in the projection's shape. Ignore withdrawn rows.
- * Return pending rows as-is and decided rows as outcomes. The triage page reads this through the
- * coordination request, which has no venue data.
+ * Build one event-card entry from one venue-request row, field by field. Never spread the
+ * database row: `requestedById` and `assignedStaffId` must not reach a client. Decided rows
+ * carry their own rejection or release; other rows carry only their window.
  */
-export async function loadVenueRequestForEvent(
+export function eventVenueRequestFromRow(row: VenueRequestOutcomeRow): EventVenueRequest {
+  const entry: EventVenueRequest = {
+    id: row.id,
+    status: row.status,
+    venueName: row.venueName,
+    date: row.startsAt.slice(0, 10),
+    startTime: row.startsAt.slice(11, 16),
+    endTime: row.endsAt.slice(11, 16),
+  };
+  const outcome = venueRequestOutcomeFromRow(row);
+  if (outcome?.status === "rejected") entry.rejection = outcome.rejection;
+  if (outcome?.status === "released") entry.release = outcome.release;
+  return entry;
+}
+
+/**
+ * Return one event's venue requests in the projection's shape, earliest window first. Ignore
+ * withdrawn rows. Each row carries its own state and its own rejection or release. Mark the
+ * newest non-withdrawn row (by `updatedAt`, tie-break greater id) with `latest`. The triage
+ * page reads this through the coordination request, which has no venue data.
+ */
+export async function loadVenueRequestsForEvent(
   database: Pick<Database, "select">,
   eventId: number
-): Promise<EventVenueRequest | null> {
+): Promise<EventVenueRequest[]> {
   const suggestedVenue = alias(venues, "suggested_venue");
   const rows = await database
     .select({
-      eventId: venueRequests.eventId,
       id: venueRequests.id,
       status: venueRequests.status,
       updatedAt: venueRequests.updatedAt,
@@ -191,30 +171,15 @@ export async function loadVenueRequestForEvent(
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
     .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
-    .where(eq(venueRequests.eventId, eventId));
+    .where(eq(venueRequests.eventId, eventId))
+    .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
 
-  // Select the newest live row by update time. Break ties with the greater id string, as the
-  // multi-event reader does. A withdrawal is not a request.
-  let newest: VenueRequestOutcomeRow | null = null;
-  for (const row of rows) {
-    if (row.status === "withdrawn") continue;
-    if (
-      !newest ||
-      row.updatedAt.getTime() > newest.updatedAt.getTime() ||
-      (row.updatedAt.getTime() === newest.updatedAt.getTime() && row.id > newest.id)
-    ) {
-      newest = row;
-    }
+  const kept = rows.filter(row => row.status !== "withdrawn");
+  const entries = kept.map(row => eventVenueRequestFromRow(row));
+  const latestId = latestVenueRequestId(kept);
+  if (latestId !== null) {
+    const latestEntry = entries.find(entry => entry.id === latestId);
+    if (latestEntry) latestEntry.latest = true;
   }
-  if (!newest) return null;
-  if (newest.status === "pending") {
-    return { id: newest.id, status: newest.status, venueName: newest.venueName };
-  }
-  return (
-    venueRequestOutcomeFromRow(newest) ?? {
-      id: newest.id,
-      status: newest.status,
-      venueName: newest.venueName,
-    }
-  );
+  return entries;
 }

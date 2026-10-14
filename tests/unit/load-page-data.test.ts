@@ -249,14 +249,40 @@ describe("loadEventPageData", () => {
     });
   });
 
-  it("gathers the venue decision and the venue options for a pending request", async () => {
+  it("gathers one venue decision per pending request, in projection order", async () => {
     const event = projection("venue_staff", {
-      venueRequest: { id: "vr-1", status: "pending", venueName: "Hall A" },
+      venueRequests: [
+        {
+          id: "vr-1",
+          status: "pending",
+          venueName: "Hall A",
+          date: "2026-11-21",
+          startTime: "18:00",
+          endTime: "22:00",
+        },
+        {
+          id: "vr-2",
+          status: "approved",
+          venueName: "Hall B",
+          date: "2026-11-22",
+          startTime: "10:00",
+          endTime: "12:00",
+        },
+        {
+          id: "vr-3",
+          status: "pending",
+          venueName: "Hall C",
+          date: "2026-11-23",
+          startTime: "10:00",
+          endTime: "12:00",
+        },
+      ],
     });
-    const request = { id: "vr-1" };
+    const first = { id: "vr-1" };
+    const third = { id: "vr-3" };
     const venues = [{ id: 3, name: "Hall A" }];
     mockListEvents.mockResolvedValue([event]);
-    mockGetPendingVenueRequest.mockResolvedValue(request);
+    mockGetPendingVenueRequest.mockResolvedValueOnce(first).mockResolvedValueOnce(third);
     mockListVenueOptions.mockResolvedValue(venues);
 
     const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
@@ -265,14 +291,29 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       viewerId: VIEWER_ID,
-      venueDecision: { request, venues },
+      venueDecisions: [
+        { request: first, venues },
+        { request: third, venues },
+      ],
     });
-    expect(mockGetPendingVenueRequest).toHaveBeenCalledWith({ data: { id: "vr-1" } });
+    expect(mockGetPendingVenueRequest).toHaveBeenCalledTimes(2);
+    expect(mockGetPendingVenueRequest).toHaveBeenNthCalledWith(1, { data: { id: "vr-1" } });
+    expect(mockGetPendingVenueRequest).toHaveBeenNthCalledWith(2, { data: { id: "vr-3" } });
+    expect(mockListVenueOptions).toHaveBeenCalledTimes(1);
   });
 
   it("offers no venue options to staff without the decide permission", async () => {
     const event = projection("venue_staff", {
-      venueRequest: { id: "vr-1", status: "pending", venueName: "Hall A" },
+      venueRequests: [
+        {
+          id: "vr-1",
+          status: "pending",
+          venueName: "Hall A",
+          date: "2026-11-21",
+          startTime: "18:00",
+          endTime: "22:00",
+        },
+      ],
     });
     mockListEvents.mockResolvedValue([event]);
     mockGetPendingVenueRequest.mockResolvedValue({ id: "vr-1" });
@@ -283,14 +324,23 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       viewerId: VIEWER_ID,
-      venueDecision: { request: { id: "vr-1" }, venues: [] },
+      venueDecisions: [{ request: { id: "vr-1" }, venues: [] }],
     });
     expect(mockListVenueOptions).not.toHaveBeenCalled();
   });
 
-  it("skips the decision fetch once the request is decided", async () => {
+  it("skips the decision fetch once no request is pending", async () => {
     const event = projection("venue_staff", {
-      venueRequest: { id: "vr-2", status: "approved", venueName: "Hall A" },
+      venueRequests: [
+        {
+          id: "vr-2",
+          status: "approved",
+          venueName: "Hall A",
+          date: "2026-11-21",
+          startTime: "18:00",
+          endTime: "22:00",
+        },
+      ],
     });
     mockListEvents.mockResolvedValue([event]);
 
@@ -301,9 +351,29 @@ describe("loadEventPageData", () => {
     expect(mockListVenueOptions).not.toHaveBeenCalled();
   });
 
-  it("degrades to no venueDecision when the pending request settles mid-load", async () => {
+  it("skips the decision fetch when the event carries no requests", async () => {
+    const event = projection("venue_staff", {});
+    mockListEvents.mockResolvedValue([event]);
+
+    const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
+
+    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    expect(mockGetPendingVenueRequest).not.toHaveBeenCalled();
+    expect(mockListVenueOptions).not.toHaveBeenCalled();
+  });
+
+  it("degrades to an empty venueDecisions when the pending request settles mid-load", async () => {
     const event = projection("venue_staff", {
-      venueRequest: { id: "vr-1", status: "pending", venueName: "Hall A" },
+      venueRequests: [
+        {
+          id: "vr-1",
+          status: "pending",
+          venueName: "Hall A",
+          date: "2026-11-21",
+          startTime: "18:00",
+          endTime: "22:00",
+        },
+      ],
     });
     mockListEvents.mockResolvedValue([event]);
     mockGetPendingVenueRequest.mockResolvedValue(null);
@@ -311,20 +381,69 @@ describe("loadEventPageData", () => {
 
     const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID, venueDecisions: [] });
     expect(mockWarn).not.toHaveBeenCalled();
   });
 
-  it("logs and degrades to no venueDecision when the decision read fails", async () => {
+  it("keeps the other decisions when one decision read fails", async () => {
     const event = projection("venue_staff", {
-      venueRequest: { id: "vr-1", status: "pending", venueName: "Hall A" },
+      venueRequests: [
+        {
+          id: "vr-1",
+          status: "pending",
+          venueName: "Hall A",
+          date: "2026-11-21",
+          startTime: "18:00",
+          endTime: "22:00",
+        },
+        {
+          id: "vr-2",
+          status: "pending",
+          venueName: "Hall C",
+          date: "2026-11-23",
+          startTime: "10:00",
+          endTime: "12:00",
+        },
+      ],
+    });
+    const surviving = { id: "vr-2" };
+    const venues = [{ id: 5, name: "Hall C" }];
+    mockListEvents.mockResolvedValue([event]);
+    mockGetPendingVenueRequest
+      .mockRejectedValueOnce(new Error("venue store down"))
+      .mockResolvedValueOnce(surviving);
+    mockListVenueOptions.mockResolvedValue(venues);
+
+    const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
+
+    expect(data).toEqual({
+      kind: "event",
+      event,
+      viewerId: VIEWER_ID,
+      venueDecisions: [{ request: surviving, venues }],
+    });
+    expect(mockWarn).toHaveBeenCalledOnce();
+  });
+
+  it("logs and degrades to an empty venueDecisions when every decision read fails", async () => {
+    const event = projection("venue_staff", {
+      venueRequests: [
+        {
+          id: "vr-1",
+          status: "pending",
+          venueName: "Hall A",
+          date: "2026-11-21",
+          startTime: "18:00",
+          endTime: "22:00",
+        },
+      ],
     });
     mockListEvents.mockResolvedValue([event]);
     mockGetPendingVenueRequest.mockRejectedValue(new Error("venue store down"));
 
     const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID, venueDecisions: [] });
     expect(mockWarn).toHaveBeenCalledOnce();
   });
 

@@ -28,7 +28,7 @@ import type { SessionUser } from "#/features/auth/session";
 import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
 import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
 import { loadOutstandingReleases } from "#/features/events/arrangements.server";
-import { loadVenueRequestForEvent } from "#/features/venue-requests/records.server";
+import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
 import {
   parseAssignmentInput,
   parseDecisionInput,
@@ -154,7 +154,7 @@ export async function handleGetCoordinationRequest(
     changeRequests,
     cancellationRequests,
     outstandingReleases,
-    venueRequest,
+    venueRequests,
     handoverRows,
   ] = await Promise.all([
     database
@@ -166,8 +166,8 @@ export async function handleGetCoordinationRequest(
     listEventCancellationRequests(id, database),
     // PTR-54 AC2: what a cancelled event still holds, read live so a release takes it off.
     request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
-    // The triage venue section reads the event's live venue request from here.
-    loadVenueRequestForEvent(database, id),
+    // The triage venue section reads the event's live venue requests from here.
+    loadVenueRequestsForEvent(database, id),
     // PTR-110: the live offer only while it is still this assignment's offer. A row the
     // assignment moved past, one on a decided request, or one whose incoming account is gone
     // (the inner join) is not shown as if it still waited.
@@ -198,7 +198,7 @@ export async function handleGetCoordinationRequest(
     cancellationRequests,
     outstandingReleases,
     pendingHandover,
-    venueRequest,
+    venueRequests,
   };
 }
 

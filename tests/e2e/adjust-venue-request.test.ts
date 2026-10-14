@@ -125,12 +125,15 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     expect(rows.map(row => row.status).toSorted()).toEqual(["pending", "rejected"]);
     expect(rows.find(row => row.status === "pending")?.venueId).toBe(venueIds[1]);
 
-    // AC3 and AC4: show the pending request and original rejection. Keep the event submitted.
+    // AC3 and AC4: both entries stay on the card with their own states. The rejected entry is
+    // no longer `latest`, so per D5 its adjust link hides while its reason and Rejected state stay.
     await page.goto(`/events/${eventId}`);
     await waitForHydration(page);
     const reloaded = page.locator("section#venue");
     await expect(reloaded.getByText("Pending", { exact: true })).toBeVisible();
-    await expect(reloaded.getByText("Previously rejected booking")).toBeVisible();
+    await expect(reloaded.getByText("Rejected", { exact: true })).toBeVisible();
+    await expect(reloaded.getByText(refusedName, { exact: true })).toBeVisible();
+    await expect(reloaded.getByText(suggestedName, { exact: true })).toBeVisible();
     await expect(reloaded.getByText(reason)).toBeVisible();
     await expect(reloaded.getByRole("link", { name: /^Adjust request at / })).toHaveCount(0);
     const [row] = await database

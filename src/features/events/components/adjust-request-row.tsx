@@ -31,8 +31,9 @@ export function adjustedRequest(rejection: VenueRequestRejection): {
 
 /**
  * Reopen the request on the suggested venue with its window. Show this action only while the
- * event is `submitted`. That is the one status the venue page's request panel answers. Show it
- * only to the Coordinator. The caller applies both gates.
+ * event stands in `SEARCHABLE_EVENT_STATUSES`. That is the set the venue page's request panel
+ * answers. Show it only to the Coordinator, and only on the entry the projection marks `latest`.
+ * The caller applies the status, role, and `latest` gates.
  */
 export function AdjustRequestRow({
   eventId,

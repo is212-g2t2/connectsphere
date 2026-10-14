@@ -66,25 +66,34 @@ export async function loadEventPageData(
       return { kind: "event", event: projection, viewerId, coordination, attendees };
     }
     case "venue_staff": {
-      const venueRequest = projection.event.venueRequest;
-      if (venueRequest?.status !== "pending") return { kind: "event", event: projection, viewerId };
-      // A race can settle the request between the list and the detail read. The read then
-      // answers `null`. The page shows the projection without a decision block. Log anything else
-      // before the same degrade. The venue catalogue read needs no request data, so both run together.
-      const [request, venues] = await Promise.all([
-        getPendingVenueRequest({ data: { id: venueRequest.id } }).catch(error => {
-          log.warn("Venue decision read failed", {
-            eventId,
-            requestId: venueRequest.id,
-            reason: error instanceof Error ? error.message : String(error),
-          });
-          return null;
-        }),
+      // Decide every pending entry, in projection order. Each read degrades alone: a failed
+      // read logs and leaves its entry to render read-only from the projection. A race can
+      // settle a request between the list and the detail read; the read then answers `null`.
+      // The venue catalogue read needs no request data, so it runs with the detail reads.
+      const pendingIds = (projection.event.venueRequests ?? [])
+        .filter(entry => entry.status === "pending")
+        .map(entry => entry.id);
+      if (pendingIds.length === 0) return { kind: "event", event: projection, viewerId };
+      const [requests, venues] = await Promise.all([
+        Promise.all(
+          pendingIds.map(id =>
+            getPendingVenueRequest({ data: { id } }).catch(error => {
+              log.warn("Venue decision read failed", {
+                eventId,
+                requestId: id,
+                reason: error instanceof Error ? error.message : String(error),
+              });
+              return null;
+            })
+          )
+        ),
         // Offer a suggested venue only to a role that may decide, as the detail route did.
         can(role, { venue_request: ["decide"] }) ? listVenueOptions() : Promise.resolve([]),
       ]);
-      if (!request) return { kind: "event", event: projection, viewerId };
-      return { kind: "event", event: projection, viewerId, venueDecision: { request, venues } };
+      const venueDecisions = requests.flatMap(request =>
+        request === null ? [] : [{ request, venues }]
+      );
+      return { kind: "event", event: projection, viewerId, venueDecisions };
     }
     case "technical_support": {
       // A catalogue fault must not take the page down. `null` lets the page report the failed list.

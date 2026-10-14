@@ -61,7 +61,7 @@ function renderForm() {
 }
 
 const reasonBox = () => screen.getByRole("textbox", { name: /Reason for rejection/ });
-const rejectButton = () => screen.getByRole("button", { name: "Reject request" });
+const rejectButton = () => screen.getByRole("button", { name: /Reject request for Orchid Room/ });
 
 beforeEach(() => {
   approveVenueRequest.mockReset().mockResolvedValue({});

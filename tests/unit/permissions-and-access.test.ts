@@ -73,7 +73,7 @@ const equipment = [
 ];
 
 const project = (access: EventAccess, rec = record) =>
-  projectEvent(rec, access, null, equipment, null).event;
+  projectEvent(rec, access, null, equipment, []).event;
 
 describe("projectEvent: equipment fields", () => {
   test.each(["coordinator", "organiser"] as const)("%s gets equipment + ISO submittedAt", a => {

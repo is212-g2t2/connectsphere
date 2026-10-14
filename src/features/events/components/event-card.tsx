@@ -11,7 +11,10 @@ import { hasAttendeePage } from "#/features/events/access";
 /** Title an event on the card and the event page the same way. Venue Staff see the venue. */
 export function eventTitle(projection: EventProjection): string {
   const { access, event } = projection;
-  if (access === "venue_staff") return event.venueRequest?.venueName ?? "Venue request";
+  if (access === "venue_staff") {
+    const pending = event.venueRequests?.find(entry => entry.status === "pending");
+    return pending?.venueName ?? event.venueRequests?.[0]?.venueName ?? "Venue request";
+  }
   return event.name ?? "Untitled event";
 }
 

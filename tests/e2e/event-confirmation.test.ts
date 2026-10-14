@@ -142,8 +142,9 @@ test.describe("AC1: confirming", () => {
 
     await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
     const venue = page.locator("section#venue");
+    const confirmation = venue.locator('dl[aria-label="Confirmation"]');
     await expect(venue.getByText("Confirmed venue")).toBeVisible();
-    await expect(venue.getByText(venueName)).toBeVisible();
+    await expect(confirmation.getByText(venueName)).toBeVisible();
     await expect(page.getByRole("button", { name: `Confirm event: ${name}` })).toHaveCount(0);
     expect(await statusOf(id)).toBe("confirmed");
   });
@@ -202,8 +203,9 @@ test.describe("AC3 and AC4: the Organiser", () => {
 
       await expect(organiserPage.getByText("Confirmed", { exact: true }).first()).toBeVisible();
       const venue = organiserPage.locator("section#venue");
-      await expect(venue.getByText(venueName)).toBeVisible();
-      await expect(venue.getByText("09:00–12:30")).toBeVisible();
+      const confirmation = venue.locator('dl[aria-label="Confirmation"]');
+      await expect(confirmation.getByText(venueName)).toBeVisible();
+      await expect(confirmation.getByText("09:00–12:30")).toBeVisible();
       const equipment = organiserPage.locator("section#equipment");
       await expect(equipment.getByText("Projector")).toBeVisible();
       // Show equipment as a state. Hide Technical Support's notes.

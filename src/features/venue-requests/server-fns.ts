@@ -44,9 +44,9 @@ export type PendingVenueRequest = Omit<PendingVenueRequestDetail, "requirements"
 export const getPendingVenueRequest = createServerFn({ method: "GET" })
   .validator(parseVenueRequestId)
   .middleware([requireVenueRequestRead])
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const [{ db }, { handleGetPendingVenueRequest }] = await loadServer();
-    return handleGetPendingVenueRequest(data, db);
+    return handleGetPendingVenueRequest(data, context.user, db);
   });
 
 export type PendingVenueRequestDetail = NonNullable<

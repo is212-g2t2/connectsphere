@@ -1,7 +1,12 @@
 import { Card, CardContent } from "#/components/ui/card";
 import { Badge } from "#/components/ui/badge";
-import { formatInstant, formatLocalDateTime } from "#/features/event-requests/format";
+import {
+  formatInstant,
+  formatLocalDateTime,
+  formatProposedWindow,
+} from "#/features/event-requests/format";
 import { EventRequirements } from "#/features/events/components/event-requirements";
+import { VenueStateBadge } from "#/features/venue-requests/components/venue-state-badge";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
 /**
@@ -11,10 +16,14 @@ import type { PendingVenueRequestDetail } from "#/features/venue-requests/server
  * shared `accessibilityRequirements` field.
  */
 export function BookingRequestDetails({ request }: { request: PendingVenueRequestDetail }) {
+  // Key the heading id by request: the staff page renders one detail block per pending request.
+  // Name it with the venue and window: several blocks share the section, so each needs its own name.
+  const headingId = `booking-request-details-heading-${request.id}`;
+  const window = formatProposedWindow({ start: request.startsAt, end: request.endsAt });
   return (
-    <section aria-labelledby="booking-request-details-heading">
-      <h2 id="booking-request-details-heading" className="display-h2">
-        Booking request details
+    <section aria-labelledby={headingId}>
+      <h2 id={headingId} className="display-h3">
+        Booking request details: {request.venueName}, {window}
       </h2>
 
       {request.conflict ? (
@@ -26,6 +35,9 @@ export function BookingRequestDetails({ request }: { request: PendingVenueReques
       <Card className="mt-4">
         <CardContent>
           <dl className="grid gap-6 sm:grid-cols-2">
+            <Detail term="Status">
+              <VenueStateBadge status="pending" />
+            </Detail>
             <Detail term="Venue">{request.venueName}</Detail>
             <Detail term="Submitted">
               <time dateTime={request.submittedAt.toISOString()}>

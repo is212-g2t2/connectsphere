@@ -102,10 +102,12 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
     await expect(page.getByText(/10 May 2027, 09:00 – 15:30/)).toBeVisible();
 
-    const [created] = await database
+    const createdRows = await database
       .select()
       .from(schema.venueRequests)
       .where(eq(schema.venueRequests.eventId, fixture.eventId));
+    expect(createdRows).toHaveLength(1);
+    const [created] = createdRows;
     expect(created).toMatchObject({
       venueId: fixture.venueId,
       startsAt: "2027-05-10 09:00:00",
@@ -136,6 +138,75 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     expect(withdrawn.status).toBe("withdrawn");
   } finally {
     // Deleting the users removes the event and venue request by cascade. Then delete the venue.
+    if (cleanup.userIds.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
+    }
+    if (cleanup.venueIds.length > 0) {
+      await database.delete(schema.venues).where(inArray(schema.venues.id, cleanup.venueIds));
+    }
+  }
+});
+
+/** PTR-138 AC1/AC5: a second request for another venue lands on the same event, and the event
+ * page lists both entries with their states. The venue page panel is per venue, so the second
+ * venue still shows the request form after the first request.
+ */
+test("[PTR-138] a Coordinator requests a second venue for the same event and the event page lists both", async ({
+  page,
+}) => {
+  const cleanup = { userIds: [] as string[], venueIds: [] as number[] };
+
+  try {
+    const coordinator = await registerAccount(database, page, {
+      role: "event_coordinator",
+      name: "Second Venue Coordinator",
+      password,
+    });
+    cleanup.userIds.push(coordinator.id);
+    const fixture = await seedFixture(coordinator.id, cleanup);
+
+    const secondVenueName = `PTR-138 Hall ${randomUUID()}`;
+    const [secondVenue] = await database
+      .insert(schema.venues)
+      .values({
+        name: secondVenueName,
+        location: "Request Wing",
+        maxCapacity: 80,
+        operatingHours: DEFAULT_OPERATING_HOURS,
+      })
+      .returning({ id: schema.venues.id });
+    cleanup.venueIds.push(secondVenue.id);
+
+    await page.goto(`/venues/${fixture.venueId}?eventId=${fixture.eventId}`);
+    await waitForHydration(page);
+    await page.getByLabel("End time (required)", { exact: true }).fill("12:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
+
+    await page.goto(`/venues/${secondVenue.id}?eventId=${fixture.eventId}`);
+    await waitForHydration(page);
+    await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
+    await page.getByLabel("Start time (required)", { exact: true }).fill("13:00");
+    await page.getByLabel("End time (required)", { exact: true }).fill("15:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
+
+    const rows = await database
+      .select()
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.eventId, fixture.eventId));
+    expect(rows).toHaveLength(2);
+    const statusByVenue = new Map(rows.map(row => [row.venueId, row.status]));
+    expect(statusByVenue.get(fixture.venueId)).toBe("pending");
+    expect(statusByVenue.get(secondVenue.id)).toBe("pending");
+
+    await page.goto(`/events/${fixture.eventId}`);
+    await waitForHydration(page);
+    const venue = page.locator("section#venue");
+    await expect(venue.getByText(fixture.venueName)).toBeVisible();
+    await expect(venue.getByText(secondVenueName)).toBeVisible();
+    await expect(venue.getByText("Pending", { exact: true })).toHaveCount(2);
+  } finally {
     if (cleanup.userIds.length > 0) {
       await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
     }

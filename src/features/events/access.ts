@@ -154,19 +154,28 @@ export interface VenueRequestRelease {
 }
 
 /**
- * The venue request shown on an event card. `conflict` is present only when a pending request
- * overlaps an approved booking (PTR-36). `rejection` is the latest rejection. Only the assigned
- * Coordinator sees it. Keep it beside a newer pending request to explain the adjustment (PTR-34).
+ * One venue booking request on an event card. One event holds several venue requests (one row
+ * per event, venue and window). `conflict` is present only when a pending request overlaps an
+ * approved booking (PTR-36). `rejection` and `release` ride on their own row. The coordinator
+ * event list and the coordinator triage read carry every row with its details; the organiser
+ * and venue-staff lists do not.
  */
 export interface EventVenueRequest {
   /** The venue_requests row id (text), so the venue-staff decision can load its detail. */
   id: string;
   status: string;
-  /** The venue-staff card titles the card with this when the projection carries it. */
-  venueName?: string | null;
+  /** The requested venue's name. */
+  venueName: string;
+  /** The requested window: date as `YYYY-MM-DD`, times as `HH:MM`. */
+  date: string;
+  startTime: string;
+  endTime: string;
   conflict?: "booking" | "hold";
   rejection?: VenueRequestRejection;
   release?: VenueRequestRelease;
+  /** True on the newest non-withdrawn row among the entries this list carries (by `updatedAt`,
+   * tie-break greater id). Set on one entry per list only; other entries omit the field. */
+  latest?: boolean;
 }
 
 /**
@@ -285,7 +294,9 @@ export interface EventProjection {
     /** PTR-50: whether the Attendee can register now and, when not, why. */
     registrationAvailability?: RegistrationAvailability | null;
     venue?: EventVenue | null;
-    venueRequest?: EventVenueRequest | null;
+    /** One entry per non-withdrawn venue request, ordered by start time. Omitted for Attendees
+     * and Technical Support. */
+    venueRequests?: EventVenueRequest[];
     equipment?: EquipmentLineProjection[];
     confirmation?: EventConfirmation | null;
     /** Why the Coordinator cannot complete this confirmed event now; null means it is eligible. */
@@ -335,7 +346,7 @@ export function projectEvent(
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
   equipment: EquipmentLineProjection[],
-  venueRequest: EventVenueRequest | null,
+  venueRequests: EventVenueRequest[],
   currentVenue: EventConfirmation["venue"] = null,
   places: EventPlaces | null = null,
   completionUnavailableReason?: string | null,
@@ -376,7 +387,7 @@ export function projectEvent(
           layout: record.roomLayoutPreference,
           accessibilityRequirements: record.accessibilityRequirements,
           requiredFacilities: record.venueRequirements,
-          venueRequest,
+          venueRequests,
         },
       };
 
@@ -434,7 +445,7 @@ export function projectEvent(
                 }
               : {}),
           })),
-          venueRequest,
+          venueRequests,
           equipmentSubmittedAt: record.equipmentSubmittedAt?.toISOString() ?? null,
           ...(access === "coordinator"
             ? {
