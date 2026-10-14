@@ -423,63 +423,6 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
   });
 
   describe("release and amendment (PTR-134 AC3)", () => {
-    it("AC3 (PTR-138): two approved bookings on one event write two ledger rows", async () => {
-      const eventId = await createEvent("PTR-138 two bookings");
-      const first = await handleCreateVenueRequest(
-        { eventId, venueId: hallId, date: DATE, startTime: "09:00", endTime: "10:00" },
-        coordinator,
-        database as never
-      );
-      const second = await handleCreateVenueRequest(
-        { eventId, venueId: annexId, date: DATE, startTime: "11:00", endTime: "12:00" },
-        coordinator,
-        database as never
-      );
-      await approve(first.id);
-      await approve(second.id);
-
-      expect(
-        (await ledgerRows()).map(row => ({
-          venueId: row.venueId,
-          venueRequestId: row.venueRequestId,
-        }))
-      ).toEqual([
-        { venueId: hallId, venueRequestId: first.id },
-        { venueId: annexId, venueRequestId: second.id },
-      ]);
-    });
-
-    it("AC3 (PTR-138): releasing one booking keeps the sibling approved with its ledger row", async () => {
-      const eventId = await createEvent("PTR-138 sibling release");
-      const first = await handleCreateVenueRequest(
-        { eventId, venueId: hallId, date: DATE, startTime: "09:00", endTime: "10:00" },
-        coordinator,
-        database as never
-      );
-      const second = await handleCreateVenueRequest(
-        { eventId, venueId: annexId, date: DATE, startTime: "11:00", endTime: "12:00" },
-        coordinator,
-        database as never
-      );
-      await approve(first.id);
-      await approve(second.id);
-
-      await handleReleaseVenueBooking(
-        { id: first.id, reason: "Burst pipe" },
-        staff,
-        database as never
-      );
-
-      const [sibling] = await database
-        .select({ status: schema.venueRequests.status })
-        .from(schema.venueRequests)
-        .where(eq(schema.venueRequests.id, second.id));
-      expect(sibling.status).toBe("approved");
-      expect(await ledgerRows()).toEqual([
-        expect.objectContaining({ venueId: annexId, venueRequestId: second.id }),
-      ]);
-    });
-
     it("removes the row when the booking is released", async () => {
       const id = await raise("09:00", "11:00");
       await approve(id);

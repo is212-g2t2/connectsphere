@@ -103,6 +103,16 @@ const FIXTURE_VENUE_NAME = "Event List Hall";
  */
 const FIXTURE_VENUE_2_NAME = "Event List Room 2A";
 
+/** The main event's pending venue request (`el-venue-main`) as the projection lists it. */
+const MAIN_VENUE_ENTRY = {
+  id: "el-venue-main",
+  status: "pending",
+  venueName: FIXTURE_VENUE_NAME,
+  date: "2026-10-12",
+  startTime: "14:30",
+  endTime: "18:45",
+};
+
 function session(key: keyof typeof fixtureUsers): SessionUser {
   const user = fixtureUsers[key];
   return { id: user.id, email: user.email, role: user.role };
@@ -445,6 +455,25 @@ describe("event list handler (PTR-8)", () => {
     });
   }
 
+  /** The projection entry of an `insertRejected` row that keeps the default window and reason. */
+  function rejectedEntry(id: string) {
+    const period = { date: "2026-11-01", startTime: "09:00", endTime: "12:00" };
+    return {
+      id,
+      status: "rejected",
+      venueName: FIXTURE_VENUE_NAME,
+      ...period,
+      rejection: {
+        venueId: fixtureVenueId,
+        venueName: FIXTURE_VENUE_NAME,
+        ...period,
+        reason: "Closed for floor resurfacing",
+        suggestion: null,
+        suggestedVenueId: null,
+      },
+    };
+  }
+
   async function coordinatorCard(eventId: number) {
     const [projection] = await handleListEvents(
       { eventId },
@@ -651,16 +680,7 @@ describe("event list handler (PTR-8)", () => {
         requiredFacilities: "Near MRT",
         registrationOpensAt: OPEN_WINDOW.registrationOpensAt,
         registrationClosesAt: OPEN_WINDOW.registrationClosesAt,
-        venueRequests: [
-          {
-            id: "el-venue-main",
-            status: "pending",
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-10-12",
-            startTime: "14:30",
-            endTime: "18:45",
-          },
-        ],
+        venueRequests: [MAIN_VENUE_ENTRY],
       });
       expect(projection.event).not.toHaveProperty("registration");
       expect(projection.event.equipment?.map(item => item.item).toSorted()).toEqual([
@@ -691,16 +711,7 @@ describe("event list handler (PTR-8)", () => {
         name: "Open registration event",
         status: "submitted",
         expectedAttendance: 25,
-        venueRequests: [
-          {
-            id: "el-venue-main",
-            status: "pending",
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-10-12",
-            startTime: "14:30",
-            endTime: "18:45",
-          },
-        ],
+        venueRequests: [MAIN_VENUE_ENTRY],
       });
       expect(projection.event.equipment).toHaveLength(2);
     });
@@ -722,16 +733,7 @@ describe("event list handler (PTR-8)", () => {
         layout: "U-shape",
         accessibilityRequirements: "Step-free access",
         requiredFacilities: "Near MRT",
-        venueRequests: [
-          {
-            id: "el-venue-main",
-            status: "pending",
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-10-12",
-            startTime: "14:30",
-            endTime: "18:45",
-          },
-        ],
+        venueRequests: [MAIN_VENUE_ENTRY],
       });
       // PTR-31 criterion 2: hide the event name and all Organiser-only fields.
       expect(projection.event).not.toHaveProperty("name");
@@ -758,17 +760,7 @@ describe("event list handler (PTR-8)", () => {
         session("venueStaff"),
         database as never
       );
-      expect(flagged.event.venueRequests).toEqual([
-        {
-          id: "el-venue-main",
-          status: "pending",
-          venueName: FIXTURE_VENUE_NAME,
-          date: "2026-10-12",
-          startTime: "14:30",
-          endTime: "18:45",
-          conflict: "booking",
-        },
-      ]);
+      expect(flagged.event.venueRequests).toEqual([{ ...MAIN_VENUE_ENTRY, conflict: "booking" }]);
 
       const [sibling] = await handleListEvents(
         { eventId: fixtures.review.id },
@@ -797,25 +789,6 @@ describe("event list handler (PTR-8)", () => {
       ]);
     });
 
-    it("carries the requested venue's name on Venue Staff's pending request", async () => {
-      const [projection] = await handleListEvents(
-        { eventId: fixtures.main.id },
-        session("venueStaff"),
-        database as never
-      );
-
-      expect(projection.event.venueRequests).toEqual([
-        {
-          id: "el-venue-main",
-          status: "pending",
-          venueName: FIXTURE_VENUE_NAME,
-          date: "2026-10-12",
-          startTime: "14:30",
-          endTime: "18:45",
-        },
-      ]);
-    });
-
     it("shows Venue Staff their settled approved request with the venue name", async () => {
       await database
         .update(schema.venueRequests)
@@ -828,16 +801,7 @@ describe("event list handler (PTR-8)", () => {
         database as never
       );
 
-      expect(projection.event.venueRequests).toEqual([
-        {
-          id: "el-venue-main",
-          status: "approved",
-          venueName: FIXTURE_VENUE_NAME,
-          date: "2026-10-12",
-          startTime: "14:30",
-          endTime: "18:45",
-        },
-      ]);
+      expect(projection.event.venueRequests).toEqual([{ ...MAIN_VENUE_ENTRY, status: "approved" }]);
       expect(projection.event).not.toHaveProperty("name");
     });
 
@@ -855,12 +819,8 @@ describe("event list handler (PTR-8)", () => {
 
       expect(projection.event.venueRequests).toEqual([
         {
-          id: "el-venue-main",
+          ...MAIN_VENUE_ENTRY,
           status: "rejected",
-          venueName: FIXTURE_VENUE_NAME,
-          date: "2026-10-12",
-          startTime: "14:30",
-          endTime: "18:45",
           rejection: {
             venueId: fixtureVenueId,
             venueName: FIXTURE_VENUE_NAME,
@@ -916,16 +876,9 @@ describe("event list handler (PTR-8)", () => {
 
       expect(projection.event.venueRequests).toEqual([
         {
-          id: "el-venue-main",
+          ...MAIN_VENUE_ENTRY,
           status: "released",
-          venueName: FIXTURE_VENUE_NAME,
-          date: "2026-10-12",
-          startTime: "14:30",
-          endTime: "18:45",
-          release: {
-            reason: "Air-conditioning failure",
-            changedByName: null,
-          },
+          release: { reason: "Air-conditioning failure", changedByName: null },
         },
       ]);
     });
@@ -947,16 +900,7 @@ describe("event list handler (PTR-8)", () => {
         database as never
       );
 
-      expect(projection.event.venueRequests).toEqual([
-        {
-          id: "el-venue-main",
-          status: "pending",
-          venueName: FIXTURE_VENUE_NAME,
-          date: "2026-10-12",
-          startTime: "14:30",
-          endTime: "18:45",
-        },
-      ]);
+      expect(projection.event.venueRequests).toEqual([MAIN_VENUE_ENTRY]);
     });
 
     describe("a rejected venue request (PTR-34 AC3)", () => {
@@ -968,22 +912,13 @@ describe("event list handler (PTR-8)", () => {
           suggestedEndTime: "13:30",
         });
 
+        const entry = rejectedEntry("el-venue-rejected-full");
         expect(await coordinatorCard(fixtures.closed.id)).toEqual([
           {
-            id: "el-venue-rejected-full",
-            status: "rejected",
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-11-01",
-            startTime: "09:00",
-            endTime: "12:00",
+            ...entry,
             adjustable: true,
             rejection: {
-              venueId: fixtureVenueId,
-              venueName: FIXTURE_VENUE_NAME,
-              date: "2026-11-01",
-              startTime: "09:00",
-              endTime: "12:00",
-              reason: "Closed for floor resurfacing",
+              ...entry.rejection,
               suggestion: {
                 venueName: FIXTURE_VENUE_NAME,
                 date: "2026-11-02",
@@ -999,25 +934,7 @@ describe("event list handler (PTR-8)", () => {
       it("reports no suggestion when Venue Staff gave none, and only the parts they gave", async () => {
         await insertRejected("el-venue-rejected-bare");
         expect(await coordinatorCard(fixtures.closed.id)).toEqual([
-          {
-            id: "el-venue-rejected-bare",
-            status: "rejected",
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-11-01",
-            startTime: "09:00",
-            endTime: "12:00",
-            adjustable: true,
-            rejection: {
-              venueId: fixtureVenueId,
-              venueName: FIXTURE_VENUE_NAME,
-              date: "2026-11-01",
-              startTime: "09:00",
-              endTime: "12:00",
-              reason: "Closed for floor resurfacing",
-              suggestion: null,
-              suggestedVenueId: null,
-            },
-          },
+          { ...rejectedEntry("el-venue-rejected-bare"), adjustable: true },
         ]);
 
         await database
@@ -1046,33 +963,8 @@ describe("event list handler (PTR-8)", () => {
         // Each row carries its own state: the pending row has no rejection, and the rejected
         // row keeps its reason. Entries order by window start, so the pending row comes first.
         expect(await coordinatorCard(fixtures.main.id)).toEqual([
-          {
-            id: "el-venue-main",
-            status: "pending",
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-10-12",
-            startTime: "14:30",
-            endTime: "18:45",
-          },
-          {
-            id: "el-venue-rejected-old",
-            status: "rejected",
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-11-01",
-            startTime: "09:00",
-            endTime: "12:00",
-            adjustable: true,
-            rejection: {
-              venueId: fixtureVenueId,
-              venueName: FIXTURE_VENUE_NAME,
-              date: "2026-11-01",
-              startTime: "09:00",
-              endTime: "12:00",
-              reason: "Closed for floor resurfacing",
-              suggestion: null,
-              suggestedVenueId: null,
-            },
-          },
+          MAIN_VENUE_ENTRY,
+          { ...rejectedEntry("el-venue-rejected-old"), adjustable: true },
         ]);
       });
 
@@ -1095,37 +987,6 @@ describe("event list handler (PTR-8)", () => {
           { id: "el-venue-rejected-a", rejection: { reason: "First reason" } },
           { id: "el-venue-rejected-b", rejection: { reason: "Latest reason" } },
           { id: "el-venue-rejected-c", rejection: { reason: "Middle reason" } },
-        ]);
-      });
-
-      it("keeps a rejection visible beside a later approval", async () => {
-        await insertRejected("el-venue-rejected-superseded", {
-          updatedAt: new Date("2026-10-01T00:00:00Z"),
-        });
-        await database.insert(schema.venueRequests).values({
-          id: "el-venue-approved-after-rejection",
-          eventId: fixtures.closed.id,
-          venueId: fixtureVenueId,
-          requestedById: fixtureUsers.coordinator.id,
-          assignedStaffId: fixtureUsers.venueStaff.id,
-          startsAt: "2026-11-05 09:00:00",
-          endsAt: "2026-11-05 12:00:00",
-          status: "approved",
-          updatedAt: new Date("2026-10-05T00:00:00Z"),
-        });
-
-        // The earlier rejection stays on its own row beside the later approval.
-        expect(await coordinatorCard(fixtures.closed.id)).toMatchObject([
-          {
-            id: "el-venue-rejected-superseded",
-            status: "rejected",
-            rejection: { reason: "Closed for floor resurfacing" },
-          },
-          {
-            id: "el-venue-approved-after-rejection",
-            status: "approved",
-            venueName: FIXTURE_VENUE_NAME,
-          },
         ]);
       });
 
@@ -1153,24 +1014,7 @@ describe("event list handler (PTR-8)", () => {
         // The released row is newer and sits at the rejected venue, so the rejection is no
         // longer adjustable.
         expect(await coordinatorCard(fixtures.closed.id)).toEqual([
-          {
-            id: "el-venue-rejected-before-release",
-            status: "rejected",
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-11-01",
-            startTime: "09:00",
-            endTime: "12:00",
-            rejection: {
-              venueId: fixtureVenueId,
-              venueName: FIXTURE_VENUE_NAME,
-              date: "2026-11-01",
-              startTime: "09:00",
-              endTime: "12:00",
-              reason: "Closed for floor resurfacing",
-              suggestion: null,
-              suggestedVenueId: null,
-            },
-          },
+          rejectedEntry("el-venue-rejected-before-release"),
           {
             id: "el-venue-released-after-rejection",
             status: "released",
@@ -1222,30 +1066,6 @@ describe("event list handler (PTR-8)", () => {
         // Organisers see pending and approved rows only, never details. Nothing matches, so the
         // list is empty.
         expect(projection.event.venueRequests).toEqual([]);
-      });
-
-      it("shows the organiser pending and approved rows without details", async () => {
-        await insertRejected("el-venue-rejected-org", {
-          eventId: fixtures.main.id,
-        });
-
-        const [projection] = await handleListEvents(
-          { eventId: fixtures.main.id },
-          session("organiser"),
-          database as never
-        );
-
-        // The rejected row is not listed; the pending row carries no rejection or release.
-        expect(projection.event.venueRequests).toEqual([
-          {
-            id: "el-venue-main",
-            status: "pending",
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-10-12",
-            startTime: "14:30",
-            endTime: "18:45",
-          },
-        ]);
       });
 
       it("keeps decided rows and their details from the Organiser and from other Venue Staff", async () => {

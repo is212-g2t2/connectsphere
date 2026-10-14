@@ -52,6 +52,16 @@ vi.mock("#/lib/logger", () => ({
 
 const VIEWER_ID = "viewer-1";
 
+/** One pending venue request entry as the projection lists it. */
+const PENDING_ENTRY = {
+  id: "vr-1",
+  status: "pending",
+  venueName: "Hall A",
+  date: "2026-11-21",
+  startTime: "18:00",
+  endTime: "22:00",
+};
+
 function projection(access: string, event: Record<string, unknown> = {}) {
   return {
     access,
@@ -252,30 +262,9 @@ describe("loadEventPageData", () => {
   it("loads every pending request of the event in one read, with the venue options once", async () => {
     const event = projection("venue_staff", {
       venueRequests: [
-        {
-          id: "vr-1",
-          status: "pending",
-          venueName: "Hall A",
-          date: "2026-11-21",
-          startTime: "18:00",
-          endTime: "22:00",
-        },
-        {
-          id: "vr-2",
-          status: "approved",
-          venueName: "Hall B",
-          date: "2026-11-22",
-          startTime: "10:00",
-          endTime: "12:00",
-        },
-        {
-          id: "vr-3",
-          status: "pending",
-          venueName: "Hall C",
-          date: "2026-11-23",
-          startTime: "10:00",
-          endTime: "12:00",
-        },
+        PENDING_ENTRY,
+        { ...PENDING_ENTRY, id: "vr-2", status: "approved", venueName: "Hall B" },
+        { ...PENDING_ENTRY, id: "vr-3", venueName: "Hall C" },
       ],
     });
     const requests = [{ id: "vr-1" }, { id: "vr-3" }];
@@ -298,18 +287,7 @@ describe("loadEventPageData", () => {
   });
 
   it("offers no venue options to staff without the decide permission", async () => {
-    const event = projection("venue_staff", {
-      venueRequests: [
-        {
-          id: "vr-1",
-          status: "pending",
-          venueName: "Hall A",
-          date: "2026-11-21",
-          startTime: "18:00",
-          endTime: "22:00",
-        },
-      ],
-    });
+    const event = projection("venue_staff", { venueRequests: [PENDING_ENTRY] });
     mockListEvents.mockResolvedValue([event]);
     mockGetPendingVenueRequestsForEvent.mockResolvedValue([{ id: "vr-1" }]);
 
@@ -326,16 +304,7 @@ describe("loadEventPageData", () => {
 
   it("skips the decision fetch once no request is pending", async () => {
     const event = projection("venue_staff", {
-      venueRequests: [
-        {
-          id: "vr-2",
-          status: "approved",
-          venueName: "Hall A",
-          date: "2026-11-21",
-          startTime: "18:00",
-          endTime: "22:00",
-        },
-      ],
+      venueRequests: [{ ...PENDING_ENTRY, id: "vr-2", status: "approved" }],
     });
     mockListEvents.mockResolvedValue([event]);
 
@@ -358,18 +327,7 @@ describe("loadEventPageData", () => {
   });
 
   it("keeps an empty request list when every pending request settled before the read", async () => {
-    const event = projection("venue_staff", {
-      venueRequests: [
-        {
-          id: "vr-1",
-          status: "pending",
-          venueName: "Hall A",
-          date: "2026-11-21",
-          startTime: "18:00",
-          endTime: "22:00",
-        },
-      ],
-    });
+    const event = projection("venue_staff", { venueRequests: [PENDING_ENTRY] });
     mockListEvents.mockResolvedValue([event]);
     mockGetPendingVenueRequestsForEvent.mockResolvedValue([]);
     mockListVenueOptions.mockResolvedValue([]);
@@ -387,18 +345,7 @@ describe("loadEventPageData", () => {
   });
 
   it("logs and leaves venueDecisions unset when the request read fails", async () => {
-    const event = projection("venue_staff", {
-      venueRequests: [
-        {
-          id: "vr-1",
-          status: "pending",
-          venueName: "Hall A",
-          date: "2026-11-21",
-          startTime: "18:00",
-          endTime: "22:00",
-        },
-      ],
-    });
+    const event = projection("venue_staff", { venueRequests: [PENDING_ENTRY] });
     mockListEvents.mockResolvedValue([event]);
     mockGetPendingVenueRequestsForEvent.mockRejectedValue(new Error("venue store down"));
     mockListVenueOptions.mockResolvedValue([]);

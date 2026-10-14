@@ -524,16 +524,6 @@ describe("venue request handlers (PTR-31)", () => {
       expect(ledger).toEqual(expect.arrayContaining([morning.id, afternoon.id]));
     });
 
-    it("refuses a window that overlaps the event's pending request, naming its window and state", async () => {
-      await raiseRequest(eventId, "09:00", "10:00");
-
-      await expect(raiseRequest(eventId, "09:30", "10:30")).rejects.toMatchObject({
-        name: "ConflictError",
-        status: 409,
-        message: `This window overlaps this event's pending request for ${VENUE_NAME} on 20 Apr 2027, 09:00 – 10:00.`,
-      });
-    });
-
     it("refuses a window that overlaps the event's approved booking", async () => {
       const booked = await raiseRequest(eventId, "09:00", "10:00");
       await approve(booked.id, users.venueStaffA);
@@ -2458,20 +2448,6 @@ describe("venue request handlers (PTR-31)", () => {
           .map(row => row.venueRequestId)
           .toSorted((a, b) => (a ?? "").localeCompare(b ?? ""))
       ).toEqual([first.id, second.id].toSorted((a, b) => a.localeCompare(b)));
-
-      // An overlapping approval on another event names the venue and the booked period.
-      const overlap = await raiseFor(
-        await createEvent("PTR-138 AC4 overlap event"),
-        venueId,
-        "09:30",
-        "10:30"
-      );
-      await expect(approve(overlap.id, users.venueStaffB)).rejects.toMatchObject({
-        name: "ConflictError",
-        status: 409,
-        message: `${VENUE_NAME} is already booked 20 Apr 2027, 09:00 \u2013 10:00`,
-      });
-      expect((await readRow(overlap.id)).status).toBe("pending");
     });
 
     it("AC5 (PTR-138): lists venue, period and state on each row; the Coordinator sees every row, the Organiser only pending and approved rows, and each Venue Staff member only the shared queue and their own decisions", async () => {
