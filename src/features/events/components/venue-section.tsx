@@ -14,7 +14,7 @@ import {
 } from "#/features/events/components/event-requirements";
 import type { EventVenueRequest } from "#/features/events/access";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
-import { formatVenueSuggestion } from "#/features/venue-requests/schema";
+import { formatSessionSummary, formatVenueSuggestion } from "#/features/venue-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 
 interface VenueSource {
@@ -71,7 +71,10 @@ function venueSource(data: EventPageData): VenueSource | null {
   };
 }
 
-/** One venue-request entry: venue, period, state, and its own rejection or release. */
+/**
+ * One venue-request entry: venue, period, session, state, and its own rejection or release. Only
+ * the Coordinator's entries carry a session.
+ */
 function VenueRequestEntry({
   entry,
   access,
@@ -88,6 +91,8 @@ function VenueRequestEntry({
     access === "coordinator" &&
     entry.adjustable === true &&
     SEARCHABLE_EVENT_STATUSES.includes(eventStatus);
+  // PTR-138 AC1: the Coordinator's entries carry their session, which tells two sessions apart.
+  const session = entry.requirements ? formatSessionSummary(entry.requirements) : "";
   return (
     <dl
       aria-label={`${entry.venueName}, ${formatLocalDate(entry.date)}, ${entry.startTime}–${entry.endTime}`}
@@ -98,6 +103,7 @@ function VenueRequestEntry({
         label="Period"
         value={`${formatLocalDate(entry.date)}, ${entry.startTime}–${entry.endTime}`}
       />
+      {session && <VenueDetail label="Session" value={session} />}
       <VenueDetail
         label="Status"
         value={
@@ -119,7 +125,13 @@ function VenueRequestEntry({
               value={formatVenueSuggestion(entry.rejection.suggestion, formatLocalDate)}
             />
           )}
-          {showAdjust && <AdjustRequestRow eventId={eventId} rejection={entry.rejection} />}
+          {showAdjust && (
+            <AdjustRequestRow
+              eventId={eventId}
+              rejection={entry.rejection}
+              requirements={entry.requirements}
+            />
+          )}
         </>
       )}
       {entry.release && (

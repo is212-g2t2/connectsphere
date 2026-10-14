@@ -3,46 +3,68 @@ import { cn } from "cn";
 
 import { buttonVariants } from "#/components/ui/button";
 import type { VenueRequestRejection } from "#/features/events/access";
+import type { SessionRequirements } from "#/features/venue-requests/schema";
 
 /**
  * Prefill an adjusted request: the suggested venue when Venue Staff named one, else the refusing
  * venue. Fall each window part back the same way. A "same room, a day later" suggestion then
- * needs nothing retyped. Take times only as a pair.
+ * needs nothing retyped. Take times only as a pair. PTR-138 AC1: carry the rejected session's
+ * requirements too. Leave out a null attendance, so the form uses the event's figure.
  */
-export function adjustedRequest(rejection: VenueRequestRejection): {
+export function adjustedRequest(
+  rejection: VenueRequestRejection,
+  requirements?: SessionRequirements
+): {
   venueId: number;
   venueName: string;
   date: string;
   startTime: string;
   endTime: string;
+  expectedAttendance?: number;
+  layout?: string;
+  accessibility?: string;
+  facilities?: string;
 } {
   const suggestion = rejection.suggestion;
   const times =
     suggestion?.startTime && suggestion.endTime
       ? { startTime: suggestion.startTime, endTime: suggestion.endTime }
       : { startTime: rejection.startTime, endTime: rejection.endTime };
+  const session = requirements
+    ? {
+        ...(requirements.expectedAttendance === null
+          ? {}
+          : { expectedAttendance: requirements.expectedAttendance }),
+        layout: requirements.layout,
+        accessibility: requirements.accessibility,
+        facilities: requirements.facilities,
+      }
+    : {};
   return {
     venueId: rejection.suggestedVenueId ?? rejection.venueId,
     venueName: suggestion?.venueName ?? rejection.venueName,
     date: suggestion?.date ?? rejection.date,
     ...times,
+    ...session,
   };
 }
 
 /**
- * Reopen the request on the suggested venue with its window. Show this action only while the
- * event stands in `SEARCHABLE_EVENT_STATUSES`. That is the set the venue page's request panel
- * answers. Show it only to the Coordinator, and only on an entry the projection marks
- * `adjustable`. The caller applies the status, role, and `adjustable` gates.
+ * Reopen the request on the suggested venue with its window and session requirements. Show this
+ * action only while the event stands in `SEARCHABLE_EVENT_STATUSES`. That is the set the venue
+ * page's request panel answers. Show it only to the Coordinator, and only on an entry the
+ * projection marks `adjustable`. The caller applies the status, role, and `adjustable` gates.
  */
 export function AdjustRequestRow({
   eventId,
   rejection,
+  requirements,
 }: {
   eventId: number;
   rejection: VenueRequestRejection;
+  requirements?: SessionRequirements;
 }) {
-  const { venueId, venueName, ...prefill } = adjustedRequest(rejection);
+  const { venueId, venueName, ...prefill } = adjustedRequest(rejection, requirements);
   return (
     <div className="min-w-0">
       <dt className="eyebrow text-muted-foreground">Next step</dt>

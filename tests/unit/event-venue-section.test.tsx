@@ -385,3 +385,59 @@ describe("venue section", () => {
     expect(screen.queryByRole("link", { name: "Find venues for this event" })).toBeNull();
   });
 });
+
+/** PTR-138 AC1: each Coordinator entry names its session, and an adjusted request carries it. */
+describe("venue section session requirements", () => {
+  const breakout = {
+    expectedAttendance: 30,
+    layout: "Boardroom",
+    accessibility: "",
+    facilities: "",
+  };
+
+  it("names each entry's attendance and layout, so two sessions at one venue stay apart", () => {
+    renderVenue("coordinator", {
+      status: "planning",
+      venueRequests: [
+        { ...pendingEntry, requirements: breakout },
+        {
+          ...approvedEntry,
+          venueName: "Harbor Hall",
+          requirements: { ...breakout, expectedAttendance: 120, layout: "Theatre seating" },
+        },
+      ],
+    });
+
+    expect(screen.getAllByText("Session")).toHaveLength(2);
+    expect(screen.getByText("30 attendees, Boardroom")).toBeTruthy();
+    expect(screen.getByText("120 attendees, Theatre")).toBeTruthy();
+  });
+
+  it("shows no session on an entry without requirements, such as the organiser's", () => {
+    renderVenue("organiser", {
+      status: "planning",
+      venueRequests: [{ ...pendingEntry }],
+    });
+
+    expect(screen.queryByText("Session")).toBeNull();
+  });
+
+  it("carries the rejected session's requirements in the adjust link", () => {
+    renderVenue("coordinator", {
+      status: "submitted",
+      venueRequests: [{ ...rejectedAdjustable, requirements: breakout }],
+    });
+
+    const link = screen.getByRole("link", { name: "Adjust request at Harbor Hall" });
+    expect(JSON.parse(link.dataset.search ?? "null")).toEqual({
+      eventId: 1042,
+      date: "2026-12-05",
+      startTime: "17:00",
+      endTime: "21:00",
+      expectedAttendance: 30,
+      layout: "Boardroom",
+      accessibility: "",
+      facilities: "",
+    });
+  });
+});
