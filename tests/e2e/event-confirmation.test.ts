@@ -178,6 +178,8 @@ test.describe("AC2: refusal", () => {
     const alert = page.getByRole("alertdialog").getByRole("alert");
     await expect(alert).toContainText("This event cannot be confirmed yet:");
     await expect(alert).toContainText("There is no approved venue booking.");
+    // PTR-138: the pending request is a blocker of its own, named by venue.
+    await expect(alert).toContainText(`The booking request for ${venueName} (`);
     await expect(alert).toContainText("Projector is not arranged (requested).");
     await expect(alert).not.toContainText("Speaker");
     expect(await statusOf(id)).toBe("approved");
