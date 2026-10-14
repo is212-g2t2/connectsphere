@@ -445,6 +445,20 @@ describe("event list handler (PTR-8)", () => {
     });
   }
 
+  /** PTR-138 AC1: the fixture rows store no session requirements, so they carry their event's. */
+  const CLOSED_REQUIREMENTS = {
+    expectedAttendance: 10,
+    layout: "",
+    accessibility: "",
+    facilities: "",
+  };
+  const MAIN_REQUIREMENTS = {
+    expectedAttendance: 25,
+    layout: "U-shape",
+    accessibility: "Step-free access",
+    facilities: "Near MRT",
+  };
+
   async function coordinatorCard(eventId: number) {
     const [projection] = await handleListEvents(
       { eventId },
@@ -976,6 +990,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
+            requirements: CLOSED_REQUIREMENTS,
             adjustable: true,
             rejection: {
               venueId: fixtureVenueId,
@@ -1006,6 +1021,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
+            requirements: CLOSED_REQUIREMENTS,
             adjustable: true,
             rejection: {
               venueId: fixtureVenueId,
@@ -1053,6 +1069,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-10-12",
             startTime: "14:30",
             endTime: "18:45",
+            requirements: MAIN_REQUIREMENTS,
           },
           {
             id: "el-venue-rejected-old",
@@ -1061,6 +1078,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
+            requirements: MAIN_REQUIREMENTS,
             adjustable: true,
             rejection: {
               venueId: fixtureVenueId,
@@ -1160,6 +1178,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-01",
             startTime: "09:00",
             endTime: "12:00",
+            requirements: CLOSED_REQUIREMENTS,
             rejection: {
               venueId: fixtureVenueId,
               venueName: FIXTURE_VENUE_NAME,
@@ -1178,6 +1197,7 @@ describe("event list handler (PTR-8)", () => {
             date: "2026-11-05",
             startTime: "09:00",
             endTime: "12:00",
+            requirements: CLOSED_REQUIREMENTS,
             release: {
               reason: "Air-conditioning failure",
               changedByName: fixtureUsers.venueStaff.name,

@@ -3,7 +3,15 @@ import { z } from "zod";
 import { formatLocalDateTime, formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import { TIME_SHAPE, VENUE_ID_MESSAGE, VENUE_SEARCH_EVENT_MESSAGE } from "#/features/venues/schema";
+import {
+  LAYOUT_MESSAGE,
+  TIME_SHAPE,
+  VENUE_ID_MESSAGE,
+  VENUE_SEARCH_ATTENDANCE_MESSAGE,
+  VENUE_SEARCH_EVENT_MESSAGE,
+  VENUE_SEARCH_TEXT_MAX_LENGTH,
+  parseLayouts,
+} from "#/features/venues/schema";
 
 /**
  * Routes and the form import this module. Keep it free of `#/db/schema` and other server-only dependencies.
@@ -98,9 +106,53 @@ export function venueRequestEventOverlapMessage(overlap: {
   return `This window overlaps this event's ${existing} for ${overlap.venueName} on ${period}${buffers}.`;
 }
 
+/**
+ * PTR-138 AC1: refuse a venue that does not meet the session's requirements. List every failure
+ * in the words that search uses, for example "Room B does not meet this session's requirements:
+ * Holds 40; 120 needed. Missing facilities: projector."
+ */
+export function venueRequirementsMessage(venueName: string, failures: readonly string[]): string {
+  return `${venueName} does not meet this session's requirements: ${failures.join(". ")}.`;
+}
+
+/**
+ * PTR-138 AC1: the session requirements that one venue request carries. They start from the
+ * event's requirements. Blank text states no requirement. Attendance is null when neither the
+ * session nor the event states one.
+ */
+export interface SessionRequirements {
+  expectedAttendance: number | null;
+  layout: string;
+  accessibility: string;
+  facilities: string;
+}
+
 const Time = z.string().regex(TIME_SHAPE, VENUE_REQUEST_TIME_MESSAGE);
 const EventId = z.int32({ error: VENUE_SEARCH_EVENT_MESSAGE }).positive(VENUE_SEARCH_EVENT_MESSAGE);
 const VenueId = z.int32({ error: VENUE_ID_MESSAGE }).positive(VENUE_ID_MESSAGE);
+const REQUIREMENT_TOO_LONG_MESSAGE = `Enter ${VENUE_SEARCH_TEXT_MAX_LENGTH} characters or fewer for each requirement`;
+const RequirementText = z
+  .string()
+  .trim()
+  .max(VENUE_SEARCH_TEXT_MAX_LENGTH, REQUIREMENT_TOO_LONG_MESSAGE);
+
+/**
+ * PTR-138 AC1: the optional session requirements of a new request. An absent key takes the
+ * event's requirement. Blank text states no requirement. A layout must name a supported layout,
+ * as the search requires, so a typo cannot fail every venue.
+ */
+const SessionRequirementFields = {
+  expectedAttendance: z
+    .int32({ error: VENUE_SEARCH_ATTENDANCE_MESSAGE })
+    .positive(VENUE_SEARCH_ATTENDANCE_MESSAGE)
+    .optional(),
+  layout: RequirementText.refine(
+    value => value === "" || parseLayouts(value).length > 0,
+    LAYOUT_MESSAGE
+  ).optional(),
+  accessibility: RequirementText.optional(),
+  facilities: RequirementText.optional(),
+};
 
 /**
  * PTR-31 criterion 1: Require a venue, date, start time, and end time. Fixed-width `HH:MM` strings
@@ -115,6 +167,7 @@ export const VenueRequestInput = z
     date: z.iso.date({ error: VENUE_REQUEST_DATE_MESSAGE }),
     startTime: Time,
     endTime: Time,
+    ...SessionRequirementFields,
   })
   .refine(value => `${value.date}T${value.endTime}` > `${value.date}T${value.startTime}`, {
     path: ["endTime"],
@@ -122,6 +175,12 @@ export const VenueRequestInput = z
   });
 
 export type VenueRequestValues = z.infer<typeof VenueRequestInput>;
+
+/** The session requirements a request or a hold conversion may state. */
+export type SessionRequirementInput = Pick<
+  VenueRequestValues,
+  "expectedAttendance" | "layout" | "accessibility" | "facilities"
+>;
 
 /** The window an adjusted request arrives with, shape-validated by the route's search schema. */
 export type VenueRequestPrefill = Pick<VenueRequestValues, "date" | "startTime" | "endTime">;
@@ -147,6 +206,25 @@ export const VenueRequestIdInput = z.object(
 );
 
 export type VenueRequestId = z.infer<typeof VenueRequestIdInput>;
+
+/**
+ * PTR-138 AC1: convert a hold with the session requirements that the new request carries. An
+ * absent requirement takes the event's requirement, as for a new request.
+ */
+export const VenueHoldConversionInput = z.object(
+  { id: VenueRequestIdInput.shape.id, ...SessionRequirementFields },
+  { error: VENUE_REQUEST_ID_MESSAGE }
+);
+
+export type VenueHoldConversion = z.infer<typeof VenueHoldConversionInput>;
+
+export function parseVenueHoldConversion(data: unknown): VenueHoldConversion {
+  const parsed = VenueHoldConversionInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
 
 /** Server-function and form boundary: typed values or the first readable refusal. */
 export function parseVenueRequestInput(data: unknown): VenueRequestValues {

@@ -1,7 +1,11 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schema";
 import type { RegistrationAvailability } from "#/features/events/registration";
-import type { VenueRequestStatus, VenueSuggestion } from "#/features/venue-requests/schema";
+import type {
+  SessionRequirements,
+  VenueRequestStatus,
+  VenueSuggestion,
+} from "#/features/venue-requests/schema";
 
 export type EventAccess =
   | "organiser"
@@ -171,6 +175,8 @@ export interface EventVenueRequest {
   date: string;
   startTime: string;
   endTime: string;
+  /** Coordinator only (PTR-138 AC1): the session requirements that the request carries. */
+  requirements?: SessionRequirements;
   conflict?: "booking" | "hold";
   rejection?: VenueRequestRejection;
   release?: VenueRequestRelease;

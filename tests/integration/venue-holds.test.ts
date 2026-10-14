@@ -27,8 +27,9 @@ import { handleListEvents } from "#/features/events/records.server";
 import {
   VENUE_OCCUPANCY_CONFLICT_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
+  venueRequirementsMessage,
 } from "#/features/venue-requests/schema";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { DEFAULT_OPERATING_HOURS, LAYOUT_MESSAGE } from "#/features/venues/schema";
 import { eventStatusColumns } from "./event-status";
 
 /**
@@ -197,6 +198,11 @@ describe("tentative venue holds (PTR-109)", () => {
       session(users.coordinatorA),
       database as never
     );
+  }
+
+  /** PTR-138 AC1: set the venue's capacity, for example below Event A's attendance of 100. */
+  function shrinkVenue(maxCapacity: number) {
+    return database.update(schema.venues).set({ maxCapacity }).where(eq(schema.venues.id, venueId));
   }
 
   /** A refused conversion rolls back the release, so the hold stays held. */
@@ -1126,6 +1132,88 @@ describe("tentative venue holds (PTR-109)", () => {
         )
       ).rejects.toMatchObject({ name: "NotFoundError", status: 404 });
     });
+
+    describe("session requirements (PTR-138 AC1)", () => {
+      it("refuses a venue that fails the event's requirements before the release, and leaves the hold held", async () => {
+        const hold = await holdForA();
+        // Shrink the venue below Event A's attendance of 100.
+        await shrinkVenue(50);
+
+        await expect(
+          handleConvertVenueHold({ id: hold.id }, session(users.coordinatorA), database as never)
+        ).rejects.toMatchObject({
+          name: "ConflictError",
+          status: 409,
+          message: venueRequirementsMessage(VENUE_NAME, ["Holds 50; 100 needed"]),
+        });
+
+        await expectStillHeld(hold.id);
+        // The hold keeps its ledger row, so it still occupies the venue.
+        expect(
+          await database
+            .select({ id: schema.venueOccupancy.id })
+            .from(schema.venueOccupancy)
+            .where(eq(schema.venueOccupancy.venueHoldId, hold.id))
+        ).toHaveLength(1);
+        expect(
+          await database
+            .select()
+            .from(schema.venueRequests)
+            .where(eq(schema.venueRequests.eventId, eventIdA))
+        ).toEqual([]);
+        expect(
+          await database
+            .select()
+            .from(schema.notifications)
+            .where(eq(schema.notifications.eventRequestId, eventIdA))
+        ).toEqual([]);
+      });
+
+      it("converts with the session's requirements, which the request stores and Venue Staff read", async () => {
+        const hold = await holdForA();
+        await shrinkVenue(50);
+
+        const result = await handleConvertVenueHold(
+          { id: hold.id, expectedAttendance: 40, facilities: "" },
+          session(users.coordinatorA),
+          database as never
+        );
+
+        expect(result.hold.status).toBe("released");
+        // Omitted values take the event's requirements; Event A states none of them.
+        expect(result.request).toMatchObject({
+          status: "pending",
+          expectedAttendance: 40,
+          layout: "",
+          accessibilityRequirements: "",
+          requiredFacilities: "",
+        });
+        const [notification] = await database
+          .select()
+          .from(schema.notifications)
+          .where(eq(schema.notifications.recipientId, users.venueStaff.id));
+        expect(notification.payload).toMatchObject({ expectedAttendance: 40 });
+        const [pending] = await handleGetPendingVenueRequestsForEvent(
+          { eventId: eventIdA },
+          session(users.venueStaff),
+          database as never
+        );
+        expect(pending.requirements.expectedAttendance).toBe(40);
+      });
+
+      it("refuses a session layout that names no supported layout", async () => {
+        const hold = await holdForA();
+
+        await expect(
+          handleConvertVenueHold(
+            { id: hold.id, layout: "Round tables" },
+            session(users.coordinatorA),
+            database as never
+          )
+        ).rejects.toThrow(LAYOUT_MESSAGE);
+        await expectStillHeld(hold.id);
+      });
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -1294,6 +1382,7 @@ describe("tentative venue holds (PTR-109)", () => {
           date: "2027-06-15",
           startTime: "10:00",
           endTime: "14:00",
+          requirements: { expectedAttendance: 100, layout: "", accessibility: "", facilities: "" },
           conflict: "hold",
         },
       ]);

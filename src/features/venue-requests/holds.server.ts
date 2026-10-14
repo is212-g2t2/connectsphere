@@ -8,11 +8,17 @@ import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation
 import { loadAssignedEvent } from "#/features/events/records.server";
 import {
   assertNoEventOverlap,
+  checkSessionRequirements,
   loadLockedVenue,
   raiseVenueRequestNotifications,
   rethrowDuplicate,
+  sessionRequirementValues,
 } from "#/features/venue-requests/requests.server";
-import { parseVenueHoldId, parseVenueHoldInput } from "#/features/venue-requests/schema";
+import {
+  parseVenueHoldConversion,
+  parseVenueHoldId,
+  parseVenueHoldInput,
+} from "#/features/venue-requests/schema";
 import { canReleaseHold } from "#/features/venue-requests/holds";
 import {
   checkVenueFree,
@@ -77,7 +83,11 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
   });
 }
 
-async function releaseActiveHold(
+/**
+ * Lock an active hold that the actor can release, and return it. Refuse a missing hold, another
+ * user's hold, and a hold that is no longer held. The caller releases it with `releaseHold`.
+ */
+async function lockActiveHold(
   tx: VenueTx,
   id: string,
   actorId: string,
@@ -115,7 +125,11 @@ async function releaseActiveHold(
   if (hold.status !== "held") {
     throw new ConflictError(conflictMessage);
   }
+  return hold;
+}
 
+/** Mark a hold that `lockActiveHold` locked as released, and free its ledger row. */
+async function releaseHold(tx: VenueTx, id: string, actorId: string) {
   const [released] = await tx
     .update(venueHolds)
     .set({
@@ -128,8 +142,7 @@ async function releaseActiveHold(
       status: venueHolds.status,
     });
   await vacateVenue(tx, { venueHoldId: id });
-
-  return { hold, released };
+  return released;
 }
 
 /**
@@ -145,8 +158,8 @@ export async function handleReleaseVenueHold(
   const { id } = parseVenueHoldId(data);
 
   return database.transaction(async tx => {
-    const { released } = await releaseActiveHold(tx, id, actor.id);
-    return released;
+    await lockActiveHold(tx, id, actor.id);
+    return releaseHold(tx, id, actor.id);
   });
 }
 
@@ -154,8 +167,9 @@ export async function handleReleaseVenueHold(
  * PTR-109 AC5: Convert a tentative hold to a pending venue request.
  * Release the hold, create a request for the same venue, period, and event, and notify Venue Staff.
  * The release removes the hold's ledger row. A pending request holds no venue time, so it gets none.
- * The new request follows the creation rules: the overlap check (PTR-138 AC4) and the duplicate
- * index refuse it, and the refusal rolls back the release.
+ * The new request follows the creation rules. PTR-138 AC1: it carries session requirements, which
+ * default to the event's, and the venue must meet them. PTR-138 AC4: the overlap check and the
+ * duplicate index apply. Run every check before the release, so a refusal leaves the hold held.
  * PTR-54 AC9: A cancelled event cannot get a new request, so its hold can only be released.
  */
 export async function handleConvertVenueHold(
@@ -163,14 +177,14 @@ export async function handleConvertVenueHold(
   actor: SessionUser,
   database: Database
 ) {
-  const { id } = parseVenueHoldId(data);
+  const { id, ...session } = parseVenueHoldConversion(data);
 
   const result = await database.transaction(async tx => {
     // Lock the event before the venue. This waits for a cancellation in progress. A later
     // cancellation waits for this transaction to commit.
     const locked = await keyShareEventForHold(tx, id);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
-    const { hold, released: releasedHold } = await releaseActiveHold(
+    const hold = await lockActiveHold(
       tx,
       id,
       actor.id,
@@ -179,8 +193,8 @@ export async function handleConvertVenueHold(
 
     // Conversion creates a pending request, so apply the request gate: an assigned event in
     // `SEARCHABLE_EVENT_STATUSES`. `loadAssignedEvent` re-checks this in the transaction. If a
-    // handover or a status change makes the calendar's Convert action stale, refuse it and roll
-    // back the release. The hold then stays `held`.
+    // handover or a status change makes the calendar's Convert action stale, refuse it. The hold
+    // then stays `held`.
     const assignedEvent = await loadAssignedEvent(
       tx,
       hold.eventId,
@@ -189,15 +203,19 @@ export async function handleConvertVenueHold(
     );
     if (!assignedEvent) throw new AuthorizationError("Forbidden");
 
-    // The release took the venue lock, so the buffers and the event's requests stay current.
+    // `lockActiveHold` took the venue lock, so the venue and the event's requests stay current.
+    // PTR-138 AC1: refuse a venue that does not meet the session's requirements.
     // PTR-138 AC4: refuse a hold window that overlaps the event's own request at this venue.
     const venue = await loadLockedVenue(tx, hold.venueId);
+    const requirements = checkSessionRequirements(venue, assignedEvent, session);
     await assertNoEventOverlap(tx, venue, {
       eventId: hold.eventId,
       startsAt: hold.startsAt,
       endsAt: hold.endsAt,
     });
 
+    const releasedHold = await releaseHold(tx, id, actor.id);
+    // A duplicate refusal comes after the release. It rolls back the release with the insert.
     const [createdRequest] = await tx
       .insert(venueRequests)
       .values({
@@ -208,21 +226,10 @@ export async function handleConvertVenueHold(
         endsAt: hold.endsAt,
         requestedById: actor.id,
         status: "pending",
+        ...sessionRequirementValues(requirements),
       })
       .returning()
       .catch(rethrowDuplicate);
-
-    const eventRows = await tx
-      .select({
-        expectedAttendance: eventRequests.expectedAttendance,
-        roomLayoutPreference: eventRequests.roomLayoutPreference,
-        accessibilityRequirements: eventRequests.accessibilityRequirements,
-        venueRequirements: eventRequests.venueRequirements,
-      })
-      .from(eventRequests)
-      .where(eq(eventRequests.id, hold.eventId))
-      .limit(1);
-    const event = eventRows.at(0);
 
     const staffRecipients = await tx
       .select({ id: user.id })
@@ -238,10 +245,7 @@ export async function handleConvertVenueHold(
         venueName: venue.name,
         startsAt: createdRequest.startsAt,
         endsAt: createdRequest.endsAt,
-        expectedAttendance: event?.expectedAttendance ?? null,
-        layout: event?.roomLayoutPreference ?? "",
-        accessibilityRequirements: event?.accessibilityRequirements ?? "",
-        requiredFacilities: event?.venueRequirements ?? "",
+        requirements,
       },
       staffRecipients.map(recipient => recipient.id)
     );

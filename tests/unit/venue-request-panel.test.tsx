@@ -44,11 +44,19 @@ const openContext: VenueRequestContext = {
   requests: [],
 };
 
+const eventRequirements = {
+  expectedAttendance: 80,
+  layout: "Theatre seating",
+  accessibility: "Step-free access",
+  facilities: "Projector, PA system",
+};
+
 const ownPending = {
   id: "req-1",
   startsAt: "2026-10-12T14:30",
   endsAt: "2026-10-12T18:45",
   status: "pending",
+  requirements: eventRequirements,
   canWithdraw: true,
 } satisfies VenueRequestContextRow;
 
@@ -57,6 +65,7 @@ const approved = {
   startsAt: "2026-10-12T09:00",
   endsAt: "2026-10-12T11:00",
   status: "approved",
+  requirements: { ...eventRequirements, expectedAttendance: 30, layout: "Boardroom" },
   canWithdraw: false,
 } satisfies VenueRequestContextRow;
 

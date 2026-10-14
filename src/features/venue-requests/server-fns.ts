@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
 import {
+  parseVenueHoldConversion,
   parseVenueHoldId,
   parseVenueHoldInput,
   parseVenueRejectionInput,
@@ -51,7 +52,7 @@ export const getPendingVenueRequestsForEvent = createServerFn({ method: "GET" })
     return handleGetPendingVenueRequestsForEvent(data, context.user, db);
   });
 
-/** One pending request with its venue, period, conflict, and the event's requirements. */
+/** One pending request with its venue, period, conflict, and session requirements. */
 export type PendingVenueRequestDetail = Awaited<
   ReturnType<typeof getPendingVenueRequestsForEvent>
 >[number];
@@ -223,9 +224,10 @@ export const releaseVenueHold = createServerFn({ method: "POST" })
 
 /**
  * PTR-109: Coordinator converts a tentative hold to a pending venue booking request.
+ * PTR-138 AC1: the request carries the session requirements given here, else the event's.
  */
 export const convertVenueHold = createServerFn({ method: "POST" })
-  .validator(parseVenueHoldId)
+  .validator(parseVenueHoldConversion)
   .middleware([requireVenueRequest])
   .handler(async ({ data, context }) => {
     const [{ db }, { handleConvertVenueHold }] = await loadHoldsServer();

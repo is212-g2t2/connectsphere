@@ -23,9 +23,17 @@ import {
   parseVenueRequestInput,
   venueRequestEventOverlapMessage,
   venueRequestEventStatusMessage,
+  venueRequirementsMessage,
+} from "#/features/venue-requests/schema";
+import type {
+  SessionRequirementInput,
+  SessionRequirements,
 } from "#/features/venue-requests/schema";
 import { checkVenueFree, occupyVenue } from "#/features/venue-requests/occupancy.server";
-import { loadPendingConflictKinds } from "#/features/venue-requests/records.server";
+import {
+  loadPendingConflictKinds,
+  sessionRequirementColumns,
+} from "#/features/venue-requests/records.server";
 import {
   assertSameVenue,
   keyShareEvent,
@@ -35,7 +43,9 @@ import {
 } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
+import { requirementFailures } from "#/features/venues/records.server";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
+import type { VenueLayout } from "#/features/venues/schema";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 
@@ -56,14 +66,12 @@ export interface VenueRequestNotification {
   venueName: string;
   startsAt: string;
   endsAt: string;
-  expectedAttendance: number | null;
-  layout: string;
-  accessibilityRequirements: string;
-  requiredFacilities: string;
+  requirements: SessionRequirements;
 }
 
 /**
- * PTR-31 criterion 4: Notify every Venue Staff member about a booking request (§6).
+ * PTR-31 criterion 4: Notify every Venue Staff member about a booking request (§6). The email
+ * carries the request's session requirements (PTR-138 AC1).
  * Insert notification rows in the caller's transaction, so rollback also removes them. The worker
  * sends the emails later, so a mail outage cannot undo the request or notification.
  * The caller logs an empty recipient list; it does not refuse the request.
@@ -84,10 +92,10 @@ export async function raiseVenueRequestNotifications(
         venueName: notification.venueName,
         startsAt: notification.startsAt,
         endsAt: notification.endsAt,
-        expectedAttendance: notification.expectedAttendance,
-        layout: notification.layout,
-        accessibilityRequirements: notification.accessibilityRequirements,
-        requiredFacilities: notification.requiredFacilities,
+        expectedAttendance: notification.requirements.expectedAttendance,
+        layout: notification.requirements.layout,
+        accessibilityRequirements: notification.requirements.accessibility,
+        requiredFacilities: notification.requirements.facilities,
       },
     }))
   );
@@ -122,11 +130,16 @@ export interface LockedVenue {
   name: string;
   setupMinutes: number;
   turnaroundMinutes: number;
+  maxCapacity: number;
+  facilities: string[];
+  accessibilityFeatures: string[];
+  supportedLayouts: VenueLayout[];
 }
 
 /**
- * Read the venue's name and current buffers. Call it under the venue lock, so a venue save cannot
- * change the buffers before the overlap check. Return Not Found for a missing venue.
+ * Read the venue's name, current buffers, and what it offers. Call it under the venue lock, so a
+ * venue save cannot change them before the requirement and overlap checks. Return Not Found for a
+ * missing venue.
  */
 export async function loadLockedVenue(tx: VenueTx, venueId: number): Promise<LockedVenue> {
   const rows = await tx
@@ -135,6 +148,10 @@ export async function loadLockedVenue(tx: VenueTx, venueId: number): Promise<Loc
       name: venues.name,
       setupMinutes: venues.setupMinutes,
       turnaroundMinutes: venues.turnaroundMinutes,
+      maxCapacity: venues.maxCapacity,
+      facilities: venues.facilities,
+      accessibilityFeatures: venues.accessibilityFeatures,
+      supportedLayouts: venues.supportedLayouts,
     })
     .from(venues)
     .where(eq(venues.id, venueId))
@@ -142,6 +159,56 @@ export async function loadLockedVenue(tx: VenueTx, venueId: number): Promise<Loc
   const venue = rows.at(0);
   if (!venue) throw new NotFoundError("Not Found");
   return venue;
+}
+
+/** The event's requirements, as `loadAssignedEvent` reads them. */
+interface EventRequirementRow {
+  expectedAttendance: number | null;
+  roomLayoutPreference: string;
+  accessibilityRequirements: string;
+  venueRequirements: string;
+}
+
+/**
+ * PTR-138 AC1: settle the session requirements of a new request, and refuse a venue that does
+ * not meet them. An absent value takes the event's requirement. Check with the rule that search
+ * applies (`requirementFailures`), and name every failure. Pass the venue that `loadLockedVenue`
+ * read under the venue lock. Return the values that the request stores.
+ */
+export function checkSessionRequirements(
+  venue: LockedVenue,
+  event: EventRequirementRow,
+  session: SessionRequirementInput
+): SessionRequirements {
+  const requirements: SessionRequirements = {
+    expectedAttendance: session.expectedAttendance ?? event.expectedAttendance,
+    layout: session.layout ?? event.roomLayoutPreference,
+    accessibility: session.accessibility ?? event.accessibilityRequirements,
+    facilities: session.facilities ?? event.venueRequirements,
+  };
+  const failures = requirementFailures(venue, {
+    ...requirements,
+    expectedAttendance: requirements.expectedAttendance ?? undefined,
+  });
+  if (failures.length > 0) {
+    throw new ConflictError(
+      venueRequirementsMessage(
+        venue.name,
+        failures.map(failure => failure.message)
+      )
+    );
+  }
+  return requirements;
+}
+
+/** The `venue_requests` columns that store a request's session requirements. */
+export function sessionRequirementValues(requirements: SessionRequirements) {
+  return {
+    expectedAttendance: requirements.expectedAttendance,
+    layout: requirements.layout,
+    accessibilityRequirements: requirements.accessibility,
+    requiredFacilities: requirements.facilities,
+  };
 }
 
 /**
@@ -258,7 +325,8 @@ async function raiseDecisionNotification(
  * PTR-32 AC3, PTR-138: Read every pending request of one event that the caller's queue grants
  * (`isVenueQueueRow`), earliest window first. The Venue Staff event page decides them all from
  * this one read. Read the rows and their conflicts in batched queries, never one read per row.
- * `venue_requests` stores no requirement snapshot, so return the event's current requirements.
+ * Return each request's own session requirements (PTR-138 AC1); a row from before them returns
+ * the event's current requirements (`sessionRequirementColumns`).
  * Return only the venue, requested period, submission time, and operational requirements. Do
  * not expose event names or conflicting-event details to Venue Staff (TC12). An event with no
  * such request returns `[]`, so the answer reveals nothing about other events.
@@ -281,10 +349,7 @@ export async function handleGetPendingVenueRequestsForEvent(
       assignedStaffId: venueRequests.assignedStaffId,
       status: venueRequests.status,
       proposedDates: eventRequests.proposedDates,
-      expectedAttendance: eventRequests.expectedAttendance,
-      layout: eventRequests.roomLayoutPreference,
-      accessibility: eventRequests.accessibilityRequirements,
-      requiredFacilities: eventRequests.venueRequirements,
+      requirements: sessionRequirementColumns,
     })
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
@@ -314,10 +379,10 @@ export async function handleGetPendingVenueRequestsForEvent(
         row.proposedDates.find(period => period.start !== undefined && period.end !== undefined) ??
           {}
       ),
-      expectedAttendance: row.expectedAttendance,
-      layout: row.layout,
-      accessibility: row.accessibility,
-      requiredFacilities: row.requiredFacilities,
+      expectedAttendance: row.requirements.expectedAttendance,
+      layout: row.requirements.layout,
+      accessibility: row.requirements.accessibility,
+      requiredFacilities: row.requirements.facilities,
     },
   }));
 }
@@ -335,8 +400,9 @@ export async function handleGetPendingVenueRequestsForEvent(
  *   then leaves the venue page readable and reveals no information.
  *
  * PTR-31 criterion 2: Include the operational requirements shown to Venue Staff: timing, attendance,
- * layout, accessibility, and required facilities. `canWithdraw` is true only on a pending request
- * that the caller raised, as criterion 5 requires.
+ * layout, accessibility, and required facilities. The form starts from them. Each row carries its
+ * own session requirements (PTR-138 AC1), so two sessions at one venue stay apart. `canWithdraw`
+ * is true only on a pending request that the caller raised, as criterion 5 requires.
  */
 export async function handleGetVenueRequestContext(
   data: unknown,
@@ -369,8 +435,10 @@ export async function handleGetVenueRequestContext(
         endsAt: venueRequests.endsAt,
         status: venueRequests.status,
         requestedById: venueRequests.requestedById,
+        requirements: sessionRequirementColumns,
       })
       .from(venueRequests)
+      .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
       .where(
         and(
           eq(venueRequests.eventId, eventId),
@@ -409,6 +477,7 @@ export async function handleGetVenueRequestContext(
         startsAt: toLocalMinuteValue(row.startsAt),
         endsAt: toLocalMinuteValue(row.endsAt),
         status,
+        requirements: row.requirements,
         canWithdraw: status === "pending" && row.requestedById === actor.id,
       };
     }),
@@ -420,6 +489,8 @@ export async function handleGetVenueRequestContext(
  * Refuse a window that does not describe a real civil day. The event must stand in
  * `SEARCHABLE_EVENT_STATUSES` and be assigned to the caller, as the PTR-29 search allows. Hold
  * creation and conversion use the same gate.
+ * PTR-138 AC1: store the session requirements, and refuse a venue that does not meet them
+ * (`checkSessionRequirements`). The ledger checks availability and conflicts at approval.
  * PTR-138 AC4: refuse a window that overlaps the same event's pending or approved request at this
  * venue (`assertNoEventOverlap`). Pending requests of other events can overlap; approval checks
  * them (PTR-36).
@@ -444,6 +515,7 @@ export async function handleCreateVenueRequest(
     // creators for one event, so the overlap check sees the other creator's committed row.
     await lockVenue(tx, input.venueId);
     const venue = await loadLockedVenue(tx, input.venueId);
+    const requirements = checkSessionRequirements(venue, event, input);
     // The column returns `YYYY-MM-DD HH:MM:SS` because it uses `mode: "string"`.
     const startsAt = `${input.date} ${input.startTime}:00`;
     const endsAt = `${input.date} ${input.endTime}:00`;
@@ -459,6 +531,7 @@ export async function handleCreateVenueRequest(
         requestedById: actor.id,
         startsAt,
         endsAt,
+        ...sessionRequirementValues(requirements),
       })
       .returning()
       .catch(rethrowDuplicate);
@@ -479,10 +552,7 @@ export async function handleCreateVenueRequest(
         venueName: venue.name,
         startsAt: request.startsAt,
         endsAt: request.endsAt,
-        expectedAttendance: event.expectedAttendance,
-        layout: event.roomLayoutPreference,
-        accessibilityRequirements: event.accessibilityRequirements,
-        requiredFacilities: event.venueRequirements,
+        requirements,
       },
       recipients.map(recipient => recipient.id)
     );

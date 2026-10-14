@@ -320,7 +320,8 @@ export const AVAILABILITY_MAX_DAYS = 366;
 export const AVAILABILITY_ORDER_MESSAGE = "End date must be on or after start date";
 export const AVAILABILITY_RANGE_MESSAGE = `Choose a range of ${AVAILABILITY_MAX_DAYS} days or fewer`;
 const MILLISECONDS_PER_DAY = 86_400_000;
-const VENUE_SEARCH_TEXT_MAX_LENGTH = 2000;
+/** The longest free-text requirement that search and a venue request accept. */
+export const VENUE_SEARCH_TEXT_MAX_LENGTH = 2000;
 
 function isWithinAvailabilityRange(startDate: string, endDate: string) {
   return (

@@ -221,6 +221,8 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
         date: "2027-05-10",
         startTime: "09:00",
         endTime: "12:00",
+        // PTR-138 AC1: the adjusted request also carries the rejected session's requirements.
+        requirements: { expectedAttendance: null, layout: "", accessibility: "", facilities: "" },
         adjustable: true,
         rejection: {
           venueId: refusedVenueId,

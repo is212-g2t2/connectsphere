@@ -1,15 +1,15 @@
-import { and, asc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
-import { venueHolds, venueRequests, venues } from "#/db/schema";
+import { eventRequests, venueHolds, venueRequests, venues } from "#/db/schema";
 import type {
   EventVenueRequest,
   VenueRequestRejection,
   VenueRequestRelease,
 } from "#/features/events/access";
 import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
-import type { VenueRequestStatus } from "#/features/venue-requests/schema";
+import type { SessionRequirements, VenueRequestStatus } from "#/features/venue-requests/schema";
 
 /**
  * Keep this module server-only. A client-reachable value import of `#/db/schema` would ship the
@@ -20,12 +20,26 @@ import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 
 type Database = typeof Db;
 
+/**
+ * PTR-138 AC1: a request's own session requirements. A row from before session requirements
+ * stores nulls, so read the event's current requirement in their place. Every reader of session
+ * requirements selects this object and joins `event_requests` on the request's event.
+ */
+export const sessionRequirementColumns = {
+  expectedAttendance: sql<
+    number | null
+  >`coalesce(${venueRequests.expectedAttendance}, ${eventRequests.expectedAttendance})`,
+  layout: sql<string>`coalesce(${venueRequests.layout}, ${eventRequests.roomLayoutPreference})`,
+  accessibility: sql<string>`coalesce(${venueRequests.accessibilityRequirements}, ${eventRequests.accessibilityRequirements})`,
+  facilities: sql<string>`coalesce(${venueRequests.requiredFacilities}, ${eventRequests.venueRequirements})`,
+};
+
 /** The venue that Venue Staff suggested on a rejection. Join it with `leftJoin`. */
 export const suggestedVenue = alias(venues, "suggested_venue");
 
 /**
  * The columns that one event-card entry reads. Both entry readers select these, join `venues`
- * on the requested venue, and left-join `suggestedVenue`.
+ * on the requested venue and `event_requests` on its event, and left-join `suggestedVenue`.
  */
 export const venueRequestEntryColumns = {
   id: venueRequests.id,
@@ -44,6 +58,7 @@ export const venueRequestEntryColumns = {
   suggestedDate: venueRequests.suggestedDate,
   suggestedStartTime: venueRequests.suggestedStartTime,
   suggestedEndTime: venueRequests.suggestedEndTime,
+  requirements: sessionRequirementColumns,
 };
 
 /** One venue-request row as `venueRequestEntryColumns` selects it. */
@@ -64,6 +79,7 @@ interface VenueRequestEntryRow {
   suggestedDate: string | null;
   suggestedStartTime: string | null;
   suggestedEndTime: string | null;
+  requirements: SessionRequirements;
 }
 
 /** An approved booking that a pending request can overlap. */
@@ -198,11 +214,12 @@ function releaseFromRow(row: VenueRequestEntryRow): VenueRequestRelease {
  * Build one event-card entry from one venue-request row. Never spread the database row:
  * `requestedById` and `assignedStaffId` must not reach a client. A rejected row carries its
  * rejection and a released row its release; other rows carry only their window. The caller
- * supplies the conflict kind and the `adjustable` mark, which need other rows.
+ * supplies the conflict kind and the `adjustable` mark, which need other rows. It also sets
+ * `requirements` for the Coordinator, who states each session's requirements.
  */
 export function eventVenueRequestFromRow(
   row: VenueRequestEntryRow,
-  marks: { conflict?: "booking" | "hold"; adjustable?: boolean } = {}
+  marks: { conflict?: "booking" | "hold"; adjustable?: boolean; requirements?: boolean } = {}
 ): EventVenueRequest {
   return {
     id: row.id,
@@ -211,6 +228,7 @@ export function eventVenueRequestFromRow(
     date: row.startsAt.slice(0, 10),
     startTime: row.startsAt.slice(11, 16),
     endTime: row.endsAt.slice(11, 16),
+    ...(marks.requirements ? { requirements: row.requirements } : {}),
     ...(marks.conflict ? { conflict: marks.conflict } : {}),
     ...(row.status === "rejected" ? { rejection: rejectionFromRow(row) } : {}),
     ...(row.status === "released" ? { release: releaseFromRow(row) } : {}),
@@ -219,10 +237,10 @@ export function eventVenueRequestFromRow(
 }
 
 /**
- * Return one event's venue requests in the projection's shape, earliest window first. Ignore
- * withdrawn rows. Each row carries its own state and its own rejection or release. Mark each
- * rejected row that the Coordinator can still adjust. The triage page reads this through the
- * coordination request, which has no venue data.
+ * Return one event's venue requests in the Coordinator's projection shape, earliest window first.
+ * Ignore withdrawn rows. Each row carries its own state, session requirements, and rejection or
+ * release. Mark each rejected row that the Coordinator can still adjust. The triage page reads
+ * this through the coordination request, which has no venue data.
  */
 export async function loadVenueRequestsForEvent(
   database: Pick<Database, "select">,
@@ -232,11 +250,14 @@ export async function loadVenueRequestsForEvent(
     .select(venueRequestEntryColumns)
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
     .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
     .where(eq(venueRequests.eventId, eventId))
     .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
 
   const kept = rows.filter(row => row.status !== "withdrawn");
   const adjustable = adjustableRejectionIds(kept);
-  return kept.map(row => eventVenueRequestFromRow(row, { adjustable: adjustable.has(row.id) }));
+  return kept.map(row =>
+    eventVenueRequestFromRow(row, { adjustable: adjustable.has(row.id), requirements: true })
+  );
 }

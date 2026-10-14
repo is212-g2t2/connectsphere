@@ -298,6 +298,7 @@ export async function handleListEvents(
       })
       .from(venueRequests)
       .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+      .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
       .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
       .where(inArray(venueRequests.eventId, requestIds))
       .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id)),
@@ -478,6 +479,7 @@ export async function handleListEvents(
     // order). Coordinator: every non-withdrawn row. Organiser: pending and approved rows only, so
     // no rejection or release reaches them. Venue Staff: only rows the queue rule grants
     // (`isVenueQueueRow`). A decided row in their queue is their own, so it keeps its details.
+    // Only the Coordinator's entries carry their session requirements (PTR-138 AC1).
     // Attendees and Technical Support receive no `venueRequests` key (`projectEvent` omits it).
     const visibleRows = eventVenueRows.filter(row => {
       if (row.status === "withdrawn") return false;
@@ -491,6 +493,7 @@ export async function handleListEvents(
       eventVenueRequestFromRow(row, {
         conflict: conflictKinds.get(row.id),
         adjustable: adjustable.has(row.id),
+        requirements: access === "coordinator",
       })
     );
 

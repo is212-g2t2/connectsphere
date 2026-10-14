@@ -23,7 +23,9 @@ import {
   VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
   venueRequestEventStatusMessage,
+  venueRequirementsMessage,
 } from "#/features/venue-requests/schema";
+import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
@@ -33,7 +35,7 @@ import {
   handleWithdrawVenueRequest,
 } from "#/features/venue-requests/requests.server";
 import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venues/records.server";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { DEFAULT_OPERATING_HOURS, LAYOUT_MESSAGE } from "#/features/venues/schema";
 import { notificationSummary, parseNotificationPayload } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
 import { eventStatusColumns } from "./event-status";
@@ -98,6 +100,19 @@ const users = {
 
 const VENUE_NAME = "PTR-31 Request Hall";
 const PTR37_ALTERNATIVE_VENUE_NAME = "PTR-37 Alternative Hall";
+/** PTR-138 AC1: the fixture venues meet the fixture event's requirements, so creation accepts them. */
+const MEETS_EVENT_REQUIREMENTS = {
+  supportedLayouts: ["theatre"],
+  accessibilityFeatures: ["Step-free access"],
+  facilities: ["Projector", "PA system"],
+} satisfies Partial<typeof schema.venues.$inferInsert>;
+/** The fixture event's requirements, which a request without session values carries. */
+const EVENT_REQUIREMENTS = {
+  expectedAttendance: 80,
+  layout: "Theatre seating",
+  accessibility: "Step-free access",
+  facilities: "Projector, PA system",
+};
 const userIds = Object.values(users).map(user => user.id);
 
 function session(user: (typeof users)[keyof typeof users]): SessionUser {
@@ -159,6 +174,7 @@ describe("venue request handlers (PTR-31)", () => {
         location: "Request Wing",
         maxCapacity: 200,
         operatingHours: DEFAULT_OPERATING_HOURS,
+        ...MEETS_EVENT_REQUIREMENTS,
       })
       .returning({ id: schema.venues.id });
     venueId = insertedVenue.id;
@@ -239,6 +255,7 @@ describe("venue request handlers (PTR-31)", () => {
         location: "Request Wing",
         maxCapacity: 200,
         operatingHours: DEFAULT_OPERATING_HOURS,
+        ...MEETS_EVENT_REQUIREMENTS,
       })
       .returning({ id: schema.venues.id });
     return venue.id;
@@ -294,6 +311,29 @@ describe("venue request handlers (PTR-31)", () => {
       .select()
       .from(schema.venueOccupancy)
       .where(inArray(schema.venueOccupancy.venueRequestId, ids));
+  }
+
+  /** PTR-138 AC1: the alternative venue with what it offers replaced. */
+  async function createRoom(offers: Partial<typeof schema.venues.$inferInsert>) {
+    const roomId = await createPtr37AlternativeVenue();
+    await database.update(schema.venues).set(offers).where(eq(schema.venues.id, roomId));
+    return roomId;
+  }
+
+  /** PTR-138 AC1: the Coordinator requests `WINDOW` at a room, with any session values. */
+  function requestRoom(roomId: number, sessionValues: Record<string, unknown> = {}) {
+    return handleCreateVenueRequest(
+      { ...WINDOW, eventId, venueId: roomId, ...sessionValues },
+      session(users.coordinator),
+      database as never
+    );
+  }
+
+  function eventRows() {
+    return database
+      .select()
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.eventId, eventId));
   }
 
   describe("raising a request", () => {
@@ -507,6 +547,193 @@ describe("venue request handlers (PTR-31)", () => {
       expect(rows).toEqual([{ id: request.id }]);
       // The refused duplicate queued nothing. Only the first request's rows remain.
       expect(await database.select().from(schema.notifications)).toHaveLength(before.length);
+    });
+  });
+
+  describe("session requirements (PTR-138 AC1)", () => {
+    it.each([
+      ["attendance", { maxCapacity: 40 }, "Holds 40; 80 needed"],
+      ["layout", { supportedLayouts: ["boardroom" as const] }, "Does not offer Theatre"],
+      ["accessibility", { accessibilityFeatures: [] }, "Missing accessibility: Step-free access"],
+      ["facilities", { facilities: ["Projector"] }, "Missing facilities: PA system"],
+    ])(
+      "refuses a venue that fails the %s requirement, and records and notifies nothing",
+      async (_criterion, offers, failure) => {
+        const roomId = await createRoom(offers);
+
+        await expect(requestRoom(roomId)).rejects.toMatchObject({
+          name: "ConflictError",
+          status: 409,
+          message: venueRequirementsMessage(PTR37_ALTERNATIVE_VENUE_NAME, [failure]),
+        });
+        expect(await eventRows()).toEqual([]);
+        expect(await readNotifications(users.venueStaffA.id)).toEqual([]);
+      }
+    );
+
+    it("names every failing requirement in one refusal", async () => {
+      const roomId = await createRoom({
+        maxCapacity: 40,
+        supportedLayouts: ["boardroom"],
+        accessibilityFeatures: [],
+        facilities: [],
+      });
+
+      await expect(requestRoom(roomId)).rejects.toThrow(
+        `${PTR37_ALTERNATIVE_VENUE_NAME} does not meet this session's requirements: Holds 40; 80 needed. Does not offer Theatre. Missing accessibility: Step-free access. Missing facilities: Projector, PA system.`
+      );
+    });
+
+    it("accepts a breakout room that fails the event's attendance but meets the session's", async () => {
+      const roomId = await createRoom({ maxCapacity: 40 });
+
+      await expect(requestRoom(roomId)).rejects.toThrow("Holds 40; 80 needed");
+      const request = await requestRoom(roomId, { expectedAttendance: 30 });
+
+      // The other session values take the event's requirements.
+      expect(request).toMatchObject({
+        status: "pending",
+        expectedAttendance: 30,
+        layout: "Theatre seating",
+        accessibilityRequirements: "Step-free access",
+        requiredFacilities: "Projector, PA system",
+      });
+    });
+
+    it("refuses a layout that names no supported layout before any write", async () => {
+      await expect(requestRoom(venueId, { layout: "Round tables" })).rejects.toThrow(
+        LAYOUT_MESSAGE
+      );
+      expect(await eventRows()).toEqual([]);
+    });
+
+    it("returns the stored session values to Venue Staff, the venue page, and the Coordinator", async () => {
+      const roomId = await createRoom({
+        maxCapacity: 40,
+        supportedLayouts: ["boardroom"],
+        accessibilityFeatures: [],
+        facilities: ["Whiteboard"],
+      });
+      // Blank text states no requirement, so the room needs no accessibility feature.
+      const request = await requestRoom(roomId, {
+        expectedAttendance: 30,
+        layout: " Boardroom ",
+        accessibility: "",
+        facilities: "Whiteboard",
+      });
+      const stored = {
+        expectedAttendance: 30,
+        layout: "Boardroom",
+        accessibility: "",
+        facilities: "Whiteboard",
+      };
+
+      expect(await readRow(request.id)).toMatchObject({
+        expectedAttendance: 30,
+        layout: "Boardroom",
+        accessibilityRequirements: "",
+        requiredFacilities: "Whiteboard",
+      });
+      const [notification] = await readNotifications(users.venueStaffA.id);
+      expect(notification.payload).toMatchObject({
+        expectedAttendance: 30,
+        layout: "Boardroom",
+        accessibilityRequirements: "",
+        requiredFacilities: "Whiteboard",
+      });
+
+      const [staffRead] = await handleGetPendingVenueRequestsForEvent(
+        { eventId },
+        session(users.venueStaffA),
+        database as never
+      );
+      expect(staffRead.requirements).toMatchObject({
+        expectedAttendance: 30,
+        layout: "Boardroom",
+        accessibility: "",
+        requiredFacilities: "Whiteboard",
+      });
+
+      const context = await handleGetVenueRequestContext(
+        { eventId, venueId: roomId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(context?.requests.map(row => row.requirements)).toEqual([stored]);
+
+      const [coordinatorCard] = await handleListEvents(
+        { eventId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(coordinatorCard.event.venueRequests?.map(entry => entry.requirements)).toEqual([
+        stored,
+      ]);
+      // Only the Coordinator states session requirements, so only their entries carry them.
+      const [organiserCard] = await handleListEvents(
+        { eventId },
+        session(users.organiser),
+        database as never
+      );
+      expect(organiserCard.event.venueRequests?.[0]).not.toHaveProperty("requirements");
+    });
+
+    it("gives a row from before session requirements the event's current requirements", async () => {
+      const [legacy] = await database
+        .insert(schema.venueRequests)
+        .values({
+          id: "venue-request-legacy",
+          eventId,
+          venueId,
+          requestedById: users.coordinator.id,
+          startsAt: "2027-04-20 09:00:00",
+          endsAt: "2027-04-20 12:30:00",
+        })
+        .returning();
+      expect(legacy).toMatchObject({
+        expectedAttendance: null,
+        layout: null,
+        accessibilityRequirements: null,
+        requiredFacilities: null,
+      });
+      // The event changed after the request; the fallback reads the current requirements.
+      await database
+        .update(schema.eventRequests)
+        .set({ expectedAttendance: 90 })
+        .where(eq(schema.eventRequests.id, eventId));
+      const current = { ...EVENT_REQUIREMENTS, expectedAttendance: 90 };
+
+      const [staffRead] = await handleGetPendingVenueRequestsForEvent(
+        { eventId },
+        session(users.venueStaffA),
+        database as never
+      );
+      expect(staffRead.requirements).toMatchObject({
+        expectedAttendance: 90,
+        layout: current.layout,
+        accessibility: current.accessibility,
+        requiredFacilities: current.facilities,
+      });
+      const context = await handleGetVenueRequestContext(
+        { eventId, venueId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(context?.requests.map(row => row.requirements)).toEqual([current]);
+      const [coordinatorCard] = await handleListEvents(
+        { eventId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(coordinatorCard.event.venueRequests?.map(entry => entry.requirements)).toEqual([
+        current,
+      ]);
+      // The triage page reads the same entries through the coordination request.
+      expect(
+        (await loadVenueRequestsForEvent(database as never, eventId)).map(
+          entry => entry.requirements
+        )
+      ).toEqual([current]);
     });
   });
 
@@ -772,6 +999,7 @@ describe("venue request handlers (PTR-31)", () => {
           startsAt: "2027-04-20T09:00",
           endsAt: "2027-04-20T12:30",
           status: "pending",
+          requirements: EVENT_REQUIREMENTS,
           canWithdraw: true,
         },
       ]);
@@ -832,6 +1060,7 @@ describe("venue request handlers (PTR-31)", () => {
           startsAt: "2027-04-20T14:00",
           endsAt: "2027-04-20T15:00",
           status: "pending",
+          requirements: EVENT_REQUIREMENTS,
           canWithdraw: true,
         },
       ]);
@@ -2260,24 +2489,56 @@ describe("venue request handlers (PTR-31)", () => {
 
   describe("several venues for one event (PTR-138)", () => {
     it("AC1 (PTR-138): records a request per venue and checks each venue independently", async () => {
-      const altVenueId = await createPtr37AlternativeVenue();
-      const requestA = await raiseFor(eventId, venueId, "09:00", "10:00");
-      const requestB = await raiseFor(eventId, altVenueId, "11:00", "12:00");
+      // A breakout room for 40 cannot hold the event's 80, but it can hold a 30-person session.
+      const roomId = await createRoom({ maxCapacity: 40 });
 
-      expect(requestA.status).toBe("pending");
-      expect(requestB.status).toBe("pending");
-      const beforeB = await rowSnapshot(requestB.id);
+      // Suitability: each venue is checked against its own request's requirements.
+      await expect(raiseFor(eventId, roomId, "11:00", "12:00")).rejects.toThrow(
+        venueRequirementsMessage(PTR37_ALTERNATIVE_VENUE_NAME, ["Holds 40; 80 needed"])
+      );
+      const hall = await raiseFor(eventId, venueId, "09:00", "10:00");
+      const breakout = await requestRoom(roomId, {
+        startTime: "11:00",
+        endTime: "12:00",
+        expectedAttendance: 30,
+      });
+      const rows = await database
+        .select({ id: schema.venueRequests.id, venueId: schema.venueRequests.venueId })
+        .from(schema.venueRequests)
+        .where(eq(schema.venueRequests.eventId, eventId));
+      expect(rows.toSorted((left, right) => left.venueId - right.venueId)).toEqual(
+        [
+          { id: hall.id, venueId },
+          { id: breakout.id, venueId: roomId },
+        ].toSorted((left, right) => left.venueId - right.venueId)
+      );
 
-      // Approving A holds only A's period, so the search still offers B's venue for B's window.
-      await approve(requestA.id, users.venueStaffA);
-      expect(await rowSnapshot(requestB.id)).toEqual(beforeB);
+      // Availability and conflicts: another event's approved booking overlaps the hall request
+      // only. The breakout request at the other venue stays clear.
+      const neighbour = await createEvent("PTR-138 AC1 neighbour");
+      const booking = await raiseFor(neighbour, venueId, "09:30", "10:30");
+      await approve(booking.id, users.venueStaffA);
 
-      const search = await handleSearchVenues(
-        { date: WINDOW.date, startTime: "11:00", endTime: "12:00" },
+      const [card] = await handleListEvents(
+        { eventId },
         session(users.coordinator),
         database as never
       );
-      expect(search.venues.map(venue => venue.id)).toContain(altVenueId);
+      expect(
+        card.event.venueRequests?.map(entry => ({ id: entry.id, conflict: entry.conflict }))
+      ).toEqual([
+        { id: hall.id, conflict: "booking" },
+        { id: breakout.id, conflict: undefined },
+      ]);
+      const staffRead = await handleGetPendingVenueRequestsForEvent(
+        { eventId },
+        session(users.venueStaffA),
+        database as never
+      );
+      expect(staffRead.map(row => ({ id: row.id, conflict: row.conflict }))).toEqual([
+        { id: hall.id, conflict: "booking" },
+        { id: breakout.id, conflict: null },
+      ]);
     });
 
     it("AC2 (PTR-138): deciding one pending request leaves the sibling unchanged; the projection lists both states", async () => {
