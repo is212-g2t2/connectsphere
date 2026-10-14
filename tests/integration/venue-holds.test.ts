@@ -15,7 +15,7 @@ import { handleAmendVenueBooking } from "#/features/venue-requests/bookings.serv
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
-  handleGetPendingVenueRequest,
+  handleGetPendingVenueRequestsForEvent,
 } from "#/features/venue-requests/requests.server";
 import {
   handleGetVenueAvailability,
@@ -1206,11 +1206,12 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      const detail = await handleGetPendingVenueRequest(
-        { id: request.id },
+      const [detail] = await handleGetPendingVenueRequestsForEvent(
+        { eventId: eventIdB },
         session(users.venueStaff),
         database as never
       );
+      expect(detail?.id).toBe(request.id);
       expect(detail?.conflict).toBe("hold");
     });
 
@@ -1232,11 +1233,12 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      const detail = await handleGetPendingVenueRequest(
-        { id: request.id },
+      const [detail] = await handleGetPendingVenueRequestsForEvent(
+        { eventId: eventIdB },
         session(users.venueStaff),
         database as never
       );
+      expect(detail?.id).toBe(request.id);
       expect(detail?.conflict).toBe("booking");
     });
 

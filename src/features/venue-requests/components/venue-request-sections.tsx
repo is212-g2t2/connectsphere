@@ -12,6 +12,7 @@ import { ConflictBadge } from "#/features/venue-requests/components/conflict-bad
 import { RejectBookingForm } from "#/features/venue-requests/components/reject-booking-form";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
+import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 import { skipRootFilter } from "#/lib/invalidate";
 
 /**
@@ -63,19 +64,31 @@ const OUTCOME_NOTES: Record<string, string> = {
   released: "Booking released.",
 };
 
-/** The note for a pending entry whose full request did not load. */
+/** The note for a pending entry when the read of the full requests failed. */
 const PENDING_NOT_LOADED_NOTE = "The full request did not load. Reload the page to decide it.";
+/** The note for a pending entry that the read no longer returns: someone decided it meanwhile. */
+const PENDING_DECIDED_NOTE =
+  "This request was decided after the page loaded. Reload the page to see the outcome.";
+
+/**
+ * Pair each pending projection entry with its loaded request, in projection order. An entry
+ * with no loaded request was decided after the projection loaded.
+ */
+function loadedRequests(data: EventPageData): PendingVenueRequestDetail[] {
+  if (data.kind !== "event" || !data.venueDecisions) return [];
+  const loadedById = new Map(data.venueDecisions.requests.map(request => [request.id, request]));
+  return pendingEntries(data).flatMap(entry => loadedById.get(entry.id) ?? []);
+}
 
 /** Show one block per projection entry: the loaded pending request, or the entry's outcome. */
 function RequestBody({ data }: { data: EventPageData }) {
   if (data.kind !== "event") return null;
-  const loadedById = new Map(
-    (data.venueDecisions ?? []).map(decision => [decision.request.id, decision.request])
-  );
+  const loadedById = new Map(loadedRequests(data).map(request => [request.id, request]));
+  const pendingNote = data.venueDecisions ? PENDING_DECIDED_NOTE : PENDING_NOT_LOADED_NOTE;
   return (
     <>
       {(data.event.event.venueRequests ?? []).map(entry => {
-        const loaded = entry.status === "pending" ? loadedById.get(entry.id) : undefined;
+        const loaded = loadedById.get(entry.id);
         return (
           <div
             key={entry.id}
@@ -87,9 +100,7 @@ function RequestBody({ data }: { data: EventPageData }) {
               <VenueRequestOutcome
                 entry={entry}
                 note={
-                  entry.status === "pending"
-                    ? PENDING_NOT_LOADED_NOTE
-                    : (OUTCOME_NOTES[entry.status] ?? null)
+                  entry.status === "pending" ? pendingNote : (OUTCOME_NOTES[entry.status] ?? null)
                 }
               />
             )}
@@ -107,8 +118,9 @@ function RequestBody({ data }: { data: EventPageData }) {
  */
 function DecisionBody({ data }: { data: EventPageData }) {
   const router = useRouter();
-  const venueDecisions = data.kind === "event" ? (data.venueDecisions ?? []) : [];
-  const groupCount = venueDecisions.length;
+  const requests = loadedRequests(data);
+  const venues = data.kind === "event" ? (data.venueDecisions?.venues ?? []) : [];
+  const groupCount = requests.length;
   const firstGroupRef = useRef<HTMLHeadingElement | null>(null);
   const previousCount = useRef<number | null>(null);
   // A decision removes its group. Move focus to the first group that remains, so a reader
@@ -122,12 +134,16 @@ function DecisionBody({ data }: { data: EventPageData }) {
   }, [groupCount]);
   if (data.kind !== "event") return null;
   const refresh = () => router.invalidate({ filter: skipRootFilter });
-  // Every detail read failed, but pending entries remain. Say so instead of hiding the section.
+  // Pending entries remain, but no full request loaded. Say why instead of hiding the section.
   if (groupCount === 0) {
     return (
       <div>
         <h2 className="display-h3">Record a decision</h2>
-        <p className="mt-2 body-sm text-muted-foreground">{PENDING_NOT_LOADED_NOTE}</p>
+        <p className="mt-2 body-sm text-muted-foreground">
+          {data.venueDecisions
+            ? "These requests were decided after the page loaded. Reload the page to see the outcome."
+            : PENDING_NOT_LOADED_NOTE}
+        </p>
       </div>
     );
   }
@@ -138,7 +154,7 @@ function DecisionBody({ data }: { data: EventPageData }) {
         Approving holds the venue for this exact period. Rejecting needs a reason, and you can
         suggest an alternative. Either way the requesting Coordinator is notified.
       </p>
-      {venueDecisions.map(({ request, venues }, index) => (
+      {requests.map((request, index) => (
         <div key={request.id} className="mt-6 border-t border-border pt-6">
           <h3
             ref={index === 0 ? firstGroupRef : undefined}

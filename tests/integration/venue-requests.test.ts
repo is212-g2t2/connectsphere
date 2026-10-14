@@ -26,7 +26,7 @@ import {
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
-  handleGetPendingVenueRequest,
+  handleGetPendingVenueRequestsForEvent,
   handleGetVenueRequestContext,
   handleRejectVenueRequest,
   handleWithdrawVenueRequest,
@@ -570,32 +570,24 @@ describe("venue request handlers (PTR-31)", () => {
       ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
     });
 
-    it("applies the queue rule to the pending detail read", async () => {
+    it("applies the queue rule to the pending request read", async () => {
       const request = await handleCreateVenueRequest(
         { ...WINDOW, eventId, venueId },
         session(users.coordinator),
         database as never
       );
+      const pendingIds = async (member: (typeof users)[keyof typeof users]) =>
+        (
+          await handleGetPendingVenueRequestsForEvent(
+            { eventId },
+            session(member),
+            database as never
+          )
+        ).map(row => row.id);
 
       // An unassigned pending row stays readable by every staff member.
-      expect(
-        (
-          await handleGetPendingVenueRequest(
-            { id: request.id },
-            session(users.venueStaffA),
-            database as never
-          )
-        )?.id
-      ).toBe(request.id);
-      expect(
-        (
-          await handleGetPendingVenueRequest(
-            { id: request.id },
-            session(users.venueStaffB),
-            database as never
-          )
-        )?.id
-      ).toBe(request.id);
+      expect(await pendingIds(users.venueStaffA)).toEqual([request.id]);
+      expect(await pendingIds(users.venueStaffB)).toEqual([request.id]);
 
       await database
         .update(schema.venueRequests)
@@ -603,22 +595,8 @@ describe("venue request handlers (PTR-31)", () => {
         .where(eq(schema.venueRequests.id, request.id));
 
       // A row assigned to another member hides its venue, window, and requirements.
-      expect(
-        await handleGetPendingVenueRequest(
-          { id: request.id },
-          session(users.venueStaffA),
-          database as never
-        )
-      ).toBeNull();
-      expect(
-        (
-          await handleGetPendingVenueRequest(
-            { id: request.id },
-            session(users.venueStaffB),
-            database as never
-          )
-        )?.id
-      ).toBe(request.id);
+      expect(await pendingIds(users.venueStaffA)).toEqual([]);
+      expect(await pendingIds(users.venueStaffB)).toEqual([request.id]);
     });
   });
 
@@ -1689,12 +1667,12 @@ describe("venue request handlers (PTR-31)", () => {
         suggestedStartTime: null,
         suggestedEndTime: null,
       });
-      const queue = await handleGetPendingVenueRequest(
-        { id: request.id },
+      const queue = await handleGetPendingVenueRequestsForEvent(
+        { eventId },
         session(users.venueStaffA),
         database as never
       );
-      expect(queue).toBeNull();
+      expect(queue.map(row => row.id)).not.toContain(request.id);
     });
 
     it("trims the reason it stores (AC1)", async () => {
@@ -1952,12 +1930,12 @@ describe("venue request handlers (PTR-31)", () => {
       const replacement = await raiseRequest(eventId, "13:00", "15:00");
 
       expect(replacement.status).toBe("pending");
-      const queued = await handleGetPendingVenueRequest(
-        { id: replacement.id },
+      const queued = await handleGetPendingVenueRequestsForEvent(
+        { eventId },
         session(users.venueStaffA),
         database as never
       );
-      expect(queued?.id).toBe(replacement.id);
+      expect(queued.map(row => row.id)).toEqual([replacement.id]);
     });
 
     it("does not hold the venue for a rejected request (AC5)", async () => {

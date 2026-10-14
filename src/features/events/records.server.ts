@@ -1,6 +1,5 @@
-import { and, asc, eq, exists, gt, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import {
@@ -8,7 +7,6 @@ import {
   equipmentReservations,
   eventRegistrations,
   eventRequests,
-  venueHolds,
   venueRequests,
   venues,
 } from "#/db/schema";
@@ -39,10 +37,10 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 import {
   adjustableRejectionIds,
   eventVenueRequestFromRow,
+  loadPendingConflictKinds,
   suggestedVenue,
   venueRequestEntryColumns,
 } from "#/features/venue-requests/records.server";
-import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 
 /**
@@ -366,7 +364,6 @@ export async function handleListEvents(
     confirmedIds.length > 0;
 
   // Every branch needs only `requestIds` and the rows above, so read them together.
-  const approvedBooking = alias(venueRequests, "approved_booking");
   const holderRead =
     holderIds.length === 0
       ? Promise.resolve([])
@@ -389,59 +386,13 @@ export async function handleListEvents(
         )
         .groupBy(eventRegistrations.eventId)
     : Promise.resolve([]);
-  // PTR-36 criterion 4: Find pending requests that overlap an approved booking for the same
-  // venue. Use a self-join, not a per-request read. Do not scope it to `venueRows`. The approved
-  // booking can belong to an event the caller cannot see. Send only the conflict kind to the
-  // client, never the other event. Flag active holds with a second join. They conflict the same
-  // way (the staff queue's "Conflicting hold").
-  const bookingConflictRead =
-    pendingIds.length === 0
-      ? Promise.resolve([])
-      : database
-          .select({ id: venueRequests.id })
-          .from(venueRequests)
-          .innerJoin(
-            approvedBooking,
-            and(
-              eq(approvedBooking.venueId, venueRequests.venueId),
-              eq(approvedBooking.status, "approved"),
-              lt(venueRequests.startsAt, approvedBooking.endsAt),
-              gt(venueRequests.endsAt, approvedBooking.startsAt)
-            )
-          )
-          .where(
-            and(
-              inArray(venueRequests.id, pendingIds),
-              // The id list comes from an earlier statement. A row approved since then would self-join
-              // and flag as conflicting. A period always overlaps itself.
-              eq(venueRequests.status, "pending")
-            )
-          );
-  // Compare the hold's occupied period, not its requested times: a hold conflicts through its
-  // stored buffers too. `loadVenueHolds` applies the same rule, so the badge and this flag agree.
-  const { occupiedStart, occupiedEnd } = holdOccupancy();
-  const holdConflictRead =
-    pendingIds.length === 0
-      ? Promise.resolve([])
-      : database
-          .select({ id: venueRequests.id })
-          .from(venueRequests)
-          .innerJoin(
-            venueHolds,
-            and(
-              eq(venueHolds.venueId, venueRequests.venueId),
-              eq(venueHolds.status, "held"),
-              lt(venueRequests.startsAt, occupiedEnd),
-              gt(venueRequests.endsAt, occupiedStart)
-            )
-          )
-          .where(and(inArray(venueRequests.id, pendingIds), eq(venueRequests.status, "pending")));
-  const [holderRows, bookings, countRows, bookingConflicts, holdConflicts] = await Promise.all([
+  // PTR-36 criterion 4: Flag pending requests that overlap an approved booking or an active
+  // hold. Send only the conflict kind to the client, never the other event.
+  const [holderRows, bookings, countRows, conflictKinds] = await Promise.all([
     holderRead,
     bookingRead,
     countRead,
-    bookingConflictRead,
-    holdConflictRead,
+    loadPendingConflictKinds(database, pendingIds),
   ]);
 
   const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
@@ -465,13 +416,6 @@ export async function handleListEvents(
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
     countRows.map(row => [row.eventId, { registered: row.registered, vips: row.vips }])
   );
-
-  const conflictKinds = new Map<string, "booking" | "hold">();
-  for (const row of bookingConflicts) conflictKinds.set(row.id, "booking");
-  for (const row of holdConflicts) {
-    // A booking outranks a hold for the same row, matching the staff queue's precedence.
-    if (!conflictKinds.has(row.id)) conflictKinds.set(row.id, "hold");
-  }
 
   // PTR-50: Read the venue's wall clock in the spelling of the stored registration period.
   const venueNow = toLocalMinuteValue(venueLocalTimestamp(now));

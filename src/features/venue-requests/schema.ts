@@ -140,6 +140,17 @@ export function parseVenueRequestContext(data: unknown): VenueRequestContextSele
   return parsed.data;
 }
 
+/** The Venue Staff event page's selection: the event whose pending requests it decides. */
+export const VenueRequestEventInput = z.object({ eventId: EventId });
+
+export function parseVenueRequestEventInput(data: unknown): z.infer<typeof VenueRequestEventInput> {
+  const parsed = VenueRequestEventInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
 /**
  * PTR-34 criteria 1 and 2: Require a reason for rejection and accept any alternative Venue Staff
  * choose to suggest. Suggestion fields are independent and optional, except start and end times.

@@ -62,6 +62,16 @@ const secondPending: PendingVenueRequestDetail = {
   },
 };
 
+/** A pending projection entry with no loaded request. */
+const harborHallEntry = {
+  id: "request-002",
+  status: "pending",
+  venueName: "Harbor Hall",
+  date: "2026-11-22",
+  startTime: "10:00",
+  endTime: "12:00",
+};
+
 /** One projection entry for a loaded detail. Settled entries carry their outcome instead. */
 function entryOf(detail: PendingVenueRequestDetail) {
   return {
@@ -78,6 +88,8 @@ function page(input: {
   details?: PendingVenueRequestDetail[];
   entries?: unknown[];
   status?: string;
+  /** The batched request read failed, so the loader set no `venueDecisions`. */
+  readFailed?: boolean;
 }): EventPageData {
   const details = input.details ?? [];
   return {
@@ -93,13 +105,15 @@ function page(input: {
         venueRequests: input.entries ?? details.map(entryOf),
       },
     },
-    venueDecisions: details.map(request => ({
-      request,
-      venues: [
-        { id: 3, name: "Riverside Loft" },
-        { id: 4, name: "Harbor Hall" },
-      ],
-    })),
+    venueDecisions: input.readFailed
+      ? undefined
+      : {
+          requests: details,
+          venues: [
+            { id: 3, name: "Riverside Loft" },
+            { id: 4, name: "Harbor Hall" },
+          ],
+        },
   } as unknown as EventPageData;
 }
 
@@ -177,20 +191,10 @@ describe("venueRequestSections", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("renders a read-only block without controls for a pending entry whose read failed", () => {
+  it("says a pending entry missing from a loaded read was decided after the page loaded", () => {
     const data = page({
       details: [pending],
-      entries: [
-        entryOf(pending),
-        {
-          id: "request-002",
-          status: "pending",
-          venueName: "Harbor Hall",
-          date: "2026-11-22",
-          startTime: "10:00",
-          endTime: "12:00",
-        },
-      ],
+      entries: [entryOf(pending), harborHallEntry],
     });
 
     renderSection(data, "request");
@@ -201,8 +205,11 @@ describe("venueRequestSections", () => {
     ).toBeTruthy();
     expect(screen.getAllByText("Pending")).toHaveLength(2);
     expect(
-      screen.getByText("The full request did not load. Reload the page to decide it.")
+      screen.getByText(
+        "This request was decided after the page loaded. Reload the page to see the outcome."
+      )
     ).toBeTruthy();
+    expect(screen.queryByText(/did not load/)).toBeNull();
 
     renderSection(data, "decision");
     expect(screen.getAllByRole("button", { name: /Approve request/ })).toHaveLength(1);
@@ -211,34 +218,41 @@ describe("venueRequestSections", () => {
     expect(document.getElementById("rejection-reason-request-002")).toBeNull();
   });
 
-  it("explains in the decision section when no detail read loaded", () => {
+  it("says every pending entry did not load when the read failed", () => {
     const data = page({
-      details: [],
-      entries: [
-        entryOf(pending),
-        {
-          id: "request-002",
-          status: "pending",
-          venueName: "Harbor Hall",
-          date: "2026-11-22",
-          startTime: "10:00",
-          endTime: "12:00",
-        },
-      ],
+      readFailed: true,
+      entries: [entryOf(pending), harborHallEntry],
     });
+
+    renderSection(data, "request");
+    expect(
+      screen.getAllByText("The full request did not load. Reload the page to decide it.")
+    ).toHaveLength(2);
+    expect(screen.queryByText(/decided after the page loaded/)).toBeNull();
 
     expect(
       venueRequestSections(data)
         .filter(section => section.visible(data))
         .map(section => section.id)
     ).toEqual(["request", "decision"]);
-
     renderSection(data, "decision");
     expect(
       screen.getByText("The full request did not load. Reload the page to decide it.")
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
     expect(screen.queryByLabelText("Reason for rejection (required)")).toBeNull();
+  });
+
+  it("says in the decision section when every pending request was decided after load", () => {
+    const data = page({ details: [], entries: [entryOf(pending), harborHallEntry] });
+
+    renderSection(data, "decision");
+    expect(
+      screen.getByText(
+        "These requests were decided after the page loaded. Reload the page to see the outcome."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
   });
 
   it("moves focus to the first remaining decision group after a decision", async () => {
