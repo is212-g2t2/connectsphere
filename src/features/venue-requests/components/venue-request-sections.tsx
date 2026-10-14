@@ -13,6 +13,7 @@ import { RejectBookingForm } from "#/features/venue-requests/components/reject-b
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
+import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { skipRootFilter } from "#/lib/invalidate";
 
 /**
@@ -147,6 +148,9 @@ function DecisionBody({ data }: { data: EventPageData }) {
       </div>
     );
   }
+  // Approval refuses an event outside the request statuses, so offer only the rejection there.
+  // A rejection still clears a stale request.
+  const approvable = SEARCHABLE_EVENT_STATUSES.includes(data.event.event.status);
   return (
     <div>
       <h2 className="display-h3">Record a decision</h2>
@@ -164,9 +168,15 @@ function DecisionBody({ data }: { data: EventPageData }) {
             {request.venueName},{" "}
             {formatProposedWindow({ start: request.startsAt, end: request.endsAt })}
           </h3>
-          <div className="mt-4">
-            <ApproveBookingButton request={request} onDecided={refresh} />
-          </div>
+          {approvable ? (
+            <div className="mt-4">
+              <ApproveBookingButton request={request} onDecided={refresh} />
+            </div>
+          ) : (
+            <p className="mt-4 body-sm text-muted-foreground">
+              This event cannot take a new booking. You can only reject this request.
+            </p>
+          )}
           <div className="mt-6">
             <h4 className="body-md font-semibold">Reject this request</h4>
             <div className="mt-4">

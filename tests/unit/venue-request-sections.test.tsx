@@ -333,6 +333,24 @@ describe("venueRequestSections", () => {
     ).toEqual(["request"]);
   });
 
+  it("offers only the rejection once the event cannot take a new booking", () => {
+    for (const status of ["confirmed", "completed", "rejected"]) {
+      renderSection(page({ details: [pending], status }), "decision");
+
+      expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
+      expect(
+        screen.getByText("This event cannot take a new booking. You can only reject this request.")
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: /Reject request for Riverside Loft/ })
+      ).toBeTruthy();
+    }
+
+    renderSection(page({ details: [pending], status: "submitted" }), "decision");
+    expect(screen.getByRole("button", { name: /Approve request for Riverside Loft/ })).toBeTruthy();
+    expect(screen.queryByText(/cannot take a new booking/)).toBeNull();
+  });
+
   it("gates the decision block on the visible data, not the built data", () => {
     const sections = venueRequestSections(page({ details: [pending], status: "planning" }));
     const decision = sections.find(section => section.id === "decision");
