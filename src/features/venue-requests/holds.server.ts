@@ -167,7 +167,8 @@ export async function handleReleaseVenueHold(
  * The release removes the hold's ledger row. A pending request holds no venue time, so it gets none.
  * The new request follows the creation rules. PTR-138 AC1: it carries session requirements, which
  * default to the event's, and the venue must meet them. PTR-138 AC4: the overlap check and the
- * duplicate index apply. Run every check before the release, so a refusal leaves the hold held.
+ * duplicate index apply. Every check runs in the release's transaction, so a refusal rolls the
+ * release back and leaves the hold held.
  * PTR-54 AC9: A cancelled event cannot get a new request, so its hold can only be released.
  */
 export async function handleConvertVenueHold(
@@ -196,19 +197,19 @@ export async function handleConvertVenueHold(
     const assignedEvent = await loadAssignedEvent(tx, hold.eventId, actor.id);
     if (!assignedEvent) throw new AuthorizationError("Forbidden");
 
-    // `lockActiveHold` took the venue lock, so the venue and the event's requests stay current.
+    // `lockActiveHold` took the venue lock, so the venue and the event's sessions stay current.
     // PTR-138 AC1: refuse a venue that does not meet the session's requirements.
-    // PTR-138 AC4: refuse a hold window that overlaps the event's own request at this venue.
     const venue = await loadLockedVenue(tx, hold.venueId);
     const requirements = checkSessionRequirements(venue, assignedEvent, session);
+
+    // Release the hold first, so the overlap check cannot refuse the hold against its own ledger
+    // row. PTR-138 AC4: refuse a hold window that overlaps another session of the event here.
+    const releasedHold = await releaseHold(tx, id, actor.id);
     await assertNoEventOverlap(tx, venue, {
       eventId: hold.eventId,
       startsAt: hold.startsAt,
       endsAt: hold.endsAt,
     });
-
-    const releasedHold = await releaseHold(tx, id, actor.id);
-    // A duplicate refusal comes after the release. It rolls back the release with the insert.
     const [createdRequest] = await tx
       .insert(venueRequests)
       .values({

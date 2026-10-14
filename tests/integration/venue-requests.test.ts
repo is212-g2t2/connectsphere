@@ -22,6 +22,10 @@ import {
   VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
 } from "#/features/venue-requests/schema";
+import {
+  handleConvertVenueHold,
+  handleCreateVenueHold,
+} from "#/features/venue-requests/holds.server";
 import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
 import {
   handleApproveVenueRequest,
@@ -312,6 +316,14 @@ describe("venue request handlers (PTR-31)", () => {
       .select()
       .from(schema.venueOccupancy)
       .where(inArray(schema.venueOccupancy.venueRequestId, ids));
+  }
+
+  /** Give the fixture venue the same setup and turnaround time, in minutes. */
+  function setBuffers(minutes: number) {
+    return database
+      .update(schema.venues)
+      .set({ setupMinutes: minutes, turnaroundMinutes: minutes })
+      .where(eq(schema.venues.id, venueId));
   }
 
   /** PTR-138 AC1: the alternative venue with what it offers replaced. */
@@ -798,6 +810,54 @@ describe("venue request handlers (PTR-31)", () => {
       expect((await approve(first.id, users.venueStaffA)).status).toBe("approved");
       expect((await approve(after.id, users.venueStaffA)).status).toBe("approved");
       expect((await approve(before.id, users.venueStaffA)).status).toBe("approved");
+    });
+
+    it("counts a booking's stored buffers, as approval does, after the venue's buffers change", async () => {
+      // The booking stores 30 minutes each side, so it occupies 08:30–10:30.
+      await setBuffers(30);
+      const booked = await raiseRequest(eventId, "09:00", "10:00");
+      await approve(booked.id, users.venueStaffA);
+      await setBuffers(0);
+
+      // The venue now has no buffers, but approval still counts the booking's stored ones.
+      await expect(raiseRequest(eventId, "10:15", "11:00")).rejects.toThrow(
+        `This window overlaps this event's approved booking for ${VENUE_NAME} on 20 Apr 2027, 09:00 – 10:00, including the venue's setup and turnaround time.`
+      );
+      const next = await raiseRequest(eventId, "10:30", "11:00");
+      expect((await approve(next.id, users.venueStaffA)).status).toBe("approved");
+    });
+
+    it("accepts a window that only the venue's newer buffers would refuse, as approval does", async () => {
+      const booked = await raiseRequest(eventId, "09:00", "10:00");
+      await approve(booked.id, users.venueStaffA);
+      // The booking stored no buffers. Only the new request's own buffers count now.
+      await setBuffers(30);
+
+      const next = await raiseRequest(eventId, "10:30", "11:00");
+      expect((await approve(next.id, users.venueStaffA)).status).toBe("approved");
+    });
+
+    it("refuses a window that overlaps the event's own hold and points to conversion", async () => {
+      const hold = await handleCreateVenueHold(
+        { ...WINDOW, startTime: "09:00", endTime: "10:00", eventId, venueId },
+        session(users.coordinator),
+        database as never
+      );
+
+      await expect(raiseRequest(eventId, "09:30", "10:30")).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: `This window overlaps this event's tentative hold for ${VENUE_NAME} on 20 Apr 2027, 09:00 – 10:00. Convert the hold to a booking request instead.`,
+      });
+      expect(await eventRows()).toEqual([]);
+
+      // Conversion is the way forward, and the hold does not refuse its own conversion.
+      const { request } = await handleConvertVenueHold(
+        { id: hold.id },
+        session(users.coordinator),
+        database as never
+      );
+      expect((await approve(request.id, users.venueStaffA)).status).toBe("approved");
     });
 
     it("still lets another event's pending request overlap; approval decides (PTR-36)", async () => {

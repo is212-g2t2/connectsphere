@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, user, venueRequests, venues } from "#/db/schema";
+import { eventRequests, user, venueOccupancy, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
@@ -27,7 +27,12 @@ import type {
   SessionRequirementInput,
   SessionRequirements,
 } from "#/features/venue-requests/schema";
-import { checkVenueFree, occupyVenue } from "#/features/venue-requests/occupancy.server";
+import {
+  checkVenueFree,
+  isHoldRow,
+  occupyVenue,
+  overlapsLedger,
+} from "#/features/venue-requests/occupancy.server";
 import {
   loadPendingConflictKinds,
   selectVenueRequestEntries,
@@ -67,23 +72,30 @@ export function venueRequestEventStatusMessage(status: EventRequestStatus): stri
   return `This event is ${label}, so it cannot take a new venue booking.`;
 }
 
+/** How the same-event overlap message names the other session, by its state. */
+const EVENT_SESSION_NAMES = {
+  pending: "pending request",
+  approved: "approved booking",
+  held: "tentative hold",
+} as const;
+
 /**
- * PTR-138 AC4: refuse a window that overlaps a pending request or an approved booking of the same
- * event at the same venue. Name that request's window and state. The venue's setup and turnaround
- * time count between two sessions of one event, as approval counts them (ADR-7), so the message
- * says so when the venue has buffers.
+ * PTR-138 AC4: refuse a window that overlaps a pending request, an approved booking or a held hold
+ * of the same event at the same venue. Name that session's window and state. The setup and
+ * turnaround time count between two sessions of one event, as approval counts them (ADR-7), so
+ * the message says so when buffers apply. A hold names the way forward: convert it.
  */
 export function venueRequestEventOverlapMessage(overlap: {
   venueName: string;
-  status: "pending" | "approved";
+  status: keyof typeof EVENT_SESSION_NAMES;
   startsAt: string;
   endsAt: string;
   buffered: boolean;
 }): string {
-  const existing = overlap.status === "approved" ? "approved booking" : "pending request";
   const period = formatVenuePeriod(overlap.startsAt, overlap.endsAt);
   const buffers = overlap.buffered ? ", including the venue's setup and turnaround time" : "";
-  return `This window overlaps this event's ${existing} for ${overlap.venueName} on ${period}${buffers}.`;
+  const next = overlap.status === "held" ? " Convert the hold to a booking request instead." : "";
+  return `This window overlaps this event's ${EVENT_SESSION_NAMES[overlap.status]} for ${overlap.venueName} on ${period}${buffers}.${next}`;
 }
 
 /**
@@ -145,8 +157,8 @@ function rethrowConstraintViolation(error: unknown, constraint: string, message:
 
 /**
  * The partial unique index refuses a second pending request for the same event, venue and window.
- * Request creation and hold conversion reach the driver error that `isConstraintViolation` reads.
- * Return the message shown by the panel.
+ * `assertNoEventOverlap` names a duplicate first; the index refuses one from a writer outside the
+ * venue lock. Map the driver error that `isConstraintViolation` reads to the panel's message.
  */
 export function rethrowDuplicate(error: unknown): never {
   rethrowConstraintViolation(
@@ -244,59 +256,87 @@ export function checkSessionRequirements(
 }
 
 /**
- * PTR-138 AC4: refuse a window that overlaps a pending request or an approved booking of the same
- * event at this venue. Count the venue's setup and turnaround time on both sides, as approval does
- * (ADR-7): each period occupies [start − setup, end + turnaround). Approval would refuse such a
- * window, so refuse it at creation. Name the approved booking first, then the earliest request.
+ * PTR-138 AC4: refuse a window that overlaps a session of the same event at this venue. The
+ * venue's setup and turnaround time count between two sessions, as approval counts them (ADR-7).
+ * Name a booking first, then a hold, then the earliest pending request.
  *
- * Call it under the venue lock, so two concurrent creators for one event see each other's rows.
- * Leave an exact pending duplicate to the partial unique index, which answers it with
- * `VENUE_REQUEST_DUPLICATE_MESSAGE`. Pending requests of other events can overlap; approval checks
- * them (PTR-36).
+ * - Approved bookings and held holds: read the event's ledger rows with their stored buffers
+ *   (`overlapsLedger`), as approval does. A hold blocks its own event's request too, so the
+ *   message tells the Coordinator to convert the hold.
+ * - Pending requests hold no venue time, so compare both sides with the venue's current buffers.
+ *   An exact pending duplicate gets `VENUE_REQUEST_DUPLICATE_MESSAGE`.
+ *
+ * Call it under the venue lock, so two concurrent writers for one event see each other's rows.
+ * The partial unique index still refuses a duplicate from a writer outside the lock. Pending
+ * requests of other events can overlap; approval checks them (PTR-36).
  */
 export async function assertNoEventOverlap(
   tx: VenueTx,
   venue: LockedVenue,
   request: { eventId: number; startsAt: string; endsAt: string }
 ): Promise<void> {
+  const venueBuffered = venue.setupMinutes + venue.turnaroundMinutes > 0;
+  const committed = await tx
+    .select({
+      isHold: isHoldRow,
+      startsAt: venueOccupancy.startsAt,
+      endsAt: venueOccupancy.endsAt,
+      buffered: sql<boolean>`${venueOccupancy.setupMinutes} + ${venueOccupancy.turnaroundMinutes} > 0`,
+    })
+    .from(venueOccupancy)
+    .where(
+      and(
+        eq(venueOccupancy.eventId, request.eventId),
+        overlapsLedger({
+          venueId: venue.id,
+          startsAt: request.startsAt,
+          endsAt: request.endsAt,
+          setupMinutes: venue.setupMinutes,
+          turnaroundMinutes: venue.turnaroundMinutes,
+        })
+      )
+    )
+    .orderBy(isHoldRow, asc(venueOccupancy.startsAt))
+    .limit(1);
+  const booked = committed.at(0);
+  if (booked) {
+    throw new ConflictError(
+      venueRequestEventOverlapMessage({
+        venueName: venue.name,
+        status: booked.isHold ? "held" : "approved",
+        startsAt: booked.startsAt,
+        endsAt: booked.endsAt,
+        buffered: venueBuffered || booked.buffered,
+      })
+    );
+  }
+
   const setup = sql`make_interval(mins => ${venue.setupMinutes}::integer)`;
   const turnaround = sql`make_interval(mins => ${venue.turnaroundMinutes}::integer)`;
-  const isApproved = eq(venueRequests.status, "approved");
-  const rows = await tx
-    .select({
-      status: venueRequests.status,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-    })
+  const duplicate = sql<boolean>`${venueRequests.startsAt} = ${request.startsAt}::timestamp and ${venueRequests.endsAt} = ${request.endsAt}::timestamp`;
+  const pending = await tx
+    .select({ duplicate, startsAt: venueRequests.startsAt, endsAt: venueRequests.endsAt })
     .from(venueRequests)
     .where(
       and(
         eq(venueRequests.eventId, request.eventId),
         eq(venueRequests.venueId, venue.id),
-        or(
-          isApproved,
-          and(
-            eq(venueRequests.status, "pending"),
-            or(
-              ne(venueRequests.startsAt, request.startsAt),
-              ne(venueRequests.endsAt, request.endsAt)
-            )
-          )
-        ),
+        eq(venueRequests.status, "pending"),
         sql`tsrange(${venueRequests.startsAt} - ${setup}, ${venueRequests.endsAt} + ${turnaround}, '[)') && tsrange(${request.startsAt}::timestamp - ${setup}, ${request.endsAt}::timestamp + ${turnaround}, '[)')`
       )
     )
-    .orderBy(desc(isApproved), asc(venueRequests.startsAt))
+    .orderBy(desc(duplicate), asc(venueRequests.startsAt))
     .limit(1);
-  const overlap = rows.at(0);
+  const overlap = pending.at(0);
   if (!overlap) return;
+  if (overlap.duplicate) throw new ConflictError(VENUE_REQUEST_DUPLICATE_MESSAGE);
   throw new ConflictError(
     venueRequestEventOverlapMessage({
       venueName: venue.name,
-      status: overlap.status === "approved" ? "approved" : "pending",
+      status: "pending",
       startsAt: overlap.startsAt,
       endsAt: overlap.endsAt,
-      buffered: venue.setupMinutes + venue.turnaroundMinutes > 0,
+      buffered: venueBuffered,
     })
   );
 }
@@ -500,9 +540,9 @@ export async function handleGetVenueRequestContext(
  * creation and conversion use the same gate.
  * PTR-138 AC1: store the session requirements, and refuse a venue that does not meet them
  * (`checkSessionRequirements`). The ledger checks availability and conflicts at approval.
- * PTR-138 AC4: refuse a window that overlaps the same event's pending or approved request at this
- * venue (`assertNoEventOverlap`). Pending requests of other events can overlap; approval checks
- * them (PTR-36).
+ * PTR-138 AC4: refuse a window that overlaps the same event's pending request, approved booking or
+ * held hold at this venue (`assertNoEventOverlap`). Pending requests of other events can overlap;
+ * approval checks them (PTR-36).
  * A cancelled event cannot receive a request (PTR-54 AC9).
  */
 export async function handleCreateVenueRequest(

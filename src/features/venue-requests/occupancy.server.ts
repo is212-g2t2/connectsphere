@@ -1,4 +1,5 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
+import type { SQL, SQLWrapper } from "drizzle-orm";
 
 import { venueOccupancy, venues } from "#/db/schema";
 import { ConflictError, NotFoundError } from "#/features/auth/session";
@@ -79,6 +80,39 @@ export async function vacateVenue(tx: VenueTx, source: OccupancySource): Promise
 }
 
 /**
+ * A ledger row's occupied period: its times extended by the buffers stored on it. Keep these
+ * expressions identical to the constraint's, so the GiST index serves the overlap.
+ */
+const occupiedStart = sql`${venueOccupancy.startsAt} - make_interval(mins => ${venueOccupancy.setupMinutes})`;
+const occupiedEnd = sql`${venueOccupancy.endsAt} + make_interval(mins => ${venueOccupancy.turnaroundMinutes})`;
+
+/**
+ * A ledger row that a hold owns. No writer adds block rows before PTR-136. Until then, a block row
+ * counts as a booking.
+ */
+export const isHoldRow = sql<boolean>`${venueOccupancy.venueHoldId} is not null`;
+
+/** A period to compare with the ledger: its venue, its times, and the buffers around them. */
+interface BufferedPeriod {
+  venueId: SQLWrapper | number;
+  startsAt: SQLWrapper | string;
+  endsAt: SQLWrapper | string;
+  setupMinutes: SQLWrapper | number;
+  turnaroundMinutes: SQLWrapper | number;
+}
+
+/**
+ * ADR-7: match the active ledger rows at the period's venue that overlap the period once the
+ * buffers count on both sides. Approval, the same-event overlap rule and the conflict flag share
+ * this one test, so the flag and the refusals agree. Pass columns or values.
+ */
+export function overlapsLedger(period: BufferedPeriod): SQL {
+  const requestedStart = sql`${period.startsAt}::timestamp - make_interval(mins => ${period.setupMinutes}::integer)`;
+  const requestedEnd = sql`${period.endsAt}::timestamp + make_interval(mins => ${period.turnaroundMinutes}::integer)`;
+  return sql`${venueOccupancy.venueId} = ${period.venueId} and ${venueOccupancy.active} and tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${requestedStart}, ${requestedEnd}, '[)')`;
+}
+
+/**
  * Read the venue's name and buffers (Not Found for a missing venue), then refuse a commitment that
  * would overlap an active ledger row. Name the venue and the other row's occupied period, a
  * booking before a hold, then the earliest. Do not name the other event. Return the row to write.
@@ -107,30 +141,16 @@ export async function checkVenueFree(
     turnaroundMinutes: venue.turnaroundMinutes,
   };
 
-  // Keep this expression identical to the constraint's, so the GiST index serves the overlap.
-  const occupiedStart = sql`${venueOccupancy.startsAt} - make_interval(mins => ${venueOccupancy.setupMinutes})`;
-  const occupiedEnd = sql`${venueOccupancy.endsAt} + make_interval(mins => ${venueOccupancy.turnaroundMinutes})`;
-  const requestedStart = sql`${occupancy.startsAt}::timestamp - make_interval(mins => ${occupancy.setupMinutes}::integer)`;
-  const requestedEnd = sql`${occupancy.endsAt}::timestamp + make_interval(mins => ${occupancy.turnaroundMinutes}::integer)`;
-  // No writer adds block rows before PTR-136. Until then, a block row gets the booking message.
-  const isHold = sql<boolean>`${venueOccupancy.venueHoldId} is not null`;
-
   const rows = await tx
     .select({
-      isHold,
+      isHold: isHoldRow,
       // Bound the named period to the calendar's civil years, as `loadVenueHolds` does.
       startsAt: sql<string>`greatest(${occupiedStart}, timestamp '0001-01-01 00:00:00')::text`,
       endsAt: sql<string>`least(${occupiedEnd}, timestamp '9999-12-31 23:59:59')::text`,
     })
     .from(venueOccupancy)
-    .where(
-      and(
-        eq(venueOccupancy.venueId, occupancy.venueId),
-        venueOccupancy.active,
-        sql`tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${requestedStart}, ${requestedEnd}, '[)')`
-      )
-    )
-    .orderBy(isHold, asc(occupiedStart))
+    .where(overlapsLedger(occupancy))
+    .orderBy(isHoldRow, asc(occupiedStart))
     .limit(1);
   const conflict = rows.at(0);
   if (!conflict) return occupancy;

@@ -495,12 +495,17 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
     it("keeps the row when a refused conversion rolls back the release (PTR-134 AC4)", async () => {
       const eventId = await createEvent("PTR-133 duplicate conversion");
       const held = await hold("09:00", "10:00", eventId);
-      // A pending request for the same event, venue and window makes the conversion's insert fail.
-      await handleCreateVenueRequest(
-        { eventId, venueId: hallId, date: DATE, startTime: "09:00", endTime: "10:00" },
-        coordinator,
-        database as never
-      );
+      // A pending request for the same event, venue and window refuses the conversion after its
+      // release. Creation refuses a request over the event's own hold, so insert it directly.
+      await database.insert(schema.venueRequests).values({
+        id: "ptr-133-duplicate-request",
+        eventId,
+        venueId: hallId,
+        requestedById: users.coordinator.id,
+        startsAt: `${DATE} 09:00:00`,
+        endsAt: `${DATE} 10:00:00`,
+        layout: "",
+      });
 
       await expect(
         handleConvertVenueHold({ id: held.id }, coordinator, database as never)

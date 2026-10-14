@@ -21,8 +21,8 @@ export const VENUE_REQUEST_TIME_MESSAGE = "Enter start and end times as HH:MM";
 export const VENUE_REQUEST_TIME_ORDER_MESSAGE = "End time must be later than start time";
 export const VENUE_REQUEST_ID_MESSAGE = "Choose a booking request";
 /**
- * The partial unique index on `(event_id, venue_id, starts_at, ends_at)` answers an exact
- * double-submit with this message, not a driver error.
+ * An exact double-submit gets this message, not a driver error: the same-event overlap check names
+ * it, and the partial unique index on `(event_id, venue_id, starts_at, ends_at)` backs it.
  */
 export const VENUE_REQUEST_DUPLICATE_MESSAGE =
   "This event already has a pending request for this venue and window.";
