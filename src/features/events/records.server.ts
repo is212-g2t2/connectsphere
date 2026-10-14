@@ -1,17 +1,4 @@
-import {
-  and,
-  asc,
-  eq,
-  exists,
-  getTableColumns,
-  gt,
-  inArray,
-  isNotNull,
-  isNull,
-  lt,
-  ne,
-  or,
-} from "drizzle-orm";
+import { and, asc, eq, exists, gt, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -41,7 +28,6 @@ import type {
   EventPlaces,
   EventProjection,
   EventVenue,
-  EventVenueRequest,
 } from "#/features/events/access";
 import { registrationCounts } from "#/features/events/register.server";
 import { placeLimit, registrationAvailability } from "#/features/events/registration";
@@ -53,6 +39,8 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 import {
   adjustableRejectionIds,
   eventVenueRequestFromRow,
+  suggestedVenue,
+  venueRequestEntryColumns,
 } from "#/features/venue-requests/records.server";
 import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
@@ -303,13 +291,12 @@ export async function handleListEvents(
   }
 
   const requestIds = requestRows.map(row => row.id);
-  const suggestedVenue = alias(venues, "suggested_venue");
   const [venueRows, equipmentRows, registrationRows] = await Promise.all([
     database
       .select({
-        ...getTableColumns(venueRequests),
-        venueName: venues.name,
-        suggestedVenueName: suggestedVenue.name,
+        eventId: venueRequests.eventId,
+        assignedStaffId: venueRequests.assignedStaffId,
+        ...venueRequestEntryColumns,
       })
       .from(venueRequests)
       .innerJoin(venues, eq(venues.id, venueRequests.venueId))
@@ -544,38 +531,24 @@ export async function handleListEvents(
           : undefined,
     }));
     // List one entry per venue-request row, earliest window first (`venueRows` arrives in that
-    // order). Coordinator: every non-withdrawn row with its own rejection or release. Organiser:
-    // pending and approved rows only, never with details. Venue Staff: only rows the queue rule
-    // grants (`isVenueQueueRow`), with details only on their own rows. Attendees and Technical
-    // Support receive no `venueRequests` key at all (`projectEvent` omits it there).
-    const visibleVenueRequests: EventVenueRequest[] = [];
-    if (access === "coordinator" || access === "organiser" || access === "venue_staff") {
-      const adjustable =
-        access === "coordinator" ? adjustableRejectionIds(eventVenueRows) : new Set<string>();
-      for (const row of eventVenueRows) {
-        if (row.status === "withdrawn") continue;
-        if (access === "organiser" && row.status !== "pending" && row.status !== "approved") {
-          continue;
-        }
-        if (access === "venue_staff" && !isVenueQueueRow(row, user.id)) continue;
-        const entry = eventVenueRequestFromRow(row);
-        const seesDetails =
-          access === "coordinator" || (access === "venue_staff" && row.assignedStaffId === user.id);
-        const conflictKind = row.status === "pending" ? conflictKinds.get(row.id) : undefined;
-        visibleVenueRequests.push({
-          id: entry.id,
-          status: entry.status,
-          venueName: entry.venueName,
-          date: entry.date,
-          startTime: entry.startTime,
-          endTime: entry.endTime,
-          ...(conflictKind ? { conflict: conflictKind } : {}),
-          ...(seesDetails && entry.rejection ? { rejection: entry.rejection } : {}),
-          ...(seesDetails && entry.release ? { release: entry.release } : {}),
-          ...(adjustable.has(row.id) ? { adjustable: true as const } : {}),
-        });
-      }
-    }
+    // order). Coordinator: every non-withdrawn row. Organiser: pending and approved rows only, so
+    // no rejection or release reaches them. Venue Staff: only rows the queue rule grants
+    // (`isVenueQueueRow`). A decided row in their queue is their own, so it keeps its details.
+    // Attendees and Technical Support receive no `venueRequests` key (`projectEvent` omits it).
+    const visibleRows = eventVenueRows.filter(row => {
+      if (row.status === "withdrawn") return false;
+      if (access === "organiser") return row.status === "pending" || row.status === "approved";
+      if (access === "venue_staff") return isVenueQueueRow(row, user.id);
+      return access === "coordinator";
+    });
+    const adjustable =
+      access === "coordinator" ? adjustableRejectionIds(visibleRows) : new Set<string>();
+    const visibleVenueRequests = visibleRows.map(row =>
+      eventVenueRequestFromRow(row, {
+        conflict: conflictKinds.get(row.id),
+        adjustable: adjustable.has(row.id),
+      })
+    );
 
     return [
       projectEvent(

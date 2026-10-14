@@ -156,9 +156,11 @@ export interface VenueRequestRelease {
 /**
  * One venue booking request on an event card. One event holds several venue requests (one row
  * per event, venue and window). `conflict` is present only when a pending request overlaps an
- * approved booking (PTR-36). `rejection` and `release` ride on their own row. The coordinator
- * event list and the coordinator triage read carry every row with its details; the organiser
- * and venue-staff lists do not.
+ * approved booking or an active hold (PTR-36). `rejection` and `release` ride on their own row.
+ * The Coordinator's event list and triage read carry every non-withdrawn row with its details.
+ * The Organiser's list carries pending and approved rows only, so it has no details. The Venue
+ * Staff list carries their queue rows. A decided row in that queue is their own, so it keeps
+ * its details.
  */
 export interface EventVenueRequest {
   /** The venue_requests row id (text), so the venue-staff decision can load its detail. */

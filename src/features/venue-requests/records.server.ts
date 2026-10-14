@@ -18,16 +18,34 @@ import type {
 
 type Database = typeof Db;
 
-/**
- * The decided outcome one venue-request row carries. Rejections and releases stay visible on
- * their own row beside other rows. Join the suggested venue name for rejection cards.
- */
-type VenueRequestOutcome =
-  | { id: string; status: "rejected"; venueName: string; rejection: VenueRequestRejection }
-  | { id: string; status: "released"; venueName: string; release: VenueRequestRelease };
+/** The venue that Venue Staff suggested on a rejection. Join it with `leftJoin`. */
+export const suggestedVenue = alias(venues, "suggested_venue");
 
-/** One venue-request row with its venue names, as the outcome readers select it. */
-interface VenueRequestOutcomeRow {
+/**
+ * The columns that one event-card entry reads. Both entry readers select these, join `venues`
+ * on the requested venue, and left-join `suggestedVenue`.
+ */
+export const venueRequestEntryColumns = {
+  id: venueRequests.id,
+  status: venueRequests.status,
+  createdAt: venueRequests.createdAt,
+  updatedAt: venueRequests.updatedAt,
+  venueId: venueRequests.venueId,
+  venueName: venues.name,
+  startsAt: venueRequests.startsAt,
+  endsAt: venueRequests.endsAt,
+  rejectionReason: venueRequests.rejectionReason,
+  releaseReason: venueRequests.releaseReason,
+  lastChangedByStaffName: venueRequests.lastChangedByStaffName,
+  suggestedVenueId: venueRequests.suggestedVenueId,
+  suggestedVenueName: suggestedVenue.name,
+  suggestedDate: venueRequests.suggestedDate,
+  suggestedStartTime: venueRequests.suggestedStartTime,
+  suggestedEndTime: venueRequests.suggestedEndTime,
+};
+
+/** One venue-request row as `venueRequestEntryColumns` selects it. */
+interface VenueRequestEntryRow {
   id: string;
   status: string;
   createdAt: Date;
@@ -44,58 +62,6 @@ interface VenueRequestOutcomeRow {
   suggestedDate: string | null;
   suggestedStartTime: string | null;
   suggestedEndTime: string | null;
-}
-
-/**
- * Return the decided outcome one row carries, or null when the row holds no staff decision.
- * Approved and pending rows carry none.
- */
-function venueRequestOutcomeFromRow(row: VenueRequestOutcomeRow): VenueRequestOutcome | null {
-  if (row.status === "released") {
-    if (row.releaseReason === null) {
-      throw new Error(`Released venue request ${row.id} has no reason recorded`);
-    }
-    return {
-      status: "released",
-      id: row.id,
-      venueName: row.venueName,
-      release: {
-        venueName: row.venueName,
-        date: row.startsAt.slice(0, 10),
-        startTime: row.startsAt.slice(11, 16),
-        endTime: row.endsAt.slice(11, 16),
-        reason: row.releaseReason,
-        changedByName: row.lastChangedByStaffName,
-      },
-    };
-  }
-  if (row.status !== "rejected") return null;
-  // The `venue_requests` CHECK requires a reason for rejected rows. Treat `null` as corrupt data,
-  // not as a blank card.
-  if (row.rejectionReason === null) {
-    throw new Error(`Rejected venue request ${row.id} has no reason recorded`);
-  }
-  const suggestion = {
-    venueName: row.suggestedVenueName,
-    date: row.suggestedDate,
-    startTime: row.suggestedStartTime?.slice(0, 5) ?? null,
-    endTime: row.suggestedEndTime?.slice(0, 5) ?? null,
-  };
-  return {
-    status: "rejected",
-    id: row.id,
-    venueName: row.venueName,
-    rejection: {
-      venueId: row.venueId,
-      venueName: row.venueName,
-      date: row.startsAt.slice(0, 10),
-      startTime: row.startsAt.slice(11, 16),
-      endTime: row.endsAt.slice(11, 16),
-      reason: row.rejectionReason,
-      suggestion: Object.values(suggestion).every(part => part === null) ? null : suggestion,
-      suggestedVenueId: row.suggestedVenueId,
-    },
-  };
 }
 
 /**
@@ -131,23 +97,68 @@ export function adjustableRejectionIds(
 }
 
 /**
- * Build one event-card entry from one venue-request row, field by field. Never spread the
- * database row: `requestedById` and `assignedStaffId` must not reach a client. Decided rows
- * carry their own rejection or release; other rows carry only their window.
+ * PTR-34: The rejection a rejected row carries, with any suggestion. The `venue_requests` CHECK
+ * requires a reason for rejected rows. Treat `null` as corrupt data, not as a blank card.
  */
-export function eventVenueRequestFromRow(row: VenueRequestOutcomeRow): EventVenueRequest {
-  const entry: EventVenueRequest = {
+function rejectionFromRow(row: VenueRequestEntryRow): VenueRequestRejection {
+  if (row.rejectionReason === null) {
+    throw new Error(`Rejected venue request ${row.id} has no reason recorded`);
+  }
+  const suggestion = {
+    venueName: row.suggestedVenueName,
+    date: row.suggestedDate,
+    startTime: row.suggestedStartTime?.slice(0, 5) ?? null,
+    endTime: row.suggestedEndTime?.slice(0, 5) ?? null,
+  };
+  return {
+    venueId: row.venueId,
+    venueName: row.venueName,
+    date: row.startsAt.slice(0, 10),
+    startTime: row.startsAt.slice(11, 16),
+    endTime: row.endsAt.slice(11, 16),
+    reason: row.rejectionReason,
+    suggestion: Object.values(suggestion).every(part => part === null) ? null : suggestion,
+    suggestedVenueId: row.suggestedVenueId,
+  };
+}
+
+/** PTR-37: The release a released row carries. The CHECK requires a reason here too. */
+function releaseFromRow(row: VenueRequestEntryRow): VenueRequestRelease {
+  if (row.releaseReason === null) {
+    throw new Error(`Released venue request ${row.id} has no reason recorded`);
+  }
+  return {
+    venueName: row.venueName,
+    date: row.startsAt.slice(0, 10),
+    startTime: row.startsAt.slice(11, 16),
+    endTime: row.endsAt.slice(11, 16),
+    reason: row.releaseReason,
+    changedByName: row.lastChangedByStaffName,
+  };
+}
+
+/**
+ * Build one event-card entry from one venue-request row. Never spread the database row:
+ * `requestedById` and `assignedStaffId` must not reach a client. A rejected row carries its
+ * rejection and a released row its release; other rows carry only their window. The caller
+ * supplies the conflict kind and the `adjustable` mark, which need other rows.
+ */
+export function eventVenueRequestFromRow(
+  row: VenueRequestEntryRow,
+  marks: { conflict?: "booking" | "hold"; adjustable?: boolean } = {}
+): EventVenueRequest {
+  return {
     id: row.id,
     status: row.status,
     venueName: row.venueName,
     date: row.startsAt.slice(0, 10),
     startTime: row.startsAt.slice(11, 16),
     endTime: row.endsAt.slice(11, 16),
+    ...(marks.conflict ? { conflict: marks.conflict } : {}),
+    ...(row.status === "rejected" ? { rejection: rejectionFromRow(row) } : {}),
+    ...(row.status === "released" ? { release: releaseFromRow(row) } : {}),
+    ...(marks.adjustable ? { adjustable: true as const } : {}),
   };
-  const outcome = venueRequestOutcomeFromRow(row);
-  if (outcome?.status === "rejected") entry.rejection = outcome.rejection;
-  if (outcome?.status === "released") entry.release = outcome.release;
-  return entry;
 }
 
 /**
@@ -160,26 +171,8 @@ export async function loadVenueRequestsForEvent(
   database: Pick<Database, "select">,
   eventId: number
 ): Promise<EventVenueRequest[]> {
-  const suggestedVenue = alias(venues, "suggested_venue");
   const rows = await database
-    .select({
-      id: venueRequests.id,
-      status: venueRequests.status,
-      createdAt: venueRequests.createdAt,
-      updatedAt: venueRequests.updatedAt,
-      venueId: venueRequests.venueId,
-      venueName: venues.name,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-      rejectionReason: venueRequests.rejectionReason,
-      releaseReason: venueRequests.releaseReason,
-      lastChangedByStaffName: venueRequests.lastChangedByStaffName,
-      suggestedVenueId: venueRequests.suggestedVenueId,
-      suggestedVenueName: suggestedVenue.name,
-      suggestedDate: venueRequests.suggestedDate,
-      suggestedStartTime: venueRequests.suggestedStartTime,
-      suggestedEndTime: venueRequests.suggestedEndTime,
-    })
+    .select(venueRequestEntryColumns)
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
     .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
@@ -188,9 +181,5 @@ export async function loadVenueRequestsForEvent(
 
   const kept = rows.filter(row => row.status !== "withdrawn");
   const adjustable = adjustableRejectionIds(kept);
-  return kept.map(row => {
-    const entry = eventVenueRequestFromRow(row);
-    if (adjustable.has(row.id)) entry.adjustable = true;
-    return entry;
-  });
+  return kept.map(row => eventVenueRequestFromRow(row, { adjustable: adjustable.has(row.id) }));
 }
