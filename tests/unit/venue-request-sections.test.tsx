@@ -398,10 +398,6 @@ describe("venueRequestSections", () => {
           endTime: "22:00",
           rejection: {
             venueId: 3,
-            venueName: "Riverside Loft",
-            date: "2026-11-21",
-            startTime: "18:00",
-            endTime: "22:00",
             reason: "Fully booked for a private hire that weekend.",
             suggestion: {
               venueName: "Harbor Hall",

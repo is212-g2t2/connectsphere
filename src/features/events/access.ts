@@ -129,18 +129,13 @@ interface EventRecord {
 
 /**
  * PTR-34 criterion 3: Data about a rejected request for the Coordinator. Keep planning without a
- * new request. `venueName`, `date`, `startTime`, and `endTime` identify the rejected booking, not
- * the suggestion. This lets the Coordinator tell which booking a reason refers to. `suggestion`
- * is null when Venue Staff made no suggestion. Missing suggestion fields are also null. Times use
+ * new request. The entry that carries it names the rejected venue and window. `suggestion` is
+ * null when Venue Staff made no suggestion. Missing suggestion fields are also null. Times use
  * `HH:MM` format.
  */
 export interface VenueRequestRejection {
   /** The rejected venue's id, so an adjusted request can fall back to it. */
   venueId: number;
-  venueName: string;
-  date: string;
-  startTime: string;
-  endTime: string;
   reason: string;
   suggestion: VenueSuggestion | null;
   /** The suggested venue's id when Venue Staff named one; the adjusted request opens there. */

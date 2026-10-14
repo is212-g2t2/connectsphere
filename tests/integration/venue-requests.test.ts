@@ -2751,8 +2751,6 @@ describe("venue request handlers (PTR-31)", () => {
         ...rejectedPeriod,
         rejection: {
           venueId: altVenueId,
-          venueName: PTR37_ALTERNATIVE_VENUE_NAME,
-          ...rejectedPeriod,
           reason: "Closed for floor resurfacing",
           suggestion: null,
           suggestedVenueId: null,

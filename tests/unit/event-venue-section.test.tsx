@@ -97,10 +97,6 @@ const rejectedAdjustable = {
   adjustable: true,
   rejection: {
     venueId: 3,
-    venueName: "Harbor Hall",
-    date: "2026-12-05",
-    startTime: "17:00",
-    endTime: "21:00",
     reason: "The main hall is being rewired that weekend.",
     suggestion: null,
     suggestedVenueId: null,
@@ -116,10 +112,6 @@ const rejectedAnswered = {
   endTime: "21:00",
   rejection: {
     venueId: 3,
-    venueName: "Harbor Hall",
-    date: "2026-12-05",
-    startTime: "17:00",
-    endTime: "21:00",
     reason: "The main hall is being rewired that weekend.",
     suggestion: null,
     suggestedVenueId: null,
@@ -194,7 +186,7 @@ describe("venue section", () => {
           ...rejectedAdjustable,
           id: "vr-5",
           venueName: "Second Hall",
-          rejection: { ...rejectedAdjustable.rejection, venueId: 5, venueName: "Second Hall" },
+          rejection: { ...rejectedAdjustable.rejection, venueId: 5 },
         },
       ],
     });

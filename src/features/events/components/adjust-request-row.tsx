@@ -2,18 +2,18 @@ import { Link } from "@tanstack/react-router";
 import { cn } from "cn";
 
 import { buttonVariants } from "#/components/ui/button";
-import type { VenueRequestRejection } from "#/features/events/access";
-import type { SessionRequirements } from "#/features/venue-requests/schema";
+import type { EventVenueRequest, VenueRequestRejection } from "#/features/events/access";
 
 /**
- * Prefill an adjusted request: the suggested venue when Venue Staff named one, else the refusing
- * venue. Fall each window part back the same way. A "same room, a day later" suggestion then
- * needs nothing retyped. Take times only as a pair. PTR-138 AC1: carry the rejected session's
- * requirements too. Leave out a null attendance, so the form uses the event's figure.
+ * Prefill an adjusted request from a rejected entry: the suggested venue when Venue Staff named
+ * one, else the refusing venue. Fall each window part back the same way. A "same room, a day
+ * later" suggestion then needs nothing retyped. Take times only as a pair. PTR-138 AC1: carry the
+ * rejected session's requirements too. Leave out a null attendance, so the form uses the event's
+ * figure.
  */
 export function adjustedRequest(
-  rejection: VenueRequestRejection,
-  requirements?: SessionRequirements
+  entry: EventVenueRequest,
+  rejection: VenueRequestRejection
 ): {
   venueId: number;
   venueName: string;
@@ -29,7 +29,8 @@ export function adjustedRequest(
   const times =
     suggestion?.startTime && suggestion.endTime
       ? { startTime: suggestion.startTime, endTime: suggestion.endTime }
-      : { startTime: rejection.startTime, endTime: rejection.endTime };
+      : { startTime: entry.startTime, endTime: entry.endTime };
+  const requirements = entry.requirements;
   const session = requirements
     ? {
         ...(requirements.expectedAttendance === null
@@ -42,8 +43,8 @@ export function adjustedRequest(
     : {};
   return {
     venueId: rejection.suggestedVenueId ?? rejection.venueId,
-    venueName: suggestion?.venueName ?? rejection.venueName,
-    date: suggestion?.date ?? rejection.date,
+    venueName: suggestion?.venueName ?? entry.venueName,
+    date: suggestion?.date ?? entry.date,
     ...times,
     ...session,
   };
@@ -57,14 +58,14 @@ export function adjustedRequest(
  */
 export function AdjustRequestRow({
   eventId,
+  entry,
   rejection,
-  requirements,
 }: {
   eventId: number;
+  entry: EventVenueRequest;
   rejection: VenueRequestRejection;
-  requirements?: SessionRequirements;
 }) {
-  const { venueId, venueName, ...prefill } = adjustedRequest(rejection, requirements);
+  const { venueId, venueName, ...prefill } = adjustedRequest(entry, rejection);
   return (
     <div className="min-w-0">
       <dt className="eyebrow text-muted-foreground">Next step</dt>

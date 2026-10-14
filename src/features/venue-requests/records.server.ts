@@ -186,7 +186,7 @@ export async function loadPendingConflictKinds(
 export function adjustableRejectionIds(
   rows: ReadonlyArray<{
     id: string;
-    status: string;
+    status: VenueRequestStatus;
     venueId: number;
     suggestedVenueId: number | null;
     createdAt: Date;
@@ -225,10 +225,6 @@ function rejectionFromRow(row: VenueRequestEntryRow): VenueRequestRejection {
   };
   return {
     venueId: row.venueId,
-    venueName: row.venueName,
-    date: row.startsAt.slice(0, 10),
-    startTime: row.startsAt.slice(11, 16),
-    endTime: row.endsAt.slice(11, 16),
     reason: row.rejectionReason,
     suggestion: Object.values(suggestion).every(part => part === null) ? null : suggestion,
     suggestedVenueId: row.suggestedVenueId,

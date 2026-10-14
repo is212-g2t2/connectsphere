@@ -126,11 +126,7 @@ function VenueRequestEntry({
             />
           )}
           {showAdjust && (
-            <AdjustRequestRow
-              eventId={eventId}
-              rejection={entry.rejection}
-              requirements={entry.requirements}
-            />
+            <AdjustRequestRow eventId={eventId} entry={entry} rejection={entry.rejection} />
           )}
         </>
       )}

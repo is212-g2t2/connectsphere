@@ -231,10 +231,6 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
         adjustable: true,
         rejection: {
           venueId: refusedVenueId,
-          venueName: VENUE_NAMES[0],
-          date: "2027-05-10",
-          startTime: "09:00",
-          endTime: "12:00",
           reason: "Closed for floor resurfacing",
           suggestedVenueId,
           suggestion: {
@@ -289,7 +285,6 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
         venueName: VENUE_NAMES[0],
         rejection: {
           venueId: refusedVenueId,
-          venueName: VENUE_NAMES[0],
           reason: "Closed for floor resurfacing",
           suggestedVenueId,
         },

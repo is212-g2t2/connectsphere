@@ -175,10 +175,6 @@ describe("event access", () => {
         endTime: "12:00",
         rejection: {
           venueId: 5,
-          venueName: "Hall A",
-          date: "2026-10-10",
-          startTime: "09:00",
-          endTime: "12:00",
           reason: "Closed for floor resurfacing",
           suggestion: null,
           suggestedVenueId: null,
@@ -371,10 +367,6 @@ describe("projectEvent with a rejected venue request (PTR-34 AC3)", () => {
     endTime: "12:00",
     rejection: {
       venueId: 5,
-      venueName: "Main Hall",
-      date: "2026-10-10",
-      startTime: "09:00",
-      endTime: "12:00",
       reason: "Closed for floor resurfacing",
       suggestion: {
         venueName: "Harbour Hall",

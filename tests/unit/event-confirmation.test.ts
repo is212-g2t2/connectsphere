@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 import {
   CONFIRMATION_REFUSAL_HEADING,
   MULTIPLE_VENUE_BOOKINGS_MESSAGE,
@@ -12,7 +13,7 @@ import {
 } from "#/features/events/confirmation";
 
 /** One venue request row with the given status, at a fixed venue and window. */
-function request(status: string, venueName = "Great Hall") {
+function request(status: VenueRequestStatus, venueName = "Great Hall") {
   return { status, venueName, startsAt: "2030-01-01 09:00:00", endsAt: "2030-01-01 12:30:00" };
 }
 

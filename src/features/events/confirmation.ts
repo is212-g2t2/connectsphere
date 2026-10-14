@@ -3,6 +3,7 @@ import { isArrangedLine, isEquipmentArrangementsSatisfied } from "#/features/eve
 import { formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 
 /**
  * PTR-24 AC1/AC2: List the stages an event can be confirmed from. `approved` is where a decision
@@ -26,7 +27,7 @@ export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
 
 /** One venue request on the event. Times use the `mode: "string"` shape, `YYYY-MM-DD HH:MM:SS`. */
 interface ConfirmationVenueRequest {
-  status: string;
+  status: VenueRequestStatus;
   venueName: string;
   startsAt: string;
   endsAt: string;

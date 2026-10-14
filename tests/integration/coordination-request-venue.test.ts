@@ -129,10 +129,6 @@ describe("coordination request venue summary", () => {
         endTime: "12:00",
         adjustable: true,
         rejection: {
-          venueName: "Triage Refused Hall",
-          date: "2027-05-10",
-          startTime: "09:00",
-          endTime: "12:00",
           reason: "The main hall is being rewired that weekend.",
           suggestedVenueId,
           suggestion: {

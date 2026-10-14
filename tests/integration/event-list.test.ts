@@ -479,8 +479,6 @@ describe("event list handler (PTR-8)", () => {
       ...period,
       rejection: {
         venueId: fixtureVenueId,
-        venueName: FIXTURE_VENUE_NAME,
-        ...period,
         reason: "Closed for floor resurfacing",
         suggestion: null,
         suggestedVenueId: null,
@@ -837,10 +835,6 @@ describe("event list handler (PTR-8)", () => {
           status: "rejected",
           rejection: {
             venueId: fixtureVenueId,
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-10-12",
-            startTime: "14:30",
-            endTime: "18:45",
             reason: "Closed for floor resurfacing",
             suggestion: null,
             suggestedVenueId: null,
