@@ -244,6 +244,15 @@ describe("venue request handlers (PTR-31)", () => {
     return handleApproveVenueRequest({ id }, session(staff), database as never);
   }
 
+  /** Staff member A amends a booking that A approved to a venue and a window on `WINDOW.date`. */
+  function amend(id: string, amendedVenueId: number, startTime: string, endTime: string) {
+    return handleAmendVenueBooking(
+      { id, venueId: amendedVenueId, date: WINDOW.date, startTime, endTime },
+      session(users.venueStaffA),
+      database as never
+    );
+  }
+
   async function readRow(id: string) {
     const [row] = await database
       .select()
@@ -2143,6 +2152,65 @@ describe("venue request handlers (PTR-31)", () => {
         startsAt: `${WINDOW.date} 13:00:00`,
         endsAt: `${WINDOW.date} 15:00:00`,
       });
+    });
+
+    it("refuses an amendment to a venue or window that cannot take the session (PTR-138 AC1)", async () => {
+      const booking = await raiseRequest(eventId, "09:00", "10:00");
+      await approve(booking.id, users.venueStaffA);
+      const roomId = await createRoom({ maxCapacity: 40 });
+
+      await expect(amend(booking.id, roomId, "09:00", "10:00")).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: venueRequirementsMessage(PTR37_ALTERNATIVE_VENUE_NAME, ["Holds 40; 80 needed"]),
+      });
+      // The venue opens at 08:00 on weekdays.
+      await expect(amend(booking.id, venueId, "07:00", "09:00")).rejects.toThrow(
+        `${VENUE_NAME} cannot host this window: Not open 07:00–09:00 on 2027-04-20.`
+      );
+
+      // Each refusal rolls back, so the booking and its ledger row stay where they were.
+      expect(await readRow(booking.id)).toMatchObject({
+        venueId,
+        startsAt: `${WINDOW.date} 09:00:00`,
+      });
+      expect(await ledgerFor([booking.id])).toEqual([
+        expect.objectContaining({ venueId, startsAt: `${WINDOW.date} 09:00:00` }),
+      ]);
+    });
+
+    it("refuses an amendment over the event's pending request at the venue (PTR-138 AC4)", async () => {
+      const booking = await raiseRequest(eventId, "09:00", "10:00");
+      await approve(booking.id, users.venueStaffA);
+      await raiseRequest(eventId, "11:00", "12:00");
+
+      await expect(amend(booking.id, venueId, "11:30", "12:30")).rejects.toThrow(
+        `This window overlaps this event's pending request for ${VENUE_NAME} on 20 Apr 2027, 11:00 – 12:00.`
+      );
+      await expect(amend(booking.id, venueId, "11:00", "12:00")).rejects.toThrow(
+        VENUE_REQUEST_DUPLICATE_MESSAGE
+      );
+      expect(await ledgerFor([booking.id])).toEqual([
+        expect.objectContaining({ startsAt: `${WINDOW.date} 09:00:00` }),
+      ]);
+    });
+
+    it("amends a breakout booking against its own session requirements (PTR-138 AC1, AC3)", async () => {
+      // The room holds 40, fewer than the event's 80, but the session needs 30.
+      const roomId = await createRoom({ maxCapacity: 40 });
+      const breakout = await requestRoom(roomId, { expectedAttendance: 30 });
+      await approve(breakout.id, users.venueStaffA);
+
+      const amended = await amend(breakout.id, roomId, "13:00", "14:00");
+
+      expect(amended).toMatchObject({
+        status: "approved",
+        venueId: roomId,
+        expectedAttendance: 30,
+      });
+      expect(await ledgerFor([breakout.id])).toEqual([
+        expect.objectContaining({ venueId: roomId, startsAt: `${WINDOW.date} 13:00:00` }),
+      ]);
     });
 
     it("serializes concurrent amendments to the same target window (AC3)", async () => {
