@@ -1,4 +1,3 @@
-// oxlint-disable jsx-a11y/prefer-tag-over-role -- a group inside a description list has no semantic element.
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
@@ -90,10 +89,9 @@ function VenueRequestEntry({
     entry.adjustable === true &&
     SEARCHABLE_EVENT_STATUSES.includes(eventStatus);
   return (
-    <div
-      role="group"
+    <dl
       aria-label={`${entry.venueName}, ${formatLocalDate(entry.date)}, ${entry.startTime}–${entry.endTime}`}
-      className="grid gap-3 border-t border-border pt-3 first:border-t-0 first:pt-0 sm:col-span-2 sm:grid-cols-2"
+      className="grid gap-3 border-t border-border pt-3 first:border-t-0 first:pt-0 sm:grid-cols-2"
     >
       <VenueDetail label="Venue" value={entry.venueName} />
       <VenueDetail
@@ -135,7 +133,7 @@ function VenueRequestEntry({
           )}
         </>
       )}
-    </div>
+    </dl>
   );
 }
 
@@ -156,7 +154,10 @@ function VenueBody({ data }: { data: EventPageData }) {
           {hasRequested && (
             <>
               <p className="eyebrow text-muted-foreground">What was requested</p>
-              <EventRequirements event={source.requirements} className="mt-2">
+              {/* The requirements and each venue request are separate description lists. The
+                  first list in the stack draws no top rule. */}
+              <div className="mt-2 grid gap-3">
+                <EventRequirements event={source.requirements} />
                 {venueRequests.map(entry => (
                   <VenueRequestEntry
                     key={entry.id}
@@ -166,7 +167,7 @@ function VenueBody({ data }: { data: EventPageData }) {
                     eventStatus={status}
                   />
                 ))}
-              </EventRequirements>
+              </div>
             </>
           )}
 

@@ -215,16 +215,27 @@ describe("venue section", () => {
     expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
   });
 
-  it("groups each entry's rows in its own band", () => {
-    renderVenue("coordinator", {
+  it("gives each entry its own named description list beside the requirements", () => {
+    const { container } = renderVenue("coordinator", {
       status: "planning",
       venueRequests: [{ ...pendingEntry }, { ...approvedEntry }],
     });
 
-    const groups = screen.getAllByRole("group");
-    expect(groups).toHaveLength(2);
-    expect(groups[0].getAttribute("aria-label")).toBe("Harbor Hall, 5 Dec 2026, 17:00–21:00");
-    expect(groups[1].getAttribute("aria-label")).toBe("Second Hall, 6 Dec 2026, 10:00–12:00");
+    // The requirements list and one list per entry sit side by side; no list nests in another.
+    const lists = [...container.querySelectorAll("dl")];
+    expect(lists.map(list => list.getAttribute("aria-label"))).toEqual([
+      null,
+      "Harbor Hall, 5 Dec 2026, 17:00–21:00",
+      "Second Hall, 6 Dec 2026, 10:00–12:00",
+    ]);
+    expect(container.querySelector("dl dl")).toBeNull();
+    expect(screen.queryAllByRole("group")).toHaveLength(0);
+    // Every list holds only term and description groups.
+    for (const list of lists) {
+      for (const child of list.children) {
+        expect([...child.children].map(node => node.tagName)).toEqual(["DT", "DD"]);
+      }
+    }
   });
 
   it("keeps the rejection reason without the adjust link outside searchable statuses", () => {
