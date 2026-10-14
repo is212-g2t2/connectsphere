@@ -98,9 +98,14 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     await page.getByLabel("End time (required)", { exact: true }).fill("15:30");
     await page.getByRole("button", { name: "Send booking request" }).click();
 
-    // The panel reads loader data, so the pending request replaces the form in place.
-    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
-    await expect(page.getByText(/10 May 2027, 09:00 – 15:30/)).toBeVisible();
+    // The panel reads loader data, so the pending request joins the list above the form. Focus
+    // moves to the list heading so a screen reader hears the new row.
+    const listHeading = page.getByRole("heading", { name: `Requests for ${fixture.eventName}` });
+    const list = page.getByRole("list", { name: `Requests for ${fixture.eventName}` });
+    await expect(listHeading).toBeFocused();
+    await expect(list.getByText(/10 May 2027, 09:00 – 15:30/)).toBeVisible();
+    await expect(list.getByText("Pending", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
 
     const createdRows = await database
       .select()
@@ -127,9 +132,16 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     // Do not show the event name in the Venue Staff notification.
     expect(email).not.toContain(fixture.eventName);
 
-    await page.getByRole("button", { name: "Withdraw request" }).click();
+    await page
+      .getByRole("button", { name: "Withdraw request for 10 May 2027, 09:00 – 15:30" })
+      .click();
+    await expect(page.getByRole("alertdialog")).toContainText(
+      `${fixture.venueName} on 10 May 2027, 09:00 – 15:30`
+    );
     await page.getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
+    await expect(listHeading).toBeFocused();
+    await expect(list).toHaveCount(0);
 
     const [withdrawn] = await database
       .select()
@@ -148,8 +160,8 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
 });
 
 /** PTR-138 AC1/AC5: a second request for another venue lands on the same event, and the event
- * page lists both entries with their states. The venue page panel is per venue, so the second
- * venue still shows the request form after the first request.
+ * page lists both entries with their states. The venue page panel lists the event's requests at
+ * that venue only, so the second venue starts with an empty list.
  */
 test("[PTR-138] a Coordinator requests a second venue for the same event and the event page lists both", async ({
   page,
@@ -181,7 +193,7 @@ test("[PTR-138] a Coordinator requests a second venue for the same event and the
     await waitForHydration(page);
     await page.getByLabel("End time (required)", { exact: true }).fill("12:00");
     await page.getByRole("button", { name: "Send booking request" }).click();
-    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
 
     await page.goto(`/venues/${secondVenue.id}?eventId=${fixture.eventId}`);
     await waitForHydration(page);
@@ -189,7 +201,7 @@ test("[PTR-138] a Coordinator requests a second venue for the same event and the
     await page.getByLabel("Start time (required)", { exact: true }).fill("13:00");
     await page.getByLabel("End time (required)", { exact: true }).fill("15:00");
     await page.getByRole("button", { name: "Send booking request" }).click();
-    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
 
     const rows = await database
       .select()
@@ -206,6 +218,63 @@ test("[PTR-138] a Coordinator requests a second venue for the same event and the
     await expect(venue.getByText(fixture.venueName)).toBeVisible();
     await expect(venue.getByText(secondVenueName)).toBeVisible();
     await expect(venue.getByText("Pending", { exact: true })).toHaveCount(2);
+  } finally {
+    if (cleanup.userIds.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
+    }
+    if (cleanup.venueIds.length > 0) {
+      await database.delete(schema.venues).where(inArray(schema.venues.id, cleanup.venueIds));
+    }
+  }
+});
+
+/** PTR-138 AC4: one event books two sessions at one venue. The list shows both pending requests
+ * above the form, and a window that overlaps one of them is refused with its window and state.
+ */
+test("[PTR-138] a Coordinator requests two sessions at one venue and an overlapping window is refused", async ({
+  page,
+}) => {
+  const cleanup = { userIds: [] as string[], venueIds: [] as number[] };
+
+  try {
+    const coordinator = await registerAccount(database, page, {
+      role: "event_coordinator",
+      name: "Two Sessions Coordinator",
+      password,
+    });
+    cleanup.userIds.push(coordinator.id);
+    const fixture = await seedFixture(coordinator.id, cleanup);
+
+    await page.goto(`/venues/${fixture.venueId}?eventId=${fixture.eventId}`);
+    await waitForHydration(page);
+    await page.getByLabel("End time (required)", { exact: true }).fill("11:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    const list = page.getByRole("list", { name: `Requests for ${fixture.eventName}` });
+    await expect(list.getByRole("listitem")).toHaveCount(1);
+
+    // The form stays open below the list for the second session.
+    await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
+    await page.getByLabel("Start time (required)", { exact: true }).fill("14:00");
+    await page.getByLabel("End time (required)", { exact: true }).fill("16:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    await expect(list.getByRole("listitem")).toHaveCount(2);
+    await expect(list.getByRole("listitem").nth(0)).toContainText("10 May 2027, 09:00 – 11:00");
+    await expect(list.getByRole("listitem").nth(1)).toContainText("10 May 2027, 14:00 – 16:00");
+
+    await page.getByLabel("Start time (required)", { exact: true }).fill("10:30");
+    await page.getByLabel("End time (required)", { exact: true }).fill("12:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    const panel = page.getByRole("region", { name: `Requests for ${fixture.eventName}` });
+    await expect(panel.getByRole("alert")).toHaveText(
+      `This window overlaps this event's pending request for ${fixture.venueName} on 10 May 2027, 09:00 – 11:00.`
+    );
+    await expect(list.getByRole("listitem")).toHaveCount(2);
+
+    const rows = await database
+      .select({ status: schema.venueRequests.status })
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.eventId, fixture.eventId));
+    expect(rows).toEqual([{ status: "pending" }, { status: "pending" }]);
   } finally {
     if (cleanup.userIds.length > 0) {
       await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));

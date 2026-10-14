@@ -113,11 +113,12 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     await expect(page.getByText(/carried over from the rejected request/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeFocused();
 
-    // AC2: sending it queues a new pending request.
+    // AC2: sending it queues a new pending request, listed above the form.
     await page.getByRole("button", { name: "Send booking request" }).click();
-    const panel = page.getByRole("region", { name: "Venue request" });
+    const panel = page.getByRole("region", { name: `Requests for ${eventName}` });
     await expect(panel).toBeVisible();
     await expect(panel.getByText("Pending", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("heading", { name: `Requests for ${eventName}` })).toBeFocused();
     const rows = await database
       .select({ status: schema.venueRequests.status, venueId: schema.venueRequests.venueId })
       .from(schema.venueRequests)

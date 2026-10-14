@@ -552,9 +552,9 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
     it("keeps the row when a refused conversion rolls back the release (PTR-134 AC4)", async () => {
       const eventId = await createEvent("PTR-133 duplicate conversion");
       const held = await hold("09:00", "10:00", eventId);
-      // A pending request for the same event and venue makes the conversion's insert fail.
+      // A pending request for the same event, venue and window makes the conversion's insert fail.
       await handleCreateVenueRequest(
-        { eventId, venueId: hallId, date: DATE, startTime: "15:00", endTime: "16:00" },
+        { eventId, venueId: hallId, date: DATE, startTime: "09:00", endTime: "10:00" },
         coordinator,
         database as never
       );

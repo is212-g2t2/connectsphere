@@ -254,13 +254,15 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       requestedById: users.coordinator.id,
     });
     expect(adjusted.id).not.toBe(rejected.id);
-    // The suggested venue's panel shows the pending request, which its raiser can withdraw.
+    // The suggested venue's panel lists the pending request, which its raiser can withdraw.
     const context = await handleGetVenueRequestContext(
       { eventId, venueId: suggestedVenueId },
       session(users.coordinator),
       database as never
     );
-    expect(context?.request).toMatchObject({ id: adjusted.id, canWithdraw: true });
+    expect(context?.requests).toEqual([
+      expect.objectContaining({ id: adjusted.id, status: "pending", canWithdraw: true }),
+    ]);
   });
 
   it("keeps the original rejection and its reason beside the pending request (AC3)", async () => {

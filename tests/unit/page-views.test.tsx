@@ -376,11 +376,11 @@ describe("VenueDetailPage", () => {
     expect(screen.queryByText(/use Find venues for this event/)).toBeNull();
   });
 
-  /** PTR-31: sending or withdrawing replaces the panel under the same heading. Without focus
-   * management, focus falls to `<body>` and the new state goes unannounced. Move focus only when a
-   * request changes within the same event, venue, and request context, not on first render.
+  /** PTR-31: sending or withdrawing changes the list of requests. Without focus management, focus
+   * falls to `<body>` and the changed list goes unannounced. Move focus to the list heading only
+   * when the rows change within the same event and venue, not on first render.
    */
-  it("focuses the panel heading when the request changes, but not on first paint", () => {
+  it("focuses the list heading when the requests change, but not on first paint", () => {
     const openContext: VenueRequestContext = {
       event: {
         id: 12,
@@ -394,7 +394,8 @@ describe("VenueDetailPage", () => {
         accessibilityRequirements: "Step-free access",
         requiredFacilities: "Projector, PA system",
       },
-      request: null,
+      canRequest: true,
+      requests: [],
     };
     const { rerender } = render(
       <VenueDetailPage
@@ -415,17 +416,22 @@ describe("VenueDetailPage", () => {
         justCreated={false}
         requestContext={{
           ...openContext,
-          request: {
-            id: "req-1",
-            startsAt: "2026-10-12T14:30",
-            endsAt: "2026-10-12T18:45",
-            canWithdraw: true,
-          },
+          requests: [
+            {
+              id: "req-1",
+              startsAt: "2026-10-12T14:30",
+              endsAt: "2026-10-12T18:45",
+              status: "pending",
+              canWithdraw: true,
+            },
+          ],
         }}
         requestContextFailed={false}
       />
     );
 
-    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Venue request" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Requests for Annual Gala" })
+    );
   });
 });
