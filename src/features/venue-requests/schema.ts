@@ -488,16 +488,24 @@ export function venueHoldConflictMessage(conflict: {
  */
 export const VENUE_UNAVAILABLE_PHRASE = "cannot host this window";
 
+/** PTR-138 AC1: the phrase of the refusal for a venue that fails a session's requirements. */
+export const VENUE_REQUIREMENTS_PHRASE = "does not meet this session's requirements";
+
+/** PTR-138: the phrase of the refusal for an event outside `SEARCHABLE_EVENT_STATUSES`. */
+export const VENUE_EVENT_STATUS_PHRASE = "cannot take a new venue booking";
+
 /**
- * List venue-conflict messages so the client can distinguish conflicts from other failures
- * without matching the full text. Include named booking or hold messages, the generic fallback,
- * and an unavailable venue. `venueRequestConflictMessage` and `VENUE_OCCUPANCY_CONFLICT_MESSAGE`
- * say "already booked"; `venueHoldConflictMessage` says "tentatively held".
+ * List the phrases of the approval refusals that name a reason, so the approve button can show
+ * them and hide other failures without matching the full text. `venueRequestConflictMessage` and
+ * `VENUE_OCCUPANCY_CONFLICT_MESSAGE` say "already booked"; `venueHoldConflictMessage` says
+ * "tentatively held". The other phrases are above.
  */
 export const VENUE_CONFLICT_PHRASES = [
   "already booked",
   "tentatively held",
   VENUE_UNAVAILABLE_PHRASE,
+  VENUE_REQUIREMENTS_PHRASE,
+  VENUE_EVENT_STATUS_PHRASE,
 ] as const;
 
 export function isVenueConflictMessage(message: string): boolean {

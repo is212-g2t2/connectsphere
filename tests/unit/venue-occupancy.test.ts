@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { rethrowVenueConflict } from "#/features/venue-requests/occupancy.server";
-import { venueUnavailableMessage } from "#/features/venue-requests/requests.server";
+import {
+  venueRequestEventStatusMessage,
+  venueRequirementsMessage,
+  venueUnavailableMessage,
+} from "#/features/venue-requests/requests.server";
 import {
   VENUE_OCCUPANCY_CONFLICT_MESSAGE,
   isVenueConflictMessage,
@@ -31,7 +35,11 @@ describe("rethrowVenueConflict (PTR-133 AC3)", () => {
 
   it("answers a message that the approve button shows as a venue conflict", () => {
     expect(isVenueConflictMessage(VENUE_OCCUPANCY_CONFLICT_MESSAGE)).toBe(true);
-    // PTR-138 AC1: the approve button shows an unavailable venue's refusal too.
+    // PTR-138: the approve button shows the other approval refusals that name a reason too.
+    expect(
+      isVenueConflictMessage(venueRequirementsMessage("Room B", ["Holds 40; 80 needed"]))
+    ).toBe(true);
+    expect(isVenueConflictMessage(venueRequestEventStatusMessage("confirmed"))).toBe(true);
     expect(
       isVenueConflictMessage(
         venueUnavailableMessage("Room B", "Not open 07:00–09:00 on 2027-04-20")

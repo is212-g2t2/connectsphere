@@ -17,6 +17,8 @@ import {
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
+  VENUE_EVENT_STATUS_PHRASE,
+  VENUE_REQUIREMENTS_PHRASE,
   VENUE_UNAVAILABLE_PHRASE,
   parseVenueRejectionInput,
   parseVenueRequestContext,
@@ -74,7 +76,7 @@ const log = logger.getChild("venue-requests");
  */
 export function venueRequestEventStatusMessage(status: EventRequestStatus): string {
   const label = EVENT_REQUEST_STATUS_LABELS[status].toLowerCase();
-  return `This event is ${label}, so it cannot take a new venue booking.`;
+  return `This event is ${label}, so it ${VENUE_EVENT_STATUS_PHRASE}.`;
 }
 
 /** How the same-event overlap message names the other session, by its state. */
@@ -109,7 +111,7 @@ export function venueRequestEventOverlapMessage(overlap: {
  * Holds 40; 120 needed. Missing facilities: projector."
  */
 export function venueRequirementsMessage(venueName: string, failures: readonly string[]): string {
-  return `${venueName} does not meet this session's requirements: ${failures.join(". ")}.`;
+  return `${venueName} ${VENUE_REQUIREMENTS_PHRASE}: ${failures.join(". ")}.`;
 }
 
 export interface VenueRequestNotification {
@@ -240,6 +242,28 @@ export async function assertVenueAvailable(
     },
   ]);
   if (failure) throw new ConflictError(venueUnavailableMessage(venue.name, failure.message));
+}
+
+/**
+ * PTR-138 AC1: refuse a booking that the venue cannot take now. Check the session's requirements
+ * (`assertMeetsRequirements`), the ledger (`checkVenueFree`), then availability
+ * (`assertVenueAvailable`). Approval and amendment call it under the venue lock, so a venue that
+ * changed since the request still gets every check. Return the ledger row to write.
+ */
+export async function checkVenueTakesBooking(
+  tx: VenueTx,
+  venue: LockedVenue,
+  booking: { eventId: number; startsAt: string; endsAt: string; requirements: SessionRequirements }
+) {
+  assertMeetsRequirements(venue, booking.requirements);
+  const occupancy = await checkVenueFree(tx, {
+    venueId: venue.id,
+    eventId: booking.eventId,
+    startsAt: booking.startsAt,
+    endsAt: booking.endsAt,
+  });
+  await assertVenueAvailable(tx, venue, booking);
+  return occupancy;
 }
 
 /** The event's requirements, as `loadAssignedEvent` reads them. */
@@ -713,7 +737,9 @@ export async function handleWithdrawVenueRequest(
  * constraint refuses a write outside the lock convention with the generic conflict message.
  * Only unassigned pending rows are shared (PTR-31). Do not settle a row assigned to another staff
  * member. Store the decision-maker in `assignedStaffId` to keep the event linked to that staff member.
- * PTR-138 AC1: refuse a window that the venue cannot host now (`assertVenueAvailable`).
+ * PTR-138 AC1: refuse a booking that the venue cannot take now: it fails the session's requirements,
+ * or it is closed or blocked for the window (`checkVenueTakesBooking`). A request from before
+ * session requirements is checked against the event's current requirements.
  */
 export async function handleApproveVenueRequest(
   data: unknown,
@@ -731,21 +757,16 @@ export async function handleApproveVenueRequest(
     const event = await keyShareEventForRequest(tx, id);
     const lockedVenueId = await lockVenueForRequest(tx, id);
 
-    const rows = await tx
-      .select({
-        status: venueRequests.status,
-        assignedStaffId: venueRequests.assignedStaffId,
-        eventId: venueRequests.eventId,
-        venueId: venueRequests.venueId,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-      })
-      .from(venueRequests)
+    const rows = await selectVenueRequestEntries(tx, {
+      eventId: venueRequests.eventId,
+      assignedStaffId: venueRequests.assignedStaffId,
+    })
       .where(eq(venueRequests.id, id))
       .limit(1)
       // The row lock makes these reads current. A second approval waits, then sees the settled
-      // row and gets a rejection or decided message, not an overlap message about itself.
-      .for("update");
+      // row and gets a rejection or decided message, not an overlap message about itself. Lock
+      // only the request row, not the joined event or venues.
+      .for("update", { of: venueRequests });
     const row = rows.at(0);
     if (!row) throw new NotFoundError("Not Found");
     assertSameVenue(lockedVenueId, row.venueId);
@@ -765,14 +786,8 @@ export async function handleApproveVenueRequest(
       throw new ConflictError(venueRequestEventStatusMessage(event.status));
     }
 
-    const occupancy = await checkVenueFree(tx, {
-      venueId: row.venueId,
-      eventId: row.eventId,
-      startsAt: row.startsAt,
-      endsAt: row.endsAt,
-    });
-    // PTR-138 AC1: the venue must be open and unblocked for the window.
-    await assertVenueAvailable(tx, await loadLockedVenue(tx, row.venueId), row);
+    // A row from before session requirements carries the event's current requirements.
+    const occupancy = await checkVenueTakesBooking(tx, await loadLockedVenue(tx, row.venueId), row);
 
     // The row lock and status check make this the only writer of the row.
     const [approved] = await tx

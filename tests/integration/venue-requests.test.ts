@@ -769,6 +769,53 @@ describe("venue request handlers (PTR-31)", () => {
     });
   });
 
+  describe("suitability at approval (PTR-138 AC1)", () => {
+    it("approves against the session's own requirements, not the event's", async () => {
+      const roomId = await createRoom({ maxCapacity: 40 });
+      const breakout = await requestRoom(roomId, { expectedAttendance: 30 });
+
+      expect((await approve(breakout.id, users.venueStaffA)).status).toBe("approved");
+    });
+
+    it("refuses a request whose venue no longer meets the session's requirements", async () => {
+      const request = await raiseRequest(eventId, "09:00", "10:00");
+      await database
+        .update(schema.venues)
+        .set({ maxCapacity: 40, facilities: ["Projector"] })
+        .where(eq(schema.venues.id, venueId));
+
+      await expect(approve(request.id, users.venueStaffA)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: venueRequirementsMessage(VENUE_NAME, [
+          "Holds 40; 80 needed",
+          "Missing facilities: PA system",
+        ]),
+      });
+      expect((await readRow(request.id)).status).toBe("pending");
+      expect(await ledgerFor([request.id])).toEqual([]);
+    });
+
+    it("checks a request from before session requirements against the event's current ones", async () => {
+      await database.insert(schema.venueRequests).values({
+        id: "venue-request-legacy-approval",
+        eventId,
+        venueId,
+        requestedById: users.coordinator.id,
+        startsAt: "2027-04-20 09:00:00",
+        endsAt: "2027-04-20 10:00:00",
+      });
+      await database
+        .update(schema.eventRequests)
+        .set({ expectedAttendance: 500 })
+        .where(eq(schema.eventRequests.id, eventId));
+
+      await expect(approve("venue-request-legacy-approval", users.venueStaffA)).rejects.toThrow(
+        venueRequirementsMessage(VENUE_NAME, ["Holds 200; 500 needed"])
+      );
+    });
+  });
+
   describe("availability (PTR-138 AC1)", () => {
     it("flags a window outside the opening hours, and approval refuses it", async () => {
       // The venue opens at 08:00 on weekdays. Creation accepts the window; hours can change.
