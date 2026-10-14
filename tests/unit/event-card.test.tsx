@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { EventCard, eventTitle } from "#/features/events/components/event-card";
@@ -81,7 +81,7 @@ describe("EventCard", () => {
     expect(screen.getByRole("heading", { name: "Venue request" })).toBeTruthy();
   });
 
-  it("titles a venue staff card with the pending entry's venue, falling back to the first entry", () => {
+  it("titles a venue staff card with each distinct venue, in list order", () => {
     expect(
       eventTitle(
         projection("venue_staff", {
@@ -103,48 +103,28 @@ describe("EventCard", () => {
               id: "vr-2",
               status: "pending",
               venueName: "Harbor Hall",
-              date: "2026-12-05",
+              date: "2026-12-07",
               startTime: "17:00",
               endTime: "21:00",
             },
-          ],
-        })
-      )
-    ).toBe("Harbor Hall");
-
-    expect(
-      eventTitle(
-        projection("venue_staff", {
-          id: 7,
-          eventDate: "2026-10-01",
-          startTime: "09:00",
-          endTime: "17:00",
-          status: "submitted",
-          venueRequests: [
             {
-              id: "vr-1",
-              status: "approved",
+              id: "vr-3",
+              status: "pending",
               venueName: "Second Hall",
-              date: "2026-12-06",
+              date: "2026-12-08",
               startTime: "10:00",
               endTime: "12:00",
             },
-            {
-              id: "vr-2",
-              status: "released",
-              venueName: "Harbor Hall",
-              date: "2026-12-05",
-              startTime: "17:00",
-              endTime: "21:00",
-            },
           ],
         })
       )
-    ).toBe("Second Hall");
+    ).toBe("Second Hall, Harbor Hall");
+  });
 
-    expect(
-      eventTitle(
-        projection("venue_staff", {
+  it("lists each venue staff request with its venue, period and state, without the event date", () => {
+    render(
+      <EventCard
+        event={projection("venue_staff", {
           id: 7,
           eventDate: "2026-10-01",
           startTime: "09:00",
@@ -153,7 +133,7 @@ describe("EventCard", () => {
           venueRequests: [
             {
               id: "vr-1",
-              status: "rejected",
+              status: "pending",
               venueName: "Harbor Hall",
               date: "2026-12-05",
               startTime: "17:00",
@@ -168,9 +148,21 @@ describe("EventCard", () => {
               endTime: "12:00",
             },
           ],
-        })
-      )
-    ).toBe("Second Hall");
+        })}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "Harbor Hall, Second Hall" })).toBeTruthy();
+    const items = within(screen.getByRole("list", { name: "Booking requests" })).getAllByRole(
+      "listitem"
+    );
+    expect(items.map(item => item.textContent)).toEqual([
+      "Harbor Hall5 Dec 202617:00–21:00Pending",
+      "Second Hall6 Dec 202610:00–12:00Pending",
+    ]);
+    // Each entry shows its own period, so the event's proposed date and time stay off the card.
+    expect(screen.queryByText("1 Oct 2026")).toBeNull();
+    expect(screen.queryByText("09:00–17:00")).toBeNull();
   });
 
   it("always links a staff card title to the event page", () => {
