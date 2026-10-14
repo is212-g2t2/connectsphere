@@ -702,17 +702,10 @@ export async function handleGetVenueAvailability(
   const endsAt = `${nextCivilDate(selection.endDate)}T00:00:00`;
   const databaseStartsAt = startsAt.replace("T", " ");
   const databaseEndsAt = endsAt.replace("T", " ");
-  const [blocks, bookings, holds, pendingEventIds] = await Promise.all([
+  const [blocks, bookings, holds] = await Promise.all([
     loadVenueBlocks(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueBookings(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueHolds(database, [venue.id], databaseStartsAt, databaseEndsAt),
-    // Conversion creates a pending request for the event and venue. If one already exists, the
-    // unique index rejects conversion, so offer release only.
-    database
-      .select({ eventId: venueRequests.eventId })
-      .from(venueRequests)
-      .where(and(eq(venueRequests.venueId, venue.id), eq(venueRequests.status, "pending")))
-      .then(rows => new Set(rows.map(row => row.eventId))),
   ]);
 
   // Ownership controls whether the calendar offers Release or Convert. Keep both ids on the
@@ -724,7 +717,7 @@ export async function handleGetVenueAvailability(
   // oxlint-disable-next-line oxc/no-map-spread
   const manageableHolds = holds.map(hold => {
     const canRelease = canReleaseHold(hold, viewerId);
-    const canConvert = canConvertHold(hold, viewerId) && !pendingEventIds.has(hold.eventId);
+    const canConvert = canConvertHold(hold, viewerId);
     return {
       ...hold,
       canRelease,

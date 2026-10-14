@@ -1379,9 +1379,9 @@ describe("tentative venue holds (PTR-109)", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Coordinator event card and convert suppression
+  // Coordinator event card and the calendar's Convert action
   // ---------------------------------------------------------------------------
-  describe("coordinator event card and convert suppression", () => {
+  describe("coordinator event card and the calendar's Convert action", () => {
     it("flags the Coordinator's pending request as conflicting when it overlaps an active hold", async () => {
       await handleCreateVenueHold(
         { ...HOLD_WINDOW, eventId: eventIdB, venueId },
@@ -1418,7 +1418,7 @@ describe("tentative venue holds (PTR-109)", () => {
       ]);
     });
 
-    it("suppresses canConvert once the event+venue already has a pending request", async () => {
+    it("offers Convert beside a pending request of the event at another window", async () => {
       const hold = await handleCreateVenueHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
@@ -1436,9 +1436,15 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
       const entry = availability?.occupied.find(period => period.id === hold.id);
-      // Offer release. Conversion would be refused because a pending request exists.
       expect(entry?.canRelease).toBe(true);
-      expect(entry?.canConvert).toBe(false);
+      expect(entry?.canConvert).toBe(true);
+      // The offered action succeeds: the two sessions do not overlap.
+      const { request } = await handleConvertVenueHold(
+        { id: hold.id },
+        session(users.coordinatorA),
+        database as never
+      );
+      expect(request.status).toBe("pending");
     });
   });
 
