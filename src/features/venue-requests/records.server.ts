@@ -8,6 +8,7 @@ import type {
   VenueRequestRejection,
   VenueRequestRelease,
 } from "#/features/events/access";
+import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 
 /**
  * Keep this module server-only. A client-reachable value import of `#/db/schema` would ship the
@@ -47,7 +48,7 @@ export const venueRequestEntryColumns = {
 /** One venue-request row as `venueRequestEntryColumns` selects it. */
 interface VenueRequestEntryRow {
   id: string;
-  status: string;
+  status: VenueRequestStatus;
   createdAt: Date;
   updatedAt: Date;
   venueId: number;
@@ -127,14 +128,7 @@ function releaseFromRow(row: VenueRequestEntryRow): VenueRequestRelease {
   if (row.releaseReason === null) {
     throw new Error(`Released venue request ${row.id} has no reason recorded`);
   }
-  return {
-    venueName: row.venueName,
-    date: row.startsAt.slice(0, 10),
-    startTime: row.startsAt.slice(11, 16),
-    endTime: row.endsAt.slice(11, 16),
-    reason: row.releaseReason,
-    changedByName: row.lastChangedByStaffName,
-  };
+  return { reason: row.releaseReason, changedByName: row.lastChangedByStaffName };
 }
 
 /**

@@ -1,7 +1,7 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schema";
 import type { RegistrationAvailability } from "#/features/events/registration";
-import type { VenueSuggestion } from "#/features/venue-requests/schema";
+import type { VenueRequestStatus, VenueSuggestion } from "#/features/venue-requests/schema";
 
 export type EventAccess =
   | "organiser"
@@ -143,12 +143,11 @@ export interface VenueRequestRejection {
   suggestedVenueId: number | null;
 }
 
-/** Keep released bookings visible to Coordinators as audit records. */
+/**
+ * Keep released bookings visible to Coordinators as audit records. The entry that carries the
+ * release names its venue and window.
+ */
 export interface VenueRequestRelease {
-  venueName: string;
-  date: string;
-  startTime: string;
-  endTime: string;
   reason: string;
   changedByName: string | null;
 }
@@ -165,7 +164,7 @@ export interface VenueRequestRelease {
 export interface EventVenueRequest {
   /** The venue_requests row id (text), so the venue-staff decision can load its detail. */
   id: string;
-  status: string;
+  status: VenueRequestStatus;
   /** The requested venue's name. */
   venueName: string;
   /** The requested window: date as `YYYY-MM-DD`, times as `HH:MM`. */

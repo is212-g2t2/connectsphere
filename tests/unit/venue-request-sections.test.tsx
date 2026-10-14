@@ -133,10 +133,17 @@ describe("venueRequestSections", () => {
     renderSection(data, "decision");
     expect(screen.getByRole("heading", { name: "Record a decision" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Approve request for Riverside Loft/ })).toBeTruthy();
-    expect(screen.getByText("Conflicting booking")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Reject request for Riverside Loft/ })).toBeTruthy();
     expect(screen.getByLabelText("Reason for rejection (required)")).toBeTruthy();
     expect(screen.getByRole("form", { name: /Reject request for Riverside Loft/ })).toBeTruthy();
+  });
+
+  it("shows a conflicting request's badge once across the staff page", () => {
+    const data = page({ details: [pending] });
+    const sections = venueRequestSections(data).filter(section => section.visible(data));
+    render(<>{sections.map(section => section.render(data))}</>);
+
+    expect(screen.getAllByText("Conflicting booking")).toHaveLength(1);
   });
 
   it("renders one details block and one decision group per pending request, with unique ids", () => {
@@ -188,10 +195,10 @@ describe("venueRequestSections", () => {
 
     renderSection(data, "request");
     expect(
-      screen.getByRole("heading", { name: /Booking request details: Harbor Hall/ })
+      screen.getByRole("heading", {
+        name: "Booking request details: Harbor Hall, 22 Nov 2026, 10:00 – 12:00",
+      })
     ).toBeTruthy();
-    expect(screen.getByText("Harbor Hall")).toBeTruthy();
-    expect(screen.getByText("22 Nov 2026, 10:00 – 12:00")).toBeTruthy();
     expect(screen.getAllByText("Pending")).toHaveLength(2);
     expect(
       screen.getByText("The full request did not load. Reload the page to decide it.")
@@ -289,12 +296,15 @@ describe("venueRequestSections", () => {
     ).toEqual(["request"]);
 
     renderSection(data, "request");
+    // The heading names the venue and period. The card does not repeat them.
     expect(
-      screen.getByRole("heading", { name: /Booking request details: Harbor Hall/ })
+      screen.getByRole("heading", {
+        name: "Booking request details: Harbor Hall, 21 Nov 2026, 18:00 – 22:00",
+      })
     ).toBeTruthy();
+    expect(screen.getAllByText(/Harbor Hall/)).toHaveLength(1);
+    expect(screen.getAllByText(/21 Nov 2026/)).toHaveLength(1);
     expect(screen.getByText("Booking approved.")).toBeTruthy();
-    expect(screen.getByText("Harbor Hall")).toBeTruthy();
-    expect(screen.getByText("21 Nov 2026, 18:00 – 22:00")).toBeTruthy();
     expect(screen.getByText("Approved")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
   });
@@ -365,10 +375,6 @@ describe("venueRequestSections", () => {
           startTime: "18:00",
           endTime: "22:00",
           release: {
-            venueName: "Harbor Hall",
-            date: "2026-11-21",
-            startTime: "18:00",
-            endTime: "22:00",
             reason: "Organiser moved the event outdoors.",
             changedByName: "Priya Nair",
           },

@@ -134,10 +134,6 @@ const releasedEntry = {
   startTime: "17:00",
   endTime: "21:00",
   release: {
-    venueName: "Harbor Hall",
-    date: "2026-12-05",
-    startTime: "17:00",
-    endTime: "21:00",
     reason: "The organiser moved the session.",
     changedByName: "Ruth Staff",
   },

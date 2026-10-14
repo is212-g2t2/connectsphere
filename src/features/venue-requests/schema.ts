@@ -241,6 +241,33 @@ export function formatVenueSuggestion(
   return parts.join(", ");
 }
 
+/** The states of one venue request, as the `venue_request_status` enum stores them. */
+export type VenueRequestStatus = "pending" | "withdrawn" | "approved" | "rejected" | "released";
+
+/** PTR-138: the plain-language label every screen shows for a venue-request state. */
+export const VENUE_REQUEST_STATUS_LABELS: Record<VenueRequestStatus, string> = {
+  pending: "Pending",
+  withdrawn: "Withdrawn",
+  approved: "Approved",
+  rejected: "Rejected",
+  released: "Released",
+};
+
+/**
+ * Map each venue-request state to a `Badge` variant, as `EVENT_REQUEST_STATUS_VARIANTS` does.
+ * Use `progress` (amber) for a request that waits, `confirmed` (harbor) for a held booking, and
+ * `stopped` (coral) for a refused or released one. A withdrawn request is neutral `outline`.
+ */
+type VenueRequestStatusVariant = "outline" | "progress" | "confirmed" | "stopped";
+export const VENUE_REQUEST_STATUS_VARIANTS: Record<VenueRequestStatus, VenueRequestStatusVariant> =
+  {
+    pending: "progress",
+    withdrawn: "outline",
+    approved: "confirmed",
+    rejected: "stopped",
+    released: "stopped",
+  };
+
 export function parseVenueRejectionInput(data: unknown): VenueRejectionValues {
   const parsed = VenueRejectionInput.safeParse(data);
   if (!parsed.success) {

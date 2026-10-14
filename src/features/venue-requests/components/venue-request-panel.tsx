@@ -20,7 +20,7 @@ import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { EventRequirements } from "#/features/events/components/event-requirements";
-import { VenueStateBadge } from "#/features/venue-requests/components/venue-state-badge";
+import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import { VenueRequestInput } from "#/features/venue-requests/schema";
 import type { VenueRequestPrefill, VenueRequestValues } from "#/features/venue-requests/schema";
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
@@ -175,7 +175,7 @@ export function VenueRequestPanel({
             >
               {request ? "Venue request" : "Request this venue"}
             </h2>
-            {request && <VenueStateBadge status="pending" />}
+            {request && <VenueRequestStatusBadge status="pending" />}
           </div>
 
           {request ? (

@@ -2,13 +2,13 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
-import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { formatInstant, formatLocalDate } from "#/features/event-requests/format";
 import { AdjustRequestRow } from "#/features/events/components/adjust-request-row";
-import { VenueStateBadge } from "#/features/venue-requests/components/venue-state-badge";
+import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
+import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import {
   EventRequirements,
   hasEventRequirements,
@@ -104,12 +104,8 @@ function VenueRequestEntry({
         label="Status"
         value={
           <span className="flex flex-wrap items-center gap-2">
-            <VenueStateBadge status={entry.status} />
-            {entry.status === "pending" && entry.conflict && (
-              <Badge variant="stopped">
-                {entry.conflict === "hold" ? "Conflicting hold" : "Conflicting booking"}
-              </Badge>
-            )}
+            <VenueRequestStatusBadge status={entry.status} />
+            {entry.conflict && <ConflictBadge conflict={entry.conflict} />}
           </span>
         }
       />

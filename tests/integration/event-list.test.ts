@@ -923,10 +923,6 @@ describe("event list handler (PTR-8)", () => {
           startTime: "14:30",
           endTime: "18:45",
           release: {
-            venueName: FIXTURE_VENUE_NAME,
-            date: "2026-10-12",
-            startTime: "14:30",
-            endTime: "18:45",
             reason: "Air-conditioning failure",
             changedByName: null,
           },
@@ -1183,10 +1179,6 @@ describe("event list handler (PTR-8)", () => {
             startTime: "09:00",
             endTime: "12:00",
             release: {
-              venueName: FIXTURE_VENUE_NAME,
-              date: "2026-11-05",
-              startTime: "09:00",
-              endTime: "12:00",
               reason: "Air-conditioning failure",
               changedByName: fixtureUsers.venueStaff.name,
             },

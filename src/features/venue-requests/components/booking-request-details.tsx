@@ -1,12 +1,12 @@
 import { Card, CardContent } from "#/components/ui/card";
-import { Badge } from "#/components/ui/badge";
 import {
   formatInstant,
   formatLocalDateTime,
   formatProposedWindow,
 } from "#/features/event-requests/format";
 import { EventRequirements } from "#/features/events/components/event-requirements";
-import { VenueStateBadge } from "#/features/venue-requests/components/venue-state-badge";
+import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
+import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
 /**
@@ -19,24 +19,21 @@ export function BookingRequestDetails({ request }: { request: PendingVenueReques
   // Key the heading id by request: the staff page renders one detail block per pending request.
   // Name it with the venue and window: several blocks share the section, so each needs its own name.
   const headingId = `booking-request-details-heading-${request.id}`;
-  const window = formatProposedWindow({ start: request.startsAt, end: request.endsAt });
+  const period = formatProposedWindow({ start: request.startsAt, end: request.endsAt });
   return (
     <section aria-labelledby={headingId}>
       <h2 id={headingId} className="display-h3">
-        Booking request details: {request.venueName}, {window}
+        Booking request details: {request.venueName}, {period}
       </h2>
-
-      {request.conflict ? (
-        <Badge className="mt-4" variant="progress">
-          {request.conflict === "hold" ? "Conflicting hold" : "Conflicting booking"}
-        </Badge>
-      ) : null}
 
       <Card className="mt-4">
         <CardContent>
           <dl className="grid gap-6 sm:grid-cols-2">
             <Detail term="Status">
-              <VenueStateBadge status="pending" />
+              <span className="flex flex-wrap items-center gap-2">
+                <VenueRequestStatusBadge status="pending" />
+                {request.conflict ? <ConflictBadge conflict={request.conflict} /> : null}
+              </span>
             </Detail>
             <Detail term="Venue">{request.venueName}</Detail>
             <Detail term="Submitted">

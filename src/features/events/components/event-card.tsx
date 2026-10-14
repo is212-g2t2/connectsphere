@@ -7,7 +7,7 @@ import { EventRequestStatusBadge } from "#/features/event-requests/components/st
 import { formatLocalDate } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
 import { hasAttendeePage } from "#/features/events/access";
-import { VenueStateBadge } from "#/features/venue-requests/components/venue-state-badge";
+import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 
 /**
  * Title an event on the card and the event page the same way. Venue Staff never see the event
@@ -82,7 +82,7 @@ export function EventCard({ event: projection }: { event: EventProjection }) {
                   <Clock3 className="size-4" />
                   {entry.startTime}–{entry.endTime}
                 </span>
-                <VenueStateBadge status={entry.status} />
+                <VenueRequestStatusBadge status={entry.status} />
               </li>
             ))}
           </ul>
