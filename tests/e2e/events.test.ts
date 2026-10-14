@@ -118,7 +118,7 @@ test.describe("Event access", () => {
     await expect(page.getByRole("heading", { name: "About Event" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in Maps" })).toHaveCount(0);
     // These DOM checks cover the page. The integration test checks the projection's keys.
-    await expect(page.getByText("Venue request", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("What was requested", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Equipment arrangements")).toHaveCount(0);
     await expect(page.getByText("Expected attendance")).toHaveCount(0);
   });

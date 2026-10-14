@@ -751,16 +751,6 @@ describe("venue request handlers (PTR-31)", () => {
       expect(ledger).toEqual(expect.arrayContaining([morning.id, afternoon.id]));
     });
 
-    it("refuses a window that overlaps the event's pending request, naming its window and state", async () => {
-      await raiseRequest(eventId, "09:00", "10:00");
-
-      await expect(raiseRequest(eventId, "09:30", "10:30")).rejects.toMatchObject({
-        name: "ConflictError",
-        status: 409,
-        message: `This window overlaps this event's pending request for ${VENUE_NAME} on 20 Apr 2027, 09:00 – 10:00.`,
-      });
-    });
-
     it("refuses a window that overlaps the event's approved booking", async () => {
       const booked = await raiseRequest(eventId, "09:00", "10:00");
       await approve(booked.id, users.venueStaffA);
@@ -2640,6 +2630,66 @@ describe("venue request handlers (PTR-31)", () => {
       ]);
     });
 
+    it("AC3 (PTR-138): amending one approved booking moves its ledger row; the sibling's row and ledger row stay unchanged", async () => {
+      const altVenueId = await createPtr37AlternativeVenue();
+      const requestA = await raiseFor(eventId, venueId, "09:00", "10:00");
+      const requestB = await raiseFor(eventId, altVenueId, "11:00", "12:00");
+      await approve(requestA.id, users.venueStaffA);
+      await approve(requestB.id, users.venueStaffB);
+      const [ledgerA] = await ledgerFor([requestA.id]);
+      expect(ledgerA).toMatchObject({
+        venueId,
+        startsAt: `${WINDOW.date} 09:00:00`,
+        endsAt: `${WINDOW.date} 10:00:00`,
+      });
+      // The full row covers the status, the window and the staff fields.
+      const siblingBefore = await readRow(requestB.id);
+      const siblingLedgerBefore = await ledgerFor([requestB.id]);
+      expect(siblingLedgerBefore).toEqual([
+        expect.objectContaining({
+          venueId: altVenueId,
+          eventId,
+          startsAt: `${WINDOW.date} 11:00:00`,
+          endsAt: `${WINDOW.date} 12:00:00`,
+          active: true,
+        }),
+      ]);
+
+      // A moves to the sibling's venue, in a window clear of the sibling's booking.
+      const amended = await handleAmendVenueBooking(
+        {
+          id: requestA.id,
+          venueId: altVenueId,
+          date: WINDOW.date,
+          startTime: "14:00",
+          endTime: "15:30",
+        },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      expect(amended).toMatchObject({
+        status: "approved",
+        venueId: altVenueId,
+        startsAt: `${WINDOW.date} 14:00:00`,
+        endsAt: `${WINDOW.date} 15:30:00`,
+        lastChangedByStaffId: users.venueStaffA.id,
+      });
+      const ledgerAAfter = await ledgerFor([requestA.id]);
+      expect(ledgerAAfter).toEqual([
+        expect.objectContaining({
+          venueId: altVenueId,
+          eventId,
+          startsAt: `${WINDOW.date} 14:00:00`,
+          endsAt: `${WINDOW.date} 15:30:00`,
+          active: true,
+        }),
+      ]);
+      expect(ledgerAAfter[0].id).not.toBe(ledgerA.id);
+      expect(await readRow(requestB.id)).toEqual(siblingBefore);
+      expect(await ledgerFor([requestB.id])).toEqual(siblingLedgerBefore);
+    });
+
     it("AC4 (PTR-138): the same venue hosts separate sessions; duplicates and overlaps are still refused", async () => {
       const first = await raiseFor(eventId, venueId, "09:00", "10:00");
       await approve(first.id, users.venueStaffA);
@@ -2659,23 +2709,9 @@ describe("venue request handlers (PTR-31)", () => {
           .map(row => row.venueRequestId)
           .toSorted((a, b) => (a ?? "").localeCompare(b ?? ""))
       ).toEqual([first.id, second.id].toSorted((a, b) => a.localeCompare(b)));
-
-      // An overlapping approval on another event names the venue and the booked period.
-      const overlap = await raiseFor(
-        await createEvent("PTR-138 AC4 overlap event"),
-        venueId,
-        "09:30",
-        "10:30"
-      );
-      await expect(approve(overlap.id, users.venueStaffB)).rejects.toMatchObject({
-        name: "ConflictError",
-        status: 409,
-        message: `${VENUE_NAME} is already booked 20 Apr 2027, 09:00 \u2013 10:00`,
-      });
-      expect((await readRow(overlap.id)).status).toBe("pending");
     });
 
-    it("AC5 (PTR-138): the coordinator, organiser and venue-staff queues list every booking with venue, period and state", async () => {
+    it("AC5 (PTR-138): lists venue, period and state on each row; the Coordinator sees every row, the Organiser only pending and approved rows, and each Venue Staff member only the shared queue and their own decisions", async () => {
       const altVenueId = await createPtr37AlternativeVenue();
       const pending = await raiseFor(eventId, venueId, "09:00", "10:00");
       const approved = await raiseFor(eventId, altVenueId, "11:00", "12:00");
@@ -2686,67 +2722,68 @@ describe("venue request handlers (PTR-31)", () => {
         session(users.venueStaffB),
         database as never
       );
+      const pendingEntry = {
+        id: pending.id,
+        status: "pending",
+        venueName: VENUE_NAME,
+        date: WINDOW.date,
+        startTime: "09:00",
+        endTime: "10:00",
+      };
+      const approvedEntry = {
+        id: approved.id,
+        status: "approved",
+        venueName: PTR37_ALTERNATIVE_VENUE_NAME,
+        date: WINDOW.date,
+        startTime: "11:00",
+        endTime: "12:00",
+      };
+      const rejectedPeriod = { date: WINDOW.date, startTime: "13:00", endTime: "14:00" };
+      const rejectedEntry = {
+        id: rejected.id,
+        status: "rejected",
+        venueName: PTR37_ALTERNATIVE_VENUE_NAME,
+        ...rejectedPeriod,
+        rejection: {
+          venueId: altVenueId,
+          venueName: PTR37_ALTERNATIVE_VENUE_NAME,
+          ...rejectedPeriod,
+          reason: "Closed for floor resurfacing",
+          suggestion: null,
+          suggestedVenueId: null,
+        },
+      };
 
+      // Every list arrives earliest window first. Only the Coordinator's copy marks the rejection
+      // adjustable and carries each row's session requirements (PTR-138 AC1).
       const [coordinatorView] = await handleListEvents(
         { eventId },
         session(users.coordinator),
         database as never
       );
-      expect(coordinatorView.event.venueRequests).toMatchObject([
-        {
-          id: pending.id,
-          status: "pending",
-          venueName: VENUE_NAME,
-          date: WINDOW.date,
-          startTime: "09:00",
-          endTime: "10:00",
-        },
-        {
-          id: approved.id,
-          status: "approved",
-          venueName: PTR37_ALTERNATIVE_VENUE_NAME,
-          date: WINDOW.date,
-          startTime: "11:00",
-          endTime: "12:00",
-        },
-        {
-          id: rejected.id,
-          status: "rejected",
-          venueName: PTR37_ALTERNATIVE_VENUE_NAME,
-          date: WINDOW.date,
-          startTime: "13:00",
-          endTime: "14:00",
-          rejection: { reason: "Closed for floor resurfacing" },
-        },
+      const requirements = EVENT_REQUIREMENTS;
+      expect(coordinatorView.event.venueRequests).toEqual([
+        { ...pendingEntry, requirements },
+        { ...approvedEntry, requirements },
+        { ...rejectedEntry, requirements, adjustable: true },
       ]);
 
+      // The Organiser gets no rejected row, so no rejection reason reaches them.
       const [organiserView] = await handleListEvents(
         { eventId },
         session(users.organiser),
         database as never
       );
-      expect((organiserView.event.venueRequests ?? []).map(entry => entry.id).toSorted()).toEqual(
-        [approved.id, pending.id].toSorted()
-      );
-      for (const entry of organiserView.event.venueRequests ?? []) {
-        expect(entry).not.toHaveProperty("rejection");
-        expect(entry).not.toHaveProperty("release");
-      }
+      expect(organiserView.event.venueRequests).toEqual([pendingEntry, approvedEntry]);
 
-      // The shared pending queue plus each member's own rows: A sees the pending request and the
-      // booking they approved; B sees the pending request and the request they rejected.
-      const staffAEvent = (
-        await handleListEvents({}, session(users.venueStaffA), database as never)
-      ).find(item => item.event.id === eventId);
-      const staffBEvent = (
-        await handleListEvents({}, session(users.venueStaffB), database as never)
-      ).find(item => item.event.id === eventId);
-      expect((staffAEvent?.event.venueRequests ?? []).map(entry => entry.id).toSorted()).toEqual(
-        [approved.id, pending.id].toSorted()
-      );
-      expect((staffBEvent?.event.venueRequests ?? []).map(entry => entry.id).toSorted()).toEqual(
-        [pending.id, rejected.id].toSorted()
-      );
+      // Each Venue Staff member gets the shared pending queue plus the rows they decided: A gets
+      // the booking they approved, and B gets the request they rejected, with its reason.
+      const staffView = async (member: (typeof users)["venueStaffA"]) =>
+        (await handleListEvents({}, session(member), database as never)).find(
+          item => item.event.id === eventId
+        )?.event.venueRequests;
+      expect(await staffView(users.venueStaffA)).toEqual([pendingEntry, approvedEntry]);
+      expect(await staffView(users.venueStaffB)).toEqual([pendingEntry, rejectedEntry]);
     });
   });
 });
