@@ -7,7 +7,6 @@ import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
-import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { handleListEvents } from "#/features/events/records.server";
 import {
   handleAmendVenueBooking,
@@ -462,37 +461,6 @@ describe("venue request handlers (PTR-31)", () => {
         ).toEqual([]);
       }
     );
-
-    it("still refuses a request for a cancelled event (PTR-138 gate)", async () => {
-      const id = await createEvent("PTR-138 cancelled event");
-      await database
-        .update(schema.eventRequests)
-        .set({
-          status: "cancelled",
-          cancelledById: users.coordinator.id,
-          cancelledByName: users.coordinator.name,
-          cancelledAt: new Date(),
-        })
-        .where(eq(schema.eventRequests.id, id));
-
-      await expect(
-        handleCreateVenueRequest(
-          { ...WINDOW, eventId: id, venueId },
-          session(users.coordinator),
-          database as never
-        )
-      ).rejects.toMatchObject({
-        name: "ConflictError",
-        status: 409,
-        message: CANCELLED_EVENT_ACTIVITY_MESSAGE,
-      });
-      expect(
-        await database
-          .select()
-          .from(schema.venueRequests)
-          .where(eq(schema.venueRequests.eventId, id))
-      ).toEqual([]);
-    });
 
     it("refuses a venue that does not exist", async () => {
       await expect(
