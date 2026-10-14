@@ -303,6 +303,19 @@ test("[PTR-138] Venue Staff decide one of two pending requests on one event and 
     await expect(
       page.getByRole("button", { name: `Approve request for ${venueNames[1]}` })
     ).toBeVisible();
+
+    // PTR-138 AC5: the dashboard card lists each request with its venue, period and state. The
+    // approved booking stays on the card because this staff member decided it.
+    await page.goto("/dashboard");
+    await waitForHydration(page);
+    const approvedEntry = page.getByRole("listitem").filter({ hasText: venueNames[0] });
+    const pendingEntry = page.getByRole("listitem").filter({ hasText: venueNames[1] });
+    await expect(approvedEntry).toContainText("11 May 2037");
+    await expect(approvedEntry).toContainText(/10:00\s?–\s?11:00/);
+    await expect(approvedEntry).toContainText("Approved");
+    await expect(pendingEntry).toContainText("11 May 2037");
+    await expect(pendingEntry).toContainText(/13:00\s?–\s?14:00/);
+    await expect(pendingEntry).toContainText("Pending");
   } finally {
     await database.delete(schema.venueRequests).where(inArray(schema.venueRequests.id, requestIds));
     if (eventId !== 0) {

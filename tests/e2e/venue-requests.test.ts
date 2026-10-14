@@ -284,3 +284,134 @@ test("[PTR-138] a Coordinator requests two sessions at one venue and an overlapp
     }
   }
 });
+
+/** PTR-138 AC1/AC5: search refuses a breakout room for the event's full attendance. A smaller
+ * session finds it, the request form starts from the search, and the Coordinator edits the
+ * session before sending. The event page then lists the request with its period, session and
+ * state.
+ */
+test("[PTR-138] a Coordinator finds a breakout room in search and requests it for a smaller session", async ({
+  page,
+}) => {
+  const cleanup = { userIds: [] as string[], venueIds: [] as number[] };
+
+  try {
+    const coordinator = await registerAccount(database, page, {
+      role: "event_coordinator",
+      name: "Breakout Coordinator",
+      password,
+    });
+    cleanup.userIds.push(coordinator.id);
+    const organiserId = randomUUID();
+    cleanup.userIds.push(organiserId);
+    await database.insert(schema.user).values({
+      id: organiserId,
+      name: "Breakout Organiser",
+      email: `${organiserId}@example.invalid`,
+      role: "event_organiser",
+    });
+
+    // A location of its own keeps the seeded venues out of the suitable results.
+    const location = `PTR-138 Breakout Wing ${randomUUID()}`;
+    const roomName = `PTR-138 Breakout Room ${randomUUID()}`;
+    const [room] = await database
+      .insert(schema.venues)
+      .values({
+        name: roomName,
+        location,
+        maxCapacity: 40,
+        operatingHours: DEFAULT_OPERATING_HOURS,
+        supportedLayouts: ["theatre"],
+        facilities: ["Projector"],
+      })
+      .returning({ id: schema.venues.id });
+    cleanup.venueIds.push(room.id);
+
+    const eventName = `PTR-138 Conference ${randomUUID()}`;
+    const [event] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId,
+        eventName,
+        status: "submitted",
+        submittedAt: new Date(),
+        assignedCoordinatorId: coordinator.id,
+        assignedAt: new Date(),
+        proposedDates: [{ start: "2027-05-10T09:00", end: "2027-05-10T17:00" }],
+        expectedAttendance: 120,
+        roomLayoutPreference: "Theatre seating",
+        venueRequirements: "Projector",
+      })
+      .returning({ id: schema.eventRequests.id });
+
+    await page.goto(`/events/${event.id}`);
+    await waitForHydration(page);
+    await page
+      .locator("section#venue")
+      .getByRole("link", { name: "Find venues for this event", exact: true })
+      .click();
+    await expect(page.getByText(`Prefilled from ${eventName}`, { exact: true })).toBeVisible();
+
+    // The room cannot hold the event's 120 attendees, so search offers it no request.
+    const unsuitable = page.getByRole("region", { name: "Not suitable" });
+    await expect(unsuitable.getByRole("row", { name: new RegExp(roomName) })).toContainText(
+      "Holds 40; 120 needed"
+    );
+
+    await page.getByLabel("Expected attendance", { exact: true }).fill("30");
+    await page.getByLabel("Location", { exact: true }).fill(location);
+    await page.getByRole("button", { name: "Search venues", exact: true }).click();
+    const results = page.getByRole("region", { name: "Venue results" });
+    await results.getByRole("link", { name: roomName, exact: true }).click();
+    await waitForHydration(page);
+
+    // The form starts from the search: its window and the smaller session.
+    await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
+    await expect(page.getByLabel("Date (required)", { exact: true })).toHaveValue("2027-05-10");
+    await expect(page.getByLabel("Expected attendance", { exact: true })).toHaveValue("30");
+    await expect(page.getByLabel("Layout", { exact: true })).toHaveValue("Theatre seating");
+    await expect(page.getByLabel("Facilities", { exact: true })).toHaveValue("Projector");
+
+    await page.getByLabel("Start time (required)", { exact: true }).fill("13:00");
+    await page.getByLabel("End time (required)", { exact: true }).fill("14:30");
+    await page.getByLabel("Expected attendance", { exact: true }).fill("25");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+
+    const list = page.getByRole("list", { name: `Requests for ${eventName}` });
+    await expect(list.getByRole("listitem")).toHaveCount(1);
+    await expect(list.getByRole("listitem")).toContainText("10 May 2027, 13:00 – 14:30");
+    await expect(list.getByRole("listitem")).toContainText("Pending");
+    await expect(list.getByRole("listitem")).toContainText("25 attendees");
+
+    const rows = await database
+      .select()
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.eventId, event.id));
+    expect(rows).toEqual([
+      expect.objectContaining({
+        venueId: room.id,
+        status: "pending",
+        startsAt: "2027-05-10 13:00:00",
+        endsAt: "2027-05-10 14:30:00",
+        expectedAttendance: 25,
+        layout: "Theatre seating",
+        requiredFacilities: "Projector",
+      }),
+    ]);
+
+    await page.goto(`/events/${event.id}`);
+    await waitForHydration(page);
+    const venue = page.locator("section#venue");
+    await expect(venue.getByText(roomName, { exact: true })).toBeVisible();
+    await expect(venue).toContainText(/10 May 2027, 13:00\s?–\s?14:30/);
+    await expect(venue).toContainText("25 attendees");
+    await expect(venue.getByText("Pending", { exact: true })).toBeVisible();
+  } finally {
+    if (cleanup.userIds.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
+    }
+    if (cleanup.venueIds.length > 0) {
+      await database.delete(schema.venues).where(inArray(schema.venues.id, cleanup.venueIds));
+    }
+  }
+});
