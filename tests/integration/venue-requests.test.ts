@@ -2379,6 +2379,66 @@ describe("venue request handlers (PTR-31)", () => {
       ]);
     });
 
+    it("AC3 (PTR-138): amending one approved booking moves its ledger row; the sibling's row and ledger row stay unchanged", async () => {
+      const altVenueId = await createPtr37AlternativeVenue();
+      const requestA = await raiseFor(eventId, venueId, "09:00", "10:00");
+      const requestB = await raiseFor(eventId, altVenueId, "11:00", "12:00");
+      await approve(requestA.id, users.venueStaffA);
+      await approve(requestB.id, users.venueStaffB);
+      const [ledgerA] = await ledgerFor([requestA.id]);
+      expect(ledgerA).toMatchObject({
+        venueId,
+        startsAt: `${WINDOW.date} 09:00:00`,
+        endsAt: `${WINDOW.date} 10:00:00`,
+      });
+      // The full row covers the status, the window and the staff fields.
+      const siblingBefore = await readRow(requestB.id);
+      const siblingLedgerBefore = await ledgerFor([requestB.id]);
+      expect(siblingLedgerBefore).toEqual([
+        expect.objectContaining({
+          venueId: altVenueId,
+          eventId,
+          startsAt: `${WINDOW.date} 11:00:00`,
+          endsAt: `${WINDOW.date} 12:00:00`,
+          active: true,
+        }),
+      ]);
+
+      // A moves to the sibling's venue, in a window clear of the sibling's booking.
+      const amended = await handleAmendVenueBooking(
+        {
+          id: requestA.id,
+          venueId: altVenueId,
+          date: WINDOW.date,
+          startTime: "14:00",
+          endTime: "15:30",
+        },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      expect(amended).toMatchObject({
+        status: "approved",
+        venueId: altVenueId,
+        startsAt: `${WINDOW.date} 14:00:00`,
+        endsAt: `${WINDOW.date} 15:30:00`,
+        lastChangedByStaffId: users.venueStaffA.id,
+      });
+      const ledgerAAfter = await ledgerFor([requestA.id]);
+      expect(ledgerAAfter).toEqual([
+        expect.objectContaining({
+          venueId: altVenueId,
+          eventId,
+          startsAt: `${WINDOW.date} 14:00:00`,
+          endsAt: `${WINDOW.date} 15:30:00`,
+          active: true,
+        }),
+      ]);
+      expect(ledgerAAfter[0].id).not.toBe(ledgerA.id);
+      expect(await readRow(requestB.id)).toEqual(siblingBefore);
+      expect(await ledgerFor([requestB.id])).toEqual(siblingLedgerBefore);
+    });
+
     it("AC4 (PTR-138): the same venue hosts separate sessions; duplicates and overlaps are still refused", async () => {
       const first = await raiseFor(eventId, venueId, "09:00", "10:00");
       await approve(first.id, users.venueStaffA);
