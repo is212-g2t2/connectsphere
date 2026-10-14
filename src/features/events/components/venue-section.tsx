@@ -41,6 +41,11 @@ interface VenueSource {
   searchable: boolean;
 }
 
+/** The Coordinator searches for venues from this block while the event takes venue requests. */
+function hasVenueActions({ searchable, access, status }: VenueSource): boolean {
+  return searchable && access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(status);
+}
+
 function venueSource(data: EventPageData): VenueSource | null {
   if (data.kind === "triage") {
     return {
@@ -150,8 +155,7 @@ function VenueBody({ data }: { data: EventPageData }) {
   const source = venueSource(data);
   if (!source) return null;
   const { access, status, venueRequests } = source;
-  const hasActions =
-    source.searchable && access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(status);
+  const hasActions = hasVenueActions(source);
   const hasRequested = hasEventRequirements(source.requirements, venueRequests.length > 0);
   if (!hasRequested && !source.confirmation && !hasActions) return null;
   return (
@@ -240,8 +244,8 @@ function VenueDetail({ label, value }: { label: string; value: ReactNode }) {
 /**
  * Share the venue block between the Organiser and the Coordinator. Show it always for approved,
  * planning, and confirmed events. The Coordinator keeps it for every searchable status. It
- * carries the venue search action there. Triage shows it while the request carries venue
- * entries.
+ * carries the venue search action there. In a searchable status, the Organiser sees it while the
+ * event has venue requests (PTR-138 AC5). Triage shows it while the request carries venue entries.
  */
 export function venueSections(data: EventPageData): EventSectionDef[] {
   if (data.kind === "triage") {
@@ -267,16 +271,14 @@ export function venueSections(data: EventPageData): EventSectionDef[] {
         if (!source) return false;
         const { access, status, venueRequests } = source;
         const settled = status === "approved" || status === "planning" || status === "confirmed";
-        const searchable = access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(status);
+        const searchable =
+          SEARCHABLE_EVENT_STATUSES.includes(status) &&
+          (access === "coordinator" || venueRequests.length > 0);
         if (!settled && !searchable) return false;
-        const hasActions =
-          source.searchable &&
-          access === "coordinator" &&
-          SEARCHABLE_EVENT_STATUSES.includes(status);
         return (
           hasEventRequirements(source.requirements, venueRequests.length > 0) ||
           source.confirmation !== null ||
-          hasActions
+          hasVenueActions(source)
         );
       },
       render: body => <VenueBody data={body} />,
