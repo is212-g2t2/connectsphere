@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests, user, venueRequests, venues } from "#/db/schema";
@@ -20,6 +20,7 @@ import {
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
+  venueRequestEventOverlapMessage,
   venueRequestEventStatusMessage,
 } from "#/features/venue-requests/schema";
 import { checkVenueFree, occupyVenue } from "#/features/venue-requests/occupancy.server";
@@ -27,8 +28,10 @@ import {
   assertSameVenue,
   keyShareEvent,
   keyShareEventForRequest,
+  lockVenue,
   lockVenueForRequest,
 } from "#/features/venue-requests/venue-lock.server";
+import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
 import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
@@ -109,6 +112,92 @@ export function rethrowDuplicate(error: unknown): never {
     error,
     "venue_requests_pending_event_venue_window_idx",
     VENUE_REQUEST_DUPLICATE_MESSAGE
+  );
+}
+
+/** The venue row that request creation and hold conversion read under the venue lock. */
+export interface LockedVenue {
+  id: number;
+  name: string;
+  setupMinutes: number;
+  turnaroundMinutes: number;
+}
+
+/**
+ * Read the venue's name and current buffers. Call it under the venue lock, so a venue save cannot
+ * change the buffers before the overlap check. Return Not Found for a missing venue.
+ */
+export async function loadLockedVenue(tx: VenueTx, venueId: number): Promise<LockedVenue> {
+  const rows = await tx
+    .select({
+      id: venues.id,
+      name: venues.name,
+      setupMinutes: venues.setupMinutes,
+      turnaroundMinutes: venues.turnaroundMinutes,
+    })
+    .from(venues)
+    .where(eq(venues.id, venueId))
+    .limit(1);
+  const venue = rows.at(0);
+  if (!venue) throw new NotFoundError("Not Found");
+  return venue;
+}
+
+/**
+ * PTR-138 AC4: refuse a window that overlaps a pending request or an approved booking of the same
+ * event at this venue. Count the venue's setup and turnaround time on both sides, as approval does
+ * (ADR-7): each period occupies [start − setup, end + turnaround). Approval would refuse such a
+ * window, so refuse it at creation. Name the approved booking first, then the earliest request.
+ *
+ * Call it under the venue lock, so two concurrent creators for one event see each other's rows.
+ * Leave an exact pending duplicate to the partial unique index, which answers it with
+ * `VENUE_REQUEST_DUPLICATE_MESSAGE`. Pending requests of other events can overlap; approval checks
+ * them (PTR-36).
+ */
+export async function assertNoEventOverlap(
+  tx: VenueTx,
+  venue: LockedVenue,
+  request: { eventId: number; startsAt: string; endsAt: string }
+): Promise<void> {
+  const setup = sql`make_interval(mins => ${venue.setupMinutes}::integer)`;
+  const turnaround = sql`make_interval(mins => ${venue.turnaroundMinutes}::integer)`;
+  const isApproved = eq(venueRequests.status, "approved");
+  const rows = await tx
+    .select({
+      status: venueRequests.status,
+      startsAt: venueRequests.startsAt,
+      endsAt: venueRequests.endsAt,
+    })
+    .from(venueRequests)
+    .where(
+      and(
+        eq(venueRequests.eventId, request.eventId),
+        eq(venueRequests.venueId, venue.id),
+        or(
+          isApproved,
+          and(
+            eq(venueRequests.status, "pending"),
+            or(
+              ne(venueRequests.startsAt, request.startsAt),
+              ne(venueRequests.endsAt, request.endsAt)
+            )
+          )
+        ),
+        sql`tsrange(${venueRequests.startsAt} - ${setup}, ${venueRequests.endsAt} + ${turnaround}, '[)') && tsrange(${request.startsAt}::timestamp - ${setup}, ${request.endsAt}::timestamp + ${turnaround}, '[)')`
+      )
+    )
+    .orderBy(desc(isApproved), asc(venueRequests.startsAt))
+    .limit(1);
+  const overlap = rows.at(0);
+  if (!overlap) return;
+  throw new ConflictError(
+    venueRequestEventOverlapMessage({
+      venueName: venue.name,
+      status: overlap.status === "approved" ? "approved" : "pending",
+      startsAt: overlap.startsAt,
+      endsAt: overlap.endsAt,
+      buffered: venue.setupMinutes + venue.turnaroundMinutes > 0,
+    })
   );
 }
 
@@ -359,7 +448,9 @@ export async function handleGetVenueRequestContext(
  * Refuse a window that does not describe a real civil day. The event must stand in
  * `SEARCHABLE_EVENT_STATUSES` and be assigned to the caller, as the PTR-29 search allows. Hold
  * creation and conversion use the same gate.
- * Do not check overlaps here. Pending requests can overlap; approval checks them (PTR-36).
+ * PTR-138 AC4: refuse a window that overlaps the same event's pending or approved request at this
+ * venue (`assertNoEventOverlap`). Pending requests of other events can overlap; approval checks
+ * them (PTR-36).
  * A cancelled event cannot receive a request (PTR-54 AC9).
  */
 export async function handleCreateVenueRequest(
@@ -377,13 +468,14 @@ export async function handleCreateVenueRequest(
     const event = await loadAssignedEvent(tx, input.eventId, actor.id, SEARCHABLE_EVENT_STATUSES);
     if (!event) throw new AuthorizationError("Forbidden");
 
-    const venueRows = await tx
-      .select({ id: venues.id, name: venues.name })
-      .from(venues)
-      .where(eq(venues.id, input.venueId))
-      .limit(1);
-    const venue = venueRows.at(0);
-    if (!venue) throw new NotFoundError("Not Found");
+    // Take the venue lock after the event lock, as every venue writer does. It serializes two
+    // creators for one event, so the overlap check sees the other creator's committed row.
+    await lockVenue(tx, input.venueId);
+    const venue = await loadLockedVenue(tx, input.venueId);
+    // The column returns `YYYY-MM-DD HH:MM:SS` because it uses `mode: "string"`.
+    const startsAt = `${input.date} ${input.startTime}:00`;
+    const endsAt = `${input.date} ${input.endTime}:00`;
+    await assertNoEventOverlap(tx, venue, { eventId: event.id, startsAt, endsAt });
 
     const rows = await tx
       .insert(venueRequests)
@@ -393,9 +485,8 @@ export async function handleCreateVenueRequest(
         venueId: venue.id,
         // Criterion 5: Check the user who raised the request, not the event assignment.
         requestedById: actor.id,
-        // The column returns `YYYY-MM-DD HH:MM:SS` because it uses `mode: "string"`.
-        startsAt: `${input.date} ${input.startTime}:00`,
-        endsAt: `${input.date} ${input.endTime}:00`,
+        startsAt,
+        endsAt,
       })
       .returning()
       .catch(rethrowDuplicate);

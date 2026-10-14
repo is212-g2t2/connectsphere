@@ -1,12 +1,14 @@
 import { eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, user, venueHolds, venueRequests, venues } from "#/db/schema";
+import { eventRequests, user, venueHolds, venueRequests } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import {
+  assertNoEventOverlap,
+  loadLockedVenue,
   raiseVenueRequestNotifications,
   rethrowDuplicate,
 } from "#/features/venue-requests/requests.server";
@@ -152,6 +154,8 @@ export async function handleReleaseVenueHold(
  * PTR-109 AC5: Convert a tentative hold to a pending venue request.
  * Release the hold, create a request for the same venue, period, and event, and notify Venue Staff.
  * The release removes the hold's ledger row. A pending request holds no venue time, so it gets none.
+ * The new request follows the creation rules: the overlap check (PTR-138 AC4) and the duplicate
+ * index refuse it, and the refusal rolls back the release.
  * PTR-54 AC9: A cancelled event cannot get a new request, so its hold can only be released.
  */
 export async function handleConvertVenueHold(
@@ -185,14 +189,14 @@ export async function handleConvertVenueHold(
     );
     if (!assignedEvent) throw new AuthorizationError("Forbidden");
 
-    // Read before insert, as `handleCreateVenueHold` does. The foreign key guarantees the row exists.
-    const venueRows = await tx
-      .select({ id: venues.id, name: venues.name })
-      .from(venues)
-      .where(eq(venues.id, hold.venueId))
-      .limit(1);
-    const venue = venueRows.at(0);
-    if (!venue) throw new NotFoundError("Not Found");
+    // The release took the venue lock, so the buffers and the event's requests stay current.
+    // PTR-138 AC4: refuse a hold window that overlaps the event's own request at this venue.
+    const venue = await loadLockedVenue(tx, hold.venueId);
+    await assertNoEventOverlap(tx, venue, {
+      eventId: hold.eventId,
+      startsAt: hold.startsAt,
+      endsAt: hold.endsAt,
+    });
 
     const [createdRequest] = await tx
       .insert(venueRequests)

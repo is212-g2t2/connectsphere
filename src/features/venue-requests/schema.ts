@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { formatLocalDateTime } from "#/features/event-requests/format";
+import { formatLocalDateTime, formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { TIME_SHAPE, VENUE_ID_MESSAGE, VENUE_SEARCH_EVENT_MESSAGE } from "#/features/venues/schema";
@@ -77,6 +77,25 @@ export function venueRequestConflictMessage(
       ? endsAt.slice(11, 16)
       : formatLocalDateTime(endsAt.slice(0, 16));
   return `${conflict.venueName} is ${phrase} ${start} – ${end}`;
+}
+
+/**
+ * PTR-138 AC4: refuse a window that overlaps a pending request or an approved booking of the same
+ * event at the same venue. Name that request's window and state. The venue's setup and turnaround
+ * time count between two sessions of one event, as approval counts them (ADR-7), so the message
+ * says so when the venue has buffers.
+ */
+export function venueRequestEventOverlapMessage(overlap: {
+  venueName: string;
+  status: "pending" | "approved";
+  startsAt: string;
+  endsAt: string;
+  buffered: boolean;
+}): string {
+  const existing = overlap.status === "approved" ? "approved booking" : "pending request";
+  const period = formatVenuePeriod(overlap.startsAt, overlap.endsAt);
+  const buffers = overlap.buffered ? ", including the venue's setup and turnaround time" : "";
+  return `This window overlaps this event's ${existing} for ${overlap.venueName} on ${period}${buffers}.`;
 }
 
 const Time = z.string().regex(TIME_SHAPE, VENUE_REQUEST_TIME_MESSAGE);

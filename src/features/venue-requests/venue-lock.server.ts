@@ -16,7 +16,9 @@ export type VenueTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
  * pre-checks read the ledger under it, so they see every committed row. The venue save takes it
  * too, and relies on it alone to serialize the buffer columns. This gives writers one lock order
  * and prevents deadlocks (40P01). The `xact` lock ends when its transaction commits or rolls back.
- * Withdraw and reject only lock rows because they do not hold venue time.
+ * Request creation takes it after the event lock, so its same-event overlap check (PTR-138 AC4)
+ * sees every committed request. Withdraw and reject only lock rows because they do not hold venue
+ * time.
  */
 export async function lockVenue(tx: VenueTx, venueId: number): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(${venueId})`);
