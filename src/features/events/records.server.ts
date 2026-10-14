@@ -344,8 +344,8 @@ export async function handleListEvents(
         )
         .groupBy(eventRegistrations.eventId)
     : Promise.resolve([]);
-  // PTR-36 criterion 4: Flag pending requests that overlap an approved booking or an active
-  // hold. Send only the conflict kind to the client, never the other event.
+  // PTR-36 criterion 4, PTR-138 AC1: Flag pending requests that approval would refuse now. Send
+  // only the conflict kind to the client, never the other event.
   const [holderRows, bookings, countRows, conflictKinds] = await Promise.all([
     holderRead,
     bookingRead,

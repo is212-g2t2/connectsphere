@@ -42,9 +42,10 @@ function requestIsGone(message: string): boolean {
 }
 
 /**
- * Check whether to show `message` verbatim. Show refusals for a settled request or a conflict with
- * an approved booking or active hold. Use the generic mutation message for other errors, such as
- * `Forbidden` or `Not Found`.
+ * Check whether to show `message` verbatim. Show refusals for a settled request and every refusal
+ * that `VENUE_CONFLICT_PHRASES` names: a conflict, an unavailable or unsuitable venue, or an event
+ * that takes no booking. Use the generic mutation message for other errors, such as `Forbidden` or
+ * `Not Found`.
  */
 function isApprovalConflict(message: string): boolean {
   return (
