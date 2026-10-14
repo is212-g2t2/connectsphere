@@ -69,10 +69,10 @@ import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/avail
 type Database = typeof Db;
 
 /**
- * Read the caller's own event request through the gate both venue callers use. The event must
- * belong to the asking Coordinator and stand in `SEARCHABLE_EVENT_STATUSES`. Both callers pass
- * that set: the venue search that prefills the request form and the request create handler. It
- * lives here with the event reads. `null` is the refusal. Both callers turn it into
+ * Read the caller's own event request through the venue gate. The event must belong to the asking
+ * Coordinator and stand in `statuses`. Every caller passes `SEARCHABLE_EVENT_STATUSES`: the venue
+ * search that prefills the request form, request creation, hold creation and hold conversion. It
+ * lives here with the event reads. `null` is the refusal. Every caller turns it into
  * `AuthorizationError("Forbidden")`.
  */
 export async function loadAssignedEvent(

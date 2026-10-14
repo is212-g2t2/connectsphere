@@ -271,9 +271,9 @@ export async function handleGetPendingVenueRequest(
  * Load the event by id, not by current assignee. This lets the request raiser withdraw after the
  * event changes status or assignment. `loadAssignedEvent` would block withdrawal because it
  * requires an event in a searchable status assigned to the caller.
- * Return context to the current Coordinator while the event awaits a booking decision, or to the
- * requester while their request is pending. Return `null` otherwise. A stranger's stale `?eventId=`
- * leaves the venue page readable and reveals no information.
+ * Return context to the current Coordinator while the event stands in `SEARCHABLE_EVENT_STATUSES`,
+ * or to the requester while their request is pending. Return `null` otherwise. A stranger's stale
+ * `?eventId=` leaves the venue page readable and reveals no information.
  *
  * PTR-31 criterion 2: Include the operational requirements shown to Venue Staff: timing, attendance,
  * layout, accessibility, and required facilities. `canWithdraw` is true only when the caller raised
@@ -355,9 +355,9 @@ export async function handleGetVenueRequestContext(
 
 /**
  * PTR-31 criteria 1–4: Create one unassigned `pending` row and notify all Venue Staff.
- * Refuse a window that does not describe a real civil day. The event must stand in a searchable
- * status and be assigned to the caller, as the PTR-29 search allows (PTR-138 D2).
- * Hold creation and conversion deliberately stay `submitted`-only.
+ * Refuse a window that does not describe a real civil day. The event must stand in
+ * `SEARCHABLE_EVENT_STATUSES` and be assigned to the caller, as the PTR-29 search allows. Hold
+ * creation and conversion use the same gate.
  * Do not check overlaps here. Pending requests can overlap; approval checks them (PTR-36).
  * A cancelled event cannot receive a request (PTR-54 AC9).
  */
