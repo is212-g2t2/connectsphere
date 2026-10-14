@@ -11,6 +11,7 @@ import {
 } from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { eventTiming } from "#/features/events/access";
 import { loadAssignedEvent } from "#/features/events/records.server";
 import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
@@ -395,7 +396,7 @@ export type VenueHold = AvailabilityRecord & {
   eventId: number;
   heldById: string | null;
   assignedCoordinatorId: string | null;
-  eventStatus: string;
+  eventStatus: EventRequestStatus;
 };
 
 /**
@@ -591,7 +592,7 @@ export async function handleGetVenueAvailability(
   // Ownership controls whether the calendar offers Release or Convert. Keep both ids on the
   // server; return only booleans so Venue Staff cannot learn who owns another user's hold.
   // Coordinators can release orphan holds to free a slot, but cannot convert them. Conversion
-  // also requires a submitted event.
+  // also requires an event in `SEARCHABLE_EVENT_STATUSES`.
   // Copy rows before adding viewer flags. The loader shares these rows with other callers.
   // oxlint-disable-next-line oxc/no-map-spread
   const manageableHolds = holds.map(hold => {

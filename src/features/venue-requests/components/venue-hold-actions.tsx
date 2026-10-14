@@ -294,7 +294,7 @@ export function PlaceVenueHoldDialog({
             </form.Field>
           ) : (
             <p className="body-sm text-muted-foreground">
-              You have no submitted events to hold a venue for.
+              You have no events that can take a venue hold.
             </p>
           )}
 

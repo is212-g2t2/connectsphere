@@ -29,6 +29,7 @@ import {
   VENUE_REQUEST_DUPLICATE_MESSAGE,
 } from "#/features/venue-requests/schema";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { eventStatusColumns } from "./event-status";
 
 /**
  * PTR-109: tentative venue holds at the handler boundary.
@@ -88,13 +89,22 @@ const HOLD_WINDOW = {
   endTime: "12:00",
 };
 
+/** PTR-138: holds use the venue-request gate, `SEARCHABLE_EVENT_STATUSES`. */
+const ACCEPTING_STATUSES = [
+  "submitted",
+  "under_review",
+  "awaiting_organiser",
+  "approved",
+  "planning",
+] as const;
+const REFUSED_STATUSES = ["draft", "rejected", "confirmed", "completed"] as const;
+
 describe("tentative venue holds (PTR-109)", () => {
   let pool: Pool;
   let database: ReturnType<typeof drizzle<typeof schema>>;
   let venueId: number;
   let eventIdA: number;
   let eventIdB: number;
-  let underReviewEventId: number;
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -161,20 +171,15 @@ describe("tentative venue holds (PTR-109)", () => {
       })
       .returning({ id: schema.eventRequests.id });
     eventIdB = eventB.id;
-
-    const [underReview] = await database
-      .insert(schema.eventRequests)
-      .values({
-        organiserId: users.organiser.id,
-        status: "under_review",
-        submittedAt: new Date(),
-        assignedCoordinatorId: users.coordinatorA.id,
-        assignedAt: new Date(),
-        eventName: "PTR-109 Under Review Event",
-      })
-      .returning({ id: schema.eventRequests.id });
-    underReviewEventId = underReview.id;
   });
+
+  /** Move Event A to `status`, signed by its Coordinator. */
+  function moveEventA(status: Parameters<typeof eventStatusColumns>[0]) {
+    return database
+      .update(schema.eventRequests)
+      .set(eventStatusColumns(status, users.coordinatorA))
+      .where(eq(schema.eventRequests.id, eventIdA));
+  }
 
   it("counts a hold's setup and turnaround across date boundaries (PTR-131 AC5)", async () => {
     await database
@@ -913,30 +918,57 @@ describe("tentative venue holds (PTR-109)", () => {
       ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
     });
 
-    it("refuses conversion when the event has left submitted and leaves the hold held", async () => {
-      const hold = await handleCreateVenueHold(
-        { ...HOLD_WINDOW, eventId: eventIdA, venueId },
-        session(users.coordinatorA),
-        database as never
-      );
+    it.each(ACCEPTING_STATUSES)(
+      "places and converts a hold while the event is %s (PTR-138)",
+      async status => {
+        await moveEventA(status);
 
-      // The creator is still assigned, but the event status no longer allows holds.
-      await database
-        .update(schema.eventRequests)
-        .set({ status: "under_review" })
-        .where(eq(schema.eventRequests.id, eventIdA));
+        const hold = await handleCreateVenueHold(
+          { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+          session(users.coordinatorA),
+          database as never
+        );
+        const result = await handleConvertVenueHold(
+          { id: hold.id },
+          session(users.coordinatorA),
+          database as never
+        );
 
-      await expect(
-        handleConvertVenueHold({ id: hold.id }, session(users.coordinatorA), database as never)
-      ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+        expect(result.hold.status).toBe("released");
+        expect(result.request).toMatchObject({ eventId: eventIdA, venueId, status: "pending" });
+      }
+    );
 
-      // The refusal rolls back the release. The hold must not remain "released".
-      const [persisted] = await database
-        .select()
-        .from(schema.venueHolds)
-        .where(eq(schema.venueHolds.id, hold.id));
-      expect(persisted.status).toBe("held");
-    });
+    it.each(REFUSED_STATUSES)(
+      "refuses conversion once the event is %s and leaves the hold held",
+      async status => {
+        const hold = await handleCreateVenueHold(
+          { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+          session(users.coordinatorA),
+          database as never
+        );
+
+        // The holder can still release the hold, but the event status no longer takes a request.
+        await moveEventA(status);
+
+        await expect(
+          handleConvertVenueHold({ id: hold.id }, session(users.coordinatorA), database as never)
+        ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+
+        // The refusal rolls back the release. The hold must not remain "released".
+        const [persisted] = await database
+          .select()
+          .from(schema.venueHolds)
+          .where(eq(schema.venueHolds.id, hold.id));
+        expect(persisted.status).toBe("held");
+        expect(
+          await database
+            .select()
+            .from(schema.venueRequests)
+            .where(eq(schema.venueRequests.eventId, eventIdA))
+        ).toEqual([]);
+      }
+    );
 
     it("refuses conversion when the event+venue already has a pending request, leaving the hold held and releasable", async () => {
       // Create the pending request first. Hold creation does not check pending requests, so the
@@ -1114,12 +1146,18 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(unassignedHold?.canRelease).toBe(false);
       expect(unassignedHold?.canConvert).toBe(false);
 
-      // After the event leaves "submitted", its Coordinator can release but cannot convert the hold.
-      await database
-        .update(schema.eventRequests)
-        .set({ status: "under_review" })
-        .where(eq(schema.eventRequests.id, eventIdA));
+      // A planning event still takes a venue request, so the Coordinator can still convert.
+      await moveEventA("planning");
+      const planningAvailability = await handleGetVenueAvailability(
+        { venueId, startDate: HOLD_WINDOW.date, endDate: HOLD_WINDOW.date },
+        users.coordinatorA.id,
+        database as never
+      );
+      const planningHold = planningAvailability?.occupied.find(entry => entry.id === hold.id);
+      expect(planningHold?.canConvert).toBe(true);
 
+      // A confirmed event takes no request. Its Coordinator can release but cannot convert.
+      await moveEventA("confirmed");
       const movedAvailability = await handleGetVenueAvailability(
         { venueId, startDate: HOLD_WINDOW.date, endDate: HOLD_WINDOW.date },
         users.coordinatorA.id,
@@ -1584,17 +1622,27 @@ describe("tentative venue holds (PTR-109)", () => {
       ).rejects.toMatchObject({ name: "NotFoundError", status: 404, message: "Not Found" });
     });
 
-    it("refuses a hold when the event is not in a holdable status (TC13)", async () => {
-      // Hold creation and conversion deliberately stay `submitted`-only (PTR-138 D2): an
-      // `under_review` event refuses here even though `handleCreateVenueRequest` accepts it.
-      await expect(
-        handleCreateVenueHold(
-          { ...HOLD_WINDOW, eventId: underReviewEventId, venueId },
-          session(users.coordinatorA),
-          database as never
-        )
-      ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
-    });
+    // Hold creation uses the venue-request gate. A draft also has no Coordinator.
+    it.each(REFUSED_STATUSES)(
+      "refuses a hold when the event is %s, and records nothing (TC13)",
+      async status => {
+        await moveEventA(status);
+
+        await expect(
+          handleCreateVenueHold(
+            { ...HOLD_WINDOW, eventId: eventIdA, venueId },
+            session(users.coordinatorA),
+            database as never
+          )
+        ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+        expect(
+          await database
+            .select()
+            .from(schema.venueHolds)
+            .where(eq(schema.venueHolds.eventId, eventIdA))
+        ).toEqual([]);
+      }
+    );
   });
 
   // ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ import {
   lockVenueForHold,
 } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
+import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { logger } from "#/lib/logger";
 
 type Database = typeof Db;
@@ -39,6 +40,7 @@ const log = logger.getChild("venue-holds");
  * AC4: Return 409 and name the venue and period when an approved booking overlaps.
  * AC7: Store the acting user's id (`heldById`) and timestamp.
  * PTR-54 AC9: Refuse a new hold for a cancelled event.
+ * PTR-138: Accept the event statuses that a venue request accepts (`SEARCHABLE_EVENT_STATUSES`).
  * PTR-134 AC2: Write the hold's ledger row, with the hold's buffers, in the same transaction.
  */
 export async function handleCreateVenueHold(data: unknown, actor: SessionUser, database: Database) {
@@ -49,7 +51,7 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
     // cancellation waits for this transaction to commit.
     const locked = await keyShareEvent(tx, input.eventId);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
-    const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
+    const event = await loadAssignedEvent(tx, input.eventId, actor.id, SEARCHABLE_EVENT_STATUSES);
     if (!event) throw new AuthorizationError("Forbidden");
 
     // Serialize before reading buffers. A simultaneous venue edit uses the same lock.
@@ -104,7 +106,7 @@ async function releaseActiveHold(
   if (!hold) throw new NotFoundError("Not Found");
   assertSameVenue(lockedVenueId, hold.venueId);
   // An orphaned hold has no owner because both actor columns are null. Let any user who can reach
-  // it release the hold. The assignee and submitted-status checks still prevent conversion.
+  // it release the hold. The assignee and event-status checks still prevent conversion.
   if (!canReleaseHold(hold, actorId)) {
     throw new AuthorizationError("Forbidden");
   }
@@ -171,10 +173,16 @@ export async function handleConvertVenueHold(
       "This hold has already been released or converted."
     );
 
-    // Conversion creates a pending request, so require an assigned event in `submitted` status.
-    // `loadAssignedEvent` re-checks this in the transaction. If a handover makes the calendar's
-    // Convert action stale, refuse it and roll back the release. The hold then stays `held`.
-    const assignedEvent = await loadAssignedEvent(tx, hold.eventId, actor.id, ["submitted"]);
+    // Conversion creates a pending request, so apply the request gate: an assigned event in
+    // `SEARCHABLE_EVENT_STATUSES`. `loadAssignedEvent` re-checks this in the transaction. If a
+    // handover or a status change makes the calendar's Convert action stale, refuse it and roll
+    // back the release. The hold then stays `held`.
+    const assignedEvent = await loadAssignedEvent(
+      tx,
+      hold.eventId,
+      actor.id,
+      SEARCHABLE_EVENT_STATUSES
+    );
     if (!assignedEvent) throw new AuthorizationError("Forbidden");
 
     // Read before insert, as `handleCreateVenueHold` does. The foreign key guarantees the row exists.

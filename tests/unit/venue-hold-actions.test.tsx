@@ -270,7 +270,7 @@ describe("venue hold action components and calendar write-path", () => {
 
       await user.click(screen.getByRole("button", { name: "Place tentative hold" }));
 
-      expect(screen.getByText("You have no submitted events to hold a venue for.")).toBeTruthy();
+      expect(screen.getByText("You have no events that can take a venue hold.")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Place hold" })).toHaveProperty("disabled", true);
     });
 
