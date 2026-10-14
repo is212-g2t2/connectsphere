@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateVenueSuitability } from "#/features/venues/records.server";
+import { evaluateVenueSuitability, requirementFailures } from "#/features/venues/records.server";
 import type { SuitabilityCriterion } from "#/features/venues/records.server";
 import {
   AVAILABILITY_RANGE_MESSAGE,
@@ -323,13 +323,14 @@ describe("PTR-30 suitability reasons", () => {
   });
 
   it("names every failing criterion, not only the first (AC5)", () => {
+    // The shared requirement rule names its failures first, then search adds location.
     expect(
       criteria(
         { ...venue, maxCapacity: 10, location: "West Wing", supportedLayouts: ["other"] as const },
         filters,
         []
       )
-    ).toEqual(["capacity", "location", "layout"]);
+    ).toEqual(["capacity", "layout", "location"]);
   });
 
   it("names an approved booking that overlaps the requested window (AC4)", () => {
@@ -483,5 +484,76 @@ describe("PTR-30 suitability reasons", () => {
     expect(failures(venue, filters, [], [booking], [hold])).toEqual([
       { criterion: "booking", message: "Booked for Annual dinner on 2026-10-05" },
     ]);
+  });
+});
+
+/**
+ * PTR-138 AC1: request creation checks a venue against the session's requirements with the same
+ * rule that search applies. Location and availability are not part of it.
+ */
+describe("PTR-138 requirementFailures", () => {
+  const session = {
+    expectedAttendance: 120,
+    layout: "Theatre seating",
+    accessibility: "Step-free access, hearing loop",
+    facilities: "projector, PA system",
+  };
+
+  it("names no failure when the venue meets every requirement", () => {
+    expect(requirementFailures(venue, session)).toEqual([]);
+  });
+
+  it("names no failure for blank requirements", () => {
+    expect(
+      requirementFailures(
+        {
+          ...venue,
+          maxCapacity: 1,
+          facilities: [],
+          accessibilityFeatures: [],
+          supportedLayouts: [],
+        },
+        { layout: "", accessibility: "", facilities: "" }
+      )
+    ).toEqual([]);
+  });
+
+  it("names every failing requirement in one list, in a fixed order", () => {
+    expect(
+      requirementFailures(
+        {
+          maxCapacity: 40,
+          supportedLayouts: ["boardroom"],
+          accessibilityFeatures: ["Hearing loop"],
+          facilities: ["Whiteboard"],
+        },
+        session
+      )
+    ).toEqual([
+      { criterion: "capacity", message: "Holds 40; 120 needed" },
+      { criterion: "layout", message: "Does not offer Theatre" },
+      { criterion: "accessibility", message: "Missing accessibility: Step-free access" },
+      { criterion: "facilities", message: "Missing facilities: projector, PA system" },
+    ]);
+  });
+
+  it("uses the larger of attendance and minimum capacity", () => {
+    expect(requirementFailures(venue, { expectedAttendance: 120, capacity: 250 })).toEqual([
+      { criterion: "capacity", message: "Holds 200; 250 needed" },
+    ]);
+  });
+
+  it("names a free-text layout that names no known layout", () => {
+    expect(requirementFailures(venue, { layout: "Round tables" })).toEqual([
+      { criterion: "layout", message: "Does not offer Round tables" },
+    ]);
+  });
+
+  it("gives search the same requirement failures, before location and availability", () => {
+    const candidate = { ...venue, maxCapacity: 40, location: "West Wing" };
+    const searched = failures(candidate, filters, []);
+    const required = requirementFailures(candidate, filters);
+    expect(searched.slice(0, required.length)).toEqual(required);
+    expect(searched.slice(required.length).map(failure => failure.criterion)).toEqual(["location"]);
   });
 });

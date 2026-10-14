@@ -219,11 +219,75 @@ function availabilityFailure(
   return null;
 }
 
+/** The session requirements that a venue must meet. Search filters and venue requests carry them. */
+export type VenueRequirements = Pick<
+  VenueSearch,
+  "expectedAttendance" | "capacity" | "layout" | "accessibility" | "facilities"
+>;
+
+/**
+ * PTR-30 and PTR-138 AC1: name every requirement that the venue does not meet: capacity, layout,
+ * accessibility, and facilities. Search and request creation share this one rule, so a venue that
+ * search calls suitable passes creation for the same requirements. Location and availability are
+ * search filters only. The ledger checks availability at approval (ADR-7).
+ */
+export function requirementFailures(
+  venue: Pick<
+    VenueSuitabilityCandidate,
+    "maxCapacity" | "facilities" | "accessibilityFeatures" | "supportedLayouts"
+  >,
+  requirements: VenueRequirements
+): SuitabilityFailure[] {
+  const failures: SuitabilityFailure[] = [];
+
+  // Both filters set minimum values, so the stricter value decides.
+  const requiredCapacity = Math.max(
+    requirements.expectedAttendance ?? 0,
+    requirements.capacity ?? 0
+  );
+  if (requiredCapacity > venue.maxCapacity) {
+    failures.push({
+      criterion: "capacity",
+      message: `Holds ${venue.maxCapacity}; ${requiredCapacity} needed`,
+    });
+  }
+  if (requirements.layout) {
+    const requested = parseLayouts(requirements.layout);
+    if (!requested.some(layout => venue.supportedLayouts.includes(layout))) {
+      // An event's free-text preference skips the search form's guard and may name no known
+      // layout. The message then names the requested preference.
+      const wanted =
+        requested.length > 0
+          ? requested.map(layout => LAYOUT_LABELS[layout]).join(" or ")
+          : requirements.layout;
+      failures.push({ criterion: "layout", message: `Does not offer ${wanted}` });
+    }
+  }
+  const missingAccessibility = missingTagPhrases(
+    venue.accessibilityFeatures,
+    requirements.accessibility
+  );
+  if (missingAccessibility.length > 0) {
+    failures.push({
+      criterion: "accessibility",
+      message: `Missing accessibility: ${missingAccessibility.join(", ")}`,
+    });
+  }
+  const missingFacilities = missingTagPhrases(venue.facilities, requirements.facilities);
+  if (missingFacilities.length > 0) {
+    failures.push({
+      criterion: "facilities",
+      message: `Missing facilities: ${missingFacilities.join(", ")}`,
+    });
+  }
+  return failures;
+}
+
 /**
  * Apply the PTR-29 search filters and PTR-30 suitability rules in one function. A venue cannot
  * pass a filter and fail suitability on the same criterion (PTR-29 AC2). Check every filter and
- * name every failure (PTR-30 AC5). Search filters on `suitable`. This function has one caller:
- * `handleSearchVenues`.
+ * name every failure (PTR-30 AC5): the requirements first, then location and availability.
+ * Search filters on `suitable`. This function has one caller: `handleSearchVenues`.
  */
 export function evaluateVenueSuitability(
   venue: VenueSuitabilityCandidate,
@@ -232,49 +296,11 @@ export function evaluateVenueSuitability(
   bookings: readonly AvailabilityRecord[],
   holds: readonly AvailabilityRecord[] = []
 ): SuitabilityVerdict {
-  const failures: SuitabilityFailure[] = [];
-
-  // Both filters set minimum values, so the stricter value decides.
-  const requiredCapacity = Math.max(filters.expectedAttendance ?? 0, filters.capacity ?? 0);
-  if (requiredCapacity > venue.maxCapacity) {
-    failures.push({
-      criterion: "capacity",
-      message: `Holds ${venue.maxCapacity}; ${requiredCapacity} needed`,
-    });
-  }
+  const failures = requirementFailures(venue, filters);
   if (filters.location && !normalise(venue.location).includes(normalise(filters.location))) {
     failures.push({
       criterion: "location",
       message: `Not in ${filters.location} (${venue.location})`,
-    });
-  }
-  if (filters.layout) {
-    const requested = parseLayouts(filters.layout);
-    if (!requested.some(layout => venue.supportedLayouts.includes(layout))) {
-      // An event's free-text preference skips the search form's guard and may name no known
-      // layout. The message then names the requested preference.
-      const wanted =
-        requested.length > 0
-          ? requested.map(layout => LAYOUT_LABELS[layout]).join(" or ")
-          : filters.layout;
-      failures.push({ criterion: "layout", message: `Does not offer ${wanted}` });
-    }
-  }
-  const missingAccessibility = missingTagPhrases(
-    venue.accessibilityFeatures,
-    filters.accessibility
-  );
-  if (missingAccessibility.length > 0) {
-    failures.push({
-      criterion: "accessibility",
-      message: `Missing accessibility: ${missingAccessibility.join(", ")}`,
-    });
-  }
-  const missingFacilities = missingTagPhrases(venue.facilities, filters.facilities);
-  if (missingFacilities.length > 0) {
-    failures.push({
-      criterion: "facilities",
-      message: `Missing facilities: ${missingFacilities.join(", ")}`,
     });
   }
   const availability = availabilityFailure(venue, filters, blocks, bookings, holds);
