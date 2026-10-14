@@ -110,7 +110,9 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     await expect(page.getByLabel("Date (required)")).toHaveValue("2037-10-14");
     await expect(page.getByLabel("Start time (required)")).toHaveValue("10:00");
     await expect(page.getByLabel("End time (required)")).toHaveValue("13:30");
-    await expect(page.getByText(/carried over from the rejected request/)).toBeVisible();
+    await expect(
+      page.getByText(/carried over from the search or the rejected request/)
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeFocused();
 
     // AC2: sending it queues a new pending request, listed above the form.

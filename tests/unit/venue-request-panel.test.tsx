@@ -109,7 +109,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2027-04-21");
       expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "10:00");
       expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "13:30");
-      expect(screen.getByText(/carried over from the rejected request/)).toBeTruthy();
+      expect(screen.getByText(/carried over from the search or the rejected request/)).toBeTruthy();
       // The reader lands on the prefilled form, not on the list above it.
       expect(document.activeElement).toBe(
         screen.getByRole("heading", { name: "Request this venue" })
@@ -132,19 +132,126 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2026-10-12");
       expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "14:30");
       expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "18:45");
-      expect(screen.queryByText(/carried over from the rejected request/)).toBeNull();
+      expect(screen.queryByText(/carried over from the search or the rejected request/)).toBeNull();
     });
 
-    it("labels each requirement as its own fact before the request is sent", () => {
+    it("starts the session requirements from the event's requirements (PTR-138 AC1)", () => {
       renderPanel(openContext);
 
-      const list = screen.getByText("Expected attendance").closest("dl");
-      expect(list).not.toBeNull();
-      const terms = [...(list?.querySelectorAll("dt") ?? [])].map(node => node.textContent);
-      const values = [...(list?.querySelectorAll("dd") ?? [])].map(node => node.textContent);
+      const group = screen.getByRole("group", { name: "Session requirements" });
+      expect(within(group).getByLabelText("Expected attendance")).toHaveProperty("value", "80");
+      expect(within(group).getByLabelText("Layout")).toHaveProperty("value", "Theatre seating");
+      expect(within(group).getByLabelText("Accessibility")).toHaveProperty(
+        "value",
+        "Step-free access"
+      );
+      expect(within(group).getByLabelText("Facilities")).toHaveProperty(
+        "value",
+        "Projector, PA system"
+      );
+      expect(group.textContent).toContain("These start from the event's requirements");
+    });
 
-      expect(terms).toEqual(["Expected attendance", "Layout", "Accessibility", "Facilities"]);
-      expect(values).toEqual(["80", "Theatre", "Step-free access", "Projector, PA system"]);
+    it("prefers carried session values over the event's, one value at a time (PTR-138 AC1)", () => {
+      render(
+        <VenueRequestPanel
+          venueId={3}
+          venueName="Harbour Hall"
+          context={openContext}
+          prefill={{ expectedAttendance: 30, layout: "Boardroom", facilities: "" }}
+        />
+      );
+
+      expect(screen.getByLabelText("Expected attendance")).toHaveProperty("value", "30");
+      expect(screen.getByLabelText("Layout")).toHaveProperty("value", "Boardroom");
+      expect(screen.getByLabelText("Accessibility")).toHaveProperty("value", "Step-free access");
+      expect(screen.getByLabelText("Facilities")).toHaveProperty("value", "");
+      // No window came with them, so the event's window stays and the form keeps its place.
+      expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "14:30");
+      expect(screen.queryByText(/carried over/)).toBeNull();
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it("keeps a carried date without times, and leaves the times empty on another day", () => {
+      render(
+        <VenueRequestPanel
+          venueId={3}
+          venueName="Harbour Hall"
+          context={openContext}
+          prefill={{ date: "2026-10-14" }}
+        />
+      );
+
+      expect(screen.getByLabelText("Date (required)")).toHaveProperty("value", "2026-10-14");
+      expect(screen.getByLabelText("Start time (required)")).toHaveProperty("value", "");
+      expect(screen.getByLabelText("End time (required)")).toHaveProperty("value", "");
+    });
+
+    it("sends the session values the Coordinator changed (PTR-138 AC1)", async () => {
+      const user = userEvent.setup();
+      requestVenue.mockResolvedValueOnce({ id: "req-1" });
+      renderPanel(openContext);
+
+      await user.clear(screen.getByLabelText("Expected attendance"));
+      await user.type(screen.getByLabelText("Expected attendance"), "30");
+      await user.clear(screen.getByLabelText("Facilities"));
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      await waitFor(() => {
+        expect(requestVenue).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            expectedAttendance: 30,
+            layout: "Theatre seating",
+            accessibility: "Step-free access",
+            facilities: "",
+          }),
+        });
+      });
+    });
+
+    it("leaves a blank attendance out, so the server uses the event's figure", async () => {
+      const user = userEvent.setup();
+      requestVenue.mockResolvedValueOnce({ id: "req-1" });
+      renderPanel(openContext);
+
+      await user.clear(screen.getByLabelText("Expected attendance"));
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      await waitFor(() => {
+        expect(requestVenue).toHaveBeenCalled();
+      });
+      expect(requestVenue.mock.calls[0][0].data).not.toHaveProperty("expectedAttendance");
+    });
+
+    it("refuses a layout that names no supported layout before calling the server", async () => {
+      const user = userEvent.setup();
+      renderPanel(openContext);
+
+      await user.clear(screen.getByLabelText("Layout"));
+      await user.type(screen.getByLabelText("Layout"), "Round tables");
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      const layoutInput = screen.getByLabelText("Layout");
+      expect(layoutInput.getAttribute("aria-invalid")).toBe("true");
+      expect(document.activeElement).toBe(layoutInput);
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Choose only from the supported room layouts"
+      );
+      expect(requestVenue).not.toHaveBeenCalled();
+    });
+
+    it("shows the venue's requirement refusal in the form's error area", async () => {
+      const user = userEvent.setup();
+      const refusal =
+        "Harbour Hall does not meet this session's requirements: Holds 40; 80 needed.";
+      requestVenue.mockRejectedValueOnce(new Error(refusal));
+      renderPanel(openContext);
+
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toBe(refusal);
+      expect(alert.getAttribute("data-slot")).toBe("field-error");
     });
 
     it("leaves the times empty and explains why when the event window spans more than one day", () => {
@@ -188,6 +295,10 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
             date: "2026-10-12",
             startTime: "14:30",
             endTime: "20:00",
+            expectedAttendance: 80,
+            layout: "Theatre seating",
+            accessibility: "Step-free access",
+            facilities: "Projector, PA system",
           },
         });
       });
@@ -285,6 +396,14 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(within(rows[1]).getByText("Pending")).toBeTruthy();
       expect(within(rows[1]).getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send booking request" })).toBeTruthy();
+    });
+
+    it("names each row's attendance and layout, so two sessions stay apart (PTR-138 AC1)", () => {
+      renderPanel(withRows(approved, ownPending));
+
+      const rows = within(requestList()).getAllByRole("listitem");
+      expect(within(rows[0]).getByText("30 attendees, Boardroom")).toBeTruthy();
+      expect(within(rows[1]).getByText("80 attendees, Theatre")).toBeTruthy();
     });
 
     it("does not offer withdrawal of a request that another Coordinator raised", () => {

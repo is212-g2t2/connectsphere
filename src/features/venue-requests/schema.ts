@@ -4,6 +4,7 @@ import { formatLocalDateTime, formatVenuePeriod } from "#/features/event-request
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import {
+  LAYOUT_LABELS,
   LAYOUT_MESSAGE,
   TIME_SHAPE,
   VENUE_ID_MESSAGE,
@@ -182,8 +183,88 @@ export type SessionRequirementInput = Pick<
   "expectedAttendance" | "layout" | "accessibility" | "facilities"
 >;
 
-/** The window an adjusted request arrives with, shape-validated by the route's search schema. */
-export type VenueRequestPrefill = Pick<VenueRequestValues, "date" | "startTime" | "endTime">;
+/**
+ * What the venue page carries into the request form: the search's window and session values, or
+ * an adjusted request's (PTR-35). The route's search schema checks the shape of each value.
+ */
+export type VenueRequestPrefill = Partial<
+  Pick<VenueRequestValues, "date" | "startTime" | "endTime"> & SessionRequirementInput
+>;
+
+/** The session requirements as the request and hold-conversion forms hold them: text. */
+export interface SessionRequirementFormValues {
+  expectedAttendance: string;
+  layout: string;
+  accessibility: string;
+  facilities: string;
+}
+
+/** The session inputs that both forms show, in order, with the search's wording. */
+export const SESSION_REQUIREMENT_INPUTS = [
+  { name: "expectedAttendance", label: "Expected attendance", type: "number", placeholder: "" },
+  { name: "layout", label: "Layout", type: "text", placeholder: "Theatre, classroom, banquet…" },
+  {
+    name: "accessibility",
+    label: "Accessibility",
+    type: "text",
+    placeholder: "Comma-separated features",
+  },
+  {
+    name: "facilities",
+    label: "Facilities",
+    type: "text",
+    placeholder: "Comma-separated facilities",
+  },
+] as const;
+
+/** Start the session inputs from stated requirements. A null attendance shows as a blank input. */
+export function sessionRequirementFormValues(
+  requirements: SessionRequirements
+): SessionRequirementFormValues {
+  return {
+    expectedAttendance:
+      requirements.expectedAttendance === null ? "" : String(requirements.expectedAttendance),
+    layout: requirements.layout,
+    accessibility: requirements.accessibility,
+    facilities: requirements.facilities,
+  };
+}
+
+/**
+ * Read the session inputs as request input. A blank attendance leaves the key out, so the server
+ * uses the event's figure. Blank text stays, because it states no requirement.
+ */
+export function sessionRequirementInput(
+  values: SessionRequirementFormValues
+): SessionRequirementInput {
+  const attendance = values.expectedAttendance.trim();
+  return {
+    ...(attendance === "" ? {} : { expectedAttendance: Number(attendance) }),
+    layout: values.layout,
+    accessibility: values.accessibility,
+    facilities: values.facilities,
+  };
+}
+
+/**
+ * PTR-138 AC1: name a session by its attendance and layout, for example "30 attendees,
+ * Boardroom". Show a named layout by its label and other text as stored. Return "" when the
+ * session states neither.
+ */
+export function formatSessionSummary(
+  requirements: Pick<SessionRequirements, "expectedAttendance" | "layout">
+): string {
+  const parts: string[] = [];
+  const attendance = requirements.expectedAttendance;
+  if (attendance !== null)
+    parts.push(`${attendance} ${attendance === 1 ? "attendee" : "attendees"}`);
+  const layout = requirements.layout.trim();
+  if (layout) {
+    const named = parseLayouts(layout).map(name => LAYOUT_LABELS[name]);
+    parts.push(named.length > 0 ? named.join(", ") : layout);
+  }
+  return parts.join(", ");
+}
 
 /** The venue page's selection: which event and venue the request panel is asking about. */
 export const VenueRequestContextInput = z.object({ eventId: EventId, venueId: VenueId });

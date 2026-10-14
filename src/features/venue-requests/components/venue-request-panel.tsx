@@ -16,13 +16,28 @@ import {
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
-import { Field, FieldError, FieldLabel } from "#/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { formatProposedWindow } from "#/features/event-requests/format";
-import { EventRequirements } from "#/features/events/components/event-requirements";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
-import { VenueRequestInput } from "#/features/venue-requests/schema";
-import type { VenueRequestPrefill, VenueRequestValues } from "#/features/venue-requests/schema";
+import {
+  SESSION_REQUIREMENT_INPUTS,
+  VenueRequestInput,
+  formatSessionSummary,
+  sessionRequirementFormValues,
+  sessionRequirementInput,
+} from "#/features/venue-requests/schema";
+import type {
+  SessionRequirementFormValues,
+  VenueRequestPrefill,
+} from "#/features/venue-requests/schema";
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
 import type {
   VenueRequestContext,
@@ -31,34 +46,67 @@ import type {
 import { useMutation } from "#/hooks/use-mutation";
 import { skipRootFilter } from "#/lib/invalidate";
 
-const FIELDS = ["date", "startTime", "endTime"] as const;
+/** Every input in panel order, so a refused submit can focus the first one it marked. */
+const FIELDS = [
+  "date",
+  "startTime",
+  "endTime",
+  ...SESSION_REQUIREMENT_INPUTS.map(input => input.name),
+] as const;
 
 type FieldName = (typeof FIELDS)[number];
 
-/** The event fields that set the form's default window. */
-type EventWindow = Pick<
-  VenueRequestContext["event"],
-  "id" | "eventDate" | "endDate" | "startTime" | "endTime"
->;
+/** What the inputs hold. Field names match `VenueRequestInput`, so an issue lands on its field. */
+interface RequestFormValues extends SessionRequirementFormValues {
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
+/** The event fields that start the form: its window and its requirements. */
+type PanelEvent = Omit<VenueRequestContext["event"], "id" | "name">;
+
+/** Check that a carried window is complete and ordered, as `VenueRequestInput` requires. */
+function hasCarriedWindow(prefill: VenueRequestPrefill): boolean {
+  const { date, startTime, endTime } = prefill;
+  return (
+    date !== undefined && startTime !== undefined && endTime !== undefined && endTime > startTime
+  );
+}
 
 /**
- * Prefill the form with the event's proposed window or the adjusted window from the rejection card.
- * A request covers one civil day. Leave times empty for a multi-day or cross-midnight window so
- * the Coordinator chooses a valid range instead of silently truncating it.
+ * Fill the form from the carried values, else from the event. A complete carried window wins. A
+ * carried date without times keeps its date. A request covers one civil day, so leave the times
+ * empty for a multi-day event or another day, instead of silently truncating the window. Each
+ * session requirement takes its carried value, else the event's requirement (PTR-138 AC1).
  */
-function toFormValues(
-  event: EventWindow,
-  venueId: number,
-  prefill: VenueRequestPrefill | null
-): VenueRequestValues {
-  if (prefill) return { eventId: event.id, venueId, ...prefill };
-  const sameDay = event.endDate === event.eventDate;
+function toFormValues(event: PanelEvent, prefill: VenueRequestPrefill): RequestFormValues {
+  const carried = hasCarriedWindow(prefill);
+  const dateOnly = prefill.startTime === undefined && prefill.endTime === undefined;
+  const date = (carried || dateOnly ? prefill.date : undefined) ?? event.eventDate ?? "";
+  const eventTimes = event.endDate === event.eventDate && date === event.eventDate;
   return {
-    eventId: event.id,
+    date,
+    startTime: carried ? (prefill.startTime ?? "") : eventTimes ? (event.startTime ?? "") : "",
+    endTime: carried ? (prefill.endTime ?? "") : eventTimes ? (event.endTime ?? "") : "",
+    ...sessionRequirementFormValues({
+      expectedAttendance: prefill.expectedAttendance ?? event.expectedAttendance,
+      layout: prefill.layout ?? event.layout,
+      accessibility: prefill.accessibility ?? event.accessibilityRequirements,
+      facilities: prefill.facilities ?? event.requiredFacilities,
+    }),
+  };
+}
+
+/** The server input for one submit: the panel's event and venue, the window, and the session. */
+function toRequestInput(eventId: number, venueId: number, values: RequestFormValues) {
+  return {
+    eventId,
     venueId,
-    date: event.eventDate ?? "",
-    startTime: sameDay ? (event.startTime ?? "") : "",
-    endTime: sameDay ? (event.endTime ?? "") : "",
+    date: values.date,
+    startTime: values.startTime,
+    endTime: values.endTime,
+    ...sessionRequirementInput(values),
   };
 }
 
@@ -156,14 +204,19 @@ function VenueRequestRowAction({
   );
 }
 
-/** One request of the event at this venue: its window, its state, and its action. */
+/**
+ * One request of the event at this venue: its window, its state, and its action. The attendance
+ * and layout tell two sessions at this venue apart (PTR-138 AC1).
+ */
 function VenueRequestRow({ row, venueName }: { row: VenueRequestContextRow; venueName: string }) {
   const period = formatProposedWindow({ start: row.startsAt, end: row.endsAt });
+  const session = formatSessionSummary(row.requirements);
   return (
     <li className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="body-sm font-medium text-foreground">{period}</span>
         <VenueRequestStatusBadge status={row.status} />
+        {session && <span className="body-sm text-muted-foreground">{session}</span>}
       </div>
       <VenueRequestRowAction row={row} venueName={venueName} period={period} />
     </li>
@@ -192,37 +245,60 @@ export function VenueRequestPanel({
   const { event, requests, canRequest } = context;
   const sameDay = event.endDate === event.eventDate;
   // The route creates a new `prefill` object on each render. Compare values so a render does not
-  // reset what the Coordinator is typing. Use a carried window only when it is complete and
-  // ordered. Fixed-width `HH:MM` strings compare as times, as `VenueRequestInput` requires.
-  // Otherwise, use the event's proposed window.
-  const prefillDate = prefill?.date;
-  const prefillStart = prefill?.startTime;
-  const prefillEnd = prefill?.endTime;
-  const stablePrefill = useMemo<VenueRequestPrefill | null>(
-    () =>
-      prefillDate === undefined ||
-      prefillStart === undefined ||
-      prefillEnd === undefined ||
-      prefillEnd <= prefillStart
-        ? null
-        : { date: prefillDate, startTime: prefillStart, endTime: prefillEnd },
-    [prefillDate, prefillStart, prefillEnd]
+  // reset what the Coordinator is typing.
+  const {
+    date: prefillDate,
+    startTime: prefillStart,
+    endTime: prefillEnd,
+    expectedAttendance: prefillAttendance,
+    layout: prefillLayout,
+    accessibility: prefillAccessibility,
+    facilities: prefillFacilities,
+  } = prefill ?? {};
+  const stablePrefill = useMemo<VenueRequestPrefill>(
+    () => ({
+      date: prefillDate,
+      startTime: prefillStart,
+      endTime: prefillEnd,
+      expectedAttendance: prefillAttendance,
+      layout: prefillLayout,
+      accessibility: prefillAccessibility,
+      facilities: prefillFacilities,
+    }),
+    [
+      prefillDate,
+      prefillStart,
+      prefillEnd,
+      prefillAttendance,
+      prefillLayout,
+      prefillAccessibility,
+      prefillFacilities,
+    ]
   );
-  const inputRefs = useRef<Record<FieldName, HTMLInputElement | null>>({
-    date: null,
-    startTime: null,
-    endTime: null,
-  });
+  // A complete, ordered window came from the search or a rejected request (PTR-35).
+  const carried = hasCarriedWindow(stablePrefill);
+  const inputRefs = useRef<Partial<Record<FieldName, HTMLInputElement | null>>>({});
   const listHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const formHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   const form = useForm({
-    defaultValues: toFormValues(event, venueId, stablePrefill),
-    // `VenueRequestInput` uses the server's rules. Validate ids, date, and times once, then mark each field with its issue.
-    validators: { onSubmit: VenueRequestInput },
+    defaultValues: toFormValues(event, stablePrefill),
+    // `VenueRequestInput` uses the server's rules. Validate the request once, then mark each field
+    // with its first issue, as `reject-booking-form.tsx` does.
+    validators: {
+      onSubmit: ({ value }) => {
+        const parsed = VenueRequestInput.safeParse(toRequestInput(event.id, venueId, value));
+        if (parsed.success) return undefined;
+        const fields: Record<string, { message: string }> = {};
+        for (const issue of parsed.error.issues) {
+          fields[String(issue.path[0])] ??= { message: issue.message };
+        }
+        return { fields };
+      },
+    },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await requestVenue({ data: value });
+        await requestVenue({ data: toRequestInput(event.id, venueId, value) });
         toast.success("Venue request sent.");
         // The loader owns the list. Rerun it to add the new request above the form.
         await router.invalidate({ filter: skipRootFilter });
@@ -246,21 +322,54 @@ export function VenueRequestPanel({
     },
   });
 
-  // Reset the controls when the event, its window, the venue, or the carried window changes. Read
+  // Reset the controls when the event's window or requirements or the carried values change. Read
   // plain values, not the context object: every loader run makes a new object, and a withdrawal
-  // must not drop text the Coordinator is typing.
-  const { id: eventId, eventDate, endDate, startTime, endTime } = event;
+  // must not drop text the Coordinator is typing. The venue page keys the panel by event and
+  // venue, so another event or venue mounts a new form.
+  const {
+    eventDate,
+    endDate,
+    startTime,
+    endTime,
+    expectedAttendance,
+    layout,
+    accessibilityRequirements,
+    requiredFacilities,
+  } = event;
   useEffect(() => {
     form.reset(
-      toFormValues({ id: eventId, eventDate, endDate, startTime, endTime }, venueId, stablePrefill)
+      toFormValues(
+        {
+          eventDate,
+          endDate,
+          startTime,
+          endTime,
+          expectedAttendance,
+          layout,
+          accessibilityRequirements,
+          requiredFacilities,
+        },
+        stablePrefill
+      )
     );
-  }, [eventId, eventDate, endDate, startTime, endTime, venueId, stablePrefill, form]);
+  }, [
+    eventDate,
+    endDate,
+    startTime,
+    endTime,
+    expectedAttendance,
+    layout,
+    accessibilityRequirements,
+    requiredFacilities,
+    stablePrefill,
+    form,
+  ]);
 
-  // An adjusted request comes from the rejection card, below the venue record. Focus the form
-  // heading so the reader lands on the prefilled form.
+  // A carried window comes from the search or the rejection card, and the form sits below the
+  // venue record. Focus the form heading so the reader lands on the prefilled form.
   useEffect(() => {
-    if (stablePrefill && canRequest) formHeadingRef.current?.focus();
-  }, [stablePrefill, canRequest]);
+    if (carried && canRequest) formHeadingRef.current?.focus();
+  }, [carried, canRequest]);
 
   // Sending adds a row and withdrawing removes one. Move focus to the list heading so readers hear
   // the changed list. Do this only when the rows change but the event and venue stay the same.
@@ -309,15 +418,15 @@ export function VenueRequestPanel({
                 id="venue-request-form-heading"
                 ref={formHeadingRef}
                 tabIndex={-1}
-                aria-describedby={stablePrefill ? "venue-request-context" : undefined}
+                aria-describedby={carried ? "venue-request-context" : undefined}
                 className="display-h3"
               >
                 {requests.length === 0 ? "Request this venue" : "Request another time"}
               </h3>
               <p id="venue-request-context" className="mt-2 body-sm text-muted-foreground">
                 Send Venue Staff a booking request for {venueName} on behalf of {event.name}.
-                {stablePrefill &&
-                  " The date and times below were carried over from the rejected request; change them if needed."}
+                {carried &&
+                  " The date and times below were carried over from the search or the rejected request. Change them if needed."}
               </p>
               {!sameDay && (
                 <p className="mt-2 body-sm text-muted-foreground">
@@ -325,7 +434,6 @@ export function VenueRequestPanel({
                   covers.
                 </p>
               )}
-              <EventRequirements event={event} className="mt-4" />
               <form
                 noValidate
                 aria-labelledby="venue-request-form-heading"
@@ -399,6 +507,39 @@ export function VenueRequestPanel({
                     )}
                   </form.Field>
                 </div>
+                {/* PTR-138 AC1: the venue must meet this session's requirements. */}
+                <FieldSet>
+                  <FieldLegend variant="label">Session requirements</FieldLegend>
+                  <FieldDescription id="venue-request-session-hint">
+                    These start from the event&apos;s requirements, and the venue must meet them. A
+                    blank attendance uses the event&apos;s figure.
+                  </FieldDescription>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {SESSION_REQUIREMENT_INPUTS.map(({ name, label, type, placeholder }) => (
+                      <form.Field key={name} name={name}>
+                        {field => (
+                          <Field data-invalid={field.state.meta.errors.length > 0}>
+                            <FieldLabel htmlFor={`venue-request-${name}`}>{label}</FieldLabel>
+                            <Input
+                              id={`venue-request-${name}`}
+                              ref={element => {
+                                inputRefs.current[name] = element;
+                              }}
+                              type={type}
+                              {...(type === "number" ? { min: "1", step: "1" } : {})}
+                              placeholder={placeholder || undefined}
+                              value={field.state.value}
+                              onBlur={field.handleBlur}
+                              onChange={changeEvent => field.handleChange(changeEvent.target.value)}
+                              aria-invalid={field.state.meta.errors.length > 0}
+                            />
+                            <FieldError errors={field.state.meta.errors} />
+                          </Field>
+                        )}
+                      </form.Field>
+                    ))}
+                  </div>
+                </FieldSet>
                 <form.Subscribe selector={state => state.isSubmitting}>
                   {isSubmitting => (
                     <Button type="submit" className="w-fit" disabled={isSubmitting}>

@@ -37,7 +37,10 @@ export function VenueDetailPage({
   justCreated: boolean;
   requestContext: VenueRequestContext | null;
   requestContextFailed: boolean;
-  /** Show an adjusted request window from the rejection card. Null means the event's own window. */
+  /**
+   * The window and session values from the venue search or the rejection card. An absent value
+   * takes the event's own.
+   */
   prefill?: VenueRequestPrefill | null;
 }) {
   const navigate = useNavigate();
@@ -107,6 +110,8 @@ export function VenueDetailPage({
 
       {requestContext ? (
         <VenueRequestPanel
+          // Another event or venue starts a new form, so typed values do not carry across.
+          key={`${requestContext.event.id}:${venue.id}`}
           venueId={venue.id}
           venueName={venue.name}
           context={requestContext}

@@ -4,18 +4,27 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionUser } from "#/features/auth/session";
-import { VenueListPage } from "#/features/venues/components/venue-list-page";
+import { VenueListPage, requestSearch } from "#/features/venues/components/venue-list-page";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import type { VenueSearchResult } from "#/features/venues/server-fns";
 
 const { navigate } = vi.hoisted(() => ({ navigate: vi.fn<(options: unknown) => void>() }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
+  // Keep the link's search on the element, so a test can read what the link carries.
+  Link: ({ children, to, search }: { children: React.ReactNode; to: string; search?: object }) => (
+    <a href={to} data-search={search === undefined ? undefined : JSON.stringify(search)}>
+      {children}
+    </a>
   ),
   useNavigate: () => navigate,
 }));
+
+/** The search that a rendered link carries, or `undefined` for none. */
+function linkSearch(link: HTMLElement): unknown {
+  const search = link.dataset.search;
+  return search === undefined ? undefined : JSON.parse(search);
+}
 
 const user: SessionUser = {
   id: "coordinator",
@@ -311,5 +320,82 @@ describe("VenueListPage suitability (PTR-30)", () => {
 
     expect(screen.getByText("No venue meets every requirement.")).toBeTruthy();
     expect(screen.getByText("Holds 40; 500 needed")).toBeTruthy();
+  });
+});
+
+/**
+ * PTR-138 AC1: a suitable venue's link carries the event and the search's session into the
+ * request form. An unsuitable venue's link carries nothing, so its page offers no request.
+ */
+describe("VenueListPage request links (PTR-138 AC1)", () => {
+  const sessionFilters = {
+    eventId: 41,
+    date: "2026-10-12",
+    startTime: "14:00",
+    endTime: "16:00",
+    expectedAttendance: 30,
+    location: "East Wing",
+    capacity: 20,
+    layout: "Boardroom",
+    accessibility: "Step-free access",
+    facilities: "Projector",
+  };
+
+  it("carries the date, the times, and the set session requirements of a one-day search", () => {
+    expect(requestSearch(41, sessionFilters)).toEqual({
+      eventId: 41,
+      date: "2026-10-12",
+      startTime: "14:00",
+      endTime: "16:00",
+      expectedAttendance: 30,
+      layout: "Boardroom",
+      accessibility: "Step-free access",
+      facilities: "Projector",
+    });
+    // The same end date still makes one day.
+    expect(requestSearch(41, { ...sessionFilters, endDate: "2026-10-12" })).toMatchObject({
+      startTime: "14:00",
+      endTime: "16:00",
+    });
+  });
+
+  it("carries only the first date of a multi-day search, and leaves out unset requirements", () => {
+    expect(
+      requestSearch(41, {
+        date: "2026-10-12",
+        endDate: "2026-10-14",
+        startTime: "14:00",
+        endTime: "16:00",
+        layout: "",
+      })
+    ).toEqual({ eventId: 41, date: "2026-10-12" });
+    expect(requestSearch(41, {})).toEqual({ eventId: 41 });
+  });
+
+  it("gives suitable venues the request search and unsuitable venues none", () => {
+    render(
+      <VenueListPage
+        user={user}
+        result={result({
+          event: { id: 41, name: "Annual summit" },
+          filters: sessionFilters,
+          unsuitable: [
+            {
+              venue: { ...matchingVenue, id: 8, name: "Small Room", maxCapacity: 20 },
+              failures: [{ criterion: "capacity", message: "Holds 20; 30 needed" }],
+            },
+          ],
+        })}
+      />
+    );
+
+    const results = screen.getByRole("region", { name: "Venue results" });
+    expect(linkSearch(within(results).getByRole("link", { name: "Great Hall" }))).toEqual(
+      requestSearch(41, sessionFilters)
+    );
+    const unsuitable = screen.getByRole("region", { name: "Not suitable" });
+    expect(linkSearch(within(unsuitable).getByRole("link", { name: "Small Room" }))).toBe(
+      undefined
+    );
   });
 });
