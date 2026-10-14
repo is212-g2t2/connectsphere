@@ -140,7 +140,6 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
     await waitForHydration(page);
 
     await expect(page).toHaveURL(new RegExp(`/events/${eventIds[0]}$`));
-    await expect(page.getByRole("heading", { name: /Booking request details/ })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: `Booking request details: ${venueNames[0]}` })
     ).toBeVisible();
@@ -170,7 +169,6 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
     await page.getByRole("link", { name: venueNames[1], exact: true }).click();
     await waitForHydration(page);
     await expect(page).toHaveURL(new RegExp(`/events/${eventIds[2]}$`));
-    await expect(page.getByRole("heading", { name: /Booking request details/ })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: `Booking request details: ${venueNames[1]}` })
     ).toBeVisible();
@@ -274,9 +272,10 @@ test("[PTR-138] Venue Staff decide one of two pending requests on one event and 
     // Decide the first request. The sibling stays pending with its decision controls.
     await page.getByRole("button", { name: `Approve request for ${venueNames[0]}` }).click();
     await page.getByRole("button", { name: "Confirm" }).click();
-    // The toast is the success signal; wait for it before reading the database, so the read
-    // cannot race the server transaction's commit.
-    await expect(page.getByText("Booking approved.")).toBeVisible();
+    // The page reloads its data after the approval commits, and the approved entry then shows
+    // its outcome note. Wait for the note before reading the database, so the read cannot race
+    // the commit.
+    await expect(page.getByText("Booking approved.", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: `Approve request for ${venueNames[0]}` })
     ).toHaveCount(0);
