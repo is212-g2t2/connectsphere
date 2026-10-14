@@ -110,13 +110,22 @@ const WINDOW = {
   endTime: "12:30",
 };
 
+/** PTR-138: a venue request needs the event in `SEARCHABLE_EVENT_STATUSES`. */
+const ACCEPTING_STATUSES = [
+  "submitted",
+  "under_review",
+  "awaiting_organiser",
+  "approved",
+  "planning",
+] as const;
+const REFUSED_STATUSES = ["draft", "rejected", "confirmed", "completed"] as const;
+
 describe("venue request handlers (PTR-31)", () => {
   let pool: Pool;
   let database: ReturnType<typeof drizzle<typeof schema>>;
   let venueId: number;
   let eventId: number;
   let foreignEventId: number;
-  let underReviewEventId: number;
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -184,19 +193,6 @@ describe("venue request handlers (PTR-31)", () => {
       })
       .returning({ id: schema.eventRequests.id });
     foreignEventId = foreignEvent.id;
-
-    const [underReviewEvent] = await database
-      .insert(schema.eventRequests)
-      .values({
-        organiserId: users.organiser.id,
-        status: "under_review",
-        submittedAt: new Date(),
-        assignedCoordinatorId: users.coordinator.id,
-        assignedAt: new Date(),
-        eventName: "PTR-31 Under Review Event",
-      })
-      .returning({ id: schema.eventRequests.id });
-    underReviewEventId = underReviewEvent.id;
   });
 
   /** A second submitted event for the same Coordinator, used to test a clash. */
@@ -377,37 +373,53 @@ describe("venue request handlers (PTR-31)", () => {
       expect(await database.select().from(schema.notifications)).toHaveLength(0);
     });
 
-    it("accepts a request while the event is under review (PTR-138 gate)", async () => {
-      const request = await handleCreateVenueRequest(
-        { ...WINDOW, eventId: underReviewEventId, venueId },
-        session(users.coordinator),
-        database as never
-      );
-
-      expect(request.status).toBe("pending");
-    });
-
-    it.each(["approved", "planning"] as const)(
+    it.each(ACCEPTING_STATUSES)(
       "accepts a request while the event is %s (PTR-138 gate)",
       async status => {
-        const id = await createEvent(`PTR-138 ${status} event`);
         await database
           .update(schema.eventRequests)
-          .set({
-            status,
-            decidedByCoordinatorId: users.coordinator.id,
-            decidedByCoordinatorName: users.coordinator.name,
-            decidedAt: new Date(),
-          })
-          .where(eq(schema.eventRequests.id, id));
+          .set(eventStatusColumns(status, users.coordinator))
+          .where(eq(schema.eventRequests.id, eventId));
 
         const request = await handleCreateVenueRequest(
-          { ...WINDOW, eventId: id, venueId },
+          { ...WINDOW, eventId, venueId },
           session(users.coordinator),
           database as never
         );
 
         expect(request.status).toBe("pending");
+      }
+    );
+
+    // A draft also has no Coordinator. A completed event gets `Forbidden` here, not the
+    // completed-event message that approval gives.
+    it.each(REFUSED_STATUSES)(
+      "refuses a request while the event is %s, and creates nothing (PTR-138 gate)",
+      async status => {
+        await database
+          .update(schema.eventRequests)
+          .set(eventStatusColumns(status, users.coordinator))
+          .where(eq(schema.eventRequests.id, eventId));
+
+        await expect(
+          handleCreateVenueRequest(
+            { ...WINDOW, eventId, venueId },
+            session(users.coordinator),
+            database as never
+          )
+        ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+        expect(
+          await database
+            .select()
+            .from(schema.venueRequests)
+            .where(eq(schema.venueRequests.eventId, eventId))
+        ).toEqual([]);
+        expect(
+          await database
+            .select()
+            .from(schema.notifications)
+            .where(eq(schema.notifications.eventRequestId, eventId))
+        ).toEqual([]);
       }
     );
 
@@ -697,6 +709,21 @@ describe("venue request handlers (PTR-31)", () => {
 
       expect(context).not.toBeNull();
       expect(context?.request).toBeNull();
+    });
+
+    it("answers null to the assigned Coordinator of a confirmed event with no pending request", async () => {
+      await database
+        .update(schema.eventRequests)
+        .set(eventStatusColumns("confirmed", users.coordinator))
+        .where(eq(schema.eventRequests.id, eventId));
+
+      expect(
+        await handleGetVenueRequestContext(
+          { eventId, venueId },
+          session(users.coordinator),
+          database as never
+        )
+      ).toBeNull();
     });
   });
 
