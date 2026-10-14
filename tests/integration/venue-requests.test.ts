@@ -109,8 +109,8 @@ const MEETS_EVENT_REQUIREMENTS = {
 const EVENT_REQUIREMENTS = {
   expectedAttendance: 80,
   layout: "Theatre seating",
-  accessibility: "Step-free access",
-  facilities: "Projector, PA system",
+  accessibilityRequirements: "Step-free access",
+  requiredFacilities: "Projector, PA system",
 };
 const userIds = Object.values(users).map(user => user.id);
 
@@ -586,14 +586,14 @@ describe("venue request handlers (PTR-31)", () => {
       const request = await requestRoom(roomId, {
         expectedAttendance: 30,
         layout: " Boardroom ",
-        accessibility: "",
-        facilities: "Whiteboard",
+        accessibilityRequirements: "",
+        requiredFacilities: "Whiteboard",
       });
       const stored = {
         expectedAttendance: 30,
         layout: "Boardroom",
-        accessibility: "",
-        facilities: "Whiteboard",
+        accessibilityRequirements: "",
+        requiredFacilities: "Whiteboard",
       };
 
       expect(await readRow(request.id)).toMatchObject({
@@ -618,7 +618,7 @@ describe("venue request handlers (PTR-31)", () => {
       expect(staffRead.requirements).toMatchObject({
         expectedAttendance: 30,
         layout: "Boardroom",
-        accessibility: "",
+        accessibilityRequirements: "",
         requiredFacilities: "Whiteboard",
       });
 
@@ -679,8 +679,8 @@ describe("venue request handlers (PTR-31)", () => {
       expect(staffRead.requirements).toMatchObject({
         expectedAttendance: 90,
         layout: current.layout,
-        accessibility: current.accessibility,
-        requiredFacilities: current.facilities,
+        accessibilityRequirements: current.accessibilityRequirements,
+        requiredFacilities: current.requiredFacilities,
       });
       const context = await handleGetVenueRequestContext(
         { eventId, venueId },

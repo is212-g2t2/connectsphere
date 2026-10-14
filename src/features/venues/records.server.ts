@@ -462,8 +462,8 @@ export async function loadVenueHolds(
       eventRequirements: {
         expectedAttendance: eventRequests.expectedAttendance,
         layout: eventRequests.roomLayoutPreference,
-        accessibility: eventRequests.accessibilityRequirements,
-        facilities: eventRequests.venueRequirements,
+        accessibilityRequirements: eventRequests.accessibilityRequirements,
+        requiredFacilities: eventRequests.venueRequirements,
       },
     })
     .from(venueHolds)

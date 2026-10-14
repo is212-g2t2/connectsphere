@@ -85,8 +85,8 @@ export function venueRequestConflictMessage(
 export interface SessionRequirements {
   expectedAttendance: number | null;
   layout: string;
-  accessibility: string;
-  facilities: string;
+  accessibilityRequirements: string;
+  requiredFacilities: string;
 }
 
 const Time = z.string().regex(TIME_SHAPE, VENUE_REQUEST_TIME_MESSAGE);
@@ -112,8 +112,8 @@ const SessionRequirementFields = {
     value => value === "" || parseLayouts(value).length > 0,
     LAYOUT_MESSAGE
   ).optional(),
-  accessibility: RequirementText.optional(),
-  facilities: RequirementText.optional(),
+  accessibilityRequirements: RequirementText.optional(),
+  requiredFacilities: RequirementText.optional(),
 };
 
 /**
@@ -141,7 +141,7 @@ export type VenueRequestValues = z.infer<typeof VenueRequestInput>;
 /** The session requirements a request or a hold conversion may state. */
 export type SessionRequirementInput = Pick<
   VenueRequestValues,
-  "expectedAttendance" | "layout" | "accessibility" | "facilities"
+  "expectedAttendance" | "layout" | "accessibilityRequirements" | "requiredFacilities"
 >;
 
 /**
@@ -156,8 +156,8 @@ export type VenueRequestPrefill = Partial<
 export interface SessionRequirementFormValues {
   expectedAttendance: string;
   layout: string;
-  accessibility: string;
-  facilities: string;
+  accessibilityRequirements: string;
+  requiredFacilities: string;
 }
 
 /** The session inputs that both forms show, in order, with the search's wording. */
@@ -165,13 +165,13 @@ export const SESSION_REQUIREMENT_INPUTS = [
   { name: "expectedAttendance", label: "Expected attendance", type: "number", placeholder: "" },
   { name: "layout", label: "Layout", type: "text", placeholder: "Theatre, classroom, banquet…" },
   {
-    name: "accessibility",
+    name: "accessibilityRequirements",
     label: "Accessibility",
     type: "text",
     placeholder: "Comma-separated features",
   },
   {
-    name: "facilities",
+    name: "requiredFacilities",
     label: "Facilities",
     type: "text",
     placeholder: "Comma-separated facilities",
@@ -186,8 +186,8 @@ export function sessionRequirementFormValues(
     expectedAttendance:
       requirements.expectedAttendance === null ? "" : String(requirements.expectedAttendance),
     layout: requirements.layout,
-    accessibility: requirements.accessibility,
-    facilities: requirements.facilities,
+    accessibilityRequirements: requirements.accessibilityRequirements,
+    requiredFacilities: requirements.requiredFacilities,
   };
 }
 
@@ -202,8 +202,8 @@ export function sessionRequirementInput(
   return {
     ...(attendance === "" ? {} : { expectedAttendance: Number(attendance) }),
     layout: values.layout,
-    accessibility: values.accessibility,
-    facilities: values.facilities,
+    accessibilityRequirements: values.accessibilityRequirements,
+    requiredFacilities: values.requiredFacilities,
   };
 }
 

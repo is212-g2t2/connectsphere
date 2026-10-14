@@ -18,7 +18,7 @@ const request: PendingVenueRequestDetail = {
     eventTiming: "Doors open at 09:00; event starts at 09:30.",
     expectedAttendance: 85,
     layout: "Cabaret",
-    accessibility: "Step-free access and two reserved wheelchair spaces.",
+    accessibilityRequirements: "Step-free access and two reserved wheelchair spaces.",
     requiredFacilities: "Projector\nTwo wireless microphones",
   },
 };
@@ -117,7 +117,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
             eventTiming: longMultilineTiming,
             expectedAttendance: null,
             layout: "   ",
-            accessibility: "",
+            accessibilityRequirements: "",
             requiredFacilities: "",
           },
         }}

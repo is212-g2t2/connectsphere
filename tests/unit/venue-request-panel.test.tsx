@@ -47,8 +47,8 @@ const openContext: VenueRequestContext = {
 const eventRequirements = {
   expectedAttendance: 80,
   layout: "Theatre seating",
-  accessibility: "Step-free access",
-  facilities: "Projector, PA system",
+  accessibilityRequirements: "Step-free access",
+  requiredFacilities: "Projector, PA system",
 };
 
 const ownPending = {
@@ -158,7 +158,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
           venueId={3}
           venueName="Harbour Hall"
           context={openContext}
-          prefill={{ expectedAttendance: 30, layout: "Boardroom", facilities: "" }}
+          prefill={{ expectedAttendance: 30, layout: "Boardroom", requiredFacilities: "" }}
         />
       );
 
@@ -202,8 +202,8 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
           data: expect.objectContaining({
             expectedAttendance: 30,
             layout: "Theatre seating",
-            accessibility: "Step-free access",
-            facilities: "",
+            accessibilityRequirements: "Step-free access",
+            requiredFacilities: "",
           }),
         });
       });
@@ -297,8 +297,8 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
             endTime: "20:00",
             expectedAttendance: 80,
             layout: "Theatre seating",
-            accessibility: "Step-free access",
-            facilities: "Projector, PA system",
+            accessibilityRequirements: "Step-free access",
+            requiredFacilities: "Projector, PA system",
           },
         });
       });

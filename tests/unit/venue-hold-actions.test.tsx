@@ -95,8 +95,8 @@ const staffUser: SessionUser = {
 const eventRequirements = {
   expectedAttendance: 80,
   layout: "Theatre seating",
-  accessibility: "Step-free access",
-  facilities: "Projector",
+  accessibilityRequirements: "Step-free access",
+  requiredFacilities: "Projector",
 };
 
 const scheduleWithHold: VenueAvailability = {
@@ -218,8 +218,8 @@ describe("venue hold action components and calendar write-path", () => {
             id: "hold-42",
             expectedAttendance: 30,
             layout: "Theatre seating",
-            accessibility: "Step-free access",
-            facilities: "",
+            accessibilityRequirements: "Step-free access",
+            requiredFacilities: "",
           },
         });
       });

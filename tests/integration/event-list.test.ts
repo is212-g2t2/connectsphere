@@ -459,14 +459,14 @@ describe("event list handler (PTR-8)", () => {
   const CLOSED_REQUIREMENTS = {
     expectedAttendance: 10,
     layout: "",
-    accessibility: "",
-    facilities: "",
+    accessibilityRequirements: "",
+    requiredFacilities: "",
   };
   const MAIN_REQUIREMENTS = {
     expectedAttendance: 25,
     layout: "U-shape",
-    accessibility: "Step-free access",
-    facilities: "Near MRT",
+    accessibilityRequirements: "Step-free access",
+    requiredFacilities: "Near MRT",
   };
 
   /** The projection entry of an `insertRejected` row that keeps the default window and reason. */

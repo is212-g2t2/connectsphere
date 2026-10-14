@@ -46,7 +46,7 @@ const detail: PendingVenueRequestDetail = {
     eventTiming: "18 Nov 2030, 09:30 – 12:00",
     expectedAttendance: 85,
     layout: "Cabaret",
-    accessibility: "",
+    accessibilityRequirements: "",
     requiredFacilities: "",
   },
 };

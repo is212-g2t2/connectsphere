@@ -391,8 +391,8 @@ describe("venue section session requirements", () => {
   const breakout = {
     expectedAttendance: 30,
     layout: "Boardroom",
-    accessibility: "",
-    facilities: "",
+    accessibilityRequirements: "",
+    requiredFacilities: "",
   };
 
   it("names each entry's attendance and layout, so two sessions at one venue stay apart", () => {
@@ -436,8 +436,8 @@ describe("venue section session requirements", () => {
       endTime: "21:00",
       expectedAttendance: 30,
       layout: "Boardroom",
-      accessibility: "",
-      facilities: "",
+      accessibilityRequirements: "",
+      requiredFacilities: "",
     });
   });
 });

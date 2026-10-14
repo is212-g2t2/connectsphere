@@ -42,7 +42,7 @@ const pending: PendingVenueRequestDetail = {
     eventTiming: "21 Nov 2026, 18:00–22:00",
     expectedAttendance: 120,
     layout: "Cabaret",
-    accessibility: "Step-free entrance; quiet room available",
+    accessibilityRequirements: "Step-free entrance; quiet room available",
     requiredFacilities: "6 power drops, WiFi",
   },
 };
@@ -60,7 +60,7 @@ const secondPending: PendingVenueRequestDetail = {
     eventTiming: "22 Nov 2026, 10:00–12:00",
     expectedAttendance: 80,
     layout: "Theatre",
-    accessibility: "Step-free entrance",
+    accessibilityRequirements: "Step-free entrance",
     requiredFacilities: "PA system",
   },
 };

@@ -226,7 +226,7 @@ describe("pending booking request reader (PTR-32)", () => {
         eventTiming: "10 May 2037, 09:00 – 12:00",
         expectedAttendance: null,
         layout: "Theatre",
-        accessibility: "Step-free access.\nReserved seating.",
+        accessibilityRequirements: "Step-free access.\nReserved seating.",
         requiredFacilities: "Projector\nTwo wireless microphones",
       },
     });

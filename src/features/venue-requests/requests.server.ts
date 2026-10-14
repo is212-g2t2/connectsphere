@@ -127,10 +127,7 @@ export async function raiseVenueRequestNotifications(
         venueName: notification.venueName,
         startsAt: notification.startsAt,
         endsAt: notification.endsAt,
-        expectedAttendance: notification.requirements.expectedAttendance,
-        layout: notification.requirements.layout,
-        accessibilityRequirements: notification.requirements.accessibility,
-        requiredFacilities: notification.requirements.facilities,
+        ...notification.requirements,
       },
     }))
   );
@@ -205,25 +202,16 @@ interface EventRequirementRow {
 }
 
 /**
- * PTR-138 AC1: settle the session requirements of a new request, and refuse a venue that does
- * not meet them. An absent value takes the event's requirement. Check with the rule that search
- * applies (`requirementFailures`), and name every failure. Pass the venue that `loadLockedVenue`
- * read under the venue lock. Return the values that the request stores.
+ * PTR-138 AC1: refuse a venue that does not meet a session's requirements. Check with the rule
+ * that search applies (`requirementFailures`), and name every failure. Pass the venue that
+ * `loadLockedVenue` read under the venue lock.
  */
-export function checkSessionRequirements(
-  venue: LockedVenue,
-  event: EventRequirementRow,
-  session: SessionRequirementInput
-): SessionRequirements {
-  const requirements: SessionRequirements = {
-    expectedAttendance: session.expectedAttendance ?? event.expectedAttendance,
-    layout: session.layout ?? event.roomLayoutPreference,
-    accessibility: session.accessibility ?? event.accessibilityRequirements,
-    facilities: session.facilities ?? event.venueRequirements,
-  };
+export function assertMeetsRequirements(venue: LockedVenue, requirements: SessionRequirements) {
   const failures = requirementFailures(venue, {
-    ...requirements,
     expectedAttendance: requirements.expectedAttendance ?? undefined,
+    layout: requirements.layout,
+    accessibility: requirements.accessibilityRequirements,
+    facilities: requirements.requiredFacilities,
   });
   if (failures.length > 0) {
     throw new ConflictError(
@@ -233,17 +221,26 @@ export function checkSessionRequirements(
       )
     );
   }
-  return requirements;
 }
 
-/** The `venue_requests` columns that store a request's session requirements. */
-export function sessionRequirementValues(requirements: SessionRequirements) {
-  return {
-    expectedAttendance: requirements.expectedAttendance,
-    layout: requirements.layout,
-    accessibilityRequirements: requirements.accessibility,
-    requiredFacilities: requirements.facilities,
+/**
+ * PTR-138 AC1: settle the session requirements of a new request, and refuse a venue that does
+ * not meet them (`assertMeetsRequirements`). An absent value takes the event's requirement.
+ * Return the values that the request stores.
+ */
+export function checkSessionRequirements(
+  venue: LockedVenue,
+  event: EventRequirementRow,
+  session: SessionRequirementInput
+): SessionRequirements {
+  const requirements: SessionRequirements = {
+    expectedAttendance: session.expectedAttendance ?? event.expectedAttendance,
+    layout: session.layout ?? event.roomLayoutPreference,
+    accessibilityRequirements: session.accessibilityRequirements ?? event.accessibilityRequirements,
+    requiredFacilities: session.requiredFacilities ?? event.venueRequirements,
   };
+  assertMeetsRequirements(venue, requirements);
+  return requirements;
 }
 
 /**
@@ -414,10 +411,7 @@ export async function handleGetPendingVenueRequestsForEvent(
         row.proposedDates.find(period => period.start !== undefined && period.end !== undefined) ??
           {}
       ),
-      expectedAttendance: row.requirements.expectedAttendance,
-      layout: row.requirements.layout,
-      accessibility: row.requirements.accessibility,
-      requiredFacilities: row.requirements.facilities,
+      ...row.requirements,
     },
   }));
 }
@@ -566,7 +560,7 @@ export async function handleCreateVenueRequest(
         requestedById: actor.id,
         startsAt,
         endsAt,
-        ...sessionRequirementValues(requirements),
+        ...requirements,
       })
       .returning()
       .catch(rethrowDuplicate);

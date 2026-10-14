@@ -28,8 +28,12 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
     endTime: z.string().regex(TIME_SHAPE).optional().catch(undefined),
     expectedAttendance: z.coerce.number().pipe(z.int32().positive()).optional().catch(undefined),
     layout: z.string().max(VENUE_SEARCH_TEXT_MAX_LENGTH).optional().catch(undefined),
-    accessibility: z.string().max(VENUE_SEARCH_TEXT_MAX_LENGTH).optional().catch(undefined),
-    facilities: z.string().max(VENUE_SEARCH_TEXT_MAX_LENGTH).optional().catch(undefined),
+    accessibilityRequirements: z
+      .string()
+      .max(VENUE_SEARCH_TEXT_MAX_LENGTH)
+      .optional()
+      .catch(undefined),
+    requiredFacilities: z.string().max(VENUE_SEARCH_TEXT_MAX_LENGTH).optional().catch(undefined),
   }),
   beforeLoad: ({ context }) => {
     if (!can(context.user.role, { venue: ["read"] })) {

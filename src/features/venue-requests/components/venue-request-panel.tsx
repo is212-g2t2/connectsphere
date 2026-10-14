@@ -92,8 +92,9 @@ function toFormValues(event: PanelEvent, prefill: VenueRequestPrefill): RequestF
     ...sessionRequirementFormValues({
       expectedAttendance: prefill.expectedAttendance ?? event.expectedAttendance,
       layout: prefill.layout ?? event.layout,
-      accessibility: prefill.accessibility ?? event.accessibilityRequirements,
-      facilities: prefill.facilities ?? event.requiredFacilities,
+      accessibilityRequirements:
+        prefill.accessibilityRequirements ?? event.accessibilityRequirements,
+      requiredFacilities: prefill.requiredFacilities ?? event.requiredFacilities,
     }),
   };
 }
@@ -252,8 +253,8 @@ export function VenueRequestPanel({
     endTime: prefillEnd,
     expectedAttendance: prefillAttendance,
     layout: prefillLayout,
-    accessibility: prefillAccessibility,
-    facilities: prefillFacilities,
+    accessibilityRequirements: prefillAccessibility,
+    requiredFacilities: prefillFacilities,
   } = prefill ?? {};
   const stablePrefill = useMemo<VenueRequestPrefill>(
     () => ({
@@ -262,8 +263,8 @@ export function VenueRequestPanel({
       endTime: prefillEnd,
       expectedAttendance: prefillAttendance,
       layout: prefillLayout,
-      accessibility: prefillAccessibility,
-      facilities: prefillFacilities,
+      accessibilityRequirements: prefillAccessibility,
+      requiredFacilities: prefillFacilities,
     }),
     [
       prefillDate,

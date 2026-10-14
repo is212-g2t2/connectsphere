@@ -349,8 +349,8 @@ describe("VenueListPage request links (PTR-138 AC1)", () => {
       endTime: "16:00",
       expectedAttendance: 30,
       layout: "Boardroom",
-      accessibility: "Step-free access",
-      facilities: "Projector",
+      accessibilityRequirements: "Step-free access",
+      requiredFacilities: "Projector",
     });
     // The same end date still makes one day.
     expect(requestSearch(41, { ...sessionFilters, endDate: "2026-10-12" })).toMatchObject({

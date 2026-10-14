@@ -11,7 +11,6 @@ import {
   loadLockedVenue,
   raiseVenueRequestNotifications,
   rethrowDuplicate,
-  sessionRequirementValues,
 } from "#/features/venue-requests/requests.server";
 import {
   parseVenueHoldConversion,
@@ -220,7 +219,7 @@ export async function handleConvertVenueHold(
         endsAt: hold.endsAt,
         requestedById: actor.id,
         status: "pending",
-        ...sessionRequirementValues(requirements),
+        ...requirements,
       })
       .returning()
       .catch(rethrowDuplicate);

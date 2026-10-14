@@ -30,8 +30,8 @@ export const sessionRequirementColumns = {
     number | null
   >`coalesce(${venueRequests.expectedAttendance}, ${eventRequests.expectedAttendance})`,
   layout: sql<string>`coalesce(${venueRequests.layout}, ${eventRequests.roomLayoutPreference})`,
-  accessibility: sql<string>`coalesce(${venueRequests.accessibilityRequirements}, ${eventRequests.accessibilityRequirements})`,
-  facilities: sql<string>`coalesce(${venueRequests.requiredFacilities}, ${eventRequests.venueRequirements})`,
+  accessibilityRequirements: sql<string>`coalesce(${venueRequests.accessibilityRequirements}, ${eventRequests.accessibilityRequirements})`,
+  requiredFacilities: sql<string>`coalesce(${venueRequests.requiredFacilities}, ${eventRequests.venueRequirements})`,
 };
 
 /** The venue that Venue Staff suggested on a rejection. Join it with `leftJoin`. */

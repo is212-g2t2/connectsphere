@@ -22,8 +22,8 @@ export function adjustedRequest(
   endTime: string;
   expectedAttendance?: number;
   layout?: string;
-  accessibility?: string;
-  facilities?: string;
+  accessibilityRequirements?: string;
+  requiredFacilities?: string;
 } {
   const suggestion = rejection.suggestion;
   const times =
@@ -36,8 +36,8 @@ export function adjustedRequest(
           ? {}
           : { expectedAttendance: requirements.expectedAttendance }),
         layout: requirements.layout,
-        accessibility: requirements.accessibility,
-        facilities: requirements.facilities,
+        accessibilityRequirements: requirements.accessibilityRequirements,
+        requiredFacilities: requirements.requiredFacilities,
       }
     : {};
   return {

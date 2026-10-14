@@ -1174,7 +1174,7 @@ describe("tentative venue holds (PTR-109)", () => {
         await shrinkVenue(50);
 
         const result = await handleConvertVenueHold(
-          { id: hold.id, expectedAttendance: 40, facilities: "" },
+          { id: hold.id, expectedAttendance: 40, requiredFacilities: "" },
           session(users.coordinatorA),
           database as never
         );
@@ -1213,8 +1213,8 @@ describe("tentative venue holds (PTR-109)", () => {
         expect(assignee?.occupied.find(entry => entry.id === hold.id)?.convertDefaults).toEqual({
           expectedAttendance: 100,
           layout: "",
-          accessibility: "",
-          facilities: "",
+          accessibilityRequirements: "",
+          requiredFacilities: "",
         });
         const stranger = await handleGetVenueAvailability(
           range,
@@ -1407,7 +1407,12 @@ describe("tentative venue holds (PTR-109)", () => {
           date: "2027-06-15",
           startTime: "10:00",
           endTime: "14:00",
-          requirements: { expectedAttendance: 100, layout: "", accessibility: "", facilities: "" },
+          requirements: {
+            expectedAttendance: 100,
+            layout: "",
+            accessibilityRequirements: "",
+            requiredFacilities: "",
+          },
           conflict: "hold",
         },
       ]);

@@ -157,7 +157,7 @@ describe("EventDetailPage", () => {
                     eventTiming: "21 Nov 2026, 18:00–22:00",
                     expectedAttendance: 120,
                     layout: "Cabaret",
-                    accessibility: "Step-free entrance",
+                    accessibilityRequirements: "Step-free entrance",
                     requiredFacilities: "6 power drops, WiFi",
                   },
                 },

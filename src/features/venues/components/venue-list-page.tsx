@@ -62,8 +62,8 @@ export function requestSearch(eventId: number, filters: VenueSearch) {
       : {}),
     ...(expectedAttendance === undefined ? {} : { expectedAttendance }),
     ...(layout ? { layout } : {}),
-    ...(accessibility ? { accessibility } : {}),
-    ...(facilities ? { facilities } : {}),
+    ...(accessibility ? { accessibilityRequirements: accessibility } : {}),
+    ...(facilities ? { requiredFacilities: facilities } : {}),
   };
 }
 

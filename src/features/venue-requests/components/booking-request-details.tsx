@@ -12,8 +12,7 @@ import type { PendingVenueRequestDetail } from "#/features/venue-requests/server
 /**
  * Show the current booking request as read-only server data.
  * Use the shared `EventRequirements` treatment for all four operational fields. It hides blank
- * fields instead of showing "None specified". Map the server's `accessibility` field to the
- * shared `accessibilityRequirements` field.
+ * fields instead of showing "None specified".
  */
 export function BookingRequestDetails({ request }: { request: PendingVenueRequestDetail }) {
   // Key the heading id by request: the staff page renders one detail block per pending request.
@@ -47,13 +46,7 @@ export function BookingRequestDetails({ request }: { request: PendingVenueReques
               {request.requirements.eventTiming}
             </Detail>
           </dl>
-          <EventRequirements
-            event={{
-              ...request.requirements,
-              accessibilityRequirements: request.requirements.accessibility,
-            }}
-            className="mt-6"
-          />
+          <EventRequirements event={request.requirements} className="mt-6" />
         </CardContent>
       </Card>
     </section>

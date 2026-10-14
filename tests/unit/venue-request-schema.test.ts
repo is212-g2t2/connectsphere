@@ -87,15 +87,15 @@ describe("session requirements on a request (PTR-138 AC1)", () => {
         ...VALID,
         expectedAttendance: 30,
         layout: " Boardroom ",
-        accessibility: " Hearing loop ",
-        facilities: "",
+        accessibilityRequirements: " Hearing loop ",
+        requiredFacilities: "",
       })
     ).toEqual({
       ...VALID,
       expectedAttendance: 30,
       layout: "Boardroom",
-      accessibility: "Hearing loop",
-      facilities: "",
+      accessibilityRequirements: "Hearing loop",
+      requiredFacilities: "",
     });
   });
 
@@ -117,11 +117,11 @@ describe("session requirements on a request (PTR-138 AC1)", () => {
 
   it("bounds each text requirement at the search's length", () => {
     const long = "a".repeat(VENUE_SEARCH_TEXT_MAX_LENGTH + 1);
-    expect(VenueRequestInput.safeParse({ ...VALID, facilities: long }).success).toBe(false);
+    expect(VenueRequestInput.safeParse({ ...VALID, requiredFacilities: long }).success).toBe(false);
     expect(
       VenueRequestInput.safeParse({
         ...VALID,
-        accessibility: "a".repeat(VENUE_SEARCH_TEXT_MAX_LENGTH),
+        accessibilityRequirements: "a".repeat(VENUE_SEARCH_TEXT_MAX_LENGTH),
       }).success
     ).toBe(true);
   });
