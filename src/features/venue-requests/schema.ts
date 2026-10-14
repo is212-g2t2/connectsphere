@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { formatLocalDateTime } from "#/features/event-requests/format";
+import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { TIME_SHAPE, VENUE_ID_MESSAGE, VENUE_SEARCH_EVENT_MESSAGE } from "#/features/venues/schema";
 
 /**
@@ -18,6 +20,15 @@ export const VENUE_REQUEST_SETTLED_MESSAGE =
   "This request has already been settled and can no longer be withdrawn.";
 /** PTR-36: a request that is no longer pending cannot be approved again. */
 export const VENUE_REQUEST_DECIDED_MESSAGE = "This request has already been decided.";
+
+/**
+ * PTR-138: approval refuses a request when its event is outside `SEARCHABLE_EVENT_STATUSES`, for
+ * example after confirmation or rejection. Name the status in the words that the status badge uses.
+ */
+export function venueRequestEventStatusMessage(status: EventRequestStatus): string {
+  const label = EVENT_REQUEST_STATUS_LABELS[status].toLowerCase();
+  return `This event is ${label}, so it cannot take a new venue booking.`;
+}
 export const VENUE_BOOKING_NOT_APPROVED_MESSAGE =
   "Only an approved booking can be released or amended.";
 /**

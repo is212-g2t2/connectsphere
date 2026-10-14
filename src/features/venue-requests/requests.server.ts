@@ -20,6 +20,7 @@ import {
   parseVenueRequestContext,
   parseVenueRequestId,
   parseVenueRequestInput,
+  venueRequestEventStatusMessage,
 } from "#/features/venue-requests/schema";
 import { checkVenueFree, occupyVenue } from "#/features/venue-requests/occupancy.server";
 import {
@@ -535,6 +536,11 @@ export async function handleApproveVenueRequest(
     assertEventAcceptsActivity(event?.status);
     // PTR-54 AC9: a cancelled event takes no new booking.
     if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+    // A confirmed or rejected event takes no new booking either. Rejection stays open, so staff
+    // can clear a stale request.
+    if (event && !SEARCHABLE_EVENT_STATUSES.includes(event.status)) {
+      throw new ConflictError(venueRequestEventStatusMessage(event.status));
+    }
 
     const occupancy = await checkVenueFree(tx, {
       venueId: row.venueId,
@@ -577,6 +583,8 @@ export async function handleApproveVenueRequest(
  * A rejected request is final. Refuse later approve, withdraw, or reject actions and tell the
  * Coordinator to raise a new request. The partial unique index covers pending rows, so a new
  * request can be raised.
+ * Do not check the event status. Staff can then clear a stale request on a confirmed or rejected
+ * event, which approval refuses.
  */
 export async function handleRejectVenueRequest(
   data: unknown,

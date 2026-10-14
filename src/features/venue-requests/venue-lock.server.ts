@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import type { db as Db } from "#/db";
 import { eventRequests, venueHolds, venueRequests } from "#/db/schema";
 import { ConflictError, NotFoundError } from "#/features/auth/session";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 type Database = typeof Db;
 /** The transaction handle every venue writer receives from `database.transaction`. */
@@ -47,7 +48,7 @@ export async function lockVenueForRequest(tx: VenueTx, requestId: string): Promi
 }
 
 /** The event row a venue writer locks, as its gates read it. */
-type LockedEvent = { id: number; status: string };
+type LockedEvent = { id: number; status: EventRequestStatus };
 
 /**
  * Key-share the event before any venue lock. Return `{ id, status }` as read under that lock, or

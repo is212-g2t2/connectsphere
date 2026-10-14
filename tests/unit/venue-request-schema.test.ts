@@ -21,6 +21,7 @@ import {
   parseVenueRequestInput,
   venueHoldConflictMessage,
   venueRequestConflictMessage,
+  venueRequestEventStatusMessage,
 } from "#/features/venue-requests/schema";
 
 const VALID = {
@@ -107,6 +108,17 @@ describe("venueRequestConflictMessage (PTR-36 criterion 2)", () => {
         endsAt: "2027-06-02T01:00:00",
       })
     ).toBe("Harbour Hall is already booked 1 Jun 2027, 22:00 – 2 Jun 2027, 01:00");
+  });
+});
+
+describe("venueRequestEventStatusMessage (PTR-138)", () => {
+  it("names the event status in the badge's words", () => {
+    expect(venueRequestEventStatusMessage("confirmed")).toBe(
+      "This event is confirmed, so it cannot take a new venue booking."
+    );
+    expect(venueRequestEventStatusMessage("rejected")).toBe(
+      "This event is rejected, so it cannot take a new venue booking."
+    );
   });
 });
 

@@ -22,6 +22,7 @@ import {
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
+  venueRequestEventStatusMessage,
 } from "#/features/venue-requests/schema";
 import {
   handleApproveVenueRequest,
@@ -35,6 +36,7 @@ import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venue
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import { notificationSummary, parseNotificationPayload } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
+import { eventStatusColumns } from "./event-status";
 
 /** The inbox summary line, which is also the email subject. */
 function summarize(row: { kind: string; payload: unknown }): string {
@@ -995,6 +997,46 @@ describe("venue request handlers (PTR-31)", () => {
       await expect(approve(request.id, users.venueStaffA)).rejects.toThrow(
         VENUE_REQUEST_DECIDED_MESSAGE
       );
+    });
+
+    it.each(["confirmed", "rejected"] as const)(
+      "refuses a pending request once its event is %s, and changes nothing",
+      async status => {
+        const request = await raiseRequest(eventId, "09:00", "12:30");
+        await database
+          .update(schema.eventRequests)
+          .set(eventStatusColumns(status, users.coordinator))
+          .where(eq(schema.eventRequests.id, eventId));
+
+        await expect(approve(request.id, users.venueStaffA)).rejects.toMatchObject({
+          name: "ConflictError",
+          status: 409,
+          message: venueRequestEventStatusMessage(status),
+        });
+
+        expect(await rowSnapshot(request.id)).toMatchObject({
+          status: "pending",
+          assignedStaffId: null,
+        });
+        expect(await ledgerFor([request.id])).toEqual([]);
+        expect(await readNotifications(users.coordinator.id)).toEqual([]);
+      }
+    );
+
+    it("still lets staff reject a stale request on a confirmed event", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await database
+        .update(schema.eventRequests)
+        .set(eventStatusColumns("confirmed", users.coordinator))
+        .where(eq(schema.eventRequests.id, eventId));
+
+      const rejected = await handleRejectVenueRequest(
+        { id: request.id, reason: "The event is already confirmed." },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      expect(rejected).toMatchObject({ status: "rejected", assignedStaffId: users.venueStaffA.id });
     });
 
     it("refuses the second of two simultaneous approvals of one request", async () => {
