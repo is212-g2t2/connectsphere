@@ -351,6 +351,13 @@
       "when": 1792051573036,
       "tag": "0049_green_odin",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792057813566,
+      "tag": "0050_loud_the_fury",
+      "breakpoints": true
     }
   ]
 }

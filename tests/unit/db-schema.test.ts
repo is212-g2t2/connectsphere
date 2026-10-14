@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   extractTablesRelationalConfig,
@@ -72,6 +73,20 @@ describe("Database Schema Definitions", () => {
     expect(getTableColumns(venueUnavailability).startsAt.name).toBe("starts_at");
   });
 
+  it("lets a venue block stay open until lifted (PTR-136)", () => {
+    const columns = getTableColumns(venueUnavailability);
+    expect(columns.endsAt.notNull).toBe(false);
+    expect(columns.createdById.name).toBe("created_by_id");
+    expect(columns.liftedAt.name).toBe("lifted_at");
+    expect(columns.liftedById.name).toBe("lifted_by_id");
+    const period = getTableConfig(venueUnavailability).indexes.find(
+      index => index.config.name === "venue_unavailability_period_idx"
+    );
+    const predicate = inspect(period?.config.where, { depth: 10 });
+    expect(predicate).toMatch(/lifted_at/);
+    expect(predicate).toMatch(/is null/i);
+  });
+
   it("defines the equipment inventory tables (PTR-115, PTR-41)", () => {
     expect(getTableColumns(equipmentTypes).quantityHeld.name).toBe("quantity_held");
     expect(getTableColumns(equipmentUnavailability).equipmentTypeId.name).toBe("equipment_type_id");
@@ -133,6 +148,10 @@ describe("Database Schema Definitions", () => {
     expect(columns.eventId.notNull).toBe(false);
     expect(columns.venueUnavailabilityId.name).toBe("venue_unavailability_id");
     expect(columns.active.notNull).toBe(true);
+    // PTR-136: only a block row may leave the end open.
+    expect(columns.endsAt.notNull).toBe(false);
+    const checks = getTableConfig(schema.venueOccupancy).checks.map(check => check.name);
+    expect(checks).toContain("venue_occupancy_unbounded_only_for_block");
   });
 
   it("keeps the venue request status list identical to the Postgres enum (PTR-31, PTR-36, PTR-34)", () => {

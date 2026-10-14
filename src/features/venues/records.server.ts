@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import {
@@ -344,25 +344,31 @@ async function loadVenueBlocks(
       id: venueUnavailability.id,
       venueId: venueUnavailability.venueId,
       startsAt: venueUnavailability.startsAt,
-      endsAt: venueUnavailability.endsAt,
+      endsAt: sql<string>`coalesce(${venueUnavailability.endsAt}, least(${endsAt}::timestamp, timestamp '9999-12-31 23:59:59'))::text`,
       reason: venueUnavailability.reason,
+      openEnded: sql<boolean>`${venueUnavailability.endsAt} is null`,
     })
     .from(venueUnavailability)
     .where(
       and(
         inArray(venueUnavailability.venueId, venueIds),
+        isNull(venueUnavailability.liftedAt),
         lt(venueUnavailability.startsAt, endsAt),
-        gt(venueUnavailability.endsAt, startsAt)
+        or(isNull(venueUnavailability.endsAt), gt(venueUnavailability.endsAt, startsAt))
       )
     );
 
-  return rows.map(row => ({
-    id: String(row.id),
-    venueId: row.venueId,
-    startsAt: normalizeDatabaseTimestamp(row.startsAt),
-    endsAt: normalizeDatabaseTimestamp(row.endsAt),
-    label: row.reason || "Unavailable / blocked",
-  }));
+  return rows.map(row => {
+    const block: VenueBlock = {
+      id: String(row.id),
+      venueId: row.venueId,
+      startsAt: normalizeDatabaseTimestamp(row.startsAt),
+      endsAt: normalizeDatabaseTimestamp(row.endsAt),
+      label: row.reason || "Unavailable / blocked",
+    };
+    if (row.openEnded) block.openEnded = true;
+    return block;
+  });
 }
 
 /** One request window, in the database spelling `YYYY-MM-DD HH:MM:SS`, and its venue's hours. */

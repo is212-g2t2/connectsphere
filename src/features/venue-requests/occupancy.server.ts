@@ -1,10 +1,17 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, notExists, sql } from "drizzle-orm";
 import type { SQL, SQLWrapper } from "drizzle-orm";
 
-import { venueOccupancy } from "#/db/schema";
+import {
+  eventRequests,
+  venueHolds,
+  venueOccupancy,
+  venueRequests,
+  venueUnavailability,
+} from "#/db/schema";
 import { ConflictError } from "#/features/auth/session";
 import {
   VENUE_OCCUPANCY_CONFLICT_MESSAGE,
+  venueBlockConflictMessage,
   venueHoldConflictMessage,
   venueRequestConflictMessage,
 } from "#/features/venue-requests/schema";
@@ -16,6 +23,7 @@ import { logger } from "#/lib/logger";
  * PTR-134: the writers' side of the venue occupancy ledger (ADR-7). Approval, amendment, release,
  * and hold create, release and convert call these functions inside their advisory-locked
  * transactions, so a ledger row and its source record commit or roll back together.
+ * PTR-136 adds block rows and the suspend/restore helpers below.
  */
 
 const log = logger.getChild("venue-occupancy");
@@ -23,20 +31,23 @@ const log = logger.getChild("venue-occupancy");
 /** A commitment's venue, event and requested period, with the buffers to store on its row. */
 interface Occupancy {
   venueId: number;
-  eventId: number;
+  eventId: number | null;
   startsAt: string;
-  endsAt: string;
+  endsAt: string | null;
   setupMinutes: number;
   turnaroundMinutes: number;
 }
 
-type OccupancySource = { venueRequestId: string } | { venueHoldId: string };
+type OccupancySource =
+  | { venueRequestId: string }
+  | { venueHoldId: string }
+  | { venueUnavailabilityId: number };
 
 /**
  * node-postgres puts the SQLSTATE in `code`. Bun SQL puts it in `errno` and sets `code` to
  * `ERR_POSTGRES_SERVER_ERROR`. Drizzle wraps both driver errors in `cause`.
  */
-function isDeadlock(error: unknown): boolean {
+export function isDeadlock(error: unknown): boolean {
   if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null) {
     return false;
   }
@@ -70,13 +81,15 @@ export async function occupyVenue(
 
 /** Delete every ledger row of the source. Writers never edit a row in place. */
 export async function vacateVenue(tx: VenueTx, source: OccupancySource): Promise<void> {
-  await tx
-    .delete(venueOccupancy)
-    .where(
-      "venueRequestId" in source
-        ? eq(venueOccupancy.venueRequestId, source.venueRequestId)
-        : eq(venueOccupancy.venueHoldId, source.venueHoldId)
-    );
+  if ("venueRequestId" in source) {
+    await tx.delete(venueOccupancy).where(eq(venueOccupancy.venueRequestId, source.venueRequestId));
+  } else if ("venueHoldId" in source) {
+    await tx.delete(venueOccupancy).where(eq(venueOccupancy.venueHoldId, source.venueHoldId));
+  } else {
+    await tx
+      .delete(venueOccupancy)
+      .where(eq(venueOccupancy.venueUnavailabilityId, source.venueUnavailabilityId));
+  }
 }
 
 /**
@@ -109,20 +122,45 @@ export function overlapsLedger(period: BufferedPeriod): SQL {
   return sql`${venueOccupancy.venueId} = ${period.venueId} and ${venueOccupancy.active} and tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${requestedStart}, ${requestedEnd}, '[)')`;
 }
 
+/** One active ledger row (or a live ledger-less block) that refuses a commitment, by kind. */
+export type VenueConflict =
+  | { kind: "block"; startsAt: string; endsAt: string | null }
+  | { kind: "booking" | "hold"; startsAt: string; endsAt: string };
+
+/** Build the refusal for one conflict. A block keeps its true end, so "until lifted" survives. */
+export function venueConflictMessage(venueName: string, conflict: VenueConflict): string {
+  if (conflict.kind === "block") {
+    return venueBlockConflictMessage({
+      venueName,
+      startsAt: conflict.startsAt,
+      endsAt: conflict.endsAt,
+    });
+  }
+  const named = { venueName, startsAt: conflict.startsAt, endsAt: conflict.endsAt };
+  return conflict.kind === "hold"
+    ? venueHoldConflictMessage(named)
+    : venueRequestConflictMessage(named);
+}
+
 /**
- * Refuse a commitment that would overlap an active ledger row at the venue. Name the venue and the
- * other row's occupied period, a booking before a hold, then the earliest. Do not name the other
- * event. Return the row to write, with the venue's current buffers.
+ * Find the active ledger row at the venue that overlaps the commitment once the buffers count,
+ * a block before a booking before a hold, then the earliest. Name no other event. When the ledger
+ * holds no conflict, probe `venue_unavailability` for a live block with no ledger row yet
+ * (ADR-8's upgrade path). Return the conflict and the ledger row to write, with the venue's
+ * current buffers. Callers choose the refusal, because an approval names availability first.
  *
  * Pass the venue that `loadLockedVenue` read under the venue lock. A venue save and the other
  * writers take the same lock, so the buffers and the rows stay current. The constraint refuses a
  * writer outside the lock.
  */
-export async function checkVenueFree(
+export async function findVenueConflict(
   tx: VenueTx,
   venue: { id: number; name: string; setupMinutes: number; turnaroundMinutes: number },
-  commitment: Pick<Occupancy, "eventId" | "startsAt" | "endsAt">
-): Promise<Occupancy> {
+  commitment: { eventId: number; startsAt: string; endsAt: string }
+): Promise<{
+  conflict: VenueConflict | null;
+  occupancy: Occupancy & { eventId: number; endsAt: string };
+}> {
   const occupancy = {
     venueId: venue.id,
     eventId: commitment.eventId,
@@ -132,22 +170,342 @@ export async function checkVenueFree(
     turnaroundMinutes: venue.turnaroundMinutes,
   };
 
+  // The requested interval, with the venue's buffers, for the legacy block probe below.
+  const requestedStart = sql`${occupancy.startsAt}::timestamp - make_interval(mins => ${occupancy.setupMinutes}::integer)`;
+  const requestedEnd = sql`${occupancy.endsAt}::timestamp + make_interval(mins => ${occupancy.turnaroundMinutes}::integer)`;
+  const kindRank = sql<number>`case when ${venueOccupancy.venueUnavailabilityId} is not null then 0 when ${venueOccupancy.venueHoldId} is not null then 2 else 1 end`;
+  const isBlock = sql<boolean>`${venueOccupancy.venueUnavailabilityId} is not null`;
+
   const rows = await tx
     .select({
+      isBlock,
       isHold: isHoldRow,
       // Bound the named period to the calendar's civil years, as `loadVenueHolds` does.
       startsAt: sql<string>`greatest(${occupiedStart}, timestamp '0001-01-01 00:00:00')::text`,
       endsAt: sql<string>`least(${occupiedEnd}, timestamp '9999-12-31 23:59:59')::text`,
+      // A null block end is unbounded; never feed the `least` sentinel into the block message.
+      rawEndsAt: venueOccupancy.endsAt,
     })
     .from(venueOccupancy)
     .where(overlapsLedger(occupancy))
-    .orderBy(isHoldRow, asc(occupiedStart))
+    .orderBy(kindRank, asc(occupiedStart))
     .limit(1);
-  const conflict = rows.at(0);
-  if (!conflict) return occupancy;
+  const ledgerConflict = rows.at(0);
+  if (ledgerConflict) {
+    return {
+      conflict: ledgerConflict.isBlock
+        ? { kind: "block", startsAt: ledgerConflict.startsAt, endsAt: ledgerConflict.rawEndsAt }
+        : {
+            kind: ledgerConflict.isHold ? "hold" : "booking",
+            startsAt: ledgerConflict.startsAt,
+            endsAt: ledgerConflict.endsAt,
+          },
+      occupancy,
+    };
+  }
 
-  const message = conflict.isHold ? venueHoldConflictMessage : venueRequestConflictMessage;
-  throw new ConflictError(
-    message({ venueName: venue.name, startsAt: conflict.startsAt, endsAt: conflict.endsAt })
-  );
+  // Upgrade path for blocks recorded before PTR-136: they have no ledger row yet, so probe the
+  // block table itself. The seed re-run writes their ledger rows, and then this probe finds
+  // nothing because of the `notExists` guard.
+  const legacy = await tx
+    .select({
+      startsAt: venueUnavailability.startsAt,
+      endsAt: venueUnavailability.endsAt,
+    })
+    .from(venueUnavailability)
+    .where(
+      and(
+        eq(venueUnavailability.venueId, occupancy.venueId),
+        isNull(venueUnavailability.liftedAt),
+        sql`tsrange(${venueUnavailability.startsAt}, ${venueUnavailability.endsAt}, '[)') && tsrange(${requestedStart}, ${requestedEnd}, '[)')`,
+        notExists(
+          tx
+            .select({ one: sql`1` })
+            .from(venueOccupancy)
+            .where(
+              and(
+                eq(venueOccupancy.venueUnavailabilityId, venueUnavailability.id),
+                venueOccupancy.active
+              )
+            )
+        )
+      )
+    )
+    .orderBy(asc(venueUnavailability.startsAt))
+    .limit(1);
+  const legacyBlock = legacy.at(0);
+  return {
+    conflict: legacyBlock
+      ? { kind: "block", startsAt: legacyBlock.startsAt, endsAt: legacyBlock.endsAt }
+      : null,
+    occupancy,
+  };
+}
+
+/**
+ * Refuse a commitment that would overlap an active ledger row at the venue, or a live block with
+ * no ledger row. Pass the venue that `loadLockedVenue` read under the venue lock. Return the row
+ * to write, with the venue's current buffers.
+ */
+export async function checkVenueFree(
+  tx: VenueTx,
+  venue: { id: number; name: string; setupMinutes: number; turnaroundMinutes: number },
+  commitment: { eventId: number; startsAt: string; endsAt: string }
+): Promise<Occupancy & { eventId: number; endsAt: string }> {
+  const { conflict, occupancy } = await findVenueConflict(tx, venue, commitment);
+  if (conflict) throw new ConflictError(venueConflictMessage(venue.name, conflict));
+  return occupancy;
+}
+
+/** The block period a suspend/restore helper reads or writes. A null end is unbounded. Stamps use the database `YYYY-MM-DD HH:MM:SS` shape, which compares as a date. */
+export interface BlockExtent {
+  venueId: number;
+  startsAt: string;
+  endsAt: string | null;
+}
+
+/** A ledger row's stored period and buffers, without the venue and source ids. */
+export interface LedgerValues {
+  startsAt: string;
+  endsAt: string;
+  setupMinutes: number;
+  turnaroundMinutes: number;
+  active: boolean;
+}
+
+/** What one block does to one occupied extent: nothing, a full suspend, or a split. */
+type BlockOutcome =
+  | { kind: "clear" }
+  | { kind: "deactivate" }
+  | { kind: "split"; pieces: { startsAt: string; endsAt: string; active: boolean }[] };
+
+/**
+ * Pure overlap of an occupied extent against a block. Fixed-width stamps compare as dates.
+ * No overlap -> clear; fully inside -> deactivate; else split into the non-empty
+ * intersection (inactive) plus the left and right remainders (active).
+ */
+function blockOutcome(
+  occupied: { startsAt: string; endsAt: string },
+  block: BlockExtent
+): BlockOutcome {
+  const overlaps =
+    block.endsAt === null
+      ? block.startsAt < occupied.endsAt
+      : occupied.startsAt < block.endsAt && block.startsAt < occupied.endsAt;
+  if (!overlaps) return { kind: "clear" };
+  if (
+    occupied.startsAt >= block.startsAt &&
+    (block.endsAt === null || occupied.endsAt <= block.endsAt)
+  ) {
+    return { kind: "deactivate" };
+  }
+  const intersectionStart =
+    occupied.startsAt >= block.startsAt ? occupied.startsAt : block.startsAt;
+  const intersectionEnd =
+    block.endsAt === null
+      ? occupied.endsAt
+      : occupied.endsAt <= block.endsAt
+        ? occupied.endsAt
+        : block.endsAt;
+  const pieces: { startsAt: string; endsAt: string; active: boolean }[] = [];
+  if (intersectionStart < intersectionEnd) {
+    pieces.push({ startsAt: intersectionStart, endsAt: intersectionEnd, active: false });
+  }
+  if (occupied.startsAt < block.startsAt) {
+    pieces.push({ startsAt: occupied.startsAt, endsAt: block.startsAt, active: true });
+  }
+  if (block.endsAt !== null && block.endsAt < occupied.endsAt) {
+    pieces.push({ startsAt: block.endsAt, endsAt: occupied.endsAt, active: true });
+  }
+  return { kind: "split", pieces };
+}
+
+/** Shift a `YYYY-MM-DD HH:MM:SS` stamp by minutes, staying in the same format. */
+function shiftMinutes(value: string, minutes: number): string {
+  const ms = Date.parse(`${value.replace(" ", "T")}Z`) + minutes * 60_000;
+  return new Date(ms).toISOString().slice(0, 19).replace("T", " ");
+}
+
+/**
+ * Apply each block in turn to a growing value list, so the seed can write a covered booking
+ * suspended without ever inserting an active row under a live block. Inactive values pass
+ * through untouched. Deactivate keeps the stored buffers; split pieces use buffers 0.
+ */
+export function suspensionValues(
+  row: LedgerValues,
+  blocks: readonly BlockExtent[]
+): LedgerValues[] {
+  let values = [row];
+  for (const block of blocks) {
+    values = values.flatMap(value => {
+      if (!value.active) return [value];
+      const outcome = blockOutcome(
+        {
+          startsAt: shiftMinutes(value.startsAt, -value.setupMinutes),
+          endsAt: shiftMinutes(value.endsAt, value.turnaroundMinutes),
+        },
+        block
+      );
+      if (outcome.kind === "clear") return [value];
+      if (outcome.kind === "deactivate") return [{ ...value, active: false }];
+      return outcome.pieces.map(piece => ({
+        startsAt: piece.startsAt,
+        endsAt: piece.endsAt,
+        setupMinutes: 0,
+        turnaroundMinutes: 0,
+        active: piece.active,
+      }));
+    });
+  }
+  return values;
+}
+
+/**
+ * Read the active non-block rows whose buffered occupied period overlaps the block extent.
+ * Plain read with no row locks; the caller key-shares the events before any ledger row lock.
+ * Never returns block rows. Joins the event inner (a non-block row always has one) and the
+ * sources left, so the block writer can notify each commitment's owner.
+ */
+export async function loadBlockCommitments(tx: VenueTx, block: BlockExtent) {
+  return tx
+    .select({
+      id: venueOccupancy.id,
+      venueId: venueOccupancy.venueId,
+      eventId: venueOccupancy.eventId,
+      venueRequestId: venueOccupancy.venueRequestId,
+      venueHoldId: venueOccupancy.venueHoldId,
+      startsAt: venueOccupancy.startsAt,
+      endsAt: venueOccupancy.endsAt,
+      setupMinutes: venueOccupancy.setupMinutes,
+      turnaroundMinutes: venueOccupancy.turnaroundMinutes,
+      occupiedStart: sql<string>`(${occupiedStart})::text`,
+      occupiedEnd: sql<string>`(${occupiedEnd})::text`,
+      eventName: eventRequests.eventName,
+      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+      requestedById: venueRequests.requestedById,
+      heldById: venueHolds.heldById,
+    })
+    .from(venueOccupancy)
+    .innerJoin(eventRequests, eq(eventRequests.id, venueOccupancy.eventId))
+    .leftJoin(venueRequests, eq(venueRequests.id, venueOccupancy.venueRequestId))
+    .leftJoin(venueHolds, eq(venueHolds.id, venueOccupancy.venueHoldId))
+    .where(
+      and(
+        eq(venueOccupancy.venueId, block.venueId),
+        venueOccupancy.active,
+        isNull(venueOccupancy.venueUnavailabilityId),
+        sql`tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${block.startsAt}::timestamp, ${block.endsAt}::timestamp, '[)')`
+      )
+    );
+}
+
+export type BlockCommitment = Awaited<ReturnType<typeof loadBlockCommitments>>[number];
+
+/**
+ * Suspend each overlapping commitment. A fully covered row flips to inactive and keeps its
+ * stored buffers. A partial cover deletes the row, then inserts the intersection inactive and
+ * the remainders active, each with the occupied extent and buffers 0. Skips zero-length pieces.
+ * Never touches block rows. Deletes before inserts so a piece never overlaps its active source,
+ * and the caller inserts the block's own row after this returns.
+ */
+export async function suspendBlockCommitments(
+  tx: VenueTx,
+  block: BlockExtent,
+  rows: readonly BlockCommitment[]
+): Promise<void> {
+  for (const row of rows) {
+    const outcome = blockOutcome({ startsAt: row.occupiedStart, endsAt: row.occupiedEnd }, block);
+    if (outcome.kind === "clear") continue;
+    if (outcome.kind === "deactivate") {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- suspend rows in read order
+      await tx.update(venueOccupancy).set({ active: false }).where(eq(venueOccupancy.id, row.id));
+      continue;
+    }
+    // oxlint-disable-next-line eslint/no-await-in-loop -- delete before inserting pieces
+    await tx.delete(venueOccupancy).where(eq(venueOccupancy.id, row.id));
+    for (const piece of outcome.pieces) {
+      if (piece.startsAt >= piece.endsAt) continue;
+      // oxlint-disable-next-line eslint/no-await-in-loop -- insert pieces after the delete
+      await tx
+        .insert(venueOccupancy)
+        .values({
+          venueId: row.venueId,
+          eventId: row.eventId,
+          venueRequestId: row.venueRequestId,
+          venueHoldId: row.venueHoldId,
+          startsAt: piece.startsAt,
+          endsAt: piece.endsAt,
+          setupMinutes: 0,
+          turnaroundMinutes: 0,
+          active: piece.active,
+        })
+        .catch(rethrowVenueConflict);
+    }
+  }
+}
+
+/**
+ * Read the inactive non-block rows whose buffered occupied period sits inside the block extent.
+ * Plain read with no row locks; the caller key-shares the events before any ledger row lock.
+ * Never returns block rows. Carries each source's status so restore keeps only live rows.
+ */
+export async function loadRestorableCommitments(tx: VenueTx, block: BlockExtent) {
+  return tx
+    .select({
+      id: venueOccupancy.id,
+      venueId: venueOccupancy.venueId,
+      eventId: venueOccupancy.eventId,
+      venueRequestId: venueOccupancy.venueRequestId,
+      venueHoldId: venueOccupancy.venueHoldId,
+      startsAt: venueOccupancy.startsAt,
+      endsAt: venueOccupancy.endsAt,
+      setupMinutes: venueOccupancy.setupMinutes,
+      turnaroundMinutes: venueOccupancy.turnaroundMinutes,
+      occupiedStart: sql<string>`(${occupiedStart})::text`,
+      occupiedEnd: sql<string>`(${occupiedEnd})::text`,
+      eventName: eventRequests.eventName,
+      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+      requestedById: venueRequests.requestedById,
+      heldById: venueHolds.heldById,
+      bookingStatus: venueRequests.status,
+      holdStatus: venueHolds.status,
+    })
+    .from(venueOccupancy)
+    .innerJoin(eventRequests, eq(eventRequests.id, venueOccupancy.eventId))
+    .leftJoin(venueRequests, eq(venueRequests.id, venueOccupancy.venueRequestId))
+    .leftJoin(venueHolds, eq(venueHolds.id, venueOccupancy.venueHoldId))
+    .where(
+      and(
+        eq(venueOccupancy.venueId, block.venueId),
+        eq(venueOccupancy.active, false),
+        isNull(venueOccupancy.venueUnavailabilityId),
+        sql`tsrange(${occupiedStart}, ${occupiedEnd}, '[)') <@ tsrange(${block.startsAt}::timestamp, ${block.endsAt}::timestamp, '[)')`
+      )
+    );
+}
+
+export type RestorableCommitment = Awaited<ReturnType<typeof loadRestorableCommitments>>[number];
+
+/**
+ * Restore each suspended row whose source is still live, and delete the rest. A booking counts
+ * as live when approved, a hold when held. The app writers already delete replaced rows, so a
+ * dead source here is defensive. Never touches block rows. Returns the rows it re-activated.
+ * The caller deletes the block's own row before this runs.
+ */
+export async function restoreBlockCommitments(
+  tx: VenueTx,
+  rows: readonly RestorableCommitment[]
+): Promise<RestorableCommitment[]> {
+  const restored: RestorableCommitment[] = [];
+  for (const row of rows) {
+    if (row.bookingStatus === "approved" || row.holdStatus === "held") {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- restore rows in read order
+      await tx.update(venueOccupancy).set({ active: true }).where(eq(venueOccupancy.id, row.id));
+      restored.push(row);
+    } else {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- drop rows whose source is gone
+      await tx.delete(venueOccupancy).where(eq(venueOccupancy.id, row.id));
+    }
+  }
+  return restored;
 }

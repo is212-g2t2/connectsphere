@@ -4,16 +4,21 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { VenueCalendarPage } from "#/features/venues/components/venue-calendar-page";
+import type { SessionUser } from "#/features/auth/session";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
 
-const { navigate } = vi.hoisted(() => ({ navigate: vi.fn<(options: unknown) => void>() }));
+const { navigate, invalidate } = vi.hoisted(() => ({
+  navigate: vi.fn<(options: unknown) => void>(),
+  invalidate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
   useNavigate: () => navigate,
+  useRouter: () => ({ invalidate, navigate }),
 }));
 
 const venue: Venue = {
@@ -54,6 +59,36 @@ const schedule: VenueAvailability = {
       endsAt: "2026-10-06T12:00:00",
       visibleStart: "2026-10-06T10:00:00",
       visibleEnd: "2026-10-06T12:00:00",
+    },
+  ],
+};
+
+const staffUser: SessionUser = {
+  id: "staff-1",
+  name: "Staff User",
+  email: "staff@example.com",
+  role: "venue_staff",
+};
+
+const coordinatorUser: SessionUser = {
+  id: "coord-1",
+  name: "Coordinator User",
+  email: "coord@example.com",
+  role: "event_coordinator",
+};
+
+const scheduleWithOpenEndedBlock: VenueAvailability = {
+  ...schedule,
+  occupied: [
+    {
+      id: "1",
+      state: "blocked",
+      label: "Maintenance",
+      startsAt: "2026-10-05T13:00:00",
+      endsAt: "2026-10-06T18:00:00",
+      visibleStart: "2026-10-05T13:00:00",
+      visibleEnd: "2026-10-06T18:00:00",
+      openEnded: true,
     },
   ],
 };
@@ -120,5 +155,101 @@ describe("VenueCalendarPage", () => {
       search: { venueId: 7, startDate: "2026-10-05", endDate: "2026-10-06" },
     });
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows block controls to Venue Staff on a blocked row", () => {
+    render(
+      <VenueCalendarPage
+        venues={[venue]}
+        schedule={schedule}
+        search={{ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-06" }}
+        user={staffUser}
+      />
+    );
+
+    const results = screen.getByRole("region", { name: "Availability results" });
+    expect(within(results).getByRole("button", { name: "Block venue" })).toBeTruthy();
+    expect(within(results).getByRole("button", { name: /Lift venue block/ })).toBeTruthy();
+  });
+
+  it("hides block controls from a Coordinator", () => {
+    render(
+      <VenueCalendarPage
+        venues={[venue]}
+        schedule={schedule}
+        search={{ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-06" }}
+        user={coordinatorUser}
+        coordinatorEvents={[{ id: 101, name: "Orientation Camp" }]}
+      />
+    );
+
+    const results = screen.getByRole("region", { name: "Availability results" });
+    expect(within(results).queryByRole("button", { name: "Block venue" })).toBeNull();
+    expect(within(results).queryByRole("button", { name: /Lift venue block/ })).toBeNull();
+  });
+
+  it("renders an open-ended blocked period as until lifted", () => {
+    render(
+      <VenueCalendarPage
+        venues={[venue]}
+        schedule={scheduleWithOpenEndedBlock}
+        search={{ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-06" }}
+      />
+    );
+
+    const results = screen.getByRole("region", { name: "Availability results" });
+    expect(within(results).getByText("13:00 – until lifted · Great Hall")).toBeTruthy();
+  });
+
+  it("names the block's true period in the lift confirmation, not the visible slice", async () => {
+    const user = userEvent.setup();
+    const extended: VenueAvailability = {
+      ...schedule,
+      occupied: [
+        {
+          id: "1",
+          state: "blocked",
+          label: "Maintenance",
+          startsAt: "2026-10-05T13:00:00",
+          endsAt: "2026-10-10T15:00:00",
+          visibleStart: "2026-10-05T13:00:00",
+          visibleEnd: "2026-10-06T18:00:00",
+        },
+      ],
+    };
+    render(
+      <VenueCalendarPage
+        venues={[venue]}
+        schedule={extended}
+        search={{ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-06" }}
+        user={staffUser}
+      />
+    );
+
+    const results = screen.getByRole("region", { name: "Availability results" });
+    expect(within(results).getByText("13:00 – 6 Oct 18:00 · Great Hall")).toBeTruthy();
+
+    await user.click(within(results).getByRole("button", { name: /Lift venue block/ }));
+    expect(await screen.findByText(/5 Oct 2026, 13:00 – 10 Oct 2026, 15:00/)).toBeTruthy();
+    expect(screen.getByText(/unless a new arrangement now overlaps it/)).toBeTruthy();
+  });
+
+  it("opens the record dialog with an empty end for an open-ended block", async () => {
+    const user = userEvent.setup();
+    render(
+      <VenueCalendarPage
+        venues={[venue]}
+        schedule={schedule}
+        search={{ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-06" }}
+        user={staffUser}
+      />
+    );
+
+    const results = screen.getByRole("region", { name: "Availability results" });
+    await user.click(within(results).getByRole("button", { name: "Block venue" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText<HTMLInputElement>("End date (optional)").value).toBe("");
+    expect(within(dialog).getByText(/suspended until you lift the block/)).toBeTruthy();
   });
 });

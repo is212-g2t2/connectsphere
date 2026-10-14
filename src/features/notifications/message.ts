@@ -39,6 +39,7 @@ export const NOTIFICATION_KINDS = [
   "event_significant_change",
   /** PTR-52 AC5: the Coordinator applied or declined the Organiser's change request. */
   "event_change_processed",
+  "venue_block_changed",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -266,6 +267,14 @@ const payloadSchemas = {
       reason: z.string().min(1),
     }),
   ]),
+  venue_block_changed: z.object({
+    action: z.enum(["blocked", "lifted"]),
+    eventName: z.string(),
+    venueName: z.string(),
+    startsAt: z.string(),
+    endsAt: z.string().nullable(),
+    reason: z.string(),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -362,6 +371,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("event_change_processed"),
     payload: payloadSchemas.event_change_processed,
   }),
+  z.object({
+    kind: z.literal("venue_block_changed"),
+    payload: payloadSchemas.venue_block_changed,
+  }),
 ]);
 
 /**
@@ -443,6 +456,10 @@ export function notificationSummary(notification: NotificationPayload): string {
         : `Event details changed: ${notification.payload.eventName}`;
     case "event_change_processed":
       return `Change request ${notification.payload.outcome}: ${notification.payload.eventName}`;
+    case "venue_block_changed":
+      return notification.payload.action === "blocked"
+        ? `Venue blocked: ${notification.payload.venueName}`
+        : `Venue available again: ${notification.payload.venueName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -540,6 +557,8 @@ export function notificationHref(
         : `/events/${eventRequestId}`;
     case "event_change_processed":
       return `/events/${eventRequestId}`;
+    case "venue_block_changed":
+      return `/events/${eventRequestId}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -592,6 +611,7 @@ export function notificationReachable(
     case "registration_closed":
     case "event_significant_change":
     case "event_change_processed":
+    case "venue_block_changed":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

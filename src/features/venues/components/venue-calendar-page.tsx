@@ -24,6 +24,10 @@ import {
   PlaceVenueHoldDialog,
   ReleaseVenueHoldButton,
 } from "#/features/venue-requests/components/venue-hold-actions";
+import {
+  LiftVenueBlockButton,
+  RecordVenueBlockDialog,
+} from "#/features/venues/components/venue-block-actions";
 import type { CoordinatorEventOption } from "#/features/venue-requests/components/venue-hold-actions";
 import {
   compareTimestamps,
@@ -168,17 +172,26 @@ export function VenueCalendarPage({
             id: period.id,
             label: period.label,
             state: period.state,
-            startsAt: period.visibleStart,
-            endsAt: period.visibleEnd,
+            startsAt: period.startsAt,
+            endsAt: period.endsAt,
+            visibleStart: period.visibleStart,
+            visibleEnd: period.visibleEnd,
+            openEnded: period.openEnded,
             canRelease: period.canRelease,
             convertDefaults: period.convertDefaults,
           })),
-        ].toSorted((left, right) => compareTimestamps(left.startsAt, right.startsAt))
+        ].toSorted((left, right) =>
+          compareTimestamps(
+            "visibleStart" in left ? left.visibleStart : left.startsAt,
+            "visibleStart" in right ? right.visibleStart : right.startsAt
+          )
+        )
       : [];
     return { occupiedModifiers: modifiers, periods: rows };
   }, [schedule]);
 
   const canHold = user ? can(user.role, { venue_request: ["request"] }) : false;
+  const canBlock = user ? can(user.role, { venue: ["update"] }) : false;
 
   return (
     <Page
@@ -373,6 +386,13 @@ export function VenueCalendarPage({
                     coordinatorEvents={coordinatorEvents}
                   />
                 )}
+                {canBlock && (
+                  <RecordVenueBlockDialog
+                    venueId={schedule.venue.id}
+                    venueName={schedule.venue.name}
+                    defaultDate={schedule.startDate}
+                  />
+                )}
               </div>
               {periods.length === 0 ? (
                 <p className="py-6 body-sm text-muted-foreground">
@@ -380,51 +400,73 @@ export function VenueCalendarPage({
                 </p>
               ) : (
                 <ul className="divide-y divide-border">
-                  {periods.map(period => (
-                    <li key={period.key} className="flex flex-wrap items-center gap-4 py-4">
-                      <DateChip day={timestampDay(period.startsAt)} />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium">{period.label}</p>
-                        <p className="body-sm text-muted-foreground">
-                          {timeRange(period)} · {schedule.venue.name}
-                        </p>
-                      </div>
-                      {period.state !== "available" && (
-                        <Badge variant={OCCUPIED_STATES[period.state].variant}>
-                          {OCCUPIED_STATES[period.state].label}
-                        </Badge>
-                      )}
-                      {period.state === "tentative_hold" &&
-                        period.id &&
-                        canHold &&
-                        (period.canRelease || period.convertDefaults) && (
-                          <div className="flex items-center gap-2">
-                            {period.convertDefaults && (
-                              <ConvertVenueHoldButton
-                                holdId={period.id}
-                                requirements={period.convertDefaults}
-                              />
-                            )}
-                            {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
-                          </div>
+                  {periods.map(period => {
+                    // Show the part inside the range. The lift confirmation uses the record's
+                    // true `startsAt`/`endsAt` below, not these visible values.
+                    const displayStart =
+                      "visibleStart" in period ? period.visibleStart : period.startsAt;
+                    const displayEnd = "visibleEnd" in period ? period.visibleEnd : period.endsAt;
+                    const displayOpenEnded = "openEnded" in period ? period.openEnded : undefined;
+                    return (
+                      <li key={period.key} className="flex flex-wrap items-center gap-4 py-4">
+                        <DateChip day={timestampDay(displayStart)} />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">{period.label}</p>
+                          <p className="body-sm text-muted-foreground">
+                            {timeRange({
+                              startsAt: displayStart,
+                              endsAt: displayEnd,
+                              openEnded: displayOpenEnded,
+                            })}{" "}
+                            · {schedule.venue.name}
+                          </p>
+                        </div>
+                        {period.state !== "available" && (
+                          <Badge variant={OCCUPIED_STATES[period.state].variant}>
+                            {OCCUPIED_STATES[period.state].label}
+                          </Badge>
                         )}
-                      {period.state === "available" && canHold && (
-                        <PlaceVenueHoldDialog
-                          venueId={schedule.venue.id}
-                          venueName={schedule.venue.name}
-                          defaultDate={timestampDay(period.startsAt)}
-                          defaultStartTime={timestampTime(period.startsAt).slice(0, 5)}
-                          defaultEndTime={timestampTime(period.endsAt).slice(0, 5)}
-                          coordinatorEvents={coordinatorEvents}
-                          trigger={
-                            <Button size="sm" variant="ghost">
-                              Hold slot
-                            </Button>
-                          }
-                        />
-                      )}
-                    </li>
-                  ))}
+                        {period.state === "tentative_hold" &&
+                          period.id &&
+                          canHold &&
+                          (period.canRelease || period.convertDefaults) && (
+                            <div className="flex items-center gap-2">
+                              {period.convertDefaults && (
+                                <ConvertVenueHoldButton
+                                  holdId={period.id}
+                                  requirements={period.convertDefaults}
+                                />
+                              )}
+                              {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
+                            </div>
+                          )}
+                        {period.state === "blocked" && period.id && canBlock && (
+                          <LiftVenueBlockButton
+                            blockId={period.id}
+                            reason={period.label}
+                            startsAt={period.startsAt}
+                            endsAt={period.endsAt}
+                            openEnded={period.openEnded}
+                          />
+                        )}
+                        {period.state === "available" && canHold && (
+                          <PlaceVenueHoldDialog
+                            venueId={schedule.venue.id}
+                            venueName={schedule.venue.name}
+                            defaultDate={timestampDay(period.startsAt)}
+                            defaultStartTime={timestampTime(period.startsAt).slice(0, 5)}
+                            defaultEndTime={timestampTime(period.endsAt).slice(0, 5)}
+                            coordinatorEvents={coordinatorEvents}
+                            trigger={
+                              <Button size="sm" variant="ghost">
+                                Hold slot
+                              </Button>
+                            }
+                          />
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </CardContent>
@@ -483,8 +525,9 @@ function dateLabel(value: string) {
 }
 
 /** Show a booking past midnight as `23:00 - 24:00` when it ends at range end. */
-function timeRange(period: { startsAt: string; endsAt: string }) {
+function timeRange(period: { startsAt: string; endsAt: string; openEnded?: true }) {
   const start = timestampTime(period.startsAt).slice(0, 5);
+  if (period.openEnded) return `${start} – until lifted`;
   const endClock = timestampTime(period.endsAt).slice(0, 5);
   const end =
     timestampEndDay(period.endsAt) === timestampDay(period.startsAt)

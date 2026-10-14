@@ -10,9 +10,16 @@ import {
   NAME_REQUIRED_MESSAGE,
   NAME_TOO_LONG_MESSAGE,
   OperatingHoursSchema,
+  VENUE_BLOCK_END_PAIR_MESSAGE,
+  VENUE_BLOCK_REASON_REQUIRED,
+  VENUE_TIME_ORDER_MESSAGE,
+  VenueBlockInput,
+  parseVenueBlockId,
+  parseVenueBlockInput,
   parseVenueId,
   parseVenueInput,
   TIME_MESSAGE,
+  VENUE_BLOCK_ID_MESSAGE,
   VENUE_ID_MESSAGE,
   VENUE_LAYOUTS,
   VENUE_NAME_MAX_LENGTH,
@@ -193,5 +200,66 @@ describe("OperatingHoursSchema", () => {
       expect(result.success).toBe(false);
       expect(result.error?.issues[0].message).toBe(CLOSES_BEFORE_OPENS_MESSAGE);
     }
+  });
+});
+
+function firstIssue(result: { success: boolean; error?: { issues: { message: string }[] } }) {
+  return result.success ? undefined : result.error?.issues[0].message;
+}
+
+describe("VenueBlockInput (PTR-136)", () => {
+  const VALID = {
+    venueId: 3,
+    date: "2027-04-20",
+    startTime: "09:00",
+    reason: "Floor resurfacing",
+  };
+
+  it("accepts an open end without end fields", () => {
+    expect(VenueBlockInput.parse(VALID)).toEqual(VALID);
+    expect(parseVenueBlockInput(VALID)).toEqual(VALID);
+  });
+
+  it("accepts a same-day and a multi-day end", () => {
+    expect(
+      VenueBlockInput.parse({ ...VALID, endDate: "2027-04-20", endTime: "12:30" })
+    ).toMatchObject({ endDate: "2027-04-20", endTime: "12:30" });
+    expect(
+      VenueBlockInput.parse({ ...VALID, endDate: "2027-04-22", endTime: "08:00" })
+    ).toMatchObject({ endDate: "2027-04-22", endTime: "08:00" });
+  });
+
+  it("requires a non-blank reason", () => {
+    for (const reason of [undefined, "", "   "]) {
+      expect(firstIssue(VenueBlockInput.safeParse({ ...VALID, reason }))).toBe(
+        VENUE_BLOCK_REASON_REQUIRED
+      );
+    }
+    expect(() => parseVenueBlockInput({ ...VALID, reason: "  " })).toThrow(
+      VENUE_BLOCK_REASON_REQUIRED
+    );
+  });
+
+  it("requires both end fields together", () => {
+    expect(firstIssue(VenueBlockInput.safeParse({ ...VALID, endDate: "2027-04-20" }))).toBe(
+      VENUE_BLOCK_END_PAIR_MESSAGE
+    );
+    expect(firstIssue(VenueBlockInput.safeParse({ ...VALID, endTime: "12:30" }))).toBe(
+      VENUE_BLOCK_END_PAIR_MESSAGE
+    );
+  });
+
+  it("refuses an end that is not later than the start", () => {
+    expect(
+      firstIssue(VenueBlockInput.safeParse({ ...VALID, endDate: "2027-04-20", endTime: "09:00" }))
+    ).toBe(VENUE_TIME_ORDER_MESSAGE);
+    expect(
+      firstIssue(VenueBlockInput.safeParse({ ...VALID, endDate: "2027-04-19", endTime: "12:30" }))
+    ).toBe(VENUE_TIME_ORDER_MESSAGE);
+  });
+
+  it("refuses a block id that is not a positive whole number", () => {
+    expect(parseVenueBlockId({ id: 7 })).toEqual({ id: 7 });
+    expect(() => parseVenueBlockId({ id: 0 })).toThrow(VENUE_BLOCK_ID_MESSAGE);
   });
 });

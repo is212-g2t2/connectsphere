@@ -126,8 +126,8 @@ interface VenueRequestEntryRow {
 }
 
 /**
- * A ledger row that a venue block owns. No writer adds one before PTR-136. The conflict flag names
- * it `unavailable`. `checkVenueFree` names it as a booking.
+ * A ledger row that a venue block owns. The conflict flag names it `unavailable`, and the ledger
+ * check names the block's period.
  */
 const isBlockRow = sql<boolean>`${venueOccupancy.venueUnavailabilityId} is not null`;
 
@@ -150,7 +150,7 @@ function ledgerConflictKind(row: { isHold: boolean; isBlock: boolean }): VenueRe
  *   buffers count. Read the ledger with approval's expression (`overlapsLedger`).
  * - `unavailable`: the venue is not open for the row's window, or a recorded block overlaps it.
  *   Read the blocks with `loadWindowAvailabilityFailures`, and a block's ledger row (`isBlockRow`)
- *   once PTR-136 writes one.
+ *   when the block reaches the row only through the buffers.
  *
  * Read in batched queries, not one read per row. Do not scope the reads to the caller's events:
  * the booking or hold can belong to an event the caller cannot see. Return only the kind.

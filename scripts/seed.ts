@@ -1,10 +1,19 @@
 // oxlint-disable node/no-process-env, no-console
 import { hashPassword } from "better-auth/crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
+import {
+  loadBlockCommitments,
+  loadRestorableCommitments,
+  restoreBlockCommitments,
+  suspendBlockCommitments,
+  suspensionValues,
+} from "#/features/venue-requests/occupancy.server";
+import { lockVenue } from "#/features/venue-requests/venue-lock.server";
+import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 
 export type SeedUser = typeof schema.user.$inferInsert;
 
@@ -737,8 +746,8 @@ export type Database = ReturnType<typeof drizzle<typeof schema>>;
 /**
  * Keep a seeded venue request's `venue_occupancy` row in step with its status, as the app writers
  * do: delete the request's rows, then insert one for an approved booking, with the venue's current
- * buffers. The seed takes no venue lock, so `venue_occupancy_no_overlap` is its only guard: a
- * seeded booking that overlaps another commitment stops the seed.
+ * buffers. A covered booking is written suspended (or split) under the live blocks, so the insert
+ * itself never hits a live block row. A conflict between two commitments still stops the seed.
  */
 async function syncSeedOccupancy(
   tx: Pick<Database, "select" | "insert" | "delete">,
@@ -762,15 +771,41 @@ async function syncSeedOccupancy(
     })
     .from(schema.venues)
     .where(eq(schema.venues.id, request.venueId));
-  await tx.insert(schema.venueOccupancy).values({
-    venueId: request.venueId,
-    eventId: request.eventId,
-    venueRequestId: request.id,
-    startsAt: request.startsAt,
-    endsAt: request.endsAt,
-    setupMinutes: venue.setupMinutes,
-    turnaroundMinutes: venue.turnaroundMinutes,
-  });
+  const blocks = await tx
+    .select({
+      startsAt: schema.venueUnavailability.startsAt,
+      endsAt: schema.venueUnavailability.endsAt,
+    })
+    .from(schema.venueUnavailability)
+    .where(
+      and(
+        eq(schema.venueUnavailability.venueId, request.venueId),
+        isNull(schema.venueUnavailability.liftedAt)
+      )
+    );
+  const values = suspensionValues(
+    {
+      startsAt: request.startsAt,
+      endsAt: request.endsAt,
+      setupMinutes: venue.setupMinutes,
+      turnaroundMinutes: venue.turnaroundMinutes,
+      active: true,
+    },
+    blocks.map(block => ({
+      venueId: request.venueId,
+      startsAt: block.startsAt,
+      endsAt: block.endsAt,
+    }))
+  );
+  for (const value of values) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- write the suspended pieces in turn
+    await tx.insert(schema.venueOccupancy).values({
+      venueId: request.venueId,
+      eventId: request.eventId,
+      venueRequestId: request.id,
+      ...value,
+    });
+  }
 }
 
 /**
@@ -839,31 +874,124 @@ export async function runSeed(database: Database): Promise<void> {
     );
   const venueIdByName = new Map(venueRows.map(row => [row.name, row.id]));
 
-  // Dates use seed time. Replace the seed's periods on each run instead of skipping a venue with
-  // an existing period. Otherwise, an old block could cover the demo event as its date moves.
-  // Use `(venue, reason)` as the seed's key because moving dates do not match the unique period index.
-  await database.delete(schema.venueUnavailability).where(
-    and(
-      inArray(schema.venueUnavailability.venueId, [...venueIdByName.values()]),
-      inArray(
-        schema.venueUnavailability.reason,
-        seedVenueUnavailability.map(period => period.reason)
-      )
-    )
-  );
-
-  await database
-    .insert(schema.venueUnavailability)
-    .values(
-      seedVenueUnavailability.map(period => {
-        const venueId = venueIdByName.get(period.venueName);
-        if (venueId === undefined) {
-          throw new Error(`Seed venue "${period.venueName}" was not inserted`);
-        }
-        return { venueId, startsAt: period.startsAt, endsAt: period.endsAt, reason: period.reason };
-      })
-    )
-    .onConflictDoNothing();
+  // A re-run lifts its old periods (never deletes), so the block rows and their suspensions
+  // stay consistent. Use `(venue, reason)` as the seed's key because moving dates do not match
+  // the unique period index.
+  await database.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${DEMO_EVENT_SEED_LOCK_KEY})`);
+    // The node-postgres transaction matches the VenueTx shape at runtime.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- same drizzle methods, other driver
+    const venueTx = tx as unknown as VenueTx;
+    const blockVenueIds = [
+      ...new Set(
+        seedVenueUnavailability.map(period => {
+          const venueId = venueIdByName.get(period.venueName);
+          if (venueId === undefined) {
+            throw new Error(`Seed venue "${period.venueName}" was not inserted`);
+          }
+          return venueId;
+        })
+      ),
+    ].toSorted((left, right) => left - right);
+    for (const venueId of blockVenueIds) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- lock venues in ascending id order
+      await lockVenue(venueTx, venueId);
+    }
+    const staffId = "seed-venue-staff-1";
+    for (const period of seedVenueUnavailability) {
+      const venueId = venueIdByName.get(period.venueName);
+      if (venueId === undefined) {
+        throw new Error(`Seed venue "${period.venueName}" was not inserted`);
+      }
+      // oxlint-disable-next-line eslint/no-await-in-loop -- lifts run sequentially under the lock
+      const oldBlocks = await tx
+        .select()
+        .from(schema.venueUnavailability)
+        .where(
+          and(
+            eq(schema.venueUnavailability.venueId, venueId),
+            eq(schema.venueUnavailability.reason, period.reason),
+            isNull(schema.venueUnavailability.liftedAt)
+          )
+        )
+        .for("update");
+      for (const old of oldBlocks) {
+        const extent = { venueId: old.venueId, startsAt: old.startsAt, endsAt: old.endsAt };
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lifts run sequentially under the lock
+        const restorable = await loadRestorableCommitments(venueTx, extent);
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lifts run sequentially under the lock
+        await tx
+          .delete(schema.venueOccupancy)
+          .where(eq(schema.venueOccupancy.venueUnavailabilityId, old.id));
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lifts run sequentially under the lock
+        await restoreBlockCommitments(venueTx, restorable);
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lifts run sequentially under the lock
+        await tx
+          .update(schema.venueUnavailability)
+          .set({ liftedAt: new Date(), liftedById: staffId })
+          .where(eq(schema.venueUnavailability.id, old.id));
+      }
+    }
+    // A live block from another writer wins over a seed period that overlaps it. Skip the period
+    // instead of failing the exclusion constraint, so `db:seed` stays safe to re-run.
+    const recordable: (typeof schema.venueUnavailability.$inferInsert)[] = [];
+    // oxlint-disable-next-line eslint/no-await-in-loop -- record the periods in catalogue order
+    for (const period of seedVenueUnavailability) {
+      const venueId = venueIdByName.get(period.venueName);
+      if (venueId === undefined) {
+        throw new Error(`Seed venue "${period.venueName}" was not inserted`);
+      }
+      // oxlint-disable-next-line eslint/no-await-in-loop -- one overlap probe per period
+      const clashes = await tx
+        .select({ id: schema.venueUnavailability.id })
+        .from(schema.venueUnavailability)
+        .where(
+          and(
+            eq(schema.venueUnavailability.venueId, venueId),
+            isNull(schema.venueUnavailability.liftedAt),
+            sql`tsrange(${schema.venueUnavailability.startsAt}, ${schema.venueUnavailability.endsAt}, '[)') && tsrange(${period.startsAt}::timestamp, ${period.endsAt}::timestamp, '[)')`
+          )
+        )
+        .limit(1);
+      if (clashes.length > 0) {
+        console.warn(`Skipped the seeded period "${period.reason}": another block covers it`);
+        continue;
+      }
+      recordable.push({
+        venueId,
+        startsAt: period.startsAt,
+        endsAt: period.endsAt,
+        reason: period.reason,
+        createdById: staffId,
+      });
+    }
+    const inserted =
+      recordable.length === 0
+        ? []
+        : await tx
+            .insert(schema.venueUnavailability)
+            .values(recordable)
+            .onConflictDoNothing()
+            .returning();
+    for (const row of inserted) {
+      const extent = { venueId: row.venueId, startsAt: row.startsAt, endsAt: row.endsAt };
+      // oxlint-disable-next-line eslint/no-await-in-loop -- suspend before the block row lands
+      const covered = await loadBlockCommitments(venueTx, extent);
+      // oxlint-disable-next-line eslint/no-await-in-loop -- suspend before the block row lands
+      await suspendBlockCommitments(venueTx, extent, covered);
+      // oxlint-disable-next-line eslint/no-await-in-loop -- write one ledger row per inserted block
+      await tx.insert(schema.venueOccupancy).values({
+        venueId: row.venueId,
+        venueUnavailabilityId: row.id,
+        startsAt: row.startsAt,
+        endsAt: row.endsAt,
+        setupMinutes: 0,
+        turnaroundMinutes: 0,
+        active: true,
+        eventId: null,
+      });
+    }
+  });
   // Hold the advisory lock for the transaction so concurrent seeds do not race the lookup. Lock
   // the request row when it exists, so a concurrent delete waits until the seed writes its children.
   await database.transaction(async tx => {
@@ -1160,7 +1288,6 @@ export async function runSeed(database: Database): Promise<void> {
     // Seed twenty extra events under the same advisory lock as the demos. Dates move forward
     // on every run, so existing rows converge instead of going stale. Each event keeps its
     // own venue date, so approved bookings never share a venue and a date.
-    // oxlint-disable eslint/no-await-in-loop -- lookups must run sequentially under the lock
     for (const [index, extra] of seedExtraEvents.entries()) {
       const organiserId = seedExtraUsers[index * 2 + 1].id;
       const extraDate = futureOpenDayDate(extra.dayOffset);
@@ -1188,6 +1315,7 @@ export async function runSeed(database: Database): Promise<void> {
             }
           : { status: "submitted" as const };
 
+      // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
       const existing = await tx
         .select({ id: schema.eventRequests.id })
         .from(schema.eventRequests)
@@ -1202,6 +1330,7 @@ export async function runSeed(database: Database): Promise<void> {
 
       let extraEventId = existing.at(0)?.id;
       if (extraEventId === undefined) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
         const [inserted] = await tx
           .insert(schema.eventRequests)
           .values({
@@ -1222,6 +1351,7 @@ export async function runSeed(database: Database): Promise<void> {
           .returning({ id: schema.eventRequests.id });
         extraEventId = inserted.id;
       } else if (extra.status === "confirmed") {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
         await tx
           .update(schema.eventRequests)
           .set({
@@ -1242,6 +1372,7 @@ export async function runSeed(database: Database): Promise<void> {
           })
           .where(eq(schema.eventRequests.id, extraEventId));
       } else {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
         await tx
           .update(schema.eventRequests)
           .set({
@@ -1281,23 +1412,27 @@ export async function runSeed(database: Database): Promise<void> {
         status: extra.status === "confirmed" ? ("approved" as const) : ("pending" as const),
         assignedStaffId: null,
       };
+      // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
       const existingVenueRequest = await tx
         .select({ id: schema.venueRequests.id })
         .from(schema.venueRequests)
         .where(eq(schema.venueRequests.id, venueRequestId))
         .limit(1);
       if (existingVenueRequest.length === 0) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
         await tx.insert(schema.venueRequests).values({
           id: venueRequestId,
           eventId: extraEventId,
           ...extraVenueRequest,
         });
       } else {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
         await tx
           .update(schema.venueRequests)
           .set({ ...extraVenueRequest, eventId: extraEventId })
           .where(eq(schema.venueRequests.id, venueRequestId));
       }
+      // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
       await syncSeedOccupancy(tx, {
         id: venueRequestId,
         eventId: extraEventId,
@@ -1319,17 +1454,20 @@ export async function runSeed(database: Database): Promise<void> {
           extra.status === "confirmed" ? ("reserved" as const) : ("requested" as const),
         notes: `Seeded for ${extra.name}`,
       };
+      // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
       const existingEquipment = await tx
         .select({ id: schema.equipmentRequests.id })
         .from(schema.equipmentRequests)
         .where(eq(schema.equipmentRequests.id, equipmentRequestId))
         .limit(1);
       if (existingEquipment.length === 0) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
         await tx.insert(schema.equipmentRequests).values({
           id: equipmentRequestId,
           ...extraEquipment,
         });
       } else {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lookups run sequentially under the lock
         await tx
           .update(schema.equipmentRequests)
           .set(extraEquipment)
@@ -1339,6 +1477,7 @@ export async function runSeed(database: Database): Promise<void> {
       if (extra.status === "confirmed") {
         for (let k = 0; k < 5; k += 1) {
           const attendee = seedExtraUsers[(index * 6 + k * 2) % seedExtraUsers.length];
+          // oxlint-disable-next-line eslint/no-await-in-loop -- registrations fill in a fixed order
           await tx
             .insert(schema.eventRegistrations)
             .values({ eventId: extraEventId, attendeeId: attendee.id })
