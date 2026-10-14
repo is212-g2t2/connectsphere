@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests, user, venueRequests, venues } from "#/db/schema";
@@ -357,17 +357,20 @@ export async function handleGetPendingVenueRequest(
 }
 
 /**
- * Return event defaults and the pending request for the venue page's request panel.
+ * Return event defaults and the event's requests at this venue for the venue page's request panel.
  * Load the event by id, not by current assignee. This lets the request raiser withdraw after the
  * event changes status or assignment. `loadAssignedEvent` would block withdrawal because it
  * requires an event in a searchable status assigned to the caller.
- * Return context to the current Coordinator while the event stands in `SEARCHABLE_EVENT_STATUSES`,
- * or to the requester while their request is pending. Return `null` otherwise. A stranger's stale
- * `?eventId=` leaves the venue page readable and reveals no information.
+ *
+ * - The current Coordinator of an event in `SEARCHABLE_EVENT_STATUSES` can request. They get every
+ *   pending request and approved booking of the event at this venue, earliest window first.
+ * - Any other caller gets only the pending requests that they raised, so they can withdraw them.
+ * - Return `null` when the caller gets no row and cannot request. A stranger's stale `?eventId=`
+ *   then leaves the venue page readable and reveals no information.
  *
  * PTR-31 criterion 2: Include the operational requirements shown to Venue Staff: timing, attendance,
- * layout, accessibility, and required facilities. `canWithdraw` is true only when the caller raised
- * the pending request, as criterion 5 requires.
+ * layout, accessibility, and required facilities. `canWithdraw` is true only on a pending request
+ * that the caller raised, as criterion 5 requires.
  */
 export async function handleGetVenueRequestContext(
   data: unknown,
@@ -376,7 +379,7 @@ export async function handleGetVenueRequestContext(
 ) {
   const { eventId, venueId } = parseVenueRequestContext(data);
 
-  // The event and its pending request for this venue are independent reads.
+  // The event and its requests at this venue are independent reads.
   const [eventRows, requestRows] = await Promise.all([
     database
       .select({
@@ -398,6 +401,7 @@ export async function handleGetVenueRequestContext(
         id: venueRequests.id,
         startsAt: venueRequests.startsAt,
         endsAt: venueRequests.endsAt,
+        status: venueRequests.status,
         requestedById: venueRequests.requestedById,
       })
       .from(venueRequests)
@@ -405,22 +409,21 @@ export async function handleGetVenueRequestContext(
         and(
           eq(venueRequests.eventId, eventId),
           eq(venueRequests.venueId, venueId),
-          eq(venueRequests.status, "pending")
+          inArray(venueRequests.status, ["pending", "approved"])
         )
       )
-      .limit(1),
+      .orderBy(asc(venueRequests.startsAt), asc(venueRequests.endsAt), asc(venueRequests.id)),
   ]);
   const event = eventRows.at(0);
   if (!event) return null;
 
-  const request = requestRows.at(0);
-
-  // Check access before returning any data. Only the current assignee of an event in a
-  // searchable status or the requester of a pending request receives context.
+  // Check access before returning any data.
   const canRequest =
     event.assignedCoordinatorId === actor.id && SEARCHABLE_EVENT_STATUSES.includes(event.status);
-  const raisedByCaller = request?.requestedById === actor.id;
-  if (!canRequest && !raisedByCaller) return null;
+  const visible = canRequest
+    ? requestRows
+    : requestRows.filter(row => row.status === "pending" && row.requestedById === actor.id);
+  if (!canRequest && visible.length === 0) return null;
 
   return {
     event: {
@@ -432,14 +435,17 @@ export async function handleGetVenueRequestContext(
       accessibilityRequirements: event.accessibilityRequirements,
       requiredFacilities: event.venueRequirements,
     },
-    request: request
-      ? {
-          id: request.id,
-          startsAt: toLocalMinuteValue(request.startsAt),
-          endsAt: toLocalMinuteValue(request.endsAt),
-          canWithdraw: raisedByCaller,
-        }
-      : null,
+    canRequest,
+    requests: visible.map(row => {
+      const status = row.status === "approved" ? ("approved" as const) : ("pending" as const);
+      return {
+        id: row.id,
+        startsAt: toLocalMinuteValue(row.startsAt),
+        endsAt: toLocalMinuteValue(row.endsAt),
+        status,
+        canWithdraw: status === "pending" && row.requestedById === actor.id,
+      };
+    }),
   };
 }
 

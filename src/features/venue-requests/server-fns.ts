@@ -71,6 +71,9 @@ export type VenueRequestContext = NonNullable<
   Awaited<ReturnType<typeof getVenueRequestContext>>["context"]
 >;
 
+/** One pending request or approved booking of the event at this venue, as the panel lists it. */
+export type VenueRequestContextRow = VenueRequestContext["requests"][number];
+
 export const requestVenue = createServerFn({ method: "POST" })
   .validator(parseVenueRequestInput)
   .middleware([requireVenueRequest])
