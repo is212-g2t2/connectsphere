@@ -11,7 +11,12 @@ import type {
   VenueRequestRelease,
 } from "#/features/events/access";
 import { isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
-import type { SessionRequirements, VenueRequestStatus } from "#/features/venue-requests/schema";
+import type {
+  SessionRequirements,
+  VenueRequestConflict,
+  VenueRequestStatus,
+} from "#/features/venue-requests/schema";
+import { loadWindowAvailabilityFailures } from "#/features/venues/records.server";
 
 /**
  * Keep this module server-only. A client-reachable value import of `#/db/schema` would ship the
@@ -116,44 +121,64 @@ interface VenueRequestEntryRow {
 }
 
 /**
- * PTR-36 criterion 4: Return the conflict kind of each pending row in `pendingIds`. A row
- * conflicts when approval would refuse it against the ledger: it overlaps an approved booking or
- * a held hold at its venue once the buffers count. Read the ledger with approval's expression
- * (`overlapsLedger`): the stored buffers of each ledger row, and the venue's current buffers
- * around the request. A booking outranks a hold, as approval names it. Use one join, not a read
- * per row. Do not scope the join to the caller's events: the booking or hold can belong to an
- * event the caller cannot see. Return only the kind, never the other event.
+ * PTR-36 criterion 4, PTR-138 AC1: Return the conflict kind of each pending row in `pendingIds`,
+ * so the flag predicts approval. Name a booking first, then a hold, then an unavailable venue.
+ *
+ * - `booking`, `hold`: the row overlaps an approved booking or a held hold at its venue once the
+ *   buffers count. Read the ledger with approval's expression (`overlapsLedger`).
+ * - `unavailable`: the venue is not open for the row's window, or a recorded block overlaps it
+ *   (`loadWindowAvailabilityFailures`).
+ *
+ * Read in batched queries, not one read per row. Do not scope the reads to the caller's events:
+ * the booking or hold can belong to an event the caller cannot see. Return only the kind.
  */
 export async function loadPendingConflictKinds(
   database: Pick<Database, "select">,
   pendingIds: readonly string[]
-): Promise<Map<string, "booking" | "hold">> {
-  const kinds = new Map<string, "booking" | "hold">();
+): Promise<Map<string, VenueRequestConflict>> {
+  const kinds = new Map<string, VenueRequestConflict>();
   if (pendingIds.length === 0) return kinds;
-  const conflicts = await database
-    .select({ id: venueRequests.id, isHold: isHoldRow })
-    .from(venueRequests)
-    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .innerJoin(
-      venueOccupancy,
-      overlapsLedger({
+  // The ids come from an earlier statement. A row approved since then would meet its own ledger
+  // row and flag as conflicting, so read pending rows only.
+  const isPending = and(
+    inArray(venueRequests.id, [...pendingIds]),
+    eq(venueRequests.status, "pending")
+  );
+  const [conflicts, windows] = await Promise.all([
+    database
+      .select({ id: venueRequests.id, isHold: isHoldRow })
+      .from(venueRequests)
+      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+      .innerJoin(
+        venueOccupancy,
+        overlapsLedger({
+          venueId: venueRequests.venueId,
+          startsAt: venueRequests.startsAt,
+          endsAt: venueRequests.endsAt,
+          setupMinutes: venues.setupMinutes,
+          turnaroundMinutes: venues.turnaroundMinutes,
+        })
+      )
+      .where(isPending),
+    database
+      .select({
+        id: venueRequests.id,
         venueId: venueRequests.venueId,
+        operatingHours: venues.operatingHours,
         startsAt: venueRequests.startsAt,
         endsAt: venueRequests.endsAt,
-        setupMinutes: venues.setupMinutes,
-        turnaroundMinutes: venues.turnaroundMinutes,
       })
-    )
-    .where(
-      and(
-        inArray(venueRequests.id, [...pendingIds]),
-        // The ids come from an earlier statement. A row approved since then would meet its own
-        // ledger row and flag as conflicting.
-        eq(venueRequests.status, "pending")
-      )
-    );
+      .from(venueRequests)
+      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+      .where(isPending),
+  ]);
+  const unavailable = await loadWindowAvailabilityFailures(database, windows);
+  windows.forEach((window, index) => {
+    if (unavailable[index]) kinds.set(window.id, "unavailable");
+  });
   for (const row of conflicts) {
-    if (!row.isHold || !kinds.has(row.id)) kinds.set(row.id, row.isHold ? "hold" : "booking");
+    if (row.isHold && kinds.get(row.id) === "booking") continue;
+    kinds.set(row.id, row.isHold ? "hold" : "booking");
   }
   return kinds;
 }
@@ -229,7 +254,7 @@ function releaseFromRow(row: VenueRequestEntryRow): VenueRequestRelease {
  */
 export function eventVenueRequestFromRow(
   row: VenueRequestEntryRow,
-  marks: { conflict?: "booking" | "hold"; adjustable?: boolean; requirements?: boolean } = {}
+  marks: { conflict?: VenueRequestConflict; adjustable?: boolean; requirements?: boolean } = {}
 ): EventVenueRequest {
   return {
     id: row.id,

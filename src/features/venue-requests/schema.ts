@@ -418,6 +418,20 @@ export const VENUE_REQUEST_STATUS_LABELS: Record<VenueRequestStatus, string> = {
 };
 
 /**
+ * PTR-36, PTR-138 AC1: why approval would refuse a pending request now. It overlaps an approved
+ * booking or a held hold once the buffers count, or the venue cannot host its window: the venue is
+ * closed then, or a recorded block overlaps it.
+ */
+export type VenueRequestConflict = "booking" | "hold" | "unavailable";
+
+/** The badge label for each conflict kind. */
+export const VENUE_REQUEST_CONFLICT_LABELS: Record<VenueRequestConflict, string> = {
+  booking: "Conflicting booking",
+  hold: "Conflicting hold",
+  unavailable: "Venue unavailable",
+};
+
+/**
  * Map each venue-request state to a `Badge` variant, as `EVENT_REQUEST_STATUS_VARIANTS` does.
  * Use `progress` (amber) for a request that waits, `confirmed` (harbor) for a held booking, and
  * `stopped` (coral) for a refused or released one. A withdrawn request is neutral `outline`.
@@ -469,12 +483,22 @@ export function venueHoldConflictMessage(conflict: {
 }
 
 /**
- * List venue-conflict messages so the client can distinguish conflicts from other failures
- * without matching the full text. Include named booking or hold messages and the generic
- * fallback. `venueRequestConflictMessage` and `VENUE_OCCUPANCY_CONFLICT_MESSAGE` say "already
- * booked"; `venueHoldConflictMessage` says "tentatively held".
+ * PTR-138 AC1: the phrase of the refusal for a window that the venue cannot host, because it is
+ * closed then or a recorded block overlaps it. Approval and amendment give it.
  */
-export const VENUE_CONFLICT_PHRASES = ["already booked", "tentatively held"] as const;
+export const VENUE_UNAVAILABLE_PHRASE = "cannot host this window";
+
+/**
+ * List venue-conflict messages so the client can distinguish conflicts from other failures
+ * without matching the full text. Include named booking or hold messages, the generic fallback,
+ * and an unavailable venue. `venueRequestConflictMessage` and `VENUE_OCCUPANCY_CONFLICT_MESSAGE`
+ * say "already booked"; `venueHoldConflictMessage` says "tentatively held".
+ */
+export const VENUE_CONFLICT_PHRASES = [
+  "already booked",
+  "tentatively held",
+  VENUE_UNAVAILABLE_PHRASE,
+] as const;
 
 export function isVenueConflictMessage(message: string): boolean {
   return VENUE_CONFLICT_PHRASES.some(phrase => message.includes(phrase));

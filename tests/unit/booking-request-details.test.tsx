@@ -58,6 +58,13 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     expect(screen.queryByText("Conflicting booking")).toBeNull();
   });
 
+  it("labels a closed or blocked venue as unavailable (PTR-138 AC1)", () => {
+    render(<BookingRequestDetails request={{ ...request, conflict: "unavailable" }} />);
+
+    expect(screen.getByText("Venue unavailable")).toBeTruthy();
+    expect(screen.queryByText("Conflicting booking")).toBeNull();
+  });
+
   it("draws no conflict badge when the request has no conflict", () => {
     render(<BookingRequestDetails request={{ ...request, conflict: null }} />);
 

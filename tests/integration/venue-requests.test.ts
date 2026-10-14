@@ -318,6 +318,21 @@ describe("venue request handlers (PTR-31)", () => {
       .where(inArray(schema.venueOccupancy.venueRequestId, ids));
   }
 
+  /** The conflict kind that Venue Staff and the Coordinator read for the event's one request. */
+  async function readConflicts() {
+    const [staffRead] = await handleGetPendingVenueRequestsForEvent(
+      { eventId },
+      session(users.venueStaffA),
+      database as never
+    );
+    const [coordinatorCard] = await handleListEvents(
+      { eventId },
+      session(users.coordinator),
+      database as never
+    );
+    return [staffRead.conflict, coordinatorCard.event.venueRequests?.[0].conflict];
+  }
+
   /** Give the fixture venue the same setup and turnaround time, in minutes. */
   function setBuffers(minutes: number) {
     return database
@@ -751,6 +766,55 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
       expect(coordinatorCard.event.venueRequests?.[0].requirements?.expectedAttendance).toBeNull();
+    });
+  });
+
+  describe("availability (PTR-138 AC1)", () => {
+    it("flags a window outside the opening hours, and approval refuses it", async () => {
+      // The venue opens at 08:00 on weekdays. Creation accepts the window; hours can change.
+      const early = await raiseRequest(eventId, "07:00", "09:00");
+
+      expect(await readConflicts()).toEqual(["unavailable", "unavailable"]);
+      await expect(approve(early.id, users.venueStaffA)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: `${VENUE_NAME} cannot host this window: Not open 07:00–09:00 on 2027-04-20.`,
+      });
+      expect((await readRow(early.id)).status).toBe("pending");
+      expect(await ledgerFor([early.id])).toEqual([]);
+    });
+
+    it("flags a window that a recorded block overlaps, and approval refuses it", async () => {
+      await database.insert(schema.venueUnavailability).values({
+        venueId,
+        startsAt: "2027-04-20 10:00:00",
+        endsAt: "2027-04-20 11:00:00",
+        reason: "Floor resurfacing",
+      });
+      const blocked = await raiseRequest(eventId, "09:30", "10:30");
+
+      expect(await readConflicts()).toEqual(["unavailable", "unavailable"]);
+      await expect(approve(blocked.id, users.venueStaffA)).rejects.toThrow(
+        `${VENUE_NAME} cannot host this window: Unavailable on 2027-04-20: Floor resurfacing.`
+      );
+
+      // Once the block is lifted, the flag clears and approval goes ahead.
+      await database
+        .delete(schema.venueUnavailability)
+        .where(eq(schema.venueUnavailability.venueId, venueId));
+      expect(await readConflicts()).toEqual([null, undefined]);
+      expect((await approve(blocked.id, users.venueStaffA)).status).toBe("approved");
+    });
+
+    it("names a conflicting booking before an unavailable venue, as approval does", async () => {
+      const otherEventId = await createEvent("PTR-138 early booking event");
+      await approve((await raiseRequest(otherEventId, "08:00", "09:00")).id, users.venueStaffA);
+      const early = await raiseRequest(eventId, "07:30", "08:30");
+
+      expect(await readConflicts()).toEqual(["booking", "booking"]);
+      await expect(approve(early.id, users.venueStaffA)).rejects.toThrow(
+        `${VENUE_NAME} is already booked 20 Apr 2027, 08:00 – 09:00`
+      );
     });
   });
 

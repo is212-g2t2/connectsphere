@@ -17,6 +17,7 @@ import {
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
+  VENUE_UNAVAILABLE_PHRASE,
   parseVenueRejectionInput,
   parseVenueRequestContext,
   parseVenueRequestEventInput,
@@ -46,9 +47,13 @@ import {
 } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
-import { loadAssignedEvent, requirementFailures } from "#/features/venues/records.server";
+import {
+  loadAssignedEvent,
+  loadWindowAvailabilityFailures,
+  requirementFailures,
+} from "#/features/venues/records.server";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
-import type { VenueLayout } from "#/features/venues/schema";
+import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 
@@ -178,12 +183,13 @@ export interface LockedVenue {
   facilities: string[];
   accessibilityFeatures: string[];
   supportedLayouts: VenueLayout[];
+  operatingHours: OperatingHours;
 }
 
 /**
- * Read the venue's name, current buffers, and what it offers. Call it under the venue lock, so a
- * venue save cannot change them before the requirement and overlap checks. Return Not Found for a
- * missing venue.
+ * Read the venue's name, current buffers, opening hours, and what it offers. Call it under the
+ * venue lock, so a venue save cannot change them before the checks. Return Not Found for a missing
+ * venue.
  */
 export async function loadLockedVenue(tx: VenueTx, venueId: number): Promise<LockedVenue> {
   const rows = await tx
@@ -196,6 +202,7 @@ export async function loadLockedVenue(tx: VenueTx, venueId: number): Promise<Loc
       facilities: venues.facilities,
       accessibilityFeatures: venues.accessibilityFeatures,
       supportedLayouts: venues.supportedLayouts,
+      operatingHours: venues.operatingHours,
     })
     .from(venues)
     .where(eq(venues.id, venueId))
@@ -203,6 +210,36 @@ export async function loadLockedVenue(tx: VenueTx, venueId: number): Promise<Loc
   const venue = rows.at(0);
   if (!venue) throw new NotFoundError("Not Found");
   return venue;
+}
+
+/**
+ * PTR-138 AC1: refuse a window that the venue cannot host. Name the venue and the reason in
+ * search's words, for example "Room B cannot host this window: Not open 07:00–09:00 on
+ * 2027-04-20."
+ */
+export function venueUnavailableMessage(venueName: string, failure: string): string {
+  return `${venueName} ${VENUE_UNAVAILABLE_PHRASE}: ${failure}.`;
+}
+
+/**
+ * PTR-138 AC1: refuse a window that the venue cannot host now: it is not open then, or a recorded
+ * block overlaps it (`loadWindowAvailabilityFailures`). Approval and amendment call it under the
+ * venue lock. Creation does not: a block can be lifted and hours can change before approval.
+ */
+export async function assertVenueAvailable(
+  tx: VenueTx,
+  venue: LockedVenue,
+  window: { startsAt: string; endsAt: string }
+): Promise<void> {
+  const [failure] = await loadWindowAvailabilityFailures(tx, [
+    {
+      venueId: venue.id,
+      operatingHours: venue.operatingHours,
+      startsAt: window.startsAt,
+      endsAt: window.endsAt,
+    },
+  ]);
+  if (failure) throw new ConflictError(venueUnavailableMessage(venue.name, failure.message));
 }
 
 /** The event's requirements, as `loadAssignedEvent` reads them. */
@@ -539,7 +576,8 @@ export async function handleGetVenueRequestContext(
  * `SEARCHABLE_EVENT_STATUSES` and be assigned to the caller, as the PTR-29 search allows. Hold
  * creation and conversion use the same gate.
  * PTR-138 AC1: store the session requirements, and refuse a venue that does not meet them
- * (`checkSessionRequirements`). The ledger checks availability and conflicts at approval.
+ * (`checkSessionRequirements`). Do not refuse an unavailable venue here; a block can be lifted and
+ * hours can change. Approval checks availability and the ledger checks conflicts.
  * PTR-138 AC4: refuse a window that overlaps the same event's pending request, approved booking or
  * held hold at this venue (`assertNoEventOverlap`). Pending requests of other events can overlap;
  * approval checks them (PTR-36).
@@ -675,6 +713,7 @@ export async function handleWithdrawVenueRequest(
  * constraint refuses a write outside the lock convention with the generic conflict message.
  * Only unassigned pending rows are shared (PTR-31). Do not settle a row assigned to another staff
  * member. Store the decision-maker in `assignedStaffId` to keep the event linked to that staff member.
+ * PTR-138 AC1: refuse a window that the venue cannot host now (`assertVenueAvailable`).
  */
 export async function handleApproveVenueRequest(
   data: unknown,
@@ -732,6 +771,8 @@ export async function handleApproveVenueRequest(
       startsAt: row.startsAt,
       endsAt: row.endsAt,
     });
+    // PTR-138 AC1: the venue must be open and unblocked for the window.
+    await assertVenueAvailable(tx, await loadLockedVenue(tx, row.venueId), row);
 
     // The row lock and status check make this the only writer of the row.
     const [approved] = await tx

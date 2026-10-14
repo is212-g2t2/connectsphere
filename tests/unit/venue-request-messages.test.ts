@@ -4,6 +4,7 @@ import {
   venueRequestEventOverlapMessage,
   venueRequestEventStatusMessage,
   venueRequirementsMessage,
+  venueUnavailableMessage,
 } from "#/features/venue-requests/requests.server";
 
 /** PTR-138: the refusals that request creation and approval give, in plain words. */
@@ -13,6 +14,12 @@ describe("venue request refusals (PTR-138)", () => {
       venueRequirementsMessage("Room B", ["Holds 40; 120 needed", "Missing facilities: projector"])
     ).toBe(
       "Room B does not meet this session's requirements: Holds 40; 120 needed. Missing facilities: projector."
+    );
+  });
+
+  it("names the venue and why it cannot host the window (AC1)", () => {
+    expect(venueUnavailableMessage("Room B", "Not open 07:00–09:00 on 2027-04-20")).toBe(
+      "Room B cannot host this window: Not open 07:00–09:00 on 2027-04-20."
     );
   });
 

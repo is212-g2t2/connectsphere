@@ -3,6 +3,7 @@ import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schem
 import type { RegistrationAvailability } from "#/features/events/registration";
 import type {
   SessionRequirements,
+  VenueRequestConflict,
   VenueRequestStatus,
   VenueSuggestion,
 } from "#/features/venue-requests/schema";
@@ -153,8 +154,8 @@ export interface VenueRequestRelease {
 
 /**
  * One venue booking request on an event card. One event holds several venue requests (one row
- * per event, venue and window). `conflict` is present only when a pending request overlaps an
- * approved booking or an active hold (PTR-36). `rejection` and `release` ride on their own row.
+ * per event, venue and window). `conflict` is present only on a pending request that approval
+ * would refuse now (PTR-36, PTR-138 AC1). `rejection` and `release` ride on their own row.
  * The Coordinator's event list and triage read carry every non-withdrawn row with its details.
  * The Organiser's list carries pending and approved rows only, so it has no details. The Venue
  * Staff list carries their queue rows. A decided row in that queue is their own, so it keeps
@@ -172,7 +173,7 @@ export interface EventVenueRequest {
   endTime: string;
   /** Coordinator only (PTR-138 AC1): the session requirements that the request carries. */
   requirements?: SessionRequirements;
-  conflict?: "booking" | "hold";
+  conflict?: VenueRequestConflict;
   rejection?: VenueRequestRejection;
   release?: VenueRequestRelease;
   /** Coordinator only (PTR-35): set on a rejected entry while the Coordinator can still adjust

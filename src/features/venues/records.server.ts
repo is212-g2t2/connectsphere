@@ -21,6 +21,7 @@ import {
   normalizeDatabaseTimestamp,
   openingPeriods,
   projectAvailability,
+  toLocalMinuteValue,
 } from "#/features/venues/availability";
 import type { AvailabilityRecord, OccupiedPeriod } from "#/features/venues/availability";
 import {
@@ -143,7 +144,7 @@ function clashingFailure(
  * before a block on the same day because the Coordinator needs that answer first.
  */
 function availabilityFailure(
-  venue: VenueSuitabilityCandidate,
+  venue: Pick<VenueSuitabilityCandidate, "operatingHours">,
   filters: VenueSearch,
   blocks: readonly AvailabilityRecord[],
   bookings: readonly AvailabilityRecord[],
@@ -226,9 +227,9 @@ export type VenueRequirements = Pick<
 
 /**
  * PTR-30 and PTR-138 AC1: name every requirement that the venue does not meet: capacity, layout,
- * accessibility, and facilities. Search and request creation share this one rule, so a venue that
- * search calls suitable passes creation for the same requirements. Location and availability are
- * search filters only. The ledger checks availability at approval (ADR-7).
+ * accessibility, and facilities. Search and the request writers share this one rule, so a venue
+ * that search calls suitable passes creation for the same requirements. Location is a search
+ * filter only. Requests check availability apart (`windowAvailabilityFailure`).
  */
 export function requirementFailures(
   venue: Pick<
@@ -333,7 +334,7 @@ export async function handleListVenueOptions(
 type VenueBlock = AvailabilityRecord & { venueId: number };
 
 async function loadVenueBlocks(
-  database: Database,
+  database: Pick<Database, "select">,
   venueIds: readonly number[],
   startsAt: string,
   endsAt: string
@@ -364,6 +365,63 @@ async function loadVenueBlocks(
     endsAt: normalizeDatabaseTimestamp(row.endsAt),
     label: row.reason || "Unavailable / blocked",
   }));
+}
+
+/** One request window, in the database spelling `YYYY-MM-DD HH:MM:SS`, and its venue's hours. */
+export interface RequestWindow {
+  venueId: number;
+  operatingHours: OperatingHours;
+  startsAt: string;
+  endsAt: string;
+}
+
+/**
+ * PTR-138 AC1: name why a venue cannot host one request window: it is not open then, or a
+ * recorded block overlaps the window. Apply search's availability rule (`availabilityFailure`)
+ * with no bookings or holds; the ledger checks those (ADR-7). Return null when the venue can host
+ * the window. A request window covers part of one civil day.
+ */
+export function windowAvailabilityFailure(
+  window: Pick<RequestWindow, "operatingHours" | "startsAt" | "endsAt">,
+  blocks: readonly AvailabilityRecord[]
+): SuitabilityFailure | null {
+  const startsAt = toLocalMinuteValue(window.startsAt);
+  const endsAt = toLocalMinuteValue(window.endsAt);
+  return availabilityFailure(
+    window,
+    { date: startsAt.slice(0, 10), startTime: startsAt.slice(11), endTime: endsAt.slice(11) },
+    blocks,
+    [],
+    []
+  );
+}
+
+/**
+ * Apply `windowAvailabilityFailure` to each window, in the order of `windows`. Read the blocks of
+ * every window's venue in one query, never one read per window.
+ */
+export async function loadWindowAvailabilityFailures(
+  database: Pick<Database, "select">,
+  windows: readonly RequestWindow[]
+): Promise<(SuitabilityFailure | null)[]> {
+  if (windows.length === 0) return [];
+  // Fixed-width timestamps sort as strings, so the earliest start and latest end bound the read.
+  const startsAt = windows.reduce(
+    (min, window) => (window.startsAt < min ? window.startsAt : min),
+    windows[0].startsAt
+  );
+  const endsAt = windows.reduce(
+    (max, window) => (window.endsAt > max ? window.endsAt : max),
+    windows[0].endsAt
+  );
+  const venueIds = [...new Set(windows.map(window => window.venueId))];
+  const blocksByVenue = Map.groupBy(
+    await loadVenueBlocks(database, venueIds, startsAt, endsAt),
+    block => block.venueId
+  );
+  return windows.map(window =>
+    windowAvailabilityFailure(window, blocksByVenue.get(window.venueId) ?? [])
+  );
 }
 
 export type VenueBooking = AvailabilityRecord & { venueId: number };

@@ -6,7 +6,7 @@ import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import { handleGetPendingVenueRequestsForEvent } from "#/features/venue-requests/requests.server";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { OPEN_EVERY_DAY } from "./venue-hours";
 
 const organiser = {
   id: "ptr32-queue-organiser",
@@ -74,13 +74,13 @@ describe("pending booking request reader (PTR-32)", () => {
           name: VENUE_NAMES[0],
           location: "PTR-32 Wing",
           maxCapacity: 300,
-          operatingHours: DEFAULT_OPERATING_HOURS,
+          operatingHours: OPEN_EVERY_DAY,
         },
         {
           name: VENUE_NAMES[1],
           location: "PTR-32 Wing",
           maxCapacity: 200,
-          operatingHours: DEFAULT_OPERATING_HOURS,
+          operatingHours: OPEN_EVERY_DAY,
         },
       ])
       .returning({ id: schema.venues.id });

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateVenueSuitability, requirementFailures } from "#/features/venues/records.server";
+import {
+  evaluateVenueSuitability,
+  requirementFailures,
+  windowAvailabilityFailure,
+} from "#/features/venues/records.server";
 import type { SuitabilityCriterion } from "#/features/venues/records.server";
 import {
   AVAILABILITY_RANGE_MESSAGE,
@@ -564,5 +568,52 @@ describe("PTR-138 requirementFailures", () => {
       "location",
       "layout",
     ]);
+  });
+});
+
+/**
+ * PTR-138 AC1: a request window gets search's availability rule, without bookings or holds. The
+ * ledger checks those. 2026-10-05 is a Monday, and the venue opens 08:00–22:00 on weekdays.
+ */
+describe("PTR-138 windowAvailabilityFailure", () => {
+  const window = {
+    operatingHours: DEFAULT_OPERATING_HOURS,
+    startsAt: "2026-10-05 10:00:00",
+    endsAt: "2026-10-05 12:00:00",
+  };
+  const block = {
+    id: "1",
+    label: "Floor resurfacing",
+    startsAt: "2026-10-05T11:00:00",
+    endsAt: "2026-10-05T13:00:00",
+  };
+
+  it("names no failure for an open, unblocked window", () => {
+    expect(windowAvailabilityFailure(window, [])).toBeNull();
+    // A block that only touches the window leaves it free.
+    expect(
+      windowAvailabilityFailure({ ...window, endsAt: "2026-10-05 11:00:00" }, [block])
+    ).toBeNull();
+  });
+
+  it("names a window outside the opening hours, in search's words", () => {
+    expect(windowAvailabilityFailure({ ...window, startsAt: "2026-10-05 07:00:00" }, [])).toEqual({
+      criterion: "availability",
+      message: "Not open 07:00–12:00 on 2026-10-05",
+    });
+    // The venue is closed on Saturdays.
+    expect(
+      windowAvailabilityFailure(
+        { ...window, startsAt: "2026-10-10 10:00:00", endsAt: "2026-10-10 12:00:00" },
+        []
+      )
+    ).toEqual({ criterion: "availability", message: "Not open 10:00–12:00 on 2026-10-10" });
+  });
+
+  it("names a recorded block that overlaps the window", () => {
+    expect(windowAvailabilityFailure(window, [block])).toEqual({
+      criterion: "availability",
+      message: "Unavailable on 2026-10-05: Floor resurfacing",
+    });
   });
 });

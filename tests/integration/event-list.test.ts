@@ -7,7 +7,7 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { OPEN_EVERY_DAY } from "./venue-hours";
 
 /** PTR-8: test the rows that `handleListEvents` returns for each role and relationship, and each
  * role-specific projection. Middleware supplies a `SessionUser`, so this file checks SQL scoping
@@ -156,7 +156,7 @@ describe("event list handler (PTR-8)", () => {
         name: FIXTURE_VENUE_NAME,
         location: "Fixture location",
         maxCapacity: 100,
-        operatingHours: DEFAULT_OPERATING_HOURS,
+        operatingHours: OPEN_EVERY_DAY,
       })
       .returning({ id: schema.venues.id });
     fixtureVenueId = venue.id;
@@ -166,7 +166,7 @@ describe("event list handler (PTR-8)", () => {
         name: FIXTURE_VENUE_2_NAME,
         location: "Fixture location",
         maxCapacity: 40,
-        operatingHours: DEFAULT_OPERATING_HOURS,
+        operatingHours: OPEN_EVERY_DAY,
       })
       .returning({ id: schema.venues.id });
     fixtureVenue2Id = venue2.id;
