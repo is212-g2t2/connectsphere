@@ -205,7 +205,7 @@ export async function handleConvertVenueHold(
     // `lockActiveHold` took the venue lock, so the venue and the event's sessions stay current.
     // PTR-138 AC1: refuse a venue that does not meet the session's requirements.
     const venue = await loadLockedVenue(tx, hold.venueId);
-    const requirements = checkSessionRequirements(venue, assignedEvent, session);
+    const requirements = checkSessionRequirements(venue, assignedEvent.requirements, session);
 
     // Release the hold first, so the overlap check cannot refuse the hold against its own ledger
     // row. PTR-138 AC4: refuse a hold window that overlaps another session of the event here.

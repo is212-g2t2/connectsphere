@@ -541,6 +541,17 @@ export async function loadVenueHolds(
 }
 
 /**
+ * PTR-138 AC1: the event's requirements under the session-requirement names. Every server reader
+ * that turns an event's requirements into a session's selects these columns.
+ */
+export const eventRequirementColumns = {
+  expectedAttendance: eventRequests.expectedAttendance,
+  layout: eventRequests.roomLayoutPreference,
+  accessibilityRequirements: eventRequests.accessibilityRequirements,
+  requiredFacilities: eventRequests.venueRequirements,
+};
+
+/**
  * Read the caller's own event request through the venue gate. The event must belong to the asking
  * Coordinator and stand in `SEARCHABLE_EVENT_STATUSES`. The venue search that prefills the request
  * form, request creation, hold creation and hold conversion use it. `null` is the refusal. Every
@@ -556,10 +567,7 @@ export async function loadAssignedEvent(
       id: eventRequests.id,
       name: eventRequests.eventName,
       proposedDates: eventRequests.proposedDates,
-      expectedAttendance: eventRequests.expectedAttendance,
-      roomLayoutPreference: eventRequests.roomLayoutPreference,
-      accessibilityRequirements: eventRequests.accessibilityRequirements,
-      venueRequirements: eventRequests.venueRequirements,
+      requirements: eventRequirementColumns,
     })
     .from(eventRequests)
     .where(
@@ -598,16 +606,17 @@ export async function handleSearchVenues(
     event = { id: record.id, name: record.name };
 
     const timing = eventTiming(record.proposedDates);
+    const { requirements } = record;
     defaults = {
       eventId,
       date: timing.eventDate ?? undefined,
       endDate: timing.endDate ?? undefined,
       startTime: timing.startTime ?? undefined,
       endTime: timing.endTime ?? undefined,
-      expectedAttendance: record.expectedAttendance ?? undefined,
-      layout: record.roomLayoutPreference || undefined,
-      accessibility: record.accessibilityRequirements || undefined,
-      facilities: record.venueRequirements || undefined,
+      expectedAttendance: requirements.expectedAttendance ?? undefined,
+      layout: requirements.layout || undefined,
+      accessibility: requirements.accessibilityRequirements || undefined,
+      facilities: requirements.requiredFacilities || undefined,
     };
   }
 
@@ -707,16 +716,10 @@ export async function handleGetVenueAvailability(
       ? []
       : (
           await database
-            .select({
-              id: eventRequests.id,
-              expectedAttendance: eventRequests.expectedAttendance,
-              layout: eventRequests.roomLayoutPreference,
-              accessibilityRequirements: eventRequests.accessibilityRequirements,
-              requiredFacilities: eventRequests.venueRequirements,
-            })
+            .select({ id: eventRequests.id, requirements: eventRequirementColumns })
             .from(eventRequests)
             .where(inArray(eventRequests.id, convertibleEventIds))
-        ).map(({ id, ...requirements }) => [id, requirements])
+        ).map(row => [row.id, row.requirements])
   );
   // Copy rows before adding viewer flags. The loader shares these rows with other callers.
   // oxlint-disable-next-line oxc/no-map-spread

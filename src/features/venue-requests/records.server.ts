@@ -16,7 +16,10 @@ import type {
   VenueRequestConflict,
   VenueRequestStatus,
 } from "#/features/venue-requests/schema";
-import { loadWindowAvailabilityFailures } from "#/features/venues/records.server";
+import {
+  eventRequirementColumns,
+  loadWindowAvailabilityFailures,
+} from "#/features/venues/records.server";
 
 /**
  * Keep this module server-only. A client-reachable value import of `#/db/schema` would send the
@@ -45,16 +48,16 @@ function sessionValue<T>(stored: SQLWrapper, event: SQLWrapper) {
 const sessionRequirementColumns = {
   expectedAttendance: sessionValue<number | null>(
     venueRequests.expectedAttendance,
-    eventRequests.expectedAttendance
+    eventRequirementColumns.expectedAttendance
   ),
-  layout: sessionValue<string>(venueRequests.layout, eventRequests.roomLayoutPreference),
+  layout: sessionValue<string>(venueRequests.layout, eventRequirementColumns.layout),
   accessibilityRequirements: sessionValue<string>(
     venueRequests.accessibilityRequirements,
-    eventRequests.accessibilityRequirements
+    eventRequirementColumns.accessibilityRequirements
   ),
   requiredFacilities: sessionValue<string>(
     venueRequests.requiredFacilities,
-    eventRequests.venueRequirements
+    eventRequirementColumns.requiredFacilities
   ),
 };
 

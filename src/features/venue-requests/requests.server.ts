@@ -50,6 +50,7 @@ import {
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
 import {
+  eventRequirementColumns,
   loadAssignedEvent,
   loadWindowAvailabilityFailures,
   requirementFailures,
@@ -251,14 +252,6 @@ export async function checkVenueTakesBooking(
   return occupancy;
 }
 
-/** The event's requirements, as `loadAssignedEvent` reads them. */
-interface EventRequirementRow {
-  expectedAttendance: number | null;
-  roomLayoutPreference: string;
-  accessibilityRequirements: string;
-  venueRequirements: string;
-}
-
 /**
  * PTR-138 AC1: refuse a venue that does not meet a session's requirements. Check with the rule
  * that search applies (`requirementFailures`), and name every failure. Pass the venue that
@@ -283,19 +276,19 @@ export function assertMeetsRequirements(venue: LockedVenue, requirements: Sessio
 
 /**
  * PTR-138 AC1: settle the session requirements of a new request, and refuse a venue that does
- * not meet them (`assertMeetsRequirements`). An absent value takes the event's requirement.
- * Return the values that the request stores.
+ * not meet them (`assertMeetsRequirements`). An absent value takes the event's requirement, as
+ * `eventRequirementColumns` reads it. Return the values that the request stores.
  */
 export function checkSessionRequirements(
   venue: LockedVenue,
-  event: EventRequirementRow,
+  event: SessionRequirements,
   session: SessionRequirementInput
 ): SessionRequirements {
   const requirements: SessionRequirements = {
     expectedAttendance: session.expectedAttendance ?? event.expectedAttendance,
-    layout: session.layout ?? event.roomLayoutPreference,
+    layout: session.layout ?? event.layout,
     accessibilityRequirements: session.accessibilityRequirements ?? event.accessibilityRequirements,
-    requiredFacilities: session.requiredFacilities ?? event.venueRequirements,
+    requiredFacilities: session.requiredFacilities ?? event.requiredFacilities,
   };
   assertMeetsRequirements(venue, requirements);
   return requirements;
@@ -521,10 +514,7 @@ export async function handleGetVenueRequestContext(
         status: eventRequests.status,
         assignedCoordinatorId: eventRequests.assignedCoordinatorId,
         proposedDates: eventRequests.proposedDates,
-        expectedAttendance: eventRequests.expectedAttendance,
-        roomLayoutPreference: eventRequests.roomLayoutPreference,
-        accessibilityRequirements: eventRequests.accessibilityRequirements,
-        venueRequirements: eventRequests.venueRequirements,
+        requirements: eventRequirementColumns,
       })
       .from(eventRequests)
       .where(eq(eventRequests.id, eventId))
@@ -555,10 +545,7 @@ export async function handleGetVenueRequestContext(
       id: event.id,
       name: event.name,
       ...eventTiming(event.proposedDates),
-      expectedAttendance: event.expectedAttendance,
-      layout: event.roomLayoutPreference,
-      accessibilityRequirements: event.accessibilityRequirements,
-      requiredFacilities: event.venueRequirements,
+      ...event.requirements,
     },
     canRequest,
     requests: visible.map(row => {
@@ -612,7 +599,7 @@ export async function handleCreateVenueRequest(
     // creators for one event, so the overlap check sees the other creator's committed row.
     await lockVenue(tx, input.venueId);
     const venue = await loadLockedVenue(tx, input.venueId);
-    const requirements = checkSessionRequirements(venue, event, input);
+    const requirements = checkSessionRequirements(venue, event.requirements, input);
     // The column returns `YYYY-MM-DD HH:MM:SS` because it uses `mode: "string"`.
     const startsAt = `${input.date} ${input.startTime}:00`;
     const endsAt = `${input.date} ${input.endTime}:00`;
