@@ -55,6 +55,15 @@ export function parseLayouts(value: string): VenueLayout[] {
   return VENUE_LAYOUTS.filter(layout => words.has(layout));
 }
 
+/**
+ * Show a layout preference by the labels of the layouts it names, for example "Theatre seating" as
+ * "Theatre". Show text that names no layout as stored.
+ */
+export function layoutLabel(value: string): string {
+  const named = parseLayouts(value).map(layout => LAYOUT_LABELS[layout]);
+  return named.length > 0 ? named.join(", ") : value;
+}
+
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 

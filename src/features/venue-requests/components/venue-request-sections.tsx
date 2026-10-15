@@ -4,7 +4,11 @@ import { useEffect, useRef } from "react";
 import { Card, CardContent } from "#/components/ui/card";
 import { Detail } from "#/features/event-requests/components/request-message-blocks";
 import type { EventVenueRequest } from "#/features/events/access";
-import { formatLocalDate, formatProposedWindow } from "#/features/event-requests/format";
+import {
+  formatEntryPeriod,
+  formatLocalDate,
+  formatProposedWindow,
+} from "#/features/event-requests/format";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import { ApproveBookingButton } from "#/features/venue-requests/components/approve-booking-button";
 import { BookingRequestDetails } from "#/features/venue-requests/components/booking-request-details";
@@ -12,6 +16,7 @@ import { ConflictBadge } from "#/features/venue-requests/components/conflict-bad
 import { RejectBookingForm } from "#/features/venue-requests/components/reject-booking-form";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import { formatVenueSuggestion } from "#/features/venue-requests/schema";
+import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { skipRootFilter } from "#/lib/invalidate";
@@ -50,16 +55,8 @@ function pendingEntries(data: EventPageData): EventVenueRequest[] {
   return (data.event.event.venueRequests ?? []).filter(entry => entry.status === "pending");
 }
 
-/** One projection period as the decision headings show it, so every period reads the same. */
-function projectionPeriod(entry: { date: string; startTime: string; endTime: string }): string {
-  return formatProposedWindow({
-    start: `${entry.date}T${entry.startTime.slice(0, 5)}`,
-    end: `${entry.date}T${entry.endTime.slice(0, 5)}`,
-  });
-}
-
 /** The short note under a settled entry's heading. */
-const OUTCOME_NOTES: Record<string, string> = {
+const OUTCOME_NOTES: Partial<Record<VenueRequestStatus, string>> = {
   approved: "Booking approved.",
   rejected: "Request declined.",
   released: "Booking released.",
@@ -67,29 +64,36 @@ const OUTCOME_NOTES: Record<string, string> = {
 
 /** The note for a pending entry when the read of the full requests failed. */
 const PENDING_NOT_LOADED_NOTE = "The full request did not load. Reload the page to decide it.";
-/** The note for a pending entry that the read no longer returns: someone decided it meanwhile. */
-const PENDING_DECIDED_NOTE =
-  "This request was decided after the page loaded. Reload the page to see the outcome.";
+/** The note for pending entries that the read no longer returns: someone decided them meanwhile. */
+function pendingDecidedNote(count: number): string {
+  const subject = count === 1 ? "This request was" : "These requests were";
+  return `${subject} decided after the page loaded. Reload the page to see the outcome.`;
+}
+
+/** The loaded pending requests by id. The map is empty when the read failed. */
+function loadedById(data: EventPageData): Map<string, PendingVenueRequestDetail> {
+  if (data.kind !== "event" || !data.venueDecisions) return new Map();
+  return new Map(data.venueDecisions.requests.map(request => [request.id, request]));
+}
 
 /**
  * Pair each pending projection entry with its loaded request, in projection order. An entry
  * with no loaded request was decided after the projection loaded.
  */
 function loadedRequests(data: EventPageData): PendingVenueRequestDetail[] {
-  if (data.kind !== "event" || !data.venueDecisions) return [];
-  const loadedById = new Map(data.venueDecisions.requests.map(request => [request.id, request]));
-  return pendingEntries(data).flatMap(entry => loadedById.get(entry.id) ?? []);
+  const loaded = loadedById(data);
+  return pendingEntries(data).flatMap(entry => loaded.get(entry.id) ?? []);
 }
 
 /** Show one block per projection entry: the loaded pending request, or the entry's outcome. */
 function RequestBody({ data }: { data: EventPageData }) {
   if (data.kind !== "event") return null;
-  const loadedById = new Map(loadedRequests(data).map(request => [request.id, request]));
-  const pendingNote = data.venueDecisions ? PENDING_DECIDED_NOTE : PENDING_NOT_LOADED_NOTE;
+  const requestsById = loadedById(data);
+  const pendingNote = data.venueDecisions ? pendingDecidedNote(1) : PENDING_NOT_LOADED_NOTE;
   return (
     <>
       {(data.event.event.venueRequests ?? []).map(entry => {
-        const loaded = loadedById.get(entry.id);
+        const loaded = entry.status === "pending" ? requestsById.get(entry.id) : undefined;
         return (
           <div
             key={entry.id}
@@ -142,7 +146,7 @@ function DecisionBody({ data }: { data: EventPageData }) {
         <h2 className="display-h3">Record a decision</h2>
         <p className="mt-2 body-sm text-muted-foreground">
           {data.venueDecisions
-            ? "These requests were decided after the page loaded. Reload the page to see the outcome."
+            ? pendingDecidedNote(pendingEntries(data).length)
             : PENDING_NOT_LOADED_NOTE}
         </p>
       </div>
@@ -202,7 +206,7 @@ function VenueRequestOutcome({ entry, note }: { entry: EventVenueRequest; note: 
   return (
     <section aria-labelledby={headingId}>
       <h2 id={headingId} className="display-h3">
-        Booking request details: {entry.venueName}, {projectionPeriod(entry)}
+        Booking request details: {entry.venueName}, {formatEntryPeriod(entry)}
       </h2>
       {note ? <p className="mt-2 body-md font-medium">{note}</p> : null}
       <Card className="mt-4">

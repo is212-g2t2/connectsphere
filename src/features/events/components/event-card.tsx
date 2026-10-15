@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { Badge } from "#/components/ui/badge";
 import { Card, CardContent } from "#/components/ui/card";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
-import { formatLocalDate } from "#/features/event-requests/format";
+import { formatEntryPeriod, formatLocalDate } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
 import { hasAttendeePage } from "#/features/events/access";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
@@ -76,11 +76,7 @@ export function EventCard({ event: projection }: { event: EventProjection }) {
                 <span className="font-medium text-foreground">{entry.venueName}</span>
                 <span className="flex items-center gap-2">
                   <CalendarDays className="size-4" />
-                  {formatLocalDate(entry.date)}
-                </span>
-                <span className="flex items-center gap-2">
-                  <Clock3 className="size-4" />
-                  {entry.startTime}–{entry.endTime}
+                  {formatEntryPeriod(entry)}
                 </span>
                 <VenueRequestStatusBadge status={entry.status} />
               </li>

@@ -157,8 +157,8 @@ describe("EventCard", () => {
       "listitem"
     );
     expect(items.map(item => item.textContent)).toEqual([
-      "Harbor Hall5 Dec 202617:00–21:00Pending",
-      "Second Hall6 Dec 202610:00–12:00Pending",
+      "Harbor Hall5 Dec 2026, 17:00 – 21:00Pending",
+      "Second Hall6 Dec 2026, 10:00 – 12:00Pending",
     ]);
     // Each entry shows its own period, so the event's proposed date and time stay off the card.
     expect(screen.queryByText("1 Oct 2026")).toBeNull();

@@ -67,5 +67,5 @@ This check is not the guarantee that ADR-7 rejects. It guards pending requests, 
 - The conflict flags read the ledger. This replaces the last ADR-7 consequence for the flags only. Availability and search still read the source tables until PTR-135.
 - A booking from before migration 0048 has no ledger row. It sets no flag and blocks no approval, as ADR-7 states.
 - Approval can refuse a request that was valid when it was raised. The flag shows the reason before Venue Staff decide.
-- Hold creation does not apply the same-event rule. A hold over the event's own pending request is placed. Approval of that request and conversion of that hold then fail until the Coordinator releases the hold or withdraws the request.
+- Hold creation applies the same-event rule too, so a hold and a pending request of one event overlap only after a later change to the venue's buffers.
 - The lock order of ADR-7 stays: the event key-share lock, then the venue advisory locks in ascending venue order, then the row locks.

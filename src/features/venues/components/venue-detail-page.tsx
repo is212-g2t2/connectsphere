@@ -110,8 +110,9 @@ export function VenueDetailPage({
 
       {requestContext ? (
         <VenueRequestPanel
-          // Another event or venue starts a new form, so typed values do not carry across.
-          key={`${requestContext.event.id}:${venue.id}`}
+          // Another event, venue or set of carried values starts a new form, so typed values do
+          // not carry across.
+          key={`${requestContext.event.id}:${venue.id}:${JSON.stringify(prefill)}`}
           venueId={venue.id}
           venueName={venue.name}
           context={requestContext}

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { Fragment } from "react";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -157,7 +158,13 @@ describe("venueRequestSections", () => {
   it("shows a conflicting request's badge once across the staff page", () => {
     const data = page({ details: [pending] });
     const sections = venueRequestSections(data).filter(section => section.visible(data));
-    render(<>{sections.map(section => section.render(data))}</>);
+    render(
+      <>
+        {sections.map(section => (
+          <Fragment key={section.id}>{section.render(data)}</Fragment>
+        ))}
+      </>
+    );
 
     expect(screen.getAllByText("Conflicting booking")).toHaveLength(1);
   });
@@ -279,6 +286,13 @@ describe("venueRequestSections", () => {
       )
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
+
+    renderSection(page({ details: [], entries: [harborHallEntry] }), "decision");
+    expect(
+      screen.getByText(
+        "This request was decided after the page loaded. Reload the page to see the outcome."
+      )
+    ).toBeTruthy();
   });
 
   it("moves focus to the first remaining decision group after a decision", async () => {

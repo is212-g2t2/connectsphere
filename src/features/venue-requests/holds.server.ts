@@ -47,6 +47,8 @@ const log = logger.getChild("venue-holds");
  * AC7: Store the acting user's id (`heldById`) and timestamp.
  * PTR-54 AC9: Refuse a new hold for a cancelled event.
  * PTR-138: Accept the event statuses that a venue request accepts (`SEARCHABLE_EVENT_STATUSES`).
+ * PTR-138 AC4: Refuse a hold that overlaps a pending request of the same event at the venue
+ * (`assertNoEventOverlap`). Otherwise approval of the request and conversion of the hold both fail.
  * PTR-134 AC2: Write the hold's ledger row, with the hold's buffers, in the same transaction.
  */
 export async function handleCreateVenueHold(data: unknown, actor: SessionUser, database: Database) {
@@ -70,6 +72,9 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
       startsAt,
       endsAt,
     });
+    // `checkVenueFree` refuses every booking and hold, so only a pending request can refuse here.
+    const venue = await loadLockedVenue(tx, input.venueId);
+    await assertNoEventOverlap(tx, venue, { eventId: event.id, startsAt, endsAt });
 
     const [created] = await tx
       .insert(venueHolds)

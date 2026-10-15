@@ -160,8 +160,8 @@ describe("venue section", () => {
 
     expect(screen.getByText("Harbor Hall")).toBeTruthy();
     expect(screen.getByText("Second Hall")).toBeTruthy();
-    expect(screen.getByText("5 Dec 2026, 17:00–21:00")).toBeTruthy();
-    expect(screen.getByText("6 Dec 2026, 10:00–12:00")).toBeTruthy();
+    expect(screen.getByText("5 Dec 2026, 17:00 – 21:00")).toBeTruthy();
+    expect(screen.getByText("6 Dec 2026, 10:00 – 12:00")).toBeTruthy();
     expect(screen.getByText("Pending")).toBeTruthy();
     expect(screen.getByText("Approved")).toBeTruthy();
     expect(screen.getByText("Conflicting booking")).toBeTruthy();
@@ -217,8 +217,8 @@ describe("venue section", () => {
     const lists = [...container.querySelectorAll("dl")];
     expect(lists.map(list => list.getAttribute("aria-label"))).toEqual([
       null,
-      "Harbor Hall, 5 Dec 2026, 17:00–21:00",
-      "Second Hall, 6 Dec 2026, 10:00–12:00",
+      "Harbor Hall, 5 Dec 2026, 17:00 – 21:00",
+      "Second Hall, 6 Dec 2026, 10:00 – 12:00",
     ]);
     expect(container.querySelector("dl dl")).toBeNull();
     expect(screen.queryAllByRole("group")).toHaveLength(0);
@@ -264,24 +264,31 @@ describe("venue section", () => {
     expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
   });
 
-  it("keeps review statuses mounted for the coordinator search only", () => {
+  it("mounts a review status without requests for the coordinator search only", () => {
     for (const status of ["submitted", "under_review", "awaiting_organiser"] as const) {
       expect(isVenueVisible("coordinator", { status })).toBe(true);
       expect(isVenueVisible("organiser", { status })).toBe(false);
     }
-    expect(
-      isVenueVisible("coordinator", {
-        status: "submitted",
-        venueRequests: [{ ...rejectedAnswered }],
-      })
-    ).toBe(true);
-    expect(
-      isVenueVisible("organiser", {
-        status: "submitted",
-        venueRequests: [{ ...rejectedAnswered }],
-      })
-    ).toBe(false);
   });
+
+  it.each(["submitted", "under_review", "awaiting_organiser"] as const)(
+    "lists the pending and approved requests while the event is %s (PTR-138 AC5)",
+    status => {
+      for (const access of ["organiser", "coordinator"] as const) {
+        const venueRequests = [{ ...pendingEntry }, { ...approvedEntry }];
+        expect(isVenueVisible(access, { status, venueRequests })).toBe(true);
+
+        const { unmount } = renderVenue(access, { status, venueRequests });
+        expect(screen.getByText("Harbor Hall")).toBeTruthy();
+        expect(screen.getByText("5 Dec 2026, 17:00 – 21:00")).toBeTruthy();
+        expect(screen.getByText("Pending")).toBeTruthy();
+        expect(screen.getByText("Second Hall")).toBeTruthy();
+        expect(screen.getByText("6 Dec 2026, 10:00 – 12:00")).toBeTruthy();
+        expect(screen.getByText("Approved")).toBeTruthy();
+        unmount();
+      }
+    }
+  );
 
   it("always shows approved, planning and confirmed events", () => {
     for (const status of ["approved", "planning", "confirmed"] as const) {
@@ -291,9 +298,11 @@ describe("venue section", () => {
   });
 
   it("hides rejected, cancelled and completed events", () => {
+    const venueRequests = [{ ...pendingEntry }, { ...approvedEntry }];
     for (const status of ["rejected", "cancelled", "completed"] as const) {
       expect(isVenueVisible("coordinator", { status })).toBe(false);
       expect(isVenueVisible("organiser", { status })).toBe(false);
+      expect(isVenueVisible("organiser", { status, venueRequests })).toBe(false);
     }
   });
 

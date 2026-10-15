@@ -14,6 +14,7 @@ import {
   VENUE_RELEASE_REASON_MAX_LENGTH,
   VenueAmendmentInput,
   VenueReleaseInput,
+  formIssues,
 } from "#/features/venue-requests/schema";
 import { amendVenueBooking, releaseVenueBooking } from "#/features/venue-requests/server-fns";
 import type { VenueBooking } from "#/features/venue-requests/server-fns";
@@ -140,22 +141,14 @@ function AmendBookingForm({
   const form = useForm({
     defaultValues,
     validators: {
-      onSubmit: ({ value }) => {
-        const parsed = VenueAmendmentInput.safeParse({
+      onSubmit: ({ value }) =>
+        formIssues(VenueAmendmentInput, {
           id: booking.id,
           venueId: Number(value.venueId),
           date: value.date,
           startTime: value.startTime,
           endTime: value.endTime,
-        });
-        if (parsed.success) return undefined;
-
-        const fields: Record<string, { message: string }> = {};
-        for (const issue of parsed.error.issues) {
-          fields[String(issue.path[0])] ??= { message: issue.message };
-        }
-        return { fields };
-      },
+        }),
     },
     onSubmit: async ({ value, formApi }) => {
       const input = VenueAmendmentInput.parse({
