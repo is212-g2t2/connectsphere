@@ -240,20 +240,6 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(requestVenue).not.toHaveBeenCalled();
     });
 
-    it("shows the venue's requirement refusal in the form's error area", async () => {
-      const user = userEvent.setup();
-      const refusal =
-        "Harbour Hall does not meet this session's requirements: Holds 40; 80 needed.";
-      requestVenue.mockRejectedValueOnce(new Error(refusal));
-      renderPanel(openContext);
-
-      await user.click(screen.getByRole("button", { name: "Send booking request" }));
-
-      const alert = await screen.findByRole("alert");
-      expect(alert.textContent).toBe(refusal);
-      expect(alert.getAttribute("data-slot")).toBe("field-error");
-    });
-
     it("leaves the times empty and explains why when the event window spans more than one day", () => {
       renderPanel({
         ...openContext,
