@@ -57,7 +57,6 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 - [ADR-5: Overlap-free approved bookings, enforced by a PostgreSQL exclusion constraint](./adrs/ADR-5-venue-booking-overlap.md) (superseded by ADR-7)
 - [ADR-6: Notification emails from a transactional queue drained by a scheduled worker](./adrs/ADR-6-notification-delivery.md)
 - [ADR-7: One venue occupancy ledger, guarded by a buffered exclusion constraint](./adrs/ADR-7-venue-occupancy-ledger.md)
-- [ADR-8: Session requirements and same-event checks on each venue request](./adrs/ADR-8-venue-requests-per-session.md)
 
 ## Directory Structure
 
@@ -122,7 +121,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 7. **Notifications**: a state change that raises a notification inserts one `notifications` row per recipient in its own transaction. The record in the application and the email queue are the same rows. Cloud Scheduler calls the worker on `POST /api/cron/notifications` every minute, and the worker delivers the pending rows and marks them. The reasoning, the failure policy, and the P0 bypass are in [ADR-6](./adrs/ADR-6-notification-delivery.md). Sign-up verification and password reset stay synchronous. `src/lib/auth.server.ts` sends them.
 8. **Loader freshness**: the router sets `defaultStaleReloadMode: "blocking"`. A revisit waits for its loaders, so a page never renders a cached value that a later change replaced.
 9. **Venue occupancy**: each approved booking and held hold has a `venue_occupancy` row, and `venue_occupancy_no_overlap` refuses two active rows whose periods overlap once setup and turnaround count ([ADR-7](./adrs/ADR-7-venue-occupancy-ledger.md)).
-10. **Venue requests**: each request stores its session's requirements. The request writers check suitability, availability and overlap with the same event's sessions for each venue on its own ([ADR-8](./adrs/ADR-8-venue-requests-per-session.md)).
+10. **Venue requests**: each request stores its session's requirements. The request writers check suitability, availability and overlap with the same event's sessions for each venue on its own.
 
 ## Database and Migrations
 
