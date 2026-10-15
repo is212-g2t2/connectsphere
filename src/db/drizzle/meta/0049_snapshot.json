@@ -1,5 +1,5 @@
 {
-  "id": "61121169-2920-489e-b1dc-e6513a840de2",
+  "id": "6f77b8bb-62f0-450f-94e5-1d47362a3b6e",
   "prevId": "efca8ed0-5e84-4f0a-aa85-53f71e8815a2",
   "version": "7",
   "dialect": "postgresql",
@@ -2387,6 +2387,30 @@
         "suggested_end_time": {
           "name": "suggested_end_time",
           "type": "time",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expected_attendance": {
+          "name": "expected_attendance",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "layout": {
+          "name": "layout",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accessibility_requirements": {
+          "name": "accessibility_requirements",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "required_facilities": {
+          "name": "required_facilities",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
