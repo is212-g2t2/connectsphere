@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { rethrowVenueConflict, suspensionValues } from "#/features/venue-requests/occupancy.server";
+import { rethrowVenueConflict } from "#/features/venue-requests/occupancy.server";
 import {
   venueRequestEventStatusMessage,
   venueRequirementsMessage,
@@ -20,16 +20,6 @@ function driverError(cause: Record<string, string>) {
 }
 
 const conflict = { name: "ConflictError", status: 409, message: VENUE_OCCUPANCY_CONFLICT_MESSAGE };
-
-/** A block extent for the pure suspension math. */
-function block(startsAt: string, endsAt: string | null) {
-  return { venueId: 1, startsAt, endsAt };
-}
-
-/** An absolute suspension piece with buffers 0. */
-function piece(startsAt: string, endsAt: string, active: boolean) {
-  return { startsAt, endsAt, setupMinutes: 0, turnaroundMinutes: 0, active };
-}
 
 describe("rethrowVenueConflict (PTR-133 AC3)", () => {
   it.each([
@@ -115,68 +105,5 @@ describe("venueBlockConflictMessage (PTR-136)", () => {
     expect(VENUE_CONFLICT_PHRASES).not.toContain("unavailable");
     expect(isVenueConflictMessage("Venue unavailable")).toBe(false);
     expect(isVenueConflictMessage("Service Unavailable")).toBe(false);
-  });
-});
-
-describe("suspensionValues (PTR-136)", () => {
-  // A booking 10:00 to 12:00 with 30/45 buffers occupies 09:30 to 12:45.
-  const row = {
-    startsAt: "2027-06-01 10:00:00",
-    endsAt: "2027-06-01 12:00:00",
-    setupMinutes: 30,
-    turnaroundMinutes: 45,
-    active: true,
-  };
-
-  it("keeps a row clear of every block unchanged", () => {
-    expect(suspensionValues(row, [block("2027-06-01 13:00:00", "2027-06-01 14:00:00")])).toEqual([
-      row,
-    ]);
-  });
-
-  it("deactivates a fully covered row and keeps its stored buffers", () => {
-    expect(suspensionValues(row, [block("2027-06-01 09:30:00", "2027-06-01 12:45:00")])).toEqual([
-      { ...row, active: false },
-    ]);
-  });
-
-  it("splits a partial cover on the occupied extent, buffers 0", () => {
-    expect(suspensionValues(row, [block("2027-06-01 11:00:00", "2027-06-01 12:00:00")])).toEqual([
-      piece("2027-06-01 11:00:00", "2027-06-01 12:00:00", false),
-      piece("2027-06-01 09:30:00", "2027-06-01 11:00:00", true),
-      piece("2027-06-01 12:00:00", "2027-06-01 12:45:00", true),
-    ]);
-  });
-
-  it("splits when only the turnaround buffer reaches the block", () => {
-    expect(suspensionValues(row, [block("2027-06-01 12:30:00", "2027-06-01 13:00:00")])).toEqual([
-      piece("2027-06-01 12:30:00", "2027-06-01 12:45:00", false),
-      piece("2027-06-01 09:30:00", "2027-06-01 12:30:00", true),
-    ]);
-  });
-
-  it("treats an unbounded block as open to the right", () => {
-    expect(suspensionValues(row, [block("2027-06-01 11:00:00", null)])).toEqual([
-      piece("2027-06-01 11:00:00", "2027-06-01 12:45:00", false),
-      piece("2027-06-01 09:30:00", "2027-06-01 11:00:00", true),
-    ]);
-  });
-
-  it("applies several blocks in turn and leaves inactive values alone", () => {
-    const once = suspensionValues(row, [block("2027-06-01 10:00:00", "2027-06-01 10:30:00")]);
-    expect(
-      suspensionValues(row, [
-        block("2027-06-01 10:00:00", "2027-06-01 10:30:00"),
-        block("2027-06-01 11:00:00", "2027-06-01 11:30:00"),
-        block("2027-06-01 10:15:00", "2027-06-01 10:20:00"),
-      ])
-    ).toEqual([
-      piece("2027-06-01 10:00:00", "2027-06-01 10:30:00", false),
-      piece("2027-06-01 09:30:00", "2027-06-01 10:00:00", true),
-      piece("2027-06-01 11:00:00", "2027-06-01 11:30:00", false),
-      piece("2027-06-01 10:30:00", "2027-06-01 11:00:00", true),
-      piece("2027-06-01 11:30:00", "2027-06-01 12:45:00", true),
-    ]);
-    expect(once).toHaveLength(3);
   });
 });

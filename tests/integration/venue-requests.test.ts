@@ -37,6 +37,7 @@ import {
   venueRequestEventStatusMessage,
   venueRequirementsMessage,
 } from "#/features/venue-requests/requests.server";
+import { handleLiftVenueBlock, handleRecordVenueBlock } from "#/features/venues/blocks.server";
 import { handleGetVenueAvailability, handleSearchVenues } from "#/features/venues/records.server";
 import { DEFAULT_OPERATING_HOURS, LAYOUT_MESSAGE } from "#/features/venues/schema";
 import { notificationSummary, parseNotificationPayload } from "#/features/notifications/message";
@@ -829,12 +830,18 @@ describe("venue request handlers (PTR-31)", () => {
     });
 
     it("flags a window that a recorded block overlaps, and approval refuses it", async () => {
-      await database.insert(schema.venueUnavailability).values({
-        venueId,
-        startsAt: "2027-04-20 10:00:00",
-        endsAt: "2027-04-20 11:00:00",
-        reason: "Floor resurfacing",
-      });
+      const block = await handleRecordVenueBlock(
+        {
+          venueId,
+          date: "2027-04-20",
+          startTime: "10:00",
+          endDate: "2027-04-20",
+          endTime: "11:00",
+          reason: "Floor resurfacing",
+        },
+        session(users.venueStaffA),
+        database as never
+      );
       const blocked = await raiseRequest(eventId, "09:30", "10:30");
 
       expect(await readConflicts()).toEqual(["unavailable", "unavailable"]);
@@ -843,9 +850,7 @@ describe("venue request handlers (PTR-31)", () => {
       );
 
       // Once the block is lifted, the flag clears and approval goes ahead.
-      await database
-        .delete(schema.venueUnavailability)
-        .where(eq(schema.venueUnavailability.venueId, venueId));
+      await handleLiftVenueBlock({ id: block.id }, session(users.venueStaffA), database as never);
       expect(await readConflicts()).toEqual([null, undefined]);
       expect((await approve(blocked.id, users.venueStaffA)).status).toBe("approved");
     });

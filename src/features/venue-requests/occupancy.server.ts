@@ -16,8 +16,8 @@ import { logger } from "#/lib/logger";
 /**
  * PTR-134: the writers' side of the venue occupancy ledger (ADR-7). Approval, amendment, release,
  * and hold create, release and convert call these functions inside their advisory-locked
- * transactions, so a ledger row and its source record commit or roll back together.
- * PTR-136 adds block rows and the suspend/restore helpers below.
+ * transactions, so a ledger row and its source record commit or roll back together. The block
+ * recorder and lift use the block suspend/restore helpers below.
  */
 
 const log = logger.getChild("venue-occupancy");
@@ -188,15 +188,6 @@ export interface BlockExtent {
   endsAt: string | null;
 }
 
-/** A ledger row's stored period and buffers, without the venue and source ids. */
-export interface LedgerValues {
-  startsAt: string;
-  endsAt: string;
-  setupMinutes: number;
-  turnaroundMinutes: number;
-  active: boolean;
-}
-
 /** What one block does to one occupied extent: nothing, a full suspend, or a split. */
 type BlockOutcome =
   | { kind: "clear" }
@@ -242,46 +233,6 @@ function blockOutcome(
     pieces.push({ startsAt: block.endsAt, endsAt: occupied.endsAt, active: true });
   }
   return { kind: "split", pieces };
-}
-
-/** Shift a `YYYY-MM-DD HH:MM:SS` stamp by minutes, staying in the same format. */
-function shiftMinutes(value: string, minutes: number): string {
-  const ms = Date.parse(`${value.replace(" ", "T")}Z`) + minutes * 60_000;
-  return new Date(ms).toISOString().slice(0, 19).replace("T", " ");
-}
-
-/**
- * Apply each block in turn to a growing value list, so the seed can write a covered booking
- * suspended without ever inserting an active row under a live block. Inactive values pass
- * through untouched. Deactivate keeps the stored buffers; split pieces use buffers 0.
- */
-export function suspensionValues(
-  row: LedgerValues,
-  blocks: readonly BlockExtent[]
-): LedgerValues[] {
-  let values = [row];
-  for (const block of blocks) {
-    values = values.flatMap(value => {
-      if (!value.active) return [value];
-      const outcome = blockOutcome(
-        {
-          startsAt: shiftMinutes(value.startsAt, -value.setupMinutes),
-          endsAt: shiftMinutes(value.endsAt, value.turnaroundMinutes),
-        },
-        block
-      );
-      if (outcome.kind === "clear") return [value];
-      if (outcome.kind === "deactivate") return [{ ...value, active: false }];
-      return outcome.pieces.map(piece => ({
-        startsAt: piece.startsAt,
-        endsAt: piece.endsAt,
-        setupMinutes: 0,
-        turnaroundMinutes: 0,
-        active: piece.active,
-      }));
-    });
-  }
-  return values;
 }
 
 /**

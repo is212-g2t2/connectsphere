@@ -5,21 +5,99 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
+import { lockVenue } from "#/features/venue-requests/venue-lock.server";
+import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
+import { liftBlockRows, recordBlockRows } from "#/features/venues/blocks.server";
 import { OperatingHoursSchema } from "#/features/venues/schema";
 import { runSeed, seedVenues, seedVenueUnavailability } from "../../scripts/seed";
+
+/** A Venue Staff account that is not the seed's, to record blocks the seed must keep. */
+const otherStaff = {
+  id: "seed-venues-other-staff",
+  name: "Other Venue Staff",
+  email: "seed-venues-other-staff@example.invalid",
+  emailVerified: true,
+  role: "venue_staff",
+} satisfies typeof schema.user.$inferInsert;
 
 describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
   let pool: Pool;
   let database: ReturnType<typeof drizzle<typeof schema>>;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     database = drizzle(pool, { schema });
+    await database.insert(schema.user).values(otherStaff).onConflictDoNothing();
   });
 
   afterAll(async () => {
+    await database.delete(schema.user).where(eq(schema.user.id, otherStaff.id));
     await pool.end();
   });
+
+  /** Run `work` under the venue lock, as the block handlers do. */
+  function withVenueLock<T>(venueId: number, work: (tx: VenueTx) => Promise<T>): Promise<T> {
+    return database.transaction(async tx => {
+      const venueTx = tx as unknown as VenueTx;
+      await lockVenue(venueTx, venueId);
+      return work(venueTx);
+    });
+  }
+
+  /** Record a block with its ledger row, as the block handler does without notices. */
+  async function recordBlock(
+    venue: { id: number; name: string },
+    period: { startsAt: string; endsAt: string | null; reason: string },
+    actorId = otherStaff.id
+  ) {
+    return withVenueLock(
+      venue.id,
+      async tx => (await recordBlockRows(tx, venue, period, actorId)).block
+    );
+  }
+
+  /** Lift a block and restore what it suspended, as the lift handler does without notices. */
+  async function liftBlock(blockId: number): Promise<void> {
+    const [preview] = await database
+      .select({ venueId: schema.venueUnavailability.venueId })
+      .from(schema.venueUnavailability)
+      .where(eq(schema.venueUnavailability.id, blockId));
+    await withVenueLock(preview.venueId, async tx => {
+      const [block] = await tx
+        .select()
+        .from(schema.venueUnavailability)
+        .where(eq(schema.venueUnavailability.id, blockId))
+        .for("update");
+      await liftBlockRows(tx, block, otherStaff.id);
+    });
+  }
+
+  /** The seed venue that a seed period names. */
+  async function venueOf(period: { venueName: string }) {
+    const [venue] = await database
+      .select({ id: schema.venues.id, name: schema.venues.name })
+      .from(schema.venues)
+      .where(eq(schema.venues.name, period.venueName));
+    return venue;
+  }
+
+  /** The live block that the seed recorded for a period. */
+  async function liveSeedBlock(period: { venueName: string; reason: string }) {
+    const venue = await venueOf(period);
+    const [block] = await database
+      .select()
+      .from(schema.venueUnavailability)
+      .where(
+        and(
+          eq(schema.venueUnavailability.venueId, venue.id),
+          eq(schema.venueUnavailability.reason, period.reason),
+          isNull(schema.venueUnavailability.liftedAt)
+        )
+      )
+      .orderBy(asc(schema.venueUnavailability.id))
+      .limit(1);
+    return block;
+  }
 
   async function seedVenueIds(): Promise<number[]> {
     return (
@@ -247,34 +325,19 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
       .orderBy(asc(schema.venueOccupancy.id))
       .limit(1);
     expect(booking).toBeDefined();
-    // Plant a live user block covering the whole booking day, as the block recorder writes
-    // it: the fully covered booking flips inactive first, so the block row lands cleanly.
+    // Venue Staff block the whole booking day. The recorder suspends the booking first.
     const day = booking.startsAt.slice(0, 10);
-    await database
-      .update(schema.venueOccupancy)
-      .set({ active: false })
-      .where(eq(schema.venueOccupancy.venueRequestId, "demo-attendee-venue-request-1"));
-    const [planted] = await database
-      .insert(schema.venueUnavailability)
-      .values({
-        venueId: booking.venueId,
-        startsAt: `${day} 00:00:00`,
-        endsAt: `${day} 23:59:59`,
-        reason: "Seed suspension probe",
-        createdById: "seed-venue-staff-1",
-      })
-      .returning({ id: schema.venueUnavailability.id });
-    await database.insert(schema.venueOccupancy).values({
-      venueId: booking.venueId,
-      eventId: null,
-      venueUnavailabilityId: planted.id,
+    const [venue] = await database
+      .select({ id: schema.venues.id, name: schema.venues.name })
+      .from(schema.venues)
+      .where(eq(schema.venues.id, booking.venueId));
+    const planted = await recordBlock(venue, {
       startsAt: `${day} 00:00:00`,
       endsAt: `${day} 23:59:59`,
-      setupMinutes: 0,
-      turnaroundMinutes: 0,
-      active: true,
+      reason: "Seed suspension probe",
     });
 
+    // The re-run writes the booking row again. It must stay suspended under the live block.
     await runSeed(database);
 
     const suspended = await database
@@ -285,15 +348,14 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
     for (const row of suspended) {
       expect(row.active).toBe(false);
     }
-
-    // Take the probe back out so later suites see the seeded baseline.
-    await database
-      .delete(schema.venueOccupancy)
+    const blockRows = await database
+      .select({ active: schema.venueOccupancy.active })
+      .from(schema.venueOccupancy)
       .where(eq(schema.venueOccupancy.venueUnavailabilityId, planted.id));
-    await database
-      .delete(schema.venueUnavailability)
-      .where(eq(schema.venueUnavailability.id, planted.id));
-    await runSeed(database);
+    expect(blockRows).toEqual([{ active: true }]);
+
+    // Lift the probe, so later suites see the seeded baseline. The lift restores the booking.
+    await liftBlock(planted.id);
     const restored = await database
       .select({ active: schema.venueOccupancy.active })
       .from(schema.venueOccupancy)
@@ -301,58 +363,95 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
     expect(restored).toEqual([{ active: true }]);
   });
 
-  it("skips a seed period that another live block covers", async () => {
+  it("replaces a seed block that an older seed wrote without a creator or a ledger row", async () => {
     await runSeed(database);
     const period = seedVenueUnavailability[0];
-    const [venue] = await database
-      .select({ id: schema.venues.id })
-      .from(schema.venues)
-      .where(eq(schema.venues.name, period.venueName));
-    // Lift the seed's block, then record a wider user block over the same window, as Venue
-    // Staff can from the calendar: the user block is the live one now.
-    const [seedBlock] = await database
-      .select({ id: schema.venueUnavailability.id })
+    const old = await liveSeedBlock(period);
+    // An older seed wrote the block row only, and recorded no creator.
+    await database
+      .delete(schema.venueOccupancy)
+      .where(eq(schema.venueOccupancy.venueUnavailabilityId, old.id));
+    await database
+      .update(schema.venueUnavailability)
+      .set({ createdById: null })
+      .where(eq(schema.venueUnavailability.id, old.id));
+
+    await runSeed(database);
+
+    const [lifted] = await database
+      .select({ liftedAt: schema.venueUnavailability.liftedAt })
+      .from(schema.venueUnavailability)
+      .where(eq(schema.venueUnavailability.id, old.id));
+    expect(lifted.liftedAt).not.toBeNull();
+    const replacement = await liveSeedBlock(period);
+    expect(replacement.id).not.toBe(old.id);
+    expect(replacement.createdById).toBe("seed-venue-staff-1");
+    const ledger = await database
+      .select({ active: schema.venueOccupancy.active })
+      .from(schema.venueOccupancy)
+      .where(eq(schema.venueOccupancy.venueUnavailabilityId, replacement.id));
+    expect(ledger).toEqual([{ active: true }]);
+  });
+
+  it("keeps a Venue Staff block that has a seed reason on re-run", async () => {
+    await runSeed(database);
+    const period = seedVenueUnavailability[1];
+    const venue = await venueOf(period);
+    // Use a day far past every seed period and booking, so only the creator tells them apart.
+    const day = new Date(Date.now() + 200 * 86_400_000).toISOString().slice(0, 10);
+    const staffBlock = await recordBlock(venue, {
+      startsAt: `${day} 09:00:00`,
+      endsAt: `${day} 10:00:00`,
+      reason: period.reason,
+    });
+
+    await runSeed(database);
+
+    const [kept] = await database
+      .select({ liftedAt: schema.venueUnavailability.liftedAt })
+      .from(schema.venueUnavailability)
+      .where(eq(schema.venueUnavailability.id, staffBlock.id));
+    expect(kept.liftedAt).toBeNull();
+    const ledger = await database
+      .select({ active: schema.venueOccupancy.active })
+      .from(schema.venueOccupancy)
+      .where(eq(schema.venueOccupancy.venueUnavailabilityId, staffBlock.id));
+    expect(ledger).toEqual([{ active: true }]);
+    // The seed still records its own period for the same venue and reason.
+    const seedBlocks = await database
+      .select({ startsAt: schema.venueUnavailability.startsAt })
       .from(schema.venueUnavailability)
       .where(
         and(
           eq(schema.venueUnavailability.venueId, venue.id),
           eq(schema.venueUnavailability.reason, period.reason),
+          eq(schema.venueUnavailability.createdById, "seed-venue-staff-1"),
           isNull(schema.venueUnavailability.liftedAt)
         )
       );
-    await database
-      .delete(schema.venueOccupancy)
-      .where(eq(schema.venueOccupancy.venueUnavailabilityId, seedBlock.id));
-    await database
-      .update(schema.venueUnavailability)
-      .set({ liftedAt: new Date(), liftedById: "seed-venue-staff-1" })
-      .where(eq(schema.venueUnavailability.id, seedBlock.id));
+    expect(seedBlocks).toEqual([{ startsAt: period.startsAt }]);
+
+    await liftBlock(staffBlock.id);
+  });
+
+  it("skips a seed period that another live block covers", async () => {
+    await runSeed(database);
+    const period = seedVenueUnavailability[0];
+    const venue = await venueOf(period);
+    // Lift the seed's block, then record a wider block over the same window, as Venue Staff can
+    // from the calendar. The wider block is the live one now.
+    await liftBlock((await liveSeedBlock(period)).id);
     const widerEnds = new Date(Date.parse(`${period.endsAt.replace(" ", "T")}Z`) + 2 * 86_400_000)
       .toISOString()
       .slice(0, 19)
       .replace("T", " ");
-    const [planted] = await database
-      .insert(schema.venueUnavailability)
-      .values({
-        venueId: venue.id,
-        startsAt: period.startsAt,
-        endsAt: widerEnds,
-        reason: "Seed skip probe",
-        createdById: "seed-venue-staff-1",
-      })
-      .returning({ id: schema.venueUnavailability.id });
-    await database.insert(schema.venueOccupancy).values({
-      venueId: venue.id,
-      eventId: null,
-      venueUnavailabilityId: planted.id,
+    const planted = await recordBlock(venue, {
       startsAt: period.startsAt,
       endsAt: widerEnds,
-      setupMinutes: 0,
-      turnaroundMinutes: 0,
-      active: true,
+      reason: "Seed skip probe",
     });
 
-    // The re-run lifts the seed's own row, then skips the period instead of failing.
+    // The re-run skips the period instead of failing.
     await expect(runSeed(database)).resolves.toBeUndefined();
 
     const live = await database
@@ -367,13 +466,8 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
     expect(live.map(row => row.reason)).toContain("Seed skip probe");
     expect(live.map(row => row.reason)).not.toContain(period.reason);
 
-    // Take the probe back out and re-seed so later suites see the baseline.
-    await database
-      .delete(schema.venueOccupancy)
-      .where(eq(schema.venueOccupancy.venueUnavailabilityId, planted.id));
-    await database
-      .delete(schema.venueUnavailability)
-      .where(eq(schema.venueUnavailability.id, planted.id));
+    // Lift the probe and re-seed, so later suites see the baseline.
+    await liftBlock(planted.id);
     await runSeed(database);
     const baseline = await database
       .select({ reason: schema.venueUnavailability.reason })
