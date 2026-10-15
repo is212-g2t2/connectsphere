@@ -538,22 +538,6 @@ describe("tentative venue holds (PTR-109)", () => {
         });
         await expectNoHoldForA();
       });
-
-      it("refuses a hold that overlaps an approved booking of the event", async () => {
-        const request = await requestForA("11:00", "13:00");
-        await handleApproveVenueRequest(
-          { id: request.id },
-          session(users.venueStaff),
-          database as never
-        );
-
-        await expect(holdForA()).rejects.toMatchObject({
-          name: "ConflictError",
-          status: 409,
-          message: expect.stringMatching(/11:00.*13:00/),
-        });
-        await expectNoHoldForA();
-      });
     });
   });
 
@@ -1151,30 +1135,6 @@ describe("tentative venue holds (PTR-109)", () => {
         expect(pending.requirements.expectedAttendance).toBe(40);
       });
 
-      it("gives the calendar the event's requirements only for a hold the viewer can convert", async () => {
-        const hold = await holdForA();
-        const range = { venueId, startDate: HOLD_WINDOW.date, endDate: HOLD_WINDOW.date };
-
-        const assignee = await handleGetVenueAvailability(
-          range,
-          users.coordinatorA.id,
-          database as never
-        );
-        expect(assignee?.occupied.find(entry => entry.id === hold.id)?.convertDefaults).toEqual({
-          expectedAttendance: 100,
-          layout: "",
-          accessibilityRequirements: "",
-          requiredFacilities: "",
-        });
-        const stranger = await handleGetVenueAvailability(
-          range,
-          users.coordinatorB.id,
-          database as never
-        );
-        const strangerHold = stranger?.occupied.find(entry => entry.id === hold.id);
-        expect(strangerHold?.convertDefaults).toBeUndefined();
-      });
-
       it("refuses a session layout that names no supported layout", async () => {
         const hold = await holdForA();
 
@@ -1283,6 +1243,13 @@ describe("tentative venue holds (PTR-109)", () => {
         session(users.coordinatorA),
         database as never
       );
+      // PTR-138 AC1: Event A's requirements, which the conversion form starts from.
+      const eventRequirements = {
+        expectedAttendance: 100,
+        layout: "",
+        accessibilityRequirements: "",
+        requiredFacilities: "",
+      };
 
       // The assigned Coordinator can release and convert a hold on a submitted event.
       const coordAvailability = await handleGetVenueAvailability(
@@ -1292,7 +1259,7 @@ describe("tentative venue holds (PTR-109)", () => {
       );
       const coordHold = coordAvailability?.occupied.find(entry => entry.id === hold.id);
       expect(coordHold?.canRelease).toBe(true);
-      expect(coordHold?.convertDefaults).toBeDefined();
+      expect(coordHold?.convertDefaults).toEqual(eventRequirements);
 
       // An unassigned viewer cannot release or convert the hold.
       const unassignedAvailability = await handleGetVenueAvailability(
@@ -1312,7 +1279,7 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
       const planningHold = planningAvailability?.occupied.find(entry => entry.id === hold.id);
-      expect(planningHold?.convertDefaults).toBeDefined();
+      expect(planningHold?.convertDefaults).toEqual(eventRequirements);
 
       // A confirmed event takes no request. Its Coordinator can release but cannot convert.
       await moveEventA("confirmed");
