@@ -154,9 +154,9 @@ export interface VenueRequestRelease {
 
 /**
  * One venue booking request on an event card. An event can have several venue requests, one row
- * for each event, venue and window. `conflict` is present only on a pending request that approval
- * would refuse now (PTR-36, PTR-138 AC1). Only a rejected row has `rejection`, and only a released
- * row has `release`.
+ * for each event, venue and window. `conflict` is present only on a pending request that overlaps
+ * the ledger or that the venue cannot host (PTR-36, PTR-138 AC1). Only a rejected row has
+ * `rejection`, and only a released row has `release`.
  *
  * Each role sees a different set of rows. The visibility filter in `handleListEvents`
  * (`events/records.server.ts`) states the rule.

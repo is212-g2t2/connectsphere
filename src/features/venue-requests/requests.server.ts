@@ -177,7 +177,10 @@ export function rethrowDuplicate(error: unknown): never {
   );
 }
 
-/** The venue row that request creation and hold conversion read under the venue lock. */
+/**
+ * The venue row that the venue-request writers read under the venue lock: request creation,
+ * approval, amendment, and hold creation and conversion.
+ */
 export interface LockedVenue {
   id: number;
   name: string;

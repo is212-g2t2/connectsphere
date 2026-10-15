@@ -14,15 +14,16 @@ import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/venues/$venueId")({
   head: () => createSeoHead({ title: "Venue — ConnectSphere", noindex: true }),
-  // Keep `saved` as a string, as in `reset-password.tsx`. A hand-typed `?saved=abc` must not cause a route error.
-  // `eventId` supplies PTR-31 context when the venue search includes it. The router converts
-  // `?eventId=12` to a number, so the schema coerces it. Treat failed coercion as no context.
-  // The window and the session requirements prefill the request form from the venue search or
-  // the rejection card (PTR-35, PTR-138 AC1). Drop hand-typed values that are not a civil date,
-  // `HH:MM`, a positive attendance, or text within the search's length.
   validateSearch: z.object({
+    // Keep `saved` as a string, as in `reset-password.tsx`. A hand-typed `?saved=abc` must not
+    // cause a route error.
     saved: z.string().optional(),
+    // `eventId` supplies PTR-31 context when the venue search includes it. The router converts
+    // `?eventId=12` to a number, so the schema coerces it. Treat failed coercion as no context.
     eventId: z.coerce.number().int().positive().optional().catch(undefined),
+    // The window and the session requirements prefill the request form from the venue search or
+    // the rejection card (PTR-35, PTR-138 AC1). Drop hand-typed values that are not a civil date,
+    // `HH:MM`, a positive attendance, or text within the search's length.
     date: z.iso.date().optional().catch(undefined),
     startTime: z.string().regex(TIME_SHAPE).optional().catch(undefined),
     endTime: z.string().regex(TIME_SHAPE).optional().catch(undefined),

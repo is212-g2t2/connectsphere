@@ -133,8 +133,10 @@ function ledgerConflictKind(row: { isHold: boolean; isBlock: boolean }): VenueRe
 }
 
 /**
- * PTR-36 criterion 4, PTR-138 AC1: Return the conflict kind of each pending row in `pendingIds`,
- * so the flag predicts approval. Name a booking first, then a hold, then an unavailable venue.
+ * PTR-36 criterion 4, PTR-138 AC1: Return the conflict kind of each pending row in `pendingIds`
+ * whose window approval would refuse now. Approval also refuses a request for session requirements
+ * and for event status. The flag does not show these refusals. Name a booking first, then a hold,
+ * then an unavailable venue.
  *
  * - `booking`, `hold`: the row overlaps an approved booking or a held hold at its venue once the
  *   buffers count. Read the ledger with approval's expression (`overlapsLedger`).

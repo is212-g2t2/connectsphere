@@ -233,6 +233,7 @@ function VenueRequestRow({ row, venueName }: { row: VenueRequestContextRow; venu
  * PTR-31 and PTR-138 AC4: one card for the event the Coordinator came from. The top part lists the
  * event's pending requests and approved bookings at this venue. Below it, the request form stays
  * open while the caller can request, so the Coordinator can book another session at this venue.
+ *
  * The route renders this panel only when the loader finds a context. Server middleware still
  * controls access.
  */

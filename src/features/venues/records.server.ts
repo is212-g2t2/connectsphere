@@ -228,7 +228,7 @@ export type VenueRequirements = Pick<
  * PTR-30 and PTR-138 AC1: name every requirement that the venue does not meet: capacity, layout,
  * accessibility, and facilities. Search and the request writers share this one rule, so a venue
  * that search calls suitable passes creation for the same requirements. Location is a search
- * filter only. Requests check availability apart (`windowAvailabilityFailure`).
+ * filter only. Request approval and amendment check availability with `windowAvailabilityFailure`.
  */
 export function requirementFailures(
   venue: Pick<
