@@ -7,6 +7,7 @@ import {
   venueUnavailableMessage,
 } from "#/features/venue-requests/requests.server";
 import {
+  VENUE_BLOCK_PHRASE,
   VENUE_CONFLICT_PHRASES,
   VENUE_OCCUPANCY_CONFLICT_MESSAGE,
   isVenueConflictMessage,
@@ -89,7 +90,7 @@ describe("venueBlockConflictMessage (PTR-136)", () => {
   });
 
   it("lists the block phrase so the approve button shows it verbatim", () => {
-    expect(VENUE_CONFLICT_PHRASES).toContain("unavailable");
+    expect(VENUE_CONFLICT_PHRASES).toContain(VENUE_BLOCK_PHRASE);
     expect(
       isVenueConflictMessage(
         venueBlockConflictMessage({
@@ -108,6 +109,12 @@ describe("venueBlockConflictMessage (PTR-136)", () => {
         })
       )
     ).toBe(true);
+  });
+
+  it("does not show other text that only says unavailable", () => {
+    expect(VENUE_CONFLICT_PHRASES).not.toContain("unavailable");
+    expect(isVenueConflictMessage("Venue unavailable")).toBe(false);
+    expect(isVenueConflictMessage("Service Unavailable")).toBe(false);
   });
 });
 

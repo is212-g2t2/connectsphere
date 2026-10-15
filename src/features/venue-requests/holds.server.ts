@@ -71,7 +71,7 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
       endsAt: `${input.date} ${input.endTime}:00`,
     };
     const occupancy = await checkVenueFree(tx, venue, requested);
-    // `checkVenueFree` refuses every booking and hold, so only a pending request can refuse here.
+    // `checkVenueFree` refuses every block, booking and hold. Only a pending request can refuse here.
     await assertNoEventOverlap(tx, venue, requested);
 
     const [created] = await tx

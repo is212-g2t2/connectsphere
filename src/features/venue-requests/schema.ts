@@ -547,30 +547,38 @@ export const VENUE_REQUIREMENTS_PHRASE = "does not meet this session's requireme
 /** PTR-138: the phrase of the refusal for an event outside `SEARCHABLE_EVENT_STATUSES`. */
 export const VENUE_EVENT_STATUS_PHRASE = "cannot take a new venue booking";
 
+/** The state that a venue block puts a venue in. `VENUE_BLOCK_PHRASE` contains it. */
+const VENUE_BLOCK_STATE = "unavailable";
+
 /**
- * PTR-136: the refusal when a booking or hold overlaps an active venue block. A finite block
- * reuses the booking message with the block phrase. A null end renders "until lifted", never
- * year 9999. Times use the same `formatLocalDateTime` spelling as the shared message.
+ * The phrase of the refusal for a commitment that overlaps an active venue block
+ * (`venueBlockConflictMessage`). The approve button shows a refusal that contains it.
+ */
+export const VENUE_BLOCK_PHRASE = `is ${VENUE_BLOCK_STATE}`;
+
+/**
+ * The refusal for a booking, a hold or a block that overlaps an active venue block. A finite block
+ * uses the booking message with the block state. A null end gives "until lifted", never year
+ * 9999. Times use the same `formatLocalDateTime` format as the booking message.
  */
 export function venueBlockConflictMessage(conflict: {
   venueName: string;
   startsAt: string;
   endsAt: string | null;
 }) {
-  const { venueName, startsAt: rawStartsAt, endsAt } = conflict;
+  const { venueName, startsAt, endsAt } = conflict;
   if (endsAt === null) {
-    const startsAt = rawStartsAt.replace(" ", "T");
-    const start = formatLocalDateTime(startsAt.slice(0, 16));
-    return `${venueName} is unavailable from ${start} until lifted`;
+    const start = formatLocalDateTime(startsAt.replace(" ", "T").slice(0, 16));
+    return `${venueName} ${VENUE_BLOCK_PHRASE} from ${start} until lifted`;
   }
-  return venueRequestConflictMessage({ venueName, startsAt: rawStartsAt, endsAt }, "unavailable");
+  return venueRequestConflictMessage({ venueName, startsAt, endsAt }, VENUE_BLOCK_STATE);
 }
 
 /**
  * List the phrases of the approval refusals that name a reason, so the approve button can show
  * them and hide other failures without matching the full text. `venueRequestConflictMessage` and
- * `VENUE_OCCUPANCY_CONFLICT_MESSAGE` say "already booked"; `venueHoldConflictMessage` says
- * "tentatively held"; `venueBlockConflictMessage` says "unavailable". The other phrases are above.
+ * `VENUE_OCCUPANCY_CONFLICT_MESSAGE` say "already booked", and `venueHoldConflictMessage` says
+ * "tentatively held". The other phrases are above.
  */
 export const VENUE_CONFLICT_PHRASES = [
   "already booked",
@@ -578,7 +586,7 @@ export const VENUE_CONFLICT_PHRASES = [
   VENUE_UNAVAILABLE_PHRASE,
   VENUE_REQUIREMENTS_PHRASE,
   VENUE_EVENT_STATUS_PHRASE,
-  "unavailable",
+  VENUE_BLOCK_PHRASE,
 ] as const;
 
 export function isVenueConflictMessage(message: string): boolean {

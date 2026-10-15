@@ -14,6 +14,7 @@ import {
   handleCreateVenueHold,
   handleReleaseVenueHold,
 } from "#/features/venue-requests/holds.server";
+import { loadPendingConflictKinds } from "#/features/venue-requests/records.server";
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
@@ -489,6 +490,48 @@ describe("venue blocks (PTR-136)", () => {
     expect(await ledgerForBlock(block.id)).toHaveLength(1);
   });
 
+  // ADR-8: the flag and approval name an unavailable venue before a booking before a hold.
+  it.each(["booking", "hold"] as const)(
+    "flags and refuses a window that meets a block and a %s as unavailable",
+    async other => {
+      // The other commitment takes 09:00-10:00 and the block takes 10:00-11:00. They do not
+      // overlap, so both ledger rows stay active. The pending window 09:30-10:30 meets both.
+      if (other === "booking") await approve(await raise("09:00", "10:00"));
+      else await hold("09:00", "10:00");
+      await recordBlock("10:00", "11:00");
+      const pending = await raise("09:30", "10:30");
+
+      const kinds = await loadPendingConflictKinds(database, [pending]);
+      expect(kinds.get(pending)).toBe("unavailable");
+      await expect(approve(pending)).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: `${HALL} cannot host this window: Unavailable on ${DATE}: PTR-136 maintenance.`,
+      });
+    }
+  );
+
+  it("flags and refuses a window whose buffers meet a block and whose window meets a booking as unavailable", async () => {
+    // The booking 10:00-11:00 occupies 09:30-11:00. The block 09:00-09:20 does not touch it.
+    // The pending window 09:45-10:30 is free of the block, but its setup buffer starts at 09:15.
+    await setBuffers(hallId, 30, 0);
+    await approve(await raise("10:00", "11:00"));
+    await recordBlock("09:00", "09:20");
+    const pending = await raise("09:45", "10:30");
+
+    const kinds = await loadPendingConflictKinds(database, [pending]);
+    expect(kinds.get(pending)).toBe("unavailable");
+    await expect(approve(pending)).rejects.toMatchObject({
+      name: "ConflictError",
+      status: 409,
+      message: venueBlockConflictMessage({
+        venueName: HALL,
+        startsAt: `${DATE} 09:00:00`,
+        endsAt: `${DATE} 09:20:00`,
+      }),
+    });
+  });
+
   it("restores suspended rows on lift, frees the period, and refuses a second lift", async () => {
     const id = await raise("10:00", "12:00");
     await approve(id);
@@ -674,41 +717,5 @@ describe("venue blocks (PTR-136)", () => {
     const lifted = await liftBlock(block.id, session(users.coordinator));
     expect(lifted.liftedById).toBe(users.coordinator.id);
     expect(lifted.liftedAt?.getTime()).toBeGreaterThanOrEqual(beforeLift.getTime() - 30_000);
-  });
-
-  it("refuses bookings and holds under a block recorded before PTR-136", async () => {
-    // A pre-PTR-136 block: a live block row with no ledger row.
-    await database.insert(schema.venueUnavailability).values({
-      venueId: hallId,
-      startsAt: `${DATE} 09:00:00`,
-      endsAt: `${DATE} 13:00:00`,
-      reason: "Pre-PTR-136 maintenance",
-      createdById: users.venueStaff.id,
-    });
-
-    const refused = await raise("10:30", "11:00");
-    const expected = venueBlockConflictMessage({
-      venueName: HALL,
-      startsAt: `${DATE} 09:00:00`,
-      endsAt: `${DATE} 13:00:00`,
-    });
-    // Approval names the availability reason, as the request panel flags it; the hold path
-    // reads the ledger probe and names the block period.
-    await expect(approve(refused)).rejects.toMatchObject({
-      name: "ConflictError",
-      status: 409,
-      message: expect.stringContaining("cannot host this window"),
-    });
-    await expect(hold("10:30", "11:00")).rejects.toMatchObject({
-      name: "ConflictError",
-      message: expected,
-    });
-
-    const availability = await handleGetVenueAvailability(
-      { venueId: hallId, startDate: DATE, endDate: DATE },
-      users.coordinator.id,
-      database as never
-    );
-    expect(availability?.occupied).toContainEqual(expect.objectContaining({ state: "blocked" }));
   });
 });

@@ -865,14 +865,14 @@ describe("venue request handlers (PTR-31)", () => {
       expect(await readConflicts()).toEqual(["unavailable", "unavailable"]);
     });
 
-    it("names a conflicting booking before an unavailable venue, as approval does", async () => {
+    it("names an unavailable venue before a conflicting booking, as approval does", async () => {
       const otherEventId = await createEvent("PTR-138 early booking event");
       await approve((await raiseRequest(otherEventId, "08:00", "09:00")).id, users.venueStaffA);
       const early = await raiseRequest(eventId, "07:30", "08:30");
 
-      expect(await readConflicts()).toEqual(["booking", "booking"]);
+      expect(await readConflicts()).toEqual(["unavailable", "unavailable"]);
       await expect(approve(early.id, users.venueStaffA)).rejects.toThrow(
-        `${VENUE_NAME} is already booked 20 Apr 2027, 08:00 – 09:00`
+        `${VENUE_NAME} cannot host this window: Not open 07:30–08:30 on 2027-04-20.`
       );
     });
   });

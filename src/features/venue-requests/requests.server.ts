@@ -33,11 +33,10 @@ import type {
   VenueRequestStatus,
 } from "#/features/venue-requests/schema";
 import {
-  findVenueConflict,
+  checkVenueFree,
   isHoldRow,
   occupyVenue,
   overlapsLedger,
-  venueConflictMessage,
 } from "#/features/venue-requests/occupancy.server";
 import {
   loadPendingConflictKinds,
@@ -232,11 +231,10 @@ export function venueUnavailableMessage(venueName: string, failure: string): str
 }
 
 /**
- * PTR-138 AC1: refuse a booking window that the venue cannot take now. Probe the ledger
- * (`findVenueConflict`) and name a booking or a hold immediately. Then check availability
- * (`loadWindowAvailabilityFailures`): a window the venue is not open for, or that a recorded block
- * overlaps, is named with its reason. A block that reaches only into the buffers is named after
- * that, from the ledger. Return the ledger row to write.
+ * PTR-138 AC1: refuse a booking window that the venue cannot take now. Check availability first
+ * (`loadWindowAvailabilityFailures`): refuse a window when the venue is not open then, or a
+ * recorded block overlaps it, and name the reason. Then check the ledger (`checkVenueFree`). This
+ * gives ADR-8's refusal order, which the conflict flag also uses. Return the ledger row to write.
  *
  * Approval and amendment call it under the venue lock, so a venue that changed since the request
  * still gets every check. Creation does not: a block can be lifted and hours can change before
@@ -247,13 +245,6 @@ export async function checkVenueTakesBooking(
   venue: LockedVenue,
   booking: { eventId: number; startsAt: string; endsAt: string }
 ) {
-  // A booking or a hold is named before availability, as the panel's flag does. A block is
-  // named by the window check below, which names its reason; a block that only reaches into
-  // the buffers is named after the window check passes.
-  const { conflict, occupancy } = await findVenueConflict(tx, venue, booking);
-  if (conflict && conflict.kind !== "block") {
-    throw new ConflictError(venueConflictMessage(venue.name, conflict));
-  }
   const [failure] = await loadWindowAvailabilityFailures(tx, [
     {
       venueId: venue.id,
@@ -263,8 +254,7 @@ export async function checkVenueTakesBooking(
     },
   ]);
   if (failure) throw new ConflictError(venueUnavailableMessage(venue.name, failure.message));
-  if (conflict) throw new ConflictError(venueConflictMessage(venue.name, conflict));
-  return occupancy;
+  return checkVenueFree(tx, venue, booking);
 }
 
 /**

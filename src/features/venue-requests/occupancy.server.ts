@@ -1,13 +1,7 @@
-import { and, asc, eq, isNull, notExists, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { SQL, SQLWrapper } from "drizzle-orm";
 
-import {
-  eventRequests,
-  venueHolds,
-  venueOccupancy,
-  venueRequests,
-  venueUnavailability,
-} from "#/db/schema";
+import { eventRequests, venueHolds, venueOccupancy, venueRequests } from "#/db/schema";
 import { ConflictError } from "#/features/auth/session";
 import {
   VENUE_OCCUPANCY_CONFLICT_MESSAGE,
@@ -102,6 +96,9 @@ const occupiedEnd = sql`${venueOccupancy.endsAt} + make_interval(mins => ${venue
 /** A ledger row that a hold owns. */
 export const isHoldRow = sql<boolean>`${venueOccupancy.venueHoldId} is not null`;
 
+/** A ledger row that a venue block owns. */
+export const isBlockRow = sql<boolean>`${venueOccupancy.venueUnavailabilityId} is not null`;
+
 /** A period to compare with the ledger: its venue, its times, and the buffers around them. */
 interface BufferedPeriod {
   venueId: SQLWrapper | number;
@@ -122,45 +119,21 @@ export function overlapsLedger(period: BufferedPeriod): SQL {
   return sql`${venueOccupancy.venueId} = ${period.venueId} and ${venueOccupancy.active} and tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${requestedStart}, ${requestedEnd}, '[)')`;
 }
 
-/** One active ledger row (or a live ledger-less block) that refuses a commitment, by kind. */
-export type VenueConflict =
-  | { kind: "block"; startsAt: string; endsAt: string | null }
-  | { kind: "booking" | "hold"; startsAt: string; endsAt: string };
-
-/** Build the refusal for one conflict. A block keeps its true end, so "until lifted" survives. */
-export function venueConflictMessage(venueName: string, conflict: VenueConflict): string {
-  if (conflict.kind === "block") {
-    return venueBlockConflictMessage({
-      venueName,
-      startsAt: conflict.startsAt,
-      endsAt: conflict.endsAt,
-    });
-  }
-  const named = { venueName, startsAt: conflict.startsAt, endsAt: conflict.endsAt };
-  return conflict.kind === "hold"
-    ? venueHoldConflictMessage(named)
-    : venueRequestConflictMessage(named);
-}
-
 /**
- * Find the active ledger row at the venue that overlaps the commitment once the buffers count,
- * a block before a booking before a hold, then the earliest. Name no other event. When the ledger
- * holds no conflict, probe `venue_unavailability` for a live block with no ledger row yet
- * (ADR-8's upgrade path). Return the conflict and the ledger row to write, with the venue's
- * current buffers. Callers choose the refusal, because an approval names availability first.
+ * Refuse a commitment that would overlap an active ledger row at the venue once the buffers count.
+ * Name the venue and the other row's occupied period, never the other event. Name a block before
+ * a booking before a hold (ADR-8), then the earliest. Return the row to write, with the venue's
+ * current buffers.
  *
  * Pass the venue that `loadLockedVenue` read under the venue lock. A venue save and the other
  * writers take the same lock, so the buffers and the rows stay current. The constraint refuses a
  * writer outside the lock.
  */
-export async function findVenueConflict(
+export async function checkVenueFree(
   tx: VenueTx,
   venue: { id: number; name: string; setupMinutes: number; turnaroundMinutes: number },
   commitment: { eventId: number; startsAt: string; endsAt: string }
-): Promise<{
-  conflict: VenueConflict | null;
-  occupancy: Occupancy & { eventId: number; endsAt: string };
-}> {
+): Promise<Occupancy & { eventId: number; endsAt: string }> {
   const occupancy = {
     venueId: venue.id,
     eventId: commitment.eventId,
@@ -170,91 +143,39 @@ export async function findVenueConflict(
     turnaroundMinutes: venue.turnaroundMinutes,
   };
 
-  // The requested interval, with the venue's buffers, for the legacy block probe below.
-  const requestedStart = sql`${occupancy.startsAt}::timestamp - make_interval(mins => ${occupancy.setupMinutes}::integer)`;
-  const requestedEnd = sql`${occupancy.endsAt}::timestamp + make_interval(mins => ${occupancy.turnaroundMinutes}::integer)`;
-  const kindRank = sql<number>`case when ${venueOccupancy.venueUnavailabilityId} is not null then 0 when ${venueOccupancy.venueHoldId} is not null then 2 else 1 end`;
-  const isBlock = sql<boolean>`${venueOccupancy.venueUnavailabilityId} is not null`;
-
+  const kindRank = sql<number>`case when ${isBlockRow} then 0 when ${isHoldRow} then 2 else 1 end`;
   const rows = await tx
     .select({
-      isBlock,
+      isBlock: isBlockRow,
       isHold: isHoldRow,
       // Bound the named period to the calendar's civil years, as `loadVenueHolds` does.
       startsAt: sql<string>`greatest(${occupiedStart}, timestamp '0001-01-01 00:00:00')::text`,
       endsAt: sql<string>`least(${occupiedEnd}, timestamp '9999-12-31 23:59:59')::text`,
-      // A null block end is unbounded; never feed the `least` sentinel into the block message.
-      rawEndsAt: venueOccupancy.endsAt,
+      // A block row with a null end is open-ended. Give the block message the null, not the
+      // `least` bound.
+      blockEndsAt: venueOccupancy.endsAt,
     })
     .from(venueOccupancy)
     .where(overlapsLedger(occupancy))
     .orderBy(kindRank, asc(occupiedStart))
     .limit(1);
-  const ledgerConflict = rows.at(0);
-  if (ledgerConflict) {
-    return {
-      conflict: ledgerConflict.isBlock
-        ? { kind: "block", startsAt: ledgerConflict.startsAt, endsAt: ledgerConflict.rawEndsAt }
-        : {
-            kind: ledgerConflict.isHold ? "hold" : "booking",
-            startsAt: ledgerConflict.startsAt,
-            endsAt: ledgerConflict.endsAt,
-          },
-      occupancy,
-    };
+  const conflict = rows.at(0);
+  if (!conflict) return occupancy;
+
+  const venueName = venue.name;
+  if (conflict.isBlock) {
+    throw new ConflictError(
+      venueBlockConflictMessage({
+        venueName,
+        startsAt: conflict.startsAt,
+        endsAt: conflict.blockEndsAt,
+      })
+    );
   }
-
-  // Upgrade path for blocks recorded before PTR-136: they have no ledger row yet, so probe the
-  // block table itself. The seed re-run writes their ledger rows, and then this probe finds
-  // nothing because of the `notExists` guard.
-  const legacy = await tx
-    .select({
-      startsAt: venueUnavailability.startsAt,
-      endsAt: venueUnavailability.endsAt,
-    })
-    .from(venueUnavailability)
-    .where(
-      and(
-        eq(venueUnavailability.venueId, occupancy.venueId),
-        isNull(venueUnavailability.liftedAt),
-        sql`tsrange(${venueUnavailability.startsAt}, ${venueUnavailability.endsAt}, '[)') && tsrange(${requestedStart}, ${requestedEnd}, '[)')`,
-        notExists(
-          tx
-            .select({ one: sql`1` })
-            .from(venueOccupancy)
-            .where(
-              and(
-                eq(venueOccupancy.venueUnavailabilityId, venueUnavailability.id),
-                venueOccupancy.active
-              )
-            )
-        )
-      )
-    )
-    .orderBy(asc(venueUnavailability.startsAt))
-    .limit(1);
-  const legacyBlock = legacy.at(0);
-  return {
-    conflict: legacyBlock
-      ? { kind: "block", startsAt: legacyBlock.startsAt, endsAt: legacyBlock.endsAt }
-      : null,
-    occupancy,
-  };
-}
-
-/**
- * Refuse a commitment that would overlap an active ledger row at the venue, or a live block with
- * no ledger row. Pass the venue that `loadLockedVenue` read under the venue lock. Return the row
- * to write, with the venue's current buffers.
- */
-export async function checkVenueFree(
-  tx: VenueTx,
-  venue: { id: number; name: string; setupMinutes: number; turnaroundMinutes: number },
-  commitment: { eventId: number; startsAt: string; endsAt: string }
-): Promise<Occupancy & { eventId: number; endsAt: string }> {
-  const { conflict, occupancy } = await findVenueConflict(tx, venue, commitment);
-  if (conflict) throw new ConflictError(venueConflictMessage(venue.name, conflict));
-  return occupancy;
+  const message = conflict.isHold ? venueHoldConflictMessage : venueRequestConflictMessage;
+  throw new ConflictError(
+    message({ venueName, startsAt: conflict.startsAt, endsAt: conflict.endsAt })
+  );
 }
 
 /** The block period a suspend/restore helper reads or writes. A null end is unbounded. Stamps use the database `YYYY-MM-DD HH:MM:SS` shape, which compares as a date. */
