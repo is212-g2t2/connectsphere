@@ -1182,6 +1182,7 @@ describe("venue request handlers (PTR-31)", () => {
           startsAt: "2027-04-20T09:00",
           endsAt: "2027-04-20T12:30",
           status: "pending",
+          conflict: null,
           requirements: EVENT_SESSION_SUMMARY,
           canWithdraw: true,
         },
@@ -1243,9 +1244,34 @@ describe("venue request handlers (PTR-31)", () => {
           startsAt: "2027-04-20T14:00",
           endsAt: "2027-04-20T15:00",
           status: "pending",
+          conflict: null,
           requirements: EVENT_SESSION_SUMMARY,
           canWithdraw: true,
         },
+      ]);
+    });
+
+    it("flags each pending row that the venue cannot host or that overlaps the ledger (PTR-138 AC1)", async () => {
+      // The venue opens at 08:00 on weekdays.
+      const early = await raiseRequest(eventId, "07:00", "09:00");
+      const booked = await raiseRequest(eventId, "10:00", "11:00");
+      await approve(booked.id, users.venueStaffA);
+      const otherEventId = await createEvent("PTR-138 context booking event");
+      await approve((await raiseRequest(otherEventId, "12:00", "13:00")).id, users.venueStaffA);
+      const overlapping = await raiseRequest(eventId, "12:30", "13:30");
+      const clear = await raiseRequest(eventId, "14:00", "15:00");
+
+      const context = await handleGetVenueRequestContext(
+        { eventId, venueId },
+        session(users.coordinator),
+        database as never
+      );
+
+      expect(context?.requests.map(row => [row.id, row.conflict])).toEqual([
+        [early.id, "unavailable"],
+        [booked.id, null],
+        [overlapping.id, "booking"],
+        [clear.id, null],
       ]);
     });
 

@@ -56,6 +56,7 @@ const ownPending = {
   startsAt: "2026-10-12T14:30",
   endsAt: "2026-10-12T18:45",
   status: "pending",
+  conflict: null,
   requirements: eventRequirements,
   canWithdraw: true,
 } satisfies VenueRequestContextRow;
@@ -65,6 +66,7 @@ const approved = {
   startsAt: "2026-10-12T09:00",
   endsAt: "2026-10-12T11:00",
   status: "approved",
+  conflict: null,
   requirements: { ...eventRequirements, expectedAttendance: 30, layout: "Boardroom" },
   canWithdraw: false,
 } satisfies VenueRequestContextRow;
@@ -390,6 +392,14 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       const rows = within(requestList()).getAllByRole("listitem");
       expect(within(rows[0]).getByText("30 attendees, Boardroom")).toBeTruthy();
       expect(within(rows[1]).getByText("80 attendees, Theatre")).toBeTruthy();
+    });
+
+    it("shows a pending row's conflict flag, as the event card does (PTR-138 AC1)", () => {
+      renderPanel(withRows(approved, { ...ownPending, conflict: "unavailable" }));
+
+      const rows = within(requestList()).getAllByRole("listitem");
+      expect(within(rows[0]).queryByText("Venue unavailable")).toBeNull();
+      expect(within(rows[1]).getByText("Venue unavailable")).toBeTruthy();
     });
 
     it("does not offer withdrawal of a request that another Coordinator raised", () => {

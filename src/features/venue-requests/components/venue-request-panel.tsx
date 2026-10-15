@@ -26,6 +26,7 @@ import {
 } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { formatProposedWindow } from "#/features/event-requests/format";
+import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
 import { SessionRequirementFields } from "#/features/venue-requests/components/session-requirement-fields";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import {
@@ -209,7 +210,8 @@ function VenueRequestRowAction({
 
 /**
  * One request of the event at this venue: its window, its state, and its action. The attendance
- * and layout tell two sessions at this venue apart (PTR-138 AC1).
+ * and layout tell two sessions at this venue apart (PTR-138 AC1). A pending row shows its conflict
+ * flag, as the event card does.
  */
 function VenueRequestRow({ row, venueName }: { row: VenueRequestContextRow; venueName: string }) {
   const period = formatProposedWindow({ start: row.startsAt, end: row.endsAt });
@@ -219,6 +221,7 @@ function VenueRequestRow({ row, venueName }: { row: VenueRequestContextRow; venu
       <div className="flex flex-wrap items-center gap-2">
         <span className="body-sm font-medium text-foreground">{period}</span>
         <VenueRequestStatusBadge status={row.status} />
+        {row.conflict && <ConflictBadge conflict={row.conflict} />}
         {session && <span className="body-sm text-muted-foreground">{session}</span>}
       </div>
       <VenueRequestRowAction row={row} venueName={venueName} period={period} />

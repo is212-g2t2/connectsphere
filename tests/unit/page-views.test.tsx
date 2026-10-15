@@ -422,6 +422,7 @@ describe("VenueDetailPage", () => {
               startsAt: "2026-10-12T14:30",
               endsAt: "2026-10-12T18:45",
               status: "pending",
+              conflict: null,
               requirements: {
                 expectedAttendance: 80,
                 layout: "Theatre seating",

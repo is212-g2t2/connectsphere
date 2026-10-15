@@ -497,6 +497,9 @@ export async function handleGetPendingVenueRequestsForEvent(
  * layout, accessibility, and required facilities. The form starts from them. Each row carries its
  * own session requirements (PTR-138 AC1), so two sessions at one venue stay apart. `canWithdraw`
  * is true only on a pending request that the caller raised, as criterion 5 requires.
+ *
+ * PTR-138 AC1: each pending row carries its conflict kind (`loadPendingConflictKinds`), as the
+ * event card does, so the Coordinator sees a closed or occupied window before Venue Staff decide.
  */
 export async function handleGetVenueRequestContext(
   data: unknown,
@@ -539,6 +542,10 @@ export async function handleGetVenueRequestContext(
     ? requestRows
     : requestRows.filter(row => row.status === "pending" && row.requestedById === actor.id);
   if (!canRequest && visible.length === 0) return null;
+  const conflicts = await loadPendingConflictKinds(
+    database,
+    visible.filter(row => row.status === "pending").map(row => row.id)
+  );
 
   return {
     event: {
@@ -555,6 +562,7 @@ export async function handleGetVenueRequestContext(
         startsAt: toLocalMinuteValue(row.startsAt),
         endsAt: toLocalMinuteValue(row.endsAt),
         status,
+        conflict: conflicts.get(row.id) ?? null,
         // The panel tells two sessions apart by attendance and layout only.
         requirements: {
           expectedAttendance: row.requirements.expectedAttendance,
