@@ -103,7 +103,7 @@ const RequirementText = z
  * event's requirement. Blank text states no requirement. A layout must name a supported layout,
  * as the search requires, so a typo cannot fail every venue.
  */
-const SessionRequirementFields = {
+const SessionRequirementShape = {
   expectedAttendance: z
     .int32({ error: VENUE_SEARCH_ATTENDANCE_MESSAGE })
     .positive(VENUE_SEARCH_ATTENDANCE_MESSAGE)
@@ -129,7 +129,7 @@ export const VenueRequestInput = z
     date: z.iso.date({ error: VENUE_REQUEST_DATE_MESSAGE }),
     startTime: Time,
     endTime: Time,
-    ...SessionRequirementFields,
+    ...SessionRequirementShape,
   })
   .refine(value => `${value.date}T${value.endTime}` > `${value.date}T${value.startTime}`, {
     path: ["endTime"],
@@ -255,7 +255,7 @@ export type VenueRequestId = z.infer<typeof VenueRequestIdInput>;
  * absent requirement takes the event's requirement, as for a new request.
  */
 export const VenueHoldConversionInput = z.object(
-  { id: VenueRequestIdInput.shape.id, ...SessionRequirementFields },
+  { id: VenueRequestIdInput.shape.id, ...SessionRequirementShape },
   { error: VENUE_REQUEST_ID_MESSAGE }
 );
 
