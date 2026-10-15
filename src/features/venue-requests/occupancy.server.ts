@@ -1,8 +1,8 @@
 import { asc, eq, sql } from "drizzle-orm";
 import type { SQL, SQLWrapper } from "drizzle-orm";
 
-import { venueOccupancy, venues } from "#/db/schema";
-import { ConflictError, NotFoundError } from "#/features/auth/session";
+import { venueOccupancy } from "#/db/schema";
+import { ConflictError } from "#/features/auth/session";
 import {
   VENUE_OCCUPANCY_CONFLICT_MESSAGE,
   venueHoldConflictMessage,
@@ -113,30 +113,24 @@ export function overlapsLedger(period: BufferedPeriod): SQL {
 }
 
 /**
- * Read the venue's name and buffers (Not Found for a missing venue), then refuse a commitment that
- * would overlap an active ledger row. Name the venue and the other row's occupied period, a
- * booking before a hold, then the earliest. Do not name the other event. Return the row to write.
+ * Refuse a commitment that would overlap an active ledger row at the venue. Name the venue and the
+ * other row's occupied period, a booking before a hold, then the earliest. Do not name the other
+ * event. Return the row to write, with the venue's current buffers.
  *
- * Call it under the venue lock. A venue save and the other writers take the same lock, so the
- * buffers and the rows stay current. The constraint refuses a writer outside the lock.
+ * Pass the venue that `loadLockedVenue` read under the venue lock. A venue save and the other
+ * writers take the same lock, so the buffers and the rows stay current. The constraint refuses a
+ * writer outside the lock.
  */
 export async function checkVenueFree(
   tx: VenueTx,
-  commitment: Omit<Occupancy, "setupMinutes" | "turnaroundMinutes">
+  venue: { id: number; name: string; setupMinutes: number; turnaroundMinutes: number },
+  commitment: Pick<Occupancy, "eventId" | "startsAt" | "endsAt">
 ): Promise<Occupancy> {
-  const venueRows = await tx
-    .select({
-      name: venues.name,
-      setupMinutes: venues.setupMinutes,
-      turnaroundMinutes: venues.turnaroundMinutes,
-    })
-    .from(venues)
-    .where(eq(venues.id, commitment.venueId))
-    .limit(1);
-  const venue = venueRows.at(0);
-  if (!venue) throw new NotFoundError("Not Found");
   const occupancy = {
-    ...commitment,
+    venueId: venue.id,
+    eventId: commitment.eventId,
+    startsAt: commitment.startsAt,
+    endsAt: commitment.endsAt,
     setupMinutes: venue.setupMinutes,
     turnaroundMinutes: venue.turnaroundMinutes,
   };

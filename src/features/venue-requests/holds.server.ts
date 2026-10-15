@@ -64,17 +64,15 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
 
     // Serialize before reading buffers. A simultaneous venue edit uses the same lock.
     await lockVenue(tx, input.venueId);
-    const startsAt = `${input.date} ${input.startTime}:00`;
-    const endsAt = `${input.date} ${input.endTime}:00`;
-    const occupancy = await checkVenueFree(tx, {
-      venueId: input.venueId,
-      eventId: event.id,
-      startsAt,
-      endsAt,
-    });
-    // `checkVenueFree` refuses every booking and hold, so only a pending request can refuse here.
     const venue = await loadLockedVenue(tx, input.venueId);
-    await assertNoEventOverlap(tx, venue, { eventId: event.id, startsAt, endsAt });
+    const requested = {
+      eventId: event.id,
+      startsAt: `${input.date} ${input.startTime}:00`,
+      endsAt: `${input.date} ${input.endTime}:00`,
+    };
+    const occupancy = await checkVenueFree(tx, venue, requested);
+    // `checkVenueFree` refuses every booking and hold, so only a pending request can refuse here.
+    await assertNoEventOverlap(tx, venue, requested);
 
     const [created] = await tx
       .insert(venueHolds)

@@ -225,31 +225,14 @@ export function venueUnavailableMessage(venueName: string, failure: string): str
 }
 
 /**
- * PTR-138 AC1: refuse a window that the venue cannot host now: it is not open then, or a recorded
- * block overlaps it (`loadWindowAvailabilityFailures`). Approval and amendment call it under the
- * venue lock. Creation does not: a block can be lifted and hours can change before approval.
- */
-export async function assertVenueAvailable(
-  tx: VenueTx,
-  venue: LockedVenue,
-  window: { startsAt: string; endsAt: string }
-): Promise<void> {
-  const [failure] = await loadWindowAvailabilityFailures(tx, [
-    {
-      venueId: venue.id,
-      operatingHours: venue.operatingHours,
-      startsAt: window.startsAt,
-      endsAt: window.endsAt,
-    },
-  ]);
-  if (failure) throw new ConflictError(venueUnavailableMessage(venue.name, failure.message));
-}
-
-/**
  * PTR-138 AC1: refuse a booking that the venue cannot take now. Check the session's requirements
- * (`assertMeetsRequirements`), the ledger (`checkVenueFree`), then availability
- * (`assertVenueAvailable`). Approval and amendment call it under the venue lock, so a venue that
- * changed since the request still gets every check. Return the ledger row to write.
+ * (`assertMeetsRequirements`), the ledger (`checkVenueFree`), then availability: refuse a window
+ * when the venue is not open then, or a recorded block overlaps it
+ * (`loadWindowAvailabilityFailures`). Return the ledger row to write.
+ *
+ * Approval and amendment call it under the venue lock, so a venue that changed since the request
+ * still gets every check. Creation does not: a block can be lifted and hours can change before
+ * approval.
  */
 export async function checkVenueTakesBooking(
   tx: VenueTx,
@@ -257,13 +240,16 @@ export async function checkVenueTakesBooking(
   booking: { eventId: number; startsAt: string; endsAt: string; requirements: SessionRequirements }
 ) {
   assertMeetsRequirements(venue, booking.requirements);
-  const occupancy = await checkVenueFree(tx, {
-    venueId: venue.id,
-    eventId: booking.eventId,
-    startsAt: booking.startsAt,
-    endsAt: booking.endsAt,
-  });
-  await assertVenueAvailable(tx, venue, booking);
+  const occupancy = await checkVenueFree(tx, venue, booking);
+  const [failure] = await loadWindowAvailabilityFailures(tx, [
+    {
+      venueId: venue.id,
+      operatingHours: venue.operatingHours,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+    },
+  ]);
+  if (failure) throw new ConflictError(venueUnavailableMessage(venue.name, failure.message));
   return occupancy;
 }
 
