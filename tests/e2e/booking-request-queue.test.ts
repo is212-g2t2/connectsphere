@@ -55,8 +55,7 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
       .returning({ id: schema.venues.id });
     venueIds = venues.map(venue => venue.id);
 
-    // Each pending request needs a separate event. Otherwise both appear on one card and hide the
-    // older request.
+    // Each event below carries one pending request; the staff page lists every pending one.
     const events = await database
       .insert(schema.eventRequests)
       .values([
@@ -65,7 +64,7 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
           eventName: pendingEventName,
           status: "submitted",
           submittedAt: new Date("2037-05-01T00:00:00Z"),
-          proposedDates: [{ start: "2037-05-10T09:00", end: "2037-05-10T12:00" }],
+          proposedDates: [{ start: "2037-05-11T09:00", end: "2037-05-11T12:00" }],
           expectedAttendance: null,
           roomLayoutPreference: "Theatre",
           accessibilityRequirements: "Step-free access.\nReserved seating.",
@@ -82,7 +81,7 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
           eventName: secondPendingEventName,
           status: "submitted",
           submittedAt: new Date("2037-05-01T00:02:00Z"),
-          proposedDates: [{ start: "2037-05-10T09:00", end: "2037-05-10T12:00" }],
+          proposedDates: [{ start: "2037-05-11T09:00", end: "2037-05-11T12:00" }],
           expectedAttendance: null,
           roomLayoutPreference: "Theatre",
           accessibilityRequirements: "Step-free access.\nReserved seating.",
@@ -98,8 +97,8 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
         eventId: eventIds[1],
         venueId: venueIds[0],
         requestedById: organiserId,
-        startsAt: "2037-05-10 09:00:00",
-        endsAt: "2037-05-10 12:00:00",
+        startsAt: "2037-05-11 09:00:00",
+        endsAt: "2037-05-11 12:00:00",
         status: "approved",
         createdAt: new Date("2037-05-02T00:00:00Z"),
       },
@@ -108,8 +107,8 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
         eventId: eventIds[0],
         venueId: venueIds[0],
         requestedById: organiserId,
-        startsAt: "2037-05-10 10:00:00",
-        endsAt: "2037-05-10 11:00:00",
+        startsAt: "2037-05-11 10:00:00",
+        endsAt: "2037-05-11 11:00:00",
         createdAt: new Date("2037-05-02T01:00:00Z"),
       },
       {
@@ -117,11 +116,19 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
         eventId: eventIds[2],
         venueId: venueIds[1],
         requestedById: organiserId,
-        startsAt: "2037-05-10 10:00:00",
-        endsAt: "2037-05-10 11:00:00",
+        startsAt: "2037-05-11 10:00:00",
+        endsAt: "2037-05-11 11:00:00",
         createdAt: new Date("2037-05-02T02:00:00Z"),
       },
     ]);
+    // Approval writes a ledger row for its booking (ADR-7). The conflict flag reads that row.
+    await database.insert(schema.venueOccupancy).values({
+      venueId: venueIds[0],
+      eventId: eventIds[1],
+      venueRequestId: requestIds[2],
+      startsAt: "2037-05-11 09:00:00",
+      endsAt: "2037-05-11 12:00:00",
+    });
 
     await signInAsStaff(page, "venue_staff");
     // The queue route returns 404. The dashboard shows each pending request as a card.
@@ -141,7 +148,9 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
     await waitForHydration(page);
 
     await expect(page).toHaveURL(new RegExp(`/events/${eventIds[0]}$`));
-    await expect(page.getByRole("heading", { name: "Booking request details" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: `Booking request details: ${venueNames[0]}` })
+    ).toBeVisible();
     await expect(page.getByText("Conflicting booking").first()).toBeVisible();
     const accessibility = page.locator("dd").filter({ hasText: "Step-free access." }).first();
     const facilities = page.locator("dd").filter({ hasText: "Projector." }).first();
@@ -168,13 +177,153 @@ test("[PTR-32] Venue Staff see conflict flags and multiline live requirements", 
     await page.getByRole("link", { name: venueNames[1], exact: true }).click();
     await waitForHydration(page);
     await expect(page).toHaveURL(new RegExp(`/events/${eventIds[2]}$`));
-    await expect(page.getByRole("heading", { name: "Booking request details" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: `Booking request details: ${venueNames[1]}` })
+    ).toBeVisible();
     await expect(page.locator("dd").filter({ hasText: "Projector." }).first()).toBeVisible();
     await expect(page.getByText("Expected attendance", { exact: true })).toHaveCount(0);
   } finally {
     await database.delete(schema.venueRequests).where(inArray(schema.venueRequests.id, requestIds));
     await database.delete(schema.eventRequests).where(inArray(schema.eventRequests.id, eventIds));
     await database.delete(schema.venues).where(inArray(schema.venues.id, venueIds));
+    await database.delete(schema.user).where(eq(schema.user.id, organiserId));
+  }
+});
+
+test("[PTR-138] Venue Staff decide one of two pending requests on one event and the other stays pending", async ({
+  page,
+}) => {
+  const organiserId = randomUUID();
+  const eventName = `PTR-138 Shared Event ${randomUUID()}`;
+  const venueNames = [`PTR-138 First Hall ${randomUUID()}`, `PTR-138 Second Hall ${randomUUID()}`];
+  const requestIds = [randomUUID(), randomUUID()];
+  let venueIds: number[] = [];
+  let eventId = 0;
+
+  try {
+    await database.insert(schema.user).values({
+      id: organiserId,
+      name: "PTR-138 Browser Organiser",
+      email: `${organiserId}@example.invalid`,
+      role: "event_organiser",
+    });
+
+    const venues = await database
+      .insert(schema.venues)
+      .values(
+        venueNames.map(name => ({
+          name,
+          location: "PTR-138 Browser Wing",
+          maxCapacity: 300,
+          operatingHours: DEFAULT_OPERATING_HOURS,
+        }))
+      )
+      .returning({ id: schema.venues.id });
+    venueIds = venues.map(venue => venue.id);
+
+    const [event] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId,
+        eventName,
+        status: "submitted",
+        submittedAt: new Date("2037-05-01T00:00:00Z"),
+        proposedDates: [{ start: "2037-05-11T09:00", end: "2037-05-11T17:00" }],
+        expectedAttendance: 60,
+      })
+      .returning({ id: schema.eventRequests.id });
+    eventId = event.id;
+
+    await database.insert(schema.venueRequests).values([
+      {
+        id: requestIds[0],
+        eventId,
+        venueId: venueIds[0],
+        requestedById: organiserId,
+        startsAt: "2037-05-11 10:00:00",
+        endsAt: "2037-05-11 11:00:00",
+        createdAt: new Date("2037-05-02T01:00:00Z"),
+      },
+      {
+        id: requestIds[1],
+        eventId,
+        venueId: venueIds[1],
+        requestedById: organiserId,
+        startsAt: "2037-05-11 13:00:00",
+        endsAt: "2037-05-11 14:00:00",
+        createdAt: new Date("2037-05-02T02:00:00Z"),
+      },
+    ]);
+
+    await signInAsStaff(page, "venue_staff");
+    await page.goto(`/events/${eventId}`);
+    await waitForHydration(page);
+
+    // Both pending requests render a detail block and a decision group. Do not show the event name.
+    await expect(page.getByRole("heading", { name: /Booking request details/ })).toHaveCount(2);
+    await expect(
+      page.getByRole("heading", { name: `Booking request details: ${venueNames[0]}` })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: `Booking request details: ${venueNames[1]}` })
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /Approve request/ })).toHaveCount(2);
+    await expect(page.getByRole("button", { name: /Reject request/ })).toHaveCount(2);
+    await expect(
+      page.getByRole("button", { name: `Reject request for ${venueNames[0]}` })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: `Reject request for ${venueNames[1]}` })
+    ).toBeVisible();
+    await expect(page.getByText(eventName, { exact: true })).toHaveCount(0);
+
+    // Decide the first request. The sibling stays pending with its decision controls.
+    await page.getByRole("button", { name: `Approve request for ${venueNames[0]}` }).click();
+    await page.getByRole("button", { name: "Confirm" }).click();
+    // The page reloads its data after the approval commits, and the approved entry then shows
+    // its outcome note. Wait for the note before reading the database, so the read cannot race
+    // the commit.
+    await expect(page.getByText("Booking approved.", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: `Approve request for ${venueNames[0]}` })
+    ).toHaveCount(0);
+
+    const rows = await database
+      .select({ id: schema.venueRequests.id, status: schema.venueRequests.status })
+      .from(schema.venueRequests)
+      .where(inArray(schema.venueRequests.id, requestIds));
+    expect(new Map(rows.map(row => [row.id, row.status])).get(requestIds[0])).toBe("approved");
+    expect(new Map(rows.map(row => [row.id, row.status])).get(requestIds[1])).toBe("pending");
+
+    await expect(page.getByRole("button", { name: /Approve request/ })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: /Reject request/ })).toHaveCount(1);
+    await expect(
+      page.getByRole("button", { name: `Reject request for ${venueNames[1]}` })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: `Approve request for ${venueNames[1]}` })
+    ).toBeVisible();
+
+    // PTR-138 AC5: the dashboard card lists each request with its venue, period and state. The
+    // approved booking stays on the card because this staff member decided it.
+    await page.goto("/dashboard");
+    await waitForHydration(page);
+    const approvedEntry = page.getByRole("listitem").filter({ hasText: venueNames[0] });
+    const pendingEntry = page.getByRole("listitem").filter({ hasText: venueNames[1] });
+    await expect(approvedEntry).toContainText("11 May 2037");
+    await expect(approvedEntry).toContainText(/10:00\s?–\s?11:00/);
+    await expect(approvedEntry).toContainText("Approved");
+    await expect(pendingEntry).toContainText("11 May 2037");
+    await expect(pendingEntry).toContainText(/13:00\s?–\s?14:00/);
+    await expect(pendingEntry).toContainText("Pending");
+  } finally {
+    await database.delete(schema.venueRequests).where(inArray(schema.venueRequests.id, requestIds));
+    if (eventId !== 0) {
+      await database.delete(schema.eventRequests).where(eq(schema.eventRequests.id, eventId));
+    }
+    if (venueIds.length > 0) {
+      await database.delete(schema.venues).where(inArray(schema.venues.id, venueIds));
+    }
     await database.delete(schema.user).where(eq(schema.user.id, organiserId));
   }
 });

@@ -1,7 +1,9 @@
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { isArrangedLine, isEquipmentArrangementsSatisfied } from "#/features/events/access";
+import { formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 
 /**
  * PTR-24 AC1/AC2: List the stages an event can be confirmed from. `approved` is where a decision
@@ -23,9 +25,26 @@ export const MULTIPLE_VENUE_BOOKINGS_MESSAGE = "There is more than one approved 
 export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
   "Technical Support has not marked the equipment arrangements complete.";
 
+/** One venue request on the event. Times use the `mode: "string"` shape, `YYYY-MM-DD HH:MM:SS`. */
+interface ConfirmationVenueRequest {
+  status: VenueRequestStatus;
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+}
+
+/**
+ * PTR-138: Name a pending request by venue and window. Staff can still approve it, so the event
+ * cannot be confirmed until the request is decided or withdrawn.
+ */
+export function pendingVenueRequestMessage(request: Omit<ConfirmationVenueRequest, "status">) {
+  const period = formatVenuePeriod(request.startsAt, request.endsAt);
+  return `The booking request for ${request.venueName} (${period}) is still pending.`;
+}
+
 interface ConfirmationInput {
   status: EventRequestStatus;
-  venueRequestStatuses: readonly string[];
+  venueRequests: readonly ConfirmationVenueRequest[];
   equipmentLines: readonly { item: string; arrangementStatus: string }[];
   /** PTR-43's stamp: set when Technical Support marked every line arranged. */
   equipmentArrangementsCompletedAt: Date | null;
@@ -33,10 +52,12 @@ interface ConfirmationInput {
 
 /**
  * Return every reason the event cannot be confirmed, or an empty list when it can. An
- * unconfirmable status is the only reason given. Cancelled or completed events have no
- * outstanding arrangements. Otherwise the gate needs exactly one approved venue booking, and
- * each missing arrangement is its own entry (AC2). An event with no equipment lines has nothing
- * to settle, so the venue booking alone governs (AC5).
+ * unconfirmable status is the only reason given: cancelled or completed events have no
+ * outstanding arrangements.
+ *
+ * Otherwise the gate needs exactly one approved venue booking and no pending venue request. Each
+ * pending request and each missing arrangement is its own entry (AC2). An event with no equipment
+ * lines has nothing to settle, so the venue booking alone governs (AC5).
  */
 export function confirmationBlockers(input: ConfirmationInput): string[] {
   if (!isConfirmableStatus(input.status)) {
@@ -44,11 +65,14 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
   }
 
   const blockers: string[] = [];
-  const approvedBookings = input.venueRequestStatuses.filter(status => status === "approved");
+  const approvedBookings = input.venueRequests.filter(request => request.status === "approved");
   if (approvedBookings.length === 0) {
     blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
   } else if (approvedBookings.length > 1) {
     blockers.push(MULTIPLE_VENUE_BOOKINGS_MESSAGE);
+  }
+  for (const request of input.venueRequests) {
+    if (request.status === "pending") blockers.push(pendingVenueRequestMessage(request));
   }
   const openLines = input.equipmentLines.filter(line => !isArrangedLine(line.arrangementStatus));
   for (const line of openLines) {

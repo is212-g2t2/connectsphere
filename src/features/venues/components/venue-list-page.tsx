@@ -44,6 +44,29 @@ function toSearchFormValues(filters: VenueSearch): VenueSearchFormValues {
   };
 }
 
+/**
+ * PTR-138 AC1: the search values that a suitable venue's link carries into its request form: the
+ * date, the times when the search covers one day, and each session requirement that is set. A
+ * request covers one day, so a multi-day search carries its first date only. An unsuitable venue's
+ * link carries nothing, so the venue page offers it no request.
+ */
+export function requestSearch(eventId: number, filters: VenueSearch) {
+  const oneDay = filters.endDate === undefined || filters.endDate === filters.date;
+  const { date, startTime, endTime, expectedAttendance, layout, accessibility, facilities } =
+    filters;
+  return {
+    eventId,
+    ...(date === undefined ? {} : { date }),
+    ...(date !== undefined && oneDay && startTime !== undefined && endTime !== undefined
+      ? { startTime, endTime }
+      : {}),
+    ...(expectedAttendance === undefined ? {} : { expectedAttendance }),
+    ...(layout ? { layout } : {}),
+    ...(accessibility ? { accessibilityRequirements: accessibility } : {}),
+    ...(facilities ? { requiredFacilities: facilities } : {}),
+  };
+}
+
 /** Describe only the slice of a `form.Field` that a text row reads, as `venue-form.tsx` does. */
 interface SearchFieldApi {
   name: string;
@@ -291,8 +314,9 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
                     <Link
                       to="/venues/$venueId"
                       params={{ venueId: String(venue.id) }}
-                      // Carry the event id so the detail page can offer PTR-31's booking request.
-                      search={event ? { eventId: event.id } : {}}
+                      // Carry the event and the search's session so the detail page can offer
+                      // PTR-31's booking request, prefilled.
+                      search={event ? requestSearch(event.id, filters) : {}}
                       className={NAV_LINK_CLASSNAME}
                     >
                       {venue.name}

@@ -11,11 +11,14 @@ import {
   parseVenueAmendmentInput,
   parseVenueReleaseInput,
 } from "#/features/venue-requests/schema";
+import { occupyVenue, vacateVenue } from "#/features/venue-requests/occupancy.server";
+import { selectVenueRequestEntries } from "#/features/venue-requests/records.server";
 import {
-  checkVenueFree,
-  occupyVenue,
-  vacateVenue,
-} from "#/features/venue-requests/occupancy.server";
+  assertMeetsRequirements,
+  assertNoEventOverlap,
+  checkVenueTakesBooking,
+  loadLockedVenue,
+} from "#/features/venue-requests/requests.server";
 import {
   assertSameVenue,
   keyShareEventForRequest,
@@ -218,6 +221,16 @@ export async function handleReleaseVenueBooking(
  * Amend an approved booking without bypassing the overlap guarantee. PTR-134 AC3: delete the
  * booking's ledger rows and insert a new one with the target venue's current buffers. Never edit a
  * row in place.
+ *
+ * PTR-138: an amendment is a new booking at the target venue and window, so it gets approval's
+ * ledger and availability checks (`checkVenueTakesBooking`). It also gets the same-event overlap
+ * rule (`assertNoEventOverlap`), so it cannot overlap the event's pending request at the target
+ * venue.
+ *
+ * A move to another venue also gets approval's requirement check (`assertMeetsRequirements`) with
+ * the booking's own session requirements. A move within the venue skips it: suitability depends
+ * only on the venue and the requirements, and that move changes neither. A legacy booking whose
+ * event now fails the venue can then still move.
  */
 export async function handleAmendVenueBooking(
   data: unknown,
@@ -242,18 +255,10 @@ export async function handleAmendVenueBooking(
       await lockVenue(tx, venueId);
     }
 
-    const rows = await tx
-      .select({
-        status: venueRequests.status,
-        assignedStaffId: venueRequests.assignedStaffId,
-        eventId: venueRequests.eventId,
-        venueId: venueRequests.venueId,
-        venueName: venues.name,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-      })
-      .from(venueRequests)
-      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    const rows = await selectVenueRequestEntries(tx, {
+      eventId: venueRequests.eventId,
+      assignedStaffId: venueRequests.assignedStaffId,
+    })
       .where(eq(venueRequests.id, input.id))
       .limit(1)
       .for("update", { of: venueRequests });
@@ -261,15 +266,16 @@ export async function handleAmendVenueBooking(
     assertActionableApprovedBooking(row, actor);
     assertSameVenue(currentVenueId, row.venueId);
 
-    // Remove the booking's own rows first, so the check below cannot refuse it against itself.
+    // Remove the booking's own rows first, so the checks below cannot refuse it against itself.
     // A refusal rolls the deletion back.
     await vacateVenue(tx, { venueRequestId: input.id });
-    const occupancy = await checkVenueFree(tx, {
-      venueId: input.venueId,
-      eventId: row.eventId,
-      startsAt,
-      endsAt,
-    });
+    const venue = await loadLockedVenue(tx, input.venueId);
+    if (venue.id !== row.venueId) assertMeetsRequirements(venue, row.requirements);
+    const booking = { eventId: row.eventId, startsAt, endsAt };
+    const occupancy = await checkVenueTakesBooking(tx, venue, booking);
+    // The ledger check refused every booking or hold overlap. Only the event's pending requests at
+    // the target venue remain for the same-event rule.
+    await assertNoEventOverlap(tx, venue, booking);
 
     const [updated] = await tx
       .update(venueRequests)

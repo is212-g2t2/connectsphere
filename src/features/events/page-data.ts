@@ -31,10 +31,15 @@ export type EventPageData =
         request: CoordinationRequest;
         coordinators: Coordinator[];
       } | null;
-      venueDecision?: {
-        request: PendingVenueRequestDetail;
+      /**
+       * Venue Staff only: the full pending requests that one read loaded, and the venue options
+       * the decision forms offer. Unset when nothing was pending or the read failed. A pending
+       * projection entry with no request here was decided after the projection loaded.
+       */
+      venueDecisions?: {
+        requests: PendingVenueRequestDetail[];
         venues: VenueOption[];
-      } | null;
+      };
       equipmentTypes?: EquipmentTypeOption[] | null;
       attendees?: RegisteredAttendee[] | null;
     }

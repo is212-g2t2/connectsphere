@@ -1,39 +1,113 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import type { SQLWrapper } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import type { SelectedFields } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
-import { venueRequests, venues } from "#/db/schema";
+import { eventRequests, venueOccupancy, venueRequests, venues } from "#/db/schema";
 import type {
   EventVenueRequest,
   VenueRequestRejection,
   VenueRequestRelease,
 } from "#/features/events/access";
+import { isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
+import type {
+  SessionRequirements,
+  VenueRequestConflict,
+  VenueRequestStatus,
+} from "#/features/venue-requests/schema";
+import {
+  eventRequirementColumns,
+  loadWindowAvailabilityFailures,
+} from "#/features/venues/records.server";
 
 /**
- * Keep this module server-only. A client-reachable value import of `#/db/schema` would ship the
- * full database schema to the browser. `events/records.server.ts` imports this module directly;
- * both files use the `.server.ts` suffix to stay out of client bundles. `requests.server.ts` also
- * imports `loadAssignedEvent` from the events feature.
+ * Keep this module server-only. A client-reachable value import of `#/db/schema` would send the
+ * full database schema to the browser. Only `.server.ts` modules import it:
+ * `events/records.server.ts`, `coordination/assignments.server.ts`, `requests.server.ts`, and
+ * `bookings.server.ts`.
  */
 
 type Database = typeof Db;
 
 /**
- * Return the latest operational outcome for each event. Ignore withdrawals because they contain
- * no staff decision. A release replaces an older rejection and remains visible with its reason and
- * actor label. Join the suggested venue name for rejection cards.
+ * PTR-138 AC1: a row from before session requirements. Creation always stores a layout, blank or
+ * not, so a null layout marks only these rows.
  */
-export type VenueRequestOutcome =
-  | { id: string; status: "rejected"; venueName: string; rejection: VenueRequestRejection }
-  | { id: string; status: "released"; venueName: string; release: VenueRequestRelease };
+const isLegacyRow = sql`${venueRequests.layout} is null`;
 
-/** One venue-request row with its venue names, as the outcome readers select it. */
-export interface VenueRequestOutcomeRow {
-  eventId: number;
+/** Read the stored session value, or the event's current value for a legacy row. */
+function sessionValue<T>(stored: SQLWrapper, event: SQLWrapper) {
+  return sql<T>`case when ${isLegacyRow} then ${event} else ${stored} end`;
+}
+
+/**
+ * PTR-138 AC1: a request's own session requirements. A legacy row reads the event's current
+ * requirements in their place. A newer row returns what it stores, a null attendance included.
+ */
+const sessionRequirementColumns = {
+  expectedAttendance: sessionValue<number | null>(
+    venueRequests.expectedAttendance,
+    eventRequirementColumns.expectedAttendance
+  ),
+  layout: sessionValue<string>(venueRequests.layout, eventRequirementColumns.layout),
+  accessibilityRequirements: sessionValue<string>(
+    venueRequests.accessibilityRequirements,
+    eventRequirementColumns.accessibilityRequirements
+  ),
+  requiredFacilities: sessionValue<string>(
+    venueRequests.requiredFacilities,
+    eventRequirementColumns.requiredFacilities
+  ),
+};
+
+/** The venue that Venue Staff suggested on a rejection. */
+const suggestedVenue = alias(venues, "suggested_venue");
+
+/** The columns that one event-card entry reads. `selectVenueRequestEntries` adds their joins. */
+const venueRequestEntryColumns = {
+  id: venueRequests.id,
+  status: venueRequests.status,
+  createdAt: venueRequests.createdAt,
+  updatedAt: venueRequests.updatedAt,
+  venueId: venueRequests.venueId,
+  venueName: venues.name,
+  startsAt: venueRequests.startsAt,
+  endsAt: venueRequests.endsAt,
+  rejectionReason: venueRequests.rejectionReason,
+  releaseReason: venueRequests.releaseReason,
+  lastChangedByStaffName: venueRequests.lastChangedByStaffName,
+  suggestedVenueId: venueRequests.suggestedVenueId,
+  suggestedVenueName: suggestedVenue.name,
+  suggestedDate: venueRequests.suggestedDate,
+  suggestedStartTime: venueRequests.suggestedStartTime,
+  suggestedEndTime: venueRequests.suggestedEndTime,
+  requirements: sessionRequirementColumns,
+};
+
+/**
+ * Select venue-request rows with their entry columns, session requirements included, plus
+ * `extra`. Join the requested venue, the event that legacy rows read, and the suggested venue.
+ * Every reader of entries or session requirements starts here, then adds `where` and `orderBy`.
+ */
+export function selectVenueRequestEntries<TExtra extends SelectedFields>(
+  database: Pick<Database, "select">,
+  extra: TExtra
+) {
+  return database
+    .select({ ...venueRequestEntryColumns, ...extra })
+    .from(venueRequests)
+    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+    .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId));
+}
+
+/** One venue-request row as `venueRequestEntryColumns` selects it. */
+interface VenueRequestEntryRow {
   id: string;
-  status: string;
+  status: VenueRequestStatus;
+  createdAt: Date;
   updatedAt: Date;
-  assignedStaffId: string | null;
   venueId: number;
   venueName: string;
   startsAt: string;
@@ -46,33 +120,130 @@ export interface VenueRequestOutcomeRow {
   suggestedDate: string | null;
   suggestedStartTime: string | null;
   suggestedEndTime: string | null;
+  requirements: SessionRequirements;
 }
 
-/** The decided outcome one row carries, or null when the row holds no staff decision. */
-export function venueRequestOutcomeFromRow(
-  row: VenueRequestOutcomeRow
-): VenueRequestOutcome | null {
-  if (row.status === "released") {
-    if (row.releaseReason === null) {
-      throw new Error(`Released venue request ${row.id} has no reason recorded`);
-    }
-    return {
-      status: "released",
-      id: row.id,
-      venueName: row.venueName,
-      release: {
-        venueName: row.venueName,
-        date: row.startsAt.slice(0, 10),
-        startTime: row.startsAt.slice(11, 16),
-        endTime: row.endsAt.slice(11, 16),
-        reason: row.releaseReason,
-        changedByName: row.lastChangedByStaffName,
-      },
-    };
+/**
+ * A ledger row that a venue block owns. No writer adds one before PTR-136. The conflict flag names
+ * it `unavailable`. `checkVenueFree` names it as a booking.
+ */
+const isBlockRow = sql<boolean>`${venueOccupancy.venueUnavailabilityId} is not null`;
+
+/** The flag names one kind per request: a booking first, then a hold, then an unavailable venue. */
+const CONFLICT_RANK: Record<VenueRequestConflict, number> = { booking: 0, hold: 1, unavailable: 2 };
+
+/** The kind of one overlapping ledger row. A block's row makes the venue unavailable. */
+function ledgerConflictKind(row: { isHold: boolean; isBlock: boolean }): VenueRequestConflict {
+  if (row.isBlock) return "unavailable";
+  return row.isHold ? "hold" : "booking";
+}
+
+/**
+ * PTR-36 criterion 4, PTR-138 AC1: Return the conflict kind of each pending row in `pendingIds`
+ * whose window approval would refuse now. Approval also refuses a request for session requirements
+ * and for event status. The flag does not show these refusals. Name a booking first, then a hold,
+ * then an unavailable venue.
+ *
+ * - `booking`, `hold`: the row overlaps an approved booking or a held hold at its venue once the
+ *   buffers count. Read the ledger with approval's expression (`overlapsLedger`).
+ * - `unavailable`: the venue is not open for the row's window, or a recorded block overlaps it.
+ *   Read the blocks with `loadWindowAvailabilityFailures`, and a block's ledger row (`isBlockRow`)
+ *   once PTR-136 writes one.
+ *
+ * Read in batched queries, not one read per row. Do not scope the reads to the caller's events:
+ * the booking or hold can belong to an event the caller cannot see. Return only the kind.
+ */
+export async function loadPendingConflictKinds(
+  database: Pick<Database, "select">,
+  pendingIds: readonly string[]
+): Promise<Map<string, VenueRequestConflict>> {
+  const kinds = new Map<string, VenueRequestConflict>();
+  if (pendingIds.length === 0) return kinds;
+  // The ids come from an earlier statement. A row approved since then would meet its own ledger
+  // row and flag as conflicting, so read pending rows only.
+  const isPending = and(
+    inArray(venueRequests.id, [...pendingIds]),
+    eq(venueRequests.status, "pending")
+  );
+  const [conflicts, windows] = await Promise.all([
+    database
+      .select({ id: venueRequests.id, isHold: isHoldRow, isBlock: isBlockRow })
+      .from(venueRequests)
+      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+      .innerJoin(
+        venueOccupancy,
+        overlapsLedger({
+          venueId: venueRequests.venueId,
+          startsAt: venueRequests.startsAt,
+          endsAt: venueRequests.endsAt,
+          setupMinutes: venues.setupMinutes,
+          turnaroundMinutes: venues.turnaroundMinutes,
+        })
+      )
+      .where(isPending),
+    database
+      .select({
+        id: venueRequests.id,
+        venueId: venueRequests.venueId,
+        operatingHours: venues.operatingHours,
+        startsAt: venueRequests.startsAt,
+        endsAt: venueRequests.endsAt,
+      })
+      .from(venueRequests)
+      .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+      .where(isPending),
+  ]);
+  const unavailable = await loadWindowAvailabilityFailures(database, windows);
+  const found = [
+    ...windows
+      .filter((_window, index) => unavailable[index] !== null)
+      .map(window => ({ id: window.id, kind: "unavailable" as const })),
+    ...conflicts.map(row => ({ id: row.id, kind: ledgerConflictKind(row) })),
+  ];
+  for (const { id, kind } of found) {
+    const named = kinds.get(id);
+    if (named === undefined || CONFLICT_RANK[kind] < CONFLICT_RANK[named]) kinds.set(id, kind);
   }
-  if (row.status !== "rejected") return null;
-  // The `venue_requests` CHECK requires a reason for rejected rows. Treat `null` as corrupt data,
-  // not as a blank card.
+  return kinds;
+}
+
+/**
+ * PTR-35: Return the ids of the rejected rows that the Coordinator can still adjust. The adjust
+ * link opens the suggested venue, else the rejected venue. A rejected row stops being adjustable
+ * when another non-withdrawn row at that venue was created after the rejection. On a rejected
+ * row, `updatedAt` is the rejection time. Pass the rows of one event.
+ */
+export function adjustableRejectionIds(
+  rows: ReadonlyArray<{
+    id: string;
+    status: VenueRequestStatus;
+    venueId: number;
+    suggestedVenueId: number | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>
+): Set<string> {
+  const adjustable = new Set<string>();
+  for (const row of rows) {
+    if (row.status !== "rejected") continue;
+    const targetVenueId = row.suggestedVenueId ?? row.venueId;
+    const answered = rows.some(
+      other =>
+        other.id !== row.id &&
+        other.status !== "withdrawn" &&
+        other.venueId === targetVenueId &&
+        other.createdAt.getTime() > row.updatedAt.getTime()
+    );
+    if (!answered) adjustable.add(row.id);
+  }
+  return adjustable;
+}
+
+/**
+ * PTR-34: The rejection a rejected row carries, with any suggestion. The `venue_requests` CHECK
+ * requires a reason for rejected rows. Treat `null` as corrupt data, not as a blank card.
+ */
+function rejectionFromRow(row: VenueRequestEntryRow): VenueRequestRejection {
   if (row.rejectionReason === null) {
     throw new Error(`Rejected venue request ${row.id} has no reason recorded`);
   }
@@ -83,138 +254,65 @@ export function venueRequestOutcomeFromRow(
     endTime: row.suggestedEndTime?.slice(0, 5) ?? null,
   };
   return {
-    status: "rejected",
-    id: row.id,
-    venueName: row.venueName,
-    rejection: {
-      venueId: row.venueId,
-      venueName: row.venueName,
-      date: row.startsAt.slice(0, 10),
-      startTime: row.startsAt.slice(11, 16),
-      endTime: row.endsAt.slice(11, 16),
-      reason: row.rejectionReason,
-      suggestion: Object.values(suggestion).every(part => part === null) ? null : suggestion,
-      suggestedVenueId: row.suggestedVenueId,
-    },
+    venueId: row.venueId,
+    reason: row.rejectionReason,
+    suggestion: Object.values(suggestion).every(part => part === null) ? null : suggestion,
+    suggestedVenueId: row.suggestedVenueId,
   };
 }
 
-export async function loadVenueRequestOutcomesForEvents(
-  database: Pick<Database, "select">,
-  eventIds: readonly number[],
-  assignedStaffId?: string
-): Promise<Map<number, VenueRequestOutcome>> {
-  if (eventIds.length === 0) return new Map();
-
-  const suggestedVenue = alias(venues, "suggested_venue");
-  const rows = await database
-    .select({
-      eventId: venueRequests.eventId,
-      id: venueRequests.id,
-      status: venueRequests.status,
-      updatedAt: venueRequests.updatedAt,
-      assignedStaffId: venueRequests.assignedStaffId,
-      venueId: venueRequests.venueId,
-      venueName: venues.name,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-      rejectionReason: venueRequests.rejectionReason,
-      releaseReason: venueRequests.releaseReason,
-      lastChangedByStaffName: venueRequests.lastChangedByStaffName,
-      suggestedVenueId: venueRequests.suggestedVenueId,
-      suggestedVenueName: suggestedVenue.name,
-      suggestedDate: venueRequests.suggestedDate,
-      suggestedStartTime: venueRequests.suggestedStartTime,
-      suggestedEndTime: venueRequests.suggestedEndTime,
-    })
-    .from(venueRequests)
-    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
-    .where(inArray(venueRequests.eventId, [...eventIds]));
-
-  // Select the newest decided row per event. Ignore withdrawals and later pending requests; a
-  // pending adjusted request must not hide the rejection it answers. Break equal-time ties by the
-  // greater id string, as the single-event reader does.
-  const newestByEvent = new Map<number, (typeof rows)[number]>();
-  for (const row of rows) {
-    if (row.status === "withdrawn" || row.status === "pending") continue;
-    // Staff see only their own settled rows. The Coordinator's unfiltered call stays the same.
-    if (assignedStaffId !== undefined && row.assignedStaffId !== assignedStaffId) continue;
-    const current = newestByEvent.get(row.eventId);
-    if (
-      !current ||
-      row.updatedAt.getTime() > current.updatedAt.getTime() ||
-      (row.updatedAt.getTime() === current.updatedAt.getTime() && row.id > current.id)
-    ) {
-      newestByEvent.set(row.eventId, row);
-    }
+/** PTR-37: The release a released row carries. The CHECK requires a reason here too. */
+function releaseFromRow(row: VenueRequestEntryRow): VenueRequestRelease {
+  if (row.releaseReason === null) {
+    throw new Error(`Released venue request ${row.id} has no reason recorded`);
   }
-
-  const outcomes = new Map<number, VenueRequestOutcome>();
-  for (const [eventId, row] of newestByEvent) {
-    const outcome = venueRequestOutcomeFromRow(row);
-    if (outcome) outcomes.set(eventId, outcome);
-  }
-  return outcomes;
+  return { reason: row.releaseReason, changedByName: row.lastChangedByStaffName };
 }
 
 /**
- * Return one event's latest live venue request in the projection's shape. Ignore withdrawn rows.
- * Return pending rows as-is and decided rows as outcomes. The triage page reads this through the
- * coordination request, which has no venue data.
+ * Build one event-card entry from one venue-request row. Never spread the database row:
+ * `requestedById` and `assignedStaffId` must not reach a client. A rejected row carries its
+ * rejection, and a released row carries its release.
+ *
+ * The caller sets the marks, which need other rows or the viewer's role: the conflict kind, the
+ * `adjustable` mark, and `requirements` (Coordinator only).
  */
-export async function loadVenueRequestForEvent(
+export function eventVenueRequestFromRow(
+  row: VenueRequestEntryRow,
+  marks: { conflict?: VenueRequestConflict; adjustable?: boolean; requirements?: boolean } = {}
+): EventVenueRequest {
+  return {
+    id: row.id,
+    status: row.status,
+    venueName: row.venueName,
+    date: row.startsAt.slice(0, 10),
+    startTime: row.startsAt.slice(11, 16),
+    endTime: row.endsAt.slice(11, 16),
+    ...(marks.requirements ? { requirements: row.requirements } : {}),
+    ...(marks.conflict ? { conflict: marks.conflict } : {}),
+    ...(row.status === "rejected" ? { rejection: rejectionFromRow(row) } : {}),
+    ...(row.status === "released" ? { release: releaseFromRow(row) } : {}),
+    ...(marks.adjustable ? { adjustable: true as const } : {}),
+  };
+}
+
+/**
+ * Return one event's venue requests in the Coordinator's projection shape, earliest window first.
+ * Ignore withdrawn rows. Each row carries its own state, session requirements, and rejection or
+ * release. Mark each rejected row that the Coordinator can still adjust. The triage page reads
+ * this through the coordination request, which has no venue data.
+ */
+export async function loadVenueRequestsForEvent(
   database: Pick<Database, "select">,
   eventId: number
-): Promise<EventVenueRequest | null> {
-  const suggestedVenue = alias(venues, "suggested_venue");
-  const rows = await database
-    .select({
-      eventId: venueRequests.eventId,
-      id: venueRequests.id,
-      status: venueRequests.status,
-      updatedAt: venueRequests.updatedAt,
-      assignedStaffId: venueRequests.assignedStaffId,
-      venueId: venueRequests.venueId,
-      venueName: venues.name,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-      rejectionReason: venueRequests.rejectionReason,
-      releaseReason: venueRequests.releaseReason,
-      lastChangedByStaffName: venueRequests.lastChangedByStaffName,
-      suggestedVenueId: venueRequests.suggestedVenueId,
-      suggestedVenueName: suggestedVenue.name,
-      suggestedDate: venueRequests.suggestedDate,
-      suggestedStartTime: venueRequests.suggestedStartTime,
-      suggestedEndTime: venueRequests.suggestedEndTime,
-    })
-    .from(venueRequests)
-    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .leftJoin(suggestedVenue, eq(suggestedVenue.id, venueRequests.suggestedVenueId))
-    .where(eq(venueRequests.eventId, eventId));
+): Promise<EventVenueRequest[]> {
+  const rows = await selectVenueRequestEntries(database, {})
+    .where(eq(venueRequests.eventId, eventId))
+    .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
 
-  // Select the newest live row by update time. Break ties with the greater id string, as the
-  // multi-event reader does. A withdrawal is not a request.
-  let newest: VenueRequestOutcomeRow | null = null;
-  for (const row of rows) {
-    if (row.status === "withdrawn") continue;
-    if (
-      !newest ||
-      row.updatedAt.getTime() > newest.updatedAt.getTime() ||
-      (row.updatedAt.getTime() === newest.updatedAt.getTime() && row.id > newest.id)
-    ) {
-      newest = row;
-    }
-  }
-  if (!newest) return null;
-  if (newest.status === "pending") {
-    return { id: newest.id, status: newest.status, venueName: newest.venueName };
-  }
-  return (
-    venueRequestOutcomeFromRow(newest) ?? {
-      id: newest.id,
-      status: newest.status,
-      venueName: newest.venueName,
-    }
+  const kept = rows.filter(row => row.status !== "withdrawn");
+  const adjustable = adjustableRejectionIds(kept);
+  return kept.map(row =>
+    eventVenueRequestFromRow(row, { adjustable: adjustable.has(row.id), requirements: true })
   );
 }

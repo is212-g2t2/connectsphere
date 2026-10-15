@@ -3,6 +3,9 @@
  * Keep this module client-safe: no `#/db` and no server-only imports, so routes may import it.
  */
 
+import type { EventRequestStatus } from "#/features/event-requests/schema";
+import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
+
 export interface HoldOwnership {
   heldById: string | null;
   assignedCoordinatorId: string | null;
@@ -19,12 +22,17 @@ export function canReleaseHold(hold: HoldOwnership, viewerId: string): boolean {
   return hold.heldById === viewerId || hold.assignedCoordinatorId === viewerId;
 }
 
-/** Allow conversion by the event's current assignee while the event is still `submitted`. */
+/**
+ * Allow conversion by the event's current assignee while the event can take a venue request
+ * (`SEARCHABLE_EVENT_STATUSES`).
+ */
 export function canConvertHold(
-  hold: HoldOwnership & { eventStatus: string },
+  hold: HoldOwnership & { eventStatus: EventRequestStatus },
   viewerId: string
 ): boolean {
   return (
-    viewerId !== "" && hold.assignedCoordinatorId === viewerId && hold.eventStatus === "submitted"
+    viewerId !== "" &&
+    hold.assignedCoordinatorId === viewerId &&
+    SEARCHABLE_EVENT_STATUSES.includes(hold.eventStatus)
   );
 }

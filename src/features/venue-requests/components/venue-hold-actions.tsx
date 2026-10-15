@@ -32,7 +32,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
-import { VenueRequestInput } from "#/features/venue-requests/schema";
+import { SessionRequirementFields } from "#/features/venue-requests/components/session-requirement-fields";
+import {
+  VenueHoldConversionInput,
+  VenueRequestInput,
+  formIssues,
+  sessionRequirementFormValues,
+  sessionRequirementInput,
+} from "#/features/venue-requests/schema";
+import type {
+  SessionRequirementFormValues,
+  SessionRequirements,
+} from "#/features/venue-requests/schema";
 import {
   convertVenueHold,
   createVenueHold,
@@ -47,95 +58,47 @@ export interface CoordinatorEventOption {
 }
 
 /**
- * PTR-109: Coordinator releases an active tentative hold.
+ * PTR-109 AC5: Coordinator releases an active tentative hold after a confirmation. A refusal stays
+ * in the dialog, and the calendar reloads.
  */
 export function ReleaseVenueHoldButton({ holdId }: { holdId: string }) {
-  return <ConfirmHoldAction holdId={holdId} kind="release" />;
-}
-
-/**
- * PTR-109: Coordinator converts an active tentative hold to a booking request.
- */
-export function ConvertVenueHoldButton({ holdId }: { holdId: string }) {
-  return <ConfirmHoldAction holdId={holdId} kind="convert" />;
-}
-
-type HoldActionKind = "release" | "convert";
-
-const HOLD_ACTIONS: Record<
-  HoldActionKind,
-  {
-    title: string;
-    description: string;
-    triggerLabel: string;
-    pendingLabel: string;
-    confirmLabel: string;
-    ariaLabel: string;
-    variant: "outline" | "default";
-    successMessage: string;
-    errorMessage: string;
-    run: (holdId: string) => Promise<unknown>;
-  }
-> = {
-  release: {
-    title: "Release tentative hold",
-    description: "This releases the tentative hold. The period becomes available for other events.",
-    triggerLabel: "Release hold",
-    pendingLabel: "Releasing…",
-    confirmLabel: "Confirm release",
-    ariaLabel: "Release tentative hold",
-    variant: "outline",
-    successMessage: "Tentative hold released.",
-    errorMessage: "Could not release this hold. Try again.",
-    run: holdId => releaseVenueHold({ data: { id: holdId } }),
-  },
-  convert: {
-    title: "Convert hold to booking request",
-    description:
-      "This will convert the tentative hold into a pending booking request and notify Venue Staff for approval.",
-    triggerLabel: "Convert to request",
-    pendingLabel: "Converting…",
-    confirmLabel: "Confirm conversion",
-    ariaLabel: "Convert tentative hold to booking request",
-    variant: "default",
-    successMessage: "Hold converted to booking request.",
-    errorMessage: "Could not convert this hold. Try again.",
-    run: holdId => convertVenueHold({ data: { id: holdId } }),
-  },
-};
-
-function ConfirmHoldAction({ holdId, kind }: { holdId: string; kind: HoldActionKind }) {
-  const copy = HOLD_ACTIONS[kind];
   const router = useRouter();
-  const [state, run, pending] = useMutation(async () => {
+  const [state, release, pending] = useMutation(async () => {
     try {
-      await copy.run(holdId);
+      await releaseVenueHold({ data: { id: holdId } });
     } catch (error) {
       await router.invalidate({ filter: skipRootFilter });
       throw error;
     }
-    toast.success(copy.successMessage);
+    toast.success("Tentative hold released.");
     await router.invalidate({ filter: skipRootFilter });
-  }, copy.errorMessage);
+  }, "Could not release this hold. Try again.");
 
   return (
     <AlertDialog>
       <AlertDialogTrigger
         render={
-          <Button size="sm" variant={copy.variant} disabled={pending} aria-label={copy.ariaLabel} />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            aria-label="Release tentative hold"
+          />
         }
       >
-        {pending ? copy.pendingLabel : copy.triggerLabel}
+        {pending ? "Releasing…" : "Release hold"}
       </AlertDialogTrigger>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
-          <AlertDialogTitle>{copy.title}</AlertDialogTitle>
-          <AlertDialogDescription>{copy.description}</AlertDialogDescription>
+          <AlertDialogTitle>Release tentative hold</AlertDialogTitle>
+          <AlertDialogDescription>
+            This releases the tentative hold. The period becomes available for other events.
+          </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
-          <AlertDialogAction size="sm" disabled={pending} onClick={() => void run()}>
-            {pending ? copy.pendingLabel : copy.confirmLabel}
+          <AlertDialogAction size="sm" disabled={pending} onClick={() => void release()}>
+            {pending ? "Releasing…" : "Confirm release"}
           </AlertDialogAction>
         </AlertDialogFooter>
         {state.status === "error" && (
@@ -145,6 +108,111 @@ function ConfirmHoldAction({ holdId, kind }: { holdId: string; kind: HoldActionK
         )}
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+/** The conversion's server input: the hold and the session requirements as the form holds them. */
+function toConversionInput(holdId: string, values: SessionRequirementFormValues) {
+  return { id: holdId, ...sessionRequirementInput(values) };
+}
+
+/**
+ * PTR-109 AC5: Coordinator converts an active tentative hold to a booking request.
+ * PTR-138 AC1: the request carries session requirements. They start from the event's
+ * requirements, and the venue must meet them. Show each issue by its field, and a server refusal
+ * in the form, as `reject-booking-form.tsx` does.
+ */
+export function ConvertVenueHoldButton({
+  holdId,
+  requirements,
+}: {
+  holdId: string;
+  requirements: SessionRequirements;
+}) {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+  const form = useForm({
+    defaultValues: sessionRequirementFormValues(requirements),
+    validators: {
+      onSubmit: ({ value }) =>
+        formIssues(VenueHoldConversionInput, toConversionInput(holdId, value)),
+    },
+    onSubmit: async ({ value, formApi }) => {
+      try {
+        await convertVenueHold({ data: toConversionInput(holdId, value) });
+      } catch (error) {
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form:
+              error instanceof Error ? error.message : "Could not convert this hold. Try again.",
+          },
+        });
+        // The hold may have changed since the calendar loaded. Reload it, keeping the message.
+        await router.invalidate({ filter: skipRootFilter }).catch(() => {});
+        return;
+      }
+      toast.success("Hold converted to booking request.");
+      setOpen(false);
+      await router.invalidate({ filter: skipRootFilter });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={<Button size="sm" aria-label="Convert tentative hold to booking request" />}
+      >
+        Convert to request
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Convert hold to booking request</DialogTitle>
+          <DialogDescription>
+            This converts the tentative hold into a pending booking request and notifies Venue
+            Staff. The session requirements start from the event&apos;s, and the venue must meet
+            them.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-4"
+          noValidate
+          onSubmit={event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (form.state.isSubmitting) return;
+            void form.handleSubmit();
+          }}
+        >
+          <SessionRequirementFields form={form} idPrefix={`convert-${holdId}`} />
+          <form.Subscribe selector={state => [state.isSubmitting, state.errorMap.onSubmit]}>
+            {([isSubmitting, onSubmitError]) => (
+              <>
+                {typeof onSubmitError === "string" ? (
+                  <p role="alert" className="body-sm text-destructive">
+                    {onSubmitError}
+                  </p>
+                ) : null}
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setOpen(false)}
+                    disabled={Boolean(isSubmitting)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" disabled={Boolean(isSubmitting)}>
+                    {isSubmitting ? "Converting…" : "Confirm conversion"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </form.Subscribe>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -200,15 +268,7 @@ export function PlaceVenueHoldDialog({
     // `VenueRequestInput` uses the server's rules. Validate the date and times once, then mark each
     // field with its issue, as `reject-booking-form.tsx` does. Convert the event id from text to a number.
     validators: {
-      onSubmit: ({ value }) => {
-        const parsed = VenueRequestInput.safeParse(toHoldInput(venueId, value));
-        if (parsed.success) return undefined;
-        const fields: Record<string, { message: string }> = {};
-        for (const issue of parsed.error.issues) {
-          fields[String(issue.path[0])] ??= { message: issue.message };
-        }
-        return { fields };
-      },
+      onSubmit: ({ value }) => formIssues(VenueRequestInput, toHoldInput(venueId, value)),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -294,7 +354,7 @@ export function PlaceVenueHoldDialog({
             </form.Field>
           ) : (
             <p className="body-sm text-muted-foreground">
-              You have no submitted events to hold a venue for.
+              You have no events that can take a venue hold.
             </p>
           )}
 

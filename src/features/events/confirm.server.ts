@@ -24,6 +24,9 @@ type Database = typeof Db;
  * state. Confirm against the new state, not against arrangements that no longer hold. Record who
  * confirmed and when on the event in the same statement as the status.
  *
+ * A pending venue request blocks confirmation (PTR-138). An approval in progress holds the event
+ * lock, so confirmation waits for it. A later approval reads `confirmed` and refuses.
+ *
  * Raise the Organiser's notification with the confirmation. The worker delivers the email.
  */
 export async function handleConfirmEvent(data: unknown, actor: SessionUser, database: Database) {
@@ -63,7 +66,7 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
 
     const blockers = confirmationBlockers({
       status: request.status,
-      venueRequestStatuses: venueRows.map(row => row.status),
+      venueRequests: venueRows,
       equipmentLines: equipmentRows,
       equipmentArrangementsCompletedAt: request.equipmentArrangementsCompletedAt,
     });

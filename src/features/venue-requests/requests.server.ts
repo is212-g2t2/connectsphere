@@ -1,14 +1,15 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, user, venueRequests, venues } from "#/db/schema";
+import { eventRequests, user, venueOccupancy, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { assertEventAcceptsActivity } from "#/features/events/completion";
-import { formatProposedWindow } from "#/features/event-requests/format";
-import { loadAssignedEvent } from "#/features/events/records.server";
+import { formatProposedWindow, formatVenuePeriod } from "#/features/event-requests/format";
+import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 import {
@@ -16,20 +17,46 @@ import {
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
+  VENUE_EVENT_STATUS_PHRASE,
+  VENUE_REQUIREMENTS_PHRASE,
+  VENUE_UNAVAILABLE_PHRASE,
   parseVenueRejectionInput,
   parseVenueRequestContext,
+  parseVenueRequestEventInput,
   parseVenueRequestId,
   parseVenueRequestInput,
 } from "#/features/venue-requests/schema";
-import { checkVenueFree, occupyVenue } from "#/features/venue-requests/occupancy.server";
+import type {
+  SessionRequirementInput,
+  SessionRequirements,
+} from "#/features/venue-requests/schema";
+import {
+  checkVenueFree,
+  isHoldRow,
+  occupyVenue,
+  overlapsLedger,
+} from "#/features/venue-requests/occupancy.server";
+import {
+  loadPendingConflictKinds,
+  selectVenueRequestEntries,
+} from "#/features/venue-requests/records.server";
 import {
   assertSameVenue,
   keyShareEvent,
   keyShareEventForRequest,
+  lockVenue,
   lockVenueForRequest,
 } from "#/features/venue-requests/venue-lock.server";
+import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
-import { loadVenueBookings, loadVenueHolds } from "#/features/venues/records.server";
+import {
+  eventRequirementColumns,
+  loadAssignedEvent,
+  loadWindowAvailabilityFailures,
+  requirementFailures,
+} from "#/features/venues/records.server";
+import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
+import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 
@@ -44,20 +71,63 @@ type Database = typeof Db;
 
 const log = logger.getChild("venue-requests");
 
+/**
+ * PTR-138: approval refuses a request when its event is outside `SEARCHABLE_EVENT_STATUSES`, for
+ * example after confirmation or rejection. Name the status in the words that the status badge uses.
+ */
+export function venueRequestEventStatusMessage(status: EventRequestStatus): string {
+  const label = EVENT_REQUEST_STATUS_LABELS[status].toLowerCase();
+  return `This event is ${label}, so it ${VENUE_EVENT_STATUS_PHRASE}.`;
+}
+
+/** How the same-event overlap message names the other session, by its state. */
+const EVENT_SESSION_NAMES = {
+  pending: "pending request",
+  approved: "approved booking",
+  held: "tentative hold",
+} as const;
+
+/**
+ * PTR-138 AC4: refuse a window that overlaps a pending request, an approved booking or a held hold
+ * of the same event at the same venue. Name that session's window and state. The setup and
+ * turnaround time count between two sessions of one event, as approval counts them (ADR-7), so
+ * the message says so when buffers apply. A hold names the way forward: convert it.
+ */
+export function venueRequestEventOverlapMessage(overlap: {
+  venueName: string;
+  status: keyof typeof EVENT_SESSION_NAMES;
+  startsAt: string;
+  endsAt: string;
+  buffered: boolean;
+}): string {
+  const period = formatVenuePeriod(overlap.startsAt, overlap.endsAt);
+  const buffers = overlap.buffered ? ", including the venue's setup and turnaround time" : "";
+  const next = overlap.status === "held" ? " Convert the hold to a booking request instead." : "";
+  return `This window overlaps this event's ${EVENT_SESSION_NAMES[overlap.status]} for ${overlap.venueName} on ${period}${buffers}.${next}`;
+}
+
+/**
+ * PTR-138 AC1: refuse a venue that does not meet the session's requirements. List every failure
+ * in the words that search uses, for example "Room B does not meet this session's requirements:
+ * Holds 40; 120 needed. Missing facilities: projector."
+ */
+export function venueRequirementsMessage(venueName: string, failures: readonly string[]): string {
+  return `${venueName} ${VENUE_REQUIREMENTS_PHRASE}: ${failures.join(". ")}.`;
+}
+
 export interface VenueRequestNotification {
   venueRequestId: string;
   eventId: number;
   venueName: string;
   startsAt: string;
   endsAt: string;
-  expectedAttendance: number | null;
-  layout: string;
-  accessibilityRequirements: string;
-  requiredFacilities: string;
+  requirements: SessionRequirements;
 }
 
 /**
- * PTR-31 criterion 4: Notify every Venue Staff member about a booking request (§6).
+ * PTR-31 criterion 4: Notify every Venue Staff member about a booking request (§6). The email
+ * carries the request's session requirements (PTR-138 AC1).
+ *
  * Insert notification rows in the caller's transaction, so rollback also removes them. The worker
  * sends the emails later, so a mail outage cannot undo the request or notification.
  * The caller logs an empty recipient list; it does not refuse the request.
@@ -78,10 +148,7 @@ export async function raiseVenueRequestNotifications(
         venueName: notification.venueName,
         startsAt: notification.startsAt,
         endsAt: notification.endsAt,
-        expectedAttendance: notification.expectedAttendance,
-        layout: notification.layout,
-        accessibilityRequirements: notification.accessibilityRequirements,
-        requiredFacilities: notification.requiredFacilities,
+        ...notification.requirements,
       },
     }))
   );
@@ -98,14 +165,221 @@ function rethrowConstraintViolation(error: unknown, constraint: string, message:
 }
 
 /**
- * The partial unique index prevents duplicate requests. A racing double-submit reaches the driver
- * error that `isConstraintViolation` reads. Return the message shown by the panel.
+ * The partial unique index refuses a second pending request for the same event, venue and window.
+ * `assertNoEventOverlap` names a duplicate first; the index refuses one from a writer outside the
+ * venue lock. Map the driver error that `isConstraintViolation` reads to the panel's message.
  */
 export function rethrowDuplicate(error: unknown): never {
   rethrowConstraintViolation(
     error,
-    "venue_requests_pending_event_venue_idx",
+    "venue_requests_pending_event_venue_window_idx",
     VENUE_REQUEST_DUPLICATE_MESSAGE
+  );
+}
+
+/**
+ * The venue row that the venue-request writers read under the venue lock: request creation,
+ * approval, amendment, and hold creation and conversion.
+ */
+export interface LockedVenue {
+  id: number;
+  name: string;
+  setupMinutes: number;
+  turnaroundMinutes: number;
+  maxCapacity: number;
+  facilities: string[];
+  accessibilityFeatures: string[];
+  supportedLayouts: VenueLayout[];
+  operatingHours: OperatingHours;
+}
+
+/**
+ * Read the venue's name, current buffers, opening hours, and what it offers. Call it under the
+ * venue lock, so a venue save cannot change them before the checks. Return Not Found for a missing
+ * venue.
+ */
+export async function loadLockedVenue(tx: VenueTx, venueId: number): Promise<LockedVenue> {
+  const rows = await tx
+    .select({
+      id: venues.id,
+      name: venues.name,
+      setupMinutes: venues.setupMinutes,
+      turnaroundMinutes: venues.turnaroundMinutes,
+      maxCapacity: venues.maxCapacity,
+      facilities: venues.facilities,
+      accessibilityFeatures: venues.accessibilityFeatures,
+      supportedLayouts: venues.supportedLayouts,
+      operatingHours: venues.operatingHours,
+    })
+    .from(venues)
+    .where(eq(venues.id, venueId))
+    .limit(1);
+  const venue = rows.at(0);
+  if (!venue) throw new NotFoundError("Not Found");
+  return venue;
+}
+
+/**
+ * PTR-138 AC1: refuse a window that the venue cannot host. Name the venue and the reason in
+ * search's words, for example "Room B cannot host this window: Not open 07:00–09:00 on
+ * 2027-04-20."
+ */
+export function venueUnavailableMessage(venueName: string, failure: string): string {
+  return `${venueName} ${VENUE_UNAVAILABLE_PHRASE}: ${failure}.`;
+}
+
+/**
+ * PTR-138 AC1: refuse a booking window that the venue cannot take now. Check the ledger
+ * (`checkVenueFree`), then availability: refuse a window when the venue is not open then, or a
+ * recorded block overlaps it (`loadWindowAvailabilityFailures`). Return the ledger row to write.
+ *
+ * Approval and amendment call it under the venue lock, so a venue that changed since the request
+ * still gets every check. Creation does not: a block can be lifted and hours can change before
+ * approval.
+ */
+export async function checkVenueTakesBooking(
+  tx: VenueTx,
+  venue: LockedVenue,
+  booking: { eventId: number; startsAt: string; endsAt: string }
+) {
+  const occupancy = await checkVenueFree(tx, venue, booking);
+  const [failure] = await loadWindowAvailabilityFailures(tx, [
+    {
+      venueId: venue.id,
+      operatingHours: venue.operatingHours,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+    },
+  ]);
+  if (failure) throw new ConflictError(venueUnavailableMessage(venue.name, failure.message));
+  return occupancy;
+}
+
+/**
+ * PTR-138 AC1: refuse a venue that does not meet a session's requirements. Check with the rule
+ * that search applies (`requirementFailures`), and name every failure. Pass the venue that
+ * `loadLockedVenue` read under the venue lock.
+ */
+export function assertMeetsRequirements(venue: LockedVenue, requirements: SessionRequirements) {
+  const failures = requirementFailures(venue, {
+    expectedAttendance: requirements.expectedAttendance ?? undefined,
+    layout: requirements.layout,
+    accessibility: requirements.accessibilityRequirements,
+    facilities: requirements.requiredFacilities,
+  });
+  if (failures.length > 0) {
+    throw new ConflictError(
+      venueRequirementsMessage(
+        venue.name,
+        failures.map(failure => failure.message)
+      )
+    );
+  }
+}
+
+/**
+ * PTR-138 AC1: settle the session requirements of a new request, and refuse a venue that does
+ * not meet them (`assertMeetsRequirements`). An absent value takes the event's requirement, as
+ * `eventRequirementColumns` reads it. Return the values that the request stores.
+ */
+export function checkSessionRequirements(
+  venue: LockedVenue,
+  event: SessionRequirements,
+  session: SessionRequirementInput
+): SessionRequirements {
+  const requirements: SessionRequirements = {
+    expectedAttendance: session.expectedAttendance ?? event.expectedAttendance,
+    layout: session.layout ?? event.layout,
+    accessibilityRequirements: session.accessibilityRequirements ?? event.accessibilityRequirements,
+    requiredFacilities: session.requiredFacilities ?? event.requiredFacilities,
+  };
+  assertMeetsRequirements(venue, requirements);
+  return requirements;
+}
+
+/**
+ * PTR-138 AC4: refuse a window that overlaps a session of the same event at this venue. The
+ * venue's setup and turnaround time count between two sessions, as approval counts them (ADR-7).
+ * Name a booking first, then a hold, then the earliest pending request.
+ *
+ * - Approved bookings and held holds: read the event's ledger rows with their stored buffers
+ *   (`overlapsLedger`), as approval does. A hold blocks its own event's request too, so the
+ *   message tells the Coordinator to convert the hold.
+ * - Pending requests hold no venue time, so compare both sides with the venue's current buffers.
+ *   An exact pending duplicate gets `VENUE_REQUEST_DUPLICATE_MESSAGE`.
+ *
+ * Call it under the venue lock, so two concurrent writers for one event see each other's rows.
+ * The partial unique index still refuses a duplicate from a writer outside the lock. Pending
+ * requests of other events can overlap; approval checks them (PTR-36).
+ */
+export async function assertNoEventOverlap(
+  tx: VenueTx,
+  venue: LockedVenue,
+  request: { eventId: number; startsAt: string; endsAt: string }
+): Promise<void> {
+  const venueBuffered = venue.setupMinutes + venue.turnaroundMinutes > 0;
+  const committed = await tx
+    .select({
+      isHold: isHoldRow,
+      startsAt: venueOccupancy.startsAt,
+      endsAt: venueOccupancy.endsAt,
+      buffered: sql<boolean>`${venueOccupancy.setupMinutes} + ${venueOccupancy.turnaroundMinutes} > 0`,
+    })
+    .from(venueOccupancy)
+    .where(
+      and(
+        eq(venueOccupancy.eventId, request.eventId),
+        overlapsLedger({
+          venueId: venue.id,
+          startsAt: request.startsAt,
+          endsAt: request.endsAt,
+          setupMinutes: venue.setupMinutes,
+          turnaroundMinutes: venue.turnaroundMinutes,
+        })
+      )
+    )
+    .orderBy(isHoldRow, asc(venueOccupancy.startsAt))
+    .limit(1);
+  const booked = committed.at(0);
+  if (booked) {
+    throw new ConflictError(
+      venueRequestEventOverlapMessage({
+        venueName: venue.name,
+        status: booked.isHold ? "held" : "approved",
+        startsAt: booked.startsAt,
+        endsAt: booked.endsAt,
+        buffered: venueBuffered || booked.buffered,
+      })
+    );
+  }
+
+  const setup = sql`make_interval(mins => ${venue.setupMinutes}::integer)`;
+  const turnaround = sql`make_interval(mins => ${venue.turnaroundMinutes}::integer)`;
+  const duplicate = sql<boolean>`${venueRequests.startsAt} = ${request.startsAt}::timestamp and ${venueRequests.endsAt} = ${request.endsAt}::timestamp`;
+  const pending = await tx
+    .select({ duplicate, startsAt: venueRequests.startsAt, endsAt: venueRequests.endsAt })
+    .from(venueRequests)
+    .where(
+      and(
+        eq(venueRequests.eventId, request.eventId),
+        eq(venueRequests.venueId, venue.id),
+        eq(venueRequests.status, "pending"),
+        sql`tsrange(${venueRequests.startsAt} - ${setup}, ${venueRequests.endsAt} + ${turnaround}, '[)') && tsrange(${request.startsAt}::timestamp - ${setup}, ${request.endsAt}::timestamp + ${turnaround}, '[)')`
+      )
+    )
+    .orderBy(desc(duplicate), asc(venueRequests.startsAt))
+    .limit(1);
+  const overlap = pending.at(0);
+  if (!overlap) return;
+  if (overlap.duplicate) throw new ConflictError(VENUE_REQUEST_DUPLICATE_MESSAGE);
+  throw new ConflictError(
+    venueRequestEventOverlapMessage({
+      venueName: venue.name,
+      status: "pending",
+      startsAt: overlap.startsAt,
+      endsAt: overlap.endsAt,
+      buffered: venueBuffered,
+    })
   );
 }
 
@@ -162,111 +436,73 @@ async function raiseDecisionNotification(
 }
 
 /**
- * Return the overlap for one request. An approved booking takes precedence over an active hold.
- * Return `null` when neither exists.
+ * PTR-32 AC3, PTR-138: Read every pending request of one event that the caller's queue grants
+ * (`isVenueQueueRow`), earliest window first. The Venue Staff event page decides them all from
+ * this one read. Read the rows and their conflicts in batched queries, never one read per row.
+ *
+ * Return only the venue, period, submission time, conflict kind, and operational requirements.
+ * They are the request's own requirements (PTR-138 AC1), or the event's current ones for a legacy
+ * row. Do not expose event names or conflicting-event details to Venue Staff (TC12). An event
+ * with no such request returns `[]`, so the answer reveals nothing about other events.
  */
-async function loadConflictKind(
-  database: Database,
-  venueId: number,
-  startsAt: string,
-  endsAt: string
-): Promise<"booking" | "hold" | null> {
-  const [bookings, holds] = await Promise.all([
-    loadVenueBookings(database, [venueId], startsAt, endsAt),
-    loadVenueHolds(database, [venueId], startsAt, endsAt),
-  ]);
-  if (bookings.length > 0) return "booking";
-  if (holds.length > 0) return "hold";
-  return null;
-}
-
-function summarizePendingVenueRequest(
-  row: {
-    id: string;
-    eventId: number;
-    venueId: number;
-    venueName: string;
-    startsAt: string;
-    endsAt: string;
-    submittedAt: Date;
-  },
-  conflict: "booking" | "hold" | null
+export async function handleGetPendingVenueRequestsForEvent(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
 ) {
-  return {
+  const { eventId } = parseVenueRequestEventInput(data);
+  const rows = await selectVenueRequestEntries(database, {
+    assignedStaffId: venueRequests.assignedStaffId,
+    proposedDates: eventRequests.proposedDates,
+  })
+    .where(and(eq(venueRequests.eventId, eventId), eq(venueRequests.status, "pending")))
+    .orderBy(asc(venueRequests.startsAt), asc(venueRequests.id));
+  // An unassigned pending row stays readable by every staff member. A row assigned to another
+  // staff member is invisible to the caller, so its venue, window, and requirements stay hidden.
+  const visible = rows.filter(row => isVenueQueueRow(row, actor.id));
+  const conflicts = await loadPendingConflictKinds(
+    database,
+    visible.map(row => row.id)
+  );
+
+  return visible.map(row => ({
     id: row.id,
-    // The venue-request route forwards to the event page, so include the event id in every row.
-    eventId: row.eventId,
     // The reject form's suggestion picker needs this to exclude the venue being rejected.
     venueId: row.venueId,
     venueName: row.venueName,
     startsAt: toLocalMinuteValue(row.startsAt),
     endsAt: toLocalMinuteValue(row.endsAt),
-    submittedAt: row.submittedAt,
-    conflict,
-  };
-}
-
-/**
- * PTR-32 AC3: Read current event requirements for the detail view. `venue_requests` does not store
- * a requirement snapshot. Return only the venue, requested period, submission time, and operational
- * requirements. Do not expose event names or conflicting-event details to Venue Staff (TC12).
- */
-export async function handleGetPendingVenueRequest(data: unknown, database: Database) {
-  const { id } = parseVenueRequestId(data);
-  const rows = await database
-    .select({
-      id: venueRequests.id,
-      eventId: venueRequests.eventId,
-      venueId: venueRequests.venueId,
-      venueName: venues.name,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-      submittedAt: venueRequests.createdAt,
-      proposedDates: eventRequests.proposedDates,
-      expectedAttendance: eventRequests.expectedAttendance,
-      layout: eventRequests.roomLayoutPreference,
-      accessibility: eventRequests.accessibilityRequirements,
-      requiredFacilities: eventRequests.venueRequirements,
-    })
-    .from(venueRequests)
-    .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
-    .where(and(eq(venueRequests.id, id), eq(venueRequests.status, "pending")))
-    .limit(1);
-  const row = rows.at(0);
-  // A missing row or a row that left `pending` is an ordinary result. The route returns 404, as
-  // `handleGetVenue` and `handleGetEventRequest` do.
-  if (!row) return null;
-
-  const conflict = await loadConflictKind(database, row.venueId, row.startsAt, row.endsAt);
-
-  return {
-    ...summarizePendingVenueRequest(row, conflict),
+    submittedAt: row.createdAt,
+    conflict: conflicts.get(row.id) ?? null,
     requirements: {
       eventTiming: formatProposedWindow(
-        row.proposedDates.find(window => window.start !== undefined && window.end !== undefined) ??
+        row.proposedDates.find(period => period.start !== undefined && period.end !== undefined) ??
           {}
       ),
-      expectedAttendance: row.expectedAttendance,
-      layout: row.layout,
-      accessibility: row.accessibility,
-      requiredFacilities: row.requiredFacilities,
+      ...row.requirements,
     },
-  };
+  }));
 }
 
 /**
- * Return event defaults and the pending request for the venue page's request panel.
+ * Return event defaults and the event's requests at this venue for the venue page's request panel.
  * Load the event by id, not by current assignee. This lets the request raiser withdraw after the
  * event changes status or assignment. `loadAssignedEvent` would block withdrawal because it
- * requires a submitted event assigned to the caller.
- * Return context to the current Coordinator while the event awaits a booking decision, or to the
- * requester while their request is pending. Return `null` otherwise. A stranger's stale `?eventId=`
- * leaves the venue page readable and reveals no information.
+ * requires an event in a searchable status assigned to the caller.
+ *
+ * - The current Coordinator of an event in `SEARCHABLE_EVENT_STATUSES` can request. They get every
+ *   pending request and approved booking of the event at this venue, earliest window first.
+ * - Any other caller gets only the pending requests that they raised, so they can withdraw them.
+ * - Return `null` when the caller gets no row and cannot request. A stranger's stale `?eventId=`
+ *   then leaves the venue page readable and reveals no information.
  *
  * PTR-31 criterion 2: Include the operational requirements shown to Venue Staff: timing, attendance,
- * layout, accessibility, and required facilities. `canWithdraw` is true only when the caller raised
- * the pending request, as criterion 5 requires.
+ * layout, accessibility, and required facilities. The form starts from them. Each row carries its
+ * own session requirements (PTR-138 AC1), so two sessions at one venue stay apart. `canWithdraw`
+ * is true only on a pending request that the caller raised, as criterion 5 requires.
+ *
+ * PTR-138 AC1: each pending row carries its conflict kind (`loadPendingConflictKinds`), as the
+ * event card does, so the Coordinator sees a closed or occupied window before Venue Staff decide.
  */
 export async function handleGetVenueRequestContext(
   data: unknown,
@@ -275,7 +511,7 @@ export async function handleGetVenueRequestContext(
 ) {
   const { eventId, venueId } = parseVenueRequestContext(data);
 
-  // The event and its pending request for this venue are independent reads.
+  // The event and its requests at this venue are independent reads.
   const [eventRows, requestRows] = await Promise.all([
     database
       .select({
@@ -284,69 +520,76 @@ export async function handleGetVenueRequestContext(
         status: eventRequests.status,
         assignedCoordinatorId: eventRequests.assignedCoordinatorId,
         proposedDates: eventRequests.proposedDates,
-        expectedAttendance: eventRequests.expectedAttendance,
-        roomLayoutPreference: eventRequests.roomLayoutPreference,
-        accessibilityRequirements: eventRequests.accessibilityRequirements,
-        venueRequirements: eventRequests.venueRequirements,
+        requirements: eventRequirementColumns,
       })
       .from(eventRequests)
       .where(eq(eventRequests.id, eventId))
       .limit(1),
-    database
-      .select({
-        id: venueRequests.id,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-        requestedById: venueRequests.requestedById,
-      })
-      .from(venueRequests)
+    selectVenueRequestEntries(database, { requestedById: venueRequests.requestedById })
       .where(
         and(
           eq(venueRequests.eventId, eventId),
           eq(venueRequests.venueId, venueId),
-          eq(venueRequests.status, "pending")
+          inArray(venueRequests.status, ["pending", "approved"])
         )
       )
-      .limit(1),
+      .orderBy(asc(venueRequests.startsAt), asc(venueRequests.endsAt), asc(venueRequests.id)),
   ]);
   const event = eventRows.at(0);
   if (!event) return null;
 
-  const request = requestRows.at(0);
-
-  // Check access before returning any data. Only the current assignee of a submitted event or the
-  // requester of a pending request receives context.
-  const canRequest = event.assignedCoordinatorId === actor.id && event.status === "submitted";
-  const raisedByCaller = request?.requestedById === actor.id;
-  if (!canRequest && !raisedByCaller) return null;
+  // Check access before returning any data.
+  const canRequest =
+    event.assignedCoordinatorId === actor.id && SEARCHABLE_EVENT_STATUSES.includes(event.status);
+  const visible = canRequest
+    ? requestRows
+    : requestRows.filter(row => row.status === "pending" && row.requestedById === actor.id);
+  if (!canRequest && visible.length === 0) return null;
+  const conflicts = await loadPendingConflictKinds(
+    database,
+    visible.filter(row => row.status === "pending").map(row => row.id)
+  );
 
   return {
     event: {
       id: event.id,
       name: event.name,
       ...eventTiming(event.proposedDates),
-      expectedAttendance: event.expectedAttendance,
-      layout: event.roomLayoutPreference,
-      accessibilityRequirements: event.accessibilityRequirements,
-      requiredFacilities: event.venueRequirements,
+      ...event.requirements,
     },
-    request: request
-      ? {
-          id: request.id,
-          startsAt: toLocalMinuteValue(request.startsAt),
-          endsAt: toLocalMinuteValue(request.endsAt),
-          canWithdraw: raisedByCaller,
-        }
-      : null,
+    canRequest,
+    requests: visible.map(row => {
+      const status = row.status === "approved" ? ("approved" as const) : ("pending" as const);
+      return {
+        id: row.id,
+        startsAt: toLocalMinuteValue(row.startsAt),
+        endsAt: toLocalMinuteValue(row.endsAt),
+        status,
+        conflict: conflicts.get(row.id) ?? null,
+        // The panel tells two sessions apart by attendance and layout only.
+        requirements: {
+          expectedAttendance: row.requirements.expectedAttendance,
+          layout: row.requirements.layout,
+        },
+        canWithdraw: status === "pending" && row.requestedById === actor.id,
+      };
+    }),
   };
 }
 
 /**
- * PTR-31 criteria 1–4: Create one unassigned `pending` row and notify all Venue Staff.
- * Refuse a window that does not describe a real civil day. The event must be submitted and
- * assigned to the caller, as the PTR-29 search requires.
- * Do not check overlaps here. Pending requests can overlap; approval checks them (PTR-36).
- * A cancelled event cannot receive a request (PTR-54 AC9).
+ * PTR-31 criteria 1–4: Create one unassigned `pending` row and notify all Venue Staff. Refuse a
+ * window that does not describe a real civil day. The event must be in `SEARCHABLE_EVENT_STATUSES`
+ * and assigned to the caller, as the PTR-29 search allows. Hold creation and conversion use the
+ * same gate. A cancelled event cannot receive a request (PTR-54 AC9).
+ *
+ * PTR-138 AC1: store the session requirements, and refuse a venue that does not meet them
+ * (`checkSessionRequirements`). Do not refuse an unavailable venue here: a block can be lifted and
+ * hours can change. Approval checks availability, and the ledger checks conflicts.
+ *
+ * PTR-138 AC4: refuse a window that overlaps the same event's pending request, approved booking or
+ * held hold at this venue (`assertNoEventOverlap`). Pending requests of other events can overlap;
+ * approval checks them (PTR-36).
  */
 export async function handleCreateVenueRequest(
   data: unknown,
@@ -360,16 +603,18 @@ export async function handleCreateVenueRequest(
     // later cancellation waits for this transaction to commit.
     const locked = await keyShareEvent(tx, input.eventId);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
-    const event = await loadAssignedEvent(tx, input.eventId, actor.id, ["submitted"]);
+    const event = await loadAssignedEvent(tx, input.eventId, actor.id);
     if (!event) throw new AuthorizationError("Forbidden");
 
-    const venueRows = await tx
-      .select({ id: venues.id, name: venues.name })
-      .from(venues)
-      .where(eq(venues.id, input.venueId))
-      .limit(1);
-    const venue = venueRows.at(0);
-    if (!venue) throw new NotFoundError("Not Found");
+    // Take the venue lock after the event lock, as every venue writer does. It serializes two
+    // creators for one event, so the overlap check sees the other creator's committed row.
+    await lockVenue(tx, input.venueId);
+    const venue = await loadLockedVenue(tx, input.venueId);
+    const requirements = checkSessionRequirements(venue, event.requirements, input);
+    // The column returns `YYYY-MM-DD HH:MM:SS` because it uses `mode: "string"`.
+    const startsAt = `${input.date} ${input.startTime}:00`;
+    const endsAt = `${input.date} ${input.endTime}:00`;
+    await assertNoEventOverlap(tx, venue, { eventId: event.id, startsAt, endsAt });
 
     const rows = await tx
       .insert(venueRequests)
@@ -379,9 +624,9 @@ export async function handleCreateVenueRequest(
         venueId: venue.id,
         // Criterion 5: Check the user who raised the request, not the event assignment.
         requestedById: actor.id,
-        // The column returns `YYYY-MM-DD HH:MM:SS` because it uses `mode: "string"`.
-        startsAt: `${input.date} ${input.startTime}:00`,
-        endsAt: `${input.date} ${input.endTime}:00`,
+        startsAt,
+        endsAt,
+        ...requirements,
       })
       .returning()
       .catch(rethrowDuplicate);
@@ -402,10 +647,7 @@ export async function handleCreateVenueRequest(
         venueName: venue.name,
         startsAt: request.startsAt,
         endsAt: request.endsAt,
-        expectedAttendance: event.expectedAttendance,
-        layout: event.roomLayoutPreference,
-        accessibilityRequirements: event.accessibilityRequirements,
-        requiredFacilities: event.venueRequirements,
+        requirements,
       },
       recipients.map(recipient => recipient.id)
     );
@@ -433,7 +675,9 @@ function assertNotRejected(status: string): void {
 /**
  * PTR-31 criterion 5: Let the Coordinator who raised a pending request withdraw it.
  * Keep the row as `withdrawn` to preserve its history. The partial unique index then allows a new
- * request for the event and venue. Refuse settled requests; withdrawal must not undo approval (PTR-36).
+ * request for the event, venue and window. Refuse settled requests; withdrawal must not undo
+ * approval (PTR-36).
+ *
  * Check `requestedById`, not the event's current assignee. Reassignment must not let a new
  * Coordinator withdraw someone else's request.
  */
@@ -471,13 +715,19 @@ export async function handleWithdrawVenueRequest(
 }
 
 /**
- * PTR-36: Approve a pending request and reserve its venue period.
+ * PTR-36: Approve a pending request and reserve its venue period. Only unassigned pending rows are
+ * shared (PTR-31). Do not settle a row assigned to another staff member. Store the decision-maker
+ * in `assignedStaffId` to keep the event linked to that staff member.
+ *
  * PTR-134 AC1: write one ledger row with the venue's current buffers in the same transaction.
  * `venue_occupancy_no_overlap` guarantees no overlap. The advisory lock serializes writers for one
  * venue and prevents an index deadlock. The locked pre-check returns a named refusal; the
  * constraint refuses a write outside the lock convention with the generic conflict message.
- * Only unassigned pending rows are shared (PTR-31). Do not settle a row assigned to another staff
- * member. Store the decision-maker in `assignedStaffId` to keep the event linked to that staff member.
+ *
+ * PTR-138: refuse an event outside `SEARCHABLE_EVENT_STATUSES`. Refuse a booking that the venue
+ * cannot take now: it fails the session's requirements (`assertMeetsRequirements`), or it is
+ * closed or blocked for the window (`checkVenueTakesBooking`). A legacy request uses the event's
+ * current requirements.
  */
 export async function handleApproveVenueRequest(
   data: unknown,
@@ -495,21 +745,16 @@ export async function handleApproveVenueRequest(
     const event = await keyShareEventForRequest(tx, id);
     const lockedVenueId = await lockVenueForRequest(tx, id);
 
-    const rows = await tx
-      .select({
-        status: venueRequests.status,
-        assignedStaffId: venueRequests.assignedStaffId,
-        eventId: venueRequests.eventId,
-        venueId: venueRequests.venueId,
-        startsAt: venueRequests.startsAt,
-        endsAt: venueRequests.endsAt,
-      })
-      .from(venueRequests)
+    const rows = await selectVenueRequestEntries(tx, {
+      eventId: venueRequests.eventId,
+      assignedStaffId: venueRequests.assignedStaffId,
+    })
       .where(eq(venueRequests.id, id))
       .limit(1)
       // The row lock makes these reads current. A second approval waits, then sees the settled
-      // row and gets a rejection or decided message, not an overlap message about itself.
-      .for("update");
+      // row and gets a rejection or decided message, not an overlap message about itself. Lock
+      // only the request row, not the joined event or venues.
+      .for("update", { of: venueRequests });
     const row = rows.at(0);
     if (!row) throw new NotFoundError("Not Found");
     assertSameVenue(lockedVenueId, row.venueId);
@@ -523,13 +768,16 @@ export async function handleApproveVenueRequest(
     assertEventAcceptsActivity(event?.status);
     // PTR-54 AC9: a cancelled event takes no new booking.
     if (event?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+    // A confirmed or rejected event takes no new booking either. Rejection stays open, so staff
+    // can clear a stale request.
+    if (event && !SEARCHABLE_EVENT_STATUSES.includes(event.status)) {
+      throw new ConflictError(venueRequestEventStatusMessage(event.status));
+    }
 
-    const occupancy = await checkVenueFree(tx, {
-      venueId: row.venueId,
-      eventId: row.eventId,
-      startsAt: row.startsAt,
-      endsAt: row.endsAt,
-    });
+    const venue = await loadLockedVenue(tx, row.venueId);
+    // A row from before session requirements carries the event's current requirements.
+    assertMeetsRequirements(venue, row.requirements);
+    const occupancy = await checkVenueTakesBooking(tx, venue, row);
 
     // The row lock and status check make this the only writer of the row.
     const [approved] = await tx
@@ -562,9 +810,13 @@ export async function handleApproveVenueRequest(
  * time. Use the approval path's row lock and queue rule, so approval and rejection settle a request
  * only once. No venue lock is needed because a pending request has no `venue_occupancy` row to
  * remove. Add a notification for the requesting Coordinator; the worker delivers it.
+ *
  * A rejected request is final. Refuse later approve, withdraw, or reject actions and tell the
  * Coordinator to raise a new request. The partial unique index covers pending rows, so a new
  * request can be raised.
+ *
+ * Do not check the event status. Staff can then clear a stale request on a confirmed or rejected
+ * event, which approval refuses.
  */
 export async function handleRejectVenueRequest(
   data: unknown,

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateVenueSuitability } from "#/features/venues/records.server";
+import {
+  evaluateVenueSuitability,
+  requirementFailures,
+  windowAvailabilityFailure,
+} from "#/features/venues/records.server";
 import type { SuitabilityCriterion } from "#/features/venues/records.server";
 import {
   AVAILABILITY_RANGE_MESSAGE,
@@ -483,5 +487,133 @@ describe("PTR-30 suitability reasons", () => {
     expect(failures(venue, filters, [], [booking], [hold])).toEqual([
       { criterion: "booking", message: "Booked for Annual dinner on 2026-10-05" },
     ]);
+  });
+});
+
+/**
+ * PTR-138 AC1: request creation checks a venue against the session's requirements with the same
+ * rule that search applies. Location and availability are not part of it.
+ */
+describe("PTR-138 requirementFailures", () => {
+  const session = {
+    expectedAttendance: 120,
+    layout: "Theatre seating",
+    accessibility: "Step-free access, hearing loop",
+    facilities: "projector, PA system",
+  };
+
+  it("names no failure when the venue meets every requirement", () => {
+    expect(requirementFailures(venue, session)).toEqual([]);
+  });
+
+  it("names no failure for blank requirements", () => {
+    expect(
+      requirementFailures(
+        {
+          ...venue,
+          maxCapacity: 1,
+          facilities: [],
+          accessibilityFeatures: [],
+          supportedLayouts: [],
+        },
+        { layout: "", accessibility: "", facilities: "" }
+      )
+    ).toEqual([]);
+  });
+
+  it("names every failing requirement in one list, in a fixed order", () => {
+    expect(
+      requirementFailures(
+        {
+          maxCapacity: 40,
+          supportedLayouts: ["boardroom"],
+          accessibilityFeatures: ["Hearing loop"],
+          facilities: ["Whiteboard"],
+        },
+        session
+      )
+    ).toEqual([
+      { criterion: "capacity", message: "Holds 40; 120 needed" },
+      { criterion: "layout", message: "Does not offer Theatre" },
+      { criterion: "accessibility", message: "Missing accessibility: Step-free access" },
+      { criterion: "facilities", message: "Missing facilities: projector, PA system" },
+    ]);
+  });
+
+  it("uses the larger of attendance and minimum capacity", () => {
+    expect(requirementFailures(venue, { expectedAttendance: 120, capacity: 250 })).toEqual([
+      { criterion: "capacity", message: "Holds 200; 250 needed" },
+    ]);
+  });
+
+  it("names a free-text layout that names no known layout", () => {
+    expect(requirementFailures(venue, { layout: "Round tables" })).toEqual([
+      { criterion: "layout", message: "Does not offer Round tables" },
+    ]);
+  });
+
+  it("gives search the same requirement failures, with location after capacity", () => {
+    const candidate = {
+      ...venue,
+      maxCapacity: 40,
+      location: "West Wing",
+      supportedLayouts: ["boardroom"] as const,
+    };
+    const searched = failures(candidate, filters, []);
+    const required = requirementFailures(candidate, filters);
+    expect(searched.filter(failure => failure.criterion !== "location")).toEqual(required);
+    expect(searched.map(failure => failure.criterion)).toEqual(["capacity", "location", "layout"]);
+    // Without a capacity failure, location comes first.
+    expect(criteria({ ...candidate, maxCapacity: 200 }, filters, [])).toEqual([
+      "location",
+      "layout",
+    ]);
+  });
+});
+
+/**
+ * PTR-138 AC1: a request window gets search's availability rule, without bookings or holds. The
+ * ledger checks those. 2026-10-05 is a Monday, and the venue opens 08:00–22:00 on weekdays.
+ */
+describe("PTR-138 windowAvailabilityFailure", () => {
+  const window = {
+    operatingHours: DEFAULT_OPERATING_HOURS,
+    startsAt: "2026-10-05 10:00:00",
+    endsAt: "2026-10-05 12:00:00",
+  };
+  const block = {
+    id: "1",
+    label: "Floor resurfacing",
+    startsAt: "2026-10-05T11:00:00",
+    endsAt: "2026-10-05T13:00:00",
+  };
+
+  it("names no failure for an open, unblocked window", () => {
+    expect(windowAvailabilityFailure(window, [])).toBeNull();
+    // A block that only touches the window leaves it free.
+    expect(
+      windowAvailabilityFailure({ ...window, endsAt: "2026-10-05 11:00:00" }, [block])
+    ).toBeNull();
+  });
+
+  it("names a window outside the opening hours, in search's words", () => {
+    expect(windowAvailabilityFailure({ ...window, startsAt: "2026-10-05 07:00:00" }, [])).toEqual({
+      criterion: "availability",
+      message: "Not open 07:00–12:00 on 2026-10-05",
+    });
+    // The venue is closed on Saturdays.
+    expect(
+      windowAvailabilityFailure(
+        { ...window, startsAt: "2026-10-10 10:00:00", endsAt: "2026-10-10 12:00:00" },
+        []
+      )
+    ).toEqual({ criterion: "availability", message: "Not open 10:00–12:00 on 2026-10-10" });
+  });
+
+  it("names a recorded block that overlaps the window", () => {
+    expect(windowAvailabilityFailure(window, [block])).toEqual({
+      criterion: "availability",
+      message: "Unavailable on 2026-10-05: Floor resurfacing",
+    });
   });
 });

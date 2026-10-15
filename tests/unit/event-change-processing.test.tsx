@@ -132,7 +132,7 @@ const request: CoordinationRequest = {
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,
   equipmentArrangementsCompletedById: null,
-  venueRequest: null,
+  venueRequests: [],
 };
 
 /** Show the assigned Coordinator's event page. `kind: "event"` with coordinator access means
@@ -663,7 +663,7 @@ function organiserPage(overrides: Partial<CoordinationRequest> = {}): EventPageD
     organiser: _organiser,
     pendingHandover: _handover,
     outstandingReleases: _releases,
-    venueRequest: _venue,
+    venueRequests: _venues,
     ...view
   } = request;
   const organiserRequest = { ...view, ...overrides };

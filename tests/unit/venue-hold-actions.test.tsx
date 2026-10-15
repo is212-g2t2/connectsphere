@@ -91,6 +91,14 @@ const staffUser: SessionUser = {
   role: "venue_staff",
 };
 
+/** The event's requirements, which the conversion form starts from (PTR-138 AC1). */
+const eventRequirements = {
+  expectedAttendance: 80,
+  layout: "Theatre seating",
+  accessibilityRequirements: "Step-free access",
+  requiredFacilities: "Projector",
+};
+
 const scheduleWithHold: VenueAvailability = {
   venue: { id: 7, name: "Great Hall" },
   startDate: "2026-10-05",
@@ -106,7 +114,7 @@ const scheduleWithHold: VenueAvailability = {
       visibleStart: "2026-10-05T13:00:00",
       visibleEnd: "2026-10-05T15:00:00",
       canRelease: true,
-      canConvert: true,
+      convertDefaults: eventRequirements,
     },
   ],
 };
@@ -118,7 +126,7 @@ const scheduleWithUnownedHold: VenueAvailability = {
     {
       ...scheduleWithHold.occupied[0],
       canRelease: false,
-      canConvert: false,
+      convertDefaults: undefined,
     },
   ],
 };
@@ -167,9 +175,9 @@ describe("venue hold action components and calendar write-path", () => {
   });
 
   describe("ConvertVenueHoldButton", () => {
-    it("renders convert button and calls convertVenueHold on confirmation", async () => {
+    it("converts with the event's requirements as the session's, prefilled", async () => {
       const user = userEvent.setup();
-      render(<ConvertVenueHoldButton holdId="hold-42" />);
+      render(<ConvertVenueHoldButton holdId="hold-42" requirements={eventRequirements} />);
 
       const trigger = screen.getByRole("button", {
         name: "Convert tentative hold to booking request",
@@ -177,19 +185,65 @@ describe("venue hold action components and calendar write-path", () => {
       expect(trigger).toBeTruthy();
       await user.click(trigger);
 
-      const confirmBtn = await screen.findByRole("button", { name: "Confirm conversion" });
-      await user.click(confirmBtn);
+      expect(await screen.findByLabelText("Expected attendance")).toHaveProperty("value", "80");
+      expect(screen.getByLabelText("Layout")).toHaveProperty("value", "Theatre seating");
+      expect(screen.getByLabelText("Accessibility")).toHaveProperty("value", "Step-free access");
+      expect(screen.getByLabelText("Facilities")).toHaveProperty("value", "Projector");
+      await user.click(screen.getByRole("button", { name: "Confirm conversion" }));
 
       await waitFor(() => {
-        expect(mockConvertHold).toHaveBeenCalledWith({ data: { id: "hold-42" } });
+        expect(mockConvertHold).toHaveBeenCalledWith({
+          data: { id: "hold-42", ...eventRequirements },
+        });
         expect(mockInvalidate).toHaveBeenCalled();
       });
+    });
+
+    it("sends the session values the Coordinator changed (PTR-138 AC1)", async () => {
+      const user = userEvent.setup();
+      render(<ConvertVenueHoldButton holdId="hold-42" requirements={eventRequirements} />);
+
+      await user.click(
+        screen.getByRole("button", { name: "Convert tentative hold to booking request" })
+      );
+      await user.clear(await screen.findByLabelText("Expected attendance"));
+      await user.type(screen.getByLabelText("Expected attendance"), "30");
+      await user.clear(screen.getByLabelText("Facilities"));
+      await user.click(screen.getByRole("button", { name: "Confirm conversion" }));
+
+      await waitFor(() => {
+        expect(mockConvertHold).toHaveBeenCalledWith({
+          data: {
+            id: "hold-42",
+            expectedAttendance: 30,
+            layout: "Theatre seating",
+            accessibilityRequirements: "Step-free access",
+            requiredFacilities: "",
+          },
+        });
+      });
+    });
+
+    it("refuses a layout that names no supported layout before calling the server", async () => {
+      const user = userEvent.setup();
+      render(<ConvertVenueHoldButton holdId="hold-42" requirements={eventRequirements} />);
+
+      await user.click(
+        screen.getByRole("button", { name: "Convert tentative hold to booking request" })
+      );
+      await user.clear(await screen.findByLabelText("Layout"));
+      await user.type(screen.getByLabelText("Layout"), "Round tables");
+      await user.click(screen.getByRole("button", { name: "Confirm conversion" }));
+
+      expect(await screen.findByText("Choose only from the supported room layouts")).toBeTruthy();
+      expect(screen.getByLabelText("Layout").getAttribute("aria-invalid")).toBe("true");
+      expect(mockConvertHold).not.toHaveBeenCalled();
     });
 
     it("displays error message if convertVenueHold fails", async () => {
       mockConvertHold.mockRejectedValueOnce(new Error("This hold has already been converted."));
       const user = userEvent.setup();
-      render(<ConvertVenueHoldButton holdId="hold-42" />);
+      render(<ConvertVenueHoldButton holdId="hold-42" requirements={eventRequirements} />);
 
       await user.click(
         screen.getByRole("button", { name: "Convert tentative hold to booking request" })
@@ -270,7 +324,7 @@ describe("venue hold action components and calendar write-path", () => {
 
       await user.click(screen.getByRole("button", { name: "Place tentative hold" }));
 
-      expect(screen.getByText("You have no submitted events to hold a venue for.")).toBeTruthy();
+      expect(screen.getByText("You have no events that can take a venue hold.")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Place hold" })).toHaveProperty("disabled", true);
     });
 
@@ -367,7 +421,7 @@ describe("venue hold action components and calendar write-path", () => {
           {
             ...scheduleWithHold.occupied[0],
             canRelease: true,
-            canConvert: false,
+            convertDefaults: undefined,
           },
         ],
       };
@@ -394,7 +448,7 @@ describe("venue hold action components and calendar write-path", () => {
           {
             ...scheduleWithHold.occupied[0],
             canRelease: true,
-            canConvert: false,
+            convertDefaults: undefined,
           },
         ],
       };

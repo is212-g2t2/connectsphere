@@ -2,46 +2,69 @@ import { Link } from "@tanstack/react-router";
 import { cn } from "cn";
 
 import { buttonVariants } from "#/components/ui/button";
-import type { VenueRequestRejection } from "#/features/events/access";
+import type { EventVenueRequest, VenueRequestRejection } from "#/features/events/access";
 
 /**
- * Prefill an adjusted request: the suggested venue when Venue Staff named one, else the refusing
- * venue. Fall each window part back the same way. A "same room, a day later" suggestion then
- * needs nothing retyped. Take times only as a pair.
+ * Prefill an adjusted request from a rejected entry: the suggested venue when Venue Staff named
+ * one, else the refusing venue. Fall each window part back the same way. Take times only as a
+ * pair. PTR-138 AC1: carry the rejected session's requirements too. Leave out a null attendance,
+ * so the form uses the event's figure.
  */
-export function adjustedRequest(rejection: VenueRequestRejection): {
+export function adjustedRequest(
+  entry: EventVenueRequest,
+  rejection: VenueRequestRejection
+): {
   venueId: number;
   venueName: string;
   date: string;
   startTime: string;
   endTime: string;
+  expectedAttendance?: number;
+  layout?: string;
+  accessibilityRequirements?: string;
+  requiredFacilities?: string;
 } {
   const suggestion = rejection.suggestion;
   const times =
     suggestion?.startTime && suggestion.endTime
       ? { startTime: suggestion.startTime, endTime: suggestion.endTime }
-      : { startTime: rejection.startTime, endTime: rejection.endTime };
+      : { startTime: entry.startTime, endTime: entry.endTime };
+  const requirements = entry.requirements;
+  const session = requirements
+    ? {
+        ...(requirements.expectedAttendance === null
+          ? {}
+          : { expectedAttendance: requirements.expectedAttendance }),
+        layout: requirements.layout,
+        accessibilityRequirements: requirements.accessibilityRequirements,
+        requiredFacilities: requirements.requiredFacilities,
+      }
+    : {};
   return {
     venueId: rejection.suggestedVenueId ?? rejection.venueId,
-    venueName: suggestion?.venueName ?? rejection.venueName,
-    date: suggestion?.date ?? rejection.date,
+    venueName: suggestion?.venueName ?? entry.venueName,
+    date: suggestion?.date ?? entry.date,
     ...times,
+    ...session,
   };
 }
 
 /**
- * Reopen the request on the suggested venue with its window. Show this action only while the
- * event is `submitted`. That is the one status the venue page's request panel answers. Show it
- * only to the Coordinator. The caller applies both gates.
+ * Reopen the request on the suggested venue with its window and session requirements. Show this
+ * action only while the event stands in `SEARCHABLE_EVENT_STATUSES`. That is the set the venue
+ * page's request panel answers. Show it only to the Coordinator, and only on an entry the
+ * projection marks `adjustable`. The caller applies the status, role, and `adjustable` gates.
  */
 export function AdjustRequestRow({
   eventId,
+  entry,
   rejection,
 }: {
   eventId: number;
+  entry: EventVenueRequest;
   rejection: VenueRequestRejection;
 }) {
-  const { venueId, venueName, ...prefill } = adjustedRequest(rejection);
+  const { venueId, venueName, ...prefill } = adjustedRequest(entry, rejection);
   return (
     <div className="min-w-0">
       <dt className="eyebrow text-muted-foreground">Next step</dt>

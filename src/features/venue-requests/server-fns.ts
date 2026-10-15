@@ -2,12 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
 import {
+  parseVenueHoldConversion,
   parseVenueHoldId,
   parseVenueHoldInput,
   parseVenueRejectionInput,
   parseVenueAmendmentInput,
   parseVenueReleaseInput,
   parseVenueRequestContext,
+  parseVenueRequestEventInput,
   parseVenueRequestId,
   parseVenueRequestInput,
 } from "#/features/venue-requests/schema";
@@ -38,20 +40,22 @@ export const requireVenueRequest = requirePermission({ venue_request: ["request"
 /** PTR-32: Venue Staff may read the shared pending queue without gaining the approval verb. */
 export const requireVenueRequestRead = requirePermission({ venue_request: ["read"] });
 
-/** A pending row as the queue table and the decision controls read it. */
+/** A pending row as the decision controls read it. */
 export type PendingVenueRequest = Omit<PendingVenueRequestDetail, "requirements">;
 
-export const getPendingVenueRequest = createServerFn({ method: "GET" })
-  .validator(parseVenueRequestId)
+/** PTR-32 AC3, PTR-138: every pending request of one event in the caller's queue, in one read. */
+export const getPendingVenueRequestsForEvent = createServerFn({ method: "GET" })
+  .validator(parseVenueRequestEventInput)
   .middleware([requireVenueRequestRead])
-  .handler(async ({ data }) => {
-    const [{ db }, { handleGetPendingVenueRequest }] = await loadServer();
-    return handleGetPendingVenueRequest(data, db);
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleGetPendingVenueRequestsForEvent }] = await loadServer();
+    return handleGetPendingVenueRequestsForEvent(data, context.user, db);
   });
 
-export type PendingVenueRequestDetail = NonNullable<
-  Awaited<ReturnType<typeof getPendingVenueRequest>>
->;
+/** One pending request with its venue, period, conflict, and session requirements. */
+export type PendingVenueRequestDetail = Awaited<
+  ReturnType<typeof getPendingVenueRequestsForEvent>
+>[number];
 
 /**
  * Read the context for the venue page. Return it in `{ context }` because a nullable top-level
@@ -70,6 +74,9 @@ export const getVenueRequestContext = createServerFn({ method: "GET" })
 export type VenueRequestContext = NonNullable<
   Awaited<ReturnType<typeof getVenueRequestContext>>["context"]
 >;
+
+/** One pending request or approved booking of the event at this venue, as the panel lists it. */
+export type VenueRequestContextRow = VenueRequestContext["requests"][number];
 
 export const requestVenue = createServerFn({ method: "POST" })
   .validator(parseVenueRequestInput)
@@ -217,9 +224,10 @@ export const releaseVenueHold = createServerFn({ method: "POST" })
 
 /**
  * PTR-109: Coordinator converts a tentative hold to a pending venue booking request.
+ * PTR-138 AC1: the request carries the session requirements given here, else the event's.
  */
 export const convertVenueHold = createServerFn({ method: "POST" })
-  .validator(parseVenueHoldId)
+  .validator(parseVenueHoldConversion)
   .middleware([requireVenueRequest])
   .handler(async ({ data, context }) => {
     const [{ db }, { handleConvertVenueHold }] = await loadHoldsServer();

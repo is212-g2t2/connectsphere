@@ -9,7 +9,7 @@ interface VenueBookingRequestEmailProps {
   startsAt: string;
   endsAt: string;
   expectedAttendance: number | null;
-  /** The event's operational requirements; an empty string renders no line. */
+  /** The request's session requirements; an empty string renders no line. */
   layout: string;
   accessibilityRequirements: string;
   requiredFacilities: string;
@@ -19,7 +19,7 @@ interface VenueBookingRequestEmailProps {
  * PTR-31 criterion 4: sent to every Venue Staff member when a Coordinator raises a booking
  * request (§6: a venue booking is requested). It names the venue and the requested window, and
  * carries criterion 2's requirements — expected attendance, layout, accessibility and required
- * facilities — one line each, present only when the event states one. It deliberately does not
+ * facilities — one line each, present only when the request states one. It deliberately does not
  * name the event: the venue-staff projection withholds it (PTR-8), so the notification must not
  * leak what the event page will not show.
  */

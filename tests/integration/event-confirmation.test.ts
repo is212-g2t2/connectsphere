@@ -3,7 +3,7 @@
 // Read notifications from the `notifications` table.
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { render } from "@react-email/components";
@@ -15,6 +15,8 @@ import type { SessionUser } from "#/features/auth/session";
 import {
   CONFIRMATION_REFUSAL_HEADING,
   MULTIPLE_VENUE_BOOKINGS_MESSAGE,
+  confirmationRefusalMessage,
+  pendingVenueRequestMessage,
 } from "#/features/events/confirmation";
 import { handleConfirmEvent } from "#/features/events/confirm.server";
 import { handleListEvents } from "#/features/events/records.server";
@@ -42,6 +44,8 @@ describe("confirming an event (PTR-24)", () => {
   let database: Database;
   let venueId: number;
   let venueName: string;
+  let otherVenueId: number;
+  let otherVenueName: string;
   const created: number[] = [];
 
   beforeAll(async () => {
@@ -72,6 +76,13 @@ describe("confirming an event (PTR-24)", () => {
     const [venue] = await database.select().from(schema.venues).limit(1);
     venueId = venue.id;
     venueName = venue.name;
+    const [other] = await database
+      .select()
+      .from(schema.venues)
+      .where(ne(schema.venues.id, venueId))
+      .limit(1);
+    otherVenueId = other.id;
+    otherVenueName = other.name;
   });
 
   afterAll(async () => {
@@ -285,6 +296,33 @@ describe("confirming an event (PTR-24)", () => {
 
       expect(message).toContain(MULTIPLE_VENUE_BOOKINGS_MESSAGE);
       expect((await readEvent(eventId)).status).toBe("approved");
+    });
+
+    test("refuses an approved booking beside a pending request and names the pending venue (PTR-138)", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      const pending = {
+        venueName: otherVenueName,
+        startsAt: "2043-06-10 09:00:00",
+        endsAt: "2043-06-10 12:30:00",
+      };
+      await database.insert(schema.venueRequests).values({
+        id: crypto.randomUUID(),
+        eventId,
+        venueId: otherVenueId,
+        requestedById: coordinator.id,
+        startsAt: pending.startsAt,
+        endsAt: pending.endsAt,
+        status: "pending",
+      });
+
+      const message = await refusal(eventId);
+
+      expect(message).toBe(confirmationRefusalMessage([pendingVenueRequestMessage(pending)]));
+      expect(message).toContain(otherVenueName);
+      const row = await readEvent(eventId);
+      expect(row.status).toBe("approved");
+      expect(row.confirmedAt).toBeNull();
     });
 
     test("refuses while equipment is outstanding and names only the outstanding lines", async () => {

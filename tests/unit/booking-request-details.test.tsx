@@ -7,7 +7,6 @@ import type { PendingVenueRequestDetail } from "#/features/venue-requests/server
 
 const request: PendingVenueRequestDetail = {
   id: "request-001",
-  eventId: 41,
   venueId: 3,
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
@@ -18,7 +17,7 @@ const request: PendingVenueRequestDetail = {
     eventTiming: "Doors open at 09:00; event starts at 09:30.",
     expectedAttendance: 85,
     layout: "Cabaret",
-    accessibility: "Step-free access and two reserved wheelchair spaces.",
+    accessibilityRequirements: "Step-free access and two reserved wheelchair spaces.",
     requiredFacilities: "Projector\nTwo wireless microphones",
   },
 };
@@ -56,6 +55,13 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
     render(<BookingRequestDetails request={{ ...request, conflict: "hold" }} />);
 
     expect(screen.getByText("Conflicting hold")).toBeTruthy();
+    expect(screen.queryByText("Conflicting booking")).toBeNull();
+  });
+
+  it("labels a closed or blocked venue as unavailable (PTR-138 AC1)", () => {
+    render(<BookingRequestDetails request={{ ...request, conflict: "unavailable" }} />);
+
+    expect(screen.getByText("Venue unavailable")).toBeTruthy();
     expect(screen.queryByText("Conflicting booking")).toBeNull();
   });
 
@@ -117,7 +123,7 @@ describe("BookingRequestDetails component slice (PTR-32)", () => {
             eventTiming: longMultilineTiming,
             expectedAttendance: null,
             layout: "   ",
-            accessibility: "",
+            accessibilityRequirements: "",
             requiredFacilities: "",
           },
         }}

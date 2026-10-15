@@ -75,7 +75,7 @@ import {
 import {
   amendVenueBooking,
   approveVenueRequest,
-  getPendingVenueRequest,
+  getPendingVenueRequestsForEvent,
   getVenueRequestContext,
   listVenueBookings,
   releaseVenueBooking,
@@ -443,7 +443,7 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
-      expect(await refusalFrom(getPendingVenueRequest, { id: "req-1" }, "GET")).toEqual({
+      expect(await refusalFrom(getPendingVenueRequestsForEvent, { eventId: 1 }, "GET")).toEqual({
         status: 401,
         body: "Unauthorized",
       });
@@ -487,7 +487,7 @@ describe("server-function authorization (PTR-69)", () => {
       async role => {
         signIn(role);
 
-        expect(await refusalFrom(getPendingVenueRequest, {}, "GET")).toMatchObject({
+        expect(await refusalFrom(getPendingVenueRequestsForEvent, {}, "GET")).toMatchObject({
           status: 403,
         });
       }
@@ -496,7 +496,9 @@ describe("server-function authorization (PTR-69)", () => {
     it("lets Venue Staff reach the pending request read", async () => {
       signIn("venue_staff");
 
-      expect((await call(getPendingVenueRequest, { id: "req-1" }, "GET")).error).toBeUndefined();
+      expect(
+        (await call(getPendingVenueRequestsForEvent, { eventId: 1 }, "GET")).error
+      ).toBeUndefined();
     });
 
     it("lets only a Coordinator through to the rest of the chain", async () => {

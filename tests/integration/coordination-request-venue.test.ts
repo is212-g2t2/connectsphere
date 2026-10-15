@@ -119,25 +119,27 @@ describe("coordination request venue summary", () => {
       database as never
     );
 
-    expect(request.venueRequest).toMatchObject({
-      id: "triage-vr-rejected",
-      status: "rejected",
-      venueName: "Triage Refused Hall",
-      rejection: {
+    expect(request.venueRequests).toMatchObject([
+      {
+        id: "triage-vr-rejected",
+        status: "rejected",
         venueName: "Triage Refused Hall",
         date: "2027-05-10",
         startTime: "09:00",
         endTime: "12:00",
-        reason: "The main hall is being rewired that weekend.",
-        suggestedVenueId,
-        suggestion: {
-          venueName: "Triage Suggested Room",
-          date: "2027-05-11",
-          startTime: "09:00",
-          endTime: "12:00",
+        adjustable: true,
+        rejection: {
+          reason: "The main hall is being rewired that weekend.",
+          suggestedVenueId,
+          suggestion: {
+            venueName: "Triage Suggested Room",
+            date: "2027-05-11",
+            startTime: "09:00",
+            endTime: "12:00",
+          },
         },
       },
-    });
+    ]);
   });
 
   it("carries a pending request without a rejection", async () => {
@@ -157,21 +159,24 @@ describe("coordination request venue summary", () => {
       database as never
     );
 
-    expect(request.venueRequest).toMatchObject({
-      id: "triage-vr-pending",
-      status: "pending",
-      venueName: "Triage Refused Hall",
-    });
-    expect(request.venueRequest).not.toHaveProperty("rejection");
+    expect(request.venueRequests).toMatchObject([
+      {
+        id: "triage-vr-pending",
+        status: "pending",
+        venueName: "Triage Refused Hall",
+      },
+    ]);
+    expect(request.venueRequests).toHaveLength(1);
+    expect(request.venueRequests[0]).not.toHaveProperty("rejection");
   });
 
-  it("is null when the event has no venue request", async () => {
+  it("lists no entries when the event has no venue request", async () => {
     const request = await handleGetCoordinationRequest(
       { id: eventId },
       session(),
       database as never
     );
 
-    expect(request.venueRequest).toBeNull();
+    expect(request.venueRequests).toEqual([]);
   });
 });

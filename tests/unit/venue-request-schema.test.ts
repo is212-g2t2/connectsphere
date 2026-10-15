@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { VENUE_ID_MESSAGE } from "#/features/venues/schema";
+import {
+  LAYOUT_MESSAGE,
+  VENUE_ID_MESSAGE,
+  VENUE_SEARCH_ATTENDANCE_MESSAGE,
+  VENUE_SEARCH_TEXT_MAX_LENGTH,
+} from "#/features/venues/schema";
 import {
   VENUE_REJECTION_REASON_MAX_LENGTH,
   VENUE_REJECTION_REASON_REQUIRED,
@@ -15,6 +20,7 @@ import {
   VenueAmendmentInput,
   VenueReleaseInput,
   VenueRequestInput,
+  parseVenueHoldConversion,
   parseVenueRejectionInput,
   parseVenueRequestContext,
   parseVenueRequestId,
@@ -71,6 +77,64 @@ describe("VenueRequestInput (PTR-31 criterion 1)", () => {
     expect(VenueRequestInput.safeParse({ ...VALID, eventId: "12" }).success).toBe(false);
     expect(VenueRequestInput.safeParse({ ...VALID, venueId: -1 }).success).toBe(false);
     expect(VenueRequestInput.safeParse({ ...VALID, venueId: 1.5 }).success).toBe(false);
+  });
+});
+
+describe("session requirements on a request (PTR-138 AC1)", () => {
+  it("accepts and trims the four session requirements", () => {
+    expect(
+      VenueRequestInput.parse({
+        ...VALID,
+        expectedAttendance: 30,
+        layout: " Boardroom ",
+        accessibilityRequirements: " Hearing loop ",
+        requiredFacilities: "",
+      })
+    ).toEqual({
+      ...VALID,
+      expectedAttendance: 30,
+      layout: "Boardroom",
+      accessibilityRequirements: "Hearing loop",
+      requiredFacilities: "",
+    });
+  });
+
+  it("accepts a blank layout, which states no layout", () => {
+    expect(VenueRequestInput.parse({ ...VALID, layout: "  " })).toMatchObject({ layout: "" });
+  });
+
+  it("refuses a layout that names no supported layout, as the search does", () => {
+    expect(firstIssue(VenueRequestInput.safeParse({ ...VALID, layout: "Round tables" }))).toBe(
+      LAYOUT_MESSAGE
+    );
+  });
+
+  it.each([0, -5, 2.5, 3_000_000_000, "30"])("refuses an attendance of %j", attendance => {
+    expect(
+      firstIssue(VenueRequestInput.safeParse({ ...VALID, expectedAttendance: attendance }))
+    ).toBe(VENUE_SEARCH_ATTENDANCE_MESSAGE);
+  });
+
+  it("bounds each text requirement at the search's length", () => {
+    const long = "a".repeat(VENUE_SEARCH_TEXT_MAX_LENGTH + 1);
+    expect(VenueRequestInput.safeParse({ ...VALID, requiredFacilities: long }).success).toBe(false);
+    expect(
+      VenueRequestInput.safeParse({
+        ...VALID,
+        accessibilityRequirements: "a".repeat(VENUE_SEARCH_TEXT_MAX_LENGTH),
+      }).success
+    ).toBe(true);
+  });
+
+  it("gives a hold conversion the same optional session requirements", () => {
+    expect(parseVenueHoldConversion({ id: "hold-1" })).toEqual({ id: "hold-1" });
+    expect(parseVenueHoldConversion({ id: "hold-1", expectedAttendance: 30 })).toEqual({
+      id: "hold-1",
+      expectedAttendance: 30,
+    });
+    expect(() => parseVenueHoldConversion({ id: "hold-1", layout: "Round tables" })).toThrow(
+      LAYOUT_MESSAGE
+    );
   });
 });
 

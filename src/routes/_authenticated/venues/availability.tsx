@@ -4,7 +4,11 @@ import { can } from "#/features/auth/permissions";
 import { listEvents } from "#/features/events/server-fns";
 import { VenueCalendarPage } from "#/features/venues/components/venue-calendar-page";
 import { VenueCalendarPageSkeleton } from "#/features/venues/components/venue-calendar-page-skeleton";
-import { parseAvailabilitySearch, parseAvailabilitySelection } from "#/features/venues/schema";
+import {
+  SEARCHABLE_EVENT_STATUSES,
+  parseAvailabilitySearch,
+  parseAvailabilitySelection,
+} from "#/features/venues/schema";
 import { getVenueAvailability, listVenues } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
@@ -28,7 +32,7 @@ export const Route = createFileRoute("/_authenticated/venues/availability")({
         ? listEvents({ data: {} })
             .then(list =>
               list
-                .filter(item => item.event.status === "submitted")
+                .filter(item => SEARCHABLE_EVENT_STATUSES.includes(item.event.status))
                 .map(item => ({
                   id: item.event.id,
                   name: item.event.name ?? `Event ${item.event.id}`,

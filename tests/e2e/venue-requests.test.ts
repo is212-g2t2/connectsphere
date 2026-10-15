@@ -98,14 +98,21 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     await page.getByLabel("End time (required)", { exact: true }).fill("15:30");
     await page.getByRole("button", { name: "Send booking request" }).click();
 
-    // The panel reads loader data, so the pending request replaces the form in place.
-    await expect(page.getByRole("heading", { name: "Venue request" })).toBeVisible();
-    await expect(page.getByText(/10 May 2027, 09:00 – 15:30/)).toBeVisible();
+    // The panel reads loader data, so the pending request joins the list above the form. Focus
+    // moves to the list heading so a screen reader hears the new row.
+    const listHeading = page.getByRole("heading", { name: `Requests for ${fixture.eventName}` });
+    const list = page.getByRole("list", { name: `Requests for ${fixture.eventName}` });
+    await expect(listHeading).toBeFocused();
+    await expect(list.getByText(/10 May 2027, 09:00 – 15:30/)).toBeVisible();
+    await expect(list.getByText("Pending", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
 
-    const [created] = await database
+    const createdRows = await database
       .select()
       .from(schema.venueRequests)
       .where(eq(schema.venueRequests.eventId, fixture.eventId));
+    expect(createdRows).toHaveLength(1);
+    const [created] = createdRows;
     expect(created).toMatchObject({
       venueId: fixture.venueId,
       startsAt: "2027-05-10 09:00:00",
@@ -125,9 +132,16 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     // Do not show the event name in the Venue Staff notification.
     expect(email).not.toContain(fixture.eventName);
 
-    await page.getByRole("button", { name: "Withdraw request" }).click();
+    await page
+      .getByRole("button", { name: "Withdraw request for 10 May 2027, 09:00 – 15:30" })
+      .click();
+    await expect(page.getByRole("alertdialog")).toContainText(
+      `${fixture.venueName} on 10 May 2027, 09:00 – 15:30`
+    );
     await page.getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
+    await expect(listHeading).toBeFocused();
+    await expect(list).toHaveCount(0);
 
     const [withdrawn] = await database
       .select()
@@ -136,6 +150,263 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     expect(withdrawn.status).toBe("withdrawn");
   } finally {
     // Deleting the users removes the event and venue request by cascade. Then delete the venue.
+    if (cleanup.userIds.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
+    }
+    if (cleanup.venueIds.length > 0) {
+      await database.delete(schema.venues).where(inArray(schema.venues.id, cleanup.venueIds));
+    }
+  }
+});
+
+/** PTR-138 AC1/AC5: a second request for another venue lands on the same event, and the event
+ * page lists both entries with their states. The venue page panel lists the event's requests at
+ * that venue only, so the second venue starts with an empty list.
+ */
+test("[PTR-138] a Coordinator requests a second venue for the same event and the event page lists both", async ({
+  page,
+}) => {
+  const cleanup = { userIds: [] as string[], venueIds: [] as number[] };
+
+  try {
+    const coordinator = await registerAccount(database, page, {
+      role: "event_coordinator",
+      name: "Second Venue Coordinator",
+      password,
+    });
+    cleanup.userIds.push(coordinator.id);
+    const fixture = await seedFixture(coordinator.id, cleanup);
+
+    const secondVenueName = `PTR-138 Hall ${randomUUID()}`;
+    const [secondVenue] = await database
+      .insert(schema.venues)
+      .values({
+        name: secondVenueName,
+        location: "Request Wing",
+        maxCapacity: 80,
+        operatingHours: DEFAULT_OPERATING_HOURS,
+      })
+      .returning({ id: schema.venues.id });
+    cleanup.venueIds.push(secondVenue.id);
+
+    await page.goto(`/venues/${fixture.venueId}?eventId=${fixture.eventId}`);
+    await waitForHydration(page);
+    await page.getByLabel("End time (required)", { exact: true }).fill("12:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
+
+    await page.goto(`/venues/${secondVenue.id}?eventId=${fixture.eventId}`);
+    await waitForHydration(page);
+    await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
+    await page.getByLabel("Start time (required)", { exact: true }).fill("13:00");
+    await page.getByLabel("End time (required)", { exact: true }).fill("15:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
+
+    const rows = await database
+      .select()
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.eventId, fixture.eventId));
+    expect(rows).toHaveLength(2);
+    const statusByVenue = new Map(rows.map(row => [row.venueId, row.status]));
+    expect(statusByVenue.get(fixture.venueId)).toBe("pending");
+    expect(statusByVenue.get(secondVenue.id)).toBe("pending");
+
+    await page.goto(`/events/${fixture.eventId}`);
+    await waitForHydration(page);
+    const venue = page.locator("section#venue");
+    await expect(venue.getByText(fixture.venueName)).toBeVisible();
+    await expect(venue.getByText(secondVenueName)).toBeVisible();
+    await expect(venue.getByText("Pending", { exact: true })).toHaveCount(2);
+  } finally {
+    if (cleanup.userIds.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
+    }
+    if (cleanup.venueIds.length > 0) {
+      await database.delete(schema.venues).where(inArray(schema.venues.id, cleanup.venueIds));
+    }
+  }
+});
+
+/** PTR-138 AC4: one event books two sessions at one venue. The list shows both pending requests
+ * above the form, and a window that overlaps one of them is refused with its window and state.
+ */
+test("[PTR-138] a Coordinator requests two sessions at one venue and an overlapping window is refused", async ({
+  page,
+}) => {
+  const cleanup = { userIds: [] as string[], venueIds: [] as number[] };
+
+  try {
+    const coordinator = await registerAccount(database, page, {
+      role: "event_coordinator",
+      name: "Two Sessions Coordinator",
+      password,
+    });
+    cleanup.userIds.push(coordinator.id);
+    const fixture = await seedFixture(coordinator.id, cleanup);
+
+    await page.goto(`/venues/${fixture.venueId}?eventId=${fixture.eventId}`);
+    await waitForHydration(page);
+    await page.getByLabel("End time (required)", { exact: true }).fill("11:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    const list = page.getByRole("list", { name: `Requests for ${fixture.eventName}` });
+    await expect(list.getByRole("listitem")).toHaveCount(1);
+
+    // The form stays open below the list for the second session.
+    await expect(page.getByRole("heading", { name: "Request another time" })).toBeVisible();
+    await page.getByLabel("Start time (required)", { exact: true }).fill("14:00");
+    await page.getByLabel("End time (required)", { exact: true }).fill("16:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    await expect(list.getByRole("listitem")).toHaveCount(2);
+    await expect(list.getByRole("listitem").nth(0)).toContainText("10 May 2027, 09:00 – 11:00");
+    await expect(list.getByRole("listitem").nth(1)).toContainText("10 May 2027, 14:00 – 16:00");
+
+    await page.getByLabel("Start time (required)", { exact: true }).fill("10:30");
+    await page.getByLabel("End time (required)", { exact: true }).fill("12:00");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+    const panel = page.getByRole("region", { name: `Requests for ${fixture.eventName}` });
+    await expect(panel.getByRole("alert")).toHaveText(
+      `This window overlaps this event's pending request for ${fixture.venueName} on 10 May 2027, 09:00 – 11:00.`
+    );
+    await expect(list.getByRole("listitem")).toHaveCount(2);
+
+    const rows = await database
+      .select({ status: schema.venueRequests.status })
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.eventId, fixture.eventId));
+    expect(rows).toEqual([{ status: "pending" }, { status: "pending" }]);
+  } finally {
+    if (cleanup.userIds.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
+    }
+    if (cleanup.venueIds.length > 0) {
+      await database.delete(schema.venues).where(inArray(schema.venues.id, cleanup.venueIds));
+    }
+  }
+});
+
+/** PTR-138 AC1/AC5: search refuses a breakout room for the event's full attendance. A smaller
+ * session finds it, the request form starts from the search, and the Coordinator edits the
+ * session before sending. The event page then lists the request with its period, session and
+ * state.
+ */
+test("[PTR-138] a Coordinator finds a breakout room in search and requests it for a smaller session", async ({
+  page,
+}) => {
+  const cleanup = { userIds: [] as string[], venueIds: [] as number[] };
+
+  try {
+    const coordinator = await registerAccount(database, page, {
+      role: "event_coordinator",
+      name: "Breakout Coordinator",
+      password,
+    });
+    cleanup.userIds.push(coordinator.id);
+    const organiserId = randomUUID();
+    cleanup.userIds.push(organiserId);
+    await database.insert(schema.user).values({
+      id: organiserId,
+      name: "Breakout Organiser",
+      email: `${organiserId}@example.invalid`,
+      role: "event_organiser",
+    });
+
+    // A location of its own keeps the seeded venues out of the suitable results.
+    const location = `PTR-138 Breakout Wing ${randomUUID()}`;
+    const roomName = `PTR-138 Breakout Room ${randomUUID()}`;
+    const [room] = await database
+      .insert(schema.venues)
+      .values({
+        name: roomName,
+        location,
+        maxCapacity: 40,
+        operatingHours: DEFAULT_OPERATING_HOURS,
+        supportedLayouts: ["theatre"],
+        facilities: ["Projector"],
+      })
+      .returning({ id: schema.venues.id });
+    cleanup.venueIds.push(room.id);
+
+    const eventName = `PTR-138 Conference ${randomUUID()}`;
+    const [event] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId,
+        eventName,
+        status: "submitted",
+        submittedAt: new Date(),
+        assignedCoordinatorId: coordinator.id,
+        assignedAt: new Date(),
+        proposedDates: [{ start: "2027-05-10T09:00", end: "2027-05-10T17:00" }],
+        expectedAttendance: 120,
+        roomLayoutPreference: "Theatre seating",
+        venueRequirements: "Projector",
+      })
+      .returning({ id: schema.eventRequests.id });
+
+    await page.goto(`/events/${event.id}`);
+    await waitForHydration(page);
+    await page
+      .locator("section#venue")
+      .getByRole("link", { name: "Find venues for this event", exact: true })
+      .click();
+    await expect(page.getByText(`Prefilled from ${eventName}`, { exact: true })).toBeVisible();
+
+    // The room cannot hold the event's 120 attendees, so search offers it no request.
+    const unsuitable = page.getByRole("region", { name: "Not suitable" });
+    await expect(unsuitable.getByRole("row", { name: new RegExp(roomName) })).toContainText(
+      "Holds 40; 120 needed"
+    );
+
+    await page.getByLabel("Expected attendance", { exact: true }).fill("30");
+    await page.getByLabel("Location", { exact: true }).fill(location);
+    await page.getByRole("button", { name: "Search venues", exact: true }).click();
+    const results = page.getByRole("region", { name: "Venue results" });
+    await results.getByRole("link", { name: roomName, exact: true }).click();
+    await waitForHydration(page);
+
+    // The form starts from the search: its window and the smaller session.
+    await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
+    await expect(page.getByLabel("Date (required)", { exact: true })).toHaveValue("2027-05-10");
+    await expect(page.getByLabel("Expected attendance", { exact: true })).toHaveValue("30");
+    await expect(page.getByLabel("Layout", { exact: true })).toHaveValue("Theatre seating");
+    await expect(page.getByLabel("Facilities", { exact: true })).toHaveValue("Projector");
+
+    await page.getByLabel("Start time (required)", { exact: true }).fill("13:00");
+    await page.getByLabel("End time (required)", { exact: true }).fill("14:30");
+    await page.getByLabel("Expected attendance", { exact: true }).fill("25");
+    await page.getByRole("button", { name: "Send booking request" }).click();
+
+    const list = page.getByRole("list", { name: `Requests for ${eventName}` });
+    await expect(list.getByRole("listitem")).toHaveCount(1);
+    await expect(list.getByRole("listitem")).toContainText("10 May 2027, 13:00 – 14:30");
+    await expect(list.getByRole("listitem")).toContainText("Pending");
+    await expect(list.getByRole("listitem")).toContainText("25 attendees");
+
+    const rows = await database
+      .select()
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.eventId, event.id));
+    expect(rows).toEqual([
+      expect.objectContaining({
+        venueId: room.id,
+        status: "pending",
+        startsAt: "2027-05-10 13:00:00",
+        endsAt: "2027-05-10 14:30:00",
+        expectedAttendance: 25,
+        layout: "Theatre seating",
+        requiredFacilities: "Projector",
+      }),
+    ]);
+
+    await page.goto(`/events/${event.id}`);
+    await waitForHydration(page);
+    const venue = page.locator("section#venue");
+    await expect(venue.getByText(roomName, { exact: true })).toBeVisible();
+    await expect(venue).toContainText(/10 May 2027, 13:00\s?–\s?14:30/);
+    await expect(venue).toContainText("25 attendees");
+    await expect(venue.getByText("Pending", { exact: true })).toBeVisible();
+  } finally {
     if (cleanup.userIds.length > 0) {
       await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
     }

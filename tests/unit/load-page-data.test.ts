@@ -8,7 +8,7 @@ const {
   mockGetEventRequest,
   mockGetCoordinationRequest,
   mockListCoordinators,
-  mockGetPendingVenueRequest,
+  mockGetPendingVenueRequestsForEvent,
   mockListVenueOptions,
   mockListEquipmentTypes,
   mockWarn,
@@ -19,7 +19,7 @@ const {
   mockGetEventRequest: vi.fn<() => Promise<unknown>>(),
   mockGetCoordinationRequest: vi.fn<() => Promise<unknown>>(),
   mockListCoordinators: vi.fn<() => Promise<unknown[]>>(),
-  mockGetPendingVenueRequest: vi.fn<() => Promise<unknown>>(),
+  mockGetPendingVenueRequestsForEvent: vi.fn<() => Promise<unknown>>(),
   mockListVenueOptions: vi.fn<() => Promise<unknown[]>>(),
   mockListEquipmentTypes: vi.fn<() => Promise<unknown>>(),
   mockWarn: vi.fn<(...args: unknown[]) => void>(),
@@ -38,7 +38,7 @@ vi.mock("#/features/coordination/server-fns", () => ({
   listCoordinators: mockListCoordinators,
 }));
 vi.mock("#/features/venue-requests/server-fns", () => ({
-  getPendingVenueRequest: mockGetPendingVenueRequest,
+  getPendingVenueRequestsForEvent: mockGetPendingVenueRequestsForEvent,
 }));
 vi.mock("#/features/venues/server-fns", () => ({
   listVenueOptions: mockListVenueOptions,
@@ -51,6 +51,16 @@ vi.mock("#/lib/logger", () => ({
 }));
 
 const VIEWER_ID = "viewer-1";
+
+/** One pending venue request entry as the projection lists it. */
+const PENDING_ENTRY = {
+  id: "vr-1",
+  status: "pending",
+  venueName: "Hall A",
+  date: "2026-11-21",
+  startTime: "18:00",
+  endTime: "22:00",
+};
 
 function projection(access: string, event: Record<string, unknown> = {}) {
   return {
@@ -73,7 +83,7 @@ beforeEach(() => {
     mockGetEventRequest,
     mockGetCoordinationRequest,
     mockListCoordinators,
-    mockGetPendingVenueRequest,
+    mockGetPendingVenueRequestsForEvent,
     mockListVenueOptions,
     mockListEquipmentTypes,
   ]) {
@@ -249,14 +259,18 @@ describe("loadEventPageData", () => {
     });
   });
 
-  it("gathers the venue decision and the venue options for a pending request", async () => {
+  it("loads every pending request of the event in one read, with the venue options once", async () => {
     const event = projection("venue_staff", {
-      venueRequest: { id: "vr-1", status: "pending", venueName: "Hall A" },
+      venueRequests: [
+        PENDING_ENTRY,
+        { ...PENDING_ENTRY, id: "vr-2", status: "approved", venueName: "Hall B" },
+        { ...PENDING_ENTRY, id: "vr-3", venueName: "Hall C" },
+      ],
     });
-    const request = { id: "vr-1" };
+    const requests = [{ id: "vr-1" }, { id: "vr-3" }];
     const venues = [{ id: 3, name: "Hall A" }];
     mockListEvents.mockResolvedValue([event]);
-    mockGetPendingVenueRequest.mockResolvedValue(request);
+    mockGetPendingVenueRequestsForEvent.mockResolvedValue(requests);
     mockListVenueOptions.mockResolvedValue(venues);
 
     const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
@@ -265,17 +279,17 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       viewerId: VIEWER_ID,
-      venueDecision: { request, venues },
+      venueDecisions: { requests, venues },
     });
-    expect(mockGetPendingVenueRequest).toHaveBeenCalledWith({ data: { id: "vr-1" } });
+    expect(mockGetPendingVenueRequestsForEvent).toHaveBeenCalledOnce();
+    expect(mockGetPendingVenueRequestsForEvent).toHaveBeenCalledWith({ data: { eventId: 7 } });
+    expect(mockListVenueOptions).toHaveBeenCalledOnce();
   });
 
   it("offers no venue options to staff without the decide permission", async () => {
-    const event = projection("venue_staff", {
-      venueRequest: { id: "vr-1", status: "pending", venueName: "Hall A" },
-    });
+    const event = projection("venue_staff", { venueRequests: [PENDING_ENTRY] });
     mockListEvents.mockResolvedValue([event]);
-    mockGetPendingVenueRequest.mockResolvedValue({ id: "vr-1" });
+    mockGetPendingVenueRequestsForEvent.mockResolvedValue([{ id: "vr-1" }]);
 
     const data = await loadEventPageData(7, "attendee", VIEWER_ID);
 
@@ -283,44 +297,58 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       viewerId: VIEWER_ID,
-      venueDecision: { request: { id: "vr-1" }, venues: [] },
+      venueDecisions: { requests: [{ id: "vr-1" }], venues: [] },
     });
     expect(mockListVenueOptions).not.toHaveBeenCalled();
   });
 
-  it("skips the decision fetch once the request is decided", async () => {
+  it("skips the decision fetch once no request is pending", async () => {
     const event = projection("venue_staff", {
-      venueRequest: { id: "vr-2", status: "approved", venueName: "Hall A" },
+      venueRequests: [{ ...PENDING_ENTRY, id: "vr-2", status: "approved" }],
     });
     mockListEvents.mockResolvedValue([event]);
 
     const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
 
     expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
-    expect(mockGetPendingVenueRequest).not.toHaveBeenCalled();
+    expect(mockGetPendingVenueRequestsForEvent).not.toHaveBeenCalled();
     expect(mockListVenueOptions).not.toHaveBeenCalled();
   });
 
-  it("degrades to no venueDecision when the pending request settles mid-load", async () => {
-    const event = projection("venue_staff", {
-      venueRequest: { id: "vr-1", status: "pending", venueName: "Hall A" },
-    });
+  it("skips the decision fetch when the event carries no requests", async () => {
+    const event = projection("venue_staff", {});
     mockListEvents.mockResolvedValue([event]);
-    mockGetPendingVenueRequest.mockResolvedValue(null);
+
+    const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
+
+    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    expect(mockGetPendingVenueRequestsForEvent).not.toHaveBeenCalled();
+    expect(mockListVenueOptions).not.toHaveBeenCalled();
+  });
+
+  it("keeps an empty request list when every pending request settled before the read", async () => {
+    const event = projection("venue_staff", { venueRequests: [PENDING_ENTRY] });
+    mockListEvents.mockResolvedValue([event]);
+    mockGetPendingVenueRequestsForEvent.mockResolvedValue([]);
     mockListVenueOptions.mockResolvedValue([]);
 
     const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    // A settled request is an ordinary answer, so the page can tell it from a failed read.
+    expect(data).toEqual({
+      kind: "event",
+      event,
+      viewerId: VIEWER_ID,
+      venueDecisions: { requests: [], venues: [] },
+    });
     expect(mockWarn).not.toHaveBeenCalled();
   });
 
-  it("logs and degrades to no venueDecision when the decision read fails", async () => {
-    const event = projection("venue_staff", {
-      venueRequest: { id: "vr-1", status: "pending", venueName: "Hall A" },
-    });
+  it("logs and leaves venueDecisions unset when the request read fails", async () => {
+    const event = projection("venue_staff", { venueRequests: [PENDING_ENTRY] });
     mockListEvents.mockResolvedValue([event]);
-    mockGetPendingVenueRequest.mockRejectedValue(new Error("venue store down"));
+    mockGetPendingVenueRequestsForEvent.mockRejectedValue(new Error("venue store down"));
+    mockListVenueOptions.mockResolvedValue([]);
 
     const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
 

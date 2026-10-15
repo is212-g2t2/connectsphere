@@ -7,31 +7,41 @@ import { getVenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
 import { VenueDetailPageSkeleton } from "#/features/venues/components/venue-detail-page-skeleton";
-import { TIME_SHAPE, VenueIdInput } from "#/features/venues/schema";
+import { TIME_SHAPE, VENUE_SEARCH_TEXT_MAX_LENGTH, VenueIdInput } from "#/features/venues/schema";
 import { getVenue } from "#/features/venues/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/venues/$venueId")({
   head: () => createSeoHead({ title: "Venue — ConnectSphere", noindex: true }),
-  // Keep `saved` as a string, as in `reset-password.tsx`. A hand-typed `?saved=abc` must not cause a route error.
-  // `eventId` supplies PTR-31 context when the venue search includes it. The router converts
-  // `?eventId=12` to a number, so the schema coerces it. Treat failed coercion as no context.
-  // `date`, `startTime`, and `endTime` prefill an adjusted request from the rejection card.
-  // Drop hand-typed values that are not a civil date or `HH:MM`.
   validateSearch: z.object({
+    // Keep `saved` as a string, as in `reset-password.tsx`. A hand-typed `?saved=abc` must not
+    // cause a route error.
     saved: z.string().optional(),
+    // `eventId` supplies PTR-31 context when the venue search includes it. The router converts
+    // `?eventId=12` to a number, so the schema coerces it. Treat failed coercion as no context.
     eventId: z.coerce.number().int().positive().optional().catch(undefined),
+    // The window and the session requirements prefill the request form from the venue search or
+    // the rejection card (PTR-35, PTR-138 AC1). Drop hand-typed values that are not a civil date,
+    // `HH:MM`, a positive attendance, or text within the search's length.
     date: z.iso.date().optional().catch(undefined),
     startTime: z.string().regex(TIME_SHAPE).optional().catch(undefined),
     endTime: z.string().regex(TIME_SHAPE).optional().catch(undefined),
+    expectedAttendance: z.coerce.number().pipe(z.int32().positive()).optional().catch(undefined),
+    layout: z.string().max(VENUE_SEARCH_TEXT_MAX_LENGTH).optional().catch(undefined),
+    accessibilityRequirements: z
+      .string()
+      .max(VENUE_SEARCH_TEXT_MAX_LENGTH)
+      .optional()
+      .catch(undefined),
+    requiredFacilities: z.string().max(VENUE_SEARCH_TEXT_MAX_LENGTH).optional().catch(undefined),
   }),
   beforeLoad: ({ context }) => {
     if (!can(context.user.role, { venue: ["read"] })) {
       throw redirect({ to: "/dashboard" });
     }
   },
-  // Only `eventId` reruns the loader. The component reads `saved` and the prefill window, so they do not reload data.
+  // Only `eventId` reruns the loader. The component reads `saved` and the prefill values, so they do not reload data.
   // The loader context carries only params, so `eventId` arrives as `deps`.
   loaderDeps: ({ search }) => ({ eventId: search.eventId }),
   loader: async ({
@@ -84,19 +94,15 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
   },
   component: () => {
     const { venue, requestContext, requestContextFailed } = Route.useLoaderData();
-    const search = Route.useSearch();
+    const { saved, eventId: _eventId, ...prefill } = Route.useSearch();
     return (
       <VenueDetailPage
         venue={venue}
         requestContext={requestContext}
         requestContextFailed={requestContextFailed}
         user={Route.useRouteContext().user}
-        justCreated={search.saved === "true"}
-        prefill={
-          search.date && search.startTime && search.endTime
-            ? { date: search.date, startTime: search.startTime, endTime: search.endTime }
-            : null
-        }
+        justCreated={saved === "true"}
+        prefill={prefill}
       />
     );
   },

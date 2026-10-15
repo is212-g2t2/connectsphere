@@ -1,7 +1,16 @@
 import { z } from "zod";
 
 import { formatLocalDateTime } from "#/features/event-requests/format";
-import { TIME_SHAPE, VENUE_ID_MESSAGE, VENUE_SEARCH_EVENT_MESSAGE } from "#/features/venues/schema";
+import {
+  LAYOUT_MESSAGE,
+  TIME_SHAPE,
+  VENUE_ID_MESSAGE,
+  VENUE_SEARCH_ATTENDANCE_MESSAGE,
+  VENUE_SEARCH_EVENT_MESSAGE,
+  VENUE_SEARCH_TEXT_MAX_LENGTH,
+  layoutLabel,
+  parseLayouts,
+} from "#/features/venues/schema";
 
 /**
  * Routes and the form import this module. Keep it free of `#/db/schema` and other server-only dependencies.
@@ -11,9 +20,12 @@ export const VENUE_REQUEST_DATE_MESSAGE = "Choose a date";
 export const VENUE_REQUEST_TIME_MESSAGE = "Enter start and end times as HH:MM";
 export const VENUE_REQUEST_TIME_ORDER_MESSAGE = "End time must be later than start time";
 export const VENUE_REQUEST_ID_MESSAGE = "Choose a booking request";
-/** The partial unique index on `(event_id, venue_id)` answers with this rather than a driver error. */
+/**
+ * An exact double-submit gets this message, not a driver error: the same-event overlap check names
+ * it, and the partial unique index on `(event_id, venue_id, starts_at, ends_at)` backs it.
+ */
 export const VENUE_REQUEST_DUPLICATE_MESSAGE =
-  "A request for this venue is already pending for this event";
+  "This event already has a pending request for this venue and window.";
 export const VENUE_REQUEST_SETTLED_MESSAGE =
   "This request has already been settled and can no longer be withdrawn.";
 /** PTR-36: a request that is no longer pending cannot be approved again. */
@@ -65,9 +77,44 @@ export function venueRequestConflictMessage(
   return `${conflict.venueName} is ${phrase} ${start} – ${end}`;
 }
 
+/**
+ * PTR-138 AC1: the session requirements that one venue request carries. They start from the
+ * event's requirements. Blank text states no requirement. Attendance is null when neither the
+ * session nor the event states one.
+ */
+export interface SessionRequirements {
+  expectedAttendance: number | null;
+  layout: string;
+  accessibilityRequirements: string;
+  requiredFacilities: string;
+}
+
 const Time = z.string().regex(TIME_SHAPE, VENUE_REQUEST_TIME_MESSAGE);
 const EventId = z.int32({ error: VENUE_SEARCH_EVENT_MESSAGE }).positive(VENUE_SEARCH_EVENT_MESSAGE);
 const VenueId = z.int32({ error: VENUE_ID_MESSAGE }).positive(VENUE_ID_MESSAGE);
+const REQUIREMENT_TOO_LONG_MESSAGE = `Enter ${VENUE_SEARCH_TEXT_MAX_LENGTH} characters or fewer for each requirement`;
+const RequirementText = z
+  .string()
+  .trim()
+  .max(VENUE_SEARCH_TEXT_MAX_LENGTH, REQUIREMENT_TOO_LONG_MESSAGE);
+
+/**
+ * PTR-138 AC1: the optional session requirements of a new request. An absent key takes the
+ * event's requirement. Blank text states no requirement. A layout must name a supported layout,
+ * as the search requires, so a typo cannot fail every venue.
+ */
+const SessionRequirementShape = {
+  expectedAttendance: z
+    .int32({ error: VENUE_SEARCH_ATTENDANCE_MESSAGE })
+    .positive(VENUE_SEARCH_ATTENDANCE_MESSAGE)
+    .optional(),
+  layout: RequirementText.refine(
+    value => value === "" || parseLayouts(value).length > 0,
+    LAYOUT_MESSAGE
+  ).optional(),
+  accessibilityRequirements: RequirementText.optional(),
+  requiredFacilities: RequirementText.optional(),
+};
 
 /**
  * PTR-31 criterion 1: Require a venue, date, start time, and end time. Fixed-width `HH:MM` strings
@@ -82,6 +129,7 @@ export const VenueRequestInput = z
     date: z.iso.date({ error: VENUE_REQUEST_DATE_MESSAGE }),
     startTime: Time,
     endTime: Time,
+    ...SessionRequirementShape,
   })
   .refine(value => `${value.date}T${value.endTime}` > `${value.date}T${value.startTime}`, {
     path: ["endTime"],
@@ -90,8 +138,95 @@ export const VenueRequestInput = z
 
 export type VenueRequestValues = z.infer<typeof VenueRequestInput>;
 
-/** The window an adjusted request arrives with, shape-validated by the route's search schema. */
-export type VenueRequestPrefill = Pick<VenueRequestValues, "date" | "startTime" | "endTime">;
+/** The session requirements a request or a hold conversion may state. */
+export type SessionRequirementInput = Pick<
+  VenueRequestValues,
+  "expectedAttendance" | "layout" | "accessibilityRequirements" | "requiredFacilities"
+>;
+
+/**
+ * What the venue page carries into the request form: the search's window and session values, or
+ * an adjusted request's (PTR-35). The route's search schema checks the shape of each value.
+ */
+export type VenueRequestPrefill = Partial<
+  Pick<VenueRequestValues, "date" | "startTime" | "endTime"> & SessionRequirementInput
+>;
+
+/** The session requirements as the request and hold-conversion forms hold them: text. */
+export interface SessionRequirementFormValues {
+  expectedAttendance: string;
+  layout: string;
+  accessibilityRequirements: string;
+  requiredFacilities: string;
+}
+
+/** The session inputs that both forms show, in order, with the search's wording. */
+export const SESSION_REQUIREMENT_INPUTS: readonly {
+  name: keyof SessionRequirementFormValues;
+  label: string;
+  type: "number" | "text";
+  placeholder?: string;
+}[] = [
+  { name: "expectedAttendance", label: "Expected attendance", type: "number" },
+  { name: "layout", label: "Layout", type: "text", placeholder: "Theatre, classroom, banquet…" },
+  {
+    name: "accessibilityRequirements",
+    label: "Accessibility",
+    type: "text",
+    placeholder: "Comma-separated features",
+  },
+  {
+    name: "requiredFacilities",
+    label: "Facilities",
+    type: "text",
+    placeholder: "Comma-separated facilities",
+  },
+];
+
+/** Start the session inputs from stated requirements. A null attendance shows as a blank input. */
+export function sessionRequirementFormValues(
+  requirements: SessionRequirements
+): SessionRequirementFormValues {
+  return {
+    expectedAttendance:
+      requirements.expectedAttendance === null ? "" : String(requirements.expectedAttendance),
+    layout: requirements.layout,
+    accessibilityRequirements: requirements.accessibilityRequirements,
+    requiredFacilities: requirements.requiredFacilities,
+  };
+}
+
+/**
+ * Read the session inputs as request input. A blank attendance leaves the key out, so the server
+ * uses the event's figure. Blank text stays, because it states no requirement.
+ */
+export function sessionRequirementInput(
+  values: SessionRequirementFormValues
+): SessionRequirementInput {
+  const attendance = values.expectedAttendance.trim();
+  return {
+    ...(attendance === "" ? {} : { expectedAttendance: Number(attendance) }),
+    layout: values.layout,
+    accessibilityRequirements: values.accessibilityRequirements,
+    requiredFacilities: values.requiredFacilities,
+  };
+}
+
+/**
+ * PTR-138 AC1: name a session by its attendance and layout (`layoutLabel`), for example "30
+ * attendees, Boardroom". Return "" when the session states neither.
+ */
+export function formatSessionSummary(
+  requirements: Pick<SessionRequirements, "expectedAttendance" | "layout">
+): string {
+  const parts: string[] = [];
+  const attendance = requirements.expectedAttendance;
+  if (attendance !== null)
+    parts.push(`${attendance} ${attendance === 1 ? "attendee" : "attendees"}`);
+  const layout = requirements.layout.trim();
+  if (layout) parts.push(layoutLabel(layout));
+  return parts.join(", ");
+}
 
 /** The venue page's selection: which event and venue the request panel is asking about. */
 export const VenueRequestContextInput = z.object({ eventId: EventId, venueId: VenueId });
@@ -115,6 +250,42 @@ export const VenueRequestIdInput = z.object(
 
 export type VenueRequestId = z.infer<typeof VenueRequestIdInput>;
 
+/**
+ * PTR-138 AC1: convert a hold with the session requirements that the new request carries. An
+ * absent requirement takes the event's requirement, as for a new request.
+ */
+export const VenueHoldConversionInput = z.object(
+  { id: VenueRequestIdInput.shape.id, ...SessionRequirementShape },
+  { error: VENUE_REQUEST_ID_MESSAGE }
+);
+
+export type VenueHoldConversion = z.infer<typeof VenueHoldConversionInput>;
+
+export function parseVenueHoldConversion(data: unknown): VenueHoldConversion {
+  const parsed = VenueHoldConversionInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+/**
+ * Validate a form's input with the server's schema. Mark each field with its first issue, in the
+ * shape that a TanStack Form `onSubmit` validator returns. Return `undefined` for valid input.
+ */
+export function formIssues(
+  schema: z.ZodType,
+  input: unknown
+): { fields: Record<string, { message: string }> } | undefined {
+  const parsed = schema.safeParse(input);
+  if (parsed.success) return undefined;
+  const fields: Record<string, { message: string }> = {};
+  for (const issue of parsed.error.issues) {
+    fields[String(issue.path[0])] ??= { message: issue.message };
+  }
+  return { fields };
+}
+
 /** Server-function and form boundary: typed values or the first readable refusal. */
 export function parseVenueRequestInput(data: unknown): VenueRequestValues {
   const parsed = VenueRequestInput.safeParse(data);
@@ -134,6 +305,17 @@ export function parseVenueRequestId(data: unknown): VenueRequestId {
 
 export function parseVenueRequestContext(data: unknown): VenueRequestContextSelection {
   const parsed = VenueRequestContextInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+/** The Venue Staff event page's selection: the event whose pending requests it decides. */
+export const VenueRequestEventInput = z.object({ eventId: EventId });
+
+export function parseVenueRequestEventInput(data: unknown): z.infer<typeof VenueRequestEventInput> {
+  const parsed = VenueRequestEventInput.safeParse(data);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0].message);
   }
@@ -241,6 +423,47 @@ export function formatVenueSuggestion(
   return parts.join(", ");
 }
 
+/** The states of one venue request, as the `venue_request_status` enum stores them. */
+export type VenueRequestStatus = "pending" | "withdrawn" | "approved" | "rejected" | "released";
+
+/** PTR-138: the plain-language label every screen shows for a venue-request state. */
+export const VENUE_REQUEST_STATUS_LABELS: Record<VenueRequestStatus, string> = {
+  pending: "Pending",
+  withdrawn: "Withdrawn",
+  approved: "Approved",
+  rejected: "Rejected",
+  released: "Released",
+};
+
+/**
+ * PTR-36, PTR-138 AC1: why approval would refuse a pending request now. It overlaps an approved
+ * booking or a held hold once the buffers count, or the venue cannot host its window: the venue is
+ * closed then, or a recorded block overlaps it.
+ */
+export type VenueRequestConflict = "booking" | "hold" | "unavailable";
+
+/** The badge label for each conflict kind. */
+export const VENUE_REQUEST_CONFLICT_LABELS: Record<VenueRequestConflict, string> = {
+  booking: "Conflicting booking",
+  hold: "Conflicting hold",
+  unavailable: "Venue unavailable",
+};
+
+/**
+ * Map each venue-request state to a `Badge` variant, as `EVENT_REQUEST_STATUS_VARIANTS` does.
+ * Use `progress` (amber) for a request that waits, `confirmed` (harbor) for a held booking, and
+ * `stopped` (coral) for a refused or released one. A withdrawn request is neutral `outline`.
+ */
+type VenueRequestStatusVariant = "outline" | "progress" | "confirmed" | "stopped";
+export const VENUE_REQUEST_STATUS_VARIANTS: Record<VenueRequestStatus, VenueRequestStatusVariant> =
+  {
+    pending: "progress",
+    withdrawn: "outline",
+    approved: "confirmed",
+    rejected: "stopped",
+    released: "stopped",
+  };
+
 export function parseVenueRejectionInput(data: unknown): VenueRejectionValues {
   const parsed = VenueRejectionInput.safeParse(data);
   if (!parsed.success) {
@@ -278,12 +501,30 @@ export function venueHoldConflictMessage(conflict: {
 }
 
 /**
- * List venue-conflict messages so the client can distinguish conflicts from other failures
- * without matching the full text. Include named booking or hold messages and the generic
- * fallback. `venueRequestConflictMessage` and `VENUE_OCCUPANCY_CONFLICT_MESSAGE` say "already
- * booked"; `venueHoldConflictMessage` says "tentatively held".
+ * PTR-138 AC1: the phrase of the refusal for a window that the venue cannot host, because it is
+ * closed then or a recorded block overlaps it. Approval and amendment give it.
  */
-export const VENUE_CONFLICT_PHRASES = ["already booked", "tentatively held"] as const;
+export const VENUE_UNAVAILABLE_PHRASE = "cannot host this window";
+
+/** PTR-138 AC1: the phrase of the refusal for a venue that fails a session's requirements. */
+export const VENUE_REQUIREMENTS_PHRASE = "does not meet this session's requirements";
+
+/** PTR-138: the phrase of the refusal for an event outside `SEARCHABLE_EVENT_STATUSES`. */
+export const VENUE_EVENT_STATUS_PHRASE = "cannot take a new venue booking";
+
+/**
+ * List the phrases of the approval refusals that name a reason, so the approve button can show
+ * them and hide other failures without matching the full text. `venueRequestConflictMessage` and
+ * `VENUE_OCCUPANCY_CONFLICT_MESSAGE` say "already booked"; `venueHoldConflictMessage` says
+ * "tentatively held". The other phrases are above.
+ */
+export const VENUE_CONFLICT_PHRASES = [
+  "already booked",
+  "tentatively held",
+  VENUE_UNAVAILABLE_PHRASE,
+  VENUE_REQUIREMENTS_PHRASE,
+  VENUE_EVENT_STATUS_PHRASE,
+] as const;
 
 export function isVenueConflictMessage(message: string): boolean {
   return VENUE_CONFLICT_PHRASES.some(phrase => message.includes(phrase));

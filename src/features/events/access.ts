@@ -1,7 +1,12 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schema";
 import type { RegistrationAvailability } from "#/features/events/registration";
-import type { VenueSuggestion } from "#/features/venue-requests/schema";
+import type {
+  SessionRequirements,
+  VenueRequestConflict,
+  VenueRequestStatus,
+  VenueSuggestion,
+} from "#/features/venue-requests/schema";
 
 export type EventAccess =
   | "organiser"
@@ -125,48 +130,55 @@ interface EventRecord {
 
 /**
  * PTR-34 criterion 3: Data about a rejected request for the Coordinator. Keep planning without a
- * new request. `venueName`, `date`, `startTime`, and `endTime` identify the rejected booking, not
- * the suggestion. This lets the Coordinator tell which booking a reason refers to. `suggestion`
- * is null when Venue Staff made no suggestion. Missing suggestion fields are also null. Times use
+ * new request. The entry that carries it names the rejected venue and window. `suggestion` is
+ * null when Venue Staff made no suggestion. Missing suggestion fields are also null. Times use
  * `HH:MM` format.
  */
 export interface VenueRequestRejection {
   /** The rejected venue's id, so an adjusted request can fall back to it. */
   venueId: number;
-  venueName: string;
-  date: string;
-  startTime: string;
-  endTime: string;
   reason: string;
   suggestion: VenueSuggestion | null;
   /** The suggested venue's id when Venue Staff named one; the adjusted request opens there. */
   suggestedVenueId: number | null;
 }
 
-/** Keep released bookings visible to Coordinators as audit records. */
+/**
+ * Keep released bookings visible to Coordinators as audit records. The entry that carries the
+ * release names its venue and window.
+ */
 export interface VenueRequestRelease {
-  venueName: string;
-  date: string;
-  startTime: string;
-  endTime: string;
   reason: string;
   changedByName: string | null;
 }
 
 /**
- * The venue request shown on an event card. `conflict` is present only when a pending request
- * overlaps an approved booking (PTR-36). `rejection` is the latest rejection. Only the assigned
- * Coordinator sees it. Keep it beside a newer pending request to explain the adjustment (PTR-34).
+ * One venue booking request on an event card. An event can have several venue requests, one row
+ * for each event, venue and window. `conflict` is present only on a pending request that overlaps
+ * the ledger or that the venue cannot host (PTR-36, PTR-138 AC1). Only a rejected row has
+ * `rejection`, and only a released row has `release`.
+ *
+ * Each role sees a different set of rows. The visibility filter in `handleListEvents`
+ * (`events/records.server.ts`) states the rule.
  */
 export interface EventVenueRequest {
   /** The venue_requests row id (text), so the venue-staff decision can load its detail. */
   id: string;
-  status: string;
-  /** The venue-staff card titles the card with this when the projection carries it. */
-  venueName?: string | null;
-  conflict?: "booking" | "hold";
+  status: VenueRequestStatus;
+  /** The requested venue's name. */
+  venueName: string;
+  /** The requested window: date as `YYYY-MM-DD`, times as `HH:MM`. */
+  date: string;
+  startTime: string;
+  endTime: string;
+  /** Coordinator only (PTR-138 AC1): the session requirements that the request carries. */
+  requirements?: SessionRequirements;
+  conflict?: VenueRequestConflict;
   rejection?: VenueRequestRejection;
   release?: VenueRequestRelease;
+  /** Coordinator only (PTR-35): set on a rejected entry while the Coordinator can still adjust
+   * it. Other entries omit the field. */
+  adjustable?: true;
 }
 
 /**
@@ -285,7 +297,9 @@ export interface EventProjection {
     /** PTR-50: whether the Attendee can register now and, when not, why. */
     registrationAvailability?: RegistrationAvailability | null;
     venue?: EventVenue | null;
-    venueRequest?: EventVenueRequest | null;
+    /** One entry per non-withdrawn venue request, ordered by start time. Omitted for Attendees
+     * and Technical Support. */
+    venueRequests?: EventVenueRequest[];
     equipment?: EquipmentLineProjection[];
     confirmation?: EventConfirmation | null;
     /** Why the Coordinator cannot complete this confirmed event now; null means it is eligible. */
@@ -335,7 +349,7 @@ export function projectEvent(
   access: EventAccess,
   ownRegistration: { status: string; registeredAt: string } | null,
   equipment: EquipmentLineProjection[],
-  venueRequest: EventVenueRequest | null,
+  venueRequests: EventVenueRequest[],
   currentVenue: EventConfirmation["venue"] = null,
   places: EventPlaces | null = null,
   completionUnavailableReason?: string | null,
@@ -376,7 +390,7 @@ export function projectEvent(
           layout: record.roomLayoutPreference,
           accessibilityRequirements: record.accessibilityRequirements,
           requiredFacilities: record.venueRequirements,
-          venueRequest,
+          venueRequests,
         },
       };
 
@@ -434,7 +448,7 @@ export function projectEvent(
                 }
               : {}),
           })),
-          venueRequest,
+          venueRequests,
           equipmentSubmittedAt: record.equipmentSubmittedAt?.toISOString() ?? null,
           ...(access === "coordinator"
             ? {

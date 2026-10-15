@@ -55,6 +55,15 @@ export function parseLayouts(value: string): VenueLayout[] {
   return VENUE_LAYOUTS.filter(layout => words.has(layout));
 }
 
+/**
+ * Show a layout preference by the labels of the layouts it names, for example "Theatre seating" as
+ * "Theatre". Show text that names no layout as stored.
+ */
+export function layoutLabel(value: string): string {
+  const named = parseLayouts(value).map(layout => LAYOUT_LABELS[layout]);
+  return named.length > 0 ? named.join(", ") : value;
+}
+
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
@@ -320,7 +329,8 @@ export const AVAILABILITY_MAX_DAYS = 366;
 export const AVAILABILITY_ORDER_MESSAGE = "End date must be on or after start date";
 export const AVAILABILITY_RANGE_MESSAGE = `Choose a range of ${AVAILABILITY_MAX_DAYS} days or fewer`;
 const MILLISECONDS_PER_DAY = 86_400_000;
-const VENUE_SEARCH_TEXT_MAX_LENGTH = 2000;
+/** The longest free-text requirement that search and a venue request accept. */
+export const VENUE_SEARCH_TEXT_MAX_LENGTH = 2000;
 
 function isWithinAvailabilityRange(startDate: string, endDate: string) {
   return (

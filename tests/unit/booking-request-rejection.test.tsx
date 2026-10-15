@@ -35,7 +35,6 @@ vi.mock("sonner", () => ({ toast: { success, error: toastError } }));
 
 const detail: PendingVenueRequestDetail = {
   id: "request-001",
-  eventId: 41,
   venueId: 3,
   venueName: "Orchid Room",
   startsAt: "2030-11-18T09:30",
@@ -46,7 +45,7 @@ const detail: PendingVenueRequestDetail = {
     eventTiming: "18 Nov 2030, 09:30 – 12:00",
     expectedAttendance: 85,
     layout: "Cabaret",
-    accessibility: "",
+    accessibilityRequirements: "",
     requiredFacilities: "",
   },
 };
@@ -61,7 +60,7 @@ function renderForm() {
 }
 
 const reasonBox = () => screen.getByRole("textbox", { name: /Reason for rejection/ });
-const rejectButton = () => screen.getByRole("button", { name: "Reject request" });
+const rejectButton = () => screen.getByRole("button", { name: /Reject request for Orchid Room/ });
 
 beforeEach(() => {
   approveVenueRequest.mockReset().mockResolvedValue({});

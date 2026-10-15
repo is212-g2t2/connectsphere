@@ -5,8 +5,8 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
-import { handleGetPendingVenueRequest } from "#/features/venue-requests/requests.server";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { handleGetPendingVenueRequestsForEvent } from "#/features/venue-requests/requests.server";
+import { OPEN_EVERY_DAY } from "./venue-hours";
 
 const organiser = {
   id: "ptr32-queue-organiser",
@@ -74,13 +74,13 @@ describe("pending booking request reader (PTR-32)", () => {
           name: VENUE_NAMES[0],
           location: "PTR-32 Wing",
           maxCapacity: 300,
-          operatingHours: DEFAULT_OPERATING_HOURS,
+          operatingHours: OPEN_EVERY_DAY,
         },
         {
           name: VENUE_NAMES[1],
           location: "PTR-32 Wing",
           maxCapacity: 200,
-          operatingHours: DEFAULT_OPERATING_HOURS,
+          operatingHours: OPEN_EVERY_DAY,
         },
       ])
       .returning({ id: schema.venues.id });
@@ -191,13 +191,38 @@ describe("pending booking request reader (PTR-32)", () => {
         createdAt: new Date("2037-04-02T05:00:00Z"),
       },
     ]);
+    // Approval writes a ledger row for its booking (ADR-7). The conflict flag reads that row.
+    await database.insert(schema.venueOccupancy).values({
+      venueId: conflictVenueId,
+      eventId: boundaryEventId,
+      venueRequestId: "ptr32-approved-booking",
+      startsAt: APPROVED_START,
+      endsAt: APPROVED_END,
+    });
   });
 
-  it("maps the live PTR-31 requirement fields and returns null once the request leaves pending", async () => {
-    const detail = await handleGetPendingVenueRequest(
-      { id: "ptr32-pending-overlap" },
+  it("returns every pending request of one event in window order, each with its own conflict", async () => {
+    const requests = await handleGetPendingVenueRequestsForEvent(
+      { eventId },
+      { id: otherStaff.id } as never,
       database as never
     );
+
+    // The tie row starts at 09:00 and the overlapping row at 10:00. Rows of other events and the
+    // withdrawn row stay out.
+    expect(requests.map(request => [request.id, request.conflict])).toEqual([
+      ["ptr32-pending-tie-a", null],
+      ["ptr32-pending-overlap", "booking"],
+    ]);
+  });
+
+  it("maps the live PTR-31 requirement fields and drops a request once it leaves pending", async () => {
+    const requests = await handleGetPendingVenueRequestsForEvent(
+      { eventId },
+      { id: otherStaff.id } as never,
+      database as never
+    );
+    const detail = requests.find(request => request.id === "ptr32-pending-overlap");
 
     expect(detail).toMatchObject({
       id: "ptr32-pending-overlap",
@@ -209,31 +234,49 @@ describe("pending booking request reader (PTR-32)", () => {
         eventTiming: "10 May 2037, 09:00 – 12:00",
         expectedAttendance: null,
         layout: "Theatre",
-        accessibility: "Step-free access.\nReserved seating.",
+        accessibilityRequirements: "Step-free access.\nReserved seating.",
         requiredFacilities: "Projector\nTwo wireless microphones",
       },
     });
-    expect(detail).not.toHaveProperty("eventName");
-    expect(detail).not.toHaveProperty("conflictingEvent");
+    // TC12: Venue Staff never receive the event name or the conflicting event.
+    for (const request of requests) {
+      expect(request).not.toHaveProperty("eventName");
+      expect(request).not.toHaveProperty("conflictingEvent");
+      expect(JSON.stringify(request)).not.toContain("PTR-32 Hidden Event Name");
+      expect(JSON.stringify(request)).not.toContain("PTR-32 Boundary Event");
+    }
 
     await database
       .update(schema.venueRequests)
       .set({ status: "withdrawn" })
       .where(eq(schema.venueRequests.id, "ptr32-pending-overlap"));
 
-    const detailAfterWithdraw = await handleGetPendingVenueRequest(
-      { id: "ptr32-pending-overlap" },
+    const afterWithdraw = await handleGetPendingVenueRequestsForEvent(
+      { eventId },
+      { id: otherStaff.id } as never,
       database as never
     );
-    expect(detailAfterWithdraw).toBeNull();
+    expect(afterWithdraw.map(request => request.id)).toEqual(["ptr32-pending-tie-a"]);
   });
 
   it("surfaces 'Not yet chosen' when the event has no complete proposed window", async () => {
-    const detail = await handleGetPendingVenueRequest(
-      { id: "ptr32assigned-pending" },
+    const [detail] = await handleGetPendingVenueRequestsForEvent(
+      { eventId: incompleteEventId },
+      { id: otherStaff.id } as never,
       database as never
     );
 
+    expect(detail?.id).toBe("ptr32assigned-pending");
     expect(detail?.requirements.eventTiming).toBe("Not yet chosen");
+  });
+
+  it("hides a request assigned to another staff member from the caller", async () => {
+    expect(
+      await handleGetPendingVenueRequestsForEvent(
+        { eventId: incompleteEventId },
+        { id: organiser.id } as never,
+        database as never
+      )
+    ).toEqual([]);
   });
 });

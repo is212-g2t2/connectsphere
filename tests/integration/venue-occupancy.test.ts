@@ -240,15 +240,19 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
   }
 
   /**
-   * Commit a block row from a writer that takes no venue lock, while a handler waits on it in
-   * the exclusion check. The handler's pre-check cannot see the uncommitted row, so only the
-   * constraint can refuse the handler.
+   * Commit a block and its ledger row from a writer that takes no venue lock, while a handler
+   * waits on the row in the exclusion check. The handler's pre-checks cannot see the uncommitted
+   * block, so only the constraint can refuse the handler.
    */
   async function raceUnlockedBlock(handler: () => Promise<unknown>) {
-    const blockId = await insertBlock("10:00", "11:00");
     const client = await pool.connect();
     try {
       await client.query("begin");
+      const inserted = await client.query<{ id: number }>(
+        "insert into venue_unavailability (venue_id, starts_at, ends_at, reason) values ($1, $2, $3, $4) returning id",
+        [hallId, `${DATE} 10:00:00`, `${DATE} 11:00:00`, "PTR-133 block"]
+      );
+      const blockId = inserted.rows[0].id;
       await client.query(
         "insert into venue_occupancy (venue_id, venue_unavailability_id, starts_at, ends_at) values ($1, $2, $3, $4)",
         [hallId, blockId, `${DATE} 10:00:00`, `${DATE} 11:00:00`]
@@ -495,12 +499,17 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
     it("keeps the row when a refused conversion rolls back the release (PTR-134 AC4)", async () => {
       const eventId = await createEvent("PTR-133 duplicate conversion");
       const held = await hold("09:00", "10:00", eventId);
-      // A pending request for the same event and venue makes the conversion's insert fail.
-      await handleCreateVenueRequest(
-        { eventId, venueId: hallId, date: DATE, startTime: "15:00", endTime: "16:00" },
-        coordinator,
-        database as never
-      );
+      // A pending request for the same event, venue and window refuses the conversion after its
+      // release. Creation refuses a request over the event's own hold, so insert it directly.
+      await database.insert(schema.venueRequests).values({
+        id: "ptr-133-duplicate-request",
+        eventId,
+        venueId: hallId,
+        requestedById: users.coordinator.id,
+        startsAt: `${DATE} 09:00:00`,
+        endsAt: `${DATE} 10:00:00`,
+        layout: "",
+      });
 
       await expect(
         handleConvertVenueHold({ id: held.id }, coordinator, database as never)

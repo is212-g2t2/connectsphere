@@ -132,25 +132,36 @@ describe("EventDetailPage", () => {
           {
             kind: "event",
             event: projection("venue_staff", {
-              venueRequest: { id: "vr-1", status: "pending", venueName: "Riverside Loft" },
-            }),
-            venueDecision: {
-              request: {
-                id: "vr-1",
-                venueId: 3,
-                venueName: "Riverside Loft",
-                startsAt: "2026-11-21T18:00",
-                endsAt: "2026-11-21T22:00",
-                submittedAt: new Date("2026-10-14T01:00:00Z"),
-                conflict: null,
-                requirements: {
-                  eventTiming: "21 Nov 2026, 18:00–22:00",
-                  expectedAttendance: 120,
-                  layout: "Cabaret",
-                  accessibility: "Step-free entrance",
-                  requiredFacilities: "6 power drops, WiFi",
+              venueRequests: [
+                {
+                  id: "vr-1",
+                  status: "pending",
+                  venueName: "Riverside Loft",
+                  date: "2026-11-21",
+                  startTime: "18:00",
+                  endTime: "22:00",
                 },
-              },
+              ],
+            }),
+            venueDecisions: {
+              requests: [
+                {
+                  id: "vr-1",
+                  venueId: 3,
+                  venueName: "Riverside Loft",
+                  startsAt: "2026-11-21T18:00",
+                  endsAt: "2026-11-21T22:00",
+                  submittedAt: new Date("2026-10-14T01:00:00Z"),
+                  conflict: null,
+                  requirements: {
+                    eventTiming: "21 Nov 2026, 18:00–22:00",
+                    expectedAttendance: 120,
+                    layout: "Cabaret",
+                    accessibilityRequirements: "Step-free entrance",
+                    requiredFacilities: "6 power drops, WiFi",
+                  },
+                },
+              ],
               venues: [],
             },
           } as unknown as EventPageData
@@ -160,7 +171,7 @@ describe("EventDetailPage", () => {
 
     expect(screen.getByText("venue staff access")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Riverside Loft" })).toBeTruthy();
-    await screen.findByRole("heading", { name: "Booking request details" });
+    await screen.findByRole("heading", { name: /Booking request details/ });
     expect(screen.getByRole("heading", { name: "Record a decision" })).toBeTruthy();
   });
 
@@ -181,14 +192,14 @@ describe("EventDetailPage", () => {
     expect(screen.queryByText("Harbor Hall")).toBeNull();
   });
 
-  it("falls back to Venue request when the event carries no name", async () => {
+  it("falls back to Venue request when the event carries no requests", async () => {
     render(
       <EventDetailPage
         data={{
           kind: "event",
           viewerId: "viewer-1",
           event: projection("venue_staff", {
-            venueRequest: { id: "vr-1", status: "pending" },
+            venueRequests: [],
           }),
         }}
       />
@@ -216,6 +227,7 @@ describe("EventDetailPage", () => {
               changeRequests: [],
               outstandingReleases: null,
               pendingHandover: null,
+              venueRequests: [],
             },
             coordinators: [],
           } as unknown as EventPageData
@@ -248,6 +260,7 @@ describe("EventDetailPage", () => {
               cancellationRequests: [],
               changeRequests: [],
               outstandingReleases: null,
+              venueRequests: [],
             },
             coordinators: [],
           } as unknown as EventPageData

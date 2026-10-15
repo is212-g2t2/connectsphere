@@ -7,9 +7,7 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
-import { loadVenueRequestOutcomesForEvents } from "#/features/venue-requests/records.server";
 import {
-  handleApproveVenueRequest,
   handleCreateVenueRequest,
   handleGetVenueRequestContext,
   handleRejectVenueRequest,
@@ -207,22 +205,42 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
   }
 
   it("carries the venue ids an adjusted request opens with (AC1)", async () => {
-    await rejectedWithSuggestion();
+    const rejected = await rejectedWithSuggestion();
 
-    const outcomes = await loadVenueRequestOutcomesForEvents(database, [eventId]);
-    expect(outcomes.get(eventId)).toMatchObject({
-      status: "rejected",
-      rejection: {
-        venueId: refusedVenueId,
-        suggestedVenueId,
-        suggestion: {
-          venueName: VENUE_NAMES[1],
-          date: "2027-05-11",
-          startTime: "10:00",
-          endTime: "13:30",
+    const [card] = await handleListEvents(
+      { eventId },
+      session(users.coordinator),
+      database as never
+    );
+    expect(card.event.venueRequests).toEqual([
+      {
+        id: rejected.id,
+        status: "rejected",
+        venueName: VENUE_NAMES[0],
+        date: "2027-05-10",
+        startTime: "09:00",
+        endTime: "12:00",
+        // PTR-138 AC1: the adjusted request also carries the rejected session's requirements.
+        requirements: {
+          expectedAttendance: null,
+          layout: "",
+          accessibilityRequirements: "",
+          requiredFacilities: "",
+        },
+        adjustable: true,
+        rejection: {
+          venueId: refusedVenueId,
+          reason: "Closed for floor resurfacing",
+          suggestedVenueId,
+          suggestion: {
+            venueName: VENUE_NAMES[1],
+            date: "2027-05-11",
+            startTime: "10:00",
+            endTime: "13:30",
+          },
         },
       },
-    });
+    ]);
   });
 
   it("queues the adjusted request as a new pending request on the suggested venue (AC2)", async () => {
@@ -238,72 +256,45 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       requestedById: users.coordinator.id,
     });
     expect(adjusted.id).not.toBe(rejected.id);
-    // The suggested venue's panel shows the pending request, which its raiser can withdraw.
+    // The suggested venue's panel lists the pending request, which its raiser can withdraw.
     const context = await handleGetVenueRequestContext(
       { eventId, venueId: suggestedVenueId },
       session(users.coordinator),
       database as never
     );
-    expect(context?.request).toMatchObject({ id: adjusted.id, canWithdraw: true });
+    expect(context?.requests).toEqual([
+      expect.objectContaining({ id: adjusted.id, status: "pending", canWithdraw: true }),
+    ]);
   });
 
   it("keeps the original rejection and its reason beside the pending request (AC3)", async () => {
-    await rejectedWithSuggestion();
-    await adjustRequest();
+    const rejected = await rejectedWithSuggestion();
+    const adjusted = await adjustRequest();
 
     const [card] = await handleListEvents(
       { eventId },
       session(users.coordinator),
       database as never
     );
-    expect(card.event.venueRequest).toMatchObject({
-      status: "pending",
-      rejection: {
-        venueId: refusedVenueId,
+    // Each row keeps its own state: the rejection stays on its row beside the pending request.
+    expect(card.event.venueRequests).toMatchObject([
+      {
+        id: rejected.id,
+        status: "rejected",
         venueName: VENUE_NAMES[0],
-        reason: "Closed for floor resurfacing",
-        suggestedVenueId,
+        rejection: {
+          venueId: refusedVenueId,
+          reason: "Closed for floor resurfacing",
+          suggestedVenueId,
+        },
       },
-    });
-  });
-
-  it("shows the Organiser and Venue Staff the pending request without the rejection", async () => {
-    await rejectedWithSuggestion();
-    await adjustRequest();
-
-    const [organiserCard] = await handleListEvents(
-      { eventId },
-      session(users.organiser),
-      database as never
-    );
-    expect(organiserCard.event.venueRequest).toEqual({
-      id: expect.any(String),
-      status: "pending",
-      venueName: "PTR-35 Suggested Room",
-    });
-    const [staffCard] = await handleListEvents(
-      { eventId },
-      session(users.venueStaff),
-      database as never
-    );
-    expect(staffCard.event.venueRequest).toEqual({
-      id: expect.any(String),
-      status: "pending",
-      venueName: "PTR-35 Suggested Room",
-    });
-  });
-
-  it("surfaces no rejection once a later request is approved", async () => {
-    await rejectedWithSuggestion();
-    const adjusted = await adjustRequest();
-    await handleApproveVenueRequest(
-      { id: adjusted.id },
-      session(users.venueStaff),
-      database as never
-    );
-
-    const outcomes = await loadVenueRequestOutcomesForEvents(database, [eventId]);
-    expect(outcomes.get(eventId)).toBeUndefined();
+      {
+        id: adjusted.id,
+        status: "pending",
+        venueName: VENUE_NAMES[1],
+      },
+    ]);
+    expect(card.event.venueRequests?.[1]).not.toHaveProperty("rejection");
   });
 
   it("changes nothing else on the event: status, equipment and registrations (AC4)", async () => {

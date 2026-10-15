@@ -11,16 +11,16 @@ import {
 } from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { eventTiming } from "#/features/events/access";
-import { loadAssignedEvent } from "#/features/events/records.server";
 import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
-import { holdOccupancy } from "#/features/venue-requests/hold-occupancy.server";
 import { lockVenue } from "#/features/venue-requests/venue-lock.server";
 import {
   nextCivilDate,
   normalizeDatabaseTimestamp,
   openingPeriods,
   projectAvailability,
+  toLocalMinuteValue,
 } from "#/features/venues/availability";
 import type { AvailabilityRecord, OccupiedPeriod } from "#/features/venues/availability";
 import {
@@ -143,7 +143,7 @@ function clashingFailure(
  * before a block on the same day because the Coordinator needs that answer first.
  */
 function availabilityFailure(
-  venue: VenueSuitabilityCandidate,
+  venue: Pick<VenueSuitabilityCandidate, "operatingHours">,
   filters: VenueSearch,
   blocks: readonly AvailabilityRecord[],
   bookings: readonly AvailabilityRecord[],
@@ -218,11 +218,75 @@ function availabilityFailure(
   return null;
 }
 
+/** The session requirements that a venue must meet. Search filters and venue requests carry them. */
+export type VenueRequirements = Pick<
+  VenueSearch,
+  "expectedAttendance" | "capacity" | "layout" | "accessibility" | "facilities"
+>;
+
+/**
+ * PTR-30 and PTR-138 AC1: name every requirement that the venue does not meet: capacity, layout,
+ * accessibility, and facilities. Search and the request writers share this one rule, so a venue
+ * that search calls suitable passes creation for the same requirements. Location is a search
+ * filter only. Request approval and amendment check availability with `windowAvailabilityFailure`.
+ */
+export function requirementFailures(
+  venue: Pick<
+    VenueSuitabilityCandidate,
+    "maxCapacity" | "facilities" | "accessibilityFeatures" | "supportedLayouts"
+  >,
+  requirements: VenueRequirements
+): SuitabilityFailure[] {
+  const failures: SuitabilityFailure[] = [];
+
+  // Both filters set minimum values, so the stricter value decides.
+  const requiredCapacity = Math.max(
+    requirements.expectedAttendance ?? 0,
+    requirements.capacity ?? 0
+  );
+  if (requiredCapacity > venue.maxCapacity) {
+    failures.push({
+      criterion: "capacity",
+      message: `Holds ${venue.maxCapacity}; ${requiredCapacity} needed`,
+    });
+  }
+  if (requirements.layout) {
+    const requested = parseLayouts(requirements.layout);
+    if (!requested.some(layout => venue.supportedLayouts.includes(layout))) {
+      // An event's free-text preference skips the search form's guard and may name no known
+      // layout. The message then names the requested preference.
+      const wanted =
+        requested.length > 0
+          ? requested.map(layout => LAYOUT_LABELS[layout]).join(" or ")
+          : requirements.layout;
+      failures.push({ criterion: "layout", message: `Does not offer ${wanted}` });
+    }
+  }
+  const missingAccessibility = missingTagPhrases(
+    venue.accessibilityFeatures,
+    requirements.accessibility
+  );
+  if (missingAccessibility.length > 0) {
+    failures.push({
+      criterion: "accessibility",
+      message: `Missing accessibility: ${missingAccessibility.join(", ")}`,
+    });
+  }
+  const missingFacilities = missingTagPhrases(venue.facilities, requirements.facilities);
+  if (missingFacilities.length > 0) {
+    failures.push({
+      criterion: "facilities",
+      message: `Missing facilities: ${missingFacilities.join(", ")}`,
+    });
+  }
+  return failures;
+}
+
 /**
  * Apply the PTR-29 search filters and PTR-30 suitability rules in one function. A venue cannot
  * pass a filter and fail suitability on the same criterion (PTR-29 AC2). Check every filter and
- * name every failure (PTR-30 AC5). Search filters on `suitable`. This function has one caller:
- * `handleSearchVenues`.
+ * name every failure (PTR-30 AC5), in this order: capacity, location, layout, accessibility,
+ * facilities, availability. Search filters on `suitable`. The one caller is `handleSearchVenues`.
  */
 export function evaluateVenueSuitability(
   venue: VenueSuitabilityCandidate,
@@ -231,49 +295,13 @@ export function evaluateVenueSuitability(
   bookings: readonly AvailabilityRecord[],
   holds: readonly AvailabilityRecord[] = []
 ): SuitabilityVerdict {
-  const failures: SuitabilityFailure[] = [];
-
-  // Both filters set minimum values, so the stricter value decides.
-  const requiredCapacity = Math.max(filters.expectedAttendance ?? 0, filters.capacity ?? 0);
-  if (requiredCapacity > venue.maxCapacity) {
-    failures.push({
-      criterion: "capacity",
-      message: `Holds ${venue.maxCapacity}; ${requiredCapacity} needed`,
-    });
-  }
+  const failures = requirementFailures(venue, filters);
   if (filters.location && !normalise(venue.location).includes(normalise(filters.location))) {
-    failures.push({
+    // `requirementFailures` names capacity first. Location goes after it.
+    const afterCapacity = failures[0]?.criterion === "capacity" ? 1 : 0;
+    failures.splice(afterCapacity, 0, {
       criterion: "location",
       message: `Not in ${filters.location} (${venue.location})`,
-    });
-  }
-  if (filters.layout) {
-    const requested = parseLayouts(filters.layout);
-    if (!requested.some(layout => venue.supportedLayouts.includes(layout))) {
-      // An event's free-text preference skips the search form's guard and may name no known
-      // layout. The message then names the requested preference.
-      const wanted =
-        requested.length > 0
-          ? requested.map(layout => LAYOUT_LABELS[layout]).join(" or ")
-          : filters.layout;
-      failures.push({ criterion: "layout", message: `Does not offer ${wanted}` });
-    }
-  }
-  const missingAccessibility = missingTagPhrases(
-    venue.accessibilityFeatures,
-    filters.accessibility
-  );
-  if (missingAccessibility.length > 0) {
-    failures.push({
-      criterion: "accessibility",
-      message: `Missing accessibility: ${missingAccessibility.join(", ")}`,
-    });
-  }
-  const missingFacilities = missingTagPhrases(venue.facilities, filters.facilities);
-  if (missingFacilities.length > 0) {
-    failures.push({
-      criterion: "facilities",
-      message: `Missing facilities: ${missingFacilities.join(", ")}`,
     });
   }
   const availability = availabilityFailure(venue, filters, blocks, bookings, holds);
@@ -304,7 +332,7 @@ export async function handleListVenueOptions(
 type VenueBlock = AvailabilityRecord & { venueId: number };
 
 async function loadVenueBlocks(
-  database: Database,
+  database: Pick<Database, "select">,
   venueIds: readonly number[],
   startsAt: string,
   endsAt: string
@@ -335,6 +363,63 @@ async function loadVenueBlocks(
     endsAt: normalizeDatabaseTimestamp(row.endsAt),
     label: row.reason || "Unavailable / blocked",
   }));
+}
+
+/** One request window, in the database spelling `YYYY-MM-DD HH:MM:SS`, and its venue's hours. */
+export interface RequestWindow {
+  venueId: number;
+  operatingHours: OperatingHours;
+  startsAt: string;
+  endsAt: string;
+}
+
+/**
+ * PTR-138 AC1: name why a venue cannot host one request window: it is not open then, or a
+ * recorded block overlaps the window. Apply search's availability rule (`availabilityFailure`)
+ * with no bookings or holds; the ledger checks those (ADR-7). Return null when the venue can host
+ * the window. A request window covers part of one civil day.
+ */
+export function windowAvailabilityFailure(
+  window: Pick<RequestWindow, "operatingHours" | "startsAt" | "endsAt">,
+  blocks: readonly AvailabilityRecord[]
+): SuitabilityFailure | null {
+  const startsAt = toLocalMinuteValue(window.startsAt);
+  const endsAt = toLocalMinuteValue(window.endsAt);
+  return availabilityFailure(
+    window,
+    { date: startsAt.slice(0, 10), startTime: startsAt.slice(11), endTime: endsAt.slice(11) },
+    blocks,
+    [],
+    []
+  );
+}
+
+/**
+ * Apply `windowAvailabilityFailure` to each window, in the order of `windows`. Read the blocks of
+ * every window's venue in one query, never one read per window.
+ */
+export async function loadWindowAvailabilityFailures(
+  database: Pick<Database, "select">,
+  windows: readonly RequestWindow[]
+): Promise<(SuitabilityFailure | null)[]> {
+  if (windows.length === 0) return [];
+  // Fixed-width timestamps sort as strings, so the earliest start and latest end bound the read.
+  const startsAt = windows.reduce(
+    (min, window) => (window.startsAt < min ? window.startsAt : min),
+    windows[0].startsAt
+  );
+  const endsAt = windows.reduce(
+    (max, window) => (window.endsAt > max ? window.endsAt : max),
+    windows[0].endsAt
+  );
+  const venueIds = [...new Set(windows.map(window => window.venueId))];
+  const blocksByVenue = Map.groupBy(
+    await loadVenueBlocks(database, venueIds, startsAt, endsAt),
+    block => block.venueId
+  );
+  return windows.map(window =>
+    windowAvailabilityFailure(window, blocksByVenue.get(window.venueId) ?? [])
+  );
 }
 
 export type VenueBooking = AvailabilityRecord & { venueId: number };
@@ -395,15 +480,15 @@ export type VenueHold = AvailabilityRecord & {
   eventId: number;
   heldById: string | null;
   assignedCoordinatorId: string | null;
-  eventStatus: string;
+  eventStatus: EventRequestStatus;
 };
 
 /**
  * Return active tentative holds that overlap a range, grouped by venue (PTR-109). The calendar
  * and search show these holds as occupied. A returned `startsAt`/`endsAt` pair is the occupied
  * period: the requested times extended by the hold's stored buffers, clamped to years 0001 to
- * 9999 for display. The overlap filter compares the unclamped period. The event join checks
- * ownership, but the result carries only the derived `canRelease` and `canConvert` values.
+ * 9999 for display. The overlap filter compares the unclamped period. The event join reads
+ * ownership and status, but the calendar sends only the actions that they allow the viewer.
  */
 export async function loadVenueHolds(
   database: Pick<Database, "select">,
@@ -413,7 +498,10 @@ export async function loadVenueHolds(
 ): Promise<VenueHold[]> {
   if (venueIds.length === 0) return [];
 
-  const { occupiedStart, occupiedEnd } = holdOccupancy();
+  // The hold's occupied period: its requested times extended by the buffers stored on the hold.
+  // This reader uses the source table until PTR-135 moves it to `venue_occupancy`.
+  const occupiedStart = sql`${venueHolds.startsAt} - make_interval(mins => ${venueHolds.setupMinutes})`;
+  const occupiedEnd = sql`${venueHolds.endsAt} + make_interval(mins => ${venueHolds.turnaroundMinutes})`;
 
   const rows = await database
     .select({
@@ -453,6 +541,47 @@ export async function loadVenueHolds(
 }
 
 /**
+ * PTR-138 AC1: the event's requirements under the session-requirement names. Every server reader
+ * that turns an event's requirements into a session's selects these columns.
+ */
+export const eventRequirementColumns = {
+  expectedAttendance: eventRequests.expectedAttendance,
+  layout: eventRequests.roomLayoutPreference,
+  accessibilityRequirements: eventRequests.accessibilityRequirements,
+  requiredFacilities: eventRequests.venueRequirements,
+};
+
+/**
+ * Read the caller's own event request through the venue gate. The event must belong to the asking
+ * Coordinator and stand in `SEARCHABLE_EVENT_STATUSES`. The venue search that prefills the request
+ * form, request creation, hold creation and hold conversion use it. `null` is the refusal. Every
+ * caller turns it into `AuthorizationError("Forbidden")`.
+ */
+export async function loadAssignedEvent(
+  database: Pick<Database, "select">,
+  eventId: number,
+  coordinatorId: string
+) {
+  const rows = await database
+    .select({
+      id: eventRequests.id,
+      name: eventRequests.eventName,
+      proposedDates: eventRequests.proposedDates,
+      requirements: eventRequirementColumns,
+    })
+    .from(eventRequests)
+    .where(
+      and(
+        eq(eventRequests.id, eventId),
+        inArray(eventRequests.status, [...SEARCHABLE_EVENT_STATUSES]),
+        eq(eventRequests.assignedCoordinatorId, coordinatorId)
+      )
+    )
+    .limit(1);
+  return rows.at(0) ?? null;
+}
+
+/**
  * Run PTR-29 venue search and PTR-30 suitability checks. Only the assigned Coordinator can supply
  * an event id; refuse other users without revealing whether the event exists. Use the event's
  * first complete proposed window and hard requirements as defaults. Evaluate explicit filters
@@ -472,27 +601,22 @@ export async function handleSearchVenues(
 
   if (eventId !== undefined) {
     // Refuse before the catalogue read. A forbidden event never pays for the venue list.
-    const assignedRecord = await loadAssignedEvent(
-      database,
-      eventId,
-      user.id,
-      SEARCHABLE_EVENT_STATUSES
-    );
-    if (!assignedRecord) throw new AuthorizationError("Forbidden");
-    const record = assignedRecord;
+    const record = await loadAssignedEvent(database, eventId, user.id);
+    if (!record) throw new AuthorizationError("Forbidden");
     event = { id: record.id, name: record.name };
 
     const timing = eventTiming(record.proposedDates);
+    const { requirements } = record;
     defaults = {
       eventId,
       date: timing.eventDate ?? undefined,
       endDate: timing.endDate ?? undefined,
       startTime: timing.startTime ?? undefined,
       endTime: timing.endTime ?? undefined,
-      expectedAttendance: record.expectedAttendance ?? undefined,
-      layout: record.roomLayoutPreference || undefined,
-      accessibility: record.accessibilityRequirements || undefined,
-      facilities: record.venueRequirements || undefined,
+      expectedAttendance: requirements.expectedAttendance ?? undefined,
+      layout: requirements.layout || undefined,
+      accessibility: requirements.accessibilityRequirements || undefined,
+      facilities: requirements.requiredFacilities || undefined,
     };
   }
 
@@ -575,34 +699,35 @@ export async function handleGetVenueAvailability(
   const endsAt = `${nextCivilDate(selection.endDate)}T00:00:00`;
   const databaseStartsAt = startsAt.replace("T", " ");
   const databaseEndsAt = endsAt.replace("T", " ");
-  const [blocks, bookings, holds, pendingEventIds] = await Promise.all([
+  const [blocks, bookings, holds] = await Promise.all([
     loadVenueBlocks(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueBookings(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueHolds(database, [venue.id], databaseStartsAt, databaseEndsAt),
-    // Conversion creates a pending request for the event and venue. If one already exists, the
-    // unique index rejects conversion, so offer release only.
-    database
-      .select({ eventId: venueRequests.eventId })
-      .from(venueRequests)
-      .where(and(eq(venueRequests.venueId, venue.id), eq(venueRequests.status, "pending")))
-      .then(rows => new Set(rows.map(row => row.eventId))),
   ]);
 
-  // Ownership controls whether the calendar offers Release or Convert. Keep both ids on the
-  // server; return only booleans so Venue Staff cannot learn who owns another user's hold.
-  // Coordinators can release orphan holds to free a slot, but cannot convert them. Conversion
-  // also requires a submitted event.
+  // Keep the owner ids on the server, so Venue Staff cannot learn who owns another user's hold. A
+  // hold that the viewer can convert (`canConvertHold`) carries `convertDefaults`: the event's
+  // requirements, which the conversion form starts from (PTR-138 AC1).
+  const convertibleEventIds = [
+    ...new Set(holds.filter(hold => canConvertHold(hold, viewerId)).map(hold => hold.eventId)),
+  ];
+  const convertDefaults = new Map(
+    convertibleEventIds.length === 0
+      ? []
+      : (
+          await database
+            .select({ id: eventRequests.id, requirements: eventRequirementColumns })
+            .from(eventRequests)
+            .where(inArray(eventRequests.id, convertibleEventIds))
+        ).map(row => [row.id, row.requirements])
+  );
   // Copy rows before adding viewer flags. The loader shares these rows with other callers.
   // oxlint-disable-next-line oxc/no-map-spread
-  const manageableHolds = holds.map(hold => {
-    const canRelease = canReleaseHold(hold, viewerId);
-    const canConvert = canConvertHold(hold, viewerId) && !pendingEventIds.has(hold.eventId);
-    return {
-      ...hold,
-      canRelease,
-      canConvert,
-    };
-  });
+  const manageableHolds = holds.map(hold => ({
+    ...hold,
+    canRelease: canReleaseHold(hold, viewerId),
+    convertDefaults: convertDefaults.get(hold.eventId),
+  }));
 
   return {
     venue: { id: venue.id, name: venue.name },

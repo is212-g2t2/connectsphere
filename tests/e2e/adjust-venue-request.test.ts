@@ -110,14 +110,17 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     await expect(page.getByLabel("Date (required)")).toHaveValue("2037-10-14");
     await expect(page.getByLabel("Start time (required)")).toHaveValue("10:00");
     await expect(page.getByLabel("End time (required)")).toHaveValue("13:30");
-    await expect(page.getByText(/carried over from the rejected request/)).toBeVisible();
+    await expect(
+      page.getByText(/carried over from the search or the rejected request/)
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeFocused();
 
-    // AC2: sending it queues a new pending request.
+    // AC2: sending it queues a new pending request, listed above the form.
     await page.getByRole("button", { name: "Send booking request" }).click();
-    const panel = page.getByRole("region", { name: "Venue request" });
+    const panel = page.getByRole("region", { name: `Requests for ${eventName}` });
     await expect(panel).toBeVisible();
     await expect(panel.getByText("Pending", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("heading", { name: `Requests for ${eventName}` })).toBeFocused();
     const rows = await database
       .select({ status: schema.venueRequests.status, venueId: schema.venueRequests.venueId })
       .from(schema.venueRequests)
@@ -125,12 +128,16 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     expect(rows.map(row => row.status).toSorted()).toEqual(["pending", "rejected"]);
     expect(rows.find(row => row.status === "pending")?.venueId).toBe(venueIds[1]);
 
-    // AC3 and AC4: show the pending request and original rejection. Keep the event submitted.
+    // AC3 and AC4: both entries stay on the card with their own states. The new request at the
+    // suggested venue answers the rejection, so its adjust link hides. Its reason and Rejected
+    // state stay.
     await page.goto(`/events/${eventId}`);
     await waitForHydration(page);
     const reloaded = page.locator("section#venue");
     await expect(reloaded.getByText("Pending", { exact: true })).toBeVisible();
-    await expect(reloaded.getByText("Previously rejected booking")).toBeVisible();
+    await expect(reloaded.getByText("Rejected", { exact: true })).toBeVisible();
+    await expect(reloaded.getByText(refusedName, { exact: true })).toBeVisible();
+    await expect(reloaded.getByText(suggestedName, { exact: true })).toBeVisible();
     await expect(reloaded.getByText(reason)).toBeVisible();
     await expect(reloaded.getByRole("link", { name: /^Adjust request at / })).toHaveCount(0);
     const [row] = await database
