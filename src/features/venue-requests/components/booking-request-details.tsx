@@ -10,7 +10,7 @@ import { VenueRequestStatusBadge } from "#/features/venue-requests/components/ve
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
 /**
- * Show the current booking request as read-only server data.
+ * Show one pending booking request as read-only server data.
  * Use the shared `EventRequirements` treatment for all four operational fields. It hides blank
  * fields instead of showing "None specified".
  */

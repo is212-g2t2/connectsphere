@@ -64,9 +64,11 @@ const OUTCOME_NOTES: Partial<Record<VenueRequestStatus, string>> = {
 
 /** The note for a pending entry when the read of the full requests failed. */
 const PENDING_NOT_LOADED_NOTE = "The full request did not load. Reload the page to decide it.";
-/** The note for a pending entry that the read no longer returns: someone decided it meanwhile. */
-const PENDING_DECIDED_NOTE =
-  "This request was decided after the page loaded. Reload the page to see the outcome.";
+/** The note for pending entries that the read no longer returns: someone decided them meanwhile. */
+function pendingDecidedNote(count: number): string {
+  const subject = count === 1 ? "This request was" : "These requests were";
+  return `${subject} decided after the page loaded. Reload the page to see the outcome.`;
+}
 
 /** The loaded pending requests by id. The map is empty when the read failed. */
 function loadedById(data: EventPageData): Map<string, PendingVenueRequestDetail> {
@@ -87,7 +89,7 @@ function loadedRequests(data: EventPageData): PendingVenueRequestDetail[] {
 function RequestBody({ data }: { data: EventPageData }) {
   if (data.kind !== "event") return null;
   const requestsById = loadedById(data);
-  const pendingNote = data.venueDecisions ? PENDING_DECIDED_NOTE : PENDING_NOT_LOADED_NOTE;
+  const pendingNote = data.venueDecisions ? pendingDecidedNote(1) : PENDING_NOT_LOADED_NOTE;
   return (
     <>
       {(data.event.event.venueRequests ?? []).map(entry => {
@@ -144,7 +146,7 @@ function DecisionBody({ data }: { data: EventPageData }) {
         <h2 className="display-h3">Record a decision</h2>
         <p className="mt-2 body-sm text-muted-foreground">
           {data.venueDecisions
-            ? "These requests were decided after the page loaded. Reload the page to see the outcome."
+            ? pendingDecidedNote(pendingEntries(data).length)
             : PENDING_NOT_LOADED_NOTE}
         </p>
       </div>

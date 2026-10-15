@@ -279,6 +279,13 @@ describe("venueRequestSections", () => {
       )
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve request/ })).toBeNull();
+
+    renderSection(page({ details: [], entries: [harborHallEntry] }), "decision");
+    expect(
+      screen.getByText(
+        "This request was decided after the page loaded. Reload the page to see the outcome."
+      )
+    ).toBeTruthy();
   });
 
   it("moves focus to the first remaining decision group after a decision", async () => {
