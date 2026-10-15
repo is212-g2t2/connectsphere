@@ -10,7 +10,7 @@ import type {
   VenueRequestRejection,
   VenueRequestRelease,
 } from "#/features/events/access";
-import { isBlockRow, isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
+import { isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
 import type {
   SessionRequirements,
   VenueRequestConflict,
@@ -122,6 +122,12 @@ interface VenueRequestEntryRow {
   suggestedEndTime: string | null;
   requirements: SessionRequirements;
 }
+
+/**
+ * A ledger row that a venue block owns. No writer adds one before PTR-136. The conflict flag names
+ * it `unavailable`. `checkVenueFree` names it as a booking.
+ */
+const isBlockRow = sql<boolean>`${venueOccupancy.venueUnavailabilityId} is not null`;
 
 /** The flag names one kind per request: a booking first, then a hold, then an unavailable venue. */
 const CONFLICT_RANK: Record<VenueRequestConflict, number> = { booking: 0, hold: 1, unavailable: 2 };

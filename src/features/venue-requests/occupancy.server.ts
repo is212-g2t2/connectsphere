@@ -89,12 +89,6 @@ const occupiedEnd = sql`${venueOccupancy.endsAt} + make_interval(mins => ${venue
 /** A ledger row that a hold owns. */
 export const isHoldRow = sql<boolean>`${venueOccupancy.venueHoldId} is not null`;
 
-/**
- * A ledger row that a venue block owns. No writer adds one before PTR-136. The conflict flag names
- * it `unavailable`. `checkVenueFree` names it as a booking.
- */
-export const isBlockRow = sql<boolean>`${venueOccupancy.venueUnavailabilityId} is not null`;
-
 /** A period to compare with the ledger: its venue, its times, and the buffers around them. */
 interface BufferedPeriod {
   venueId: SQLWrapper | number;
