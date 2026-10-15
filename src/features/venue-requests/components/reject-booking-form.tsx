@@ -19,6 +19,7 @@ import {
   VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
   VenueRejectionInput,
+  formIssues,
 } from "#/features/venue-requests/schema";
 import { rejectVenueRequest } from "#/features/venue-requests/server-fns";
 import type { PendingVenueRequest } from "#/features/venue-requests/server-fns";
@@ -94,15 +95,7 @@ export function RejectBookingForm({
   const form = useForm({
     defaultValues: EMPTY,
     validators: {
-      onSubmit: ({ value }) => {
-        const parsed = VenueRejectionInput.safeParse(toRejectionInput(request.id, value));
-        if (parsed.success) return undefined;
-        const fields: Record<string, { message: string }> = {};
-        for (const issue of parsed.error.issues) {
-          fields[String(issue.path[0])] ??= { message: issue.message };
-        }
-        return { fields };
-      },
+      onSubmit: ({ value }) => formIssues(VenueRejectionInput, toRejectionInput(request.id, value)),
     },
     onSubmit: async ({ value, formApi }) => {
       try {

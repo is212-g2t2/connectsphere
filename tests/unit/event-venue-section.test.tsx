@@ -160,8 +160,8 @@ describe("venue section", () => {
 
     expect(screen.getByText("Harbor Hall")).toBeTruthy();
     expect(screen.getByText("Second Hall")).toBeTruthy();
-    expect(screen.getByText("5 Dec 2026, 17:00–21:00")).toBeTruthy();
-    expect(screen.getByText("6 Dec 2026, 10:00–12:00")).toBeTruthy();
+    expect(screen.getByText("5 Dec 2026, 17:00 – 21:00")).toBeTruthy();
+    expect(screen.getByText("6 Dec 2026, 10:00 – 12:00")).toBeTruthy();
     expect(screen.getByText("Pending")).toBeTruthy();
     expect(screen.getByText("Approved")).toBeTruthy();
     expect(screen.getByText("Conflicting booking")).toBeTruthy();
@@ -217,8 +217,8 @@ describe("venue section", () => {
     const lists = [...container.querySelectorAll("dl")];
     expect(lists.map(list => list.getAttribute("aria-label"))).toEqual([
       null,
-      "Harbor Hall, 5 Dec 2026, 17:00–21:00",
-      "Second Hall, 6 Dec 2026, 10:00–12:00",
+      "Harbor Hall, 5 Dec 2026, 17:00 – 21:00",
+      "Second Hall, 6 Dec 2026, 10:00 – 12:00",
     ]);
     expect(container.querySelector("dl dl")).toBeNull();
     expect(screen.queryAllByRole("group")).toHaveLength(0);
@@ -280,10 +280,10 @@ describe("venue section", () => {
 
         const { unmount } = renderVenue(access, { status, venueRequests });
         expect(screen.getByText("Harbor Hall")).toBeTruthy();
-        expect(screen.getByText("5 Dec 2026, 17:00–21:00")).toBeTruthy();
+        expect(screen.getByText("5 Dec 2026, 17:00 – 21:00")).toBeTruthy();
         expect(screen.getByText("Pending")).toBeTruthy();
         expect(screen.getByText("Second Hall")).toBeTruthy();
-        expect(screen.getByText("6 Dec 2026, 10:00–12:00")).toBeTruthy();
+        expect(screen.getByText("6 Dec 2026, 10:00 – 12:00")).toBeTruthy();
         expect(screen.getByText("Approved")).toBeTruthy();
         unmount();
       }

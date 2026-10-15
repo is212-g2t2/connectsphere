@@ -1,6 +1,6 @@
 import { cn } from "cn";
 
-import { LAYOUT_LABELS, parseLayouts } from "#/features/venues/schema";
+import { layoutLabel } from "#/features/venues/schema";
 
 /** The four operational requirements both projections carry. Nothing else. */
 interface EventRequirementFields {
@@ -24,14 +24,13 @@ function requirementPairs(event: EventRequirementFields): Requirement[] {
   // Treat whitespace-only text as absent. A blank-looking field drops out. Keep `0`. It is a
   // real answer.
   const layout = event.layout?.trim() ?? "";
-  const layouts = parseLayouts(layout).map(name => LAYOUT_LABELS[name]);
   const accessibilityRequirements = event.accessibilityRequirements?.trim();
   const requiredFacilities = event.requiredFacilities?.trim();
   const pairs: (Requirement | null)[] = [
     event.expectedAttendance === null || event.expectedAttendance === undefined
       ? null
       : { label: "Expected attendance", value: String(event.expectedAttendance) },
-    layout ? { label: "Layout", value: layouts.length > 0 ? layouts.join(", ") : layout } : null,
+    layout ? { label: "Layout", value: layoutLabel(layout) } : null,
     accessibilityRequirements ? { label: "Accessibility", value: accessibilityRequirements } : null,
     requiredFacilities ? { label: "Facilities", value: requiredFacilities } : null,
   ];

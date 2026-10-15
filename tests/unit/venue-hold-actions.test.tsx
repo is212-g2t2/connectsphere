@@ -114,7 +114,6 @@ const scheduleWithHold: VenueAvailability = {
       visibleStart: "2026-10-05T13:00:00",
       visibleEnd: "2026-10-05T15:00:00",
       canRelease: true,
-      canConvert: true,
       convertDefaults: eventRequirements,
     },
   ],
@@ -127,7 +126,7 @@ const scheduleWithUnownedHold: VenueAvailability = {
     {
       ...scheduleWithHold.occupied[0],
       canRelease: false,
-      canConvert: false,
+      convertDefaults: undefined,
     },
   ],
 };
@@ -422,7 +421,7 @@ describe("venue hold action components and calendar write-path", () => {
           {
             ...scheduleWithHold.occupied[0],
             canRelease: true,
-            canConvert: false,
+            convertDefaults: undefined,
           },
         ],
       };
@@ -449,7 +448,7 @@ describe("venue hold action components and calendar write-path", () => {
           {
             ...scheduleWithHold.occupied[0],
             canRelease: true,
-            canConvert: false,
+            convertDefaults: undefined,
           },
         ],
       };

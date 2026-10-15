@@ -854,7 +854,7 @@ describe("tentative venue holds (PTR-109)", () => {
       );
       const orphanHold = availability?.occupied.find(entry => entry.id === hold.id);
       expect(orphanHold?.canRelease).toBe(true);
-      expect(orphanHold?.canConvert).toBe(false);
+      expect(orphanHold?.convertDefaults).toBeUndefined();
 
       // Neither side has an owner, so any Coordinator who can reach the hold may release it.
       const released = await handleReleaseVenueHold(
@@ -1220,7 +1220,6 @@ describe("tentative venue holds (PTR-109)", () => {
           database as never
         );
         const strangerHold = stranger?.occupied.find(entry => entry.id === hold.id);
-        expect(strangerHold?.canConvert).toBe(false);
         expect(strangerHold?.convertDefaults).toBeUndefined();
       });
 
@@ -1326,7 +1325,7 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(search.venues.map(v => v.id)).toContain(venueId);
     });
 
-    it("reports canRelease and canConvert based on hold ownership, event status, and viewer", async () => {
+    it("reports canRelease and convertDefaults based on hold ownership, event status, and viewer", async () => {
       const hold = await handleCreateVenueHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
@@ -1341,7 +1340,7 @@ describe("tentative venue holds (PTR-109)", () => {
       );
       const coordHold = coordAvailability?.occupied.find(entry => entry.id === hold.id);
       expect(coordHold?.canRelease).toBe(true);
-      expect(coordHold?.canConvert).toBe(true);
+      expect(coordHold?.convertDefaults).toBeDefined();
 
       // An unassigned viewer cannot release or convert the hold.
       const unassignedAvailability = await handleGetVenueAvailability(
@@ -1351,7 +1350,7 @@ describe("tentative venue holds (PTR-109)", () => {
       );
       const unassignedHold = unassignedAvailability?.occupied.find(entry => entry.id === hold.id);
       expect(unassignedHold?.canRelease).toBe(false);
-      expect(unassignedHold?.canConvert).toBe(false);
+      expect(unassignedHold?.convertDefaults).toBeUndefined();
 
       // A planning event still takes a venue request, so the Coordinator can still convert.
       await moveEventA("planning");
@@ -1361,7 +1360,7 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
       const planningHold = planningAvailability?.occupied.find(entry => entry.id === hold.id);
-      expect(planningHold?.canConvert).toBe(true);
+      expect(planningHold?.convertDefaults).toBeDefined();
 
       // A confirmed event takes no request. Its Coordinator can release but cannot convert.
       await moveEventA("confirmed");
@@ -1372,7 +1371,7 @@ describe("tentative venue holds (PTR-109)", () => {
       );
       const movedHold = movedAvailability?.occupied.find(entry => entry.id === hold.id);
       expect(movedHold?.canRelease).toBe(true);
-      expect(movedHold?.canConvert).toBe(false);
+      expect(movedHold?.convertDefaults).toBeUndefined();
     });
   });
 
@@ -1435,7 +1434,7 @@ describe("tentative venue holds (PTR-109)", () => {
       );
       const entry = availability?.occupied.find(period => period.id === hold.id);
       expect(entry?.canRelease).toBe(true);
-      expect(entry?.canConvert).toBe(true);
+      expect(entry?.convertDefaults).toBeDefined();
       // The offered action succeeds: the two sessions do not overlap.
       const { request } = await handleConvertVenueHold(
         { id: hold.id },

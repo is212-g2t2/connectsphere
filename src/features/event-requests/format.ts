@@ -48,6 +48,21 @@ export function formatProposedWindow(window: { start?: string; end?: string }): 
 }
 
 /**
+ * Format a venue-request entry's period, which covers one civil day, as a proposed window. The
+ * entry holds a `YYYY-MM-DD` date and `HH:MM` times. Example: `5 Dec 2026, 17:00 – 21:00`.
+ */
+export function formatEntryPeriod(entry: {
+  date: string;
+  startTime: string;
+  endTime: string;
+}): string {
+  return formatProposedWindow({
+    start: `${entry.date}T${entry.startTime}`,
+    end: `${entry.date}T${entry.endTime}`,
+  });
+}
+
+/**
  * Format a server-recorded instant, such as a submission or assignment, in one fixed timezone.
  * The page renders on the server and then hydrates. Different timezones would change its text.
  * ConnectSphere's venues are in Singapore (brief §1), so use that timezone.

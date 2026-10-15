@@ -2,13 +2,13 @@ import { z } from "zod";
 
 import { formatLocalDateTime } from "#/features/event-requests/format";
 import {
-  LAYOUT_LABELS,
   LAYOUT_MESSAGE,
   TIME_SHAPE,
   VENUE_ID_MESSAGE,
   VENUE_SEARCH_ATTENDANCE_MESSAGE,
   VENUE_SEARCH_EVENT_MESSAGE,
   VENUE_SEARCH_TEXT_MAX_LENGTH,
+  layoutLabel,
   parseLayouts,
 } from "#/features/venues/schema";
 
@@ -161,8 +161,13 @@ export interface SessionRequirementFormValues {
 }
 
 /** The session inputs that both forms show, in order, with the search's wording. */
-export const SESSION_REQUIREMENT_INPUTS = [
-  { name: "expectedAttendance", label: "Expected attendance", type: "number", placeholder: "" },
+export const SESSION_REQUIREMENT_INPUTS: readonly {
+  name: keyof SessionRequirementFormValues;
+  label: string;
+  type: "number" | "text";
+  placeholder?: string;
+}[] = [
+  { name: "expectedAttendance", label: "Expected attendance", type: "number" },
   { name: "layout", label: "Layout", type: "text", placeholder: "Theatre, classroom, banquet…" },
   {
     name: "accessibilityRequirements",
@@ -176,7 +181,7 @@ export const SESSION_REQUIREMENT_INPUTS = [
     type: "text",
     placeholder: "Comma-separated facilities",
   },
-] as const;
+];
 
 /** Start the session inputs from stated requirements. A null attendance shows as a blank input. */
 export function sessionRequirementFormValues(
@@ -208,9 +213,8 @@ export function sessionRequirementInput(
 }
 
 /**
- * PTR-138 AC1: name a session by its attendance and layout, for example "30 attendees,
- * Boardroom". Show a named layout by its label and other text as stored. Return "" when the
- * session states neither.
+ * PTR-138 AC1: name a session by its attendance and layout (`layoutLabel`), for example "30
+ * attendees, Boardroom". Return "" when the session states neither.
  */
 export function formatSessionSummary(
   requirements: Pick<SessionRequirements, "expectedAttendance" | "layout">
@@ -220,10 +224,7 @@ export function formatSessionSummary(
   if (attendance !== null)
     parts.push(`${attendance} ${attendance === 1 ? "attendee" : "attendees"}`);
   const layout = requirements.layout.trim();
-  if (layout) {
-    const named = parseLayouts(layout).map(name => LAYOUT_LABELS[name]);
-    parts.push(named.length > 0 ? named.join(", ") : layout);
-  }
+  if (layout) parts.push(layoutLabel(layout));
   return parts.join(", ");
 }
 
@@ -266,6 +267,23 @@ export function parseVenueHoldConversion(data: unknown): VenueHoldConversion {
     throw new Error(parsed.error.issues[0].message);
   }
   return parsed.data;
+}
+
+/**
+ * Validate a form's input with the server's schema. Mark each field with its first issue, in the
+ * shape that a TanStack Form `onSubmit` validator returns. Return `undefined` for valid input.
+ */
+export function formIssues(
+  schema: z.ZodType,
+  input: unknown
+): { fields: Record<string, { message: string }> } | undefined {
+  const parsed = schema.safeParse(input);
+  if (parsed.success) return undefined;
+  const fields: Record<string, { message: string }> = {};
+  for (const issue of parsed.error.issues) {
+    fields[String(issue.path[0])] ??= { message: issue.message };
+  }
+  return { fields };
 }
 
 /** Server-function and form boundary: typed values or the first readable refusal. */

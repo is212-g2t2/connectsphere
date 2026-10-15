@@ -132,10 +132,12 @@ export interface AvailabilityPeriod {
 export interface AvailabilityRecord extends AvailabilityPeriod {
   id: string;
   label: string;
-  /** Show whether the viewer can release or convert this record (PTR-109). */
+  /** Show whether the viewer can release this record (PTR-109). */
   canRelease?: boolean;
-  canConvert?: boolean;
-  /** A hold the viewer can convert: the event's requirements, which the form starts from. */
+  /**
+   * Set only on a hold that the viewer can convert (PTR-109 AC5): the event's requirements, which
+   * the conversion form starts from (PTR-138 AC1).
+   */
   convertDefaults?: SessionRequirements;
 }
 
@@ -148,7 +150,6 @@ export interface OccupiedPeriod extends AvailabilityPeriod {
   visibleEnd: string;
   /** Copy this value from the source record. Omit it for bookings and blocks. */
   canRelease?: boolean;
-  canConvert?: boolean;
   convertDefaults?: SessionRequirements;
 }
 
@@ -212,7 +213,6 @@ export function projectAvailability(
       visibleStart: visible.startsAt,
       visibleEnd: visible.endsAt,
       canRelease: record.canRelease,
-      canConvert: record.canConvert,
       convertDefaults: record.convertDefaults,
     });
   }

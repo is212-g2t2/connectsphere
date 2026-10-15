@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -26,10 +26,12 @@ import {
 } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { formatProposedWindow } from "#/features/event-requests/format";
+import { SessionRequirementFields } from "#/features/venue-requests/components/session-requirement-fields";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import {
   SESSION_REQUIREMENT_INPUTS,
   VenueRequestInput,
+  formIssues,
   formatSessionSummary,
   sessionRequirementFormValues,
   sessionRequirementInput,
@@ -245,57 +247,21 @@ export function VenueRequestPanel({
   const router = useRouter();
   const { event, requests, canRequest } = context;
   const sameDay = event.endDate === event.eventDate;
-  // The route creates a new `prefill` object on each render. Compare values so a render does not
-  // reset what the Coordinator is typing.
-  const {
-    date: prefillDate,
-    startTime: prefillStart,
-    endTime: prefillEnd,
-    expectedAttendance: prefillAttendance,
-    layout: prefillLayout,
-    accessibilityRequirements: prefillAccessibility,
-    requiredFacilities: prefillFacilities,
-  } = prefill ?? {};
-  const stablePrefill = useMemo<VenueRequestPrefill>(
-    () => ({
-      date: prefillDate,
-      startTime: prefillStart,
-      endTime: prefillEnd,
-      expectedAttendance: prefillAttendance,
-      layout: prefillLayout,
-      accessibilityRequirements: prefillAccessibility,
-      requiredFacilities: prefillFacilities,
-    }),
-    [
-      prefillDate,
-      prefillStart,
-      prefillEnd,
-      prefillAttendance,
-      prefillLayout,
-      prefillAccessibility,
-      prefillFacilities,
-    ]
-  );
+  // The route creates a new `prefill` object on each render, so keep the first one. The venue page
+  // keys the panel by the carried values, so other values mount a new panel.
+  const [carriedValues] = useState<VenueRequestPrefill>(() => prefill ?? {});
   // A complete, ordered window came from the search or a rejected request (PTR-35).
-  const carried = hasCarriedWindow(stablePrefill);
+  const carried = hasCarriedWindow(carriedValues);
   const inputRefs = useRef<Partial<Record<FieldName, HTMLInputElement | null>>>({});
   const listHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const formHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   const form = useForm({
-    defaultValues: toFormValues(event, stablePrefill),
-    // `VenueRequestInput` uses the server's rules. Validate the request once, then mark each field
-    // with its first issue, as `reject-booking-form.tsx` does.
+    defaultValues: toFormValues(event, carriedValues),
+    // `VenueRequestInput` uses the server's rules. Mark each field with its first issue.
     validators: {
-      onSubmit: ({ value }) => {
-        const parsed = VenueRequestInput.safeParse(toRequestInput(event.id, venueId, value));
-        if (parsed.success) return undefined;
-        const fields: Record<string, { message: string }> = {};
-        for (const issue of parsed.error.issues) {
-          fields[String(issue.path[0])] ??= { message: issue.message };
-        }
-        return { fields };
-      },
+      onSubmit: ({ value }) =>
+        formIssues(VenueRequestInput, toRequestInput(event.id, venueId, value)),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -323,10 +289,10 @@ export function VenueRequestPanel({
     },
   });
 
-  // Reset the controls when the event's window or requirements or the carried values change. Read
-  // plain values, not the context object: every loader run makes a new object, and a withdrawal
-  // must not drop text the Coordinator is typing. The venue page keys the panel by event and
-  // venue, so another event or venue mounts a new form.
+  // Reset the controls when the event's window or requirements change. Read plain values, not the
+  // context object: every loader run makes a new object, and a withdrawal must not drop text the
+  // Coordinator is typing. The venue page keys the panel by event, venue and carried values, so a
+  // change to one of them mounts a new form.
   const {
     eventDate,
     endDate,
@@ -350,7 +316,7 @@ export function VenueRequestPanel({
           accessibilityRequirements,
           requiredFacilities,
         },
-        stablePrefill
+        carriedValues
       )
     );
   }, [
@@ -362,7 +328,7 @@ export function VenueRequestPanel({
     layout,
     accessibilityRequirements,
     requiredFacilities,
-    stablePrefill,
+    carriedValues,
     form,
   ]);
 
@@ -509,37 +475,19 @@ export function VenueRequestPanel({
                   </form.Field>
                 </div>
                 {/* PTR-138 AC1: the venue must meet this session's requirements. */}
-                <FieldSet>
+                <FieldSet aria-describedby="venue-request-session-hint">
                   <FieldLegend variant="label">Session requirements</FieldLegend>
                   <FieldDescription id="venue-request-session-hint">
                     These start from the event&apos;s requirements, and the venue must meet them. A
                     blank attendance uses the event&apos;s figure.
                   </FieldDescription>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {SESSION_REQUIREMENT_INPUTS.map(({ name, label, type, placeholder }) => (
-                      <form.Field key={name} name={name}>
-                        {field => (
-                          <Field data-invalid={field.state.meta.errors.length > 0}>
-                            <FieldLabel htmlFor={`venue-request-${name}`}>{label}</FieldLabel>
-                            <Input
-                              id={`venue-request-${name}`}
-                              ref={element => {
-                                inputRefs.current[name] = element;
-                              }}
-                              type={type}
-                              {...(type === "number" ? { min: "1", step: "1" } : {})}
-                              placeholder={placeholder || undefined}
-                              value={field.state.value}
-                              onBlur={field.handleBlur}
-                              onChange={changeEvent => field.handleChange(changeEvent.target.value)}
-                              aria-invalid={field.state.meta.errors.length > 0}
-                            />
-                            <FieldError errors={field.state.meta.errors} />
-                          </Field>
-                        )}
-                      </form.Field>
-                    ))}
-                  </div>
+                  <SessionRequirementFields
+                    form={form}
+                    idPrefix="venue-request"
+                    inputRef={(name, element) => {
+                      inputRefs.current[name] = element;
+                    }}
+                  />
                 </FieldSet>
                 <form.Subscribe selector={state => state.isSubmitting}>
                   {isSubmitting => (

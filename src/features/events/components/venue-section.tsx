@@ -4,7 +4,11 @@ import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import { formatInstant, formatLocalDate } from "#/features/event-requests/format";
+import {
+  formatEntryPeriod,
+  formatInstant,
+  formatLocalDate,
+} from "#/features/event-requests/format";
 import { AdjustRequestRow } from "#/features/events/components/adjust-request-row";
 import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
@@ -91,23 +95,20 @@ function VenueRequestEntry({
   eventId: number;
   eventStatus: EventRequestStatus;
 }) {
-  const showRejection = entry.status === "rejected" && entry.rejection !== undefined;
   const showAdjust =
     access === "coordinator" &&
     entry.adjustable === true &&
     SEARCHABLE_EVENT_STATUSES.includes(eventStatus);
   // PTR-138 AC1: the Coordinator's entries carry their session, which tells two sessions apart.
   const session = entry.requirements ? formatSessionSummary(entry.requirements) : "";
+  const period = formatEntryPeriod(entry);
   return (
     <dl
-      aria-label={`${entry.venueName}, ${formatLocalDate(entry.date)}, ${entry.startTime}–${entry.endTime}`}
+      aria-label={`${entry.venueName}, ${period}`}
       className="grid gap-3 border-t border-border pt-3 first:border-t-0 first:pt-0 sm:grid-cols-2"
     >
       <VenueDetail label="Venue" value={entry.venueName} />
-      <VenueDetail
-        label="Period"
-        value={`${formatLocalDate(entry.date)}, ${entry.startTime}–${entry.endTime}`}
-      />
+      <VenueDetail label="Period" value={period} />
       {session && <VenueDetail label="Session" value={session} />}
       <VenueDetail
         label="Status"
@@ -118,7 +119,7 @@ function VenueRequestEntry({
           </span>
         }
       />
-      {showRejection && entry.rejection && (
+      {entry.rejection && (
         <>
           <VenueDetail
             label="Rejection reason"

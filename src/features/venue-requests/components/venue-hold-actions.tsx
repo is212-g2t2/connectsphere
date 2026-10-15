@@ -32,10 +32,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
+import { SessionRequirementFields } from "#/features/venue-requests/components/session-requirement-fields";
 import {
-  SESSION_REQUIREMENT_INPUTS,
   VenueHoldConversionInput,
   VenueRequestInput,
+  formIssues,
   sessionRequirementFormValues,
   sessionRequirementInput,
 } from "#/features/venue-requests/schema";
@@ -57,42 +58,58 @@ export interface CoordinatorEventOption {
 }
 
 /**
- * PTR-109: Coordinator releases an active tentative hold.
+ * PTR-109 AC5: Coordinator releases an active tentative hold after a confirmation. A refusal stays
+ * in the dialog, and the calendar reloads.
  */
 export function ReleaseVenueHoldButton({ holdId }: { holdId: string }) {
-  return <ConfirmHoldAction holdId={holdId} kind="release" />;
+  const router = useRouter();
+  const [state, release, pending] = useMutation(async () => {
+    try {
+      await releaseVenueHold({ data: { id: holdId } });
+    } catch (error) {
+      await router.invalidate({ filter: skipRootFilter });
+      throw error;
+    }
+    toast.success("Tentative hold released.");
+    await router.invalidate({ filter: skipRootFilter });
+  }, "Could not release this hold. Try again.");
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger
+        render={
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            aria-label="Release tentative hold"
+          />
+        }
+      >
+        {pending ? "Releasing…" : "Release hold"}
+      </AlertDialogTrigger>
+      <AlertDialogContent size="sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Release tentative hold</AlertDialogTitle>
+          <AlertDialogDescription>
+            This releases the tentative hold. The period becomes available for other events.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
+          <AlertDialogAction size="sm" disabled={pending} onClick={() => void release()}>
+            {pending ? "Releasing…" : "Confirm release"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+        {state.status === "error" && (
+          <p role="alert" className="body-sm text-destructive">
+            {state.error}
+          </p>
+        )}
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
-
-type HoldActionKind = "release";
-
-const HOLD_ACTIONS: Record<
-  HoldActionKind,
-  {
-    title: string;
-    description: string;
-    triggerLabel: string;
-    pendingLabel: string;
-    confirmLabel: string;
-    ariaLabel: string;
-    variant: "outline" | "default";
-    successMessage: string;
-    errorMessage: string;
-    run: (holdId: string) => Promise<unknown>;
-  }
-> = {
-  release: {
-    title: "Release tentative hold",
-    description: "This releases the tentative hold. The period becomes available for other events.",
-    triggerLabel: "Release hold",
-    pendingLabel: "Releasing…",
-    confirmLabel: "Confirm release",
-    ariaLabel: "Release tentative hold",
-    variant: "outline",
-    successMessage: "Tentative hold released.",
-    errorMessage: "Could not release this hold. Try again.",
-    run: holdId => releaseVenueHold({ data: { id: holdId } }),
-  },
-};
 
 /** The conversion's server input: the hold and the session requirements as the form holds them. */
 function toConversionInput(holdId: string, values: SessionRequirementFormValues) {
@@ -117,15 +134,8 @@ export function ConvertVenueHoldButton({
   const form = useForm({
     defaultValues: sessionRequirementFormValues(requirements),
     validators: {
-      onSubmit: ({ value }) => {
-        const parsed = VenueHoldConversionInput.safeParse(toConversionInput(holdId, value));
-        if (parsed.success) return undefined;
-        const fields: Record<string, { message: string }> = {};
-        for (const issue of parsed.error.issues) {
-          fields[String(issue.path[0])] ??= { message: issue.message };
-        }
-        return { fields };
-      },
+      onSubmit: ({ value }) =>
+        formIssues(VenueHoldConversionInput, toConversionInput(holdId, value)),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
@@ -174,28 +184,7 @@ export function ConvertVenueHoldButton({
             void form.handleSubmit();
           }}
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            {SESSION_REQUIREMENT_INPUTS.map(({ name, label, type, placeholder }) => (
-              <form.Field key={name} name={name}>
-                {field => (
-                  <Field data-invalid={field.state.meta.errors.length > 0}>
-                    <FieldLabel htmlFor={`convert-${holdId}-${name}`}>{label}</FieldLabel>
-                    <Input
-                      id={`convert-${holdId}-${name}`}
-                      type={type}
-                      {...(type === "number" ? { min: "1", step: "1" } : {})}
-                      placeholder={placeholder || undefined}
-                      value={field.state.value}
-                      onChange={changeEvent => field.handleChange(changeEvent.target.value)}
-                      onBlur={field.handleBlur}
-                      aria-invalid={field.state.meta.errors.length > 0}
-                    />
-                    <FieldError errors={field.state.meta.errors} />
-                  </Field>
-                )}
-              </form.Field>
-            ))}
-          </div>
+          <SessionRequirementFields form={form} idPrefix={`convert-${holdId}`} />
           <form.Subscribe selector={state => [state.isSubmitting, state.errorMap.onSubmit]}>
             {([isSubmitting, onSubmitError]) => (
               <>
@@ -224,50 +213,6 @@ export function ConvertVenueHoldButton({
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function ConfirmHoldAction({ holdId, kind }: { holdId: string; kind: HoldActionKind }) {
-  const copy = HOLD_ACTIONS[kind];
-  const router = useRouter();
-  const [state, run, pending] = useMutation(async () => {
-    try {
-      await copy.run(holdId);
-    } catch (error) {
-      await router.invalidate({ filter: skipRootFilter });
-      throw error;
-    }
-    toast.success(copy.successMessage);
-    await router.invalidate({ filter: skipRootFilter });
-  }, copy.errorMessage);
-
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger
-        render={
-          <Button size="sm" variant={copy.variant} disabled={pending} aria-label={copy.ariaLabel} />
-        }
-      >
-        {pending ? copy.pendingLabel : copy.triggerLabel}
-      </AlertDialogTrigger>
-      <AlertDialogContent size="sm">
-        <AlertDialogHeader>
-          <AlertDialogTitle>{copy.title}</AlertDialogTitle>
-          <AlertDialogDescription>{copy.description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
-          <AlertDialogAction size="sm" disabled={pending} onClick={() => void run()}>
-            {pending ? copy.pendingLabel : copy.confirmLabel}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-        {state.status === "error" && (
-          <p role="alert" className="body-sm text-destructive">
-            {state.error}
-          </p>
-        )}
-      </AlertDialogContent>
-    </AlertDialog>
   );
 }
 
@@ -323,15 +268,7 @@ export function PlaceVenueHoldDialog({
     // `VenueRequestInput` uses the server's rules. Validate the date and times once, then mark each
     // field with its issue, as `reject-booking-form.tsx` does. Convert the event id from text to a number.
     validators: {
-      onSubmit: ({ value }) => {
-        const parsed = VenueRequestInput.safeParse(toHoldInput(venueId, value));
-        if (parsed.success) return undefined;
-        const fields: Record<string, { message: string }> = {};
-        for (const issue of parsed.error.issues) {
-          fields[String(issue.path[0])] ??= { message: issue.message };
-        }
-        return { fields };
-      },
+      onSubmit: ({ value }) => formIssues(VenueRequestInput, toHoldInput(venueId, value)),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
