@@ -36,7 +36,10 @@ export const requireVenueRead = requirePermission({ venue: ["read"] });
 export const requireVenueSearch = requirePermission({ venue: ["search"] });
 export const requireVenueWrite = requirePermission(data => ({ venue: [venueAction(data)] }));
 
-/** PTR-136: Venue Staff record and lift blocks. A block payload carries no `id`, so `requireVenueWrite` would ask for `venue:create`; this asks for `venue:update` instead. */
+/**
+ * Venue Staff record and lift blocks with `venue:update`. A block payload has no `id`, so
+ * `requireVenueWrite` would ask for `venue:create`.
+ */
 export const requireVenueBlock = requirePermission({ venue: ["update"] });
 
 async function loadBlockServer() {

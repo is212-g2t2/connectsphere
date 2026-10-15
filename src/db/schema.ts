@@ -491,8 +491,11 @@ export const venueBufferChanges = pgTable(
 );
 
 /**
- * PTR-136 makes Venue Staff manage these periods; a block has a reason, an optional end
- * (null = until lifted), the acting user and time, and a lift stamp instead of a delete.
+ * Venue blocks: periods when a venue takes no bookings or holds, such as for maintenance,
+ * renovation, or internal use. Venue Staff record and lift them, and the seed creates some. Each
+ * block has a reason, an optional end (null means until lifted), the user who recorded it, and a
+ * lift stamp (`lifted_at`, `lifted_by_id`). A lift keeps the row. String timestamps preserve the
+ * `datetime-local` values.
  */
 export const venueUnavailability = pgTable(
   "venue_unavailability",
@@ -744,8 +747,8 @@ export const venueHolds = pgTable(
  * change them. Migration 0048 adds `venue_occupancy_no_overlap`, the exclusion constraint over
  * `tsrange(starts_at - setup, ends_at + turnaround, '[)')` for active rows. Drizzle cannot
  * express it here and never drops it. The advisory-locked writers maintain these rows; no trigger
- * does. See docs/adrs/ADR-7-venue-occupancy-ledger.md. A block row may have a null end
- * (unbounded); only block rows may.
+ * does. See docs/adrs/ADR-7-venue-occupancy-ledger.md. Only a block row can have a null end,
+ * which means unbounded (ADR-8).
  */
 export const venueOccupancy = pgTable(
   "venue_occupancy",
