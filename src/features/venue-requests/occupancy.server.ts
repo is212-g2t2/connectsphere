@@ -182,7 +182,7 @@ export async function checkVenueFree(
  * The block period a suspend/restore helper reads or writes. A null end is unbounded. Stamps use
  * the database `YYYY-MM-DD HH:MM:SS` shape, which compares as a date.
  */
-export interface BlockExtent {
+interface BlockExtent {
   venueId: number;
   startsAt: string;
   endsAt: string | null;
