@@ -5,6 +5,7 @@ import { venueUnavailability, venues } from "#/db/schema";
 import { ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { raiseNotifications } from "#/features/notifications/raise.server";
+import type { NewNotification } from "#/features/notifications/raise.server";
 import {
   isDeadlock,
   loadBlockCommitments,
@@ -16,111 +17,198 @@ import {
 } from "#/features/venue-requests/occupancy.server";
 import type { BlockCommitment } from "#/features/venue-requests/occupancy.server";
 import { keyShareEvent, lockVenue } from "#/features/venue-requests/venue-lock.server";
+import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
+import { venueBlockConflictMessage } from "#/features/venue-requests/schema";
+import { venueLocalTimestamp } from "#/features/venues/availability";
 import {
-  VENUE_OCCUPANCY_CONFLICT_MESSAGE,
-  venueBlockConflictMessage,
-} from "#/features/venue-requests/schema";
-import { parseVenueBlockId, parseVenueBlockInput } from "#/features/venues/schema";
+  VENUE_BLOCK_ALREADY_LIFTED_MESSAGE,
+  VENUE_BLOCK_LIFT_OVERLAP_MESSAGE,
+  VENUE_BLOCK_PAST_START_MESSAGE,
+  parseVenueBlockId,
+  parseVenueBlockInput,
+} from "#/features/venues/schema";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 
 /**
  * Keep this module server-only. `server-fns.ts` imports it dynamically inside `.handler()`.
- * Record and lift venue blocks with the occupancy ledger (ADR-7 suspension).
+ * Record and lift venue blocks with the occupancy ledger (ADR-7 suspension). The handlers lock the
+ * venue, call a core (`recordBlockRows`, `liftBlockRows`), and raise the notices. The seed calls
+ * the cores without notices.
  */
 
 type Database = typeof Db;
 
+/** A stored `venue_unavailability` row. */
+type VenueBlockRow = typeof venueUnavailability.$inferSelect;
+
 const log = logger.getChild("venue-blocks");
 
-/** One row that can yield a notice: an event plus its possible owners. */
-type NoticeSource = Pick<
-  BlockCommitment,
-  "eventId" | "eventName" | "assignedCoordinatorId" | "requestedById" | "heldById"
->;
-
-/** One `venue_block_changed` recipient: the event request, its name and coordinator. */
-interface CollectedNotice {
-  eventRequestId: number;
-  eventName: string;
-  recipientId: string;
-}
-
-/** Notice context shared by record and lift: venue, period, reason and action. */
-interface NoticeContext {
-  venueName: string;
-  startsAt: string;
-  endsAt: string | null;
-  reason: string;
-  action: "blocked" | "lifted";
+/**
+ * Refuse a block that starts on a day before today. A block can start earlier today. The venues
+ * are in Singapore, so read today from the venue wall clock (`venueLocalTimestamp`).
+ */
+export function assertBlockStartNotPast(date: string, now: Date): void {
+  if (date < venueLocalTimestamp(now).slice(0, 10)) {
+    throw new Error(VENUE_BLOCK_PAST_START_MESSAGE);
+  }
 }
 
 /**
- * Pick the notice recipient: the assigned coordinator, else the request raiser, else the hold
- * owner. Returns null when no owner remains.
+ * Key-share each event of the rows once, in ascending id order. Record and lift take the venue
+ * lock first and then these event locks (ADR-8).
  */
-function noticeRecipient(row: {
-  assignedCoordinatorId: string | null;
-  requestedById: string | null;
-  heldById: string | null;
-}): string | null {
-  return row.assignedCoordinatorId ?? row.requestedById ?? row.heldById;
+async function keyShareEvents(tx: VenueTx, rows: readonly BlockCommitment[]): Promise<void> {
+  const eventIds = [...new Set(rows.map(row => row.eventId))].toSorted((a, b) => a - b);
+  for (const eventId of eventIds) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- key-share in ascending id order
+    await keyShareEvent(tx, eventId);
+  }
 }
 
-/** Collect one notice per (event, recipient). Warn and skip rows with no owner. */
-function collectBlockNotices(rows: readonly NoticeSource[]): CollectedNotice[] {
-  const seen = new Set<string>();
-  const notices: CollectedNotice[] = [];
+/**
+ * Raise one `venue_block_changed` notice for each event and recipient. The recipient is the
+ * event's assigned Coordinator, else the booking's requester, else the hold's owner. Log a
+ * warning and skip a row that has none of them.
+ */
+async function notifyBlockChange(
+  tx: VenueTx,
+  rows: readonly BlockCommitment[],
+  change: { action: "blocked" | "lifted"; venueName: string; block: VenueBlockRow }
+): Promise<void> {
+  const notices = new Map<string, NewNotification>();
   for (const row of rows) {
-    if (row.eventId === null) continue;
-    const recipientId = noticeRecipient(row);
-    if (!recipientId) {
+    const recipientId = row.assignedCoordinatorId ?? row.requestedById ?? row.heldById;
+    if (recipientId === null) {
       log.warn("No Coordinator to notify of the venue block", { eventId: row.eventId });
       continue;
     }
-    const key = `${row.eventId}:${recipientId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    notices.push({ eventRequestId: row.eventId, eventName: row.eventName, recipientId });
-  }
-  return notices;
-}
-
-/** Raise one `venue_block_changed` row per collected notice. */
-async function raiseBlockNotices(
-  tx: Pick<Database, "insert">,
-  notices: readonly CollectedNotice[],
-  context: NoticeContext
-): Promise<void> {
-  await raiseNotifications(
-    tx,
-    notices.map(notice => ({
-      recipientId: notice.recipientId,
-      eventRequestId: notice.eventRequestId,
-      kind: "venue_block_changed" as const,
+    notices.set(`${row.eventId}:${recipientId}`, {
+      recipientId,
+      eventRequestId: row.eventId,
+      kind: "venue_block_changed",
       payload: {
-        action: context.action,
-        eventName: notice.eventName,
-        venueName: context.venueName,
-        startsAt: context.startsAt,
-        endsAt: context.endsAt,
-        reason: context.reason,
+        action: change.action,
+        eventName: row.eventName,
+        venueName: change.venueName,
+        startsAt: change.block.startsAt,
+        endsAt: change.block.endsAt,
+        reason: change.block.reason,
       },
-    }))
-  );
+    });
+  }
+  await raiseNotifications(tx, [...notices.values()]);
 }
 
 /**
- * Record a venue block. Reads the venue, locks it, refuses a live overlapping block, suspends
- * the covered commitments, writes the block row and its ledger row, then notifies each
- * affected event once per (event, recipient).
+ * Record a block at a venue. The caller holds the venue lock (`lockVenue`). Refuse a live block
+ * that overlaps the period. Key-share the covered events, suspend the covered commitments, then
+ * write the block row and its ledger row. Raise no notices. Return the block row and the
+ * commitments that it covers.
+ *
+ * Stamps use the database `YYYY-MM-DD HH:MM:SS` format. A null end stays until lifted.
+ */
+export async function recordBlockRows(
+  tx: VenueTx,
+  venue: { id: number; name: string },
+  period: { startsAt: string; endsAt: string | null; reason: string },
+  actorId: string
+): Promise<{ block: VenueBlockRow; covered: BlockCommitment[] }> {
+  const { startsAt, endsAt, reason } = period;
+  const clashes = await tx
+    .select({ startsAt: venueUnavailability.startsAt, endsAt: venueUnavailability.endsAt })
+    .from(venueUnavailability)
+    .where(
+      and(
+        eq(venueUnavailability.venueId, venue.id),
+        isNull(venueUnavailability.liftedAt),
+        sql`tsrange(${venueUnavailability.startsAt}, ${venueUnavailability.endsAt}, '[)') && tsrange(${startsAt}::timestamp, ${endsAt}::timestamp, '[)')`
+      )
+    )
+    .orderBy(asc(venueUnavailability.startsAt))
+    .limit(1);
+  const clash = clashes.at(0);
+  if (clash) {
+    throw new ConflictError(venueBlockConflictMessage({ venueName: venue.name, ...clash }));
+  }
+
+  const extent = { venueId: venue.id, startsAt, endsAt };
+  const covered = await loadBlockCommitments(tx, extent);
+  await keyShareEvents(tx, covered);
+  await suspendBlockCommitments(tx, extent, covered);
+
+  const [block] = await tx
+    .insert(venueUnavailability)
+    .values({ venueId: venue.id, startsAt, endsAt, reason, createdById: actorId })
+    .returning()
+    .catch((error: unknown) => {
+      // The overlap probe above refuses a live duplicate. Only a writer outside the venue lock
+      // reaches the unique index.
+      if (isConstraintViolation(error, "venue_unavailability_period_idx")) {
+        log.warn("Refused a venue block on a duplicate period", {
+          constraint: "venue_unavailability_period_idx",
+          venueId: venue.id,
+        });
+        throw new ConflictError(venueBlockConflictMessage({ venueName: venue.name, ...extent }));
+      }
+      throw error;
+    });
+  await occupyVenue(tx, {
+    ...extent,
+    eventId: null,
+    venueUnavailabilityId: block.id,
+    setupMinutes: 0,
+    turnaroundMinutes: 0,
+  });
+  return { block, covered };
+}
+
+/**
+ * Lift a block. The caller holds the venue lock and read the block row `FOR UPDATE`. Refuse a
+ * block that is already lifted. Key-share the suspended events, delete the block's ledger row,
+ * restore the suspended commitments that are still live, and stamp the lift. Raise no notices.
+ * Return the lifted row and the restored commitments.
+ *
+ * A new active row inside the block refuses the lift, and the transaction rolls back.
+ */
+export async function liftBlockRows(
+  tx: VenueTx,
+  block: VenueBlockRow,
+  actorId: string
+): Promise<{ block: VenueBlockRow; restored: BlockCommitment[] }> {
+  if (block.liftedAt !== null) throw new ConflictError(VENUE_BLOCK_ALREADY_LIFTED_MESSAGE);
+
+  const restorable = await loadRestorableCommitments(tx, block);
+  await keyShareEvents(tx, restorable);
+  await vacateVenue(tx, { venueUnavailabilityId: block.id });
+  const restored = await restoreBlockCommitments(tx, restorable).catch((error: unknown) => {
+    if (isConstraintViolation(error, "venue_occupancy_no_overlap") || isDeadlock(error)) {
+      log.warn("Refused a venue block lift that a new row overlaps", { blockId: block.id });
+      throw new ConflictError(VENUE_BLOCK_LIFT_OVERLAP_MESSAGE);
+    }
+    throw error;
+  });
+
+  const [lifted] = await tx
+    .update(venueUnavailability)
+    .set({ liftedAt: new Date(), liftedById: actorId })
+    .where(eq(venueUnavailability.id, block.id))
+    .returning();
+  return { block: lifted, restored };
+}
+
+/**
+ * Record a venue block for Venue Staff. Refuse a start day before today. Lock the venue, record
+ * the block (`recordBlockRows`), then notify each covered event once for each recipient.
  */
 export async function handleRecordVenueBlock(
   data: unknown,
   actor: SessionUser,
-  database: Database
+  database: Database,
+  now = new Date()
 ) {
   const input = parseVenueBlockInput(data);
+  assertBlockStartNotPast(input.date, now);
   const startsAt = `${input.date} ${input.startTime}:00`;
   const endsAt =
     input.endDate !== undefined && input.endTime !== undefined
@@ -137,89 +225,21 @@ export async function handleRecordVenueBlock(
     if (!venue) throw new NotFoundError("Not Found");
     await lockVenue(tx, venue.id);
 
-    const clashes = await tx
-      .select({
-        startsAt: venueUnavailability.startsAt,
-        endsAt: venueUnavailability.endsAt,
-      })
-      .from(venueUnavailability)
-      .where(
-        and(
-          eq(venueUnavailability.venueId, venue.id),
-          isNull(venueUnavailability.liftedAt),
-          sql`tsrange(${venueUnavailability.startsAt}, ${venueUnavailability.endsAt}, '[)') && tsrange(${startsAt}::timestamp, ${endsAt}::timestamp, '[)')`
-        )
-      )
-      .orderBy(asc(venueUnavailability.startsAt))
-      .limit(1);
-    const clash = clashes.at(0);
-    if (clash) {
-      throw new ConflictError(
-        venueBlockConflictMessage({
-          venueName: venue.name,
-          startsAt: clash.startsAt,
-          endsAt: clash.endsAt,
-        })
-      );
-    }
-
-    const block = { venueId: venue.id, startsAt, endsAt };
-    const commitments = await loadBlockCommitments(tx, block);
-    const eventIds = [
-      ...new Set(commitments.map(row => row.eventId).filter((id): id is number => id !== null)),
-    ].toSorted((left, right) => left - right);
-    for (const eventId of eventIds) {
-      // oxlint-disable-next-line eslint/no-await-in-loop -- key-share in ascending id order
-      await keyShareEvent(tx, eventId);
-    }
-
-    await suspendBlockCommitments(tx, block, commitments);
-    const [recorded] = await tx
-      .insert(venueUnavailability)
-      .values({
-        venueId: venue.id,
-        startsAt,
-        endsAt,
-        reason: input.reason,
-        createdById: actor.id,
-      })
-      .returning()
-      .catch((error: unknown) => {
-        if (isConstraintViolation(error, "venue_unavailability_period_idx")) {
-          log.warn("Refused a venue block on a duplicate period", {
-            constraint: "venue_unavailability_period_idx",
-            venueId: venue.id,
-          });
-          throw new ConflictError(VENUE_OCCUPANCY_CONFLICT_MESSAGE);
-        }
-        throw error;
-      });
-    await occupyVenue(tx, {
-      venueId: venue.id,
-      eventId: null,
-      venueUnavailabilityId: recorded.id,
-      startsAt,
-      endsAt,
-      setupMinutes: 0,
-      turnaroundMinutes: 0,
-    });
-
-    await raiseBlockNotices(tx, collectBlockNotices(commitments), {
-      venueName: venue.name,
-      startsAt,
-      endsAt,
-      reason: input.reason,
-      action: "blocked",
-    });
-
-    return recorded;
+    const { block, covered } = await recordBlockRows(
+      tx,
+      venue,
+      { startsAt, endsAt, reason: input.reason },
+      actor.id
+    );
+    await notifyBlockChange(tx, covered, { action: "blocked", venueName: venue.name, block });
+    return block;
   });
 }
 
 /**
- * Lift a venue block. Locks the venue, re-reads the block, drops its ledger row, restores the
- * suspended commitments that are still live, stamps the lift, then notifies each restored
- * event once per (event, recipient). A new overlap refuses the lift and rolls back.
+ * Lift a venue block for Venue Staff. Lock the venue, re-read the block, lift it
+ * (`liftBlockRows`), then notify each restored event once for each recipient. A cancelled event
+ * gets no notice, though its booking or hold is restored (PTR-54 keeps them).
  */
 export async function handleLiftVenueBlock(data: unknown, actor: SessionUser, database: Database) {
   const { id } = parseVenueBlockId(data);
@@ -235,67 +255,21 @@ export async function handleLiftVenueBlock(data: unknown, actor: SessionUser, da
     await lockVenue(tx, previewRow.venueId);
 
     const rows = await tx
-      .select()
+      .select({ block: venueUnavailability, venueName: venues.name })
       .from(venueUnavailability)
+      .innerJoin(venues, eq(venues.id, venueUnavailability.venueId))
       .where(eq(venueUnavailability.id, id))
       .limit(1)
-      .for("update");
-    const block = rows.at(0);
-    if (!block) throw new NotFoundError("Not Found");
-    if (block.liftedAt !== null) {
-      throw new ConflictError("This block has already been lifted.");
-    }
-    const venueRows = await tx
-      .select({ name: venues.name })
-      .from(venues)
-      .where(eq(venues.id, block.venueId))
-      .limit(1);
-    const venue = venueRows.at(0);
-    if (!venue) throw new NotFoundError("Not Found");
+      .for("update", { of: venueUnavailability });
+    const row = rows.at(0);
+    if (!row) throw new NotFoundError("Not Found");
 
-    const extent = { venueId: block.venueId, startsAt: block.startsAt, endsAt: block.endsAt };
-    const restorable = await loadRestorableCommitments(tx, extent);
-    const eventIds = [
-      ...new Set(
-        restorable.map(row => row.eventId).filter((value): value is number => value !== null)
-      ),
-    ].toSorted((left, right) => left - right);
-    for (const eventId of eventIds) {
-      // oxlint-disable-next-line eslint/no-await-in-loop -- key-share in ascending id order
-      await keyShareEvent(tx, eventId);
-    }
-
-    await vacateVenue(tx, { venueUnavailabilityId: block.id });
-    let restored: typeof restorable;
-    try {
-      // oxlint-disable-next-line eslint/no-await-in-loop -- restore runs once per lift
-      restored = await restoreBlockCommitments(tx, restorable);
-    } catch (error) {
-      if (isConstraintViolation(error, "venue_occupancy_no_overlap") || isDeadlock(error)) {
-        if (isDeadlock(error)) {
-          log.warn("Refused an occupancy write that deadlocked", { sqlstate: "40P01" });
-        }
-        throw new ConflictError(
-          "A new arrangement now overlaps this block, so it cannot be lifted."
-        );
-      }
-      throw error;
-    }
-
-    const [lifted] = await tx
-      .update(venueUnavailability)
-      .set({ liftedAt: new Date(), liftedById: actor.id })
-      .where(eq(venueUnavailability.id, block.id))
-      .returning();
-
-    await raiseBlockNotices(tx, collectBlockNotices(restored), {
-      venueName: venue.name,
-      startsAt: block.startsAt,
-      endsAt: block.endsAt,
-      reason: block.reason,
-      action: "lifted",
-    });
-
-    return lifted;
+    const { block, restored } = await liftBlockRows(tx, row.block, actor.id);
+    await notifyBlockChange(
+      tx,
+      restored.filter(commitment => commitment.eventStatus !== "cancelled"),
+      { action: "lifted", venueName: row.venueName, block }
+    );
+    return block;
   });
 }

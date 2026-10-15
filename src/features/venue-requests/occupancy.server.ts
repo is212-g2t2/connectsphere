@@ -178,7 +178,10 @@ export async function checkVenueFree(
   );
 }
 
-/** The block period a suspend/restore helper reads or writes. A null end is unbounded. Stamps use the database `YYYY-MM-DD HH:MM:SS` shape, which compares as a date. */
+/**
+ * The block period a suspend/restore helper reads or writes. A null end is unbounded. Stamps use
+ * the database `YYYY-MM-DD HH:MM:SS` shape, which compares as a date.
+ */
 export interface BlockExtent {
   venueId: number;
   startsAt: string;
@@ -282,29 +285,30 @@ export function suspensionValues(
 }
 
 /**
- * Read the active non-block rows whose buffered occupied period overlaps the block extent.
- * Plain read with no row locks; the caller key-shares the events before any ledger row lock.
- * Never returns block rows. Joins the event inner (a non-block row always has one) and the
- * sources left, so the block writer can notify each commitment's owner.
+ * Read the non-block rows at the block's venue that `match` selects. Each row carries its occupied
+ * period, its event, the possible notice recipients, and its source's status and own times. A
+ * plain read with no row locks: the caller key-shares the events before it writes.
  */
-export async function loadBlockCommitments(tx: VenueTx, block: BlockExtent) {
+function selectBlockCommitments(tx: VenueTx, block: BlockExtent, match: SQL) {
   return tx
     .select({
       id: venueOccupancy.id,
       venueId: venueOccupancy.venueId,
-      eventId: venueOccupancy.eventId,
+      eventId: eventRequests.id,
       venueRequestId: venueOccupancy.venueRequestId,
       venueHoldId: venueOccupancy.venueHoldId,
-      startsAt: venueOccupancy.startsAt,
-      endsAt: venueOccupancy.endsAt,
-      setupMinutes: venueOccupancy.setupMinutes,
-      turnaroundMinutes: venueOccupancy.turnaroundMinutes,
       occupiedStart: sql<string>`(${occupiedStart})::text`,
       occupiedEnd: sql<string>`(${occupiedEnd})::text`,
       eventName: eventRequests.eventName,
+      eventStatus: eventRequests.status,
       assignedCoordinatorId: eventRequests.assignedCoordinatorId,
       requestedById: venueRequests.requestedById,
       heldById: venueHolds.heldById,
+      bookingStatus: venueRequests.status,
+      holdStatus: venueHolds.status,
+      // Exactly one source joins, so `coalesce` gives that source's own times.
+      sourceStartsAt: sql<string>`coalesce(${venueRequests.startsAt}, ${venueHolds.startsAt})::text`,
+      sourceEndsAt: sql<string>`coalesce(${venueRequests.endsAt}, ${venueHolds.endsAt})::text`,
     })
     .from(venueOccupancy)
     .innerJoin(eventRequests, eq(eventRequests.id, venueOccupancy.eventId))
@@ -313,13 +317,27 @@ export async function loadBlockCommitments(tx: VenueTx, block: BlockExtent) {
     .where(
       and(
         eq(venueOccupancy.venueId, block.venueId),
-        venueOccupancy.active,
         isNull(venueOccupancy.venueUnavailabilityId),
-        sql`tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${block.startsAt}::timestamp, ${block.endsAt}::timestamp, '[)')`
+        match
       )
     );
 }
 
+/** The block's period as a range. A null end is unbounded. */
+function blockRange(block: BlockExtent): SQL {
+  return sql`tsrange(${block.startsAt}::timestamp, ${block.endsAt}::timestamp, '[)')`;
+}
+
+/** Read the active non-block rows whose occupied period overlaps the block. */
+export async function loadBlockCommitments(tx: VenueTx, block: BlockExtent) {
+  return selectBlockCommitments(
+    tx,
+    block,
+    sql`${venueOccupancy.active} and tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && ${blockRange(block)}`
+  );
+}
+
+/** One non-block ledger row that a block covers or suspended. */
 export type BlockCommitment = Awaited<ReturnType<typeof loadBlockCommitments>>[number];
 
 /**
@@ -365,59 +383,67 @@ export async function suspendBlockCommitments(
   }
 }
 
-/**
- * Read the inactive non-block rows whose buffered occupied period sits inside the block extent.
- * Plain read with no row locks; the caller key-shares the events before any ledger row lock.
- * Never returns block rows. Carries each source's status so restore keeps only live rows.
- */
+/** Read the inactive non-block rows whose occupied period sits inside the block. */
 export async function loadRestorableCommitments(tx: VenueTx, block: BlockExtent) {
-  return tx
-    .select({
-      id: venueOccupancy.id,
-      venueId: venueOccupancy.venueId,
-      eventId: venueOccupancy.eventId,
-      venueRequestId: venueOccupancy.venueRequestId,
-      venueHoldId: venueOccupancy.venueHoldId,
-      startsAt: venueOccupancy.startsAt,
-      endsAt: venueOccupancy.endsAt,
-      setupMinutes: venueOccupancy.setupMinutes,
-      turnaroundMinutes: venueOccupancy.turnaroundMinutes,
-      occupiedStart: sql<string>`(${occupiedStart})::text`,
-      occupiedEnd: sql<string>`(${occupiedEnd})::text`,
-      eventName: eventRequests.eventName,
-      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
-      requestedById: venueRequests.requestedById,
-      heldById: venueHolds.heldById,
-      bookingStatus: venueRequests.status,
-      holdStatus: venueHolds.status,
-    })
-    .from(venueOccupancy)
-    .innerJoin(eventRequests, eq(eventRequests.id, venueOccupancy.eventId))
-    .leftJoin(venueRequests, eq(venueRequests.id, venueOccupancy.venueRequestId))
-    .leftJoin(venueHolds, eq(venueHolds.id, venueOccupancy.venueHoldId))
-    .where(
-      and(
-        eq(venueOccupancy.venueId, block.venueId),
-        eq(venueOccupancy.active, false),
-        isNull(venueOccupancy.venueUnavailabilityId),
-        sql`tsrange(${occupiedStart}, ${occupiedEnd}, '[)') <@ tsrange(${block.startsAt}::timestamp, ${block.endsAt}::timestamp, '[)')`
-      )
-    );
+  return selectBlockCommitments(
+    tx,
+    block,
+    sql`not ${venueOccupancy.active} and tsrange(${occupiedStart}, ${occupiedEnd}, '[)') <@ ${blockRange(block)}`
+  );
 }
 
-export type RestorableCommitment = Awaited<ReturnType<typeof loadRestorableCommitments>>[number];
+/** The source that owns a commitment row. Every non-block row has a request or a hold. */
+function sourceOf(row: BlockCommitment): { venueRequestId: string } | { venueHoldId: string } {
+  if (row.venueRequestId !== null) return { venueRequestId: row.venueRequestId };
+  if (row.venueHoldId !== null) return { venueHoldId: row.venueHoldId };
+  throw new Error(`Ledger row ${row.id} has no request or hold`);
+}
+
+/**
+ * Replace a split source's pieces with one row when all of them are active again. The pieces
+ * cover the source's occupied period without gaps. The new row takes the source's own times, and
+ * buffers that reach from those times to the first and the last piece.
+ */
+async function collapsePieces(tx: VenueTx, row: BlockCommitment): Promise<void> {
+  const source = sourceOf(row);
+  const ofSource =
+    "venueRequestId" in source
+      ? eq(venueOccupancy.venueRequestId, source.venueRequestId)
+      : eq(venueOccupancy.venueHoldId, source.venueHoldId);
+  const [pieces] = await tx
+    .select({
+      count: sql<number>`count(*)::int`,
+      allActive: sql<boolean>`bool_and(${venueOccupancy.active})`,
+      setupMinutes: sql<number>`(extract(epoch from ${row.sourceStartsAt}::timestamp - min(${occupiedStart})) / 60)::int`,
+      turnaroundMinutes: sql<number>`(extract(epoch from max(${occupiedEnd}) - ${row.sourceEndsAt}::timestamp) / 60)::int`,
+    })
+    .from(venueOccupancy)
+    .where(ofSource);
+  if (pieces.count < 2 || !pieces.allActive) return;
+  await vacateVenue(tx, source);
+  await occupyVenue(tx, {
+    venueId: row.venueId,
+    eventId: row.eventId,
+    startsAt: row.sourceStartsAt,
+    endsAt: row.sourceEndsAt,
+    setupMinutes: pieces.setupMinutes,
+    turnaroundMinutes: pieces.turnaroundMinutes,
+    ...source,
+  });
+}
 
 /**
  * Restore each suspended row whose source is still live, and delete the rest. A booking counts
  * as live when approved, a hold when held. The app writers already delete replaced rows, so a
- * dead source here is defensive. Never touches block rows. Returns the rows it re-activated.
- * The caller deletes the block's own row before this runs.
+ * dead source here is defensive. Then give each restored source that a block split one row
+ * again (`collapsePieces`). Never touches block rows. Returns the rows it re-activated. The
+ * caller deletes the block's own row before this runs.
  */
 export async function restoreBlockCommitments(
   tx: VenueTx,
-  rows: readonly RestorableCommitment[]
-): Promise<RestorableCommitment[]> {
-  const restored: RestorableCommitment[] = [];
+  rows: readonly BlockCommitment[]
+): Promise<BlockCommitment[]> {
+  const restored: BlockCommitment[] = [];
   for (const row of rows) {
     if (row.bookingStatus === "approved" || row.holdStatus === "held") {
       // oxlint-disable-next-line eslint/no-await-in-loop -- restore rows in read order
@@ -427,6 +453,11 @@ export async function restoreBlockCommitments(
       // oxlint-disable-next-line eslint/no-await-in-loop -- drop rows whose source is gone
       await tx.delete(venueOccupancy).where(eq(venueOccupancy.id, row.id));
     }
+  }
+  const sources = new Map(restored.map(row => [row.venueRequestId ?? row.venueHoldId, row]));
+  for (const row of sources.values()) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- collapse after every restore
+    await collapsePieces(tx, row);
   }
   return restored;
 }

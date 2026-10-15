@@ -11,6 +11,7 @@ import {
   handleReleaseVenueBooking,
 } from "#/features/venue-requests/bookings.server";
 import {
+  handleConvertVenueHold,
   handleCreateVenueHold,
   handleReleaseVenueHold,
 } from "#/features/venue-requests/holds.server";
@@ -22,7 +23,7 @@ import {
 import { venueBlockConflictMessage } from "#/features/venue-requests/schema";
 import { handleLiftVenueBlock, handleRecordVenueBlock } from "#/features/venues/blocks.server";
 import { handleGetVenueAvailability } from "#/features/venues/records.server";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { DEFAULT_OPERATING_HOURS, VENUE_BLOCK_PAST_START_MESSAGE } from "#/features/venues/schema";
 
 /**
  * PTR-136: venue blocks suspend the covered commitments and restore them on lift.
@@ -66,6 +67,20 @@ const DATE = "2027-09-15";
 
 function session(user: (typeof users)[keyof typeof users]): SessionUser {
   return { id: user.id, email: user.email, name: user.name, role: user.role };
+}
+
+/** A ledger row without its id, to compare a row that a lift wrote again. */
+function ledgerShape(row: typeof schema.venueOccupancy.$inferSelect) {
+  return {
+    venueId: row.venueId,
+    eventId: row.eventId,
+    venueRequestId: row.venueRequestId,
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+    setupMinutes: row.setupMinutes,
+    turnaroundMinutes: row.turnaroundMinutes,
+    active: row.active,
+  };
 }
 
 const coordinator = session(users.coordinator);
@@ -180,8 +195,9 @@ describe("venue blocks (PTR-136)", () => {
     );
   }
 
-  function liftBlock(id: number, actor: SessionUser = staff) {
-    return handleLiftVenueBlock({ id }, actor, database as never);
+  /** Lift a block as Venue Staff, the only role that lifts blocks. */
+  function liftBlock(id: number) {
+    return handleLiftVenueBlock({ id }, staff, database as never);
   }
 
   function ledgerRows() {
@@ -213,6 +229,27 @@ describe("venue blocks (PTR-136)", () => {
       .select()
       .from(schema.venueOccupancy)
       .where(eq(schema.venueOccupancy.venueUnavailabilityId, id));
+  }
+
+  /** Move an event to cancelled out of band, with the attribution that the CHECK requires. */
+  async function cancelEvent(eventId: number) {
+    await database
+      .update(schema.eventRequests)
+      .set({
+        status: "cancelled",
+        cancelledById: users.coordinator.id,
+        cancelledByName: users.coordinator.name,
+        cancelledAt: new Date(),
+      })
+      .where(eq(schema.eventRequests.id, eventId));
+  }
+
+  /** Remove an event's assigned Coordinator out of band, so a notice falls back to an owner. */
+  async function unassign(eventId: number) {
+    await database
+      .update(schema.eventRequests)
+      .set({ assignedCoordinatorId: null })
+      .where(eq(schema.eventRequests.id, eventId));
   }
 
   /** The block notifications for this suite's events. Other handlers raise other kinds. */
@@ -412,58 +449,44 @@ describe("venue blocks (PTR-136)", () => {
     expect(await ledgerForHold(held.id)).toEqual([]);
   });
 
-  it("refuses an overlapping or identical finite block and suspends nothing new", async () => {
+  // AC5: a live block refuses an overlapping block, finite or open-ended, and names its period.
+  it.each<[string, string, string | undefined, string, string | undefined]>([
+    ["an overlapping finite block", "10:00", "12:00", "11:00", "13:00"],
+    ["an identical finite block", "10:00", "12:00", "10:00", "12:00"],
+    ["an open-ended block over a finite block", "10:00", "12:00", "11:00", undefined],
+    ["a second open-ended block", "10:00", undefined, "11:00", undefined],
+  ])("refuses %s and suspends nothing new", async (_case, start, end, nextStart, nextEnd) => {
     const id = await raise("10:30", "11:30");
     await approve(id);
-    await recordBlock("10:00", "12:00");
+    await recordBlock(start, end);
     const before = await ledgerRows();
 
-    const expected = venueBlockConflictMessage({
-      venueName: HALL,
-      startsAt: `${DATE} 10:00:00`,
-      endsAt: `${DATE} 12:00:00`,
-    });
-    await expect(recordBlock("11:00", "13:00")).rejects.toMatchObject({
+    await expect(recordBlock(nextStart, nextEnd)).rejects.toMatchObject({
       name: "ConflictError",
       status: 409,
-      message: expected,
-    });
-    await expect(recordBlock("10:00", "12:00")).rejects.toMatchObject({
-      name: "ConflictError",
-      status: 409,
-      message: expected,
+      message: venueBlockConflictMessage({
+        venueName: HALL,
+        startsAt: `${DATE} ${start}:00`,
+        endsAt: end === undefined ? null : `${DATE} ${end}:00`,
+      }),
     });
     expect(await ledgerRows()).toEqual(before);
     expect((await ledgerForRequest(id))[0].active).toBe(false);
   });
 
-  it("refuses an open-ended block that overlaps a finite block, naming the finite period", async () => {
-    await recordBlock("10:00", "12:00");
-    const expected = venueBlockConflictMessage({
-      venueName: HALL,
-      startsAt: `${DATE} 10:00:00`,
-      endsAt: `${DATE} 12:00:00`,
-    });
-    await expect(recordBlock("11:00")).rejects.toMatchObject({
-      name: "ConflictError",
-      status: 409,
-      message: expected,
-    });
-  });
+  it("refuses a block that starts before today, and accepts one that starts earlier today", async () => {
+    // 00:30 in Singapore on the day after DATE, and 08:00 in Singapore on DATE.
+    const nextDay = new Date(`${DATE}T16:30:00Z`);
+    const sameDay = new Date(`${DATE}T00:00:00Z`);
+    const input = { venueId: hallId, date: DATE, startTime: "07:00", reason: "Late notice" };
 
-  it("refuses a second open-ended block, naming the first as until lifted", async () => {
-    await recordBlock("10:00");
-    const expected = venueBlockConflictMessage({
-      venueName: HALL,
-      startsAt: `${DATE} 10:00:00`,
-      endsAt: null,
-    });
-    expect(expected).toContain("until lifted");
-    await expect(recordBlock("11:00")).rejects.toMatchObject({
-      name: "ConflictError",
-      status: 409,
-      message: expected,
-    });
+    await expect(handleRecordVenueBlock(input, staff, database as never, nextDay)).rejects.toThrow(
+      VENUE_BLOCK_PAST_START_MESSAGE
+    );
+    expect(await ledgerRows()).toEqual([]);
+
+    const block = await handleRecordVenueBlock(input, staff, database as never, sameDay);
+    expect(block.startsAt).toBe(`${DATE} 07:00:00`);
   });
 
   it("refuses an approval under a block that reaches only into the buffers", async () => {
@@ -714,8 +737,135 @@ describe("venue blocks (PTR-136)", () => {
     expect(await ledgerForBlock(block.id)).toHaveLength(1);
 
     const beforeLift = new Date();
-    const lifted = await liftBlock(block.id, session(users.coordinator));
-    expect(lifted.liftedById).toBe(users.coordinator.id);
+    const lifted = await liftBlock(block.id);
+    expect(lifted.liftedById).toBe(users.venueStaff.id);
     expect(lifted.liftedAt?.getTime()).toBeGreaterThanOrEqual(beforeLift.getTime() - 30_000);
+  });
+
+  it("refuses an amendment into a block and keeps the booking where it was", async () => {
+    const id = await raise("14:00", "15:00");
+    await approve(id);
+    await recordBlock("09:00", "13:00");
+    const before = await ledgerForRequest(id);
+
+    await expect(
+      handleAmendVenueBooking(
+        { id, venueId: hallId, date: DATE, startTime: "10:00", endTime: "11:00" },
+        staff,
+        database as never
+      )
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      status: 409,
+      message: expect.stringContaining("cannot host this window"),
+    });
+    expect(await ledgerForRequest(id)).toEqual(before);
+  });
+
+  it("leaves a hold released during the block out of the lift", async () => {
+    const held = await hold("10:00", "11:00");
+    const block = await recordBlock("09:00", "13:00");
+
+    await handleReleaseVenueHold({ id: held.id }, coordinator, database as never);
+    await liftBlock(block.id);
+
+    expect(await ledgerForHold(held.id)).toEqual([]);
+    const [stored] = await database
+      .select({ status: schema.venueHolds.status })
+      .from(schema.venueHolds)
+      .where(eq(schema.venueHolds.id, held.id));
+    expect(stored.status).toBe("released");
+    expect(
+      (await blockNotices()).filter(
+        notice => (notice.payload as { action: string }).action === "lifted"
+      )
+    ).toEqual([]);
+  });
+
+  it("leaves a hold converted during the block out of the lift, and the booking stands", async () => {
+    const held = await hold("10:00", "11:00");
+    const block = await recordBlock("09:00", "13:00");
+
+    const converted = await handleConvertVenueHold({ id: held.id }, coordinator, database as never);
+    // The block still refuses the new request's approval.
+    await expect(approve(converted.request.id)).rejects.toMatchObject({
+      name: "ConflictError",
+      message: expect.stringContaining("cannot host this window"),
+    });
+
+    await liftBlock(block.id);
+    expect(await ledgerForHold(held.id)).toEqual([]);
+    expect((await approve(converted.request.id)).status).toBe("approved");
+    expect(await ledgerForRequest(converted.request.id)).toEqual([
+      expect.objectContaining({
+        startsAt: `${DATE} 10:00:00`,
+        endsAt: `${DATE} 11:00:00`,
+        active: true,
+      }),
+    ]);
+  });
+
+  it("gives a split booking its original row back on lift", async () => {
+    await setBuffers(hallId, 30, 45);
+    const id = await raise("10:00", "12:00");
+    await approve(id);
+    const original = (await ledgerForRequest(id)).map(ledgerShape);
+    expect(original).toEqual([
+      expect.objectContaining({ startsAt: `${DATE} 10:00:00`, setupMinutes: 30 }),
+    ]);
+
+    const block = await recordBlock("11:00", "12:00");
+    expect(await ledgerForRequest(id)).toHaveLength(3);
+
+    await liftBlock(block.id);
+    expect((await ledgerForRequest(id)).map(ledgerShape)).toEqual(original);
+  });
+
+  it("restores a cancelled event's booking on lift without a lift notice", async () => {
+    const eventId = await createEvent("PTR-136 cancelled");
+    const id = await raise("10:00", "11:00", hallId, eventId);
+    await approve(id);
+    const block = await recordBlock("09:00", "12:00");
+    await cancelEvent(eventId);
+
+    await liftBlock(block.id);
+
+    expect(await ledgerForRequest(id)).toEqual([expect.objectContaining({ active: true })]);
+    expect(
+      (await blockNotices()).map(notice => (notice.payload as { action: string }).action)
+    ).toEqual(["blocked"]);
+  });
+
+  it("notifies the booking's requester when the event has no assigned Coordinator", async () => {
+    const eventId = await createEvent("PTR-136 requester fallback");
+    const id = await raise("10:00", "11:00", hallId, eventId);
+    await approve(id);
+    await unassign(eventId);
+    await database
+      .update(schema.venueRequests)
+      .set({ requestedById: users.coordinatorB.id })
+      .where(eq(schema.venueRequests.id, id));
+
+    await recordBlock("09:00", "12:00");
+
+    expect(await blockNotices()).toEqual([
+      expect.objectContaining({ recipientId: users.coordinatorB.id, eventRequestId: eventId }),
+    ]);
+  });
+
+  it("notifies the hold's owner when the event has no assigned Coordinator", async () => {
+    const eventId = await createEvent("PTR-136 hold owner fallback");
+    const held = await hold("10:00", "11:00", eventId);
+    await unassign(eventId);
+    await database
+      .update(schema.venueHolds)
+      .set({ heldById: users.coordinatorB.id })
+      .where(eq(schema.venueHolds.id, held.id));
+
+    await recordBlock("09:00", "12:00");
+
+    expect(await blockNotices()).toEqual([
+      expect.objectContaining({ recipientId: users.coordinatorB.id, eventRequestId: eventId }),
+    ]);
   });
 });

@@ -325,6 +325,8 @@ export const VENUE_BLOCK_END_PAIR_MESSAGE = "Enter both an end date and end time
 export const VENUE_BLOCK_REASON_REQUIRED = "Enter a reason for this block";
 export const VENUE_BLOCK_REASON_MAX_LENGTH = 2000;
 export const VENUE_BLOCK_ID_MESSAGE = "Choose a block";
+/** The server refuses a block that starts on a day before today at the venue. */
+export const VENUE_BLOCK_PAST_START_MESSAGE = "Choose a start date of today or later";
 /** Lift refusals. The server throws them and the lift button shows them verbatim. */
 export const VENUE_BLOCK_ALREADY_LIFTED_MESSAGE = "This block has already been lifted.";
 export const VENUE_BLOCK_LIFT_OVERLAP_MESSAGE =

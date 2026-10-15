@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { assertBlockStartNotPast } from "#/features/venues/blocks.server";
 import {
   CAPACITY_MESSAGE,
   CAPACITY_TOO_LARGE_MESSAGE,
@@ -11,6 +12,7 @@ import {
   NAME_TOO_LONG_MESSAGE,
   OperatingHoursSchema,
   VENUE_BLOCK_END_PAIR_MESSAGE,
+  VENUE_BLOCK_PAST_START_MESSAGE,
   VENUE_BLOCK_REASON_REQUIRED,
   VENUE_TIME_ORDER_MESSAGE,
   VenueBlockInput,
@@ -261,5 +263,31 @@ describe("VenueBlockInput (PTR-136)", () => {
   it("refuses a block id that is not a positive whole number", () => {
     expect(parseVenueBlockId({ id: 7 })).toEqual({ id: 7 });
     expect(() => parseVenueBlockId({ id: 0 })).toThrow(VENUE_BLOCK_ID_MESSAGE);
+  });
+});
+
+describe("assertBlockStartNotPast (PTR-136)", () => {
+  it("accepts a block that starts today or later on the venue clock", () => {
+    // 2027-04-20 08:00 in Singapore.
+    const now = new Date("2027-04-20T00:00:00Z");
+    expect(() => assertBlockStartNotPast("2027-04-20", now)).not.toThrow();
+    expect(() => assertBlockStartNotPast("2027-04-21", now)).not.toThrow();
+  });
+
+  it("refuses a block that starts on a day before today", () => {
+    expect(() => assertBlockStartNotPast("2027-04-19", new Date("2027-04-20T00:00:00Z"))).toThrow(
+      VENUE_BLOCK_PAST_START_MESSAGE
+    );
+  });
+
+  it("reads today in Singapore, not UTC", () => {
+    // 2027-04-20 16:30 UTC is 2027-04-21 00:30 in Singapore.
+    expect(() => assertBlockStartNotPast("2027-04-20", new Date("2027-04-20T16:30:00Z"))).toThrow(
+      VENUE_BLOCK_PAST_START_MESSAGE
+    );
+    // 2027-04-20 15:59 UTC is 2027-04-20 23:59 in Singapore.
+    expect(() =>
+      assertBlockStartNotPast("2027-04-20", new Date("2027-04-20T15:59:00Z"))
+    ).not.toThrow();
   });
 });
