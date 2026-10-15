@@ -14,6 +14,7 @@ import {
 import { occupyVenue, vacateVenue } from "#/features/venue-requests/occupancy.server";
 import { selectVenueRequestEntries } from "#/features/venue-requests/records.server";
 import {
+  assertMeetsRequirements,
   assertNoEventOverlap,
   checkVenueTakesBooking,
   loadLockedVenue,
@@ -222,9 +223,14 @@ export async function handleReleaseVenueBooking(
  * row in place.
  *
  * PTR-138: an amendment is a new booking at the target venue and window, so it gets approval's
- * checks (`checkVenueTakesBooking`) with the booking's own session requirements. It also gets the
- * same-event overlap rule (`assertNoEventOverlap`), so it cannot overlap the event's pending
- * request at the target venue.
+ * ledger and availability checks (`checkVenueTakesBooking`). It also gets the same-event overlap
+ * rule (`assertNoEventOverlap`), so it cannot overlap the event's pending request at the target
+ * venue.
+ *
+ * A move to another venue also gets approval's requirement check (`assertMeetsRequirements`) with
+ * the booking's own session requirements. A move within the venue skips it: suitability depends
+ * only on the venue and the requirements, and that move changes neither. A legacy booking whose
+ * event now fails the venue can then still move.
  */
 export async function handleAmendVenueBooking(
   data: unknown,
@@ -264,7 +270,8 @@ export async function handleAmendVenueBooking(
     // A refusal rolls the deletion back.
     await vacateVenue(tx, { venueRequestId: input.id });
     const venue = await loadLockedVenue(tx, input.venueId);
-    const booking = { eventId: row.eventId, startsAt, endsAt, requirements: row.requirements };
+    if (venue.id !== row.venueId) assertMeetsRequirements(venue, row.requirements);
+    const booking = { eventId: row.eventId, startsAt, endsAt };
     const occupancy = await checkVenueTakesBooking(tx, venue, booking);
     // The ledger check refused every booking or hold overlap. Only the event's pending requests at
     // the target venue remain for the same-event rule.

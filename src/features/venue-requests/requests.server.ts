@@ -225,10 +225,9 @@ export function venueUnavailableMessage(venueName: string, failure: string): str
 }
 
 /**
- * PTR-138 AC1: refuse a booking that the venue cannot take now. Check the session's requirements
- * (`assertMeetsRequirements`), the ledger (`checkVenueFree`), then availability: refuse a window
- * when the venue is not open then, or a recorded block overlaps it
- * (`loadWindowAvailabilityFailures`). Return the ledger row to write.
+ * PTR-138 AC1: refuse a booking window that the venue cannot take now. Check the ledger
+ * (`checkVenueFree`), then availability: refuse a window when the venue is not open then, or a
+ * recorded block overlaps it (`loadWindowAvailabilityFailures`). Return the ledger row to write.
  *
  * Approval and amendment call it under the venue lock, so a venue that changed since the request
  * still gets every check. Creation does not: a block can be lifted and hours can change before
@@ -237,9 +236,8 @@ export function venueUnavailableMessage(venueName: string, failure: string): str
 export async function checkVenueTakesBooking(
   tx: VenueTx,
   venue: LockedVenue,
-  booking: { eventId: number; startsAt: string; endsAt: string; requirements: SessionRequirements }
+  booking: { eventId: number; startsAt: string; endsAt: string }
 ) {
-  assertMeetsRequirements(venue, booking.requirements);
   const occupancy = await checkVenueFree(tx, venue, booking);
   const [failure] = await loadWindowAvailabilityFailures(tx, [
     {
@@ -729,8 +727,9 @@ export async function handleWithdrawVenueRequest(
  * constraint refuses a write outside the lock convention with the generic conflict message.
  *
  * PTR-138: refuse an event outside `SEARCHABLE_EVENT_STATUSES`. Refuse a booking that the venue
- * cannot take now: it fails the session's requirements, or it is closed or blocked for the window
- * (`checkVenueTakesBooking`). A legacy request uses the event's current requirements.
+ * cannot take now: it fails the session's requirements (`assertMeetsRequirements`), or it is
+ * closed or blocked for the window (`checkVenueTakesBooking`). A legacy request uses the event's
+ * current requirements.
  */
 export async function handleApproveVenueRequest(
   data: unknown,
@@ -777,8 +776,10 @@ export async function handleApproveVenueRequest(
       throw new ConflictError(venueRequestEventStatusMessage(event.status));
     }
 
+    const venue = await loadLockedVenue(tx, row.venueId);
     // A row from before session requirements carries the event's current requirements.
-    const occupancy = await checkVenueTakesBooking(tx, await loadLockedVenue(tx, row.venueId), row);
+    assertMeetsRequirements(venue, row.requirements);
+    const occupancy = await checkVenueTakesBooking(tx, venue, row);
 
     // The row lock and status check make this the only writer of the row.
     const [approved] = await tx

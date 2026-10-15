@@ -2183,14 +2183,52 @@ describe("venue request handlers (PTR-31)", () => {
       ]);
     });
 
+    it("moves a legacy booking within its venue after its event outgrows the venue (PTR-138 AC1)", async () => {
+      const booking = await raiseRequest(eventId, "09:00", "10:00");
+      await approve(booking.id, users.venueStaffA);
+      // A booking from before session requirements stores none, so it reads the event's.
+      await database
+        .update(schema.venueRequests)
+        .set({
+          expectedAttendance: null,
+          layout: null,
+          accessibilityRequirements: null,
+          requiredFacilities: null,
+        })
+        .where(eq(schema.venueRequests.id, booking.id));
+      // No venue meets free text that names no known layout, and the venue holds 200.
+      await database
+        .update(schema.eventRequests)
+        .set({ expectedAttendance: 500, roomLayoutPreference: "Cabaret with stage" })
+        .where(eq(schema.eventRequests.id, eventId));
+
+      expect(await amend(booking.id, venueId, "09:30", "10:30")).toMatchObject({
+        status: "approved",
+        venueId,
+        startsAt: `${WINDOW.date} 09:30:00`,
+        layout: null,
+      });
+
+      // A move to another venue checks the event's current requirements.
+      const roomId = await createPtr37AlternativeVenue();
+      await expect(amend(booking.id, roomId, "09:30", "10:30")).rejects.toMatchObject({
+        name: "ConflictError",
+        status: 409,
+        message: venueRequirementsMessage(PTR37_ALTERNATIVE_VENUE_NAME, [
+          "Holds 200; 500 needed",
+          "Does not offer Cabaret with stage",
+        ]),
+      });
+      expect(await ledgerFor([booking.id])).toEqual([
+        expect.objectContaining({ venueId, startsAt: `${WINDOW.date} 09:30:00` }),
+      ]);
+    });
+
     it("amends a breakout booking against its own session requirements (PTR-138 AC1, AC3)", async () => {
+      const breakout = await raiseRequest(eventId, "09:00", "12:30", { expectedAttendance: 30 });
+      await approve(breakout.id, users.venueStaffA);
       // The room holds 40, fewer than the event's 80, but the session needs 30.
       const roomId = await createRoom({ maxCapacity: 40 });
-      const breakout = await raiseRequest(eventId, "09:00", "12:30", {
-        venueId: roomId,
-        expectedAttendance: 30,
-      });
-      await approve(breakout.id, users.venueStaffA);
 
       const amended = await amend(breakout.id, roomId, "13:00", "14:00");
 
