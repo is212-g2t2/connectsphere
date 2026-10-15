@@ -850,6 +850,21 @@ describe("venue request handlers (PTR-31)", () => {
       expect((await approve(blocked.id, users.venueStaffA)).status).toBe("approved");
     });
 
+    it("flags a window that a block's ledger row overlaps as unavailable, not as a booking", async () => {
+      // PTR-136 writes a ledger row for each block. Write one here, as that writer would.
+      const blocked = { venueId, startsAt: "2027-04-20 10:00:00", endsAt: "2027-04-20 11:00:00" };
+      const [block] = await database
+        .insert(schema.venueUnavailability)
+        .values({ ...blocked, reason: "Floor resurfacing" })
+        .returning({ id: schema.venueUnavailability.id });
+      await database
+        .insert(schema.venueOccupancy)
+        .values({ ...blocked, venueUnavailabilityId: block.id });
+      await raiseRequest(eventId, "09:30", "10:30");
+
+      expect(await readConflicts()).toEqual(["unavailable", "unavailable"]);
+    });
+
     it("names a conflicting booking before an unavailable venue, as approval does", async () => {
       const otherEventId = await createEvent("PTR-138 early booking event");
       await approve((await raiseRequest(otherEventId, "08:00", "09:00")).id, users.venueStaffA);

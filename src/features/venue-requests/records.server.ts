@@ -10,7 +10,7 @@ import type {
   VenueRequestRejection,
   VenueRequestRelease,
 } from "#/features/events/access";
-import { isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
+import { isBlockRow, isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
 import type {
   SessionRequirements,
   VenueRequestConflict,
@@ -123,14 +123,24 @@ interface VenueRequestEntryRow {
   requirements: SessionRequirements;
 }
 
+/** The flag names one kind per request: a booking first, then a hold, then an unavailable venue. */
+const CONFLICT_RANK: Record<VenueRequestConflict, number> = { booking: 0, hold: 1, unavailable: 2 };
+
+/** The kind of one overlapping ledger row. A block's row makes the venue unavailable. */
+function ledgerConflictKind(row: { isHold: boolean; isBlock: boolean }): VenueRequestConflict {
+  if (row.isBlock) return "unavailable";
+  return row.isHold ? "hold" : "booking";
+}
+
 /**
  * PTR-36 criterion 4, PTR-138 AC1: Return the conflict kind of each pending row in `pendingIds`,
  * so the flag predicts approval. Name a booking first, then a hold, then an unavailable venue.
  *
  * - `booking`, `hold`: the row overlaps an approved booking or a held hold at its venue once the
  *   buffers count. Read the ledger with approval's expression (`overlapsLedger`).
- * - `unavailable`: the venue is not open for the row's window, or a recorded block overlaps it
- *   (`loadWindowAvailabilityFailures`).
+ * - `unavailable`: the venue is not open for the row's window, or a recorded block overlaps it.
+ *   Read the blocks with `loadWindowAvailabilityFailures`, and a block's ledger row (`isBlockRow`)
+ *   once PTR-136 writes one.
  *
  * Read in batched queries, not one read per row. Do not scope the reads to the caller's events:
  * the booking or hold can belong to an event the caller cannot see. Return only the kind.
@@ -149,7 +159,7 @@ export async function loadPendingConflictKinds(
   );
   const [conflicts, windows] = await Promise.all([
     database
-      .select({ id: venueRequests.id, isHold: isHoldRow })
+      .select({ id: venueRequests.id, isHold: isHoldRow, isBlock: isBlockRow })
       .from(venueRequests)
       .innerJoin(venues, eq(venues.id, venueRequests.venueId))
       .innerJoin(
@@ -176,12 +186,15 @@ export async function loadPendingConflictKinds(
       .where(isPending),
   ]);
   const unavailable = await loadWindowAvailabilityFailures(database, windows);
-  windows.forEach((window, index) => {
-    if (unavailable[index]) kinds.set(window.id, "unavailable");
-  });
-  for (const row of conflicts) {
-    if (row.isHold && kinds.get(row.id) === "booking") continue;
-    kinds.set(row.id, row.isHold ? "hold" : "booking");
+  const found = [
+    ...windows
+      .filter((_window, index) => unavailable[index] !== null)
+      .map(window => ({ id: window.id, kind: "unavailable" as const })),
+    ...conflicts.map(row => ({ id: row.id, kind: ledgerConflictKind(row) })),
+  ];
+  for (const { id, kind } of found) {
+    const named = kinds.get(id);
+    if (named === undefined || CONFLICT_RANK[kind] < CONFLICT_RANK[named]) kinds.set(id, kind);
   }
   return kinds;
 }
