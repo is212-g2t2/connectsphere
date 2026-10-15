@@ -7,6 +7,10 @@ import {
   LiftVenueBlockButton,
   RecordVenueBlockDialog,
 } from "#/features/venues/components/venue-block-actions";
+import {
+  VENUE_BLOCK_ALREADY_LIFTED_MESSAGE,
+  VENUE_BLOCK_LIFT_OVERLAP_MESSAGE,
+} from "#/features/venues/schema";
 import { toast } from "sonner";
 
 const { mockInvalidate, mockNavigate, mockRecordBlock, mockLiftBlock } = vi.hoisted(() => ({
@@ -200,7 +204,9 @@ describe("venue block action components", () => {
         />
       );
 
-      await user.click(screen.getByRole("button", { name: /Lift venue block/ }));
+      await user.click(
+        screen.getByRole("button", { name: "Lift venue block, 5 Oct 2026, 13:00 – 15:00" })
+      );
       await user.click(await screen.findByRole("button", { name: "Confirm lift" }));
 
       await waitFor(() => {
@@ -209,8 +215,31 @@ describe("venue block action components", () => {
       });
     });
 
-    it("shows an already-lifted refusal verbatim", async () => {
-      mockLiftBlock.mockRejectedValueOnce(new Error("This block has already been lifted."));
+    it.each([VENUE_BLOCK_ALREADY_LIFTED_MESSAGE, VENUE_BLOCK_LIFT_OVERLAP_MESSAGE])(
+      "shows the refusal %j verbatim",
+      async message => {
+        mockLiftBlock.mockRejectedValueOnce(new Error(message));
+        const user = userEvent.setup();
+        render(
+          <LiftVenueBlockButton
+            blockId="9"
+            reason="Maintenance"
+            startsAt="2026-10-05T13:00:00"
+            endsAt="2026-10-05T15:00:00"
+          />
+        );
+
+        await user.click(screen.getByRole("button", { name: /Lift venue block/ }));
+        await user.click(await screen.findByRole("button", { name: "Confirm lift" }));
+
+        await waitFor(() => {
+          expect(screen.getByRole("alert").textContent).toBe(message);
+        });
+      }
+    );
+
+    it("replaces another error with the generic message", async () => {
+      mockLiftBlock.mockRejectedValueOnce(new Error("Block cannot be lifted by the database"));
       const user = userEvent.setup();
       render(
         <LiftVenueBlockButton
@@ -225,7 +254,7 @@ describe("venue block action components", () => {
       await user.click(await screen.findByRole("button", { name: "Confirm lift" }));
 
       await waitFor(() => {
-        expect(screen.getByRole("alert").textContent).toContain("already been lifted");
+        expect(screen.getByRole("alert").textContent).toBe("Could not lift this block. Try again.");
       });
     });
 
@@ -244,23 +273,6 @@ describe("venue block action components", () => {
       await user.click(screen.getByRole("button", { name: /Lift venue block/ }));
 
       expect(await screen.findByText(/until lifted/)).toBeTruthy();
-    });
-
-    it("names the true period in wall-clock text with the conditional outcome", async () => {
-      const user = userEvent.setup();
-      render(
-        <LiftVenueBlockButton
-          blockId="9"
-          reason="Maintenance"
-          startsAt="2026-10-05T09:00:00"
-          endsAt="2026-10-05T12:00:00"
-        />
-      );
-
-      await user.click(screen.getByRole("button", { name: /Lift venue block/ }));
-
-      expect(await screen.findByText(/5 Oct 2026, 09:00 – 12:00/)).toBeTruthy();
-      expect(screen.getByText(/unless a new arrangement now overlaps it/)).toBeTruthy();
     });
 
     it("names the end date of a multi-day block", async () => {

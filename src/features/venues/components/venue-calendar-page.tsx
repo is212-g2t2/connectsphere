@@ -84,6 +84,16 @@ const DAY_MONTH = new Intl.DateTimeFormat("en-GB", {
 const MONTH_SHORT = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short" });
 
 /**
+ * One row of the results list. The row shows `visibleStart` to `visibleEnd`, the part inside the
+ * range. The lift confirmation names the record's true `startsAt` to `endsAt`.
+ */
+type CalendarRow = Omit<OccupiedPeriod, "id" | "state"> & {
+  key: string;
+  id?: string;
+  state: OccupiedPeriod["state"] | "available";
+};
+
+/**
  * Show the venue calendar (PTR-28). Accept a venue and an inclusive date range. Return free,
  * confirmed, and blocked periods. The rows and the calendar come from the route loader, and the
  * applied search comes from the route, both as props. The page then renders in a unit test
@@ -158,7 +168,7 @@ export function VenueCalendarPage({
     };
     for (const [day, state] of occupiedDays) modifiers[state].push(civilDate(day));
 
-    const rows = schedule
+    const rows: CalendarRow[] = schedule
       ? [
           ...schedule.available.map(period => ({
             key: `available:${period.startsAt}`,
@@ -166,26 +176,11 @@ export function VenueCalendarPage({
             state: "available" as const,
             startsAt: period.startsAt,
             endsAt: period.endsAt,
+            visibleStart: period.startsAt,
+            visibleEnd: period.endsAt,
           })),
-          ...schedule.occupied.map(period => ({
-            key: `${period.state}:${period.id}`,
-            id: period.id,
-            label: period.label,
-            state: period.state,
-            startsAt: period.startsAt,
-            endsAt: period.endsAt,
-            visibleStart: period.visibleStart,
-            visibleEnd: period.visibleEnd,
-            openEnded: period.openEnded,
-            canRelease: period.canRelease,
-            convertDefaults: period.convertDefaults,
-          })),
-        ].toSorted((left, right) =>
-          compareTimestamps(
-            "visibleStart" in left ? left.visibleStart : left.startsAt,
-            "visibleStart" in right ? right.visibleStart : right.startsAt
-          )
-        )
+          ...schedule.occupied.map(period => ({ key: `${period.state}:${period.id}`, ...period })),
+        ].toSorted((left, right) => compareTimestamps(left.visibleStart, right.visibleStart))
       : [];
     return { occupiedModifiers: modifiers, periods: rows };
   }, [schedule]);
@@ -400,73 +395,60 @@ export function VenueCalendarPage({
                 </p>
               ) : (
                 <ul className="divide-y divide-border">
-                  {periods.map(period => {
-                    // Show the part inside the range. The lift confirmation uses the record's
-                    // true `startsAt`/`endsAt` below, not these visible values.
-                    const displayStart =
-                      "visibleStart" in period ? period.visibleStart : period.startsAt;
-                    const displayEnd = "visibleEnd" in period ? period.visibleEnd : period.endsAt;
-                    const displayOpenEnded = "openEnded" in period ? period.openEnded : undefined;
-                    return (
-                      <li key={period.key} className="flex flex-wrap items-center gap-4 py-4">
-                        <DateChip day={timestampDay(displayStart)} />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium">{period.label}</p>
-                          <p className="body-sm text-muted-foreground">
-                            {timeRange({
-                              startsAt: displayStart,
-                              endsAt: displayEnd,
-                              openEnded: displayOpenEnded,
-                            })}{" "}
-                            · {schedule.venue.name}
-                          </p>
-                        </div>
-                        {period.state !== "available" && (
-                          <Badge variant={OCCUPIED_STATES[period.state].variant}>
-                            {OCCUPIED_STATES[period.state].label}
-                          </Badge>
+                  {periods.map(period => (
+                    <li key={period.key} className="flex flex-wrap items-center gap-4 py-4">
+                      <DateChip day={timestampDay(period.visibleStart)} />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium">{period.label}</p>
+                        <p className="body-sm text-muted-foreground">
+                          {timeRange(period)} · {schedule.venue.name}
+                        </p>
+                      </div>
+                      {period.state !== "available" && (
+                        <Badge variant={OCCUPIED_STATES[period.state].variant}>
+                          {OCCUPIED_STATES[period.state].label}
+                        </Badge>
+                      )}
+                      {period.state === "tentative_hold" &&
+                        period.id &&
+                        canHold &&
+                        (period.canRelease || period.convertDefaults) && (
+                          <div className="flex items-center gap-2">
+                            {period.convertDefaults && (
+                              <ConvertVenueHoldButton
+                                holdId={period.id}
+                                requirements={period.convertDefaults}
+                              />
+                            )}
+                            {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
+                          </div>
                         )}
-                        {period.state === "tentative_hold" &&
-                          period.id &&
-                          canHold &&
-                          (period.canRelease || period.convertDefaults) && (
-                            <div className="flex items-center gap-2">
-                              {period.convertDefaults && (
-                                <ConvertVenueHoldButton
-                                  holdId={period.id}
-                                  requirements={period.convertDefaults}
-                                />
-                              )}
-                              {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
-                            </div>
-                          )}
-                        {period.state === "blocked" && period.id && canBlock && (
-                          <LiftVenueBlockButton
-                            blockId={period.id}
-                            reason={period.label}
-                            startsAt={period.startsAt}
-                            endsAt={period.endsAt}
-                            openEnded={period.openEnded}
-                          />
-                        )}
-                        {period.state === "available" && canHold && (
-                          <PlaceVenueHoldDialog
-                            venueId={schedule.venue.id}
-                            venueName={schedule.venue.name}
-                            defaultDate={timestampDay(period.startsAt)}
-                            defaultStartTime={timestampTime(period.startsAt).slice(0, 5)}
-                            defaultEndTime={timestampTime(period.endsAt).slice(0, 5)}
-                            coordinatorEvents={coordinatorEvents}
-                            trigger={
-                              <Button size="sm" variant="ghost">
-                                Hold slot
-                              </Button>
-                            }
-                          />
-                        )}
-                      </li>
-                    );
-                  })}
+                      {period.state === "blocked" && period.id && canBlock && (
+                        <LiftVenueBlockButton
+                          blockId={period.id}
+                          reason={period.label}
+                          startsAt={period.startsAt}
+                          endsAt={period.endsAt}
+                          openEnded={period.openEnded}
+                        />
+                      )}
+                      {period.state === "available" && canHold && (
+                        <PlaceVenueHoldDialog
+                          venueId={schedule.venue.id}
+                          venueName={schedule.venue.name}
+                          defaultDate={timestampDay(period.startsAt)}
+                          defaultStartTime={timestampTime(period.startsAt).slice(0, 5)}
+                          defaultEndTime={timestampTime(period.endsAt).slice(0, 5)}
+                          coordinatorEvents={coordinatorEvents}
+                          trigger={
+                            <Button size="sm" variant="ghost">
+                              Hold slot
+                            </Button>
+                          }
+                        />
+                      )}
+                    </li>
+                  ))}
                 </ul>
               )}
             </CardContent>
@@ -524,17 +506,20 @@ function dateLabel(value: string) {
   return DATE_LABEL.format(civilDate(value));
 }
 
-/** Show a booking past midnight as `23:00 - 24:00` when it ends at range end. */
-function timeRange(period: { startsAt: string; endsAt: string; openEnded?: true }) {
-  const start = timestampTime(period.startsAt).slice(0, 5);
+/**
+ * Show the visible part of a row as clock times. The date chip names the start day. Show a booking
+ * past midnight as `23:00 - 24:00` when it ends at range end.
+ */
+function timeRange(period: Pick<CalendarRow, "visibleStart" | "visibleEnd" | "openEnded">) {
+  const start = timestampTime(period.visibleStart).slice(0, 5);
   if (period.openEnded) return `${start} – until lifted`;
-  const endClock = timestampTime(period.endsAt).slice(0, 5);
+  const endClock = timestampTime(period.visibleEnd).slice(0, 5);
   const end =
-    timestampEndDay(period.endsAt) === timestampDay(period.startsAt)
+    timestampEndDay(period.visibleEnd) === timestampDay(period.visibleStart)
       ? endClock
-      : timestampTime(period.endsAt).startsWith("00:00:00")
+      : timestampTime(period.visibleEnd).startsWith("00:00:00")
         ? "24:00"
-        : `${DAY_MONTH.format(civilDate(timestampDay(period.endsAt)))} ${endClock}`;
+        : `${DAY_MONTH.format(civilDate(timestampDay(period.visibleEnd)))} ${endClock}`;
   return `${start} – ${end}`;
 }
 

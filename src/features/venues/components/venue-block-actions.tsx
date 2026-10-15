@@ -26,24 +26,39 @@ import {
 import { Field, FieldDescription, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { Textarea } from "#/components/ui/textarea";
-import { VenueBlockInput, VENUE_BLOCK_REASON_MAX_LENGTH } from "#/features/venues/schema";
+import {
+  VENUE_BLOCK_ALREADY_LIFTED_MESSAGE,
+  VENUE_BLOCK_LIFT_OVERLAP_MESSAGE,
+  VENUE_BLOCK_REASON_MAX_LENGTH,
+  VenueBlockInput,
+} from "#/features/venues/schema";
 import { formatLocalDateTime } from "#/features/event-requests/format";
+import { formIssues } from "#/features/venue-requests/schema";
 import { liftVenueBlock, recordVenueBlock } from "#/features/venues/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 import { skipRootFilter } from "#/lib/invalidate";
 
 const LIFT_FALLBACK_MESSAGE = "Could not lift this block. Try again.";
 
-/** Format a block period as wall-clock text, naming the end day when it differs. */
-function formatBlockPeriod(startsAt: string, endsAt: string, openEnded?: true): string {
+/**
+ * Format a block period as wall-clock text. Name the end day only when it differs from the start
+ * day. An absent end reads as "until lifted". Both values start `YYYY-MM-DDTHH:MM`.
+ */
+function formatBlockPeriod(startsAt: string, endsAt?: string): string {
   const start = formatLocalDateTime(startsAt.slice(0, 16));
-  if (openEnded) return `${start} – until lifted`;
+  if (endsAt === undefined) return `${start} – until lifted`;
   const end =
     endsAt.slice(0, 10) === startsAt.slice(0, 10)
       ? endsAt.slice(11, 16)
       : formatLocalDateTime(endsAt.slice(0, 16));
   return `${start} – ${end}`;
 }
+
+/** The server sends these refusals for the block itself. Show them verbatim. */
+const LIFT_REFUSALS: ReadonlySet<string> = new Set([
+  VENUE_BLOCK_ALREADY_LIFTED_MESSAGE,
+  VENUE_BLOCK_LIFT_OVERLAP_MESSAGE,
+]);
 
 /** Lift a block and free its period. Refusals name the block state, so show them verbatim. */
 export function LiftVenueBlockButton({
@@ -60,7 +75,7 @@ export function LiftVenueBlockButton({
   openEnded?: true;
 }) {
   const router = useRouter();
-  const period = formatBlockPeriod(startsAt, endsAt, openEnded);
+  const period = formatBlockPeriod(startsAt, openEnded ? undefined : endsAt);
   const [state, run, pending] = useMutation(async () => {
     try {
       // The calendar carries ids as text. The schema wants the numeric row id.
@@ -68,9 +83,7 @@ export function LiftVenueBlockButton({
     } catch (error) {
       await router.invalidate({ filter: skipRootFilter });
       const message = error instanceof Error ? error.message : "";
-      if (message.includes("already been lifted") || message.includes("cannot be lifted")) {
-        throw error;
-      }
+      if (LIFT_REFUSALS.has(message)) throw error;
       throw new Error(LIFT_FALLBACK_MESSAGE, { cause: error });
     }
     toast.success("Venue block lifted.");
@@ -135,32 +148,15 @@ function toBlockInput(venueId: number, value: BlockFormValues) {
   };
 }
 
-function blockPeriodLabel(value: {
-  date: string;
-  startTime: string;
-  endDate?: string;
-  endTime?: string;
-}) {
-  const start = formatLocalDateTime(`${value.date}T${value.startTime}`);
-  if (!value.endDate || !value.endTime) return `${start} – until lifted`;
-  const end =
-    value.endDate === value.date
-      ? value.endTime
-      : formatLocalDateTime(`${value.endDate}T${value.endTime}`);
-  return `${start} – ${end}`;
-}
-
 /** Venue Staff record a block naming venue, start, optional end, and reason. */
 export function RecordVenueBlockDialog({
   venueId,
   venueName,
   defaultDate = "",
-  trigger,
 }: {
   venueId: number;
   venueName: string;
   defaultDate?: string;
-  trigger?: React.ReactElement;
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -173,24 +169,19 @@ export function RecordVenueBlockDialog({
       endTime: "",
       reason: "",
     },
-    // `VenueBlockInput` uses the server's rules. Validate once, then mark each field with its
-    // issue, as `venue-hold-actions.tsx` does. Blank end inputs read as absent keys.
+    // `VenueBlockInput` uses the server's rules. Blank end inputs read as absent keys.
     validators: {
-      onSubmit: ({ value }) => {
-        const parsed = VenueBlockInput.safeParse(toBlockInput(venueId, value));
-        if (parsed.success) return undefined;
-        const fields: Record<string, { message: string }> = {};
-        for (const issue of parsed.error.issues) {
-          fields[String(issue.path[0])] ??= { message: issue.message };
-        }
-        return { fields };
-      },
+      onSubmit: ({ value }) => formIssues(VenueBlockInput, toBlockInput(venueId, value)),
     },
     onSubmit: async ({ value, formApi }) => {
       const input = toBlockInput(venueId, value);
       try {
         await recordVenueBlock({ data: input });
-        toast.success(`Block recorded: ${blockPeriodLabel(input)}.`);
+        const end =
+          input.endDate && input.endTime ? `${input.endDate}T${input.endTime}` : undefined;
+        toast.success(
+          `Block recorded: ${formatBlockPeriod(`${input.date}T${input.startTime}`, end)}.`
+        );
         setOpen(false);
         await router.invalidate({ filter: skipRootFilter });
       } catch (submitError) {
@@ -211,11 +202,9 @@ export function RecordVenueBlockDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          trigger ?? (
-            <Button size="sm" variant="outline">
-              Block venue
-            </Button>
-          )
+          <Button size="sm" variant="outline">
+            Block venue
+          </Button>
         }
       />
       <DialogContent>
