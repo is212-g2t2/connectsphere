@@ -1,7 +1,14 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { equipmentRequests, eventRequests, venueRequests, venues } from "#/db/schema";
+import {
+  equipmentRequests,
+  eventRegistrations,
+  eventRequests,
+  venueOccupancy,
+  venueRequests,
+  venues,
+} from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
@@ -12,6 +19,8 @@ import {
   VENUE_BOOKING_OUTSTANDING_MESSAGE,
 } from "#/features/events/confirmation";
 import { raiseNotifications } from "#/features/notifications/raise.server";
+import type { NewNotification } from "#/features/notifications/raise.server";
+import { suspendedPieceWhere } from "#/features/venues/blocked-arrangements.server";
 
 /**
  * Keep this module server-only. Its value import of `#/db/schema` builds tables at module scope,
@@ -75,9 +84,17 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id))
       .for("update", { of: venueRequests });
 
+    // PTR-137 AC2: a booking a live block suspends still reads `approved`; the ledger says so.
+    // Only the booking's own pieces count: a suspended hold alone does not hold confirmation back.
+    const suspended = await tx
+      .select({ id: venueOccupancy.id })
+      .from(venueOccupancy)
+      .where(and(suspendedPieceWhere(request.id), isNotNull(venueOccupancy.venueRequestId)))
+      .limit(1);
     const blockers = confirmationBlockers({
       status: request.status,
       venueRequests: venueRows,
+      venueBookingSuspended: suspended.length > 0,
       equipmentLines: equipmentRows,
       equipmentArrangementsCompletedAt: request.equipmentArrangementsCompletedAt,
     });
@@ -102,25 +119,45 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       .where(eq(eventRequests.id, request.id))
       .returning();
 
-    // Commit the confirmation and the Organiser's notification together. The worker sends the email.
+    const payload = {
+      eventName: updated.eventName.trim() || "Untitled event",
+      venueName: booking.venueName,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+      equipment: equipmentRows.map(line => ({
+        id: line.id,
+        item: line.item,
+        quantity: line.quantity,
+        state: arrangementStateLabel(line.arrangementStatus),
+      })),
+    };
+    // PTR-137 AC6: tell each registered Attendee the arrangements now confirmed. Raise one row
+    // per attendee in this transaction, as every notification does; the event's place limit
+    // bounds the row count. The Attendee copy carries no equipment lines: the Attendee projection
+    // never does (PTR-44 AC3), and the worker sends this payload, so strip them here, not only in
+    // the template.
+    const registered = await tx
+      .select({ attendeeId: eventRegistrations.attendeeId })
+      .from(eventRegistrations)
+      .where(
+        and(eq(eventRegistrations.eventId, request.id), eq(eventRegistrations.status, "registered"))
+      );
+    const attendeeNotices: NewNotification[] = registered.map(({ attendeeId }) => ({
+      recipientId: attendeeId,
+      eventRequestId: updated.id,
+      kind: "event_confirmed",
+      payload: { ...payload, equipment: [], audience: "attendee" },
+    }));
+
+    // Commit the confirmation and the notifications together. The worker sends the emails.
     await raiseNotifications(tx, [
       {
         recipientId: request.organiserId,
         eventRequestId: updated.id,
         kind: "event_confirmed",
-        payload: {
-          eventName: updated.eventName.trim() || "Untitled event",
-          venueName: booking.venueName,
-          startsAt: booking.startsAt,
-          endsAt: booking.endsAt,
-          equipment: equipmentRows.map(line => ({
-            id: line.id,
-            item: line.item,
-            quantity: line.quantity,
-            state: arrangementStateLabel(line.arrangementStatus),
-          })),
-        },
+        payload,
       },
+      ...attendeeNotices,
     ]);
 
     return updated;

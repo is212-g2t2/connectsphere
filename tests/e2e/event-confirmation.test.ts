@@ -140,7 +140,11 @@ test.describe("AC1: confirming", () => {
 
     await confirmFromPage(page, name);
 
-    await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
+    await expect(
+      page.getByText(
+        "Event confirmed. The Organiser and any registered attendees will be notified."
+      )
+    ).toBeVisible();
     const venue = page.locator("section#venue");
     const confirmation = venue.locator('dl[aria-label="Confirmation"]');
     await expect(venue.getByText("Confirmed venue")).toBeVisible();
@@ -156,7 +160,11 @@ test.describe("AC1: confirming", () => {
 
     await confirmFromPage(page, name);
 
-    await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
+    await expect(
+      page.getByText(
+        "Event confirmed. The Organiser and any registered attendees will be notified."
+      )
+    ).toBeVisible();
     expect(await statusOf(id)).toBe("confirmed");
   });
 });
@@ -194,7 +202,11 @@ test.describe("AC3 and AC4: the Organiser", () => {
     });
     await openEventPage(page, id);
     await confirmFromPage(page, name);
-    await expect(page.getByText("Event confirmed. The Organiser will be notified.")).toBeVisible();
+    await expect(
+      page.getByText(
+        "Event confirmed. The Organiser and any registered attendees will be notified."
+      )
+    ).toBeVisible();
 
     const organiserContext = await browser.newContext();
     const organiserPage = await organiserContext.newPage();

@@ -22,6 +22,8 @@ export function isConfirmableStatus(status: EventRequestStatus): boolean {
 
 export const CONFIRMATION_REFUSAL_HEADING = "This event cannot be confirmed yet:";
 export const VENUE_BOOKING_OUTSTANDING_MESSAGE = "There is no approved venue booking.";
+/** PTR-137 AC2: a block suspends the booking, so the event cannot be confirmed on it. */
+export const VENUE_BOOKING_SUSPENDED_MESSAGE = "Its venue booking is suspended by a venue block.";
 export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
   "Technical Support has not marked the equipment arrangements complete.";
 
@@ -74,6 +76,8 @@ function outstandingVenueRequestMessage(request: ConfirmationVenueRequest): stri
 interface ConfirmationInput {
   status: EventRequestStatus;
   venueRequests: readonly ConfirmationVenueRequest[];
+  /** PTR-137: true when a live venue block suspends the approved booking. */
+  venueBookingSuspended?: boolean;
   equipmentLines: readonly { item: string; arrangementStatus: string }[];
   /** PTR-43's stamp: set when Technical Support marked every line arranged. */
   equipmentArrangementsCompletedAt: Date | null;
@@ -84,11 +88,11 @@ interface ConfirmationInput {
  * unconfirmable status is the only reason given: cancelled or completed events have no
  * outstanding arrangements.
  *
- * Otherwise each request that was not withdrawn must be approved or answered. A `rejected` or
- * `released` row is answered when a later non-withdrawn request for its target venue was created
- * after the terminal state was written; the Coordinator acted on it. Name each unanswered pending,
- * rejected, or released booking, and each missing equipment arrangement. An event with no
- * equipment lines has nothing to settle, so the venue bookings alone govern (AC5).
+ * Otherwise each request that was not withdrawn must be approved or answered. A `rejected` row is
+ * answered by a later non-withdrawn request at its target venue after the rejection; a `released`
+ * row by a later non-withdrawn request at any venue after the booking was raised. Name each
+ * unanswered pending, rejected, or released booking, and each missing equipment arrangement. An
+ * event with no equipment lines has nothing to settle, so the venue bookings alone govern (AC5).
  */
 export function confirmationBlockers(input: ConfirmationInput): string[] {
   if (!isConfirmableStatus(input.status)) {
@@ -98,6 +102,8 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
   const blockers: string[] = [];
   if (!input.venueRequests.some(request => request.status === "approved")) {
     blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
+  } else if (input.venueBookingSuspended) {
+    blockers.push(VENUE_BOOKING_SUSPENDED_MESSAGE);
   }
   for (const request of input.venueRequests) {
     if (answeredByLaterRequest(request, input.venueRequests)) continue;

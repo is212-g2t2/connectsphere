@@ -34,6 +34,7 @@ import { HandoverDeclinedEmail } from "#/features/emails/components/handover-dec
 import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
 import { VenueBlockEmail } from "#/features/emails/components/venue-block-email";
+import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/components/venue-booking-released-by-coordinator-email";
 import { VenueBookingChangedEmail } from "#/features/emails/components/venue-booking-changed-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
@@ -200,12 +201,13 @@ export function renderNotificationEmail(
       };
     }
     case "event_confirmed": {
-      const { eventName, venueName, startsAt, endsAt, equipment } = notification.payload;
+      const { eventName, venueName, startsAt, endsAt, equipment, audience } = notification.payload;
       return {
         subject,
         element: createElement(EventConfirmedEmail, {
           eventName,
           venueName,
+          audience,
           date: formatDate(startsAt),
           startTime: formatTime(startsAt),
           endTime: formatTime(endsAt),
@@ -358,6 +360,19 @@ export function renderNotificationEmail(
         subject,
         element: createElement(VenueBlockEmail, notification.payload),
       };
+    case "venue_booking_released_by_coordinator": {
+      const { venueName, startsAt, endsAt, reason } = notification.payload;
+      return {
+        subject,
+        element: createElement(VenueBookingReleasedByCoordinatorEmail, {
+          venueName,
+          startsAt,
+          endsAt,
+          reason,
+          bookingsUrl: `${base}/venue-bookings`,
+        }),
+      };
+    }
     default: {
       const unhandled: never = notification;
       throw new Error(`No email template for notification kind "${String(unhandled)}"`);

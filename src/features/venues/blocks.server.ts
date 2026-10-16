@@ -1,7 +1,7 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { venueUnavailability, venues } from "#/db/schema";
+import { eventRequests, venueUnavailability, venues } from "#/db/schema";
 import { ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { raiseNotifications } from "#/features/notifications/raise.server";
@@ -56,6 +56,25 @@ export function assertBlockStartNotPast(date: string, now: Date): void {
 }
 
 /**
+ * PTR-137 AC2: a block that covers a confirmed event's booking takes the event back to planning.
+ * The status returns to planning and the confirmation stamp clears, so the row passes the status
+ * CHECKs. The decision and the information stay. A hold alone does not revert: the event's
+ * booking is intact. Return the ids that reverted.
+ */
+async function revertConfirmedEvents(
+  tx: Pick<Database, "update">,
+  eventIds: readonly number[]
+): Promise<Set<number>> {
+  if (eventIds.length === 0) return new Set();
+  const rows = await tx
+    .update(eventRequests)
+    .set({ status: "planning", confirmedById: null, confirmedByName: null, confirmedAt: null })
+    .where(and(inArray(eventRequests.id, [...eventIds]), eq(eventRequests.status, "confirmed")))
+    .returning({ id: eventRequests.id });
+  return new Set(rows.map(row => row.id));
+}
+
+/**
  * Key-share each event of the rows once, in ascending id order. Record and lift take the venue
  * lock first and then these event locks (ADR-7). Return the rows with the event status, name and
  * assigned Coordinator read under the event lock. A cancellation or a reassignment that committed
@@ -105,11 +124,19 @@ function rethrowBlockDeadlock(error: unknown): never {
  * event's assigned Coordinator, else the booking's requester, else the hold's owner. Log a
  * warning and skip a row that has none of them. A cancelled event gets no notice, though the
  * block still suspends or restores its booking or hold (PTR-54 keeps them).
+ *
+ * PTR-137: a record says when it took the event back to planning; a lift says when the restored
+ * event still waits in planning. `planning` holds the ids of those events.
  */
 async function notifyBlockChange(
   tx: VenueTx,
   rows: readonly BlockCommitment[],
-  change: { action: "blocked" | "lifted"; venueName: string; block: VenueBlockRow }
+  change: {
+    action: "blocked" | "lifted";
+    venueName: string;
+    block: VenueBlockRow;
+    planning: ReadonlySet<number>;
+  }
 ): Promise<void> {
   const notices = new Map<string, NewNotification>();
   for (const row of rows) {
@@ -130,10 +157,30 @@ async function notifyBlockChange(
         startsAt: change.block.startsAt,
         endsAt: change.block.endsAt,
         reason: change.block.reason,
+        ...planningFlag(change.action, change.planning.has(row.eventId)),
       },
     });
   }
   await raiseNotifications(tx, [...notices.values()]);
+}
+
+/** The planning flag for one notice: the record that reverted the event, or the lift that restored it. */
+function planningFlag(action: "blocked" | "lifted", isPlanning: boolean) {
+  if (!isPlanning) return {};
+  return action === "blocked" ? { revertedToPlanning: true } : { restoredToPlanning: true };
+}
+
+/** Return the ids among `eventIds` whose event is in planning. Read them after the lift restores the rows. */
+async function eventsInPlanning(
+  tx: Pick<Database, "select">,
+  eventIds: readonly number[]
+): Promise<Set<number>> {
+  if (eventIds.length === 0) return new Set();
+  const rows = await tx
+    .select({ id: eventRequests.id })
+    .from(eventRequests)
+    .where(and(inArray(eventRequests.id, [...eventIds]), eq(eventRequests.status, "planning")));
+  return new Set(rows.map(row => row.id));
 }
 
 /**
@@ -280,7 +327,16 @@ export async function handleRecordVenueBlock(
         { startsAt, endsAt, reason: input.reason },
         actor.id
       );
-      await notifyBlockChange(tx, covered, { action: "blocked", venueName: venue.name, block });
+      // PTR-137 AC2: after the ledger writes, revert each event whose booking the block covers.
+      const reverted = await revertConfirmedEvents(tx, [
+        ...new Set(covered.flatMap(row => (row.venueRequestId !== null ? [row.eventId] : []))),
+      ]);
+      await notifyBlockChange(tx, covered, {
+        action: "blocked",
+        venueName: venue.name,
+        block,
+        planning: reverted,
+      });
       return block;
     })
     .catch(rethrowBlockDeadlock);
@@ -316,7 +372,14 @@ export async function handleLiftVenueBlock(data: unknown, actor: SessionUser, da
       if (!row) throw new NotFoundError("Not Found");
 
       const { block, restored } = await liftBlockRows(tx, row.block, actor.id);
-      await notifyBlockChange(tx, restored, { action: "lifted", venueName: row.venueName, block });
+      await notifyBlockChange(tx, restored, {
+        action: "lifted",
+        venueName: row.venueName,
+        block,
+        planning: await eventsInPlanning(tx, [
+          ...new Set(restored.map(commitment => commitment.eventId)),
+        ]),
+      });
       return block;
     })
     .catch(rethrowBlockDeadlock);

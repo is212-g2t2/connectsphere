@@ -95,6 +95,27 @@ export const requestVenue = createServerFn({ method: "POST" })
     return request;
   });
 
+/**
+ * PTR-137 AC4: the assigned Coordinator releases a booking a venue block has suspended, so a
+ * replacement stands when the block is lifted. The handler re-reads the assignment and the block.
+ */
+export const releaseBlockedVenueBooking = createServerFn({ method: "POST" })
+  .validator(parseVenueRequestId)
+  .middleware([requireVenueRequest])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleReleaseBlockedVenueBooking }] = await loadServer();
+    const request = await handleReleaseBlockedVenueBooking(data, context.user, db);
+
+    log.info("Venue booking released by its Coordinator", {
+      requestId: request.id,
+      eventId: request.eventId,
+      venueId: request.venueId,
+      actorId: context.user.id,
+    });
+
+    return request;
+  });
+
 export const withdrawVenueRequest = createServerFn({ method: "POST" })
   .validator(parseVenueRequestId)
   .middleware([requireVenueRequest])

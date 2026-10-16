@@ -87,3 +87,14 @@ export function formatVenuePeriod(startsAt: string, endsAt: string): string {
     end: toLocalMinuteValue(endsAt),
   });
 }
+
+/**
+ * A venue block's period: a bounded block reads like a venue period, with the end day named only
+ * when it differs; an open-ended one ends "until lifted". The venue calendar's block panel and
+ * the Coordinator's blocked-arrangements panel both use it.
+ */
+export function formatVenueBlockPeriod(startsAt: string, endsAt: string | null): string {
+  return endsAt === null
+    ? `${formatLocalDateTime(toLocalMinuteValue(startsAt))} – until lifted`
+    : formatVenuePeriod(startsAt, endsAt);
+}

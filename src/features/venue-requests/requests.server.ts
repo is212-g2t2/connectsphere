@@ -20,6 +20,8 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 import {
+  VENUE_BOOKING_NOT_APPROVED_MESSAGE,
+  VENUE_BOOKING_NOT_BLOCKED_MESSAGE,
   VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
@@ -41,6 +43,7 @@ import type {
 } from "#/features/venue-requests/schema";
 import {
   checkVenueFree,
+  isDeadlock,
   isHoldRow,
   joinsHold,
   joinsRequest,
@@ -48,6 +51,7 @@ import {
   overlapsLedger,
   sourceEnd,
   sourceStart,
+  vacateVenue,
 } from "#/features/venue-requests/occupancy.server";
 import {
   loadPendingConflictKinds,
@@ -62,13 +66,14 @@ import {
 } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
+import { loadBlockedArrangements } from "#/features/venues/blocked-arrangements.server";
 import {
   eventRequirementColumns,
   loadAssignedEvent,
   loadWindowAvailabilityFailures,
   requirementFailures,
 } from "#/features/venues/records.server";
-import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
+import { SEARCHABLE_EVENT_STATUSES, VENUE_BLOCK_RETRY_MESSAGE } from "#/features/venues/schema";
 import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
@@ -188,6 +193,20 @@ export function rethrowDuplicate(error: unknown): never {
     "venue_requests_pending_event_venue_window_idx",
     VENUE_REQUEST_DUPLICATE_MESSAGE
   );
+}
+
+/**
+ * PTR-137: map a deadlock (40P01) on a Coordinator release to the retry refusal, as the block
+ * writers do. The release key-shares the event and then takes the venue lock, the reverse of the
+ * block writers' order, so a release and a block record or lift on one venue can abort one
+ * transaction.
+ */
+function rethrowReleaseDeadlock(error: unknown): never {
+  if (isDeadlock(error)) {
+    log.warn("Refused a Coordinator release that deadlocked", { sqlstate: "40P01" });
+    throw new ConflictError(VENUE_BLOCK_RETRY_MESSAGE);
+  }
+  throw error;
 }
 
 /**
@@ -588,7 +607,9 @@ export async function handleGetVenueRequestContext(
   const event = eventRows.at(0);
   if (!event) return null;
 
-  // Check access before returning any data.
+  // Check access before returning any data. The event's status gate is
+  // `SEARCHABLE_EVENT_STATUSES`, so a Coordinator re-planning an event requests a replacement
+  // through this path (PTR-137 AC3).
   const canRequest =
     event.assignedCoordinatorId === actor.id && SEARCHABLE_EVENT_STATUSES.includes(event.status);
   // The raiser keeps the rows they can still withdraw: their own pending requests and the settled
@@ -664,6 +685,8 @@ export async function handleCreateVenueRequest(
     // later cancellation waits for this transaction to commit.
     const locked = await keyShareEvent(tx, input.eventId);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+    // PTR-137 AC3: `loadAssignedEvent` accepts every searchable status, so a Coordinator
+    // re-planning an event with a suspended booking can request a replacement through this path.
     const event = await loadAssignedEvent(tx, input.eventId, actor.id);
     if (!event) throw new AuthorizationError("Forbidden");
 
@@ -783,6 +806,105 @@ export async function handleWithdrawVenueRequest(
       .returning();
     return withdrawn;
   });
+}
+
+/**
+ * PTR-137 AC4: the assigned Coordinator releases a booking that a live block suspends, so the
+ * lift does not restore it. The booking reserves nothing while suspended, so the release frees no
+ * period and deletes its ledger pieces.
+ *
+ * Only a suspended booking qualifies: an active booking stays Venue Staff's to release (PTR-37).
+ * The release records the block reason, and the Venue Staff member who settled the booking is told.
+ */
+export async function handleReleaseBlockedVenueBooking(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const { id } = parseVenueRequestId(data);
+
+  return database
+    .transaction(async tx => {
+      // Lock the event before the venue, as every venue-request writer does.
+      const event = await keyShareEventForRequest(tx, id);
+      const lockedVenueId = await lockVenueForRequest(tx, id);
+
+      const rows = await tx
+        .select({
+          status: venueRequests.status,
+          venueId: venueRequests.venueId,
+          venueName: venues.name,
+          startsAt: venueRequests.startsAt,
+          endsAt: venueRequests.endsAt,
+          assignedStaffId: venueRequests.assignedStaffId,
+          assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+        })
+        .from(venueRequests)
+        .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+        .innerJoin(eventRequests, eq(eventRequests.id, venueRequests.eventId))
+        .where(eq(venueRequests.id, id))
+        .limit(1)
+        .for("update", { of: venueRequests });
+      const row = rows.at(0);
+      if (!row || !event) throw new NotFoundError("Not Found");
+      if (row.assignedCoordinatorId !== actor.id) throw new AuthorizationError("Forbidden");
+      assertSameVenue(lockedVenueId, row.venueId);
+      if (row.status !== "approved") throw new ConflictError(VENUE_BOOKING_NOT_APPROVED_MESSAGE);
+
+      assertEventAcceptsActivity(event.status);
+      if (event.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+
+      // Suspended means a piece of the booking is inactive under a live block of this venue that
+      // contains it (ADR-7). Two live blocks can suspend different pieces, so name each reason. A
+      // second block may have restored another piece; the Coordinator still replaces the booking as
+      // a whole.
+      const blocked = await loadBlockedArrangements(tx, [event.id]);
+      const suspended = (blocked.get(event.id) ?? []).filter(
+        item => item.kind === "booking" && item.id === id
+      );
+      if (suspended.length === 0) throw new ConflictError(VENUE_BOOKING_NOT_BLOCKED_MESSAGE);
+      const blockReasons = [
+        ...new Set(suspended.flatMap(item => item.blocks.map(block => block.reason))),
+      ].join("; ");
+
+      const reason = `Released by the Coordinator while ${row.venueName} was blocked: ${blockReasons}`;
+      const [released] = await tx
+        .update(venueRequests)
+        .set({
+          status: "released",
+          releaseReason: reason,
+          lastChangedByStaffId: actor.id,
+          lastChangedByStaffName: actor.name?.trim() || actor.email,
+          lastChangedAt: new Date(),
+        })
+        .where(eq(venueRequests.id, id))
+        .returning();
+      await vacateVenue(tx, { venueRequestId: id });
+
+      if (row.assignedStaffId !== null) {
+        await raiseNotifications(tx, [
+          {
+            recipientId: row.assignedStaffId,
+            eventRequestId: event.id,
+            kind: "venue_booking_released_by_coordinator",
+            payload: {
+              venueRequestId: id,
+              venueName: row.venueName,
+              startsAt: row.startsAt,
+              endsAt: row.endsAt,
+              reason,
+            },
+          },
+        ]);
+      } else {
+        log.warn("No Venue Staff to notify of the Coordinator's release", {
+          requestId: id,
+          eventId: event.id,
+        });
+      }
+      return released;
+    })
+    .catch(rethrowReleaseDeadlock);
 }
 
 /**

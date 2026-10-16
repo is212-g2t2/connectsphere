@@ -124,6 +124,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       assignedAt: new Date("2026-09-15T03:00:00Z"),
       handoverTo: null,
       changeRequestsWaiting: 0,
+      venueBlocked: false,
     };
     const { rerender } = render(
       <CoordinationPage unassigned={[]} assigned={[assignedRow]} handovers={[]} />
@@ -146,6 +147,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       assignedAt: new Date("2026-09-15T03:00:00Z"),
       handoverTo: null,
       changeRequestsWaiting: 0,
+      venueBlocked: false,
     };
     render(<CoordinationPage unassigned={[]} assigned={[decided]} handovers={[]} />);
 
@@ -159,6 +161,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       assignedAt: new Date("2026-09-15T03:00:00Z"),
       handoverTo: "Bailey",
       changeRequestsWaiting: 0,
+      venueBlocked: false,
     };
     render(<CoordinationPage unassigned={[]} assigned={[assignedRow]} handovers={[]} />);
 
@@ -245,6 +248,7 @@ describe("change requests waiting on the Coordinator (PTR-52 AC1)", () => {
       assignedAt: new Date("2026-09-15T03:00:00Z"),
       handoverTo: null,
       changeRequestsWaiting: 0,
+      venueBlocked: false,
     };
     render(
       <CoordinationPage
@@ -261,5 +265,30 @@ describe("change requests waiting on the Coordinator (PTR-52 AC1)", () => {
     expect(screen.getByText("1 change request waiting")).toBeTruthy();
     expect(screen.getByText("2 change requests waiting")).toBeTruthy();
     expect(screen.getAllByText(/change requests? waiting/)).toHaveLength(2);
+  });
+});
+
+describe("venue blocks on the Coordinator's list (PTR-137 AC1)", () => {
+  it("flags an assigned request whose booking or hold a venue block has suspended", () => {
+    const base: AssignedEventRequest = {
+      ...waiting,
+      assignedCoordinatorId: "usr_coord",
+      assignedAt: new Date("2026-09-15T03:00:00Z"),
+      handoverTo: null,
+      changeRequestsWaiting: 0,
+      venueBlocked: false,
+    };
+    render(
+      <CoordinationPage
+        unassigned={[]}
+        assigned={[
+          { ...base, id: 1, eventName: "Blocked one", venueBlocked: true },
+          { ...base, id: 2, eventName: "Clear one" },
+        ]}
+        handovers={[]}
+      />
+    );
+
+    expect(screen.getAllByText("Venue blocked")).toHaveLength(1);
   });
 });

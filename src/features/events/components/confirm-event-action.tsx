@@ -15,9 +15,9 @@ export function ConfirmEventAction({ eventId, eventName }: { eventId: number; ev
       triggerLabel="Confirm event"
       pendingLabel="Confirming…"
       dialogTitle="Confirm event"
-      dialogDescription={`This confirms ${eventName} once its venue and technical arrangements are in place, and notifies the Organiser.`}
+      dialogDescription={`This confirms ${eventName} once its venue and technical arrangements are in place, and notifies the Organiser and any registered attendees.`}
       actionLabel="Confirm"
-      successMessage="Event confirmed. The Organiser will be notified."
+      successMessage="Event confirmed. The Organiser and any registered attendees will be notified."
       failureMessage="Could not confirm this event. Try again."
       refusalHeading={CONFIRMATION_REFUSAL_HEADING}
       invalidateOnRefusal

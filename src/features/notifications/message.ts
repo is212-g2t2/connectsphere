@@ -40,6 +40,8 @@ export const NOTIFICATION_KINDS = [
   /** PTR-52 AC5: the Coordinator applied or declined the Organiser's change request. */
   "event_change_processed",
   "venue_block_changed",
+  /** PTR-137: the Coordinator released a booking that a venue block had suspended. */
+  "venue_booking_released_by_coordinator",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -136,6 +138,11 @@ const payloadSchemas = {
     equipment: z.array(
       z.object({ id: z.string(), item: z.string(), quantity: z.number(), state: z.string() })
     ),
+    /**
+     * PTR-137 AC6: a registered Attendee's copy of a re-confirmation names the new arrangements.
+     * Absent on the Organiser's copy, as every row before this story.
+     */
+    audience: z.enum(["organiser", "attendee"]).optional(),
   }),
   equipment_requested: z.object({
     eventName: z.string(),
@@ -274,6 +281,21 @@ const payloadSchemas = {
     startsAt: z.string(),
     endsAt: z.string().nullable(),
     reason: z.string(),
+    /** PTR-137 AC2: the block took a confirmed event back to planning. Absent before this story. */
+    revertedToPlanning: z.boolean().optional(),
+    /** PTR-137 AC4: the lift restored the arrangement of an event still in planning. */
+    restoredToPlanning: z.boolean().optional(),
+  }),
+  /**
+   * PTR-137 AC4: the Coordinator released a suspended booking in favour of a replacement, told to
+   * the Venue Staff member who settled it. The copy names the booking, never the event (PTR-8).
+   */
+  venue_booking_released_by_coordinator: z.object({
+    venueRequestId: z.string().min(1),
+    venueName: z.string(),
+    startsAt: z.string(),
+    endsAt: z.string(),
+    reason: z.string(),
   }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
@@ -375,6 +397,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("venue_block_changed"),
     payload: payloadSchemas.venue_block_changed,
   }),
+  z.object({
+    kind: z.literal("venue_booking_released_by_coordinator"),
+    payload: payloadSchemas.venue_booking_released_by_coordinator,
+  }),
 ]);
 
 /**
@@ -460,6 +486,8 @@ export function notificationSummary(notification: NotificationPayload): string {
       return notification.payload.action === "blocked"
         ? `Venue blocked: ${notification.payload.venueName}`
         : `Venue available again: ${notification.payload.venueName}`;
+    case "venue_booking_released_by_coordinator":
+      return `Venue booking released by the Coordinator: ${notification.payload.venueName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -559,6 +587,10 @@ export function notificationHref(
       return `/events/${eventRequestId}`;
     case "venue_block_changed":
       return `/events/${eventRequestId}`;
+    case "venue_booking_released_by_coordinator":
+      // The venue bookings view is the Venue Staff landing page. It lists approved bookings, so
+      // the released row itself is not shown there.
+      return "/venue-bookings";
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -612,6 +644,7 @@ export function notificationReachable(
     case "event_significant_change":
     case "event_change_processed":
     case "venue_block_changed":
+    case "venue_booking_released_by_coordinator":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

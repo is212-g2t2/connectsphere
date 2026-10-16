@@ -5,6 +5,7 @@ import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 import {
   CONFIRMATION_REFUSAL_HEADING,
   VENUE_BOOKING_OUTSTANDING_MESSAGE,
+  VENUE_BOOKING_SUSPENDED_MESSAGE,
   EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE,
   confirmationBlockers,
   confirmationRefusalMessage,
@@ -270,20 +271,56 @@ describe("confirmationBlockers (PTR-24)", () => {
     ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) is still pending."]);
   });
 
-  it("answers a released row only at its own venue", () => {
-    const released = { ...request("released", "Old Hall", 1, 2), updatedAt: BASE_TIME };
-    const approvedAtSuggestion = {
-      ...request("approved", "Suggested Hall", 2),
-      createdAt: LATER_TIME,
+  it("answers a released booking with a request raised after it, at any venue (PTR-137)", () => {
+    const released = { ...request("released", "Blocked Hall", 1), updatedAt: LATER_TIME };
+    const raisedAfter = new Date(LATER_TIME.getTime() + 86_400_000);
+    const replacement = {
+      ...request("approved", "Replacement Annex", 2),
+      createdAt: raisedAfter,
+      updatedAt: raisedAfter,
     };
 
+    // The Coordinator arranges the replacement after the booking, then releases the booking. The
+    // replacement can sit at another venue, and the lift leaves both arrangements standing.
     expect(
       blockersFor({
-        status: "approved",
-        venueRequests: [released, approvedAtSuggestion],
+        status: "planning",
+        venueRequests: [released, replacement],
         equipmentLines: [],
       })
-    ).toEqual(["The booking for Old Hall (1 Jan 2030, 09:00 – 12:30) was released."]);
+    ).toEqual([]);
+
+    // A request raised before the released booking does not answer it.
+    expect(
+      blockersFor({
+        status: "planning",
+        venueRequests: [released, request("approved", "Replacement Annex", 2)],
+        equipmentLines: [],
+      })
+    ).toEqual(["The booking for Blocked Hall (1 Jan 2030, 09:00 – 12:30) was released."]);
+
+    // Alone, the release stays outstanding until the Coordinator raises a new request.
+    expect(
+      blockersFor({
+        status: "planning",
+        venueRequests: [released],
+        equipmentLines: [],
+      })
+    ).toEqual([
+      VENUE_BOOKING_OUTSTANDING_MESSAGE,
+      "The booking for Blocked Hall (1 Jan 2030, 09:00 – 12:30) was released.",
+    ]);
+  });
+
+  it("refuses an approved booking a venue block suspends (PTR-137)", () => {
+    expect(
+      blockersFor({
+        status: "planning",
+        venueRequests: approvedBooking,
+        venueBookingSuspended: true,
+        equipmentLines: settled,
+      })
+    ).toEqual([VENUE_BOOKING_SUSPENDED_MESSAGE]);
   });
 
   it("names every outstanding equipment line and no settled one", () => {

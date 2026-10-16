@@ -128,6 +128,13 @@ const validPayloads = {
     endsAt: null,
     reason: "Floor resurfacing",
   },
+  venue_booking_released_by_coordinator: {
+    venueRequestId: "request-1",
+    venueName: "Harbour Hall",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: "2026-10-12 17:00:00",
+    reason: "Released by the Coordinator while Harbour Hall was blocked: Floor resurfacing",
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -195,6 +202,36 @@ describe("notification summaries (PTR-55 AC2)", () => {
     });
     expect(notificationSummary(lifted)).toBe("Venue available again: Harbour Hall");
     expect(notificationHref({ ...lifted, eventRequestId: 7 })).toBe("/events/7");
+  });
+
+  it("carries whether a block took the event back to planning, and names the booking a Coordinator released (PTR-137)", () => {
+    const reverted = parse("venue_block_changed", {
+      ...validPayloads.venue_block_changed,
+      revertedToPlanning: true,
+    });
+    expect(reverted.payload).toMatchObject({ revertedToPlanning: true });
+    // A row raised before this story parses as before.
+    expect(
+      parse("venue_block_changed", validPayloads.venue_block_changed).payload
+    ).not.toHaveProperty("revertedToPlanning");
+
+    const released = parse(
+      "venue_booking_released_by_coordinator",
+      validPayloads.venue_booking_released_by_coordinator
+    );
+    expect(notificationSummary(released)).toBe(
+      "Venue booking released by the Coordinator: Harbour Hall"
+    );
+    expect(notificationSummary(released)).not.toContain("Gala");
+    expect(notificationHref({ ...released, eventRequestId: 7 })).toBe("/venue-bookings");
+
+    // An Attendee's confirmation copy says so; the Organiser's carries no audience.
+    const attendee = parse("event_confirmed", {
+      ...validPayloads.event_confirmed,
+      audience: "attendee",
+    });
+    expect(attendee.payload).toMatchObject({ audience: "attendee" });
+    expect(notificationHref({ ...attendee, eventRequestId: 7 })).toBe("/events/7");
   });
 
   it("names the event for the registration lines (PTR-45)", () => {
@@ -410,6 +447,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       event_significant_change: "/events/7",
       event_change_processed: "/events/7",
       venue_block_changed: "/events/7",
+      venue_booking_released_by_coordinator: "/venue-bookings",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

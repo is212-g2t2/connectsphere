@@ -429,7 +429,7 @@ describe("venue request handlers (PTR-31)", () => {
     });
 
     it.each(ACCEPTING_STATUSES)(
-      "accepts a request while the event is %s (PTR-138 gate)",
+      "accepts a request while the event is %s (PTR-138 gate), so a replacement can be requested (PTR-137 AC3)",
       async status => {
         await database
           .update(schema.eventRequests)
@@ -1318,6 +1318,22 @@ describe("venue request handlers (PTR-31)", () => {
       await database
         .update(schema.eventRequests)
         .set(eventStatusColumns("approved", users.coordinator))
+        .where(eq(schema.eventRequests.id, id));
+
+      const context = await handleGetVenueRequestContext(
+        { eventId: id, venueId },
+        session(users.coordinator),
+        database as never
+      );
+
+      expect(context).toMatchObject({ canRequest: true, requests: [] });
+    });
+
+    it("answers a planning event, so its Coordinator requests a replacement (PTR-137 AC3)", async () => {
+      const id = await createEvent("PTR-137 planning context event");
+      await database
+        .update(schema.eventRequests)
+        .set(eventStatusColumns("planning", users.coordinator))
         .where(eq(schema.eventRequests.id, id));
 
       const context = await handleGetVenueRequestContext(

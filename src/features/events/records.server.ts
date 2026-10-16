@@ -1,4 +1,4 @@
-import { and, asc, eq, exists, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNotNull, isNull, ne, notExists, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
@@ -7,6 +7,7 @@ import {
   equipmentReservations,
   eventRegistrations,
   eventRequests,
+  venueOccupancy,
   venueRequests,
   venues,
 } from "#/db/schema";
@@ -22,6 +23,7 @@ import {
   projectEvent,
 } from "#/features/events/access";
 import type {
+  BlockedArrangement,
   EquipmentLineProjection,
   EventPlaces,
   EventProjection,
@@ -33,6 +35,10 @@ import type { RegistrationAvailability } from "#/features/events/registration";
 import { completionRefusalForEvent } from "#/features/events/completion";
 import { parseEventListInput } from "#/features/events/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
+import {
+  loadBlockedArrangements,
+  suspendedPieceWhere,
+} from "#/features/venues/blocked-arrangements.server";
 import {
   adjustableRejectionIds,
   eventVenueRequestFromRow,
@@ -177,7 +183,20 @@ async function loadCurrentBookings(
     })
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
-    .where(and(inArray(venueRequests.eventId, eventIds), eq(venueRequests.status, "approved")))
+    .where(
+      and(
+        inArray(venueRequests.eventId, eventIds),
+        eq(venueRequests.status, "approved"),
+        // PTR-137: a booking a live venue block suspends is not current. A registered Attendee
+        // still reaches the event in planning and sees its venue as pending (O-25).
+        notExists(
+          database
+            .select({ id: venueOccupancy.id })
+            .from(venueOccupancy)
+            .where(and(suspendedPieceWhere(), eq(venueOccupancy.venueRequestId, venueRequests.id)))
+        )
+      )
+    )
     .orderBy(venueRequests.createdAt, venueRequests.id);
   for (const booking of bookings) {
     if (current.has(booking.eventId)) continue;
@@ -346,11 +365,17 @@ export async function handleListEvents(
     : Promise.resolve([]);
   // PTR-36 criterion 4, PTR-138 AC1: Flag pending requests that overlap the ledger or that the
   // venue cannot host. Send only the conflict kind to the client, never the other event.
-  const [holderRows, bookings, countRows, conflictKinds] = await Promise.all([
+  // PTR-137 AC1: the arrangements a live venue block has suspended, for the Coordinator only.
+  const blockedRead =
+    role === "event_coordinator"
+      ? loadBlockedArrangements(database, requestIds)
+      : Promise.resolve(new Map<number, BlockedArrangement[]>());
+  const [holderRows, bookings, countRows, conflictKinds, blockedArrangements] = await Promise.all([
     holderRead,
     bookingRead,
     countRead,
     loadPendingConflictKinds(database, pendingIds),
+    blockedRead,
   ]);
 
   const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
@@ -475,15 +500,19 @@ export async function handleListEvents(
           venueCapacities.get(record.id),
           registeredCounts.get(record.id) ?? { registered: 0, vips: 0 }
         ),
-        completionUnavailableReasons.get(record.id),
-        access === "attendee"
-          ? attendeeRegistrationAvailability(
-              record,
-              venueCapacities.get(record.id),
-              registeredCounts.get(record.id) ?? { registered: 0, vips: 0 },
-              venueNow
-            )
-          : null
+        {
+          completionUnavailableReason: completionUnavailableReasons.get(record.id),
+          registrationAvailability:
+            access === "attendee"
+              ? attendeeRegistrationAvailability(
+                  record,
+                  venueCapacities.get(record.id),
+                  registeredCounts.get(record.id) ?? { registered: 0, vips: 0 },
+                  venueNow
+                )
+              : null,
+          blockedArrangements: blockedArrangements.get(record.id) ?? [],
+        }
       ),
     ];
   });
