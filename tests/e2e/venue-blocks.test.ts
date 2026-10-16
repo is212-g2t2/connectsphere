@@ -5,8 +5,18 @@ import type { Page } from "@playwright/test";
 import { waitForHydration } from "./hydration";
 import { signInAsStaff } from "./staff-auth";
 
-// 2031-06-16 is a Monday. New venues open Monday to Friday, so the calendar shows hours.
-const START_DATE = "2031-06-16";
+/**
+ * The first Monday at least a week from now, as `YYYY-MM-DD`. New venues open Monday to Friday,
+ * so the calendar shows hours. The lead keeps the day in the future in venue local time too, and
+ * a block cannot start on a past day.
+ */
+function futureMonday(): string {
+  const date = new Date(Date.now() + 7 * 86_400_000);
+  date.setUTCDate(date.getUTCDate() + ((8 - date.getUTCDay()) % 7));
+  return date.toISOString().slice(0, 10);
+}
+
+const START_DATE = futureMonday();
 const START_TIME = "09:00";
 const REASON = "Playwright open-ended works";
 

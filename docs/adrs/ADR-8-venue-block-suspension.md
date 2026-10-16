@@ -38,9 +38,9 @@ A block is one `venue_unavailability` row and one `venue_occupancy` row with no 
 
 ## Consequences
 
-- The block writers reverse the ADR-7 lock order: the venue lock, then the event key-share locks. The seed holds event rows `FOR UPDATE` and then takes a venue lock, so a concurrent seed and block write can deadlock.
+- The **Lock order** above reverses the ADR-7 lock order. The seed holds event rows `FOR UPDATE` and then takes a venue lock, so a concurrent seed and block write can deadlock.
 - In that deadlock, PostgreSQL aborts one transaction (40P01). A block handler that PostgreSQL aborts refuses and tells Venue Staff to try again. The seed is a development tool, so the project accepts this risk.
 - A lift fails when a new active row overlaps a restored row. The transaction rolls back, and the block stays live.
-- While a block covers part of a source, the source has more than one ledger row. A lift then rebuilds one row.
+- While a block covers part of a source, the source has more than one ledger row. Until a lift makes all the pieces active again, a `checkVenueFree` refusal names the period of one piece, not the period of the source.
 - A block suspends an approved booking but does not decide it. Venue Staff release or amend the booking, and an event cancellation keeps it approved, so a lift restores it.
 - Only Venue Staff (`venue:update`) record or lift a block.

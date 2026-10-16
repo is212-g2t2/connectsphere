@@ -6,7 +6,7 @@ status: accepted
 
 # ADR-7: One venue occupancy ledger, guarded by a buffered exclusion constraint
 
-> **Amended 2026-10-15:** venue blocks now suspend and restore ledger rows (PTR-136, [ADR-8](./ADR-8-venue-block-suspension.md)). A block row can have a null end, and the block writers set `active` in place. ADR-8 also sets the order in which a refusal names a conflict, and the conflict flag reads the ledger. The ledger and its constraint stand.
+> **Amended 2026-10-15:** venue blocks now suspend and restore ledger rows (PTR-136, [ADR-8](./ADR-8-venue-block-suspension.md)). A block row can have a null end, and the block writers set `active` in place. ADR-8 also sets the order in which a refusal names a conflict. The ledger and its constraint stand.
 
 ## Context
 

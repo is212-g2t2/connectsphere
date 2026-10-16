@@ -477,6 +477,29 @@ describe("venue blocks (PTR-136)", () => {
     expect((await ledgerForRequest(id))[0].active).toBe(false);
   });
 
+  // AC5: a lifted block no longer refuses a block over the same or an overlapping period.
+  it.each<[string, string, string | undefined]>([
+    ["the same period", "10:00", "12:00"],
+    ["an overlapping open-ended period", "09:00", undefined],
+  ])("records a new block over %s after a lift", async (_case, nextStart, nextEnd) => {
+    const id = await raise("10:30", "11:30");
+    await approve(id);
+    const block = await recordBlock("10:00", "12:00");
+    await liftBlock(block.id);
+    expect(await ledgerForRequest(id)).toEqual([expect.objectContaining({ active: true })]);
+
+    const next = await recordBlock(nextStart, nextEnd);
+    expect(next).toMatchObject({
+      startsAt: `${DATE} ${nextStart}:00`,
+      endsAt: nextEnd === undefined ? null : `${DATE} ${nextEnd}:00`,
+      liftedAt: null,
+    });
+    expect(next.id).not.toBe(block.id);
+    expect(await ledgerForBlock(next.id)).toEqual([expect.objectContaining({ active: true })]);
+    // The new block suspends the restored booking again.
+    expect(await ledgerForRequest(id)).toEqual([expect.objectContaining({ active: false })]);
+  });
+
   it("refuses a block that starts before today, and accepts one that starts earlier today", async () => {
     // 00:30 in Singapore on the day after DATE, and 08:00 in Singapore on DATE.
     const nextDay = new Date(`${DATE}T16:30:00Z`);

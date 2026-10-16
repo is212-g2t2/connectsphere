@@ -2661,19 +2661,18 @@ describe("Status set and decision attribution (PTR-21)", () => {
         database as never,
         "venue-record-test-staff"
       );
+      // A day past every seed horizon, so the block never overlaps a seed block or booking.
       const block = await handleRecordVenueBlock(
         {
           venueId: hall.id,
-          date: "2028-01-01",
+          date: "2099-01-01",
           startTime: "09:00",
-          endDate: "2028-01-01",
+          endDate: "2099-01-01",
           endTime: "12:00",
           reason: "PTR-21 AC3",
         },
         seedVenueStaff,
-        database as never,
-        // A fixed clock before the block date, so the past-start check accepts it in any year.
-        new Date("2027-01-01T00:00:00+08:00")
+        database as never
       );
       blockId = block.id;
 

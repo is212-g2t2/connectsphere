@@ -96,6 +96,16 @@ export async function vacateVenue(tx: VenueTx, source: OccupancySource): Promise
 const occupiedStart = sql`${venueOccupancy.startsAt} - make_interval(mins => ${venueOccupancy.setupMinutes})`;
 const occupiedEnd = sql`${venueOccupancy.endsAt} + make_interval(mins => ${venueOccupancy.turnaroundMinutes})`;
 
+/**
+ * Join a non-block ledger row to its source: `.leftJoin(venueRequests, joinsRequest)` and
+ * `.leftJoin(venueHolds, joinsHold)`. Exactly one of the two matches, so `sourceStart` and
+ * `sourceEnd` give that source's own times. A block can split a row into pieces with other times.
+ */
+export const joinsRequest = eq(venueRequests.id, venueOccupancy.venueRequestId);
+export const joinsHold = eq(venueHolds.id, venueOccupancy.venueHoldId);
+export const sourceStart = sql`coalesce(${venueRequests.startsAt}, ${venueHolds.startsAt})`;
+export const sourceEnd = sql`coalesce(${venueRequests.endsAt}, ${venueHolds.endsAt})`;
+
 /** A ledger row that a hold owns. */
 export const isHoldRow = sql<boolean>`${venueOccupancy.venueHoldId} is not null`;
 
@@ -251,14 +261,13 @@ function selectBlockCommitments(tx: VenueTx, block: BlockExtent, match: SQL) {
       heldById: venueHolds.heldById,
       bookingStatus: venueRequests.status,
       holdStatus: venueHolds.status,
-      // Exactly one source joins, so `coalesce` gives that source's own times.
-      sourceStartsAt: sql<string>`coalesce(${venueRequests.startsAt}, ${venueHolds.startsAt})::text`,
-      sourceEndsAt: sql<string>`coalesce(${venueRequests.endsAt}, ${venueHolds.endsAt})::text`,
+      sourceStartsAt: sql<string>`${sourceStart}::text`,
+      sourceEndsAt: sql<string>`${sourceEnd}::text`,
     })
     .from(venueOccupancy)
     .innerJoin(eventRequests, eq(eventRequests.id, venueOccupancy.eventId))
-    .leftJoin(venueRequests, eq(venueRequests.id, venueOccupancy.venueRequestId))
-    .leftJoin(venueHolds, eq(venueHolds.id, venueOccupancy.venueHoldId))
+    .leftJoin(venueRequests, joinsRequest)
+    .leftJoin(venueHolds, joinsHold)
     .where(
       and(
         eq(venueOccupancy.venueId, block.venueId),
@@ -347,11 +356,8 @@ function sourceOf(row: BlockCommitment): { venueRequestId: string } | { venueHol
  * cover the source's occupied period without gaps. The new row takes the source's own times, and
  * buffers that reach from those times to the first and the last piece.
  */
-async function collapsePieces(
-  tx: VenueTx,
-  row: BlockCommitment,
-  source: { venueRequestId: string } | { venueHoldId: string }
-): Promise<void> {
+async function collapsePieces(tx: VenueTx, row: BlockCommitment): Promise<void> {
+  const source = sourceOf(row);
   const [pieces] = await tx
     .select({
       count: sql<number>`count(*)::int`,
@@ -396,12 +402,11 @@ export async function restoreBlockCommitments(
       await tx.delete(venueOccupancy).where(eq(venueOccupancy.id, row.id));
     }
   }
-  const sources = new Map(
-    restored.map(row => [row.venueRequestId ?? row.venueHoldId, { row, source: sourceOf(row) }])
-  );
-  for (const { row, source } of sources.values()) {
+  // One row for each source: a split source can have more than one restored piece.
+  const sources = new Map(restored.map(row => [row.venueRequestId ?? row.venueHoldId, row]));
+  for (const row of sources.values()) {
     // oxlint-disable-next-line eslint/no-await-in-loop -- collapse after every restore
-    await collapsePieces(tx, row, source);
+    await collapsePieces(tx, row);
   }
   return restored;
 }

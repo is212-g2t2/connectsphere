@@ -42,8 +42,12 @@ import type {
 import {
   checkVenueFree,
   isHoldRow,
+  joinsHold,
+  joinsRequest,
   occupyVenue,
   overlapsLedger,
+  sourceEnd,
+  sourceStart,
 } from "#/features/venue-requests/occupancy.server";
 import {
   loadPendingConflictKinds,
@@ -328,8 +332,6 @@ export async function assertNoEventOverlap(
 ): Promise<void> {
   const venueBuffered = venue.setupMinutes + venue.turnaroundMinutes > 0;
   // A block row has no event, so this row is a booking or a hold, and exactly one source joins.
-  const sourceStart = sql`coalesce(${venueRequests.startsAt}, ${venueHolds.startsAt})`;
-  const sourceEnd = sql`coalesce(${venueRequests.endsAt}, ${venueHolds.endsAt})`;
   const committed = await tx
     .select({
       isHold: isHoldRow,
@@ -340,8 +342,8 @@ export async function assertNoEventOverlap(
       buffered: sql<boolean>`${venueOccupancy.setupMinutes} + ${venueOccupancy.turnaroundMinutes} > 0 or ${venueOccupancy.startsAt} < ${sourceStart} or ${venueOccupancy.endsAt} > ${sourceEnd}`,
     })
     .from(venueOccupancy)
-    .leftJoin(venueRequests, eq(venueRequests.id, venueOccupancy.venueRequestId))
-    .leftJoin(venueHolds, eq(venueHolds.id, venueOccupancy.venueHoldId))
+    .leftJoin(venueRequests, joinsRequest)
+    .leftJoin(venueHolds, joinsHold)
     .where(
       and(
         eq(venueOccupancy.eventId, request.eventId),

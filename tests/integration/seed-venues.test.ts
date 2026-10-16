@@ -81,6 +81,37 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
     return venue;
   }
 
+  /**
+   * Run the seed, then block the whole day of the seeded attendee booking, as Venue Staff can. The
+   * recorder suspends the booking. Return the booking's venue and day, and the block.
+   */
+  async function blockSeedBookingDay(reason: string) {
+    await runSeed(database);
+    const [booking] = await database
+      .select({ venueId: schema.venueOccupancy.venueId, startsAt: schema.venueOccupancy.startsAt })
+      .from(schema.venueOccupancy)
+      .where(
+        and(
+          eq(schema.venueOccupancy.venueRequestId, "demo-attendee-venue-request-1"),
+          eq(schema.venueOccupancy.active, true)
+        )
+      )
+      .orderBy(asc(schema.venueOccupancy.id))
+      .limit(1);
+    expect(booking).toBeDefined();
+    const day = booking.startsAt.slice(0, 10);
+    const [venue] = await database
+      .select({ id: schema.venues.id, name: schema.venues.name })
+      .from(schema.venues)
+      .where(eq(schema.venues.id, booking.venueId));
+    const planted = await recordBlock(venue, {
+      startsAt: `${day} 00:00:00`,
+      endsAt: `${day} 23:59:59`,
+      reason,
+    });
+    return { venue, day, planted };
+  }
+
   /** The live block that the seed recorded for a period. */
   async function liveSeedBlock(period: { venueName: string; reason: string }) {
     const venue = await venueOf(period);
@@ -289,33 +320,7 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
   });
 
   it("suspends a seeded booking under a live user block on re-run", async () => {
-    await runSeed(database);
-    const [booking] = await database
-      .select({
-        venueId: schema.venueOccupancy.venueId,
-        startsAt: schema.venueOccupancy.startsAt,
-      })
-      .from(schema.venueOccupancy)
-      .where(
-        and(
-          eq(schema.venueOccupancy.venueRequestId, "demo-attendee-venue-request-1"),
-          eq(schema.venueOccupancy.active, true)
-        )
-      )
-      .orderBy(asc(schema.venueOccupancy.id))
-      .limit(1);
-    expect(booking).toBeDefined();
-    // Venue Staff block the whole booking day. The recorder suspends the booking first.
-    const day = booking.startsAt.slice(0, 10);
-    const [venue] = await database
-      .select({ id: schema.venues.id, name: schema.venues.name })
-      .from(schema.venues)
-      .where(eq(schema.venues.id, booking.venueId));
-    const planted = await recordBlock(venue, {
-      startsAt: `${day} 00:00:00`,
-      endsAt: `${day} 23:59:59`,
-      reason: "Seed suspension probe",
-    });
+    const { planted } = await blockSeedBookingDay("Seed suspension probe");
 
     // The re-run writes the booking row again. It must stay suspended under the live block.
     await runSeed(database);
@@ -344,28 +349,7 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
   });
 
   it("stops the seed when its booking would overlap another suspended commitment", async () => {
-    await runSeed(database);
-    const [booking] = await database
-      .select({ venueId: schema.venueOccupancy.venueId, startsAt: schema.venueOccupancy.startsAt })
-      .from(schema.venueOccupancy)
-      .where(
-        and(
-          eq(schema.venueOccupancy.venueRequestId, "demo-attendee-venue-request-1"),
-          eq(schema.venueOccupancy.active, true)
-        )
-      )
-      .orderBy(asc(schema.venueOccupancy.id))
-      .limit(1);
-    const day = booking.startsAt.slice(0, 10);
-    const [venue] = await database
-      .select({ id: schema.venues.id, name: schema.venues.name })
-      .from(schema.venues)
-      .where(eq(schema.venues.id, booking.venueId));
-    const planted = await recordBlock(venue, {
-      startsAt: `${day} 00:00:00`,
-      endsAt: `${day} 23:59:59`,
-      reason: "Seed overlap probe",
-    });
+    const { venue, day, planted } = await blockSeedBookingDay("Seed overlap probe");
     // Another event's booking inside the seeded booking's window, which the block suspended.
     // Write its rows out of band, as an approval before the block would leave them.
     const [event] = await database
@@ -438,79 +422,60 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
     expect(ledger).toEqual([{ active: true }]);
   });
 
-  it("keeps a block with a seed reason whose creator account is gone on re-run", async () => {
-    await runSeed(database);
-    const period = seedVenueUnavailability[1];
-    const venue = await venueOf(period);
-    // Use a day far past every seed period and booking, so only the ledger row tells them apart.
-    const day = new Date(Date.now() + 210 * 86_400_000).toISOString().slice(0, 10);
-    const staffBlock = await recordBlock(venue, {
-      startsAt: `${day} 09:00:00`,
-      endsAt: `${day} 10:00:00`,
-      reason: period.reason,
-    });
-    // A deleted account sets the creator to null (`ON DELETE SET NULL`). The ledger row stays.
-    await database
-      .update(schema.venueUnavailability)
-      .set({ createdById: null })
-      .where(eq(schema.venueUnavailability.id, staffBlock.id));
+  it.each([
+    { nullCreator: false, dayOffset: 200 },
+    { nullCreator: true, dayOffset: 210 },
+  ])(
+    "keeps a Venue Staff block that has a seed reason on re-run (creator gone: $nullCreator)",
+    async ({ nullCreator, dayOffset }) => {
+      await runSeed(database);
+      const period = seedVenueUnavailability[1];
+      const venue = await venueOf(period);
+      // Use a day far past every seed period and booking, so only the creator or the ledger row
+      // tells the blocks apart. Each case uses its own day.
+      const day = new Date(Date.now() + dayOffset * 86_400_000).toISOString().slice(0, 10);
+      const staffBlock = await recordBlock(venue, {
+        startsAt: `${day} 09:00:00`,
+        endsAt: `${day} 10:00:00`,
+        reason: period.reason,
+      });
+      if (nullCreator) {
+        // A deleted account sets the creator to null (`ON DELETE SET NULL`). The ledger row stays.
+        await database
+          .update(schema.venueUnavailability)
+          .set({ createdById: null })
+          .where(eq(schema.venueUnavailability.id, staffBlock.id));
+      }
 
-    await runSeed(database);
+      await runSeed(database);
 
-    const [kept] = await database
-      .select({ liftedAt: schema.venueUnavailability.liftedAt })
-      .from(schema.venueUnavailability)
-      .where(eq(schema.venueUnavailability.id, staffBlock.id));
-    expect(kept.liftedAt).toBeNull();
-    const ledger = await database
-      .select({ active: schema.venueOccupancy.active })
-      .from(schema.venueOccupancy)
-      .where(eq(schema.venueOccupancy.venueUnavailabilityId, staffBlock.id));
-    expect(ledger).toEqual([{ active: true }]);
+      const [kept] = await database
+        .select({ liftedAt: schema.venueUnavailability.liftedAt })
+        .from(schema.venueUnavailability)
+        .where(eq(schema.venueUnavailability.id, staffBlock.id));
+      expect(kept.liftedAt).toBeNull();
+      const ledger = await database
+        .select({ active: schema.venueOccupancy.active })
+        .from(schema.venueOccupancy)
+        .where(eq(schema.venueOccupancy.venueUnavailabilityId, staffBlock.id));
+      expect(ledger).toEqual([{ active: true }]);
+      // The seed still records its own period for the same venue and reason.
+      const seedBlocks = await database
+        .select({ startsAt: schema.venueUnavailability.startsAt })
+        .from(schema.venueUnavailability)
+        .where(
+          and(
+            eq(schema.venueUnavailability.venueId, venue.id),
+            eq(schema.venueUnavailability.reason, period.reason),
+            eq(schema.venueUnavailability.createdById, "seed-venue-staff-1"),
+            isNull(schema.venueUnavailability.liftedAt)
+          )
+        );
+      expect(seedBlocks).toEqual([{ startsAt: period.startsAt }]);
 
-    await liftBlock(staffBlock.id);
-  });
-
-  it("keeps a Venue Staff block that has a seed reason on re-run", async () => {
-    await runSeed(database);
-    const period = seedVenueUnavailability[1];
-    const venue = await venueOf(period);
-    // Use a day far past every seed period and booking, so only the creator tells them apart.
-    const day = new Date(Date.now() + 200 * 86_400_000).toISOString().slice(0, 10);
-    const staffBlock = await recordBlock(venue, {
-      startsAt: `${day} 09:00:00`,
-      endsAt: `${day} 10:00:00`,
-      reason: period.reason,
-    });
-
-    await runSeed(database);
-
-    const [kept] = await database
-      .select({ liftedAt: schema.venueUnavailability.liftedAt })
-      .from(schema.venueUnavailability)
-      .where(eq(schema.venueUnavailability.id, staffBlock.id));
-    expect(kept.liftedAt).toBeNull();
-    const ledger = await database
-      .select({ active: schema.venueOccupancy.active })
-      .from(schema.venueOccupancy)
-      .where(eq(schema.venueOccupancy.venueUnavailabilityId, staffBlock.id));
-    expect(ledger).toEqual([{ active: true }]);
-    // The seed still records its own period for the same venue and reason.
-    const seedBlocks = await database
-      .select({ startsAt: schema.venueUnavailability.startsAt })
-      .from(schema.venueUnavailability)
-      .where(
-        and(
-          eq(schema.venueUnavailability.venueId, venue.id),
-          eq(schema.venueUnavailability.reason, period.reason),
-          eq(schema.venueUnavailability.createdById, "seed-venue-staff-1"),
-          isNull(schema.venueUnavailability.liftedAt)
-        )
-      );
-    expect(seedBlocks).toEqual([{ startsAt: period.startsAt }]);
-
-    await liftBlock(staffBlock.id);
-  });
+      await liftBlock(staffBlock.id);
+    }
+  );
 
   it("skips a seed period that another live block covers", async () => {
     await runSeed(database);

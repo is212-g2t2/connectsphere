@@ -17,7 +17,7 @@ import {
 } from "#/features/venue-requests/occupancy.server";
 import type { BlockCommitment } from "#/features/venue-requests/occupancy.server";
 import { keyShareEvent, lockVenue } from "#/features/venue-requests/venue-lock.server";
-import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
+import type { LockedEvent, VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { venueBlockConflictMessage } from "#/features/venue-requests/schema";
 import { venueLocalTimestamp } from "#/features/venues/availability";
 import {
@@ -57,21 +57,34 @@ export function assertBlockStartNotPast(date: string, now: Date): void {
 
 /**
  * Key-share each event of the rows once, in ascending id order. Record and lift take the venue
- * lock first and then these event locks (ADR-8). Return the rows with the event status read under
- * the event lock, so a cancellation that committed before the lock counts.
+ * lock first and then these event locks (ADR-8). Return the rows with the event status, name and
+ * assigned Coordinator read under the event lock. A cancellation or a reassignment that committed
+ * before the lock then counts in the notices.
+ *
+ * The venue lock covers the requester and the hold owner: only the writers that insert a booking
+ * or a hold set them, and those writers hold the venue lock.
  */
 async function keyShareEvents(
   tx: VenueTx,
   rows: readonly BlockCommitment[]
 ): Promise<BlockCommitment[]> {
   const eventIds = [...new Set(rows.map(row => row.eventId))].toSorted((a, b) => a - b);
-  const statuses = new Map<number, BlockCommitment["eventStatus"]>();
+  const events = new Map<number, LockedEvent>();
   for (const eventId of eventIds) {
     // oxlint-disable-next-line eslint/no-await-in-loop -- key-share in ascending id order
     const event = await keyShareEvent(tx, eventId);
-    if (event) statuses.set(event.id, event.status);
+    if (event) events.set(event.id, event);
   }
-  return rows.map(row => ({ ...row, eventStatus: statuses.get(row.eventId) ?? row.eventStatus }));
+  return rows.map(row => {
+    const event = events.get(row.eventId);
+    if (!event) return row;
+    return {
+      ...row,
+      eventStatus: event.status,
+      eventName: event.eventName,
+      assignedCoordinatorId: event.assignedCoordinatorId,
+    };
+  });
 }
 
 /**
