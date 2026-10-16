@@ -22,8 +22,9 @@ export const VenueBlockEmail = ({
   endsAt,
   reason,
 }: VenueBlockEmailProps) => {
-  // One string per line: adjacent JSX interpolations split with markup comments in HTML.
-  // A block that ends on a later day names both days, as `EventRegisteredEmail` does.
+  // React puts a markup comment between adjacent JSX interpolations. Build the period and the
+  // reason line as one string each, so their text has no comment inside. A block that ends on a
+  // later day names both days, as `EventRegisteredEmail` does.
   const sameDay = endsAt !== null && startsAt.slice(0, 10) === endsAt.slice(0, 10);
   const period =
     endsAt === null

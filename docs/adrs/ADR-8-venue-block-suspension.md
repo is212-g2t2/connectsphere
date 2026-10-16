@@ -20,8 +20,7 @@ A block is one `venue_unavailability` row and one `venue_occupancy` row with no 
 - **Audit.** Record stamps `created_by_id` and `created_at`. Lift stamps `lifted_at` and `lifted_by_id` and keeps the row. To change a period, Venue Staff lift the block and record a new one, so the unique period index covers only rows that are not lifted.
 - **Refusal order.** Approval, amendment and the conflict flag name one reason in this order: unavailable (closed hours or a block), then a booking, then a hold. Approval and amendment check availability first, then the ledger (`checkVenueFree`: block, booking, hold). Hold creation checks the ledger only.
 - **Lock order.** The block writer starts from a venue, so it takes the venue advisory lock first. Then it key-shares the affected events in ascending id order, before it writes a ledger row.
-- **Notices.** Record and lift raise one `venue_block_changed` notice for each affected event and recipient. The recipient is the event's assigned Coordinator, else the booking's requester, else the hold's owner. A lift sends no notice for a cancelled event.
-- **Seed.** The seed records and lifts its blocks with the same ledger writes, without notices. A re-run lifts only the blocks that the seed created, then records them again with their ledger rows.
+- **Notices.** Record and lift raise one `venue_block_changed` notice for each affected event and recipient. The recipient is the event's assigned Coordinator, else the booking's requester, else the hold's owner. A cancelled event gets neither notice.
 
 ## Alternatives Considered
 
@@ -39,9 +38,9 @@ A block is one `venue_unavailability` row and one `venue_occupancy` row with no 
 
 ## Consequences
 
-- The block writers reverse the ADR-7 lock order. No current writer holds an event row exclusively while it waits for a venue lock, so no deadlock cycle exists. Review this order before a writer does that.
+- The block writers reverse the ADR-7 lock order: the venue lock, then the event key-share locks. The seed holds event rows `FOR UPDATE` and then takes a venue lock, so a concurrent seed and block write can deadlock.
+- In that deadlock, PostgreSQL aborts one transaction (40P01). A block handler that PostgreSQL aborts refuses and tells Venue Staff to try again. The seed is a development tool, so the project accepts this risk.
 - A lift fails when a new active row overlaps a restored row. The transaction rolls back, and the block stays live.
-- While a split source stays split, its pieces have buffers of 0. A later refusal names the period of a piece, not the source's window.
+- While a block covers part of a source, the source has more than one ledger row. A lift then rebuilds one row.
 - A block suspends an approved booking but does not decide it. Venue Staff release or amend the booking, and an event cancellation keeps it approved, so a lift restores it.
-- A block recorded before the ledger path has no ledger row. A re-run of `db:seed` records the seed's blocks again with ledger rows.
-- Only Venue Staff (`venue:update`) record or lift a block. A calendar row shows the part of a block inside the selected range, and the lift dialog names the block's full period.
+- Only Venue Staff (`venue:update`) record or lift a block.

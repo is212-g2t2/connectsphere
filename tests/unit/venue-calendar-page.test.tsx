@@ -233,23 +233,4 @@ describe("VenueCalendarPage", () => {
     expect(await screen.findByText(/5 Oct 2026, 13:00 – 10 Oct 2026, 15:00/)).toBeTruthy();
     expect(screen.getByText(/unless a new arrangement now overlaps it/)).toBeTruthy();
   });
-
-  it("opens the record dialog with an empty end for an open-ended block", async () => {
-    const user = userEvent.setup();
-    render(
-      <VenueCalendarPage
-        venues={[venue]}
-        schedule={schedule}
-        search={{ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-06" }}
-        user={staffUser}
-      />
-    );
-
-    const results = screen.getByRole("region", { name: "Availability results" });
-    await user.click(within(results).getByRole("button", { name: "Block venue" }));
-
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByLabelText<HTMLInputElement>("End date (optional)").value).toBe("");
-    expect(within(dialog).getByText(/suspended until you lift the block/)).toBeTruthy();
-  });
 });

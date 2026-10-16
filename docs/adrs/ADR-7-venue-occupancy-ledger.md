@@ -6,7 +6,7 @@ status: accepted
 
 # ADR-7: One venue occupancy ledger, guarded by a buffered exclusion constraint
 
-> **Amended 2026-10-15:** venue blocks now suspend and restore ledger rows (PTR-136, [ADR-8](./ADR-8-venue-block-suspension.md)). A block row can have a null end, and the block writers set `active` in place. ADR-8 also sets the order in which a refusal names a conflict. The ledger and its constraint stand.
+> **Amended 2026-10-15:** venue blocks now suspend and restore ledger rows (PTR-136, [ADR-8](./ADR-8-venue-block-suspension.md)). A block row can have a null end, and the block writers set `active` in place. ADR-8 also sets the order in which a refusal names a conflict, and the conflict flag reads the ledger. The ledger and its constraint stand.
 
 ## Context
 
@@ -76,5 +76,5 @@ The custom files `0019` and `0024` stay in the journal as history. The 0047 pred
 - The lock order of ADR-5 stays: the event key-share lock, then the venue advisory locks in ascending venue order, then the row locks. `handleConfirmEvent` writes no venue or occupancy row, so it takes no venue lock. The block writers take the venue lock first ([ADR-8](./ADR-8-venue-block-suspension.md)).
 - 0048 copies no existing booking or hold into the ledger, because no deployed database held live data when it shipped. A booking or hold from before 0048 blocks no other write until an amendment, or a release and a new hold, writes its row.
 - Only the server functions and the seed write ledger rows. A hand-written change to a booking or a hold must change its `venue_occupancy` row in the same transaction.
-- The seed takes the venue lock for its block writes and no venue lock for its booking writes. The constraint guards both.
-- Availability, search, the request queue and the conflict flags still read the source tables until PTR-135 moves them to the ledger. Until then, they show bookings without buffers. A request in the buffer of a booking therefore shows no conflict flag, and approval then refuses it.
+- The seed takes the venue lock before it writes a block row or a booking row. The constraint is the authority for both.
+- Availability, search and the request queue still read the source tables until PTR-135 moves them to the ledger. Until then, they show bookings without buffers. The conflict flag reads the ledger with approval's expression, so it flags a request in the buffer of a booking.
