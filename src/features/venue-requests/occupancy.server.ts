@@ -73,17 +73,20 @@ export async function occupyVenue(
   await tx.insert(venueOccupancy).values(occupancy).catch(rethrowVenueConflict);
 }
 
-/** Delete every ledger row of the source. Writers never edit a row in place. */
+/** Match the ledger rows that the source owns. */
+function ownedBy(source: OccupancySource): SQL {
+  if ("venueRequestId" in source) return eq(venueOccupancy.venueRequestId, source.venueRequestId);
+  if ("venueHoldId" in source) return eq(venueOccupancy.venueHoldId, source.venueHoldId);
+  return eq(venueOccupancy.venueUnavailabilityId, source.venueUnavailabilityId);
+}
+
+/**
+ * Delete every ledger row of the source, split pieces included. A writer that changes a
+ * commitment deletes its rows and writes new ones. Only block suspend and restore change `active`
+ * in place.
+ */
 export async function vacateVenue(tx: VenueTx, source: OccupancySource): Promise<void> {
-  if ("venueRequestId" in source) {
-    await tx.delete(venueOccupancy).where(eq(venueOccupancy.venueRequestId, source.venueRequestId));
-  } else if ("venueHoldId" in source) {
-    await tx.delete(venueOccupancy).where(eq(venueOccupancy.venueHoldId, source.venueHoldId));
-  } else {
-    await tx
-      .delete(venueOccupancy)
-      .where(eq(venueOccupancy.venueUnavailabilityId, source.venueUnavailabilityId));
-  }
+  await tx.delete(venueOccupancy).where(ownedBy(source));
 }
 
 /**
@@ -109,14 +112,22 @@ interface BufferedPeriod {
 }
 
 /**
+ * Match the ledger rows at the period's venue, active or not, that overlap the period once the
+ * buffers count on both sides. Pass columns or values.
+ */
+export function overlapsPeriod(period: BufferedPeriod): SQL {
+  const requestedStart = sql`${period.startsAt}::timestamp - make_interval(mins => ${period.setupMinutes}::integer)`;
+  const requestedEnd = sql`${period.endsAt}::timestamp + make_interval(mins => ${period.turnaroundMinutes}::integer)`;
+  return sql`${venueOccupancy.venueId} = ${period.venueId} and tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${requestedStart}, ${requestedEnd}, '[)')`;
+}
+
+/**
  * ADR-7: match the active ledger rows at the period's venue that overlap the period once the
  * buffers count on both sides. Approval, the same-event overlap rule and the conflict flag share
  * this one test, so the flag and the refusals agree. Pass columns or values.
  */
 export function overlapsLedger(period: BufferedPeriod): SQL {
-  const requestedStart = sql`${period.startsAt}::timestamp - make_interval(mins => ${period.setupMinutes}::integer)`;
-  const requestedEnd = sql`${period.endsAt}::timestamp + make_interval(mins => ${period.turnaroundMinutes}::integer)`;
-  return sql`${venueOccupancy.venueId} = ${period.venueId} and ${venueOccupancy.active} and tsrange(${occupiedStart}, ${occupiedEnd}, '[)') && tsrange(${requestedStart}, ${requestedEnd}, '[)')`;
+  return sql`${venueOccupancy.active} and ${overlapsPeriod(period)}`;
 }
 
 /**
@@ -188,50 +199,33 @@ interface BlockExtent {
   endsAt: string | null;
 }
 
-/** What one block does to one occupied extent: nothing, a full suspend, or a split. */
+/** What a block does to an occupied extent that it overlaps: a full suspend, or a split. */
 type BlockOutcome =
-  | { kind: "clear" }
   | { kind: "deactivate" }
   | { kind: "split"; pieces: { startsAt: string; endsAt: string; active: boolean }[] };
 
 /**
- * Pure overlap of an occupied extent against a block. Fixed-width stamps compare as dates.
- * No overlap -> clear; fully inside -> deactivate; else split into the non-empty
- * intersection (inactive) plus the left and right remainders (active).
+ * Pure cut of an occupied extent that overlaps the block. Fixed-width stamps compare as dates.
+ * Fully inside -> deactivate; else split into the intersection (inactive) plus the left and right
+ * remainders (active). The overlap makes each piece non-empty.
  */
 function blockOutcome(
   occupied: { startsAt: string; endsAt: string },
   block: BlockExtent
 ): BlockOutcome {
-  const overlaps =
-    block.endsAt === null
-      ? block.startsAt < occupied.endsAt
-      : occupied.startsAt < block.endsAt && block.startsAt < occupied.endsAt;
-  if (!overlaps) return { kind: "clear" };
-  if (
-    occupied.startsAt >= block.startsAt &&
-    (block.endsAt === null || occupied.endsAt <= block.endsAt)
-  ) {
-    return { kind: "deactivate" };
-  }
-  const intersectionStart =
-    occupied.startsAt >= block.startsAt ? occupied.startsAt : block.startsAt;
-  const intersectionEnd =
-    block.endsAt === null
-      ? occupied.endsAt
-      : occupied.endsAt <= block.endsAt
-        ? occupied.endsAt
-        : block.endsAt;
-  const pieces: { startsAt: string; endsAt: string; active: boolean }[] = [];
-  if (intersectionStart < intersectionEnd) {
-    pieces.push({ startsAt: intersectionStart, endsAt: intersectionEnd, active: false });
-  }
-  if (occupied.startsAt < block.startsAt) {
-    pieces.push({ startsAt: occupied.startsAt, endsAt: block.startsAt, active: true });
-  }
-  if (block.endsAt !== null && block.endsAt < occupied.endsAt) {
-    pieces.push({ startsAt: block.endsAt, endsAt: occupied.endsAt, active: true });
-  }
+  const cutsStart = occupied.startsAt < block.startsAt;
+  const blockEnd = block.endsAt;
+  const cutsEnd = blockEnd !== null && blockEnd < occupied.endsAt;
+  if (!cutsStart && !cutsEnd) return { kind: "deactivate" };
+  const pieces = [
+    {
+      startsAt: cutsStart ? block.startsAt : occupied.startsAt,
+      endsAt: cutsEnd ? blockEnd : occupied.endsAt,
+      active: false,
+    },
+  ];
+  if (cutsStart) pieces.push({ startsAt: occupied.startsAt, endsAt: block.startsAt, active: true });
+  if (cutsEnd) pieces.push({ startsAt: blockEnd, endsAt: occupied.endsAt, active: true });
   return { kind: "split", pieces };
 }
 
@@ -292,10 +286,10 @@ export async function loadBlockCommitments(tx: VenueTx, block: BlockExtent) {
 export type BlockCommitment = Awaited<ReturnType<typeof loadBlockCommitments>>[number];
 
 /**
- * Suspend each overlapping commitment. A fully covered row flips to inactive and keeps its
- * stored buffers. A partial cover deletes the row, then inserts the intersection inactive and
- * the remainders active, each with the occupied extent and buffers 0. Skips zero-length pieces.
- * Never touches block rows. Deletes before inserts so a piece never overlaps its active source,
+ * Suspend each commitment that `loadBlockCommitments` read for the block. A fully covered row
+ * flips to inactive and keeps its stored buffers. A partial cover deletes the row, then inserts
+ * the intersection inactive and the remainders active, each with the occupied extent and buffers
+ * 0. Never touches block rows. Deletes before inserts so a piece never overlaps its active source,
  * and the caller inserts the block's own row after this returns.
  */
 export async function suspendBlockCommitments(
@@ -305,7 +299,6 @@ export async function suspendBlockCommitments(
 ): Promise<void> {
   for (const row of rows) {
     const outcome = blockOutcome({ startsAt: row.occupiedStart, endsAt: row.occupiedEnd }, block);
-    if (outcome.kind === "clear") continue;
     if (outcome.kind === "deactivate") {
       // oxlint-disable-next-line eslint/no-await-in-loop -- suspend rows in read order
       await tx.update(venueOccupancy).set({ active: false }).where(eq(venueOccupancy.id, row.id));
@@ -314,7 +307,6 @@ export async function suspendBlockCommitments(
     // oxlint-disable-next-line eslint/no-await-in-loop -- delete before inserting pieces
     await tx.delete(venueOccupancy).where(eq(venueOccupancy.id, row.id));
     for (const piece of outcome.pieces) {
-      if (piece.startsAt >= piece.endsAt) continue;
       // oxlint-disable-next-line eslint/no-await-in-loop -- insert pieces after the delete
       await tx
         .insert(venueOccupancy)
@@ -355,12 +347,11 @@ function sourceOf(row: BlockCommitment): { venueRequestId: string } | { venueHol
  * cover the source's occupied period without gaps. The new row takes the source's own times, and
  * buffers that reach from those times to the first and the last piece.
  */
-async function collapsePieces(tx: VenueTx, row: BlockCommitment): Promise<void> {
-  const source = sourceOf(row);
-  const ofSource =
-    "venueRequestId" in source
-      ? eq(venueOccupancy.venueRequestId, source.venueRequestId)
-      : eq(venueOccupancy.venueHoldId, source.venueHoldId);
+async function collapsePieces(
+  tx: VenueTx,
+  row: BlockCommitment,
+  source: { venueRequestId: string } | { venueHoldId: string }
+): Promise<void> {
   const [pieces] = await tx
     .select({
       count: sql<number>`count(*)::int`,
@@ -369,7 +360,7 @@ async function collapsePieces(tx: VenueTx, row: BlockCommitment): Promise<void> 
       turnaroundMinutes: sql<number>`(extract(epoch from max(${occupiedEnd}) - ${row.sourceEndsAt}::timestamp) / 60)::int`,
     })
     .from(venueOccupancy)
-    .where(ofSource);
+    .where(ownedBy(source));
   if (pieces.count < 2 || !pieces.allActive) return;
   await vacateVenue(tx, source);
   await occupyVenue(tx, {
@@ -405,10 +396,12 @@ export async function restoreBlockCommitments(
       await tx.delete(venueOccupancy).where(eq(venueOccupancy.id, row.id));
     }
   }
-  const sources = new Map(restored.map(row => [row.venueRequestId ?? row.venueHoldId, row]));
-  for (const row of sources.values()) {
+  const sources = new Map(
+    restored.map(row => [row.venueRequestId ?? row.venueHoldId, { row, source: sourceOf(row) }])
+  );
+  for (const { row, source } of sources.values()) {
     // oxlint-disable-next-line eslint/no-await-in-loop -- collapse after every restore
-    await collapsePieces(tx, row);
+    await collapsePieces(tx, row, source);
   }
   return restored;
 }

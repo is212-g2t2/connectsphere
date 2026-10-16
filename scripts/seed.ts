@@ -1,21 +1,20 @@
 // oxlint-disable node/no-process-env, no-console
 import { hashPassword } from "better-auth/crypto";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notExists, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import { ConflictError } from "#/features/auth/session";
 import {
-  loadBlockCommitments,
   occupyVenue,
   overlapsLedger,
-  suspendBlockCommitments,
+  overlapsPeriod,
   vacateVenue,
 } from "#/features/venue-requests/occupancy.server";
 import { lockVenue } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
-import { liftBlockRows, recordBlockRows } from "#/features/venues/blocks.server";
+import { liftBlockRows, occupyBlock, recordBlockRows } from "#/features/venues/blocks.server";
 
 export type SeedUser = typeof schema.user.$inferInsert;
 
@@ -758,10 +757,10 @@ function asVenueTx(tx: SeedTx): VenueTx {
 
 /**
  * Keep a seeded venue request's `venue_occupancy` rows in step with its status, as the app writers
- * do: delete the request's rows, then write one for an approved booking, with the venue's current
- * buffers. Under a live block, move the block's ledger row aside, write the booking row, suspend
- * it as the block recorder does, and write the block row again. A conflict between two
- * commitments stops the seed.
+ * do: under the venue lock, delete the request's rows, then write one for an approved booking,
+ * with the venue's current buffers. Under a live block, move the block's ledger row aside, write
+ * the booking row, and let `occupyBlock` suspend it as the block recorder does. A conflict between
+ * two commitments stops the seed.
  */
 async function syncSeedOccupancy(
   tx: SeedTx,
@@ -775,9 +774,10 @@ async function syncSeedOccupancy(
   }
 ): Promise<void> {
   const venueTx = asVenueTx(tx);
+  // The venue lock covers every ledger write, the delete included.
+  await lockVenue(venueTx, request.venueId);
   await vacateVenue(venueTx, { venueRequestId: request.id });
   if (request.status !== "approved") return;
-  await lockVenue(venueTx, request.venueId);
   const [venue] = await tx
     .select({
       setupMinutes: schema.venues.setupMinutes,
@@ -793,6 +793,27 @@ async function syncSeedOccupancy(
     setupMinutes: venue.setupMinutes,
     turnaroundMinutes: venue.turnaroundMinutes,
   };
+
+  // A block suspends the booking too. Two suspended rows that overlap cannot both come back, so a
+  // later lift of the block would fail. Stop the seed instead.
+  const suspended = await tx
+    .select({ id: schema.venueOccupancy.id })
+    .from(schema.venueOccupancy)
+    .where(
+      and(
+        eq(schema.venueOccupancy.active, false),
+        isNull(schema.venueOccupancy.venueUnavailabilityId),
+        overlapsPeriod(occupancy)
+      )
+    )
+    .limit(1);
+  if (suspended.length > 0) {
+    throw new ConflictError(
+      `Seeded booking "${request.id}" overlaps a booking or hold that a venue block suspends. ` +
+        "A lift of that block would then fail, so the seed stops."
+    );
+  }
+
   const blocks = await tx
     .select({
       id: schema.venueUnavailability.id,
@@ -806,29 +827,14 @@ async function syncSeedOccupancy(
     )
     .where(overlapsLedger(occupancy))
     .orderBy(asc(schema.venueOccupancy.startsAt));
-  if (blocks.length > 0) {
-    await tx.delete(schema.venueOccupancy).where(
-      inArray(
-        schema.venueOccupancy.venueUnavailabilityId,
-        blocks.map(block => block.id)
-      )
-    );
+  for (const block of blocks) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- move each block row aside in turn
+    await vacateVenue(venueTx, { venueUnavailabilityId: block.id });
   }
   await occupyVenue(venueTx, { ...occupancy, venueRequestId: request.id });
   for (const block of blocks) {
-    const extent = { venueId: request.venueId, startsAt: block.startsAt, endsAt: block.endsAt };
     // oxlint-disable-next-line eslint/no-await-in-loop -- suspend under one block at a time
-    const covered = await loadBlockCommitments(venueTx, extent);
-    // oxlint-disable-next-line eslint/no-await-in-loop -- suspend under one block at a time
-    await suspendBlockCommitments(venueTx, extent, covered);
-    // oxlint-disable-next-line eslint/no-await-in-loop -- suspend under one block at a time
-    await occupyVenue(venueTx, {
-      ...extent,
-      eventId: null,
-      venueUnavailabilityId: block.id,
-      setupMinutes: 0,
-      turnaroundMinutes: 0,
-    });
+    await occupyBlock(venueTx, { ...block, venueId: request.venueId });
   }
 }
 
@@ -909,7 +915,8 @@ export async function runSeed(database: Database): Promise<void> {
   // Dates use seed time, so a re-run lifts each live block that the seed wrote and records the
   // periods again, with the app's ledger writes and no notices. Use `(venue, reason)` and the seed
   // staff as the key, because moving dates do not match the unique period index. A block with no
-  // creator is a seed block from before blocks recorded their creator.
+  // creator and no ledger row is a seed block from before blocks recorded their creator. A block
+  // that loses its creator when an account is deleted keeps its ledger row, so the seed keeps it.
   await database.transaction(async tx => {
     await tx.execute(sql`select pg_advisory_xact_lock(${DEMO_EVENT_SEED_LOCK_KEY})`);
     const venueTx = asVenueTx(tx);
@@ -928,8 +935,18 @@ export async function runSeed(database: Database): Promise<void> {
         and(
           isNull(schema.venueUnavailability.liftedAt),
           or(
-            isNull(schema.venueUnavailability.createdById),
-            eq(schema.venueUnavailability.createdById, SEED_VENUE_STAFF_ID)
+            eq(schema.venueUnavailability.createdById, SEED_VENUE_STAFF_ID),
+            and(
+              isNull(schema.venueUnavailability.createdById),
+              notExists(
+                tx
+                  .select({ id: schema.venueOccupancy.id })
+                  .from(schema.venueOccupancy)
+                  .where(
+                    eq(schema.venueOccupancy.venueUnavailabilityId, schema.venueUnavailability.id)
+                  )
+              )
+            )
           ),
           or(
             ...seedBlocks.map(({ venue, period }) =>
@@ -950,12 +967,15 @@ export async function runSeed(database: Database): Promise<void> {
 
     for (const { venue, period } of seedBlocks) {
       try {
+        // A savepoint rolls back a refused period, so a failed statement cannot abort the outer
+        // transaction.
         // oxlint-disable-next-line eslint/no-await-in-loop -- record the periods in catalogue order
-        await recordBlockRows(venueTx, venue, period, SEED_VENUE_STAFF_ID);
+        await tx.transaction(async savepoint =>
+          recordBlockRows(asVenueTx(savepoint), venue, period, SEED_VENUE_STAFF_ID)
+        );
       } catch (error) {
-        // A live block from another writer wins over a seed period that overlaps it. The overlap
-        // probe refuses before any write, so the transaction stays usable. Skip the period, so
-        // `db:seed` stays safe to re-run.
+        // A live block from another writer wins over a seed period that overlaps it. Skip the
+        // period, so `db:seed` stays safe to re-run.
         if (!(error instanceof ConflictError)) throw error;
         console.warn(`Skipped the seeded period "${period.reason}": ${error.message}`);
       }

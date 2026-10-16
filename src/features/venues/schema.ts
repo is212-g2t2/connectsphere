@@ -331,6 +331,11 @@ export const VENUE_BLOCK_PAST_START_MESSAGE = "Choose a start date of today or l
 export const VENUE_BLOCK_ALREADY_LIFTED_MESSAGE = "This block has already been lifted.";
 export const VENUE_BLOCK_LIFT_OVERLAP_MESSAGE =
   "A new arrangement now overlaps this block, so it cannot be lifted.";
+/**
+ * The server sends this refusal when Postgres stops a block record or lift on a deadlock with
+ * another change to the venue. The record dialog and the lift button show it verbatim.
+ */
+export const VENUE_BLOCK_RETRY_MESSAGE = "Another change to this venue is in progress. Try again.";
 
 /**
  * A Venue Staff block: a venue, a start day and time, an optional end day and time, and a

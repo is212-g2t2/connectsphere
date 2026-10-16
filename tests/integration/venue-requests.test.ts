@@ -840,7 +840,9 @@ describe("venue request handlers (PTR-31)", () => {
           reason: "Floor resurfacing",
         },
         session(users.venueStaffA),
-        database as never
+        database as never,
+        // A fixed clock before the block date, so the past-start check accepts it in any year.
+        new Date("2027-01-01T00:00:00+08:00")
       );
       const blocked = await raiseRequest(eventId, "09:30", "10:30");
 

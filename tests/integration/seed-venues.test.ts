@@ -188,10 +188,7 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
     // The active set keeps one row per `(venue, reason)` key.
     for (const period of seedVenueUnavailability) {
       // oxlint-disable-next-line eslint/no-await-in-loop -- check each seed key in turn
-      const [venue] = await database
-        .select({ id: schema.venues.id })
-        .from(schema.venues)
-        .where(eq(schema.venues.name, period.venueName));
+      const venue = await venueOf(period);
       // oxlint-disable-next-line eslint/no-await-in-loop -- check each seed key in turn
       const active = await database
         .select()
@@ -209,10 +206,7 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
 
   it("rewrites a seeded period whose stored dates have gone stale (AC4)", async () => {
     const period = seedVenueUnavailability[0];
-    const [venue] = await database
-      .select({ id: schema.venues.id })
-      .from(schema.venues)
-      .where(eq(schema.venues.name, period.venueName));
+    const venue = await venueOf(period);
     const activeWhere = and(
       eq(schema.venueUnavailability.venueId, venue.id),
       eq(schema.venueUnavailability.reason, period.reason),
@@ -246,23 +240,9 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
 
     for (const period of seedVenueUnavailability) {
       // oxlint-disable-next-line eslint/no-await-in-loop -- check each seed period in turn
-      const [venue] = await database
-        .select({ id: schema.venues.id })
-        .from(schema.venues)
-        .where(eq(schema.venues.name, period.venueName));
+      const venue = await venueOf(period);
       // oxlint-disable-next-line eslint/no-await-in-loop -- check each seed period in turn
-      const [block] = await database
-        .select()
-        .from(schema.venueUnavailability)
-        .where(
-          and(
-            eq(schema.venueUnavailability.venueId, venue.id),
-            eq(schema.venueUnavailability.reason, period.reason),
-            isNull(schema.venueUnavailability.liftedAt)
-          )
-        )
-        .orderBy(asc(schema.venueUnavailability.id))
-        .limit(1);
+      const block = await liveSeedBlock(period);
       expect(block).toBeDefined();
       // oxlint-disable-next-line eslint/no-await-in-loop -- check each seed period in turn
       const rows = await database
@@ -363,6 +343,71 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
     expect(restored).toEqual([{ active: true }]);
   });
 
+  it("stops the seed when its booking would overlap another suspended commitment", async () => {
+    await runSeed(database);
+    const [booking] = await database
+      .select({ venueId: schema.venueOccupancy.venueId, startsAt: schema.venueOccupancy.startsAt })
+      .from(schema.venueOccupancy)
+      .where(
+        and(
+          eq(schema.venueOccupancy.venueRequestId, "demo-attendee-venue-request-1"),
+          eq(schema.venueOccupancy.active, true)
+        )
+      )
+      .orderBy(asc(schema.venueOccupancy.id))
+      .limit(1);
+    const day = booking.startsAt.slice(0, 10);
+    const [venue] = await database
+      .select({ id: schema.venues.id, name: schema.venues.name })
+      .from(schema.venues)
+      .where(eq(schema.venues.id, booking.venueId));
+    const planted = await recordBlock(venue, {
+      startsAt: `${day} 00:00:00`,
+      endsAt: `${day} 23:59:59`,
+      reason: "Seed overlap probe",
+    });
+    // Another event's booking inside the seeded booking's window, which the block suspended.
+    // Write its rows out of band, as an approval before the block would leave them.
+    const [event] = await database
+      .insert(schema.eventRequests)
+      .values({
+        organiserId: otherStaff.id,
+        status: "submitted",
+        submittedAt: new Date(),
+        eventName: "Seed overlap probe event",
+      })
+      .returning({ id: schema.eventRequests.id });
+    const window = { startsAt: `${day} 11:00:00`, endsAt: `${day} 12:00:00` };
+    await database.insert(schema.venueRequests).values({
+      id: "seed-overlap-probe-request",
+      eventId: event.id,
+      venueId: venue.id,
+      requestedById: otherStaff.id,
+      status: "approved",
+      ...window,
+    });
+    await database.insert(schema.venueOccupancy).values({
+      venueId: venue.id,
+      eventId: event.id,
+      venueRequestId: "seed-overlap-probe-request",
+      active: false,
+      ...window,
+    });
+
+    // Both suspended rows could not come back, so a lift would fail. The seed stops instead.
+    await expect(runSeed(database)).rejects.toThrow("a venue block suspends");
+
+    // Remove the probe event (its rows cascade) and lift the block, so later suites see the
+    // seeded baseline. The lift restores the seeded booking.
+    await database.delete(schema.eventRequests).where(eq(schema.eventRequests.id, event.id));
+    await liftBlock(planted.id);
+    const restored = await database
+      .select({ active: schema.venueOccupancy.active })
+      .from(schema.venueOccupancy)
+      .where(eq(schema.venueOccupancy.venueRequestId, "demo-attendee-venue-request-1"));
+    expect(restored).toEqual([{ active: true }]);
+  });
+
   it("replaces a seed block that an older seed wrote without a creator or a ledger row", async () => {
     await runSeed(database);
     const period = seedVenueUnavailability[0];
@@ -391,6 +436,39 @@ describe("seeded venues (PTR-59 criteria 3–4, landing with PTR-26)", () => {
       .from(schema.venueOccupancy)
       .where(eq(schema.venueOccupancy.venueUnavailabilityId, replacement.id));
     expect(ledger).toEqual([{ active: true }]);
+  });
+
+  it("keeps a block with a seed reason whose creator account is gone on re-run", async () => {
+    await runSeed(database);
+    const period = seedVenueUnavailability[1];
+    const venue = await venueOf(period);
+    // Use a day far past every seed period and booking, so only the ledger row tells them apart.
+    const day = new Date(Date.now() + 210 * 86_400_000).toISOString().slice(0, 10);
+    const staffBlock = await recordBlock(venue, {
+      startsAt: `${day} 09:00:00`,
+      endsAt: `${day} 10:00:00`,
+      reason: period.reason,
+    });
+    // A deleted account sets the creator to null (`ON DELETE SET NULL`). The ledger row stays.
+    await database
+      .update(schema.venueUnavailability)
+      .set({ createdById: null })
+      .where(eq(schema.venueUnavailability.id, staffBlock.id));
+
+    await runSeed(database);
+
+    const [kept] = await database
+      .select({ liftedAt: schema.venueUnavailability.liftedAt })
+      .from(schema.venueUnavailability)
+      .where(eq(schema.venueUnavailability.id, staffBlock.id));
+    expect(kept.liftedAt).toBeNull();
+    const ledger = await database
+      .select({ active: schema.venueOccupancy.active })
+      .from(schema.venueOccupancy)
+      .where(eq(schema.venueOccupancy.venueUnavailabilityId, staffBlock.id));
+    expect(ledger).toEqual([{ active: true }]);
+
+    await liftBlock(staffBlock.id);
   });
 
   it("keeps a Venue Staff block that has a seed reason on re-run", async () => {

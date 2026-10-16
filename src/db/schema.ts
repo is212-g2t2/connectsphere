@@ -517,8 +517,9 @@ export const venueUnavailability = pgTable(
       "venue_unavailability_ends_after_starts",
       sql`${table.endsAt} is null or ${table.endsAt} > ${table.startsAt}`
     ),
-    // This unique key prevents the seed from adding each finite period more than once. Two rows
-    // with a null end are distinct, so the record probe refuses a repeated open-ended block.
+    // The record probe refuses a live block that overlaps another under the venue lock. This
+    // unique key is a backstop for a writer outside that lock. Two rows with a null end are
+    // distinct, so only the probe refuses a repeated open-ended block.
     uniqueIndex("venue_unavailability_period_idx")
       .on(table.venueId, table.startsAt, table.endsAt)
       .where(sql`${table.liftedAt} is null`),

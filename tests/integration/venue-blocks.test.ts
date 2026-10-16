@@ -64,6 +64,8 @@ const users = {
 const HALL = "PTR-136 Block Hall";
 const ANNEX = "PTR-136 Block Annex";
 const DATE = "2027-09-15";
+/** A fixed clock before DATE. The past-start check then accepts blocks on DATE after DATE passes. */
+const BEFORE_DATE = new Date("2027-01-01T00:00:00+08:00");
 
 function session(user: (typeof users)[keyof typeof users]): SessionUser {
   return { id: user.id, email: user.email, name: user.name, role: user.role };
@@ -191,7 +193,8 @@ describe("venue blocks (PTR-136)", () => {
         ? { venueId, date: DATE, startTime, reason: "PTR-136 maintenance" }
         : { venueId, date: DATE, startTime, endDate: DATE, endTime, reason: "PTR-136 maintenance" },
       staff,
-      database as never
+      database as never,
+      BEFORE_DATE
     );
   }
 
@@ -834,6 +837,18 @@ describe("venue blocks (PTR-136)", () => {
     expect(
       (await blockNotices()).map(notice => (notice.payload as { action: string }).action)
     ).toEqual(["blocked"]);
+  });
+
+  it("suspends a cancelled event's booking on record without a block notice", async () => {
+    const eventId = await createEvent("PTR-136 cancelled before block");
+    const id = await raise("10:00", "11:00", hallId, eventId);
+    await approve(id);
+    await cancelEvent(eventId);
+
+    await recordBlock("09:00", "12:00");
+
+    expect(await ledgerForRequest(id)).toEqual([expect.objectContaining({ active: false })]);
+    expect(await blockNotices()).toEqual([]);
   });
 
   it("notifies the booking's requester when the event has no assigned Coordinator", async () => {

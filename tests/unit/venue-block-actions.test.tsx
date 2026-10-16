@@ -10,6 +10,7 @@ import {
 import {
   VENUE_BLOCK_ALREADY_LIFTED_MESSAGE,
   VENUE_BLOCK_LIFT_OVERLAP_MESSAGE,
+  VENUE_BLOCK_RETRY_MESSAGE,
 } from "#/features/venues/schema";
 import { toast } from "sonner";
 
@@ -48,35 +49,6 @@ describe("venue block action components", () => {
   });
 
   describe("RecordVenueBlockDialog", () => {
-    it("submits the payload with blank end fields as undefined", async () => {
-      const user = userEvent.setup();
-      render(
-        <RecordVenueBlockDialog venueId={7} venueName="Great Hall" defaultDate="2026-10-05" />
-      );
-
-      await user.click(screen.getByRole("button", { name: "Block venue" }));
-      expect(await screen.findByRole("heading", { name: "Block venue" })).toBeTruthy();
-
-      fireEvent.change(screen.getByLabelText("Reason for block"), {
-        target: { value: "Maintenance" },
-      });
-      await user.click(screen.getByRole("button", { name: "Record block" }));
-
-      await waitFor(() => {
-        expect(mockRecordBlock).toHaveBeenCalledWith({
-          data: {
-            venueId: 7,
-            date: "2026-10-05",
-            startTime: "09:00",
-            endDate: undefined,
-            endTime: undefined,
-            reason: "Maintenance",
-          },
-        });
-        expect(mockInvalidate).toHaveBeenCalled();
-      });
-    });
-
     it("refuses a blank reason without calling the server", async () => {
       const user = userEvent.setup();
       render(
@@ -133,17 +105,16 @@ describe("venue block action components", () => {
       });
     });
 
-    it("leaves the end empty by default and records an open-ended block unedited", async () => {
+    it("leaves the end empty and records an open-ended block on the typed date", async () => {
       const user = userEvent.setup();
-      render(
-        <RecordVenueBlockDialog venueId={7} venueName="Great Hall" defaultDate="2026-10-05" />
-      );
+      render(<RecordVenueBlockDialog venueId={7} venueName="Great Hall" />);
 
       await user.click(screen.getByRole("button", { name: "Block venue" }));
       expect(await screen.findByRole("heading", { name: "Block venue" })).toBeTruthy();
       expect(screen.getByLabelText<HTMLInputElement>("End date (optional)").value).toBe("");
       expect(screen.getByText(/suspended until you lift the block/)).toBeTruthy();
 
+      fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-10-05" } });
       fireEvent.change(screen.getByLabelText("Reason for block"), {
         target: { value: "Maintenance" },
       });
@@ -163,31 +134,7 @@ describe("venue block action components", () => {
         expect(toast.success).toHaveBeenCalledWith(
           "Block recorded: 5 Oct 2026, 09:00 – until lifted."
         );
-      });
-    });
-
-    it("accepts a start-only form with no end date or time", async () => {
-      const user = userEvent.setup();
-      render(<RecordVenueBlockDialog venueId={7} venueName="Great Hall" />);
-
-      await user.click(screen.getByRole("button", { name: "Block venue" }));
-      fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-10-05" } });
-      fireEvent.change(screen.getByLabelText("Reason for block"), {
-        target: { value: "Maintenance" },
-      });
-      await user.click(screen.getByRole("button", { name: "Record block" }));
-
-      await waitFor(() => {
-        expect(mockRecordBlock).toHaveBeenCalledWith({
-          data: {
-            venueId: 7,
-            date: "2026-10-05",
-            startTime: "09:00",
-            endDate: undefined,
-            endTime: undefined,
-            reason: "Maintenance",
-          },
-        });
+        expect(mockInvalidate).toHaveBeenCalled();
       });
     });
   });
@@ -215,28 +162,29 @@ describe("venue block action components", () => {
       });
     });
 
-    it.each([VENUE_BLOCK_ALREADY_LIFTED_MESSAGE, VENUE_BLOCK_LIFT_OVERLAP_MESSAGE])(
-      "shows the refusal %j verbatim",
-      async message => {
-        mockLiftBlock.mockRejectedValueOnce(new Error(message));
-        const user = userEvent.setup();
-        render(
-          <LiftVenueBlockButton
-            blockId="9"
-            reason="Maintenance"
-            startsAt="2026-10-05T13:00:00"
-            endsAt="2026-10-05T15:00:00"
-          />
-        );
+    it.each([
+      VENUE_BLOCK_ALREADY_LIFTED_MESSAGE,
+      VENUE_BLOCK_LIFT_OVERLAP_MESSAGE,
+      VENUE_BLOCK_RETRY_MESSAGE,
+    ])("shows the refusal %j verbatim", async message => {
+      mockLiftBlock.mockRejectedValueOnce(new Error(message));
+      const user = userEvent.setup();
+      render(
+        <LiftVenueBlockButton
+          blockId="9"
+          reason="Maintenance"
+          startsAt="2026-10-05T13:00:00"
+          endsAt="2026-10-05T15:00:00"
+        />
+      );
 
-        await user.click(screen.getByRole("button", { name: /Lift venue block/ }));
-        await user.click(await screen.findByRole("button", { name: "Confirm lift" }));
+      await user.click(screen.getByRole("button", { name: /Lift venue block/ }));
+      await user.click(await screen.findByRole("button", { name: "Confirm lift" }));
 
-        await waitFor(() => {
-          expect(screen.getByRole("alert").textContent).toBe(message);
-        });
-      }
-    );
+      await waitFor(() => {
+        expect(screen.getByRole("alert").textContent).toBe(message);
+      });
+    });
 
     it("replaces another error with the generic message", async () => {
       mockLiftBlock.mockRejectedValueOnce(new Error("Block cannot be lifted by the database"));

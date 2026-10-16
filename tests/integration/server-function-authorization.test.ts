@@ -412,12 +412,16 @@ describe("server-function authorization (PTR-69)", () => {
     );
 
     describe("venue blocks (PTR-136)", () => {
-      /** Use payloads the block validators accept. The allow path runs the whole chain. */
+      /**
+       * Use payloads the block validators accept. The allow path runs the whole chain. The handler
+       * refuses a start day before today, and the seed blocks lie within 70 days of the seed run,
+       * so use a far-future day.
+       */
       const blockRecord = {
         venueId: 1,
-        date: "2027-04-20",
+        date: "2099-04-20",
         startTime: "09:00",
-        endDate: "2027-04-20",
+        endDate: "2099-04-20",
         endTime: "12:30",
         reason: "Floor resurfacing",
       };

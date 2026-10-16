@@ -24,6 +24,7 @@ import {
   VENUE_BLOCK_ALREADY_LIFTED_MESSAGE,
   VENUE_BLOCK_LIFT_OVERLAP_MESSAGE,
   VENUE_BLOCK_PAST_START_MESSAGE,
+  VENUE_BLOCK_RETRY_MESSAGE,
   parseVenueBlockId,
   parseVenueBlockInput,
 } from "#/features/venues/schema";
@@ -32,9 +33,9 @@ import { logger } from "#/lib/logger";
 
 /**
  * Keep this module server-only. `server-fns.ts` imports it dynamically inside `.handler()`.
- * Record and lift venue blocks with the occupancy ledger (ADR-7 suspension). The handlers lock the
- * venue, call a core (`recordBlockRows`, `liftBlockRows`), and raise the notices. The seed calls
- * the cores without notices.
+ * Record and lift venue blocks with the occupancy ledger (ADR-8). The handlers lock the venue,
+ * call a core (`recordBlockRows`, `liftBlockRows`), and raise the notices. The seed calls the
+ * cores and `occupyBlock` without notices.
  */
 
 type Database = typeof Db;
@@ -56,20 +57,41 @@ export function assertBlockStartNotPast(date: string, now: Date): void {
 
 /**
  * Key-share each event of the rows once, in ascending id order. Record and lift take the venue
- * lock first and then these event locks (ADR-8).
+ * lock first and then these event locks (ADR-8). Return the rows with the event status read under
+ * the event lock, so a cancellation that committed before the lock counts.
  */
-async function keyShareEvents(tx: VenueTx, rows: readonly BlockCommitment[]): Promise<void> {
+async function keyShareEvents(
+  tx: VenueTx,
+  rows: readonly BlockCommitment[]
+): Promise<BlockCommitment[]> {
   const eventIds = [...new Set(rows.map(row => row.eventId))].toSorted((a, b) => a - b);
+  const statuses = new Map<number, BlockCommitment["eventStatus"]>();
   for (const eventId of eventIds) {
     // oxlint-disable-next-line eslint/no-await-in-loop -- key-share in ascending id order
-    await keyShareEvent(tx, eventId);
+    const event = await keyShareEvent(tx, eventId);
+    if (event) statuses.set(event.id, event.status);
   }
+  return rows.map(row => ({ ...row, eventStatus: statuses.get(row.eventId) ?? row.eventStatus }));
+}
+
+/**
+ * Map a deadlock (40P01) to the retry refusal. Record and lift take the venue lock and then
+ * key-share events. The seed takes its event rows and then a venue lock, so Postgres can abort
+ * one of two concurrent writers.
+ */
+function rethrowBlockDeadlock(error: unknown): never {
+  if (isDeadlock(error)) {
+    log.warn("Refused a venue block write that deadlocked", { sqlstate: "40P01" });
+    throw new ConflictError(VENUE_BLOCK_RETRY_MESSAGE);
+  }
+  throw error;
 }
 
 /**
  * Raise one `venue_block_changed` notice for each event and recipient. The recipient is the
  * event's assigned Coordinator, else the booking's requester, else the hold's owner. Log a
- * warning and skip a row that has none of them.
+ * warning and skip a row that has none of them. A cancelled event gets no notice, though the
+ * block still suspends or restores its booking or hold (PTR-54 keeps them).
  */
 async function notifyBlockChange(
   tx: VenueTx,
@@ -78,6 +100,7 @@ async function notifyBlockChange(
 ): Promise<void> {
   const notices = new Map<string, NewNotification>();
   for (const row of rows) {
+    if (row.eventStatus === "cancelled") continue;
     const recipientId = row.assignedCoordinatorId ?? row.requestedById ?? row.heldById;
     if (recipientId === null) {
       log.warn("No Coordinator to notify of the venue block", { eventId: row.eventId });
@@ -101,10 +124,32 @@ async function notifyBlockChange(
 }
 
 /**
+ * Write the ledger rows of a block row: read the active commitments that the block covers,
+ * key-share their events, suspend the commitments, then write the block's own ledger row. The
+ * caller holds the venue lock. Return the covered commitments, with the event status read under
+ * the event lock.
+ */
+export async function occupyBlock(
+  tx: VenueTx,
+  block: { id: number; venueId: number; startsAt: string; endsAt: string | null }
+): Promise<BlockCommitment[]> {
+  const extent = { venueId: block.venueId, startsAt: block.startsAt, endsAt: block.endsAt };
+  const covered = await keyShareEvents(tx, await loadBlockCommitments(tx, extent));
+  await suspendBlockCommitments(tx, extent, covered);
+  await occupyVenue(tx, {
+    ...extent,
+    eventId: null,
+    venueUnavailabilityId: block.id,
+    setupMinutes: 0,
+    turnaroundMinutes: 0,
+  });
+  return covered;
+}
+
+/**
  * Record a block at a venue. The caller holds the venue lock (`lockVenue`). Refuse a live block
- * that overlaps the period. Key-share the covered events, suspend the covered commitments, then
- * write the block row and its ledger row. Raise no notices. Return the block row and the
- * commitments that it covers.
+ * that overlaps the period. Write the block row, then its ledger rows (`occupyBlock`). Raise no
+ * notices. Return the block row and the commitments that it covers.
  *
  * Stamps use the database `YYYY-MM-DD HH:MM:SS` format. A null end stays until lifted.
  */
@@ -132,11 +177,6 @@ export async function recordBlockRows(
     throw new ConflictError(venueBlockConflictMessage({ venueName: venue.name, ...clash }));
   }
 
-  const extent = { venueId: venue.id, startsAt, endsAt };
-  const covered = await loadBlockCommitments(tx, extent);
-  await keyShareEvents(tx, covered);
-  await suspendBlockCommitments(tx, extent, covered);
-
   const [block] = await tx
     .insert(venueUnavailability)
     .values({ venueId: venue.id, startsAt, endsAt, reason, createdById: actorId })
@@ -149,18 +189,13 @@ export async function recordBlockRows(
           constraint: "venue_unavailability_period_idx",
           venueId: venue.id,
         });
-        throw new ConflictError(venueBlockConflictMessage({ venueName: venue.name, ...extent }));
+        throw new ConflictError(
+          venueBlockConflictMessage({ venueName: venue.name, startsAt, endsAt })
+        );
       }
       throw error;
     });
-  await occupyVenue(tx, {
-    ...extent,
-    eventId: null,
-    venueUnavailabilityId: block.id,
-    setupMinutes: 0,
-    turnaroundMinutes: 0,
-  });
-  return { block, covered };
+  return { block, covered: await occupyBlock(tx, block) };
 }
 
 /**
@@ -178,11 +213,10 @@ export async function liftBlockRows(
 ): Promise<{ block: VenueBlockRow; restored: BlockCommitment[] }> {
   if (block.liftedAt !== null) throw new ConflictError(VENUE_BLOCK_ALREADY_LIFTED_MESSAGE);
 
-  const restorable = await loadRestorableCommitments(tx, block);
-  await keyShareEvents(tx, restorable);
+  const restorable = await keyShareEvents(tx, await loadRestorableCommitments(tx, block));
   await vacateVenue(tx, { venueUnavailabilityId: block.id });
   const restored = await restoreBlockCommitments(tx, restorable).catch((error: unknown) => {
-    if (isConstraintViolation(error, "venue_occupancy_no_overlap") || isDeadlock(error)) {
+    if (isConstraintViolation(error, "venue_occupancy_no_overlap")) {
       log.warn("Refused a venue block lift that a new row overlaps", { blockId: block.id });
       throw new ConflictError(VENUE_BLOCK_LIFT_OVERLAP_MESSAGE);
     }
@@ -199,7 +233,8 @@ export async function liftBlockRows(
 
 /**
  * Record a venue block for Venue Staff. Refuse a start day before today. Lock the venue, record
- * the block (`recordBlockRows`), then notify each covered event once for each recipient.
+ * the block (`recordBlockRows`), then notify each covered event once for each recipient. A
+ * deadlock gets the retry refusal (`rethrowBlockDeadlock`).
  */
 export async function handleRecordVenueBlock(
   data: unknown,
@@ -215,61 +250,61 @@ export async function handleRecordVenueBlock(
       ? `${input.endDate} ${input.endTime}:00`
       : null;
 
-  return database.transaction(async tx => {
-    const venueRows = await tx
-      .select({ id: venues.id, name: venues.name })
-      .from(venues)
-      .where(eq(venues.id, input.venueId))
-      .limit(1);
-    const venue = venueRows.at(0);
-    if (!venue) throw new NotFoundError("Not Found");
-    await lockVenue(tx, venue.id);
+  return database
+    .transaction(async tx => {
+      const venueRows = await tx
+        .select({ id: venues.id, name: venues.name })
+        .from(venues)
+        .where(eq(venues.id, input.venueId))
+        .limit(1);
+      const venue = venueRows.at(0);
+      if (!venue) throw new NotFoundError("Not Found");
+      await lockVenue(tx, venue.id);
 
-    const { block, covered } = await recordBlockRows(
-      tx,
-      venue,
-      { startsAt, endsAt, reason: input.reason },
-      actor.id
-    );
-    await notifyBlockChange(tx, covered, { action: "blocked", venueName: venue.name, block });
-    return block;
-  });
+      const { block, covered } = await recordBlockRows(
+        tx,
+        venue,
+        { startsAt, endsAt, reason: input.reason },
+        actor.id
+      );
+      await notifyBlockChange(tx, covered, { action: "blocked", venueName: venue.name, block });
+      return block;
+    })
+    .catch(rethrowBlockDeadlock);
 }
 
 /**
  * Lift a venue block for Venue Staff. Lock the venue, re-read the block, lift it
- * (`liftBlockRows`), then notify each restored event once for each recipient. A cancelled event
- * gets no notice, though its booking or hold is restored (PTR-54 keeps them).
+ * (`liftBlockRows`), then notify each restored event once for each recipient. A deadlock gets the
+ * retry refusal (`rethrowBlockDeadlock`).
  */
 export async function handleLiftVenueBlock(data: unknown, actor: SessionUser, database: Database) {
   const { id } = parseVenueBlockId(data);
 
-  return database.transaction(async tx => {
-    const preview = await tx
-      .select({ venueId: venueUnavailability.venueId })
-      .from(venueUnavailability)
-      .where(eq(venueUnavailability.id, id))
-      .limit(1);
-    const previewRow = preview.at(0);
-    if (!previewRow) throw new NotFoundError("Not Found");
-    await lockVenue(tx, previewRow.venueId);
+  return database
+    .transaction(async tx => {
+      const preview = await tx
+        .select({ venueId: venueUnavailability.venueId })
+        .from(venueUnavailability)
+        .where(eq(venueUnavailability.id, id))
+        .limit(1);
+      const previewRow = preview.at(0);
+      if (!previewRow) throw new NotFoundError("Not Found");
+      await lockVenue(tx, previewRow.venueId);
 
-    const rows = await tx
-      .select({ block: venueUnavailability, venueName: venues.name })
-      .from(venueUnavailability)
-      .innerJoin(venues, eq(venues.id, venueUnavailability.venueId))
-      .where(eq(venueUnavailability.id, id))
-      .limit(1)
-      .for("update", { of: venueUnavailability });
-    const row = rows.at(0);
-    if (!row) throw new NotFoundError("Not Found");
+      const rows = await tx
+        .select({ block: venueUnavailability, venueName: venues.name })
+        .from(venueUnavailability)
+        .innerJoin(venues, eq(venues.id, venueUnavailability.venueId))
+        .where(eq(venueUnavailability.id, id))
+        .limit(1)
+        .for("update", { of: venueUnavailability });
+      const row = rows.at(0);
+      if (!row) throw new NotFoundError("Not Found");
 
-    const { block, restored } = await liftBlockRows(tx, row.block, actor.id);
-    await notifyBlockChange(
-      tx,
-      restored.filter(commitment => commitment.eventStatus !== "cancelled"),
-      { action: "lifted", venueName: row.venueName, block }
-    );
-    return block;
-  });
+      const { block, restored } = await liftBlockRows(tx, row.block, actor.id);
+      await notifyBlockChange(tx, restored, { action: "lifted", venueName: row.venueName, block });
+      return block;
+    })
+    .catch(rethrowBlockDeadlock);
 }

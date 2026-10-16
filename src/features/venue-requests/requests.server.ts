@@ -1,7 +1,14 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, user, venueOccupancy, venueRequests, venues } from "#/db/schema";
+import {
+  eventRequests,
+  user,
+  venueHolds,
+  venueOccupancy,
+  venueRequests,
+  venues,
+} from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
@@ -320,15 +327,21 @@ export async function assertNoEventOverlap(
   request: { eventId: number; startsAt: string; endsAt: string }
 ): Promise<void> {
   const venueBuffered = venue.setupMinutes + venue.turnaroundMinutes > 0;
+  // A block row has no event, so this row is a booking or a hold, and exactly one source joins.
+  const sourceStart = sql`coalesce(${venueRequests.startsAt}, ${venueHolds.startsAt})`;
+  const sourceEnd = sql`coalesce(${venueRequests.endsAt}, ${venueHolds.endsAt})`;
   const committed = await tx
     .select({
       isHold: isHoldRow,
-      startsAt: venueOccupancy.startsAt,
-      // A block row has no event, so this row is a booking or hold with a finite end.
-      endsAt: sql<string>`${venueOccupancy.endsAt}::text`,
-      buffered: sql<boolean>`${venueOccupancy.setupMinutes} + ${venueOccupancy.turnaroundMinutes} > 0`,
+      // Name the source's own times. A block can split a row into pieces with buffered times.
+      startsAt: sql<string>`${sourceStart}::text`,
+      endsAt: sql<string>`${sourceEnd}::text`,
+      // A piece stores buffers of 0. When it reaches past its source's times, it holds buffers.
+      buffered: sql<boolean>`${venueOccupancy.setupMinutes} + ${venueOccupancy.turnaroundMinutes} > 0 or ${venueOccupancy.startsAt} < ${sourceStart} or ${venueOccupancy.endsAt} > ${sourceEnd}`,
     })
     .from(venueOccupancy)
+    .leftJoin(venueRequests, eq(venueRequests.id, venueOccupancy.venueRequestId))
+    .leftJoin(venueHolds, eq(venueHolds.id, venueOccupancy.venueHoldId))
     .where(
       and(
         eq(venueOccupancy.eventId, request.eventId),

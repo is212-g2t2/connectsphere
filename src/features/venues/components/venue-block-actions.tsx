@@ -30,6 +30,7 @@ import {
   VENUE_BLOCK_ALREADY_LIFTED_MESSAGE,
   VENUE_BLOCK_LIFT_OVERLAP_MESSAGE,
   VENUE_BLOCK_REASON_MAX_LENGTH,
+  VENUE_BLOCK_RETRY_MESSAGE,
   VenueBlockInput,
 } from "#/features/venues/schema";
 import { formatLocalDateTime } from "#/features/event-requests/format";
@@ -54,10 +55,11 @@ function formatBlockPeriod(startsAt: string, endsAt?: string): string {
   return `${start} – ${end}`;
 }
 
-/** The server sends these refusals for the block itself. Show them verbatim. */
+/** The server sends these refusals for the block itself or a retry. Show them verbatim. */
 const LIFT_REFUSALS: ReadonlySet<string> = new Set([
   VENUE_BLOCK_ALREADY_LIFTED_MESSAGE,
   VENUE_BLOCK_LIFT_OVERLAP_MESSAGE,
+  VENUE_BLOCK_RETRY_MESSAGE,
 ]);
 
 /** Lift a block and free its period. Refusals name the block state, so show them verbatim. */
