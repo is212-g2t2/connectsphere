@@ -4,7 +4,6 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 import {
   CONFIRMATION_REFUSAL_HEADING,
-  MULTIPLE_VENUE_BOOKINGS_MESSAGE,
   VENUE_BOOKING_OUTSTANDING_MESSAGE,
   EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE,
   confirmationBlockers,
@@ -47,17 +46,37 @@ describe("confirmationBlockers (PTR-24)", () => {
     }
   });
 
-  it("names a missing approved venue booking (none, rejected, released, withdrawn)", () => {
-    for (const venueRequests of [
-      [],
-      [request("rejected")],
-      [request("released")],
-      [request("withdrawn")],
-    ]) {
-      expect(blockersFor({ status: "approved", venueRequests, equipmentLines: settled })).toEqual([
-        VENUE_BOOKING_OUTSTANDING_MESSAGE,
-      ]);
-    }
+  it("names the missing approved booking and every actionable request", () => {
+    expect(blockersFor({ status: "approved", venueRequests: [], equipmentLines: settled })).toEqual(
+      [VENUE_BOOKING_OUTSTANDING_MESSAGE]
+    );
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [request("rejected")],
+        equipmentLines: settled,
+      })
+    ).toEqual([
+      VENUE_BOOKING_OUTSTANDING_MESSAGE,
+      "The booking request for Great Hall (1 Jan 2030, 09:00 – 12:30) was rejected.",
+    ]);
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [request("released")],
+        equipmentLines: settled,
+      })
+    ).toEqual([
+      VENUE_BOOKING_OUTSTANDING_MESSAGE,
+      "The booking for Great Hall (1 Jan 2030, 09:00 – 12:30) was released.",
+    ]);
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [request("withdrawn")],
+        equipmentLines: settled,
+      })
+    ).toEqual([VENUE_BOOKING_OUTSTANDING_MESSAGE]);
   });
 
   it("names a pending request by venue and window when it is the only request", () => {
@@ -96,24 +115,44 @@ describe("confirmationBlockers (PTR-24)", () => {
     );
   });
 
-  it("accepts an approved booking beside an older released one", () => {
+  it("names a released booking beside an approved booking", () => {
     expect(
       blockersFor({
         status: "approved",
         venueRequests: [request("released"), request("approved")],
         equipmentLines: [],
       })
-    ).toEqual([]);
+    ).toEqual(["The booking for Great Hall (1 Jan 2030, 09:00 – 12:30) was released."]);
   });
 
-  it("refuses more than one approved venue booking", () => {
+  it("accepts several approved venue bookings", () => {
     expect(
       blockersFor({
         status: "approved",
         venueRequests: [request("approved"), request("approved")],
         equipmentLines: [],
       })
-    ).toEqual([MULTIPLE_VENUE_BOOKINGS_MESSAGE]);
+    ).toEqual([]);
+  });
+
+  it("names every pending, rejected, and released booking", () => {
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [
+          request("approved"),
+          request("pending", "Annex"),
+          request("rejected", "Seminar Room"),
+          request("released", "Auditorium"),
+          request("withdrawn", "Old Hall"),
+        ],
+        equipmentLines: [],
+      })
+    ).toEqual([
+      "The booking request for Annex (1 Jan 2030, 09:00 – 12:30) is still pending.",
+      "The booking request for Seminar Room (1 Jan 2030, 09:00 – 12:30) was rejected.",
+      "The booking for Auditorium (1 Jan 2030, 09:00 – 12:30) was released.",
+    ]);
   });
 
   it("names every outstanding equipment line and no settled one", () => {

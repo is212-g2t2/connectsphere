@@ -21,7 +21,6 @@ export function isConfirmableStatus(status: EventRequestStatus): boolean {
 
 export const CONFIRMATION_REFUSAL_HEADING = "This event cannot be confirmed yet:";
 export const VENUE_BOOKING_OUTSTANDING_MESSAGE = "There is no approved venue booking.";
-export const MULTIPLE_VENUE_BOOKINGS_MESSAGE = "There is more than one approved venue booking.";
 export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
   "Technical Support has not marked the equipment arrangements complete.";
 
@@ -42,6 +41,23 @@ export function pendingVenueRequestMessage(request: Omit<ConfirmationVenueReques
   return `The booking request for ${request.venueName} (${period}) is still pending.`;
 }
 
+function outstandingVenueRequestMessage(request: ConfirmationVenueRequest): string | null {
+  switch (request.status) {
+    case "pending":
+      return pendingVenueRequestMessage(request);
+    case "rejected":
+    case "released": {
+      const period = formatVenuePeriod(request.startsAt, request.endsAt);
+      if (request.status === "rejected") {
+        return `The booking request for ${request.venueName} (${period}) was rejected.`;
+      }
+      return `The booking for ${request.venueName} (${period}) was released.`;
+    }
+    default:
+      return null;
+  }
+}
+
 interface ConfirmationInput {
   status: EventRequestStatus;
   venueRequests: readonly ConfirmationVenueRequest[];
@@ -55,9 +71,9 @@ interface ConfirmationInput {
  * unconfirmable status is the only reason given: cancelled or completed events have no
  * outstanding arrangements.
  *
- * Otherwise the gate needs exactly one approved venue booking and no pending venue request. Each
- * pending request and each missing arrangement is its own entry (AC2). An event with no equipment
- * lines has nothing to settle, so the venue booking alone governs (AC5).
+ * Otherwise each request that was not withdrawn must be approved. Name each pending, rejected, or
+ * released booking, and each missing equipment arrangement. An event with no equipment lines has
+ * nothing to settle, so the venue bookings alone govern (AC5).
  */
 export function confirmationBlockers(input: ConfirmationInput): string[] {
   if (!isConfirmableStatus(input.status)) {
@@ -66,13 +82,10 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
 
   const blockers: string[] = [];
   const approvedBookings = input.venueRequests.filter(request => request.status === "approved");
-  if (approvedBookings.length === 0) {
-    blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
-  } else if (approvedBookings.length > 1) {
-    blockers.push(MULTIPLE_VENUE_BOOKINGS_MESSAGE);
-  }
+  if (approvedBookings.length === 0) blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
   for (const request of input.venueRequests) {
-    if (request.status === "pending") blockers.push(pendingVenueRequestMessage(request));
+    const blocker = outstandingVenueRequestMessage(request);
+    if (blocker) blockers.push(blocker);
   }
   const openLines = input.equipmentLines.filter(line => !isArrangedLine(line.arrangementStatus));
   for (const line of openLines) {

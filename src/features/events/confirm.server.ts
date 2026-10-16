@@ -72,7 +72,8 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
     });
     if (blockers.length > 0) throw new ConflictError(confirmationRefusalMessage(blockers));
 
-    // The gate guarantees exactly one approved booking. The throw only narrows the type.
+    // The gate guarantees at least one approved booking. The notification keeps its existing
+    // single-booking shape and uses the first approved booking.
     const booking = venueRows.find(row => row.status === "approved");
     if (!booking) {
       throw new Error("Confirmation gate passed without an approved venue booking");
