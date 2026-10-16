@@ -603,7 +603,7 @@ export const venueRequests = pgTable(
      * because the queue is shared and does not assign requests to a person.
      */
     assignedStaffId: text("assigned_staff_id").references(() => user.id, { onDelete: "set null" }),
-    /** PTR-37: last Venue Staff actor to release or amend this booking. */
+    /** PTR-37: who last released or amended this booking; a Coordinator on a PTR-137 release. */
     lastChangedByStaffId: text("last_changed_by_staff_id").references(() => user.id, {
       onDelete: "set null",
     }),
@@ -1010,6 +1010,8 @@ export const notificationKind = pgEnum("notification_kind", [
   /** PTR-52 AC5: the Coordinator applied or declined the Organiser's change request. */
   "event_change_processed",
   "venue_block_changed",
+  /** PTR-137: the Coordinator released a booking that a venue block had suspended. */
+  "venue_booking_released_by_coordinator",
 ]);
 
 export const notifications = pgTable(

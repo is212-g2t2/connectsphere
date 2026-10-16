@@ -28,6 +28,7 @@ import type { SessionUser } from "#/features/auth/session";
 import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
 import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
 import { loadOutstandingReleases } from "#/features/events/arrangements.server";
+import { hasBlockedArrangementSql } from "#/features/venues/blocked-arrangements.server";
 import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
 import {
   parseAssignmentInput,
@@ -77,6 +78,8 @@ export async function handleListAssignedEventRequests(actor: SessionUser, databa
       organiser: { name: user.name, email: user.email },
       /** PTR-110: the Coordinator a live handover waits on, so the list can say so. */
       handoverTo: handoverTargets.name,
+      /** PTR-137 AC1: a live venue block has suspended one of the event's bookings or holds. */
+      venueBlocked: hasBlockedArrangementSql(eventRequests.id, eventRequests.status),
       /** PTR-52 AC1: the Organiser's change requests still waiting on this Coordinator. */
       changeRequestsWaiting:
         sql<number>`(select count(*) from ${eventChangeRequests} where ${eventChangeRequests.eventRequestId} = ${eventRequests.id} and ${eventChangeRequests.outcome} is null)`.mapWith(

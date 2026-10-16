@@ -23,6 +23,8 @@ import { HandoverRequestEmail } from "#/features/emails/components/handover-requ
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
 import { VenueBlockEmail } from "#/features/emails/components/venue-block-email";
+import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/components/venue-booking-released-by-coordinator-email";
+import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
@@ -617,5 +619,72 @@ describe("Email templates rendering", () => {
       />
     );
     expect(html).toContain("12 October 2026, 14:30 – 14 October 2026, 10:00");
+  });
+
+  it("tells the Coordinator the block took the event back to planning, and only then (PTR-137 AC2)", async () => {
+    const reverted = await render(
+      <VenueBlockEmail
+        action="blocked"
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-12 17:00:00"
+        reason="Floor resurfacing"
+        revertedToPlanning
+      />
+    );
+    expect(reverted).toContain("back in planning");
+    expect(reverted).toContain("confirm the event again");
+
+    const plain = await render(
+      <VenueBlockEmail
+        action="blocked"
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-12 17:00:00"
+        reason="Floor resurfacing"
+      />
+    );
+    expect(plain).not.toContain("back in planning");
+  });
+
+  it("tells the Venue Staff member a Coordinator released a suspended booking, naming the booking only (PTR-137 AC4)", async () => {
+    const html = await render(
+      <VenueBookingReleasedByCoordinatorEmail
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:00:00"
+        endsAt="2026-10-12 17:00:00"
+        reason="Released by the Coordinator while Harbour Hall was blocked: Floor resurfacing"
+        bookingsUrl="http://localhost:3000/venue-bookings"
+      />
+    );
+    expect(html).toContain("released by the Coordinator");
+    expect(html).toContain("Harbour Hall");
+    expect(html).toContain("12 October 2026");
+    expect(html).toContain("The lift will not restore it.");
+    expect(html).toContain("Floor resurfacing");
+    expect(html).toContain("http://localhost:3000/venue-bookings");
+  });
+
+  it("renders the Attendee's copy of a re-confirmation with the arrangements (PTR-137 AC6)", async () => {
+    const html = await render(
+      <EventConfirmedEmail
+        audience="attendee"
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        date="12 October 2026"
+        startTime="14:00"
+        endTime="17:00"
+        equipment={[]}
+        eventUrl="http://localhost:3000/events/42"
+      />
+    );
+    expect(html).toContain("Event arrangements confirmed");
+    expect(html).toContain("which you are registered for");
+    expect(html).toContain("may have changed since you registered");
+    expect(html).toContain("Harbour Hall");
+    expect(html).toContain("View the event");
+    expect(html).not.toContain("Your event is confirmed");
   });
 });

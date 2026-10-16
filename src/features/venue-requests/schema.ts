@@ -48,6 +48,9 @@ export const VENUE_REJECTION_REASON_REQUIRED = "Enter a reason to reject this re
 export const VENUE_REJECTION_REASON_MAX_LENGTH = 2000;
 /** PTR-37: releasing an approved booking requires a concise operational reason. */
 export const VENUE_RELEASE_REASON_REQUIRED = "Enter a reason to release this booking";
+/** PTR-137 AC4: the Coordinator may release a booking only while a venue block suspends it. */
+export const VENUE_BOOKING_NOT_BLOCKED_MESSAGE =
+  "Only a booking suspended by a venue block can be released by its Coordinator.";
 export const VENUE_RELEASE_REASON_MAX_LENGTH = 2000;
 /** PTR-34 criterion 2: a suggested window needs both ends, or neither. */
 export const VENUE_REJECTION_TIME_PAIR_MESSAGE = "Enter both a start and end time";
@@ -446,11 +449,12 @@ export interface VenueRequestAnswerRow {
 }
 
 /**
- * PTR-35, PTR-139: Decide whether the Coordinator answered this row with a later request. A
- * rejected row is answered at the venue Venue Staff suggested, else at its own venue; a released
- * row at its own venue. Another non-withdrawn row at that venue, created after this row's
- * `updatedAt`, answers it. On a rejected or released row `updatedAt` is the rejection or release
- * time. The venue-request card and the confirmation gate both read this rule, so they cannot drift.
+ * PTR-35, PTR-139, PTR-137: Decide whether the Coordinator answered this row with a later
+ * request. A rejected row is answered at the venue Venue Staff suggested, else at its own venue,
+ * by a request raised after the rejection. A released row is answered by any request raised after
+ * the released booking, wherever it is: the release abandons its venue, and the replacement is
+ * arranged before the release and may land elsewhere (PTR-137). The venue-request card and the
+ * confirmation gate both read this rule, so they cannot drift.
  */
 export function answeredByLaterRequest(
   row: VenueRequestAnswerRow,
@@ -458,15 +462,21 @@ export function answeredByLaterRequest(
 ): boolean {
   // Only a settled row can be answered. A pending or approved row stands on its own.
   if (row.status !== "rejected" && row.status !== "released") return false;
-  // A rejection is answered at the venue Venue Staff suggested, else at its own venue (PTR-35).
-  const targetVenueId =
-    row.status === "rejected" ? (row.suggestedVenueId ?? row.venueId) : row.venueId;
+  if (row.status === "rejected") {
+    const targetVenueId = row.suggestedVenueId ?? row.venueId;
+    return rows.some(
+      other =>
+        other.id !== row.id &&
+        other.status !== "withdrawn" &&
+        other.venueId === targetVenueId &&
+        other.createdAt.getTime() > row.updatedAt.getTime()
+    );
+  }
   return rows.some(
     other =>
       other.id !== row.id &&
       other.status !== "withdrawn" &&
-      other.venueId === targetVenueId &&
-      other.createdAt.getTime() > row.updatedAt.getTime()
+      other.createdAt.getTime() > row.createdAt.getTime()
   );
 }
 

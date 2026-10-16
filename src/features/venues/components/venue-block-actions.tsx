@@ -33,27 +33,13 @@ import {
   VENUE_BLOCK_RETRY_MESSAGE,
   VenueBlockInput,
 } from "#/features/venues/schema";
-import { formatLocalDateTime } from "#/features/event-requests/format";
+import { formatVenueBlockPeriod } from "#/features/event-requests/format";
 import { formIssues } from "#/features/venue-requests/schema";
 import { liftVenueBlock, recordVenueBlock } from "#/features/venues/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 import { skipRootFilter } from "#/lib/invalidate";
 
 const LIFT_FALLBACK_MESSAGE = "Could not lift this block. Try again.";
-
-/**
- * Format a block period as wall-clock text. Name the end day only when it differs from the start
- * day. An absent end reads as "until lifted". Both values start `YYYY-MM-DDTHH:MM`.
- */
-function formatBlockPeriod(startsAt: string, endsAt?: string): string {
-  const start = formatLocalDateTime(startsAt.slice(0, 16));
-  if (endsAt === undefined) return `${start} – until lifted`;
-  const end =
-    endsAt.slice(0, 10) === startsAt.slice(0, 10)
-      ? endsAt.slice(11, 16)
-      : formatLocalDateTime(endsAt.slice(0, 16));
-  return `${start} – ${end}`;
-}
 
 /** The server sends these refusals for the block itself or a retry. Show them verbatim. */
 const LIFT_REFUSALS: ReadonlySet<string> = new Set([
@@ -77,7 +63,7 @@ export function LiftVenueBlockButton({
   openEnded?: true;
 }) {
   const router = useRouter();
-  const period = formatBlockPeriod(startsAt, openEnded ? undefined : endsAt);
+  const period = formatVenueBlockPeriod(startsAt, openEnded ? null : endsAt);
   const [state, run, pending] = useMutation(async () => {
     try {
       // The calendar carries ids as text. The schema wants the numeric row id.
@@ -179,11 +165,11 @@ export function RecordVenueBlockDialog({
       const input = toBlockInput(venueId, value);
       try {
         await recordVenueBlock({ data: input });
-        const end =
-          input.endDate && input.endTime ? `${input.endDate}T${input.endTime}` : undefined;
-        toast.success(
-          `Block recorded: ${formatBlockPeriod(`${input.date}T${input.startTime}`, end)}.`
+        const period = formatVenueBlockPeriod(
+          `${input.date}T${input.startTime}:00`,
+          input.endDate && input.endTime ? `${input.endDate}T${input.endTime}:00` : null
         );
+        toast.success(`Block recorded: ${period}.`);
         setOpen(false);
         await router.invalidate({ filter: skipRootFilter });
       } catch (submitError) {
@@ -215,7 +201,8 @@ export function RecordVenueBlockDialog({
           <DialogDescription>
             Record {venueName} as unavailable. Coordinators see the period as blocked. Bookings or
             holds that overlap this period are suspended until you lift the block, and their
-            Coordinators are notified.
+            Coordinators are notified. A confirmed event covered by the block goes back to Planning
+            and must be confirmed again.
           </DialogDescription>
         </DialogHeader>
 

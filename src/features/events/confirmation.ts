@@ -22,6 +22,8 @@ export function isConfirmableStatus(status: EventRequestStatus): boolean {
 
 export const CONFIRMATION_REFUSAL_HEADING = "This event cannot be confirmed yet:";
 export const VENUE_BOOKING_OUTSTANDING_MESSAGE = "There is no approved venue booking.";
+/** PTR-137 AC2: a block suspends the booking, so the event cannot be confirmed on it. */
+export const VENUE_BOOKING_SUSPENDED_MESSAGE = "Its venue booking is suspended by a venue block.";
 export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
   "Technical Support has not marked the equipment arrangements complete.";
 
@@ -74,6 +76,8 @@ function outstandingVenueRequestMessage(request: ConfirmationVenueRequest): stri
 interface ConfirmationInput {
   status: EventRequestStatus;
   venueRequests: readonly ConfirmationVenueRequest[];
+  /** PTR-137: true when a live venue block suspends the approved booking. */
+  venueBookingSuspended?: boolean;
   equipmentLines: readonly { item: string; arrangementStatus: string }[];
   /** PTR-43's stamp: set when Technical Support marked every line arranged. */
   equipmentArrangementsCompletedAt: Date | null;
@@ -98,6 +102,8 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
   const blockers: string[] = [];
   if (!input.venueRequests.some(request => request.status === "approved")) {
     blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
+  } else if (input.venueBookingSuspended) {
+    blockers.push(VENUE_BOOKING_SUSPENDED_MESSAGE);
   }
   for (const request of input.venueRequests) {
     if (answeredByLaterRequest(request, input.venueRequests)) continue;

@@ -12,6 +12,8 @@ interface EventConfirmedEmailProps {
   endTime: string;
   equipment: { id: string; item: string; quantity: number; state: string }[];
   eventUrl: string;
+  /** PTR-137 AC6: a registered Attendee's copy names the arrangements, not "your event". */
+  audience?: "organiser" | "attendee";
 }
 
 export const EventConfirmedEmail = ({
@@ -22,14 +24,24 @@ export const EventConfirmedEmail = ({
   endTime,
   equipment,
   eventUrl,
+  audience = "organiser",
 }: EventConfirmedEmailProps) => (
   <Layout previewText={`${eventName} is confirmed`}>
     <Section>
-      <Text style={emailHeading}>Your event is confirmed</Text>
-      <Text style={emailText}>
-        <strong>{eventName}</strong> is confirmed. The venue and technical arrangements are in
-        place.
+      <Text style={emailHeading}>
+        {audience === "attendee" ? "Event arrangements confirmed" : "Your event is confirmed"}
       </Text>
+      {audience === "attendee" ? (
+        <Text style={emailText}>
+          The arrangements for <strong>{eventName}</strong>, which you are registered for, are
+          confirmed. Check the venue and time below: they may have changed since you registered.
+        </Text>
+      ) : (
+        <Text style={emailText}>
+          <strong>{eventName}</strong> is confirmed. The venue and technical arrangements are in
+          place.
+        </Text>
+      )}
       <Text style={emailText}>Venue: {venueName}</Text>
       <Text style={emailText}>
         When: {date}, {startTime}–{endTime}
@@ -45,7 +57,7 @@ export const EventConfirmedEmail = ({
         </>
       )}
       <Button href={eventUrl} style={emailButton}>
-        View your event
+        {audience === "attendee" ? "View the event" : "View your event"}
       </Button>
     </Section>
   </Layout>

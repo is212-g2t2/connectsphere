@@ -182,6 +182,21 @@ export interface EventVenueRequest {
 }
 
 /**
+ * PTR-137 AC1: a booking or hold of the event that a live venue block has suspended. The
+ * Coordinator sees it with the block's reason and period until the block is lifted or the
+ * arrangement is released. Times keep the floating venue-local `YYYY-MM-DD HH:MM:SS` spelling.
+ */
+export interface BlockedArrangement {
+  kind: "booking" | "hold";
+  /** The `venue_requests` or `venue_holds` row id. */
+  id: string;
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+  block: { reason: string; startsAt: string; endsAt: string | null };
+}
+
+/**
  * The event's current approved booking. Organisers and Coordinators see it for confirmed events.
  * Attendees see it for published events and events they registered for. Times use `HH:MM` format.
  * Dates use `YYYY-MM-DD` format. `endDate` is the last booking day.
@@ -304,6 +319,8 @@ export interface EventProjection {
     confirmation?: EventConfirmation | null;
     /** Why the Coordinator cannot complete this confirmed event now; null means it is eligible. */
     completionUnavailableReason?: string | null;
+    /** PTR-137 AC1: Coordinator only. The arrangements a live venue block has suspended. */
+    blockedArrangements?: BlockedArrangement[];
   };
 }
 
@@ -352,9 +369,18 @@ export function projectEvent(
   venueRequests: EventVenueRequest[],
   currentVenue: EventConfirmation["venue"] = null,
   places: EventPlaces | null = null,
-  completionUnavailableReason?: string | null,
-  registrationAvailability: RegistrationAvailability | null = null
+  extras: {
+    completionUnavailableReason?: string | null;
+    registrationAvailability?: RegistrationAvailability | null;
+    /** PTR-137 AC1: the Coordinator's suspended arrangements. */
+    blockedArrangements?: BlockedArrangement[];
+  } = {}
 ): EventProjection {
+  const {
+    completionUnavailableReason,
+    registrationAvailability = null,
+    blockedArrangements = [],
+  } = extras;
   const timing = eventTiming(record.proposedDates);
 
   switch (access) {
@@ -473,6 +499,8 @@ export function projectEvent(
           ...(access === "coordinator" && completionUnavailableReason !== undefined
             ? { completionUnavailableReason }
             : {}),
+          // PTR-137 AC1: only the Coordinator re-plans, so only their copy carries the flag.
+          ...(access === "coordinator" ? { blockedArrangements } : {}),
         },
       };
 

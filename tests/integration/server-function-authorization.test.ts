@@ -78,6 +78,7 @@ import {
   getPendingVenueRequestsForEvent,
   getVenueRequestContext,
   listVenueBookings,
+  releaseBlockedVenueBooking,
   releaseVenueBooking,
   rejectVenueRequest,
   requestVenue,
@@ -782,6 +783,38 @@ describe("server-function authorization (PTR-69)", () => {
         signIn(role);
 
         expect(await refusalFrom(listEventArrangements, { id: 1 })).toMatchObject({
+          status: 403,
+        });
+      }
+    );
+  });
+
+  // PTR-137: only an Event Coordinator releases a booking a venue block suspended; the handler
+  // checks the assignment and the block.
+  describe("PTR-137 release blocked venue booking", () => {
+    const releaseInput = { id: "request-1" };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(releaseBlockedVenueBooking, releaseInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it("permits an Event Coordinator", async () => {
+      signIn("event_coordinator");
+
+      expect((await call(releaseBlockedVenueBooking, releaseInput)).error).toBeUndefined();
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(releaseBlockedVenueBooking, releaseInput)).toMatchObject({
           status: 403,
         });
       }

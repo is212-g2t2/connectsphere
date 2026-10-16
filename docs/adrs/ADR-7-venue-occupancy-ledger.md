@@ -107,6 +107,7 @@ The custom files `0019` and `0024` stay in the journal as history. The 0047 pred
 - A lift fails when a new active row overlaps a restored row. Then the transaction rolls back, and the block stays live.
 - While a block covers part of a source, the source has more than one ledger row. Until all the pieces are active again, a `checkVenueFree` refusal names the period of one piece.
 - A block suspends an approved booking but does not release it. Venue Staff release or amend the booking. A lift restores the booking after an event cancellation, because the cancellation keeps the booking approved.
+- A block over a confirmed event's booking returns the event to planning and clears its confirmation stamp; the event is not cancelled. The Coordinator sees each suspended booking and hold with the block's reason, read from the ledger, and may release a suspended booking in favour of a replacement, so the lift leaves the replacement standing. The confirmation gate refuses a booking a live block suspends.
 - 0048 copies no existing booking or hold into the ledger, because no deployed database held live data when it shipped. A booking or hold from before 0048 blocks no other write until an amendment, or a release and a new hold, writes its row.
 - Only the server functions and the seed write ledger rows. A hand-written change to a booking or a hold must change its `venue_occupancy` row in the same transaction.
 - The seed takes the venue lock before it writes a block row or a booking row. The constraint is the authority for both.

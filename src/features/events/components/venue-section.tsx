@@ -10,13 +10,14 @@ import {
   formatLocalDate,
 } from "#/features/event-requests/format";
 import { AdjustRequestRow } from "#/features/events/components/adjust-request-row";
+import { BlockedArrangements } from "#/features/events/components/blocked-arrangements";
 import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import {
   EventRequirements,
   hasEventRequirements,
 } from "#/features/events/components/event-requirements";
-import type { EventVenueRequest } from "#/features/events/access";
+import type { BlockedArrangement, EventVenueRequest } from "#/features/events/access";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import { formatSessionSummary, formatVenueSuggestion } from "#/features/venue-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
@@ -43,6 +44,8 @@ interface VenueSource {
     } | null;
   } | null;
   searchable: boolean;
+  /** PTR-137: the Coordinator's suspended bookings and holds; empty for every other reader. */
+  blocked: BlockedArrangement[];
 }
 
 /** The Coordinator searches for venues from this block while the event takes venue requests. */
@@ -65,6 +68,7 @@ function venueSource(data: EventPageData): VenueSource | null {
       },
       confirmation: null,
       searchable: false,
+      blocked: [],
     };
   }
   if (data.event.access !== "organiser" && data.event.access !== "coordinator") return null;
@@ -77,6 +81,7 @@ function venueSource(data: EventPageData): VenueSource | null {
     requirements: event,
     confirmation: event.confirmation ?? null,
     searchable: true,
+    blocked: event.blockedArrangements ?? [],
   };
 }
 
@@ -158,12 +163,22 @@ function VenueBody({ data }: { data: EventPageData }) {
   const { access, status, venueRequests } = source;
   const hasActions = hasVenueActions(source);
   const hasRequested = hasEventRequirements(source.requirements, venueRequests.length > 0);
-  if (!hasRequested && !source.confirmation && !hasActions) return null;
+  const hasBlocked = source.blocked.length > 0;
+  if (!hasRequested && !source.confirmation && !hasActions && !hasBlocked) return null;
   return (
     <div>
-      <h2 className="display-h3">Venue</h2>
+      <h2 id="venue-section-heading" tabIndex={-1} className="display-h3 outline-none">
+        Venue
+      </h2>
       <Card className="mt-4">
         <CardContent>
+          {hasBlocked && (
+            <BlockedArrangements
+              eventId={source.eventId}
+              arrangements={source.blocked}
+              searchable={hasVenueActions(source)}
+            />
+          )}
           {hasRequested && (
             <>
               <p className="eyebrow text-muted-foreground">What was requested</p>
@@ -215,7 +230,8 @@ function VenueBody({ data }: { data: EventPageData }) {
             </div>
           )}
 
-          {hasActions && (
+          {/* While a block suspends the arrangements, the panel carries the search action. */}
+          {hasActions && !hasBlocked && (
             <div className="mt-4 border-t border-border pt-4">
               <Link
                 to="/venues"
@@ -279,7 +295,8 @@ export function venueSections(data: EventPageData): EventSectionDef[] {
         return (
           hasEventRequirements(source.requirements, venueRequests.length > 0) ||
           source.confirmation !== null ||
-          hasVenueActions(source)
+          hasVenueActions(source) ||
+          source.blocked.length > 0
         );
       },
       render: body => <VenueBody data={body} />,

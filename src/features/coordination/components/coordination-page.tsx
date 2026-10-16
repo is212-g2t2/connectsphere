@@ -172,6 +172,7 @@ export function CoordinationPage({
                   {request.handoverTo ? (
                     <Badge variant="progress">Handover to {request.handoverTo} pending</Badge>
                   ) : null}
+                  {request.venueBlocked ? <Badge variant="stopped">Venue blocked</Badge> : null}
                   {request.changeRequestsWaiting > 0 ? (
                     <Badge variant="secondary">
                       {request.changeRequestsWaiting === 1
