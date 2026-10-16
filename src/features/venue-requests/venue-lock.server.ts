@@ -20,8 +20,8 @@ export type VenueTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
  * commits or rolls back.
  *
  * Request creation takes it after the event lock, so its same-event overlap check (PTR-138 AC4)
- * sees every committed request. Withdraw and reject only lock rows because they do not hold venue
- * time.
+ * sees every committed request. Reject only locks its row because it holds no venue time. Withdraw
+ * key-shares the event first, so it reads the event's current Coordinator.
  */
 export async function lockVenue(tx: VenueTx, venueId: number): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(${venueId})`);

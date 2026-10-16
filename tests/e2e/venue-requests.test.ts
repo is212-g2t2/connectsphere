@@ -138,7 +138,11 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     await expect(page.getByRole("alertdialog")).toContainText(
       `${fixture.venueName} on 10 May 2027, 09:00 – 15:30`
     );
-    await page.getByRole("button", { name: "Confirm" }).click();
+    // The dialog's own action, not the row's trigger.
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Withdraw request", exact: true })
+      .click();
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
     await expect(listHeading).toBeFocused();
     await expect(list).toHaveCount(0);
@@ -406,6 +410,75 @@ test("[PTR-138] a Coordinator finds a breakout room in search and requests it fo
     await expect(venue).toContainText(/10 May 2027, 13:00\s?–\s?14:30/);
     await expect(venue).toContainText("25 attendees");
     await expect(venue.getByText("Pending", { exact: true })).toBeVisible();
+  } finally {
+    if (cleanup.userIds.length > 0) {
+      await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));
+    }
+    if (cleanup.venueIds.length > 0) {
+      await database.delete(schema.venues).where(inArray(schema.venues.id, cleanup.venueIds));
+    }
+  }
+});
+
+/** PTR-139: a rejected request blocks confirmation, so the Coordinator who raised it can withdraw it
+ * from the venue page, with the reason and the effect in front of them.
+ */
+test("[PTR-139] a Coordinator withdraws a rejected request so nothing blocks confirmation", async ({
+  page,
+}) => {
+  const cleanup = { userIds: [] as string[], venueIds: [] as number[] };
+
+  try {
+    const coordinator = await registerAccount(database, page, {
+      role: "event_coordinator",
+      name: "Settled Request Coordinator",
+      password,
+    });
+    cleanup.userIds.push(coordinator.id);
+    const fixture = await seedFixture(coordinator.id, cleanup);
+    const refusedAt = new Date("2027-01-02T00:00:00Z");
+    await database.insert(schema.venueRequests).values({
+      id: randomUUID(),
+      eventId: fixture.eventId,
+      venueId: fixture.venueId,
+      requestedById: coordinator.id,
+      startsAt: "2027-05-10 09:00:00",
+      endsAt: "2027-05-10 12:30:00",
+      status: "rejected",
+      rejectionReason: "Closed for floor resurfacing",
+      createdAt: refusedAt,
+      updatedAt: refusedAt,
+    });
+
+    await page.goto(`/venues/${fixture.venueId}?eventId=${fixture.eventId}`);
+    await waitForHydration(page);
+
+    const list = page.getByRole("list", { name: `Requests for ${fixture.eventName}` });
+    await expect(list.getByText("Rejected", { exact: true })).toBeVisible();
+    await expect(list.getByText("Rejection reason: Closed for floor resurfacing")).toBeVisible();
+    await expect(
+      list.getByText("Blocks confirmation until withdrawn or answered by a new request.")
+    ).toBeVisible();
+
+    await page
+      .getByRole("button", { name: "Withdraw request for 10 May 2027, 09:00 – 12:30" })
+      .click();
+    await expect(page.getByRole("alertdialog")).toContainText(
+      "It removes the block on confirmation"
+    );
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Withdraw request", exact: true })
+      .click();
+
+    // The row leaves the list, and its history stays on record.
+    await expect(list).toHaveCount(0);
+    const [withdrawn] = await database
+      .select()
+      .from(schema.venueRequests)
+      .where(eq(schema.venueRequests.eventId, fixture.eventId));
+    expect(withdrawn.status).toBe("withdrawn");
+    expect(withdrawn.rejectionReason).toBe("Closed for floor resurfacing");
   } finally {
     if (cleanup.userIds.length > 0) {
       await database.delete(schema.user).where(inArray(schema.user.id, cleanup.userIds));

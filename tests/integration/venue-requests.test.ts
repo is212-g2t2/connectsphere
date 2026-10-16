@@ -1183,13 +1183,16 @@ describe("venue request handlers (PTR-31)", () => {
           endsAt: "2027-04-20T12:30",
           status: "pending",
           conflict: null,
+          rejectionReason: null,
+          releaseReason: null,
+          answered: false,
           requirements: EVENT_SESSION_SUMMARY,
           canWithdraw: true,
         },
       ]);
     });
 
-    it("lists pending and approved rows earliest first, and lets the caller withdraw only their own pending rows (PTR-138 AC4)", async () => {
+    it("lists the event's rows earliest first, and lets the caller withdraw only their own (PTR-138 AC4, PTR-139)", async () => {
       const afternoon = await raiseRequest(eventId, "14:00", "15:00");
       const morning = await raiseRequest(eventId, "09:00", "10:00");
       await approve(morning.id, users.venueStaffA);
@@ -1229,9 +1232,11 @@ describe("venue request handlers (PTR-31)", () => {
         expect.objectContaining({ id: morning.id, status: "approved", canWithdraw: false }),
         expect.objectContaining({ id: handedOver.id, status: "pending", canWithdraw: true }),
         expect.objectContaining({ id: afternoon.id, status: "pending", canWithdraw: false }),
+        // PTR-139: the assignee can clear the settled row, whoever raised it.
+        expect.objectContaining({ id: rejected.id, status: "rejected", canWithdraw: true }),
       ]);
 
-      // The raiser is no longer the assignee. They see only the pending rows they raised.
+      // The raiser is no longer the assignee. They see only the rows they raised and can withdraw.
       const raiserView = await handleGetVenueRequestContext(
         { eventId, venueId },
         session(users.coordinator),
@@ -1245,6 +1250,22 @@ describe("venue request handlers (PTR-31)", () => {
           endsAt: "2027-04-20T15:00",
           status: "pending",
           conflict: null,
+          rejectionReason: null,
+          releaseReason: null,
+          answered: false,
+          requirements: EVENT_SESSION_SUMMARY,
+          canWithdraw: true,
+        },
+        {
+          id: rejected.id,
+          startsAt: "2027-04-20T16:00",
+          endsAt: "2027-04-20T17:00",
+          status: "rejected",
+          conflict: null,
+          rejectionReason: "Closed for cleaning",
+          releaseReason: null,
+          // The later request for this venue answered the rejection (PTR-139).
+          answered: true,
           requirements: EVENT_SESSION_SUMMARY,
           canWithdraw: true,
         },
@@ -1462,6 +1483,122 @@ describe("venue request handlers (PTR-31)", () => {
           )
         );
       expect(pending.map(row => row.id)).toEqual([second.id]);
+    });
+
+    it("withdraws a rejected request and clears it from the raiser's list (PTR-139)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await handleRejectVenueRequest(
+        { id: request.id, reason: "Closed for floor resurfacing" },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      // The settled row still blocks confirmation, so the raiser can withdraw it.
+      const before = await handleGetVenueRequestContext(
+        { eventId, venueId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(before?.requests).toEqual([
+        expect.objectContaining({ id: request.id, status: "rejected", canWithdraw: true }),
+      ]);
+
+      const withdrawn = await handleWithdrawVenueRequest(
+        { id: request.id },
+        session(users.coordinator),
+        database as never
+      );
+
+      expect(withdrawn.status).toBe("withdrawn");
+      expect(
+        (
+          await handleGetVenueRequestContext(
+            { eventId, venueId },
+            session(users.coordinator),
+            database as never
+          )
+        )?.requests
+      ).toEqual([]);
+    });
+
+    it("withdraws a released booking and keeps its release reason (PTR-139)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+      await handleReleaseVenueBooking(
+        { id: request.id, reason: "  Air-conditioning failure  " },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      const withdrawn = await handleWithdrawVenueRequest(
+        { id: request.id },
+        session(users.coordinator),
+        database as never
+      );
+
+      expect(withdrawn.status).toBe("withdrawn");
+      expect(await readRow(request.id)).toMatchObject({
+        status: "withdrawn",
+        releaseReason: "Air-conditioning failure",
+      });
+    });
+
+    it("still refuses to withdraw an approved booking (PTR-36)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await approve(request.id, users.venueStaffA);
+
+      await expect(
+        handleWithdrawVenueRequest(
+          { id: request.id },
+          session(users.coordinator),
+          database as never
+        )
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_SETTLED_MESSAGE });
+
+      // The booking and its ledger row stand.
+      expect(await readRow(request.id)).toMatchObject({ status: "approved" });
+      expect(await ledgerFor([request.id])).toHaveLength(1);
+    });
+
+    it("refuses another Coordinator the withdrawal of a settled request (PTR-139)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await handleRejectVenueRequest(
+        { id: request.id, reason: "Closed for floor resurfacing" },
+        session(users.venueStaffA),
+        database as never
+      );
+
+      await expect(
+        handleWithdrawVenueRequest(
+          { id: request.id },
+          session(users.otherCoordinator),
+          database as never
+        )
+      ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
+      expect(await readRow(request.id)).toMatchObject({ status: "rejected" });
+    });
+
+    it("lets the event's current Coordinator withdraw a settled request another Coordinator raised (PTR-139)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await handleRejectVenueRequest(
+        { id: request.id, reason: "Closed for floor resurfacing" },
+        session(users.venueStaffA),
+        database as never
+      );
+      // A handover makes the other Coordinator the event's owner, so they must be able to clear the
+      // blocker that the previous Coordinator's refusal left behind.
+      await database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: users.otherCoordinator.id })
+        .where(eq(schema.eventRequests.id, eventId));
+
+      const withdrawn = await handleWithdrawVenueRequest(
+        { id: request.id },
+        session(users.otherCoordinator),
+        database as never
+      );
+
+      expect(withdrawn.status).toBe("withdrawn");
     });
 
     it("refuses a Coordinator the request's event is not assigned to", async () => {
@@ -2374,7 +2511,7 @@ describe("venue request handlers (PTR-31)", () => {
       });
     });
 
-    it("keeps a released booking terminal and the venue period free", async () => {
+    it("keeps a released booking terminal for Venue Staff and the venue period free", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       await approve(request.id, users.venueStaffA);
       await handleReleaseVenueBooking(
@@ -2399,13 +2536,6 @@ describe("venue request handlers (PTR-31)", () => {
         status: 409,
         message: VENUE_REQUEST_DECIDED_MESSAGE,
       });
-      await expect(
-        handleWithdrawVenueRequest(
-          { id: request.id },
-          session(users.coordinator),
-          database as never
-        )
-      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_SETTLED_MESSAGE });
       await expect(
         handleReleaseVenueBooking(
           { id: request.id, reason: "Still broken" },
@@ -2442,6 +2572,14 @@ describe("venue request handlers (PTR-31)", () => {
         database as never
       );
       expect(availability?.occupied ?? []).toEqual([]);
+
+      // PTR-139: the raiser withdraws the released row, so it stops blocking confirmation.
+      const withdrawn = await handleWithdrawVenueRequest(
+        { id: request.id },
+        session(users.coordinator),
+        database as never
+      );
+      expect(withdrawn.status).toBe("withdrawn");
     });
   });
 
@@ -2723,17 +2861,10 @@ describe("venue request handlers (PTR-31)", () => {
       });
     });
 
-    it("refuses to withdraw or reject a rejected request again (AC5)", async () => {
+    it("refuses to reject or approve a rejected request again, and lets its raiser withdraw it (AC5, PTR-139)", async () => {
       const request = await raiseRequest(eventId, "09:00", "12:30");
       await reject(request.id, users.venueStaffA);
 
-      await expect(
-        handleWithdrawVenueRequest(
-          { id: request.id },
-          session(users.coordinator),
-          database as never
-        )
-      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
       await expect(
         reject(request.id, users.venueStaffA, { reason: "Changed my mind" })
       ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
@@ -2741,9 +2872,19 @@ describe("venue request handlers (PTR-31)", () => {
       await expect(
         reject(request.id, users.venueStaffB, { reason: "Changed my mind" })
       ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
+      await expect(
+        handleApproveVenueRequest({ id: request.id }, session(users.venueStaffA), database as never)
+      ).rejects.toMatchObject({ status: 409, message: VENUE_REQUEST_REJECTED_MESSAGE });
 
+      // PTR-139: the raiser may still withdraw the settled row, and its reason stays on record.
+      const withdrawn = await handleWithdrawVenueRequest(
+        { id: request.id },
+        session(users.coordinator),
+        database as never
+      );
+      expect(withdrawn.status).toBe("withdrawn");
       expect(await readRow(request.id)).toMatchObject({
-        status: "rejected",
+        status: "withdrawn",
         rejectionReason: REASON,
       });
     });

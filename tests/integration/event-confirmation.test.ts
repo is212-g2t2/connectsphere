@@ -14,7 +14,6 @@ import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   CONFIRMATION_REFUSAL_HEADING,
-  MULTIPLE_VENUE_BOOKINGS_MESSAGE,
   confirmationRefusalMessage,
   pendingVenueRequestMessage,
 } from "#/features/events/confirmation";
@@ -22,6 +21,7 @@ import { handleConfirmEvent } from "#/features/events/confirm.server";
 import { handleListEvents } from "#/features/events/records.server";
 import { notificationSummary } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
+import { handleWithdrawVenueRequest } from "#/features/venue-requests/requests.server";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -225,6 +225,15 @@ describe("confirming an event (PTR-24)", () => {
     test("confirms an approved event whose arrangements are in place", async () => {
       const eventId = await createEvent();
       await createBooking(eventId);
+      await database.insert(schema.venueRequests).values({
+        id: crypto.randomUUID(),
+        eventId,
+        venueId: otherVenueId,
+        requestedById: coordinator.id,
+        startsAt: "2042-06-10 09:00:00",
+        endsAt: "2042-06-10 12:30:00",
+        status: "approved",
+      });
       await createLine(eventId, "Projector", "reserved", 2);
       await createLine(eventId, "Microphone", "not_required");
 
@@ -278,23 +287,162 @@ describe("confirming an event (PTR-24)", () => {
       }
     );
 
-    test("refuses more than one approved booking and leaves the event untouched", async () => {
+    test("confirms several approved bookings", async () => {
       const eventId = await createEvent();
       await createBooking(eventId);
-      // Use a distant second window, so that the two bookings do not overlap.
+      await database
+        .update(schema.venueRequests)
+        .set({ createdAt: new Date("2020-01-01T00:00:00Z") })
+        .where(eq(schema.venueRequests.eventId, eventId));
       await database.insert(schema.venueRequests).values({
         id: crypto.randomUUID(),
         eventId,
-        venueId,
+        venueId: otherVenueId,
         requestedById: coordinator.id,
         startsAt: "2042-06-10 09:00:00",
         endsAt: "2042-06-10 12:30:00",
         status: "approved",
+        createdAt: new Date("2021-01-01T00:00:00Z"),
       });
+
+      expect((await confirm(eventId)).status).toBe("confirmed");
+      const [notification] = await notificationsFor(eventId);
+      expect(notification.payload).toMatchObject({
+        venueName,
+        startsAt: "2041-03-10 09:00:00",
+        endsAt: "2041-03-10 12:30:00",
+      });
+    });
+
+    test("confirms after later bookings answer rejected and released history", async () => {
+      const eventId = await createEvent();
+      const earlier = new Date("2020-01-01T00:00:00Z");
+      await database.insert(schema.venueRequests).values([
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId,
+          requestedById: coordinator.id,
+          startsAt: "2041-06-10 09:00:00",
+          endsAt: "2041-06-10 12:30:00",
+          status: "released",
+          releaseReason: "No longer needed",
+          createdAt: earlier,
+          updatedAt: earlier,
+        },
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId,
+          suggestedVenueId: otherVenueId,
+          requestedById: coordinator.id,
+          startsAt: "2042-06-10 09:00:00",
+          endsAt: "2042-06-10 12:30:00",
+          status: "rejected",
+          rejectionReason: "Fully booked",
+          createdAt: earlier,
+          updatedAt: earlier,
+        },
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId,
+          requestedById: coordinator.id,
+          startsAt: "2043-06-10 09:00:00",
+          endsAt: "2043-06-10 12:30:00",
+          status: "approved",
+        },
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId: otherVenueId,
+          requestedById: coordinator.id,
+          startsAt: "2044-06-10 09:00:00",
+          endsAt: "2044-06-10 12:30:00",
+          status: "approved",
+        },
+      ] satisfies (typeof schema.venueRequests.$inferInsert)[]);
+
+      expect((await confirm(eventId)).status).toBe("confirmed");
+    });
+
+    // PTR-139: the Coordinator abandons a refused or released venue, so no later request for it
+    // exists and the supersede rule cannot answer the row. Withdrawing it clears the gate.
+    test.each(["rejected", "released"] as const)(
+      "confirms after the Coordinator withdraws a %s request it no longer needs",
+      async status => {
+        const eventId = await createEvent();
+        await createBooking(eventId);
+        const settledAt = new Date("2041-04-01T00:00:00Z");
+        const [settled] = await database
+          .insert(schema.venueRequests)
+          .values({
+            id: crypto.randomUUID(),
+            eventId,
+            venueId: otherVenueId,
+            requestedById: coordinator.id,
+            startsAt: "2041-07-10 09:00:00",
+            endsAt: "2041-07-10 12:30:00",
+            status,
+            ...(status === "rejected"
+              ? { rejectionReason: "Fully booked" }
+              : { releaseReason: "No longer needed" }),
+            createdAt: settledAt,
+            updatedAt: settledAt,
+          })
+          .returning({ id: schema.venueRequests.id });
+
+        expect(await refusal(eventId)).toContain(
+          status === "rejected" ? "was rejected" : "was released"
+        );
+
+        await handleWithdrawVenueRequest({ id: settled.id }, coordinator, database as never);
+
+        expect((await confirm(eventId)).status).toBe("confirmed");
+        expect((await readEvent(eventId)).status).toBe("confirmed");
+      }
+    );
+
+    test("refuses all outstanding bookings and names each one", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      // One INSERT gives both rows the same `createdAt`, so stamp them, and the gate lists the
+      // refusals in creation order, oldest first.
+      await database.insert(schema.venueRequests).values([
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId: otherVenueId,
+          requestedById: coordinator.id,
+          startsAt: "2043-06-10 09:00:00",
+          endsAt: "2043-06-10 12:30:00",
+          status: "rejected",
+          rejectionReason: "Fully booked",
+          createdAt: new Date("2043-01-01T00:00:00Z"),
+          updatedAt: new Date("2043-01-01T00:00:00Z"),
+        },
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId,
+          requestedById: coordinator.id,
+          startsAt: "2044-06-10 09:00:00",
+          endsAt: "2044-06-10 12:30:00",
+          status: "released",
+          releaseReason: "No longer needed",
+          createdAt: new Date("2044-01-01T00:00:00Z"),
+          updatedAt: new Date("2044-01-01T00:00:00Z"),
+        },
+      ] satisfies (typeof schema.venueRequests.$inferInsert)[]);
 
       const message = await refusal(eventId);
 
-      expect(message).toContain(MULTIPLE_VENUE_BOOKINGS_MESSAGE);
+      expect(message).toBe(
+        confirmationRefusalMessage([
+          `The booking request for ${otherVenueName} (10 Jun 2043, 09:00 – 12:30) was rejected.`,
+          `The booking for ${venueName} (10 Jun 2044, 09:00 – 12:30) was released.`,
+        ])
+      );
       expect((await readEvent(eventId)).status).toBe("approved");
     });
 

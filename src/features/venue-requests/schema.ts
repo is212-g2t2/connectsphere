@@ -435,6 +435,41 @@ export const VENUE_REQUEST_STATUS_LABELS: Record<VenueRequestStatus, string> = {
   released: "Released",
 };
 
+/** The fields of one row that decide whether a later request answers it. */
+export interface VenueRequestAnswerRow {
+  id: string;
+  status: VenueRequestStatus;
+  venueId: number;
+  suggestedVenueId: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * PTR-35, PTR-139: Decide whether the Coordinator answered this row with a later request. A
+ * rejected row is answered at the venue Venue Staff suggested, else at its own venue; a released
+ * row at its own venue. Another non-withdrawn row at that venue, created after this row's
+ * `updatedAt`, answers it. On a rejected or released row `updatedAt` is the rejection or release
+ * time. The venue-request card and the confirmation gate both read this rule, so they cannot drift.
+ */
+export function answeredByLaterRequest(
+  row: VenueRequestAnswerRow,
+  rows: readonly VenueRequestAnswerRow[]
+): boolean {
+  // Only a settled row can be answered. A pending or approved row stands on its own.
+  if (row.status !== "rejected" && row.status !== "released") return false;
+  // A rejection is answered at the venue Venue Staff suggested, else at its own venue (PTR-35).
+  const targetVenueId =
+    row.status === "rejected" ? (row.suggestedVenueId ?? row.venueId) : row.venueId;
+  return rows.some(
+    other =>
+      other.id !== row.id &&
+      other.status !== "withdrawn" &&
+      other.venueId === targetVenueId &&
+      other.createdAt.getTime() > row.updatedAt.getTime()
+  );
+}
+
 /**
  * PTR-36, PTR-138 AC1: why approval would refuse a pending request now. It overlaps an approved
  * booking or a held hold once the buffers count, or the venue cannot host its window: the venue is

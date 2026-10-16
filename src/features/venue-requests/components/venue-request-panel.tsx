@@ -40,6 +40,7 @@ import {
 import type {
   SessionRequirementFormValues,
   VenueRequestPrefill,
+  VenueRequestStatus,
 } from "#/features/venue-requests/schema";
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
 import type {
@@ -115,20 +116,51 @@ function toRequestInput(eventId: number, venueId: number, values: RequestFormVal
 }
 
 /**
- * PTR-31 criterion 5: let the Coordinator who raised a pending request withdraw it, after a
- * confirmation that names the window. Each row keeps its own mutation, so an error stays in the
- * dialog of the row that failed.
+ * What the confirmation says the button does, by the row's state. A pending request leaves the
+ * Venue Staff queue. A rejected or released row no longer blocks confirmation (PTR-139); a later
+ * request may already have answered it.
+ */
+function withdrawDescription(
+  status: VenueRequestStatus,
+  venueName: string,
+  period: string,
+  answered: boolean
+) {
+  if (status === "pending") {
+    return `This withdraws the booking request for ${venueName} on ${period}. Venue Staff will no longer see it in their queue.`;
+  }
+  const noun = status === "rejected" ? "request" : "booking";
+  const outcome =
+    status === "rejected"
+      ? "you are no longer asking for that venue"
+      : "you no longer hold that booking";
+  const block = answered
+    ? "It already does not block confirmation, so this only clears the row"
+    : "It removes the block on confirmation";
+  return `This withdraws the ${status} ${noun} for ${venueName} on ${period}, and ${outcome}. ${block}.`;
+}
+
+/**
+ * PTR-31 criterion 5, PTR-139: let the Coordinator withdraw a pending request, or a rejected or
+ * released one, after a confirmation that names the window. A pending withdrawal is destructive; a
+ * rejected or released row is routine cleanup, so its trigger takes the neutral weight. Each row
+ * keeps its own mutation, so an error stays in the dialog of the row that failed.
  */
 function WithdrawRequestButton({
   requestId,
+  status,
+  answered,
   venueName,
   period,
 }: {
   requestId: string;
+  status: VenueRequestStatus;
+  answered: boolean;
   venueName: string;
   period: string;
 }) {
   const router = useRouter();
+  const destructive = status === "pending";
   const [state, withdraw, withdrawing] = useMutation(async () => {
     await withdrawVenueRequest({ data: { id: requestId } });
     toast.success("Venue request withdrawn.");
@@ -140,7 +172,7 @@ function WithdrawRequestButton({
       <AlertDialogTrigger
         render={
           <Button
-            variant="destructive"
+            variant={destructive ? "destructive" : "outline"}
             size="sm"
             className="w-fit"
             aria-label={`Withdraw request for ${period}`}
@@ -153,8 +185,7 @@ function WithdrawRequestButton({
         <AlertDialogHeader>
           <AlertDialogTitle>Withdraw request</AlertDialogTitle>
           <AlertDialogDescription>
-            This withdraws the booking request for {venueName} on {period}. Venue Staff will no
-            longer see it in their queue.
+            {withdrawDescription(status, venueName, period, answered)}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -162,12 +193,12 @@ function WithdrawRequestButton({
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
-            variant="destructive"
+            variant={destructive ? "destructive" : "default"}
             size="sm"
             disabled={withdrawing}
             onClick={() => void withdraw()}
           >
-            {withdrawing ? "Withdrawing…" : "Confirm"}
+            {withdrawing ? "Withdrawing…" : "Withdraw request"}
           </AlertDialogAction>
         </AlertDialogFooter>
         {state.status === "error" && (
@@ -181,8 +212,9 @@ function WithdrawRequestButton({
 }
 
 /**
- * What the caller can do with one row. Only the raiser can withdraw a pending request. Venue Staff
- * release or amend an approved booking.
+ * What the caller can do with one row. Only the raiser can withdraw their own request: a pending
+ * one, or a rejected or released one, which the event's current Coordinator can also withdraw
+ * (PTR-139). Venue Staff release or amend an approved booking.
  */
 function VenueRequestRowAction({
   row,
@@ -199,7 +231,28 @@ function VenueRequestRowAction({
     );
   }
   if (row.canWithdraw) {
-    return <WithdrawRequestButton requestId={row.id} venueName={venueName} period={period} />;
+    return (
+      <div className="flex flex-col items-start gap-1 sm:items-end">
+        <WithdrawRequestButton
+          requestId={row.id}
+          status={row.status}
+          answered={row.answered}
+          venueName={venueName}
+          period={period}
+        />
+        {row.status === "pending" ? (
+          <p className="body-sm text-amber">
+            Blocks confirmation until it is decided or withdrawn.
+          </p>
+        ) : (
+          <p className={row.answered ? "body-sm text-muted-foreground" : "body-sm text-amber"}>
+            {row.answered
+              ? "Answered by a later request, so it does not block confirmation."
+              : "Blocks confirmation until withdrawn or answered by a new request."}
+          </p>
+        )}
+      </div>
+    );
   }
   return (
     <p className="body-sm text-muted-foreground">
@@ -208,21 +261,36 @@ function VenueRequestRowAction({
   );
 }
 
+/** PTR-139: the reason a rejected or released row ended, as the row shows it, else null. */
+function rowOutcomeReason(row: VenueRequestContextRow): string | null {
+  if (row.status === "rejected") {
+    return row.rejectionReason ? `Rejection reason: ${row.rejectionReason}` : null;
+  }
+  if (row.status === "released") {
+    return row.releaseReason ? `Release reason: ${row.releaseReason}` : null;
+  }
+  return null;
+}
+
 /**
  * One request of the event at this venue: its window, its state, and its action. The attendance
  * and layout tell two sessions at this venue apart (PTR-138 AC1). A pending row shows its conflict
- * flag, as the event card does.
+ * flag, as the event card does. A rejected or released row shows why it ended (PTR-139).
  */
 function VenueRequestRow({ row, venueName }: { row: VenueRequestContextRow; venueName: string }) {
   const period = formatProposedWindow({ start: row.startsAt, end: row.endsAt });
   const session = formatSessionSummary(row.requirements);
+  const outcome = rowOutcomeReason(row);
   return (
     <li className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="body-sm font-medium text-foreground">{period}</span>
-        <VenueRequestStatusBadge status={row.status} />
-        {row.conflict && <ConflictBadge conflict={row.conflict} />}
-        {session && <span className="body-sm text-muted-foreground">{session}</span>}
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="body-sm font-medium text-foreground">{period}</span>
+          <VenueRequestStatusBadge status={row.status} />
+          {row.conflict && <ConflictBadge conflict={row.conflict} />}
+          {session && <span className="body-sm text-muted-foreground">{session}</span>}
+        </div>
+        {outcome && <p className="body-sm text-muted-foreground">{outcome}</p>}
       </div>
       <VenueRequestRowAction row={row} venueName={venueName} period={period} />
     </li>
