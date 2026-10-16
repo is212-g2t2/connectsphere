@@ -6,14 +6,14 @@ status: accepted
 
 # ADR-7: One venue occupancy ledger, guarded by a buffered exclusion constraint
 
-> **Amended 2026-10-15:** venue blocks now suspend and restore ledger rows (PTR-136). The Suspension and Refusal order sections, the block-writer lock order and the related alternatives and consequences record that change. The ledger and its constraint stand.
+> **Amended 2026-10-15:** venue blocks now suspend and restore ledger rows (PTR-136). The Suspension and Refusal order sections record this change. The block alternatives and the block consequences also record it. The ledger and its constraint do not change.
 
 ## Context
 
 [ADR-5](./ADR-5-venue-booking-overlap.md) kept venue time free of overlaps with two exclusion constraints on the requested times: `venue_requests_no_overlap` for approved bookings and `venue_holds_no_overlap` for held holds. Three rules break that shape:
 
 - A venue's setup and turnaround time must count in every conflict, for bookings and for holds.
-- A venue block must refuse bookings and holds, also when the block comes after the booking. The block must keep the bookings and holds that it covers, and Venue Staff must be able to lift it.
+- A venue block must refuse bookings and holds, also when the block comes after the booking. The block must keep the bookings and holds that it covers. Venue Staff must be able to lift the block.
 - A booking and a hold must exclude each other. An exclusion constraint cannot span two tables, so only the advisory lock kept them apart.
 
 An index expression cannot read `venues`, so each row must store the buffers that it uses.
@@ -40,19 +40,22 @@ A venue buffer change does not rewrite stored rows, so the constraint does not g
 
 ### Suspension
 
-A block is one `venue_unavailability` row and one ledger row with no event and buffers of 0. The block suspends the ledger rows that it covers, and a lift restores them.
+A block is one `venue_unavailability` row and one ledger row. The ledger row has no event and has buffers of 0. The block suspends the ledger rows that it covers. A lift restores these rows.
 
-- **Period.** A null end means "until lifted". `tsrange(start, null, '[)')` has no upper bound, so the constraint needs no change. A block cannot start on a day before today in venue local time.
-- **Record.** The writer refuses a live block that overlaps the new period, because a block never suspends another block. A fully covered row becomes inactive and keeps its buffers. A partly covered row splits into an inactive covered piece and active remainders, each with absolute times and buffers of 0.
-- **Lift.** The writer deletes the block's ledger row. It restores each suspended row whose booking is still approved or whose hold is still held, and deletes the other suspended rows. When all pieces of a split source are active again, one row with the source's own times replaces them, with buffers that reach to the first and the last piece.
-- **Audit.** Record stamps `created_by_id` and `created_at`. Lift stamps `lifted_at` and `lifted_by_id` and keeps the row. To change a period, Venue Staff lift the block and record a new one, so the unique period index covers only rows that are not lifted.
+- **Period.** A null end means "until lifted". The constraint needs no change, because `tsrange(start, null, '[)')` has no upper bound. A block must start today or later, in venue local time.
+- **Record.** The writer refuses a live block that overlaps the new period, because a block never suspends a block. A fully covered row becomes inactive and keeps its buffers. A partly covered row splits into pieces with absolute times and buffers of 0.
+- **Pieces.** The covered piece is inactive. The pieces before and after the block stay active.
+- **Lift.** The writer deletes the ledger row of the block. It restores each suspended row whose booking is approved or whose hold is held. It deletes the other suspended rows.
+- **Rebuild.** When all the pieces of a source are active again, the writer replaces them with one row. This row has the start and end of the source. Its buffers reach to the start of the first piece and to the end of the last piece.
+- **Audit.** Record writes `created_by_id` and `created_at`. Lift writes `lifted_at` and `lifted_by_id` and keeps the row.
+- **Change.** To change a period, Venue Staff lift the block and record a new block. The unique period index applies only to the rows that are not lifted.
 
 ### Refusal order
 
-Approval, amendment and the conflict flag name one reason, in this order: an unavailable venue (closed hours or a block), then a booking, then a hold.
+Approval, amendment and the conflict flag give one reason for a refusal. The order is: an unavailable venue (closed hours or a block), a booking, a hold.
 
-- Approval and amendment check availability first. Then they check the ledger (`checkVenueFree`), which names a block, then a booking, then a hold.
-- Hold creation checks the ledger only.
+- Approval and amendment check availability first. Then they check the ledger with `checkVenueFree`, which names a block, a booking and a hold in that order.
+- Hold creation checks only the ledger.
 
 ### Migration exemption
 
@@ -84,25 +87,26 @@ The custom files `0019` and `0024` stay in the journal as history. The 0047 pred
 
 ### A provenance column or a suspension join table for blocks
 
-- Rejected: live blocks at a venue never overlap, so containment in the block's period identifies the rows that one block suspended.
+- Rejected: the rows in the period of a block are the rows that this block suspended, because live blocks at a venue never overlap.
 
 ### Store `'infinity'` as the open end of a block
 
-- Rejected: the application reads timestamps as strings, and `'infinity'` breaks those reads.
+- Rejected: the application reads timestamps as strings. The value `'infinity'` breaks these reads.
 
 ### Rebuild a restored row from the venue's current buffers
 
-- Rejected: a venue buffer edit during the block would make the lift fail. The lift uses the buffers that the pieces stored.
+- Rejected: a venue buffer change during the block can make the lift fail. The lift uses the buffers that the pieces stored.
 
 ## Consequences
 
 - As in ADR-5, the Drizzle snapshot, `db:push` and `db:pull` do not know the constraint. Never run `db:push` against a database that has 0048. `btree_gist` from 0019 stays required.
 - The lock order of ADR-5 stays: the event key-share lock, then the venue advisory locks in ascending venue order, then the row locks. `handleConfirmEvent` writes no venue or occupancy row, so it takes no venue lock.
-- The block writers start from a venue, so they reverse that order: they take the venue lock, then key-share the affected events in ascending id order. The seed holds event rows `FOR UPDATE` and then takes a venue lock, so a concurrent seed and block write can deadlock.
-- In that deadlock, PostgreSQL aborts one transaction (40P01). A block handler that PostgreSQL aborts refuses and tells Venue Staff to try again. The seed is a development tool, so the project accepts this risk.
-- A lift fails when a new active row overlaps a restored row. The transaction rolls back, and the block stays live.
-- While a block covers part of a source, the source has more than one ledger row. Until a lift makes all the pieces active again, a `checkVenueFree` refusal names the period of one piece, not the period of the source.
-- A block suspends an approved booking but does not decide it. Venue Staff release or amend the booking. An event cancellation keeps it approved, so a lift restores it.
+- The block writers reverse that order, because they start from a venue. They take the venue lock first. Then they key-share the affected events in ascending id order.
+- The seed holds event rows `FOR UPDATE` and then takes a venue lock. If a seed and a block write run at the same time, they can deadlock.
+- In that deadlock, PostgreSQL stops one transaction (40P01). When PostgreSQL stops a block handler, the handler refuses the change and tells Venue Staff to try again. The project accepts this risk, because the seed is a development tool.
+- A lift fails when a new active row overlaps a restored row. Then the transaction rolls back, and the block stays live.
+- While a block covers part of a source, the source has more than one ledger row. Until all the pieces are active again, a `checkVenueFree` refusal names the period of one piece.
+- A block suspends an approved booking but does not release it. Venue Staff release or amend the booking. A lift restores the booking after an event cancellation, because the cancellation keeps the booking approved.
 - 0048 copies no existing booking or hold into the ledger, because no deployed database held live data when it shipped. A booking or hold from before 0048 blocks no other write until an amendment, or a release and a new hold, writes its row.
 - Only the server functions and the seed write ledger rows. A hand-written change to a booking or a hold must change its `venue_occupancy` row in the same transaction.
 - The seed takes the venue lock before it writes a block row or a booking row. The constraint is the authority for both.
