@@ -193,7 +193,8 @@ export interface BlockedArrangement {
   venueName: string;
   startsAt: string;
   endsAt: string;
-  block: { reason: string; startsAt: string; endsAt: string | null };
+  /** Every live block that suspends a piece of this arrangement, in piece order. */
+  blocks: { reason: string; startsAt: string; endsAt: string | null }[];
 }
 
 /**

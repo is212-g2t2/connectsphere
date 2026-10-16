@@ -51,10 +51,11 @@ export function hasBlockedArrangementSql(
 }
 
 /**
- * PTR-137 AC1, AC4: list each event's bookings and holds that a live block suspends, with the
+ * PTR-137 AC1, AC4: list each event's bookings and holds that a live block suspends, with each
  * block's reason and period. Read the ledger: the live block that contains a suspended piece is
- * the one that suspended it (ADR-7). List a booking that a block split once. A lift restores or
- * deletes the pieces, so the flag clears with it and nothing is stored here.
+ * the one that suspended it (ADR-7). List a booking that a block split once, with every block that
+ * suspends one of its pieces. A lift restores or deletes the pieces, so the flag clears with it and
+ * nothing is stored here.
  *
  * Skip cancelled and completed events: their state no longer concerns a block.
  */
@@ -103,7 +104,7 @@ export async function loadBlockedArrangements(
     .where(and(inArray(venueOccupancy.eventId, [...eventIds]), suspendedPieceWhere()))
     .orderBy(venueOccupancy.eventId, venueOccupancy.startsAt, venueOccupancy.id);
 
-  const seen = new Set<string>();
+  const seen = new Map<string, BlockedArrangement>();
   for (const row of rows) {
     if (row.eventId === null) continue;
     const block = { reason: row.blockReason, startsAt: row.blockStartsAt, endsAt: row.blockEndsAt };
@@ -120,7 +121,7 @@ export async function loadBlockedArrangements(
         venueName: row.venueName,
         startsAt: row.bookingStartsAt,
         endsAt: row.bookingEndsAt,
-        block,
+        blocks: [block],
       };
     } else if (
       row.venueHoldId !== null &&
@@ -134,13 +135,19 @@ export async function loadBlockedArrangements(
         venueName: row.venueName,
         startsAt: row.holdStartsAt,
         endsAt: row.holdEndsAt,
-        block,
+        blocks: [block],
       };
     }
     if (!arrangement) continue;
     const key = `${arrangement.kind}:${arrangement.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const listed = seen.get(key);
+    if (listed) {
+      // Two live blocks can suspend different pieces of one arrangement: list each of them, so the
+      // panel and the release reason name every block.
+      listed.blocks.push(block);
+      continue;
+    }
+    seen.set(key, arrangement);
     const list = blocked.get(row.eventId) ?? [];
     list.push(arrangement);
     blocked.set(row.eventId, list);

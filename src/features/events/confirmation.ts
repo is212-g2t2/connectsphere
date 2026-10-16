@@ -88,11 +88,11 @@ interface ConfirmationInput {
  * unconfirmable status is the only reason given: cancelled or completed events have no
  * outstanding arrangements.
  *
- * Otherwise each request that was not withdrawn must be approved or answered. A `rejected` or
- * `released` row is answered when a later non-withdrawn request for its target venue was created
- * after the terminal state was written; the Coordinator acted on it. Name each unanswered pending,
- * rejected, or released booking, and each missing equipment arrangement. An event with no
- * equipment lines has nothing to settle, so the venue bookings alone govern (AC5).
+ * Otherwise each request that was not withdrawn must be approved or answered. A `rejected` row is
+ * answered by a later non-withdrawn request at its target venue after the rejection; a `released`
+ * row by a later non-withdrawn request at any venue after the booking was raised. Name each
+ * unanswered pending, rejected, or released booking, and each missing equipment arrangement. An
+ * event with no equipment lines has nothing to settle, so the venue bookings alone govern (AC5).
  */
 export function confirmationBlockers(input: ConfirmationInput): string[] {
   if (!isConfirmableStatus(input.status)) {

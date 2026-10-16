@@ -40,7 +40,7 @@ const booking: BlockedArrangement = {
   venueName: "Harbour Hall",
   startsAt: "2030-12-01 18:00:00",
   endsAt: "2030-12-01 22:00:00",
-  block: { reason: "Floor resurfacing", startsAt: "2030-12-01 00:00:00", endsAt: null },
+  blocks: [{ reason: "Floor resurfacing", startsAt: "2030-12-01 00:00:00", endsAt: null }],
 };
 const hold: BlockedArrangement = {
   kind: "hold",
@@ -48,11 +48,13 @@ const hold: BlockedArrangement = {
   venueName: "Seminar Room 2A",
   startsAt: "2030-12-02 09:00:00",
   endsAt: "2030-12-02 12:00:00",
-  block: {
-    reason: "Rewiring",
-    startsAt: "2030-12-02 08:00:00",
-    endsAt: "2030-12-03 18:00:00",
-  },
+  blocks: [
+    {
+      reason: "Rewiring",
+      startsAt: "2030-12-02 08:00:00",
+      endsAt: "2030-12-03 18:00:00",
+    },
+  ],
 };
 
 function pageData(
@@ -129,6 +131,26 @@ describe("the venue block flag on the Coordinator's event page (PTR-137 AC1, AC3
     expect(region.textContent).not.toContain("release the suspended booking");
     expect(within(region).getByText(/Wait for Venue Staff to lift the block/)).toBeTruthy();
     expect(within(region).getByText("Block period")).toBeTruthy();
+  });
+
+  it("names every block that suspends one booking, each with its own reason and period", () => {
+    const twice: BlockedArrangement = {
+      ...booking,
+      blocks: [
+        ...booking.blocks,
+        { reason: "Stage inspection", startsAt: "2030-12-02 04:00:00", endsAt: null },
+      ],
+    };
+    render(<BlockedArrangements eventId={1042} arrangements={[twice]} />);
+
+    const items = within(screen.getByRole("region", { name: "Venue blocked" }))
+      .getAllByRole("listitem")
+      .filter(entry => entry.closest("ul"));
+    expect(items).toHaveLength(1);
+    expect(within(items[0]).getByText("Floor resurfacing")).toBeTruthy();
+    expect(within(items[0]).getByText("Stage inspection")).toBeTruthy();
+    expect(within(items[0]).getAllByText("Block period")).toHaveLength(2);
+    expect(within(items[0]).getByText("2 Dec 2030, 04:00 – until lifted")).toBeTruthy();
   });
 
   it("hides the replacement search when the event's status cannot take a request", () => {

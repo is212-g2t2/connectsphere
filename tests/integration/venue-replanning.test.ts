@@ -202,11 +202,16 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
     return { eventId: event.id, bookingId };
   }
 
-  async function recordBlock(startTime: string, endTime?: string, venueId = hallId) {
+  async function recordBlock(
+    startTime: string,
+    endTime?: string,
+    venueId = hallId,
+    reason = "PTR-137 flooding"
+  ) {
     return handleRecordVenueBlock(
       endTime === undefined
-        ? { venueId, date: DATE, startTime, reason: "PTR-137 flooding" }
-        : { venueId, date: DATE, startTime, endDate: DATE, endTime, reason: "PTR-137 flooding" },
+        ? { venueId, date: DATE, startTime, reason }
+        : { venueId, date: DATE, startTime, endDate: DATE, endTime, reason },
       staff,
       database as never
     );
@@ -366,11 +371,13 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
         venueName: HALL,
         startsAt: `${DATE} 10:00:00`,
         endsAt: `${DATE} 12:00:00`,
-        block: {
-          reason: "PTR-137 flooding",
-          startsAt: `${DATE} 09:00:00`,
-          endsAt: `${DATE} 13:00:00`,
-        },
+        blocks: [
+          {
+            reason: "PTR-137 flooding",
+            startsAt: `${DATE} 09:00:00`,
+            endsAt: `${DATE} 13:00:00`,
+          },
+        ],
       },
     ]);
 
@@ -417,6 +424,27 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
     expect((await bookingRow(bookingId)).status).toBe("approved");
     expect(await ledgerForRequest(bookingId)).toEqual([expect.objectContaining({ active: true })]);
     expect((await eventRow(eventId)).status).toBe("planning");
+  });
+
+  it("names every block that suspends one booking, on the panel and in the release reason (AC1, AC4)", async () => {
+    const { eventId, bookingId } = await confirmedEventWithBooking();
+    // Two adjacent live blocks, each suspending a different piece of the 10:00–12:00 booking.
+    await recordBlock("09:00", "11:00", hallId, "PTR-137 morning works");
+    await recordBlock("11:00", "13:00", hallId, "PTR-137 afternoon works");
+    expect((await eventRow(eventId)).status).toBe("planning");
+
+    const blocked = (await loadBlockedArrangements(database, [eventId])).get(eventId) ?? [];
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0].blocks.map(block => block.reason)).toEqual([
+      "PTR-137 morning works",
+      "PTR-137 afternoon works",
+    ]);
+
+    const released = await release(bookingId);
+    expect(released).toMatchObject({
+      status: "released",
+      releaseReason: `Released by the Coordinator while ${HALL} was blocked: PTR-137 morning works; PTR-137 afternoon works`,
+    });
   });
 
   it("flags a suspended hold too, and a booking a block only partly covers", async () => {

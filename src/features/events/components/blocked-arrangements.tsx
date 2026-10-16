@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
@@ -93,16 +93,21 @@ export function BlockedArrangements({
               className="mt-2 grid gap-3 sm:grid-cols-2"
               aria-label={`${arrangement.venueName}, ${formatVenuePeriod(arrangement.startsAt, arrangement.endsAt)}`}
             >
-              <div className="min-w-0">
-                <dt className="eyebrow text-muted-foreground">Block reason</dt>
-                <dd className="mt-1 break-words whitespace-pre-line">{arrangement.block.reason}</dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="eyebrow text-muted-foreground">Block period</dt>
-                <dd className="mt-1 break-words">
-                  {formatVenueBlockPeriod(arrangement.block.startsAt, arrangement.block.endsAt)}
-                </dd>
-              </div>
+              {/* One pair per block: two live blocks can suspend different pieces of one booking. */}
+              {arrangement.blocks.map(block => (
+                <Fragment key={`${block.startsAt}-${block.reason}`}>
+                  <div className="min-w-0">
+                    <dt className="eyebrow text-muted-foreground">Block reason</dt>
+                    <dd className="mt-1 break-words whitespace-pre-line">{block.reason}</dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="eyebrow text-muted-foreground">Block period</dt>
+                    <dd className="mt-1 break-words">
+                      {formatVenueBlockPeriod(block.startsAt, block.endsAt)}
+                    </dd>
+                  </div>
+                </Fragment>
+              ))}
             </dl>
             {arrangement.kind === "booking" && <ReleaseBlockedBooking arrangement={arrangement} />}
           </li>

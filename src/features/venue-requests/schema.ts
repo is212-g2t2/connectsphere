@@ -451,10 +451,11 @@ export interface VenueRequestAnswerRow {
 /**
  * PTR-35, PTR-139, PTR-137: Decide whether the Coordinator answered this row with a later
  * request. A rejected row is answered at the venue Venue Staff suggested, else at its own venue,
- * by a request raised after the rejection. A released row is answered by any request raised after
- * the released booking, wherever it is: the release abandons its venue, and the replacement is
- * arranged before the release and may land elsewhere (PTR-137). The venue-request card and the
- * confirmation gate both read this rule, so they cannot drift.
+ * by a non-withdrawn request raised after the rejection (`updatedAt`). A released row is answered
+ * by a non-withdrawn request at any venue raised after the booking itself (`createdAt`): the
+ * release abandons its venue, and the replacement is arranged before the release and may land
+ * elsewhere (PTR-137). The venue-request card and the confirmation gate both read this rule, so
+ * they cannot drift.
  */
 export function answeredByLaterRequest(
   row: VenueRequestAnswerRow,
