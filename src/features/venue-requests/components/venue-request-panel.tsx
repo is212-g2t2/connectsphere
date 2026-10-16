@@ -135,9 +135,9 @@ function withdrawDescription(
       ? "you are no longer asking for that venue"
       : "you no longer hold that booking";
   const block = answered
-    ? "It no longer blocks confirmation"
+    ? "It already does not block confirmation, so this only clears the row"
     : "It removes the block on confirmation";
-  return `This withdraws the ${status} ${noun} for ${venueName} on ${period}, so ${outcome}. ${block}.`;
+  return `This withdraws the ${status} ${noun} for ${venueName} on ${period}, and ${outcome}. ${block}.`;
 }
 
 /**
@@ -240,11 +240,15 @@ function VenueRequestRowAction({
           venueName={venueName}
           period={period}
         />
-        {row.status !== "pending" && (
+        {row.status === "pending" ? (
+          <p className="body-sm text-amber">
+            Blocks confirmation until it is decided or withdrawn.
+          </p>
+        ) : (
           <p className={row.answered ? "body-sm text-muted-foreground" : "body-sm text-amber"}>
             {row.answered
               ? "Answered by a later request, so it does not block confirmation."
-              : "Blocks confirmation until withdrawn."}
+              : "Blocks confirmation until withdrawn or answered by a new request."}
           </p>
         )}
       </div>

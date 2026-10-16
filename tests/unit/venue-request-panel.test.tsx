@@ -444,7 +444,11 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         within(rows[1]).getByText("Rejection reason: Closed for floor resurfacing")
       ).toBeTruthy();
       expect(within(rows[1]).getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
-      expect(within(rows[1]).getByText("Blocks confirmation until withdrawn.")).toBeTruthy();
+      expect(
+        within(rows[1]).getByText(
+          "Blocks confirmation until withdrawn or answered by a new request."
+        )
+      ).toBeTruthy();
       expect(within(rows[2]).getByText("Release reason: Air-conditioning failure")).toBeTruthy();
       expect(within(rows[2]).getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
       // An answered row does not block, so it claims no block.
@@ -487,6 +491,10 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(dialog.textContent).toContain("Harbour Hall on 12 Oct 2026, 14:30 – 18:45");
       // A pending request leaves the Venue Staff queue.
       expect(dialog.textContent).toContain("Venue Staff will no longer see it in their queue.");
+      // A pending request blocks confirmation too, so the row says so.
+      expect(
+        screen.getByText("Blocks confirmation until it is decided or withdrawn.")
+      ).toBeTruthy();
 
       await user.click(within(dialog).getByRole("button", { name: "Withdraw request" }));
 
@@ -512,7 +520,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
             ? "you are no longer asking for that venue"
             : "you no longer hold that booking";
         expect(dialog.textContent).toContain(
-          `This withdraws the ${status} ${noun} for Harbour Hall on 12 Oct 2026, 16:00 – 17:00, so ${tail}.`
+          `This withdraws the ${status} ${noun} for Harbour Hall on 12 Oct 2026, 16:00 – 17:00, and ${tail}.`
         );
         expect(dialog.textContent).toContain("It removes the block on confirmation");
         // The queue wording belongs to a pending row only.
