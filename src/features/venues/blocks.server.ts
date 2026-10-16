@@ -61,8 +61,8 @@ export function assertBlockStartNotPast(date: string, now: Date): void {
  * assigned Coordinator read under the event lock. A cancellation or a reassignment that committed
  * before the lock then counts in the notices.
  *
- * The venue lock covers the requester and the hold owner: only the writers that insert a booking
- * or a hold set them, and those writers hold the venue lock.
+ * The requester and the hold owner need no refresh: only the booking and hold writers set them,
+ * under the venue lock. An account deletion can still clear them.
  */
 async function keyShareEvents(
   tx: VenueTx,
