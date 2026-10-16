@@ -1229,7 +1229,8 @@ describe("venue request handlers (PTR-31)", () => {
         expect.objectContaining({ id: morning.id, status: "approved", canWithdraw: false }),
         expect.objectContaining({ id: handedOver.id, status: "pending", canWithdraw: true }),
         expect.objectContaining({ id: afternoon.id, status: "pending", canWithdraw: false }),
-        expect.objectContaining({ id: rejected.id, status: "rejected", canWithdraw: false }),
+        // PTR-139: the assignee can clear the settled row, whoever raised it.
+        expect.objectContaining({ id: rejected.id, status: "rejected", canWithdraw: true }),
       ]);
 
       // The raiser is no longer the assignee. They see only the rows they raised and can withdraw.
@@ -1565,6 +1566,29 @@ describe("venue request handlers (PTR-31)", () => {
         )
       ).rejects.toMatchObject({ name: "AuthorizationError", status: 403, message: "Forbidden" });
       expect(await readRow(request.id)).toMatchObject({ status: "rejected" });
+    });
+
+    it("lets the event's current Coordinator withdraw a settled request another Coordinator raised (PTR-139)", async () => {
+      const request = await raiseRequest(eventId, "09:00", "12:30");
+      await handleRejectVenueRequest(
+        { id: request.id, reason: "Closed for floor resurfacing" },
+        session(users.venueStaffA),
+        database as never
+      );
+      // A handover makes the other Coordinator the event's owner, so they must be able to clear the
+      // blocker that the previous Coordinator's refusal left behind.
+      await database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: users.otherCoordinator.id })
+        .where(eq(schema.eventRequests.id, eventId));
+
+      const dismissed = await handleWithdrawVenueRequest(
+        { id: request.id },
+        session(users.otherCoordinator),
+        database as never
+      );
+
+      expect(dismissed.status).toBe("withdrawn");
     });
 
     it("refuses a Coordinator the request's event is not assigned to", async () => {

@@ -366,36 +366,42 @@ describe("confirming an event (PTR-24)", () => {
       expect((await confirm(eventId)).status).toBe("confirmed");
     });
 
-    // PTR-139: the Coordinator abandons a refused venue, so no later request for it exists and the
-    // supersede rule cannot answer the row. Withdrawing it clears the gate; a release followed by a
-    // replacement at another venue follows the same path.
-    test("confirms after the Coordinator withdraws a refused request it no longer needs", async () => {
-      const eventId = await createEvent();
-      await createBooking(eventId);
-      const refusedAt = new Date("2041-04-01T00:00:00Z");
-      const [refused] = await database
-        .insert(schema.venueRequests)
-        .values({
-          id: crypto.randomUUID(),
-          eventId,
-          venueId: otherVenueId,
-          requestedById: coordinator.id,
-          startsAt: "2041-07-10 09:00:00",
-          endsAt: "2041-07-10 12:30:00",
-          status: "rejected",
-          rejectionReason: "Fully booked",
-          createdAt: refusedAt,
-          updatedAt: refusedAt,
-        })
-        .returning({ id: schema.venueRequests.id });
+    // PTR-139: the Coordinator abandons a refused or released venue, so no later request for it
+    // exists and the supersede rule cannot answer the row. Withdrawing it clears the gate.
+    test.each(["rejected", "released"] as const)(
+      "confirms after the Coordinator withdraws a %s request it no longer needs",
+      async status => {
+        const eventId = await createEvent();
+        await createBooking(eventId);
+        const settledAt = new Date("2041-04-01T00:00:00Z");
+        const [settled] = await database
+          .insert(schema.venueRequests)
+          .values({
+            id: crypto.randomUUID(),
+            eventId,
+            venueId: otherVenueId,
+            requestedById: coordinator.id,
+            startsAt: "2041-07-10 09:00:00",
+            endsAt: "2041-07-10 12:30:00",
+            status,
+            ...(status === "rejected"
+              ? { rejectionReason: "Fully booked" }
+              : { releaseReason: "No longer needed" }),
+            createdAt: settledAt,
+            updatedAt: settledAt,
+          })
+          .returning({ id: schema.venueRequests.id });
 
-      expect(await refusal(eventId)).toContain("was rejected");
+        expect(await refusal(eventId)).toContain(
+          status === "rejected" ? "was rejected" : "was released"
+        );
 
-      await handleWithdrawVenueRequest({ id: refused.id }, coordinator, database as never);
+        await handleWithdrawVenueRequest({ id: settled.id }, coordinator, database as never);
 
-      expect((await confirm(eventId)).status).toBe("confirmed");
-      expect((await readEvent(eventId)).status).toBe("confirmed");
-    });
+        expect((await confirm(eventId)).status).toBe("confirmed");
+        expect((await readEvent(eventId)).status).toBe("confirmed");
+      }
+    );
 
     test("refuses all outstanding bookings and names each one", async () => {
       const eventId = await createEvent();

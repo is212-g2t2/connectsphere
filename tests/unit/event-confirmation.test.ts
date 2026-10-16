@@ -270,6 +270,22 @@ describe("confirmationBlockers (PTR-24)", () => {
     ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) is still pending."]);
   });
 
+  it("answers a released row only at its own venue", () => {
+    const released = { ...request("released", "Old Hall", 1, 2), updatedAt: BASE_TIME };
+    const approvedAtSuggestion = {
+      ...request("approved", "Suggested Hall", 2),
+      createdAt: LATER_TIME,
+    };
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [released, approvedAtSuggestion],
+        equipmentLines: [],
+      })
+    ).toEqual(["The booking for Old Hall (1 Jan 2030, 09:00 – 12:30) was released."]);
+  });
+
   it("names every outstanding equipment line and no settled one", () => {
     const blockers = blockersFor({
       status: "approved",
