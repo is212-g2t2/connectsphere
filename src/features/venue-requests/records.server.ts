@@ -126,7 +126,7 @@ interface VenueRequestEntryRow {
 }
 
 /**
- * The flag names one kind per request, in the refusal order of `checkVenueTakesBooking` (ADR-8):
+ * The flag names one kind per request, in the refusal order of `checkVenueTakesBooking` (ADR-7):
  * an unavailable venue first, then a booking, then a hold.
  */
 const CONFLICT_RANK: Record<VenueRequestConflict, number> = { unavailable: 0, booking: 1, hold: 2 };

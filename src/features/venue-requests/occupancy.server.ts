@@ -143,7 +143,7 @@ export function overlapsLedger(period: BufferedPeriod): SQL {
 /**
  * Refuse a commitment that would overlap an active ledger row at the venue once the buffers count.
  * Name the venue and the other row's occupied period, never the other event. Name a block before
- * a booking before a hold (ADR-8), then the earliest. Return the row to write, with the venue's
+ * a booking before a hold (ADR-7), then the earliest. Return the row to write, with the venue's
  * current buffers.
  *
  * Pass the venue that `loadLockedVenue` read under the venue lock. A venue save and the other

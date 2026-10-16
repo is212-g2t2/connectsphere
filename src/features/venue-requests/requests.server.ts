@@ -245,7 +245,7 @@ export function venueUnavailableMessage(venueName: string, failure: string): str
  * PTR-138 AC1: refuse a booking window that the venue cannot take now. Check availability first
  * (`loadWindowAvailabilityFailures`): refuse a window when the venue is not open then, or a
  * recorded block overlaps it, and name the reason. Then check the ledger (`checkVenueFree`). This
- * gives ADR-8's refusal order, which the conflict flag also uses. Return the ledger row to write.
+ * gives ADR-7's refusal order, which the conflict flag also uses. Return the ledger row to write.
  *
  * Approval and amendment call it under the venue lock, so a venue that changed since the request
  * still gets every check. Creation does not: a block can be lifted and hours can change before

@@ -749,7 +749,7 @@ export const venueHolds = pgTable(
  * `tsrange(starts_at - setup, ends_at + turnaround, '[)')` for active rows. Drizzle cannot
  * express it here and never drops it. The advisory-locked writers maintain these rows; no trigger
  * does. See docs/adrs/ADR-7-venue-occupancy-ledger.md. Only a block row can have a null end,
- * which means unbounded (ADR-8).
+ * which means unbounded (ADR-7).
  */
 export const venueOccupancy = pgTable(
   "venue_occupancy",

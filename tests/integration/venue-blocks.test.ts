@@ -539,7 +539,7 @@ describe("venue blocks (PTR-136)", () => {
     expect(await ledgerForBlock(block.id)).toHaveLength(1);
   });
 
-  // ADR-8: the flag and approval name an unavailable venue before a booking before a hold.
+  // ADR-7: the flag and approval name an unavailable venue before a booking before a hold.
   it.each(["booking", "hold"] as const)(
     "flags and refuses a window that meets a block and a %s as unavailable",
     async other => {

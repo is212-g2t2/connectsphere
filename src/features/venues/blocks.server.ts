@@ -33,7 +33,7 @@ import { logger } from "#/lib/logger";
 
 /**
  * Keep this module server-only. `server-fns.ts` imports it dynamically inside `.handler()`.
- * Record and lift venue blocks with the occupancy ledger (ADR-8). The handlers lock the venue,
+ * Record and lift venue blocks with the occupancy ledger (ADR-7). The handlers lock the venue,
  * call a core (`recordBlockRows`, `liftBlockRows`), and raise the notices. The seed calls the
  * cores and `occupyBlock` without notices.
  */
@@ -57,7 +57,7 @@ export function assertBlockStartNotPast(date: string, now: Date): void {
 
 /**
  * Key-share each event of the rows once, in ascending id order. Record and lift take the venue
- * lock first and then these event locks (ADR-8). Return the rows with the event status, name and
+ * lock first and then these event locks (ADR-7). Return the rows with the event status, name and
  * assigned Coordinator read under the event lock. A cancellation or a reassignment that committed
  * before the lock then counts in the notices.
  *
