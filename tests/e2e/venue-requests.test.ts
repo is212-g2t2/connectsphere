@@ -138,7 +138,11 @@ test("[PTR-31] a Coordinator requests a venue, Venue Staff are notified, and the
     await expect(page.getByRole("alertdialog")).toContainText(
       `${fixture.venueName} on 10 May 2027, 09:00 – 15:30`
     );
-    await page.getByRole("button", { name: "Confirm" }).click();
+    // The dialog's own action, not the row's trigger.
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Withdraw request", exact: true })
+      .click();
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
     await expect(listHeading).toBeFocused();
     await expect(list).toHaveCount(0);
