@@ -289,6 +289,10 @@ describe("confirming an event (PTR-24)", () => {
     test("confirms several approved bookings", async () => {
       const eventId = await createEvent();
       await createBooking(eventId);
+      await database
+        .update(schema.venueRequests)
+        .set({ createdAt: new Date("2020-01-01T00:00:00Z") })
+        .where(eq(schema.venueRequests.eventId, eventId));
       await database.insert(schema.venueRequests).values({
         id: crypto.randomUUID(),
         eventId,
@@ -297,7 +301,66 @@ describe("confirming an event (PTR-24)", () => {
         startsAt: "2042-06-10 09:00:00",
         endsAt: "2042-06-10 12:30:00",
         status: "approved",
+        createdAt: new Date("2021-01-01T00:00:00Z"),
       });
+
+      expect((await confirm(eventId)).status).toBe("confirmed");
+      const [notification] = await notificationsFor(eventId);
+      expect(notification.payload).toMatchObject({
+        venueName,
+        startsAt: "2041-03-10 09:00:00",
+        endsAt: "2041-03-10 12:30:00",
+      });
+    });
+
+    test("confirms after later bookings answer rejected and released history", async () => {
+      const eventId = await createEvent();
+      const earlier = new Date("2020-01-01T00:00:00Z");
+      await database.insert(schema.venueRequests).values([
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId,
+          requestedById: coordinator.id,
+          startsAt: "2041-06-10 09:00:00",
+          endsAt: "2041-06-10 12:30:00",
+          status: "released",
+          releaseReason: "No longer needed",
+          createdAt: earlier,
+          updatedAt: earlier,
+        },
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId,
+          suggestedVenueId: otherVenueId,
+          requestedById: coordinator.id,
+          startsAt: "2042-06-10 09:00:00",
+          endsAt: "2042-06-10 12:30:00",
+          status: "rejected",
+          rejectionReason: "Fully booked",
+          createdAt: earlier,
+          updatedAt: earlier,
+        },
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId,
+          requestedById: coordinator.id,
+          startsAt: "2043-06-10 09:00:00",
+          endsAt: "2043-06-10 12:30:00",
+          status: "approved",
+        },
+        {
+          id: crypto.randomUUID(),
+          eventId,
+          venueId: otherVenueId,
+          requestedById: coordinator.id,
+          startsAt: "2044-06-10 09:00:00",
+          endsAt: "2044-06-10 12:30:00",
+          status: "approved",
+        },
+      ] satisfies (typeof schema.venueRequests.$inferInsert)[]);
 
       expect((await confirm(eventId)).status).toBe("confirmed");
     });
@@ -330,10 +393,12 @@ describe("confirming an event (PTR-24)", () => {
 
       const message = await refusal(eventId);
 
-      expect(message).toContain(otherVenueName);
-      expect(message).toContain("was rejected.");
-      expect(message).toContain(venueName);
-      expect(message).toContain("was released.");
+      expect(message).toBe(
+        confirmationRefusalMessage([
+          `The booking request for ${otherVenueName} (10 Jun 2043, 09:00 – 12:30) was rejected.`,
+          `The booking for ${venueName} (10 Jun 2044, 09:00 – 12:30) was released.`,
+        ])
+      );
       expect((await readEvent(eventId)).status).toBe("approved");
     });
 

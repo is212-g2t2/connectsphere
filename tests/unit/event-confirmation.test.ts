@@ -12,9 +12,28 @@ import {
 } from "#/features/events/confirmation";
 
 /** One venue request row with the given status, at a fixed venue and window. */
-function request(status: VenueRequestStatus, venueName = "Great Hall") {
-  return { status, venueName, startsAt: "2030-01-01 09:00:00", endsAt: "2030-01-01 12:30:00" };
+function request(
+  status: VenueRequestStatus,
+  venueName = "Great Hall",
+  venueId = 1,
+  suggestedVenueId: number | null = null
+) {
+  return {
+    status,
+    venueName,
+    venueId,
+    suggestedVenueId,
+    startsAt: "2030-01-01 09:00:00",
+    endsAt: "2030-01-01 12:30:00",
+    createdAt: BASE_TIME,
+    updatedAt: BASE_TIME,
+  };
 }
+
+/** Fixed timestamp used as the default createdAt / updatedAt for test rows. */
+const BASE_TIME = new Date("2029-01-01T00:00:00Z");
+/** A timestamp strictly after BASE_TIME, used to simulate a later re-request. */
+const LATER_TIME = new Date("2029-06-01T00:00:00Z");
 
 const approvedBooking = [request("approved")];
 const settled = [
@@ -153,6 +172,52 @@ describe("confirmationBlockers (PTR-24)", () => {
       "The booking request for Seminar Room (1 Jan 2030, 09:00 – 12:30) was rejected.",
       "The booking for Auditorium (1 Jan 2030, 09:00 – 12:30) was released.",
     ]);
+  });
+
+  it("allows terminal requests answered by a later request at their target venue", () => {
+    const oldRejection = {
+      ...request("rejected", "Old Hall", 1, 2),
+      updatedAt: BASE_TIME,
+    };
+    const oldRelease = {
+      ...request("released", "Released Hall", 3),
+      updatedAt: BASE_TIME,
+    };
+    const replacementForRejection = {
+      ...request("approved", "Suggested Hall", 2),
+      createdAt: LATER_TIME,
+    };
+    const replacementForRelease = {
+      ...request("approved", "Released Hall", 3),
+      createdAt: LATER_TIME,
+    };
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [oldRejection, oldRelease, replacementForRejection, replacementForRelease],
+        equipmentLines: [],
+      })
+    ).toEqual([]);
+  });
+
+  it("does not treat a request at the rejected venue as answering its suggested venue", () => {
+    const rejected = {
+      ...request("rejected", "Old Hall", 1, 2),
+      updatedAt: BASE_TIME,
+    };
+    const approvedAtRejectedVenue = {
+      ...request("approved", "Old Hall", 1),
+      createdAt: LATER_TIME,
+    };
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [rejected, approvedAtRejectedVenue],
+        equipmentLines: [],
+      })
+    ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected."]);
   });
 
   it("names every outstanding equipment line and no settled one", () => {

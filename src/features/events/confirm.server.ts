@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { equipmentRequests, eventRequests, venueRequests, venues } from "#/db/schema";
@@ -6,7 +6,11 @@ import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
-import { confirmationBlockers, confirmationRefusalMessage } from "#/features/events/confirmation";
+import {
+  confirmationBlockers,
+  confirmationRefusalMessage,
+  VENUE_BOOKING_OUTSTANDING_MESSAGE,
+} from "#/features/events/confirmation";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 
 /**
@@ -24,8 +28,9 @@ type Database = typeof Db;
  * state. Confirm against the new state, not against arrangements that no longer hold. Record who
  * confirmed and when on the event in the same statement as the status.
  *
- * A pending venue request blocks confirmation (PTR-138). An approval in progress holds the event
- * lock, so confirmation waits for it. A later approval reads `confirmed` and refuses.
+ * An unanswered venue request blocks confirmation (PTR-138/PTR-139). An approval in progress
+ * holds the event lock, so confirmation waits for it. A later approval reads `confirmed` and
+ * refuses.
  *
  * Raise the Organiser's notification with the confirmation. The worker delivers the email.
  */
@@ -56,12 +61,17 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       .select({
         status: venueRequests.status,
         venueName: venues.name,
+        venueId: venueRequests.venueId,
+        suggestedVenueId: venueRequests.suggestedVenueId,
         startsAt: venueRequests.startsAt,
         endsAt: venueRequests.endsAt,
+        createdAt: venueRequests.createdAt,
+        updatedAt: venueRequests.updatedAt,
       })
       .from(venueRequests)
       .innerJoin(venues, eq(venues.id, venueRequests.venueId))
       .where(eq(venueRequests.eventId, request.id))
+      .orderBy(asc(venueRequests.createdAt), asc(venueRequests.id))
       .for("update", { of: venueRequests });
 
     const blockers = confirmationBlockers({
@@ -72,11 +82,12 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
     });
     if (blockers.length > 0) throw new ConflictError(confirmationRefusalMessage(blockers));
 
-    // The gate guarantees at least one approved booking. The notification keeps its existing
-    // single-booking shape and uses the first approved booking.
+    // The gate guarantees at least one approved booking. Rows are ordered by createdAt then id,
+    // so find() returns the same earliest-created approved booking as the event page.
     const booking = venueRows.find(row => row.status === "approved");
     if (!booking) {
-      throw new Error("Confirmation gate passed without an approved venue booking");
+      // Cannot fire: confirmationBlockers guarantees an approved booking when blockers is empty.
+      throw new ConflictError(confirmationRefusalMessage([VENUE_BOOKING_OUTSTANDING_MESSAGE]));
     }
 
     const [updated] = await tx

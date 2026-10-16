@@ -28,33 +28,70 @@ export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
 interface ConfirmationVenueRequest {
   status: VenueRequestStatus;
   venueName: string;
+  venueId: number;
+  suggestedVenueId: number | null;
   startsAt: string;
   endsAt: string;
+  /** When the row was created. Used to detect whether a terminal row has been superseded. */
+  createdAt: Date;
+  /**
+   * When the status was last written. For `rejected` rows this is the rejection time; for
+   * `released` rows it is the release time. A later non-withdrawn request at the target venue
+   * answers this row.
+   */
+  updatedAt: Date;
 }
 
 /**
  * PTR-138: Name a pending request by venue and window. Staff can still approve it, so the event
  * cannot be confirmed until the request is decided or withdrawn.
  */
-export function pendingVenueRequestMessage(request: Omit<ConfirmationVenueRequest, "status">) {
+export function pendingVenueRequestMessage(request: {
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+}): string {
   const period = formatVenuePeriod(request.startsAt, request.endsAt);
   return `The booking request for ${request.venueName} (${period}) is still pending.`;
 }
 
+/**
+ * A `rejected` or `released` row is answered once a later non-withdrawn request for its target
+ * venue was created after the terminal state was written. Answered rows do not block confirmation;
+ * the Coordinator already acted on them.
+ */
+function isAnsweredRow(
+  row: ConfirmationVenueRequest,
+  rows: readonly ConfirmationVenueRequest[]
+): boolean {
+  if (row.status !== "rejected" && row.status !== "released") return false;
+  const targetVenueId =
+    row.status === "rejected" ? (row.suggestedVenueId ?? row.venueId) : row.venueId;
+  return rows.some(
+    other =>
+      other !== row &&
+      other.status !== "withdrawn" &&
+      other.venueId === targetVenueId &&
+      other.createdAt.getTime() > row.updatedAt.getTime()
+  );
+}
+
 function outstandingVenueRequestMessage(request: ConfirmationVenueRequest): string | null {
+  const period = formatVenuePeriod(request.startsAt, request.endsAt);
   switch (request.status) {
     case "pending":
       return pendingVenueRequestMessage(request);
     case "rejected":
-    case "released": {
-      const period = formatVenuePeriod(request.startsAt, request.endsAt);
-      if (request.status === "rejected") {
-        return `The booking request for ${request.venueName} (${period}) was rejected.`;
-      }
+      return `The booking request for ${request.venueName} (${period}) was rejected.`;
+    case "released":
       return `The booking for ${request.venueName} (${period}) was released.`;
-    }
-    default:
+    case "approved":
+    case "withdrawn":
       return null;
+    default: {
+      const unhandled: never = request.status;
+      throw new Error(`Unhandled venue request status in confirmation gate: ${String(unhandled)}`);
+    }
   }
 }
 
@@ -71,9 +108,11 @@ interface ConfirmationInput {
  * unconfirmable status is the only reason given: cancelled or completed events have no
  * outstanding arrangements.
  *
- * Otherwise each request that was not withdrawn must be approved. Name each pending, rejected, or
- * released booking, and each missing equipment arrangement. An event with no equipment lines has
- * nothing to settle, so the venue bookings alone govern (AC5).
+ * Otherwise each request that was not withdrawn must be approved or answered. A `rejected` or
+ * `released` row is answered when a later non-withdrawn request for its target venue was created
+ * after the terminal state was written; the Coordinator acted on it. Name each unanswered pending,
+ * rejected, or released booking, and each missing equipment arrangement. An event with no
+ * equipment lines has nothing to settle, so the venue bookings alone govern (AC5).
  */
 export function confirmationBlockers(input: ConfirmationInput): string[] {
   if (!isConfirmableStatus(input.status)) {
@@ -81,9 +120,11 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
   }
 
   const blockers: string[] = [];
-  const approvedBookings = input.venueRequests.filter(request => request.status === "approved");
-  if (approvedBookings.length === 0) blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
+  if (!input.venueRequests.some(request => request.status === "approved")) {
+    blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
+  }
   for (const request of input.venueRequests) {
+    if (isAnsweredRow(request, input.venueRequests)) continue;
     const blocker = outstandingVenueRequestMessage(request);
     if (blocker) blockers.push(blocker);
   }
