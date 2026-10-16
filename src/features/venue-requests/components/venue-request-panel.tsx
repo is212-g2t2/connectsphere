@@ -117,20 +117,21 @@ function toRequestInput(eventId: number, venueId: number, values: RequestFormVal
 
 /**
  * What the confirmation says the button does, by the row's state. A pending request leaves the
- * Venue Staff queue. A rejected or released row is settled, so withdrawing it stops the block on
- * confirmation (PTR-139).
+ * Venue Staff queue. A rejected or released row no longer blocks confirmation (PTR-139).
  */
 function withdrawDescription(status: VenueRequestStatus, venueName: string, period: string) {
   if (status === "pending") {
     return `This withdraws the booking request for ${venueName} on ${period}. Venue Staff will no longer see it in their queue.`;
   }
-  return `This withdraws the ${status} request for ${venueName} on ${period}. It no longer blocks confirmation, and you are no longer asking for that venue.`;
+  const noun = status === "rejected" ? "request" : "booking";
+  return `This withdraws the ${status} ${noun} for ${venueName} on ${period}. It removes its block on confirmation, and you are no longer asking for that venue.`;
 }
 
 /**
- * PTR-31 criterion 5, PTR-139: let the Coordinator who raised a request withdraw a pending one, or
- * a settled one, after a confirmation that names the window. Each row keeps its own
- * mutation, so an error stays in the dialog of the row that failed.
+ * PTR-31 criterion 5, PTR-139: let the Coordinator withdraw a pending request, or a rejected or
+ * released one, after a confirmation that names the window. A pending withdrawal is destructive; a
+ * rejected or released row is routine cleanup, so it takes the neutral weight. Each row keeps its
+ * own mutation, so an error stays in the dialog of the row that failed.
  */
 function WithdrawRequestButton({
   requestId,
@@ -144,6 +145,7 @@ function WithdrawRequestButton({
   period: string;
 }) {
   const router = useRouter();
+  const variant = status === "pending" ? "destructive" : "outline";
   const [state, withdraw, withdrawing] = useMutation(async () => {
     await withdrawVenueRequest({ data: { id: requestId } });
     toast.success("Venue request withdrawn.");
@@ -155,7 +157,7 @@ function WithdrawRequestButton({
       <AlertDialogTrigger
         render={
           <Button
-            variant="destructive"
+            variant={variant}
             size="sm"
             className="w-fit"
             aria-label={`Withdraw request for ${period}`}
@@ -176,12 +178,12 @@ function WithdrawRequestButton({
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
-            variant="destructive"
+            variant={variant}
             size="sm"
             disabled={withdrawing}
             onClick={() => void withdraw()}
           >
-            {withdrawing ? "Withdrawing…" : "Confirm"}
+            {withdrawing ? "Withdrawing…" : "Withdraw request"}
           </AlertDialogAction>
         </AlertDialogFooter>
         {state.status === "error" && (
@@ -196,8 +198,8 @@ function WithdrawRequestButton({
 
 /**
  * What the caller can do with one row. Only the raiser can withdraw their own request: a pending
- * one, or a settled rejected or released one (PTR-139). Venue Staff release or amend an approved
- * booking.
+ * one, or a rejected or released one, which the event's current Coordinator can also withdraw
+ * (PTR-139). Venue Staff release or amend an approved booking.
  */
 function VenueRequestRowAction({
   row,
@@ -215,12 +217,17 @@ function VenueRequestRowAction({
   }
   if (row.canWithdraw) {
     return (
-      <WithdrawRequestButton
-        requestId={row.id}
-        status={row.status}
-        venueName={venueName}
-        period={period}
-      />
+      <div className="flex flex-col items-start gap-1 sm:items-end">
+        <WithdrawRequestButton
+          requestId={row.id}
+          status={row.status}
+          venueName={venueName}
+          period={period}
+        />
+        {row.status !== "pending" && (
+          <p className="body-sm text-muted-foreground">Blocks confirmation until withdrawn.</p>
+        )}
+      </div>
     );
   }
   return (
@@ -230,21 +237,36 @@ function VenueRequestRowAction({
   );
 }
 
+/** PTR-139: the reason a rejected or released row ended, as the row shows it, else null. */
+function rowOutcomeReason(row: VenueRequestContextRow): string | null {
+  if (row.status === "rejected") {
+    return row.rejectionReason ? `Rejection reason: ${row.rejectionReason}` : null;
+  }
+  if (row.status === "released") {
+    return row.releaseReason ? `Release reason: ${row.releaseReason}` : null;
+  }
+  return null;
+}
+
 /**
  * One request of the event at this venue: its window, its state, and its action. The attendance
  * and layout tell two sessions at this venue apart (PTR-138 AC1). A pending row shows its conflict
- * flag, as the event card does.
+ * flag, as the event card does. A rejected or released row shows why it ended (PTR-139).
  */
 function VenueRequestRow({ row, venueName }: { row: VenueRequestContextRow; venueName: string }) {
   const period = formatProposedWindow({ start: row.startsAt, end: row.endsAt });
   const session = formatSessionSummary(row.requirements);
+  const outcome = rowOutcomeReason(row);
   return (
     <li className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="body-sm font-medium text-foreground">{period}</span>
-        <VenueRequestStatusBadge status={row.status} />
-        {row.conflict && <ConflictBadge conflict={row.conflict} />}
-        {session && <span className="body-sm text-muted-foreground">{session}</span>}
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="body-sm font-medium text-foreground">{period}</span>
+          <VenueRequestStatusBadge status={row.status} />
+          {row.conflict && <ConflictBadge conflict={row.conflict} />}
+          {session && <span className="body-sm text-muted-foreground">{session}</span>}
+        </div>
+        {outcome && <p className="body-sm text-muted-foreground">{outcome}</p>}
       </div>
       <VenueRequestRowAction row={row} venueName={venueName} period={period} />
     </li>

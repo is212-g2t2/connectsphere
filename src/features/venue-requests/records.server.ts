@@ -212,8 +212,8 @@ export async function loadPendingConflictKinds(
 /**
  * PTR-35: Return the ids of the rejected rows that the Coordinator can still adjust. The adjust
  * link opens the suggested venue, else the rejected venue. `answeredByLaterRequest` decides when a
- * later request has answered the rejection. On a rejected row, `updatedAt` is the rejection time.
- * Pass the rows of one event. The confirmation gate reads the same rule (PTR-139).
+ * later request has answered the rejection. Pass the rows of one event. The confirmation gate reads
+ * the same rule (PTR-139).
  */
 export function adjustableRejectionIds(rows: ReadonlyArray<VenueRequestAnswerRow>): Set<string> {
   const adjustable = new Set<string>();

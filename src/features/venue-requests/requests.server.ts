@@ -487,15 +487,28 @@ export async function handleGetPendingVenueRequestsForEvent(
 
 /**
  * PTR-139: the states that the Coordinator who raised a request can withdraw. A `pending` request
- * leaves the Venue Staff queue. A `rejected` or `released` request is settled, so withdrawing it
- * stops it from blocking confirmation. An `approved` booking stays: Venue Staff release or amend
- * it (PTR-36, PTR-37).
+ * leaves the Venue Staff queue. A `rejected` or `released` request no longer blocks confirmation.
+ * An `approved` booking stays: Venue Staff release or amend it (PTR-36, PTR-37).
  */
 const WITHDRAWABLE_VENUE_REQUEST_STATUSES = new Set<VenueRequestStatus>([
   "pending",
   "rejected",
   "released",
 ]);
+
+/**
+ * PTR-31 criterion 5, PTR-139: who may withdraw one row, ignoring its state. The raiser withdraws
+ * their own request. A rejected or released row also leaves with the event's current Coordinator,
+ * so a handover cannot leave a blocker that nobody can clear.
+ */
+function isWithdrawalActor(
+  row: { status: VenueRequestStatus; requestedById: string | null },
+  actorId: string,
+  assignedCoordinatorId: string | null
+): boolean {
+  if (row.requestedById === actorId) return true;
+  return row.status !== "pending" && assignedCoordinatorId === actorId;
+}
 
 /**
  * Return event defaults and the event's requests at this venue for the venue page's request panel.
@@ -583,6 +596,9 @@ export async function handleGetVenueRequestContext(
       endsAt: toLocalMinuteValue(row.endsAt),
       status: row.status,
       conflict: conflicts.get(row.id) ?? null,
+      /** PTR-139: why a settled row ended, for the caller's own decision. */
+      rejectionReason: row.rejectionReason,
+      releaseReason: row.releaseReason,
       // The panel tells two sessions apart by attendance and layout only.
       requirements: {
         expectedAttendance: row.requirements.expectedAttendance,
@@ -590,9 +606,7 @@ export async function handleGetVenueRequestContext(
       },
       canWithdraw:
         WITHDRAWABLE_VENUE_REQUEST_STATUSES.has(row.status) &&
-        (row.requestedById === actor.id ||
-          // A settled row also leaves with the event's current Coordinator (PTR-139).
-          (row.status !== "pending" && event.assignedCoordinatorId === actor.id)),
+        isWithdrawalActor(row, actor.id, event.assignedCoordinatorId),
     })),
   };
 }
@@ -694,14 +708,11 @@ function assertNotRejected(status: string): void {
 
 /**
  * PTR-31 criterion 5, PTR-139: Let a Coordinator withdraw a request. A pending row leaves the Venue
- * Staff queue and only its raiser can withdraw it. A rejected or released row is settled, so
- * withdrawing it stops it from blocking confirmation of the event; its raiser or the event's current
- * Coordinator can withdraw it, so a reassignment cannot leave a blocker that nobody can clear.
+ * Staff queue and only its raiser can withdraw it. A rejected or released row no longer blocks
+ * confirmation, so its raiser or the event's current Coordinator can withdraw it.
  * Keep the row as `withdrawn` to preserve its history. The partial unique index then allows a new
  * request for the event, venue and window. Refuse an approved booking; withdrawal must not undo
  * approval (PTR-36).
- *
- * Check `requestedById` as a snapshot, not the event's current assignee, for a pending row (PTR-31).
  */
 export async function handleWithdrawVenueRequest(
   data: unknown,
@@ -711,6 +722,9 @@ export async function handleWithdrawVenueRequest(
   const { id } = parseVenueRequestId(data);
 
   return database.transaction(async tx => {
+    // Lock the event before its row, as release and confirmation do, so a handover cannot commit
+    // between the permission read and this withdrawal.
+    await keyShareEventForRequest(tx, id);
     const rows = await tx
       .select({
         status: venueRequests.status,
@@ -722,16 +736,15 @@ export async function handleWithdrawVenueRequest(
       .for("update");
     const row = rows.at(0);
     if (!row) throw new NotFoundError("Not Found");
-    let permitted = row.requestedById === actor.id;
-    if (!permitted && (row.status === "rejected" || row.status === "released")) {
-      const eventRows = await tx
-        .select({ assignedCoordinatorId: eventRequests.assignedCoordinatorId })
-        .from(eventRequests)
-        .where(eq(eventRequests.id, row.eventId))
-        .limit(1);
-      permitted = eventRows.at(0)?.assignedCoordinatorId === actor.id;
+    const eventRows = await tx
+      .select({ assignedCoordinatorId: eventRequests.assignedCoordinatorId })
+      .from(eventRequests)
+      .where(eq(eventRequests.id, row.eventId))
+      .limit(1);
+    const assignedCoordinatorId = eventRows.at(0)?.assignedCoordinatorId ?? null;
+    if (!isWithdrawalActor(row, actor.id, assignedCoordinatorId)) {
+      throw new AuthorizationError("Forbidden");
     }
-    if (!permitted) throw new AuthorizationError("Forbidden");
     if (!WITHDRAWABLE_VENUE_REQUEST_STATUSES.has(row.status)) {
       throw new ConflictError(VENUE_REQUEST_SETTLED_MESSAGE);
     }

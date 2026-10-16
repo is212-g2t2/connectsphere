@@ -448,9 +448,9 @@ export interface VenueRequestAnswerRow {
 /**
  * PTR-35, PTR-139: Decide whether the Coordinator answered this row with a later request. A
  * rejected row is answered at the venue Venue Staff suggested, else at its own venue; a released
- * row at its own venue. Another row at that venue that is not withdrawn and was created after this
- * row settled answers it. On a rejected or released row, `updatedAt` is the settlement time. The
- * venue-request card and the confirmation gate both read this rule, so they cannot drift.
+ * row at its own venue. Another non-withdrawn row at that venue, created after this row's
+ * `updatedAt`, answers it. On a rejected or released row `updatedAt` is the rejection or release
+ * time. The venue-request card and the confirmation gate both read this rule, so they cannot drift.
  */
 export function answeredByLaterRequest(
   row: VenueRequestAnswerRow,

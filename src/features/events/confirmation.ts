@@ -4,7 +4,7 @@ import { formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { answeredByLaterRequest } from "#/features/venue-requests/schema";
-import type { VenueRequestStatus } from "#/features/venue-requests/schema";
+import type { VenueRequestAnswerRow } from "#/features/venue-requests/schema";
 
 /**
  * PTR-24 AC1/AC2: List the stages an event can be confirmed from. `approved` is where a decision
@@ -26,21 +26,13 @@ export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
   "Technical Support has not marked the equipment arrangements complete.";
 
 /**
- * One venue request on the event. Times use the `mode: "string"` shape, `YYYY-MM-DD HH:MM:SS`.
- * `id`, `venueId`, `suggestedVenueId`, and the timestamps let the answer rule
- * (`answeredByLaterRequest`) read this row beside its siblings.
+ * One venue request on the event, as `answeredByLaterRequest` reads it. Times use the
+ * `mode: "string"` shape, `YYYY-MM-DD HH:MM:SS`.
  */
-interface ConfirmationVenueRequest {
-  id: string;
-  status: VenueRequestStatus;
+interface ConfirmationVenueRequest extends VenueRequestAnswerRow {
   venueName: string;
-  venueId: number;
-  suggestedVenueId: number | null;
   startsAt: string;
   endsAt: string;
-  createdAt: Date;
-  /** On a `rejected` or `released` row, the settlement time. See `answeredByLaterRequest`. */
-  updatedAt: Date;
 }
 
 /**

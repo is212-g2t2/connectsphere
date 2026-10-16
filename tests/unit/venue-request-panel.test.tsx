@@ -57,6 +57,8 @@ const ownPending = {
   endsAt: "2026-10-12T18:45",
   status: "pending",
   conflict: null,
+  rejectionReason: null,
+  releaseReason: null,
   requirements: eventRequirements,
   canWithdraw: true,
 } satisfies VenueRequestContextRow;
@@ -67,6 +69,8 @@ const approved = {
   endsAt: "2026-10-12T11:00",
   status: "approved",
   conflict: null,
+  rejectionReason: null,
+  releaseReason: null,
   requirements: { ...eventRequirements, expectedAttendance: 30, layout: "Boardroom" },
   canWithdraw: false,
 } satisfies VenueRequestContextRow;
@@ -77,6 +81,16 @@ const ownRejected = {
   startsAt: "2026-10-12T16:00",
   endsAt: "2026-10-12T17:00",
   status: "rejected",
+  rejectionReason: "Closed for floor resurfacing",
+} satisfies VenueRequestContextRow;
+
+const ownReleased = {
+  ...ownPending,
+  id: "req-3",
+  startsAt: "2026-10-12T18:00",
+  endsAt: "2026-10-12T19:00",
+  status: "released",
+  releaseReason: "Air-conditioning failure",
 } satisfies VenueRequestContextRow;
 
 function withRows(...requests: VenueRequestContextRow[]): VenueRequestContext {
@@ -410,14 +424,20 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(within(rows[1]).getByText("Venue unavailable")).toBeTruthy();
     });
 
-    it("offers its own settled row for withdrawal, with the row's state (PTR-139)", () => {
-      renderPanel(withRows(approved, ownRejected));
+    it("offers its own settled row for withdrawal, with its state and reason (PTR-139)", () => {
+      renderPanel(withRows(approved, ownRejected, ownReleased));
 
       const rows = within(requestList()).getAllByRole("listitem");
       expect(within(rows[0]).getByText("Approved")).toBeTruthy();
       expect(within(rows[0]).queryByRole("button")).toBeNull();
       expect(within(rows[1]).getByText("Rejected")).toBeTruthy();
+      expect(
+        within(rows[1]).getByText("Rejection reason: Closed for floor resurfacing")
+      ).toBeTruthy();
       expect(within(rows[1]).getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
+      expect(within(rows[1]).getByText("Blocks confirmation until withdrawn.")).toBeTruthy();
+      expect(within(rows[2]).getByText("Release reason: Air-conditioning failure")).toBeTruthy();
+      expect(within(rows[2]).getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
     });
 
     it("does not offer withdrawal of a request that another Coordinator raised", () => {
@@ -455,7 +475,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       // A pending request leaves the Venue Staff queue.
       expect(dialog.textContent).toContain("Venue Staff will no longer see it in their queue.");
 
-      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+      await user.click(within(dialog).getByRole("button", { name: "Withdraw request" }));
 
       await waitFor(() => {
         expect(withdrawVenueRequest).toHaveBeenCalledWith({ data: { id: "req-1" } });
@@ -473,17 +493,18 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
 
         await user.click(screen.getByRole("button", { name: /^Withdraw request/ }));
         const dialog = await screen.findByRole("alertdialog");
+        const noun = status === "rejected" ? "request" : "booking";
         expect(dialog.textContent).toContain(
-          `This withdraws the ${status} request for Harbour Hall on 12 Oct 2026, 16:00 – 17:00.`
+          `This withdraws the ${status} ${noun} for Harbour Hall on 12 Oct 2026, 16:00 – 17:00.`
         );
-        expect(dialog.textContent).toContain("It no longer blocks confirmation");
+        expect(dialog.textContent).toContain("It removes its block on confirmation");
         // The queue wording belongs to a pending row only.
         expect(dialog.textContent).not.toContain(
           "Venue Staff will no longer see it in their queue."
         );
         expect(withdrawVenueRequest).not.toHaveBeenCalled();
 
-        await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+        await user.click(within(dialog).getByRole("button", { name: "Withdraw request" }));
 
         await waitFor(() => {
           expect(withdrawVenueRequest).toHaveBeenCalledWith({ data: { id: "req-2" } });
@@ -507,20 +528,23 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(screen.getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
     });
 
-    it("shows a refused withdrawal inside the open dialog, leaving Confirm usable", async () => {
+    it("shows a refused withdrawal inside the open dialog, leaving Withdraw request usable", async () => {
       const user = userEvent.setup();
       withdrawVenueRequest.mockRejectedValueOnce(new Error("Forbidden"));
       renderPanel(withRows(ownPending));
 
       await user.click(screen.getByRole("button", { name: /^Withdraw request/ }));
-      await user.click(await screen.findByRole("button", { name: "Confirm" }));
+      await user.click(await screen.findByRole("button", { name: "Withdraw request" }));
 
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toBe("Forbidden");
-      // Confirm is a plain button. Keep the dialog open on failure, show the message inside it, and
-      // enable Confirm again.
+      // The action is a plain button. Keep the dialog open on failure, show the message inside it,
+      // and enable the action again.
       expect(screen.getByRole("alertdialog").contains(alert)).toBe(true);
-      expect(screen.getByRole("button", { name: "Confirm" })).toHaveProperty("disabled", false);
+      expect(screen.getByRole("button", { name: "Withdraw request" })).toHaveProperty(
+        "disabled",
+        false
+      );
     });
   });
 
@@ -548,7 +572,7 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       const { rerender } = renderPanel(withRows(ownPending));
 
       await user.click(screen.getByRole("button", { name: /^Withdraw request/ }));
-      await user.click(await screen.findByRole("button", { name: "Confirm" }));
+      await user.click(await screen.findByRole("button", { name: "Withdraw request" }));
       await waitFor(() => {
         expect(invalidate).toHaveBeenCalled();
       });
