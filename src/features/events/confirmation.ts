@@ -3,6 +3,7 @@ import { isArrangedLine, isEquipmentArrangementsSatisfied } from "#/features/eve
 import { formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import { answeredByLaterRequest } from "#/features/venue-requests/schema";
 import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 
 /**
@@ -24,21 +25,21 @@ export const VENUE_BOOKING_OUTSTANDING_MESSAGE = "There is no approved venue boo
 export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
   "Technical Support has not marked the equipment arrangements complete.";
 
-/** One venue request on the event. Times use the `mode: "string"` shape, `YYYY-MM-DD HH:MM:SS`. */
+/**
+ * One venue request on the event. Times use the `mode: "string"` shape, `YYYY-MM-DD HH:MM:SS`.
+ * `id`, `venueId`, `suggestedVenueId`, and the timestamps let the answer rule
+ * (`answeredByLaterRequest`) read this row beside its siblings.
+ */
 interface ConfirmationVenueRequest {
+  id: string;
   status: VenueRequestStatus;
   venueName: string;
   venueId: number;
   suggestedVenueId: number | null;
   startsAt: string;
   endsAt: string;
-  /** When the row was created. Used to detect whether a terminal row has been superseded. */
   createdAt: Date;
-  /**
-   * When the status was last written. For `rejected` rows this is the rejection time; for
-   * `released` rows it is the release time. A later non-withdrawn request at the target venue
-   * answers this row.
-   */
+  /** On a `rejected` or `released` row, the settlement time. See `answeredByLaterRequest`. */
   updatedAt: Date;
 }
 
@@ -56,26 +57,9 @@ export function pendingVenueRequestMessage(request: {
 }
 
 /**
- * A `rejected` or `released` row is answered once a later non-withdrawn request for its target
- * venue was created after the terminal state was written. Answered rows do not block confirmation;
- * the Coordinator already acted on them.
+ * The blocker this row raises, or `null` when it raises none. Every status is named, so a sixth
+ * status fails the type check.
  */
-function isAnsweredRow(
-  row: ConfirmationVenueRequest,
-  rows: readonly ConfirmationVenueRequest[]
-): boolean {
-  if (row.status !== "rejected" && row.status !== "released") return false;
-  const targetVenueId =
-    row.status === "rejected" ? (row.suggestedVenueId ?? row.venueId) : row.venueId;
-  return rows.some(
-    other =>
-      other !== row &&
-      other.status !== "withdrawn" &&
-      other.venueId === targetVenueId &&
-      other.createdAt.getTime() > row.updatedAt.getTime()
-  );
-}
-
 function outstandingVenueRequestMessage(request: ConfirmationVenueRequest): string | null {
   const period = formatVenuePeriod(request.startsAt, request.endsAt);
   switch (request.status) {
@@ -124,7 +108,7 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
     blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
   }
   for (const request of input.venueRequests) {
-    if (isAnsweredRow(request, input.venueRequests)) continue;
+    if (answeredByLaterRequest(request, input.venueRequests)) continue;
     const blocker = outstandingVenueRequestMessage(request);
     if (blocker) blockers.push(blocker);
   }

@@ -59,6 +59,7 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
 
     const venueRows = await tx
       .select({
+        id: venueRequests.id,
         status: venueRequests.status,
         venueName: venues.name,
         venueId: venueRequests.venueId,

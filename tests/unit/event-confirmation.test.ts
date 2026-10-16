@@ -12,6 +12,7 @@ import {
 } from "#/features/events/confirmation";
 
 /** One venue request row with the given status, at a fixed venue and window. */
+let nextRowId = 0;
 function request(
   status: VenueRequestStatus,
   venueName = "Great Hall",
@@ -19,6 +20,7 @@ function request(
   suggestedVenueId: number | null = null
 ) {
   return {
+    id: `row-${nextRowId++}`,
     status,
     venueName,
     venueId,
@@ -218,6 +220,54 @@ describe("confirmationBlockers (PTR-24)", () => {
         equipmentLines: [],
       })
     ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected."]);
+  });
+
+  it("keeps a rejected row that only a later withdrawn request follows", () => {
+    const rejected = request("rejected", "Old Hall", 1);
+    const withdrawnLater = {
+      ...request("withdrawn", "Old Hall", 1),
+      createdAt: LATER_TIME,
+    };
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [rejected, withdrawnLater, request("approved", "New Hall", 2)],
+        equipmentLines: [],
+      })
+    ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected."]);
+  });
+
+  it("keeps a rejected row that only a later request at another venue follows", () => {
+    const rejected = request("rejected", "Old Hall", 1);
+    const approvedElsewhere = {
+      ...request("approved", "New Hall", 2),
+      createdAt: LATER_TIME,
+    };
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [rejected, approvedElsewhere],
+        equipmentLines: [],
+      })
+    ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected."]);
+  });
+
+  it("keeps a pending request blocking beside a later request for its venue", () => {
+    const pending = request("pending", "Old Hall", 1);
+    const approvedLater = {
+      ...request("approved", "Old Hall", 1),
+      createdAt: LATER_TIME,
+    };
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [pending, approvedLater],
+        equipmentLines: [],
+      })
+    ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) is still pending."]);
   });
 
   it("names every outstanding equipment line and no settled one", () => {

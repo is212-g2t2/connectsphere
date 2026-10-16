@@ -21,6 +21,7 @@ import { handleConfirmEvent } from "#/features/events/confirm.server";
 import { handleListEvents } from "#/features/events/records.server";
 import { notificationSummary } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
+import { handleWithdrawVenueRequest } from "#/features/venue-requests/requests.server";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -365,9 +366,42 @@ describe("confirming an event (PTR-24)", () => {
       expect((await confirm(eventId)).status).toBe("confirmed");
     });
 
+    // PTR-139: the Coordinator abandons a refused venue, so no later request for it exists and the
+    // supersede rule cannot answer the row. Withdrawing it clears the gate; a release followed by a
+    // replacement at another venue follows the same path.
+    test("confirms after the Coordinator withdraws a refused request it no longer needs", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      const refusedAt = new Date("2041-04-01T00:00:00Z");
+      const [refused] = await database
+        .insert(schema.venueRequests)
+        .values({
+          id: crypto.randomUUID(),
+          eventId,
+          venueId: otherVenueId,
+          requestedById: coordinator.id,
+          startsAt: "2041-07-10 09:00:00",
+          endsAt: "2041-07-10 12:30:00",
+          status: "rejected",
+          rejectionReason: "Fully booked",
+          createdAt: refusedAt,
+          updatedAt: refusedAt,
+        })
+        .returning({ id: schema.venueRequests.id });
+
+      expect(await refusal(eventId)).toContain("was rejected");
+
+      await handleWithdrawVenueRequest({ id: refused.id }, coordinator, database as never);
+
+      expect((await confirm(eventId)).status).toBe("confirmed");
+      expect((await readEvent(eventId)).status).toBe("confirmed");
+    });
+
     test("refuses all outstanding bookings and names each one", async () => {
       const eventId = await createEvent();
       await createBooking(eventId);
+      // One INSERT gives both rows the same `createdAt`, so stamp them, and the gate lists the
+      // refusals in creation order, oldest first.
       await database.insert(schema.venueRequests).values([
         {
           id: crypto.randomUUID(),
@@ -378,6 +412,8 @@ describe("confirming an event (PTR-24)", () => {
           endsAt: "2043-06-10 12:30:00",
           status: "rejected",
           rejectionReason: "Fully booked",
+          createdAt: new Date("2043-01-01T00:00:00Z"),
+          updatedAt: new Date("2043-01-01T00:00:00Z"),
         },
         {
           id: crypto.randomUUID(),
@@ -388,6 +424,8 @@ describe("confirming an event (PTR-24)", () => {
           endsAt: "2044-06-10 12:30:00",
           status: "released",
           releaseReason: "No longer needed",
+          createdAt: new Date("2044-01-01T00:00:00Z"),
+          updatedAt: new Date("2044-01-01T00:00:00Z"),
         },
       ] satisfies (typeof schema.venueRequests.$inferInsert)[]);
 

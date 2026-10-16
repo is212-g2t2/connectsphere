@@ -29,6 +29,7 @@ import {
 import type {
   SessionRequirementInput,
   SessionRequirements,
+  VenueRequestStatus,
 } from "#/features/venue-requests/schema";
 import {
   checkVenueFree,
@@ -485,21 +486,34 @@ export async function handleGetPendingVenueRequestsForEvent(
 }
 
 /**
+ * PTR-139: the states that the Coordinator who raised a request can withdraw. A `pending` request
+ * leaves the Venue Staff queue. A `rejected` or `released` request is settled, so withdrawing it
+ * stops it from blocking confirmation. An `approved` booking stays: Venue Staff release or amend
+ * it (PTR-36, PTR-37).
+ */
+const WITHDRAWABLE_VENUE_REQUEST_STATUSES = new Set<VenueRequestStatus>([
+  "pending",
+  "rejected",
+  "released",
+]);
+
+/**
  * Return event defaults and the event's requests at this venue for the venue page's request panel.
  * Load the event by id, not by current assignee. This lets the request raiser withdraw after the
  * event changes status or assignment. `loadAssignedEvent` would block withdrawal because it
  * requires an event in a searchable status assigned to the caller.
  *
  * - The current Coordinator of an event in `SEARCHABLE_EVENT_STATUSES` can request. They get every
- *   pending request and approved booking of the event at this venue, earliest window first.
- * - Any other caller gets only the pending requests that they raised, so they can withdraw them.
+ *   request of the event at this venue except a withdrawn one, earliest window first.
+ * - Any other caller gets only the rows that they raised and can still withdraw, so they can
+ *   withdraw them.
  * - Return `null` when the caller gets no row and cannot request. A stranger's stale `?eventId=`
  *   then leaves the venue page readable and reveals no information.
  *
  * PTR-31 criterion 2: Include the operational requirements shown to Venue Staff: timing, attendance,
  * layout, accessibility, and required facilities. The form starts from them. Each row carries its
- * own session requirements (PTR-138 AC1), so two sessions at one venue stay apart. `canWithdraw`
- * is true only on a pending request that the caller raised, as criterion 5 requires.
+ * own session requirements (PTR-138 AC1), so two sessions at one venue stay apart. `canWithdraw` is
+ * true only on a row that the caller raised and can still withdraw (criterion 5, PTR-139).
  *
  * PTR-138 AC1: each pending row carries its conflict kind (`loadPendingConflictKinds`), as the
  * event card does, so the Coordinator sees a closed or occupied window before Venue Staff decide.
@@ -530,7 +544,7 @@ export async function handleGetVenueRequestContext(
         and(
           eq(venueRequests.eventId, eventId),
           eq(venueRequests.venueId, venueId),
-          inArray(venueRequests.status, ["pending", "approved"])
+          inArray(venueRequests.status, ["pending", "approved", "rejected", "released"])
         )
       )
       .orderBy(asc(venueRequests.startsAt), asc(venueRequests.endsAt), asc(venueRequests.id)),
@@ -541,9 +555,13 @@ export async function handleGetVenueRequestContext(
   // Check access before returning any data.
   const canRequest =
     event.assignedCoordinatorId === actor.id && SEARCHABLE_EVENT_STATUSES.includes(event.status);
+  // The raiser keeps the rows they can still withdraw: their own pending requests and the settled
+  // rows they withdraw (PTR-139). An approved booking is the venue's to release or amend.
   const visible = canRequest
     ? requestRows
-    : requestRows.filter(row => row.status === "pending" && row.requestedById === actor.id);
+    : requestRows.filter(
+        row => row.requestedById === actor.id && WITHDRAWABLE_VENUE_REQUEST_STATUSES.has(row.status)
+      );
   if (!canRequest && visible.length === 0) return null;
   const conflicts = await loadPendingConflictKinds(
     database,
@@ -558,22 +576,20 @@ export async function handleGetVenueRequestContext(
       ...event.requirements,
     },
     canRequest,
-    requests: visible.map(row => {
-      const status = row.status === "approved" ? ("approved" as const) : ("pending" as const);
-      return {
-        id: row.id,
-        startsAt: toLocalMinuteValue(row.startsAt),
-        endsAt: toLocalMinuteValue(row.endsAt),
-        status,
-        conflict: conflicts.get(row.id) ?? null,
-        // The panel tells two sessions apart by attendance and layout only.
-        requirements: {
-          expectedAttendance: row.requirements.expectedAttendance,
-          layout: row.requirements.layout,
-        },
-        canWithdraw: status === "pending" && row.requestedById === actor.id,
-      };
-    }),
+    requests: visible.map(row => ({
+      id: row.id,
+      startsAt: toLocalMinuteValue(row.startsAt),
+      endsAt: toLocalMinuteValue(row.endsAt),
+      status: row.status,
+      conflict: conflicts.get(row.id) ?? null,
+      // The panel tells two sessions apart by attendance and layout only.
+      requirements: {
+        expectedAttendance: row.requirements.expectedAttendance,
+        layout: row.requirements.layout,
+      },
+      canWithdraw:
+        WITHDRAWABLE_VENUE_REQUEST_STATUSES.has(row.status) && row.requestedById === actor.id,
+    })),
   };
 }
 
@@ -664,18 +680,21 @@ export async function handleCreateVenueRequest(
 }
 
 /**
- * PTR-34: A rejected request is final for withdraw, approve, and reject actions.
- * Check this in one place so every action uses the same refusal. Approve and reject call it before
- * checking the queue. Each action then checks its own non-pending case and message.
+ * PTR-34: a rejected request is final for approve and reject. Check this in one place so both
+ * actions use the same refusal. Each action then checks its own non-pending case and message.
+ * PTR-139: withdrawal does not call it, because the Coordinator who raised the request can
+ * withdraw a rejected row.
  */
 function assertNotRejected(status: string): void {
   if (status === "rejected") throw new ConflictError(VENUE_REQUEST_REJECTED_MESSAGE);
 }
 
 /**
- * PTR-31 criterion 5: Let the Coordinator who raised a pending request withdraw it.
+ * PTR-31 criterion 5, PTR-139: Let the Coordinator who raised a request withdraw it. A pending row
+ * leaves the Venue Staff queue. A rejected or released row is settled, so withdrawing it stops it
+ * from blocking confirmation of the event.
  * Keep the row as `withdrawn` to preserve its history. The partial unique index then allows a new
- * request for the event, venue and window. Refuse settled requests; withdrawal must not undo
+ * request for the event, venue and window. Refuse an approved booking; withdrawal must not undo
  * approval (PTR-36).
  *
  * Check `requestedById`, not the event's current assignee. Reassignment must not let a new
@@ -700,8 +719,7 @@ export async function handleWithdrawVenueRequest(
     const row = rows.at(0);
     if (!row) throw new NotFoundError("Not Found");
     if (row.requestedById !== actor.id) throw new AuthorizationError("Forbidden");
-    assertNotRejected(row.status);
-    if (row.status !== "pending") {
+    if (!WITHDRAWABLE_VENUE_REQUEST_STATUSES.has(row.status)) {
       throw new ConflictError(VENUE_REQUEST_SETTLED_MESSAGE);
     }
 

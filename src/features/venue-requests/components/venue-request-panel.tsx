@@ -40,6 +40,7 @@ import {
 import type {
   SessionRequirementFormValues,
   VenueRequestPrefill,
+  VenueRequestStatus,
 } from "#/features/venue-requests/schema";
 import { requestVenue, withdrawVenueRequest } from "#/features/venue-requests/server-fns";
 import type {
@@ -115,16 +116,30 @@ function toRequestInput(eventId: number, venueId: number, values: RequestFormVal
 }
 
 /**
- * PTR-31 criterion 5: let the Coordinator who raised a pending request withdraw it, after a
- * confirmation that names the window. Each row keeps its own mutation, so an error stays in the
- * dialog of the row that failed.
+ * What the confirmation says the button does, by the row's state. A pending request leaves the
+ * Venue Staff queue. A rejected or released row is settled, so withdrawing it stops the block on
+ * confirmation (PTR-139).
+ */
+function withdrawDescription(status: VenueRequestStatus, venueName: string, period: string) {
+  if (status === "pending") {
+    return `This withdraws the booking request for ${venueName} on ${period}. Venue Staff will no longer see it in their queue.`;
+  }
+  return `This withdraws the ${status} request for ${venueName} on ${period}. It no longer blocks confirmation, and you are no longer asking for that venue.`;
+}
+
+/**
+ * PTR-31 criterion 5, PTR-139: let the Coordinator who raised a request withdraw a pending one, or
+ * a settled one, after a confirmation that names the window. Each row keeps its own
+ * mutation, so an error stays in the dialog of the row that failed.
  */
 function WithdrawRequestButton({
   requestId,
+  status,
   venueName,
   period,
 }: {
   requestId: string;
+  status: VenueRequestStatus;
   venueName: string;
   period: string;
 }) {
@@ -153,8 +168,7 @@ function WithdrawRequestButton({
         <AlertDialogHeader>
           <AlertDialogTitle>Withdraw request</AlertDialogTitle>
           <AlertDialogDescription>
-            This withdraws the booking request for {venueName} on {period}. Venue Staff will no
-            longer see it in their queue.
+            {withdrawDescription(status, venueName, period)}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -181,8 +195,9 @@ function WithdrawRequestButton({
 }
 
 /**
- * What the caller can do with one row. Only the raiser can withdraw a pending request. Venue Staff
- * release or amend an approved booking.
+ * What the caller can do with one row. Only the raiser can withdraw their own request: a pending
+ * one, or a settled rejected or released one (PTR-139). Venue Staff release or amend an approved
+ * booking.
  */
 function VenueRequestRowAction({
   row,
@@ -199,7 +214,14 @@ function VenueRequestRowAction({
     );
   }
   if (row.canWithdraw) {
-    return <WithdrawRequestButton requestId={row.id} venueName={venueName} period={period} />;
+    return (
+      <WithdrawRequestButton
+        requestId={row.id}
+        status={row.status}
+        venueName={venueName}
+        period={period}
+      />
+    );
   }
   return (
     <p className="body-sm text-muted-foreground">

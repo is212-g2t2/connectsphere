@@ -71,6 +71,14 @@ const approved = {
   canWithdraw: false,
 } satisfies VenueRequestContextRow;
 
+const ownRejected = {
+  ...ownPending,
+  id: "req-2",
+  startsAt: "2026-10-12T16:00",
+  endsAt: "2026-10-12T17:00",
+  status: "rejected",
+} satisfies VenueRequestContextRow;
+
 function withRows(...requests: VenueRequestContextRow[]): VenueRequestContext {
   return { ...openContext, requests };
 }
@@ -402,6 +410,16 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(within(rows[1]).getByText("Venue unavailable")).toBeTruthy();
     });
 
+    it("offers its own settled row for withdrawal, with the row's state (PTR-139)", () => {
+      renderPanel(withRows(approved, ownRejected));
+
+      const rows = within(requestList()).getAllByRole("listitem");
+      expect(within(rows[0]).getByText("Approved")).toBeTruthy();
+      expect(within(rows[0]).queryByRole("button")).toBeNull();
+      expect(within(rows[1]).getByText("Rejected")).toBeTruthy();
+      expect(within(rows[1]).getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
+    });
+
     it("does not offer withdrawal of a request that another Coordinator raised", () => {
       renderPanel(withRows({ ...ownPending, canWithdraw: false }, { ...ownPending, id: "req-2" }));
 
@@ -434,6 +452,8 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(withdrawVenueRequest).not.toHaveBeenCalled();
       const dialog = await screen.findByRole("alertdialog");
       expect(dialog.textContent).toContain("Harbour Hall on 12 Oct 2026, 14:30 – 18:45");
+      // A pending request leaves the Venue Staff queue.
+      expect(dialog.textContent).toContain("Venue Staff will no longer see it in their queue.");
 
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
 
@@ -443,6 +463,33 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         expect(invalidate).toHaveBeenCalled();
       });
     });
+
+    it.each(["rejected", "released"] as const)(
+      "withdraws a %s row only after the confirmation that says what it does (PTR-139)",
+      async status => {
+        const user = userEvent.setup();
+        withdrawVenueRequest.mockResolvedValueOnce({ id: "req-2" });
+        renderPanel(withRows({ ...ownRejected, status }));
+
+        await user.click(screen.getByRole("button", { name: /^Withdraw request/ }));
+        const dialog = await screen.findByRole("alertdialog");
+        expect(dialog.textContent).toContain(
+          `This withdraws the ${status} request for Harbour Hall on 12 Oct 2026, 16:00 – 17:00.`
+        );
+        expect(dialog.textContent).toContain("It no longer blocks confirmation");
+        // The queue wording belongs to a pending row only.
+        expect(dialog.textContent).not.toContain(
+          "Venue Staff will no longer see it in their queue."
+        );
+        expect(withdrawVenueRequest).not.toHaveBeenCalled();
+
+        await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+        await waitFor(() => {
+          expect(withdrawVenueRequest).toHaveBeenCalledWith({ data: { id: "req-2" } });
+        });
+      }
+    );
 
     it("cancels the withdrawal without calling the server", async () => {
       const user = userEvent.setup();
