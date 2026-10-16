@@ -117,35 +117,50 @@ function toRequestInput(eventId: number, venueId: number, values: RequestFormVal
 
 /**
  * What the confirmation says the button does, by the row's state. A pending request leaves the
- * Venue Staff queue. A rejected or released row no longer blocks confirmation (PTR-139).
+ * Venue Staff queue. A rejected or released row no longer blocks confirmation (PTR-139); a later
+ * request may already have answered it.
  */
-function withdrawDescription(status: VenueRequestStatus, venueName: string, period: string) {
+function withdrawDescription(
+  status: VenueRequestStatus,
+  venueName: string,
+  period: string,
+  answered: boolean
+) {
   if (status === "pending") {
     return `This withdraws the booking request for ${venueName} on ${period}. Venue Staff will no longer see it in their queue.`;
   }
   const noun = status === "rejected" ? "request" : "booking";
-  return `This withdraws the ${status} ${noun} for ${venueName} on ${period}. It removes its block on confirmation, and you are no longer asking for that venue.`;
+  const outcome =
+    status === "rejected"
+      ? "you are no longer asking for that venue"
+      : "you no longer hold that booking";
+  const block = answered
+    ? "It no longer blocks confirmation"
+    : "It removes the block on confirmation";
+  return `This withdraws the ${status} ${noun} for ${venueName} on ${period}, so ${outcome}. ${block}.`;
 }
 
 /**
  * PTR-31 criterion 5, PTR-139: let the Coordinator withdraw a pending request, or a rejected or
  * released one, after a confirmation that names the window. A pending withdrawal is destructive; a
- * rejected or released row is routine cleanup, so it takes the neutral weight. Each row keeps its
- * own mutation, so an error stays in the dialog of the row that failed.
+ * rejected or released row is routine cleanup, so its trigger takes the neutral weight. Each row
+ * keeps its own mutation, so an error stays in the dialog of the row that failed.
  */
 function WithdrawRequestButton({
   requestId,
   status,
+  answered,
   venueName,
   period,
 }: {
   requestId: string;
   status: VenueRequestStatus;
+  answered: boolean;
   venueName: string;
   period: string;
 }) {
   const router = useRouter();
-  const variant = status === "pending" ? "destructive" : "outline";
+  const destructive = status === "pending";
   const [state, withdraw, withdrawing] = useMutation(async () => {
     await withdrawVenueRequest({ data: { id: requestId } });
     toast.success("Venue request withdrawn.");
@@ -157,7 +172,7 @@ function WithdrawRequestButton({
       <AlertDialogTrigger
         render={
           <Button
-            variant={variant}
+            variant={destructive ? "destructive" : "outline"}
             size="sm"
             className="w-fit"
             aria-label={`Withdraw request for ${period}`}
@@ -170,7 +185,7 @@ function WithdrawRequestButton({
         <AlertDialogHeader>
           <AlertDialogTitle>Withdraw request</AlertDialogTitle>
           <AlertDialogDescription>
-            {withdrawDescription(status, venueName, period)}
+            {withdrawDescription(status, venueName, period, answered)}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -178,7 +193,7 @@ function WithdrawRequestButton({
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
-            variant={variant}
+            variant={destructive ? "destructive" : "default"}
             size="sm"
             disabled={withdrawing}
             onClick={() => void withdraw()}
@@ -221,11 +236,16 @@ function VenueRequestRowAction({
         <WithdrawRequestButton
           requestId={row.id}
           status={row.status}
+          answered={row.answered}
           venueName={venueName}
           period={period}
         />
         {row.status !== "pending" && (
-          <p className="body-sm text-muted-foreground">Blocks confirmation until withdrawn.</p>
+          <p className={row.answered ? "body-sm text-muted-foreground" : "body-sm text-amber"}>
+            {row.answered
+              ? "Answered by a later request, so it does not block confirmation."
+              : "Blocks confirmation until withdrawn."}
+          </p>
         )}
       </div>
     );

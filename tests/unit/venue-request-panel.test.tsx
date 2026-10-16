@@ -59,6 +59,7 @@ const ownPending = {
   conflict: null,
   rejectionReason: null,
   releaseReason: null,
+  answered: false,
   requirements: eventRequirements,
   canWithdraw: true,
 } satisfies VenueRequestContextRow;
@@ -71,6 +72,7 @@ const approved = {
   conflict: null,
   rejectionReason: null,
   releaseReason: null,
+  answered: false,
   requirements: { ...eventRequirements, expectedAttendance: 30, layout: "Boardroom" },
   canWithdraw: false,
 } satisfies VenueRequestContextRow;
@@ -91,6 +93,13 @@ const ownReleased = {
   endsAt: "2026-10-12T19:00",
   status: "released",
   releaseReason: "Air-conditioning failure",
+} satisfies VenueRequestContextRow;
+
+/** A settled row that a later request answered: it no longer blocks confirmation. */
+const answeredRejected = {
+  ...ownRejected,
+  id: "req-4",
+  answered: true,
 } satisfies VenueRequestContextRow;
 
 function withRows(...requests: VenueRequestContextRow[]): VenueRequestContext {
@@ -424,8 +433,8 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(within(rows[1]).getByText("Venue unavailable")).toBeTruthy();
     });
 
-    it("offers its own settled row for withdrawal, with its state and reason (PTR-139)", () => {
-      renderPanel(withRows(approved, ownRejected, ownReleased));
+    it("offers its own settled rows for withdrawal, with their state, reason, and gate effect", () => {
+      renderPanel(withRows(approved, ownRejected, ownReleased, answeredRejected));
 
       const rows = within(requestList()).getAllByRole("listitem");
       expect(within(rows[0]).getByText("Approved")).toBeTruthy();
@@ -438,6 +447,10 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(within(rows[1]).getByText("Blocks confirmation until withdrawn.")).toBeTruthy();
       expect(within(rows[2]).getByText("Release reason: Air-conditioning failure")).toBeTruthy();
       expect(within(rows[2]).getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
+      // An answered row does not block, so it claims no block.
+      expect(
+        within(rows[3]).getByText("Answered by a later request, so it does not block confirmation.")
+      ).toBeTruthy();
     });
 
     it("does not offer withdrawal of a request that another Coordinator raised", () => {
@@ -494,10 +507,14 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         await user.click(screen.getByRole("button", { name: /^Withdraw request/ }));
         const dialog = await screen.findByRole("alertdialog");
         const noun = status === "rejected" ? "request" : "booking";
+        const tail =
+          status === "rejected"
+            ? "you are no longer asking for that venue"
+            : "you no longer hold that booking";
         expect(dialog.textContent).toContain(
-          `This withdraws the ${status} ${noun} for Harbour Hall on 12 Oct 2026, 16:00 – 17:00.`
+          `This withdraws the ${status} ${noun} for Harbour Hall on 12 Oct 2026, 16:00 – 17:00, so ${tail}.`
         );
-        expect(dialog.textContent).toContain("It removes its block on confirmation");
+        expect(dialog.textContent).toContain("It removes the block on confirmation");
         // The queue wording belongs to a pending row only.
         expect(dialog.textContent).not.toContain(
           "Venue Staff will no longer see it in their queue."

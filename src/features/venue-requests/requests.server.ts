@@ -20,6 +20,7 @@ import {
   VENUE_EVENT_STATUS_PHRASE,
   VENUE_REQUIREMENTS_PHRASE,
   VENUE_UNAVAILABLE_PHRASE,
+  answeredByLaterRequest,
   parseVenueRejectionInput,
   parseVenueRequestContext,
   parseVenueRequestEventInput,
@@ -540,7 +541,7 @@ export async function handleGetVenueRequestContext(
   const { eventId, venueId } = parseVenueRequestContext(data);
 
   // The event and its requests at this venue are independent reads.
-  const [eventRows, requestRows] = await Promise.all([
+  const [eventRows, requestRows, eventVenueRows] = await Promise.all([
     database
       .select({
         id: eventRequests.id,
@@ -562,6 +563,11 @@ export async function handleGetVenueRequestContext(
         )
       )
       .orderBy(asc(venueRequests.startsAt), asc(venueRequests.endsAt), asc(venueRequests.id)),
+    // The answer rule reads every request of the event, because a later request at another venue
+    // answers a settled row (PTR-139).
+    selectVenueRequestEntries(database, { requestedById: venueRequests.requestedById }).where(
+      eq(venueRequests.eventId, eventId)
+    ),
   ]);
   const event = eventRows.at(0);
   if (!event) return null;
@@ -581,6 +587,9 @@ export async function handleGetVenueRequestContext(
     database,
     visible.filter(row => row.status === "pending").map(row => row.id)
   );
+  // PTR-139: a settled row that a later non-withdrawn request answered does not block confirmation,
+  // so the panel must not claim that it does.
+  const answerRows = eventVenueRows.filter(row => row.status !== "withdrawn");
 
   return {
     event: {
@@ -599,6 +608,8 @@ export async function handleGetVenueRequestContext(
       /** PTR-139: why a settled row ended, for the caller's own decision. */
       rejectionReason: row.rejectionReason,
       releaseReason: row.releaseReason,
+      /** PTR-139: true on a settled row that a later request answered. */
+      answered: answeredByLaterRequest(row, answerRows),
       // The panel tells two sessions apart by attendance and layout only.
       requirements: {
         expectedAttendance: row.requirements.expectedAttendance,

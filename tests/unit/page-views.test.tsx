@@ -425,6 +425,7 @@ describe("VenueDetailPage", () => {
               conflict: null,
               rejectionReason: null,
               releaseReason: null,
+              answered: false,
               requirements: {
                 expectedAttendance: 80,
                 layout: "Theatre seating",
