@@ -1,5 +1,5 @@
 // oxlint-disable node/no-process-env
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -12,7 +12,7 @@ export async function seededBlockDate(venueName: string): Promise<string> {
       .select({ startsAt: schema.venueUnavailability.startsAt })
       .from(schema.venueUnavailability)
       .innerJoin(schema.venues, eq(schema.venueUnavailability.venueId, schema.venues.id))
-      .where(eq(schema.venues.name, venueName))
+      .where(and(eq(schema.venues.name, venueName), isNull(schema.venueUnavailability.liftedAt)))
       .orderBy(asc(schema.venueUnavailability.startsAt))
       .limit(1);
     if (!period) throw new Error(`No seeded block found for ${venueName}`);

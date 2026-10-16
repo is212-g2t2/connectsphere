@@ -1,7 +1,14 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, user, venueOccupancy, venueRequests, venues } from "#/db/schema";
+import {
+  eventRequests,
+  user,
+  venueHolds,
+  venueOccupancy,
+  venueRequests,
+  venues,
+} from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
@@ -35,8 +42,12 @@ import type {
 import {
   checkVenueFree,
   isHoldRow,
+  joinsHold,
+  joinsRequest,
   occupyVenue,
   overlapsLedger,
+  sourceEnd,
+  sourceStart,
 } from "#/features/venue-requests/occupancy.server";
 import {
   loadPendingConflictKinds,
@@ -231,9 +242,10 @@ export function venueUnavailableMessage(venueName: string, failure: string): str
 }
 
 /**
- * PTR-138 AC1: refuse a booking window that the venue cannot take now. Check the ledger
- * (`checkVenueFree`), then availability: refuse a window when the venue is not open then, or a
- * recorded block overlaps it (`loadWindowAvailabilityFailures`). Return the ledger row to write.
+ * PTR-138 AC1: refuse a booking window that the venue cannot take now. Check availability first
+ * (`loadWindowAvailabilityFailures`): refuse a window when the venue is not open then, or a
+ * recorded block overlaps it, and name the reason. Then check the ledger (`checkVenueFree`). This
+ * gives ADR-7's refusal order, which the conflict flag also uses. Return the ledger row to write.
  *
  * Approval and amendment call it under the venue lock, so a venue that changed since the request
  * still gets every check. Creation does not: a block can be lifted and hours can change before
@@ -244,7 +256,6 @@ export async function checkVenueTakesBooking(
   venue: LockedVenue,
   booking: { eventId: number; startsAt: string; endsAt: string }
 ) {
-  const occupancy = await checkVenueFree(tx, venue, booking);
   const [failure] = await loadWindowAvailabilityFailures(tx, [
     {
       venueId: venue.id,
@@ -254,7 +265,7 @@ export async function checkVenueTakesBooking(
     },
   ]);
   if (failure) throw new ConflictError(venueUnavailableMessage(venue.name, failure.message));
-  return occupancy;
+  return checkVenueFree(tx, venue, booking);
 }
 
 /**
@@ -320,14 +331,19 @@ export async function assertNoEventOverlap(
   request: { eventId: number; startsAt: string; endsAt: string }
 ): Promise<void> {
   const venueBuffered = venue.setupMinutes + venue.turnaroundMinutes > 0;
+  // A block row has no event, so this row is a booking or a hold, and exactly one source joins.
   const committed = await tx
     .select({
       isHold: isHoldRow,
-      startsAt: venueOccupancy.startsAt,
-      endsAt: venueOccupancy.endsAt,
-      buffered: sql<boolean>`${venueOccupancy.setupMinutes} + ${venueOccupancy.turnaroundMinutes} > 0`,
+      // Name the source's own times. A block can split a row into pieces with buffered times.
+      startsAt: sql<string>`${sourceStart}::text`,
+      endsAt: sql<string>`${sourceEnd}::text`,
+      // A piece stores buffers of 0. When it reaches past its source's times, it holds buffers.
+      buffered: sql<boolean>`${venueOccupancy.setupMinutes} + ${venueOccupancy.turnaroundMinutes} > 0 or ${venueOccupancy.startsAt} < ${sourceStart} or ${venueOccupancy.endsAt} > ${sourceEnd}`,
     })
     .from(venueOccupancy)
+    .leftJoin(venueRequests, joinsRequest)
+    .leftJoin(venueHolds, joinsHold)
     .where(
       and(
         eq(venueOccupancy.eventId, request.eventId),

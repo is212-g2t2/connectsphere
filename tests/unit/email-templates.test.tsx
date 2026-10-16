@@ -22,6 +22,7 @@ import { HandoverDeclinedEmail } from "#/features/emails/components/handover-dec
 import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
+import { VenueBlockEmail } from "#/features/emails/components/venue-block-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
@@ -554,5 +555,67 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Community workshop");
     expect(html).toContain("The deposit is non-refundable.");
     expect(html).toContain("http://localhost:3000/events/42");
+  });
+
+  it("renders the venue block email open-ended and finite", async () => {
+    const openEnded = await render(
+      <VenueBlockEmail
+        action="blocked"
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt={null}
+        reason="Floor resurfacing"
+      />
+    );
+    expect(openEnded).toContain("Venue blocked");
+    expect(openEnded).toContain("Harbour Hall");
+    expect(openEnded).toContain("Community workshop");
+    expect(openEnded).toContain("from 12 October 2026, 14:30 until lifted");
+    expect(openEnded).toContain("Floor resurfacing");
+
+    const finite = await render(
+      <VenueBlockEmail
+        action="lifted"
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-12 18:45:00"
+        reason="Works finished"
+      />
+    );
+    expect(finite).toContain("Venue available again");
+    expect(finite).toContain("12 October 2026, 14:30–18:45");
+    expect(finite).toContain("Works finished");
+
+    // A lifted open-ended block is open again from the start; it never says "until lifted".
+    // React separates adjacent interpolations, so assert the parts, not one string.
+    const liftedOpenEnded = await render(
+      <VenueBlockEmail
+        action="lifted"
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt={null}
+        reason="Works finished"
+      />
+    );
+    expect(liftedOpenEnded).toContain("is available again");
+    expect(liftedOpenEnded).toContain("from 12 October 2026, 14:30");
+    expect(liftedOpenEnded).not.toContain("until lifted");
+  });
+
+  it("names the end date of a multi-day venue block", async () => {
+    const html = await render(
+      <VenueBlockEmail
+        action="blocked"
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        startsAt="2026-10-12 14:30:00"
+        endsAt="2026-10-14 10:00:00"
+        reason="Floor resurfacing"
+      />
+    );
+    expect(html).toContain("12 October 2026, 14:30 – 14 October 2026, 10:00");
   });
 });

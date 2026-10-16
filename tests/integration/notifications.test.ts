@@ -1,5 +1,7 @@
 // oxlint-disable node/no-process-env
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactElement } from "react";
 import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -594,6 +596,28 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         // The claim bumps the version that the ownership guard compares.
         expect(row.emailAttempts).toBe(1);
       }
+    });
+
+    it("delivers a venue block change with the summary subject and an until-lifted period", async () => {
+      const row = await raise(session("coordinator").id, "venue_block_changed", {
+        action: "blocked",
+        eventName: "Notification Gala",
+        venueName: "Notification Hall",
+        startsAt: "2031-05-01 09:00:00",
+        endsAt: null,
+        reason: "Lift maintenance",
+      });
+
+      const result = await deliverPendingNotifications(database as never);
+
+      expect(result).toEqual({ sent: 1, failed: 0, pending: 0 });
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+      expect(sendEmail.mock.calls[0][0]).toBe(users.coordinator.email);
+      expect(sendEmail.mock.calls[0][1]).toBe("Venue blocked: Notification Hall");
+      expect(sendEmail.mock.calls[0][3]).toEqual({ idempotencyKey: `notification-${row.id}` });
+      expect(renderToStaticMarkup(sendEmail.mock.calls[0][2] as ReactElement)).toContain(
+        "until lifted"
+      );
     });
 
     it("backs a failed row off with a sanitised error and skips it until it is due", async () => {

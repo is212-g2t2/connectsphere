@@ -7,8 +7,11 @@ import {
   venueUnavailableMessage,
 } from "#/features/venue-requests/requests.server";
 import {
+  VENUE_BLOCK_PHRASE,
+  VENUE_CONFLICT_PHRASES,
   VENUE_OCCUPANCY_CONFLICT_MESSAGE,
   isVenueConflictMessage,
+  venueBlockConflictMessage,
 } from "#/features/venue-requests/schema";
 
 /** Drizzle wraps the driver error in `cause`, as `isConstraintViolation` expects. */
@@ -52,5 +55,55 @@ describe("rethrowVenueConflict (PTR-133 AC3)", () => {
     expect(() => rethrowVenueConflict(duplicate)).toThrow(duplicate);
     const plain = new Error("connection reset");
     expect(() => rethrowVenueConflict(plain)).toThrow(plain);
+  });
+});
+
+describe("venueBlockConflictMessage (PTR-136)", () => {
+  it("names a finite block with the block phrase", () => {
+    expect(
+      venueBlockConflictMessage({
+        venueName: "Harbour Hall",
+        startsAt: "2027-06-01T09:00:00",
+        endsAt: "2027-06-01T12:30:00",
+      })
+    ).toBe("Harbour Hall is unavailable 1 Jun 2027, 09:00 – 12:30");
+  });
+
+  it("renders a null end as until lifted, never year 9999", () => {
+    const message = venueBlockConflictMessage({
+      venueName: "Harbour Hall",
+      startsAt: "2027-06-01 09:00:00",
+      endsAt: null,
+    });
+    expect(message).toBe("Harbour Hall is unavailable from 1 Jun 2027, 09:00 until lifted");
+    expect(message).not.toContain("9999");
+  });
+
+  it("lists the block phrase so the approve button shows it verbatim", () => {
+    expect(VENUE_CONFLICT_PHRASES).toContain(VENUE_BLOCK_PHRASE);
+    expect(
+      isVenueConflictMessage(
+        venueBlockConflictMessage({
+          venueName: "Harbour Hall",
+          startsAt: "2027-06-01T09:00:00",
+          endsAt: "2027-06-01T12:30:00",
+        })
+      )
+    ).toBe(true);
+    expect(
+      isVenueConflictMessage(
+        venueBlockConflictMessage({
+          venueName: "Harbour Hall",
+          startsAt: "2027-06-01T09:00:00",
+          endsAt: null,
+        })
+      )
+    ).toBe(true);
+  });
+
+  it("does not show other text that only says unavailable", () => {
+    expect(VENUE_CONFLICT_PHRASES).not.toContain("unavailable");
+    expect(isVenueConflictMessage("Venue unavailable")).toBe(false);
+    expect(isVenueConflictMessage("Service Unavailable")).toBe(false);
   });
 });

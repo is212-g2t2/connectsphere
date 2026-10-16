@@ -77,7 +77,11 @@ A second event, ConnectSphere Open Day, is confirmed with registration on, so at
 
 These credentials are not for production (shared password, `example.com` addresses, no real personal data). Never use them outside local or demo environments.
 
-The seed also creates fifty venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion, plus forty-seven extra rooms and halls). Each venue has capacity, facilities, accessibility features, supported layouts, and operating hours. The seed adds five future periods of unavailability. A re-run of `bun run db:seed` is safe: it leaves existing accounts and venues untouched.
+The seed also creates fifty venues (Harbour Hall, Seminar Room 2A, Rooftop Pavilion, plus forty-seven extra rooms and halls). Each venue has capacity, facilities, accessibility features, supported layouts, and operating hours. The seed records five future venue blocks (periods of unavailability).
+
+A re-run of `bun run db:seed` is safe: it leaves existing accounts and venues untouched.
+
+For venue blocks, a re-run lifts the live blocks that the seed recorded, then records them again with their ledger rows. A block with no creator and no ledger row counts as a seed block, because it comes from before blocks stored their creator. Lifted blocks stay as history. The seed skips a block that another live block overlaps.
 
 The fictional equipment inventory contains ten types, including Portable Projectors, Wireless Microphones, Portable PA Systems, Folding Chairs, and LED Uplighters. The seed marks small unavailable quantities for maintenance, so stock stays available before reservations. A re-run of the seed does not duplicate equipment types or unavailable units.
 

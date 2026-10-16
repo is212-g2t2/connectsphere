@@ -10,7 +10,7 @@ import type {
   VenueRequestRejection,
   VenueRequestRelease,
 } from "#/features/events/access";
-import { isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
+import { isBlockRow, isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
 import { answeredByLaterRequest } from "#/features/venue-requests/schema";
 import type {
   SessionRequirements,
@@ -126,13 +126,10 @@ interface VenueRequestEntryRow {
 }
 
 /**
- * A ledger row that a venue block owns. No writer adds one before PTR-136. The conflict flag names
- * it `unavailable`. `checkVenueFree` names it as a booking.
+ * The flag names one kind per request, in the refusal order of `checkVenueTakesBooking` (ADR-7):
+ * an unavailable venue first, then a booking, then a hold.
  */
-const isBlockRow = sql<boolean>`${venueOccupancy.venueUnavailabilityId} is not null`;
-
-/** The flag names one kind per request: a booking first, then a hold, then an unavailable venue. */
-const CONFLICT_RANK: Record<VenueRequestConflict, number> = { booking: 0, hold: 1, unavailable: 2 };
+const CONFLICT_RANK: Record<VenueRequestConflict, number> = { unavailable: 0, booking: 1, hold: 2 };
 
 /** The kind of one overlapping ledger row. A block's row makes the venue unavailable. */
 function ledgerConflictKind(row: { isHold: boolean; isBlock: boolean }): VenueRequestConflict {
@@ -143,14 +140,14 @@ function ledgerConflictKind(row: { isHold: boolean; isBlock: boolean }): VenueRe
 /**
  * PTR-36 criterion 4, PTR-138 AC1: Return the conflict kind of each pending row in `pendingIds`
  * whose window approval would refuse now. Approval also refuses a request for session requirements
- * and for event status. The flag does not show these refusals. Name a booking first, then a hold,
- * then an unavailable venue.
+ * and for event status. The flag does not show these refusals. Name one kind per row, by
+ * `CONFLICT_RANK`.
  *
  * - `booking`, `hold`: the row overlaps an approved booking or a held hold at its venue once the
  *   buffers count. Read the ledger with approval's expression (`overlapsLedger`).
  * - `unavailable`: the venue is not open for the row's window, or a recorded block overlaps it.
  *   Read the blocks with `loadWindowAvailabilityFailures`, and a block's ledger row (`isBlockRow`)
- *   once PTR-136 writes one.
+ *   when the block reaches the row only through the buffers.
  *
  * Read in batched queries, not one read per row. Do not scope the reads to the caller's events:
  * the booking or hold can belong to an event the caller cannot see. Return only the kind.

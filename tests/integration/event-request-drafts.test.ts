@@ -31,6 +31,7 @@ import {
   pickLeastLoadedCoordinator,
 } from "#/features/event-requests/drafts.server";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
+import { handleLiftVenueBlock, handleRecordVenueBlock } from "#/features/venues/blocks.server";
 import { handleSaveVenue } from "#/features/venues/records.server";
 import { notificationSummary } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
@@ -58,6 +59,12 @@ const otherOrganiser: SessionUser = {
   id: "test-organiser-other",
   email: "other.organiser@example.com",
   role: "event_organiser",
+};
+/** The seeded Venue Staff account, which records and lifts the AC3 venue block. */
+const seedVenueStaff: SessionUser = {
+  id: "seed-venue-staff-1",
+  email: "venue.staff.seed@example.com",
+  role: "venue_staff",
 };
 
 /**
@@ -2640,28 +2647,34 @@ describe("Status set and decision attribution (PTR-21)", () => {
 
   it("does not move the status when a venue arrangement changes (AC3)", async () => {
     const request = await submitted();
-    // Cover the only arrangement writes that exist: the venue record through its real save
-    // path, which catches application-level coupling, and its unavailability row. Equipment
+    // Cover the only arrangement writes that exist: the venue record and a venue block, each
+    // through its real write path, which catches application-level coupling. Equipment
     // arrangements have no writer. Add that writer here when it lands.
     const [hall] = await database
       .select()
       .from(schema.venues)
       .where(eq(schema.venues.name, "Harbour Hall"));
+    let blockId: number | undefined;
     try {
       await handleSaveVenue(
         { ...hall, maxCapacity: 999 },
         database as never,
         "venue-record-test-staff"
       );
-      await database
-        .insert(schema.venueUnavailability)
-        .values({
+      // A day past every seed horizon, so the block never overlaps a seed block or booking.
+      const block = await handleRecordVenueBlock(
+        {
           venueId: hall.id,
-          startsAt: "2028-01-01 09:00:00",
-          endsAt: "2028-01-01 12:00:00",
+          date: "2099-01-01",
+          startTime: "09:00",
+          endDate: "2099-01-01",
+          endTime: "12:00",
           reason: "PTR-21 AC3",
-        })
-        .onConflictDoNothing();
+        },
+        seedVenueStaff,
+        database as never
+      );
+      blockId = block.id;
 
       const [row] = await database
         .select({ status: schema.eventRequests.status })
@@ -2669,11 +2682,11 @@ describe("Status set and decision attribution (PTR-21)", () => {
         .where(eq(schema.eventRequests.id, request.id));
       expect(row.status).toBe("submitted");
     } finally {
-      // The seed rows are shared. Restore the venue and remove the period, even on failure.
+      // The seed rows are shared. Restore the venue and lift the block, even on failure.
       await handleSaveVenue(hall, database as never, "venue-record-test-staff");
-      await database
-        .delete(schema.venueUnavailability)
-        .where(eq(schema.venueUnavailability.reason, "PTR-21 AC3"));
+      if (blockId !== undefined) {
+        await handleLiftVenueBlock({ id: blockId }, seedVenueStaff, database as never);
+      }
     }
   });
 });

@@ -132,7 +132,9 @@ export interface AvailabilityPeriod {
 export interface AvailabilityRecord extends AvailabilityPeriod {
   id: string;
   label: string;
-  /** Show whether the viewer can release this record (PTR-109). */
+  /** A block with no end; never set for finite periods. */
+  openEnded?: true;
+  /** Show whether the viewer can release or convert this record (PTR-109). */
   canRelease?: boolean;
   /**
    * Set only on a hold that the viewer can convert (PTR-109 AC5): the event's requirements, which
@@ -148,6 +150,8 @@ export interface OccupiedPeriod extends AvailabilityPeriod {
   /** Return the part of the record inside the requested range. */
   visibleStart: string;
   visibleEnd: string;
+  /** A block with no end; never set for finite periods. */
+  openEnded?: true;
   /** Copy this value from the source record. Omit it for bookings and blocks. */
   canRelease?: boolean;
   convertDefaults?: SessionRequirements;
@@ -212,6 +216,7 @@ export function projectAvailability(
       endsAt: record.endsAt,
       visibleStart: visible.startsAt,
       visibleEnd: visible.endsAt,
+      openEnded: record.openEnded,
       canRelease: record.canRelease,
       convertDefaults: record.convertDefaults,
     });

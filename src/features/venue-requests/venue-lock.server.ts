@@ -52,17 +52,28 @@ export async function lockVenueForRequest(tx: VenueTx, requestId: string): Promi
   return previewVenueId(tx, venueRequests, requestId);
 }
 
-/** The event row a venue writer locks, as its gates read it. */
-type LockedEvent = { id: number; status: EventRequestStatus };
+/** The event row a venue writer locks, as its gates and notices read it. */
+export type LockedEvent = {
+  id: number;
+  status: EventRequestStatus;
+  eventName: string;
+  assignedCoordinatorId: string | null;
+};
 
 /**
- * Key-share the event before any venue lock. Return `{ id, status }` as read under that lock, or
- * `null` when the event is missing. Cancellation holds the event `FOR UPDATE` (PTR-54), so this
- * lock waits for it and then reads the new status. A later cancellation waits for this transaction.
+ * Key-share the event before any venue lock. Return the event's id, status, name and assigned
+ * Coordinator as read under that lock, or `null` when the event is missing. Cancellation and
+ * Coordinator assignment hold the event `FOR UPDATE`, so this lock waits for them and then reads
+ * the new values. A later cancellation or assignment waits for this transaction.
  */
 export async function keyShareEvent(tx: VenueTx, eventId: number): Promise<LockedEvent | null> {
   const rows = await tx
-    .select({ id: eventRequests.id, status: eventRequests.status })
+    .select({
+      id: eventRequests.id,
+      status: eventRequests.status,
+      eventName: eventRequests.eventName,
+      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+    })
     .from(eventRequests)
     .where(eq(eventRequests.id, eventId))
     .for("key share");

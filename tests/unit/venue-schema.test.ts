@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { assertBlockStartNotPast } from "#/features/venues/blocks.server";
 import {
   CAPACITY_MESSAGE,
   CAPACITY_TOO_LARGE_MESSAGE,
@@ -10,9 +11,17 @@ import {
   NAME_REQUIRED_MESSAGE,
   NAME_TOO_LONG_MESSAGE,
   OperatingHoursSchema,
+  VENUE_BLOCK_END_PAIR_MESSAGE,
+  VENUE_BLOCK_PAST_START_MESSAGE,
+  VENUE_BLOCK_REASON_REQUIRED,
+  VENUE_TIME_ORDER_MESSAGE,
+  VenueBlockInput,
+  parseVenueBlockId,
+  parseVenueBlockInput,
   parseVenueId,
   parseVenueInput,
   TIME_MESSAGE,
+  VENUE_BLOCK_ID_MESSAGE,
   VENUE_ID_MESSAGE,
   VENUE_LAYOUTS,
   VENUE_NAME_MAX_LENGTH,
@@ -193,5 +202,92 @@ describe("OperatingHoursSchema", () => {
       expect(result.success).toBe(false);
       expect(result.error?.issues[0].message).toBe(CLOSES_BEFORE_OPENS_MESSAGE);
     }
+  });
+});
+
+function firstIssue(result: { success: boolean; error?: { issues: { message: string }[] } }) {
+  return result.success ? undefined : result.error?.issues[0].message;
+}
+
+describe("VenueBlockInput (PTR-136)", () => {
+  const VALID = {
+    venueId: 3,
+    date: "2027-04-20",
+    startTime: "09:00",
+    reason: "Floor resurfacing",
+  };
+
+  it("accepts an open end without end fields", () => {
+    expect(VenueBlockInput.parse(VALID)).toEqual(VALID);
+    expect(parseVenueBlockInput(VALID)).toEqual(VALID);
+  });
+
+  it("accepts a same-day and a multi-day end", () => {
+    expect(
+      VenueBlockInput.parse({ ...VALID, endDate: "2027-04-20", endTime: "12:30" })
+    ).toMatchObject({ endDate: "2027-04-20", endTime: "12:30" });
+    expect(
+      VenueBlockInput.parse({ ...VALID, endDate: "2027-04-22", endTime: "08:00" })
+    ).toMatchObject({ endDate: "2027-04-22", endTime: "08:00" });
+  });
+
+  it("requires a non-blank reason", () => {
+    for (const reason of [undefined, "", "   "]) {
+      expect(firstIssue(VenueBlockInput.safeParse({ ...VALID, reason }))).toBe(
+        VENUE_BLOCK_REASON_REQUIRED
+      );
+    }
+    expect(() => parseVenueBlockInput({ ...VALID, reason: "  " })).toThrow(
+      VENUE_BLOCK_REASON_REQUIRED
+    );
+  });
+
+  it("requires both end fields together", () => {
+    expect(firstIssue(VenueBlockInput.safeParse({ ...VALID, endDate: "2027-04-20" }))).toBe(
+      VENUE_BLOCK_END_PAIR_MESSAGE
+    );
+    expect(firstIssue(VenueBlockInput.safeParse({ ...VALID, endTime: "12:30" }))).toBe(
+      VENUE_BLOCK_END_PAIR_MESSAGE
+    );
+  });
+
+  it("refuses an end that is not later than the start", () => {
+    expect(
+      firstIssue(VenueBlockInput.safeParse({ ...VALID, endDate: "2027-04-20", endTime: "09:00" }))
+    ).toBe(VENUE_TIME_ORDER_MESSAGE);
+    expect(
+      firstIssue(VenueBlockInput.safeParse({ ...VALID, endDate: "2027-04-19", endTime: "12:30" }))
+    ).toBe(VENUE_TIME_ORDER_MESSAGE);
+  });
+
+  it("refuses a block id that is not a positive whole number", () => {
+    expect(parseVenueBlockId({ id: 7 })).toEqual({ id: 7 });
+    expect(() => parseVenueBlockId({ id: 0 })).toThrow(VENUE_BLOCK_ID_MESSAGE);
+  });
+});
+
+describe("assertBlockStartNotPast (PTR-136)", () => {
+  it("accepts a block that starts today or later on the venue clock", () => {
+    // 2027-04-20 08:00 in Singapore.
+    const now = new Date("2027-04-20T00:00:00Z");
+    expect(() => assertBlockStartNotPast("2027-04-20", now)).not.toThrow();
+    expect(() => assertBlockStartNotPast("2027-04-21", now)).not.toThrow();
+  });
+
+  it("refuses a block that starts on a day before today", () => {
+    expect(() => assertBlockStartNotPast("2027-04-19", new Date("2027-04-20T00:00:00Z"))).toThrow(
+      VENUE_BLOCK_PAST_START_MESSAGE
+    );
+  });
+
+  it("reads today in Singapore, not UTC", () => {
+    // 2027-04-20 16:30 UTC is 2027-04-21 00:30 in Singapore.
+    expect(() => assertBlockStartNotPast("2027-04-20", new Date("2027-04-20T16:30:00Z"))).toThrow(
+      VENUE_BLOCK_PAST_START_MESSAGE
+    );
+    // 2027-04-20 15:59 UTC is 2027-04-20 23:59 in Singapore.
+    expect(() =>
+      assertBlockStartNotPast("2027-04-20", new Date("2027-04-20T15:59:00Z"))
+    ).not.toThrow();
   });
 });

@@ -3,6 +3,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission } from "#/features/auth/session";
 import {
   parseAvailabilityRequest,
+  parseVenueBlockId,
+  parseVenueBlockInput,
   parseVenueId,
   parseVenueInput,
   parseVenueSearchRequest,
@@ -33,6 +35,16 @@ function venueAction(data: unknown): "create" | "update" {
 export const requireVenueRead = requirePermission({ venue: ["read"] });
 export const requireVenueSearch = requirePermission({ venue: ["search"] });
 export const requireVenueWrite = requirePermission(data => ({ venue: [venueAction(data)] }));
+
+/**
+ * Venue Staff record and lift blocks with `venue:update`. A block payload has no `id`, so
+ * `requireVenueWrite` would ask for `venue:create`.
+ */
+export const requireVenueBlock = requirePermission({ venue: ["update"] });
+
+async function loadBlockServer() {
+  return Promise.all([import("#/db"), import("#/features/venues/blocks.server")]);
+}
 
 export const listVenues = createServerFn({ method: "GET" })
   .middleware([requireVenueRead])
@@ -108,3 +120,35 @@ export const getVenueAvailability = createServerFn({ method: "GET" })
 export type VenueAvailability = NonNullable<
   Awaited<ReturnType<typeof getVenueAvailability>>["availability"]
 >;
+
+export const recordVenueBlock = createServerFn({ method: "POST" })
+  .validator(parseVenueBlockInput)
+  .middleware([requireVenueBlock])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRecordVenueBlock }] = await loadBlockServer();
+    const block = await handleRecordVenueBlock(data, context.user, db);
+
+    log.info("Venue block recorded", {
+      blockId: block.id,
+      venueId: block.venueId,
+      actorId: context.user.id,
+    });
+
+    return block;
+  });
+
+export const liftVenueBlock = createServerFn({ method: "POST" })
+  .validator(parseVenueBlockId)
+  .middleware([requireVenueBlock])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleLiftVenueBlock }] = await loadBlockServer();
+    const block = await handleLiftVenueBlock(data, context.user, db);
+
+    log.info("Venue block lifted", {
+      blockId: block.id,
+      venueId: block.venueId,
+      actorId: context.user.id,
+    });
+
+    return block;
+  });

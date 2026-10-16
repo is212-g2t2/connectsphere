@@ -491,10 +491,11 @@ export const venueBufferChanges = pgTable(
 );
 
 /**
- * Periods when a venue is not available for requests, such as for maintenance, renovation, or
- * internal use. Version 0.1 does not manage these periods (brief section 9). The seed creates them
- * (PTR-59 criterion 4), and the availability calendar reads them (PTR-28). String timestamps
- * preserve the `datetime-local` values.
+ * Venue blocks: periods when a venue takes no bookings or holds, such as for maintenance,
+ * renovation, or internal use. Venue Staff record and lift them, and the seed creates some. Each
+ * block has a reason, an optional end (null means until lifted), the user who recorded it, and a
+ * lift stamp (`lifted_at`, `lifted_by_id`). A lift keeps the row. String timestamps preserve the
+ * `datetime-local` values.
  */
 export const venueUnavailability = pgTable(
   "venue_unavailability",
@@ -504,14 +505,24 @@ export const venueUnavailability = pgTable(
       .notNull()
       .references(() => venues.id, { onDelete: "cascade" }),
     startsAt: timestamp("starts_at", { mode: "string" }).notNull(),
-    endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
+    endsAt: timestamp("ends_at", { mode: "string" }),
     reason: text("reason").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdById: text("created_by_id").references(() => user.id, { onDelete: "set null" }),
+    liftedAt: timestamp("lifted_at", { withTimezone: true }),
+    liftedById: text("lifted_by_id").references(() => user.id, { onDelete: "set null" }),
   },
   table => [
-    check("venue_unavailability_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
-    // This unique key prevents the seed from adding each period more than once.
-    uniqueIndex("venue_unavailability_period_idx").on(table.venueId, table.startsAt, table.endsAt),
+    check(
+      "venue_unavailability_ends_after_starts",
+      sql`${table.endsAt} is null or ${table.endsAt} > ${table.startsAt}`
+    ),
+    // The record probe refuses a live block that overlaps another under the venue lock. This
+    // unique key is a backstop for a writer outside that lock. Two rows with a null end are
+    // distinct, so only the probe refuses a repeated open-ended block.
+    uniqueIndex("venue_unavailability_period_idx")
+      .on(table.venueId, table.startsAt, table.endsAt)
+      .where(sql`${table.liftedAt} is null`),
   ]
 );
 
@@ -737,7 +748,8 @@ export const venueHolds = pgTable(
  * change them. Migration 0048 adds `venue_occupancy_no_overlap`, the exclusion constraint over
  * `tsrange(starts_at - setup, ends_at + turnaround, '[)')` for active rows. Drizzle cannot
  * express it here and never drops it. The advisory-locked writers maintain these rows; no trigger
- * does. See docs/adrs/ADR-7-venue-occupancy-ledger.md.
+ * does. See docs/adrs/ADR-7-venue-occupancy-ledger.md. Only a block row can have a null end,
+ * which means unbounded (ADR-7).
  */
 export const venueOccupancy = pgTable(
   "venue_occupancy",
@@ -758,7 +770,7 @@ export const venueOccupancy = pgTable(
       { onDelete: "cascade" }
     ),
     startsAt: timestamp("starts_at", { mode: "string" }).notNull(),
-    endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
+    endsAt: timestamp("ends_at", { mode: "string" }),
     setupMinutes: integer("setup_minutes").notNull().default(0),
     turnaroundMinutes: integer("turnaround_minutes").notNull().default(0),
     // The constraint checks active rows only. A block suspends the rows it covers (PTR-136).
@@ -773,7 +785,14 @@ export const venueOccupancy = pgTable(
       "venue_occupancy_event_matches_source",
       sql`(${table.eventId} is null) = (${table.venueUnavailabilityId} is not null)`
     ),
-    check("venue_occupancy_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
+    check(
+      "venue_occupancy_ends_after_starts",
+      sql`${table.endsAt} is null or ${table.endsAt} > ${table.startsAt}`
+    ),
+    check(
+      "venue_occupancy_unbounded_only_for_block",
+      sql`${table.endsAt} is not null or ${table.venueUnavailabilityId} is not null`
+    ),
     check("venue_occupancy_setup_minutes_nonnegative", sql`${table.setupMinutes} >= 0`),
     check("venue_occupancy_turnaround_minutes_nonnegative", sql`${table.turnaroundMinutes} >= 0`),
     // Writers delete a source's rows by source id. The foreign key cascades use these indexes too.
@@ -990,6 +1009,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "event_significant_change",
   /** PTR-52 AC5: the Coordinator applied or declined the Organiser's change request. */
   "event_change_processed",
+  "venue_block_changed",
 ]);
 
 export const notifications = pgTable(

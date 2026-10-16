@@ -120,6 +120,14 @@ const validPayloads = {
     actorName: "Alex",
   },
   event_change_processed: { outcome: "applied", eventName: "Gala", whatShouldChange: "Date" },
+  venue_block_changed: {
+    action: "blocked",
+    eventName: "Gala",
+    venueName: "Harbour Hall",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: null,
+    reason: "Floor resurfacing",
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -175,6 +183,18 @@ describe("notification summaries (PTR-55 AC2)", () => {
     const reduced = parse("equipment_released", { ...base, quantity: 1 });
     expect(notificationSummary(released)).toBe("Equipment released for Gala: Projector");
     expect(notificationSummary(reduced)).toBe("Equipment reduced for Gala: Projector");
+  });
+
+  it("names the venue for the open-ended and lifted block lines", () => {
+    const blocked = parse("venue_block_changed", validPayloads.venue_block_changed);
+    expect(notificationSummary(blocked)).toBe("Venue blocked: Harbour Hall");
+    const lifted = parse("venue_block_changed", {
+      ...validPayloads.venue_block_changed,
+      action: "lifted",
+      endsAt: "2026-10-12 17:00:00",
+    });
+    expect(notificationSummary(lifted)).toBe("Venue available again: Harbour Hall");
+    expect(notificationHref({ ...lifted, eventRequestId: 7 })).toBe("/events/7");
   });
 
   it("names the event for the registration lines (PTR-45)", () => {
@@ -389,6 +409,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       registration_place_freed: "/events/7",
       event_significant_change: "/events/7",
       event_change_processed: "/events/7",
+      venue_block_changed: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

@@ -93,8 +93,10 @@ import {
 import {
   getVenue,
   getVenueAvailability,
+  liftVenueBlock,
   listVenueOptions,
   listVenues,
+  recordVenueBlock,
   saveVenue,
   searchVenues,
 } from "#/features/venues/server-fns";
@@ -408,6 +410,52 @@ describe("server-function authorization (PTR-69)", () => {
         ).toBeUndefined();
       }
     );
+
+    describe("venue blocks (PTR-136)", () => {
+      /**
+       * Use payloads the block validators accept. The allow path runs the whole chain. The handler
+       * refuses a start day before today, and the seed blocks lie within 70 days of the seed run,
+       * so use a far-future day.
+       */
+      const blockRecord = {
+        venueId: 1,
+        date: "2099-04-20",
+        startTime: "09:00",
+        endDate: "2099-04-20",
+        endTime: "12:30",
+        reason: "Floor resurfacing",
+      };
+
+      it("answers 401 to an unauthenticated block write", async () => {
+        vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+        expect(await refusalFrom(recordVenueBlock, blockRecord)).toEqual({
+          status: 401,
+          body: "Unauthorized",
+        });
+        expect(await refusalFrom(liftVenueBlock, { id: 1 })).toEqual({
+          status: 401,
+          body: "Unauthorized",
+        });
+      });
+
+      it.each(["attendee", "event_organiser", "event_coordinator", "technical_support_staff"])(
+        "refuses %s the block verbs before payload validation",
+        async role => {
+          signIn(role);
+
+          expect(await refusalFrom(recordVenueBlock, {})).toMatchObject({ status: 403 });
+          expect(await refusalFrom(liftVenueBlock, {})).toMatchObject({ status: 403 });
+        }
+      );
+
+      it("allows Venue Staff the block verbs", async () => {
+        signIn("venue_staff");
+
+        expect((await call(recordVenueBlock, blockRecord)).error).toBeUndefined();
+        expect((await call(liftVenueBlock, { id: 1 })).error).toBeUndefined();
+      });
+    });
   });
 
   describe("venue requests (PTR-31)", () => {

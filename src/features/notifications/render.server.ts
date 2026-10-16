@@ -33,6 +33,7 @@ import { HandoverAcceptedEmail } from "#/features/emails/components/handover-acc
 import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
 import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
+import { VenueBlockEmail } from "#/features/emails/components/venue-block-email";
 import { VenueBookingChangedEmail } from "#/features/emails/components/venue-booking-changed-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
@@ -351,6 +352,11 @@ export function renderNotificationEmail(
           ...notification.payload,
           eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
+      };
+    case "venue_block_changed":
+      return {
+        subject,
+        element: createElement(VenueBlockEmail, notification.payload),
       };
     default: {
       const unhandled: never = notification;

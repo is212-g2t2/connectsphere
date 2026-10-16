@@ -318,9 +318,99 @@ export function parseVenueId(data: unknown): VenueId {
   return parsed.data;
 }
 
+export const VENUE_BLOCK_DATE_MESSAGE = "Choose a date";
+export const VENUE_BLOCK_END_DATE_MESSAGE = "Choose an end date";
+export const VENUE_BLOCK_TIME_MESSAGE = "Enter the block times as HH:MM";
+export const VENUE_BLOCK_END_PAIR_MESSAGE = "Enter both an end date and end time";
+export const VENUE_BLOCK_REASON_REQUIRED = "Enter a reason for this block";
+export const VENUE_BLOCK_REASON_MAX_LENGTH = 2000;
+export const VENUE_BLOCK_ID_MESSAGE = "Choose a block";
+/** The server refuses a block that starts on a day before today at the venue. */
+export const VENUE_BLOCK_PAST_START_MESSAGE = "Choose a start date of today or later";
+/** Lift refusals. The server throws them and the lift button shows them verbatim. */
+export const VENUE_BLOCK_ALREADY_LIFTED_MESSAGE = "This block has already been lifted.";
+export const VENUE_BLOCK_LIFT_OVERLAP_MESSAGE =
+  "A new arrangement now overlaps this block, so it cannot be lifted.";
+/**
+ * The server sends this refusal when Postgres stops a block record or lift on a deadlock with
+ * another change to the venue. The record dialog and the lift button show it verbatim.
+ */
+export const VENUE_BLOCK_RETRY_MESSAGE = "Another change to this venue is in progress. Try again.";
+
+/**
+ * A Venue Staff block: a venue, a start day and time, an optional end day and time, and a
+ * reason. Both end fields arrive together or not at all. An absent end stays open until
+ * lifted. Fixed-width `YYYY-MM-DDTHH:MM` strings compare as times, so the refinement uses a
+ * string comparison without building a `Date`. Multi-day blocks pass: only the combined end
+ * must follow the combined start.
+ */
+export const VenueBlockInput = z
+  .object({
+    venueId: z.int32({ error: VENUE_ID_MESSAGE }).positive(VENUE_ID_MESSAGE),
+    date: z.iso.date({ error: VENUE_BLOCK_DATE_MESSAGE }),
+    startTime: z.string().regex(TIME_SHAPE, VENUE_BLOCK_TIME_MESSAGE),
+    endDate: z.iso.date({ error: VENUE_BLOCK_END_DATE_MESSAGE }).optional(),
+    endTime: z.string().regex(TIME_SHAPE, VENUE_BLOCK_TIME_MESSAGE).optional(),
+    reason: z
+      .string({ error: VENUE_BLOCK_REASON_REQUIRED })
+      .trim()
+      .min(1, VENUE_BLOCK_REASON_REQUIRED)
+      .max(
+        VENUE_BLOCK_REASON_MAX_LENGTH,
+        `Block reason must be ${VENUE_BLOCK_REASON_MAX_LENGTH} characters or fewer`
+      ),
+  })
+  .superRefine((value, context) => {
+    const hasEndDate = value.endDate !== undefined;
+    const hasEndTime = value.endTime !== undefined;
+    if (hasEndDate !== hasEndTime) {
+      context.addIssue({
+        code: "custom",
+        path: [hasEndDate ? "endTime" : "endDate"],
+        message: VENUE_BLOCK_END_PAIR_MESSAGE,
+      });
+    } else if (
+      hasEndDate &&
+      hasEndTime &&
+      `${value.endDate}T${value.endTime}` <= `${value.date}T${value.startTime}`
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["endTime"],
+        message: VENUE_TIME_ORDER_MESSAGE,
+      });
+    }
+  });
+
+export type VenueBlockValues = z.infer<typeof VenueBlockInput>;
+
+export const VenueBlockIdInput = z.object(
+  { id: z.int32({ error: VENUE_BLOCK_ID_MESSAGE }).positive(VENUE_BLOCK_ID_MESSAGE) },
+  { error: VENUE_BLOCK_ID_MESSAGE }
+);
+export type VenueBlockId = z.infer<typeof VenueBlockIdInput>;
+
+/** Parse a block write or id for the server function. Return values or the first refusal. */
+export function parseVenueBlockInput(data: unknown): VenueBlockValues {
+  const parsed = VenueBlockInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
+export function parseVenueBlockId(data: unknown): VenueBlockId {
+  const parsed = VenueBlockIdInput.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0].message);
+  }
+  return parsed.data;
+}
+
 export const VENUE_SEARCH_TIME_MESSAGE = "Choose both a start and end time";
 export const VENUE_SEARCH_DATE_MESSAGE = "Choose a date when filtering by time";
-export const VENUE_SEARCH_TIME_ORDER_MESSAGE = "End time must be later than start time";
+/** Shared by the search filter and a venue block, whose end must follow its start. */
+export const VENUE_TIME_ORDER_MESSAGE = "End time must be later than start time";
 export const VENUE_SEARCH_ATTENDANCE_MESSAGE =
   "Expected attendance must be a positive whole number";
 export const VENUE_SEARCH_CAPACITY_MESSAGE = "Capacity must be a positive whole number";
@@ -417,7 +507,7 @@ export const VenueSearchSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["endTime"],
-        message: VENUE_SEARCH_TIME_ORDER_MESSAGE,
+        message: VENUE_TIME_ORDER_MESSAGE,
       });
     }
     // A typo must not silently match nothing. An empty result reads as "none available".
