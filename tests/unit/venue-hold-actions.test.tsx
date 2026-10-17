@@ -13,30 +13,39 @@ import { VenueCalendarPage } from "#/features/venues/components/venue-calendar-p
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
 
-const { mockInvalidate, mockNavigate, mockCreateHold, mockReleaseHold, mockConvertHold } =
-  vi.hoisted(() => ({
-    mockInvalidate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    mockNavigate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    mockCreateHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
-      id: "hold-new",
-      status: "held",
+const {
+  mockInvalidate,
+  mockNavigate,
+  mockCreateHold,
+  mockReleaseHold,
+  mockConvertHold,
+  mockSetExpiry,
+  mockSetWarning,
+} = vi.hoisted(() => ({
+  mockSetExpiry: vi.fn<(input: unknown) => Promise<unknown>>().mockResolvedValue({}),
+  mockSetWarning: vi.fn<(input: unknown) => Promise<unknown>>().mockResolvedValue({}),
+  mockInvalidate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  mockNavigate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  mockCreateHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
+    id: "hold-new",
+    status: "held",
+  }),
+  mockReleaseHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
+    id: "hold-1",
+    status: "released",
+  }),
+  mockConvertHold: vi
+    .fn<
+      () => Promise<{
+        hold: { id: string; status: string };
+        request: { id: string; status: string };
+      }>
+    >()
+    .mockResolvedValue({
+      hold: { id: "hold-1", status: "released" },
+      request: { id: "req-1", status: "pending" },
     }),
-    mockReleaseHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
-      id: "hold-1",
-      status: "released",
-    }),
-    mockConvertHold: vi
-      .fn<
-        () => Promise<{
-          hold: { id: string; status: string };
-          request: { id: string; status: string };
-        }>
-      >()
-      .mockResolvedValue({
-        hold: { id: "hold-1", status: "released" },
-        request: { id: "req-1", status: "pending" },
-      }),
-  }));
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -53,6 +62,8 @@ vi.mock("#/features/venue-requests/server-fns", () => ({
   createVenueHold: mockCreateHold,
   releaseVenueHold: mockReleaseHold,
   convertVenueHold: mockConvertHold,
+  setVenueHoldExpiry: mockSetExpiry,
+  setVenueHoldWarning: mockSetWarning,
 }));
 
 vi.mock("sonner", () => ({
@@ -130,6 +141,21 @@ const scheduleWithUnownedHold: VenueAvailability = {
     },
   ],
 };
+
+const withExpiry = (expiresAt: string | null, warnAt: string | null, canSetWarning: boolean) => ({
+  ...scheduleWithHold,
+  occupied: [{ ...scheduleWithHold.occupied[0], expiresAt, warnAt, canSetWarning }],
+});
+const renderAs = (user: SessionUser, schedule: VenueAvailability) =>
+  render(
+    <VenueCalendarPage
+      venues={[venue]}
+      schedule={schedule}
+      search={{ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-06" }}
+      user={user}
+      coordinatorEvents={[]}
+    />
+  );
 
 describe("venue hold action components and calendar write-path", () => {
   beforeEach(() => {
@@ -467,6 +493,42 @@ describe("venue hold action components and calendar write-path", () => {
       expect(
         screen.queryByRole("button", { name: "Convert tentative hold to booking request" })
       ).toBeNull();
+    });
+
+    describe("hold expiry (PTR-142)", () => {
+      it("shows the Coordinator the expiry and the warning, and a warning control (AC3)", () => {
+        renderAs(coordinatorUser, withExpiry("2026-10-04T12:00:00", "2026-10-03T09:00:00", true));
+        expect(screen.getByText(/Expires 4 Oct 2026, 12:00/)).toBeTruthy();
+        expect(screen.getByText(/Warning 3 Oct 2026, 09:00/)).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Change warning" })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: /expiry/ })).toBeNull();
+      });
+
+      it("flags a hold without an expiry and offers Venue Staff the setter", async () => {
+        const user = userEvent.setup();
+        renderAs(staffUser, withExpiry(null, null, false));
+        expect(screen.getByText(/No expiry set/)).toBeTruthy();
+        expect(screen.queryByRole("button", { name: /warning/i })).toBeNull();
+
+        await user.click(screen.getByRole("button", { name: "Set expiry" }));
+        await user.type(screen.getByLabelText("Date and time"), "2026-10-04T12:00");
+        await user.click(screen.getByRole("button", { name: "Save" }));
+        await waitFor(() =>
+          expect(mockSetExpiry).toHaveBeenCalledWith({
+            data: { id: "hold-42", expiresAt: "2026-10-04T12:00" },
+          })
+        );
+      });
+
+      it("lets the Coordinator clear the warning", async () => {
+        const user = userEvent.setup();
+        renderAs(coordinatorUser, withExpiry("2026-10-04T12:00:00", "2026-10-03T09:00:00", true));
+        await user.click(screen.getByRole("button", { name: "Change warning" }));
+        await user.click(screen.getByRole("button", { name: "Clear" }));
+        await waitFor(() =>
+          expect(mockSetWarning).toHaveBeenCalledWith({ data: { id: "hold-42", warnAt: null } })
+        );
+      });
     });
   });
 });

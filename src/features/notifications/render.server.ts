@@ -32,6 +32,7 @@ import {
 import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
 import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
 import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
+import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
 import { VenueBlockEmail } from "#/features/emails/components/venue-block-email";
 import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/components/venue-booking-released-by-coordinator-email";
@@ -373,6 +374,14 @@ export function renderNotificationEmail(
         }),
       };
     }
+    case "venue_hold_expiry_changed":
+      return {
+        subject,
+        element: createElement(VenueHoldExpiryEmail, {
+          ...notification.payload,
+          calendarUrl: `${base}${notificationHref(notification) ?? "/venues/availability"}`,
+        }),
+      };
     default: {
       const unhandled: never = notification;
       throw new Error(`No email template for notification kind "${String(unhandled)}"`);

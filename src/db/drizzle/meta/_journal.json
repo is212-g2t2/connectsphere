@@ -365,6 +365,27 @@
       "when": 1792123811388,
       "tag": "0051_cold_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1792257272446,
+      "tag": "0052_long_killraven",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1792257277675,
+      "tag": "0053_public_living_mummy",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792257284561,
+      "tag": "0054_neat_wallow",
+      "breakpoints": true
     }
   ]
 }

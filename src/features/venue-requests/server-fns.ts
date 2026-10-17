@@ -3,8 +3,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission } from "#/features/auth/session";
 import {
   parseVenueHoldConversion,
+  parseVenueHoldExpiry,
   parseVenueHoldId,
   parseVenueHoldInput,
+  parseVenueHoldWarning,
   parseVenueRejectionInput,
   parseVenueAmendmentInput,
   parseVenueReleaseInput,
@@ -261,4 +263,37 @@ export const convertVenueHold = createServerFn({ method: "POST" })
     });
 
     return result;
+  });
+
+/**
+ * PTR-142: Venue Staff set or change a tentative hold's expiry. The handler records who and when,
+ * and tells the event's Coordinator.
+ */
+export const setVenueHoldExpiry = createServerFn({ method: "POST" })
+  .validator(parseVenueHoldExpiry)
+  .middleware([requireVenueDecision])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleSetVenueHoldExpiry }] = await loadHoldsServer();
+    const hold = await handleSetVenueHoldExpiry(data, context.user, db);
+
+    log.info("Venue hold expiry set", {
+      holdId: hold.id,
+      expiresAt: hold.expiresAt,
+      actorId: context.user.id,
+    });
+
+    return hold;
+  });
+
+/** PTR-142: the event's Coordinator sets or clears the hold's warning instant. */
+export const setVenueHoldWarning = createServerFn({ method: "POST" })
+  .validator(parseVenueHoldWarning)
+  .middleware([requireVenueRequest])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleSetVenueHoldWarning }] = await loadHoldsServer();
+    const hold = await handleSetVenueHoldWarning(data, context.user, db);
+
+    log.info("Venue hold warning set", { holdId: hold.id, actorId: context.user.id });
+
+    return hold;
   });

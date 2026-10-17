@@ -42,6 +42,8 @@ export const NOTIFICATION_KINDS = [
   "venue_block_changed",
   /** PTR-137: the Coordinator released a booking that a venue block had suspended. */
   "venue_booking_released_by_coordinator",
+  /** PTR-142 AC2, AC4: Venue Staff set or changed a tentative hold's expiry; told to its Coordinator. */
+  "venue_hold_expiry_changed",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -297,6 +299,21 @@ const payloadSchemas = {
     endsAt: z.string(),
     reason: z.string(),
   }),
+  /**
+   * PTR-142 AC2, AC4: Venue Staff set, extended or shortened a tentative hold's expiry, told to the
+   * event's assigned Coordinator. Times are venue-local floating strings. The copy names the venue
+   * and the hold's period, never the staff member.
+   */
+  venue_hold_expiry_changed: z.object({
+    venueHoldId: z.string().min(1),
+    venueName: z.string(),
+    startsAt: z.string(),
+    endsAt: z.string(),
+    action: z.enum(["set", "extended", "shortened"]),
+    expiresAt: z.string(),
+    previousExpiresAt: z.string().nullable(),
+    warnAt: z.string().nullable(),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -401,6 +418,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("venue_booking_released_by_coordinator"),
     payload: payloadSchemas.venue_booking_released_by_coordinator,
   }),
+  z.object({
+    kind: z.literal("venue_hold_expiry_changed"),
+    payload: payloadSchemas.venue_hold_expiry_changed,
+  }),
 ]);
 
 /**
@@ -488,6 +509,8 @@ export function notificationSummary(notification: NotificationPayload): string {
         : `Venue available again: ${notification.payload.venueName}`;
     case "venue_booking_released_by_coordinator":
       return `Venue booking released by the Coordinator: ${notification.payload.venueName}`;
+    case "venue_hold_expiry_changed":
+      return `Tentative hold expiry ${notification.payload.action}: ${notification.payload.venueName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -591,6 +614,9 @@ export function notificationHref(
       // The venue bookings view is the Venue Staff landing page. It lists approved bookings, so
       // the released row itself is not shown there.
       return "/venue-bookings";
+    case "venue_hold_expiry_changed":
+      // The venue calendar shows the hold with its expiry and warning (PTR-142 AC3).
+      return "/venues/availability";
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -645,6 +671,7 @@ export function notificationReachable(
     case "event_change_processed":
     case "venue_block_changed":
     case "venue_booking_released_by_coordinator":
+    case "venue_hold_expiry_changed":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

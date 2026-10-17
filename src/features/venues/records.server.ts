@@ -487,6 +487,8 @@ export type VenueHold = AvailabilityRecord & {
   heldById: string | null;
   assignedCoordinatorId: string | null;
   eventStatus: EventRequestStatus;
+  expiresAt: string | null;
+  warnAt: string | null;
 };
 
 /**
@@ -520,6 +522,8 @@ export async function loadVenueHolds(
       heldById: venueHolds.heldById,
       assignedCoordinatorId: eventRequests.assignedCoordinatorId,
       eventStatus: eventRequests.status,
+      expiresAt: venueHolds.expiresAt,
+      warnAt: venueHolds.warnAt,
     })
     .from(venueHolds)
     .innerJoin(eventRequests, eq(venueHolds.eventId, eventRequests.id))
@@ -543,6 +547,8 @@ export async function loadVenueHolds(
     heldById: row.heldById,
     assignedCoordinatorId: row.assignedCoordinatorId,
     eventStatus: row.eventStatus,
+    expiresAt: row.expiresAt === null ? null : normalizeDatabaseTimestamp(row.expiresAt),
+    warnAt: row.warnAt === null ? null : normalizeDatabaseTimestamp(row.warnAt),
   }));
 }
 
@@ -733,6 +739,9 @@ export async function handleGetVenueAvailability(
     ...hold,
     canRelease: canReleaseHold(hold, viewerId),
     convertDefaults: convertDefaults.get(hold.eventId),
+    // The warning is the Coordinator's own setting, so only the assignee reads it (PTR-142 AC3).
+    warnAt: viewerId !== "" && hold.assignedCoordinatorId === viewerId ? hold.warnAt : null,
+    canSetWarning: viewerId !== "" && hold.assignedCoordinatorId === viewerId,
   }));
 
   return {

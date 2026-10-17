@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { can } from "#/features/auth/permissions";
+import { formatLocalDateTime } from "#/features/event-requests/format";
 import type { SessionUser } from "#/features/auth/session";
 import {
   ConvertVenueHoldButton,
@@ -28,6 +29,10 @@ import {
   LiftVenueBlockButton,
   RecordVenueBlockDialog,
 } from "#/features/venues/components/venue-block-actions";
+import {
+  SetVenueHoldExpiryButton,
+  SetVenueHoldWarningButton,
+} from "#/features/venue-requests/components/hold-time-dialog";
 import type { CoordinatorEventOption } from "#/features/venue-requests/components/venue-hold-actions";
 import {
   compareTimestamps,
@@ -186,6 +191,7 @@ export function VenueCalendarPage({
   }, [schedule]);
 
   const canHold = user ? can(user.role, { venue_request: ["request"] }) : false;
+  const canSetExpiry = user ? can(user.role, { venue_request: ["decide"] }) : false;
   const canBlock = user ? can(user.role, { venue: ["update"] }) : false;
 
   return (
@@ -403,6 +409,11 @@ export function VenueCalendarPage({
                         <p className="body-sm text-muted-foreground">
                           {timeRange(period)} · {schedule.venue.name}
                         </p>
+                        {period.state === "tentative_hold" && (
+                          <p className="body-sm text-muted-foreground">
+                            {holdExpiryText(period.expiresAt, period.warnAt)}
+                          </p>
+                        )}
                       </div>
                       {period.state !== "available" && (
                         <Badge variant={OCCUPIED_STATES[period.state].variant}>
@@ -423,6 +434,18 @@ export function VenueCalendarPage({
                             {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
                           </div>
                         )}
+                      {period.state === "tentative_hold" && period.id && canSetExpiry && (
+                        <SetVenueHoldExpiryButton
+                          holdId={period.id}
+                          expiresAt={period.expiresAt ?? null}
+                        />
+                      )}
+                      {period.state === "tentative_hold" && period.id && period.canSetWarning && (
+                        <SetVenueHoldWarningButton
+                          holdId={period.id}
+                          warnAt={period.warnAt ?? null}
+                        />
+                      )}
                       {period.state === "blocked" && period.id && canBlock && (
                         <LiftVenueBlockButton
                           blockId={period.id}
@@ -462,6 +485,15 @@ export function VenueCalendarPage({
       )}
     </Page>
   );
+}
+
+/** PTR-142 AC3: the expiry and the warning instant beside a hold, as the venue wall clock reads. */
+function holdExpiryText(expiresAt: string | null | undefined, warnAt: string | null | undefined) {
+  const parts = [
+    expiresAt ? `Expires ${formatLocalDateTime(expiresAt.slice(0, 16))}` : "No expiry set",
+  ];
+  if (warnAt) parts.push(`Warning ${formatLocalDateTime(warnAt.slice(0, 16))}`);
+  return parts.join(" · ");
 }
 
 /**
