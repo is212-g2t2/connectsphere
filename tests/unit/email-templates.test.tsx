@@ -23,6 +23,7 @@ import { HandoverRequestEmail } from "#/features/emails/components/handover-requ
 import { ResetPasswordEmail } from "#/features/emails/components/reset-password-email";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
 import { VenueBlockEmail } from "#/features/emails/components/venue-block-email";
+import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
 import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/components/venue-booking-released-by-coordinator-email";
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
@@ -557,6 +558,36 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Community workshop");
     expect(html).toContain("The deposit is non-refundable.");
     expect(html).toContain("http://localhost:3000/events/42");
+  });
+
+  it("renders the hold expiry email with the stored warning, or without one (PTR-142)", async () => {
+    const props = {
+      venueName: "Harbour Hall",
+      startsAt: "2026-10-12 14:00:00",
+      endsAt: "2026-10-12 17:00:00",
+      expiresAt: "2026-10-10 12:00:00",
+      calendarUrl: "http://localhost:3000/venues/availability",
+    };
+    const extended = await render(
+      <VenueHoldExpiryEmail
+        {...props}
+        action="extended"
+        previousExpiresAt="2026-10-08 12:00:00"
+        warnAt="2026-10-07 09:00:00"
+      />
+    );
+    expect(extended).toContain("Expiry extended on your tentative hold");
+    expect(extended).toContain("now expires on 10 October 2026, 12:00");
+    expect(extended).toContain("previously expired on 8 October 2026, 12:00");
+    expect(extended).toContain("warning time stays at 7 October 2026, 09:00");
+    expect(extended).toContain("http://localhost:3000/venues/availability");
+
+    const first = await render(
+      <VenueHoldExpiryEmail {...props} action="set" previousExpiresAt={null} warnAt={null} />
+    );
+    expect(first).toContain("Expiry set on your tentative hold");
+    expect(first).not.toContain("previously expired");
+    expect(first).toContain("have not set a warning time");
   });
 
   it("renders the venue block email open-ended and finite", async () => {

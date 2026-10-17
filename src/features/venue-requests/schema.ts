@@ -606,3 +606,45 @@ export function isVenueConflictMessage(message: string): boolean {
 
 export const parseVenueHoldInput = parseVenueRequestInput;
 export const parseVenueHoldId = parseVenueRequestId;
+
+export const VENUE_HOLD_EXPIRY_MESSAGE = "Enter a valid expiry date and time";
+export const VENUE_HOLD_WARNING_MESSAGE = "Enter a valid warning date and time";
+export const VENUE_HOLD_EXPIRY_PAST_MESSAGE = "The expiry must be in the future";
+export const VENUE_HOLD_WARNING_ORDER_MESSAGE = "The warning must come before the hold expires";
+/** Venue Staff cannot read the warning, so their refusal names no time. */
+export const VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE =
+  "The expiry must come after the Coordinator's warning time";
+
+/** The shape of `<input type="datetime-local">`: venue-local, no seconds, no offset. */
+const HoldLocalDateTime = (message: string) =>
+  z.iso.datetime({ local: true, error: message }).regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, message);
+
+/**
+ * PTR-142 AC1: Venue Staff set or change the expiry of a hold. The expiry is a venue-local wall
+ * clock, like the hold's own period.
+ */
+export const VenueHoldExpiryInput = z.object({
+  id: VenueRequestIdInput.shape.id,
+  expiresAt: HoldLocalDateTime(VENUE_HOLD_EXPIRY_MESSAGE),
+});
+
+export function parseVenueHoldExpiry(data: unknown): z.infer<typeof VenueHoldExpiryInput> {
+  const parsed = VenueHoldExpiryInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+
+/**
+ * PTR-142 AC3: the Coordinator sets a hold's warning instant, or clears it with `null`. It is an
+ * absolute time, not an offset from the expiry.
+ */
+export const VenueHoldWarningInput = z.object({
+  id: VenueRequestIdInput.shape.id,
+  warnAt: HoldLocalDateTime(VENUE_HOLD_WARNING_MESSAGE).nullable(),
+});
+
+export function parseVenueHoldWarning(data: unknown): z.infer<typeof VenueHoldWarningInput> {
+  const parsed = VenueHoldWarningInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}

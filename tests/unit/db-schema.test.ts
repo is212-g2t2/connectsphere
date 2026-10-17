@@ -129,7 +129,7 @@ describe("Database Schema Definitions", () => {
   });
 
   it("defines the venue hold columns and status enum (PTR-109)", () => {
-    expect([...schema.venueHoldStatus.enumValues]).toEqual(["held", "released"]);
+    expect([...schema.venueHoldStatus.enumValues]).toEqual(["held", "released", "expired"]);
     const columns = getTableColumns(schema.venueHolds);
     expect(columns.eventId.name).toBe("event_id");
     expect(columns.venueId.name).toBe("venue_id");
@@ -140,6 +140,16 @@ describe("Database Schema Definitions", () => {
     expect(columns.heldById.notNull).toBe(false);
     expect(columns.releasedById.name).toBe("released_by_id");
     expect(columns.releasedById.notNull).toBe(false);
+    // PTR-142: a hold may have no expiry or warning yet, and audits its latest expiry change.
+    expect(columns.expiresAt.name).toBe("expires_at");
+    expect(columns.expiresAt.notNull).toBe(false);
+    expect(columns.warnAt.name).toBe("warn_at");
+    expect(columns.warnAt.notNull).toBe(false);
+    expect(columns.expiryChangedById.name).toBe("expiry_changed_by_id");
+    expect(columns.expiryChangedAt.name).toBe("expiry_changed_at");
+    expect(getTableConfig(schema.venueHolds).checks.map(check => check.name)).toContain(
+      "venue_holds_warn_before_expiry"
+    );
   });
 
   it("defines the venue occupancy ledger columns (PTR-133)", () => {
