@@ -438,6 +438,14 @@ describe("notification hrefs (PTR-55 AC4)", () => {
         action: "removed",
       })
     ).toBeNull();
+    // A hold that ends on a later day links to the calendar for both days.
+    const overnight = parse("venue_hold_expiry_changed", {
+      ...validPayloads.venue_hold_expiry_changed,
+      endsAt: "2026-10-13 02:00:00",
+    });
+    expect(notificationHref({ ...overnight, eventRequestId: 7 })).toBe(
+      "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-13"
+    );
   });
 
   it("sends every kind to its default surface with no facts", () => {

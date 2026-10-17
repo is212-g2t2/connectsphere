@@ -270,6 +270,7 @@ describe("tentative hold expiry (PTR-142)", () => {
       .set({ status: "released" })
       .where(eq(schema.venueHolds.id, holdId));
     await expect(setExpiry("2099-06-10T12:00")).rejects.toThrow("already been released");
+    await expect(setWarning("2099-06-09T09:00")).rejects.toThrow("already been released");
     await expect(setExpiry("tomorrow")).rejects.toThrow("Enter a valid expiry date and time");
   });
 });
