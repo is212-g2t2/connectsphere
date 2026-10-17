@@ -611,6 +611,9 @@ export const VENUE_HOLD_EXPIRY_MESSAGE = "Enter a valid expiry date and time";
 export const VENUE_HOLD_WARNING_MESSAGE = "Enter a valid warning date and time";
 export const VENUE_HOLD_EXPIRY_PAST_MESSAGE = "The expiry must be in the future";
 export const VENUE_HOLD_WARNING_ORDER_MESSAGE = "The warning must come before the hold expires";
+/** Venue Staff cannot read the warning, so their refusal names no time. */
+export const VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE =
+  "The expiry must come after the Coordinator's warning time";
 
 /** The shape of `<input type="datetime-local">`: venue-local, no seconds, no offset. */
 const HoldLocalDateTime = (message: string) =>

@@ -137,6 +137,7 @@ const validPayloads = {
   },
   venue_hold_expiry_changed: {
     venueHoldId: "hold-1",
+    venueId: 3,
     venueName: "Harbour Hall",
     startsAt: "2026-10-12 14:00:00",
     endsAt: "2026-10-12 17:00:00",
@@ -469,7 +470,8 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       event_change_processed: "/events/7",
       venue_block_changed: "/events/7",
       venue_booking_released_by_coordinator: "/venue-bookings",
-      venue_hold_expiry_changed: "/venues/availability",
+      venue_hold_expiry_changed:
+        "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

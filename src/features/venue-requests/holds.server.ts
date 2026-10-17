@@ -15,6 +15,7 @@ import {
 import { venueLocalTimestamp } from "#/features/venues/availability";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
+  VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE,
   VENUE_HOLD_EXPIRY_PAST_MESSAGE,
   VENUE_HOLD_WARNING_ORDER_MESSAGE,
   parseVenueHoldConversion,
@@ -302,14 +303,15 @@ export async function handleSetVenueHoldExpiry(
 
   const result = await database.transaction(async tx => {
     // Lock the event before the venue, as every hold writer does.
-    await keyShareEventForHold(tx, id);
+    const locked = await keyShareEventForHold(tx, id);
+    if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const hold = await lockHold(tx, id);
     if (hold.status !== "held") throw new ConflictError("This hold has already been released.");
     if (stored <= venueLocalTimestamp(new Date())) {
       throw new ConflictError(VENUE_HOLD_EXPIRY_PAST_MESSAGE);
     }
     if (hold.warnAt !== null && stored <= hold.warnAt) {
-      throw new ConflictError(VENUE_HOLD_WARNING_ORDER_MESSAGE);
+      throw new ConflictError(VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE);
     }
     if (hold.expiresAt === stored) return { hold, notified: true };
 
@@ -329,6 +331,7 @@ export async function handleSetVenueHoldExpiry(
         kind: "venue_hold_expiry_changed",
         payload: {
           venueHoldId: id,
+          venueId: hold.venueId,
           venueName: venue.name,
           startsAt: hold.startsAt,
           endsAt: hold.endsAt,
@@ -361,7 +364,8 @@ export async function handleSetVenueHoldWarning(
   const stored = warnAt === null ? null : `${warnAt.replace("T", " ")}:00`;
 
   return database.transaction(async tx => {
-    await keyShareEventForHold(tx, id);
+    const locked = await keyShareEventForHold(tx, id);
+    if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const hold = await lockHold(tx, id);
     if (hold.assignedCoordinatorId !== actor.id) throw new AuthorizationError("Forbidden");
     if (hold.status !== "held") throw new ConflictError("This hold has already been released.");

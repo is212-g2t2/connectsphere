@@ -282,7 +282,9 @@ export const setVenueHoldExpiry = createServerFn({ method: "POST" })
       actorId: context.user.id,
     });
 
-    return hold;
+    // Return no more than the caller may read. The row carries the Coordinator's warning and
+    // the hold's owner ids, which Venue Staff must not see.
+    return { id: hold.id, expiresAt: hold.expiresAt };
   });
 
 /** PTR-142: the event's Coordinator sets or clears the hold's warning instant. */
@@ -295,5 +297,5 @@ export const setVenueHoldWarning = createServerFn({ method: "POST" })
 
     log.info("Venue hold warning set", { holdId: hold.id, actorId: context.user.id });
 
-    return hold;
+    return { id: hold.id, warnAt: hold.warnAt };
   });

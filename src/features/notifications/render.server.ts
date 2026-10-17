@@ -32,13 +32,13 @@ import {
 import { HandoverAcceptedEmail } from "#/features/emails/components/handover-accepted-email";
 import { HandoverDeclinedEmail } from "#/features/emails/components/handover-declined-email";
 import { HandoverRequestEmail } from "#/features/emails/components/handover-request-email";
-import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
 import { VenueBlockEmail } from "#/features/emails/components/venue-block-email";
 import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/components/venue-booking-released-by-coordinator-email";
 import { VenueBookingChangedEmail } from "#/features/emails/components/venue-booking-changed-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
+import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
 import { notificationHref, notificationSummary } from "#/features/notifications/message";
 import type { NotificationPayload } from "#/features/notifications/message";
 
@@ -379,7 +379,7 @@ export function renderNotificationEmail(
         subject,
         element: createElement(VenueHoldExpiryEmail, {
           ...notification.payload,
-          calendarUrl: `${base}${notificationHref(notification) ?? "/venues/availability"}`,
+          calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     default: {

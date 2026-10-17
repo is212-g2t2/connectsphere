@@ -306,6 +306,7 @@ const payloadSchemas = {
    */
   venue_hold_expiry_changed: z.object({
     venueHoldId: z.string().min(1),
+    venueId: z.int().positive(),
     venueName: z.string(),
     startsAt: z.string(),
     endsAt: z.string(),
@@ -615,8 +616,8 @@ export function notificationHref(
       // the released row itself is not shown there.
       return "/venue-bookings";
     case "venue_hold_expiry_changed":
-      // The venue calendar shows the hold with its expiry and warning (PTR-142 AC3).
-      return "/venues/availability";
+      // The venue calendar, opened on the hold's days, shows its expiry and warning (PTR-142 AC3).
+      return `/venues/availability?venueId=${notification.payload.venueId}&startDate=${notification.payload.startsAt.slice(0, 10)}&endDate=${notification.payload.endsAt.slice(0, 10)}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
