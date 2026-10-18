@@ -8,7 +8,10 @@ import {
   EventCancellationRequestedEmail,
   EventCancelledEmail,
 } from "#/features/emails/components/event-cancellation-email";
-import { EventChangeProcessedEmail } from "#/features/emails/components/event-change-request-email";
+import {
+  EventChangeProcessedEmail,
+  EventChangeRequestEmail,
+} from "#/features/emails/components/event-change-request-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
 import { EventSubmittedEmail } from "#/features/emails/components/event-submitted-email";
 import { EventSignificantChangeEmail } from "#/features/emails/components/event-significant-change-email";
@@ -427,6 +430,47 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Community workshop");
     expect(html).toContain("asked for this event to be cancelled");
     expect(html).toContain(eventUrl);
+  });
+
+  it("renders the Lead's cancellation copy with the queue link (PTR-144)", async () => {
+    const html = await render(
+      <EventCancellationRequestedEmail
+        eventName="Community workshop"
+        audience="lead"
+        eventUrl="http://localhost:3000/coordination"
+      />
+    );
+
+    expect(html).toContain("waits for assignment");
+    expect(html).toContain("http://localhost:3000/coordination");
+    expect(html).toContain("View the queue");
+  });
+
+  it("renders the change request for the Coordinator, and the queue for a Lead (PTR-144)", async () => {
+    const coordinatorHtml = await render(
+      <EventChangeRequestEmail
+        eventName="Community workshop"
+        whatShouldChange="Expected attendance"
+        requestedValue="120"
+        eventRequestUrl="http://localhost:3000/events/42"
+      />
+    );
+    expect(coordinatorHtml).toContain("requested a change");
+    expect(coordinatorHtml).toContain("Expected attendance");
+    expect(coordinatorHtml).toContain("Review the request");
+
+    const leadHtml = await render(
+      <EventChangeRequestEmail
+        eventName="Community workshop"
+        whatShouldChange="Expected attendance"
+        requestedValue="120"
+        audience="lead"
+        eventRequestUrl="http://localhost:3000/coordination"
+      />
+    );
+    expect(leadHtml).toContain("waits for assignment");
+    expect(leadHtml).toContain("http://localhost:3000/coordination");
+    expect(leadHtml).toContain("View the queue");
   });
 
   it("renders the cancellation for each party, naming the booking to Venue Staff (PTR-54 AC3, AC4, AC7)", async () => {

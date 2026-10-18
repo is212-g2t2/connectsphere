@@ -1,7 +1,8 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventChangeRequests } from "#/db/schema";
+import { eventChangeRequests, eventRequests } from "#/db/schema";
 import { ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { lockOwnedEvent } from "#/features/event-requests/owned-event.server";
@@ -37,6 +38,16 @@ export async function listEventChangeRequests(
     .from(eventChangeRequests)
     .where(eq(eventChangeRequests.eventRequestId, eventRequestId))
     .orderBy(asc(eventChangeRequests.createdAt), asc(eventChangeRequests.id));
+}
+
+/**
+ * PTR-52 AC1 / PTR-144: how many change requests of the event still wait. The regression of the
+ * coordinator's assigned list and the Lead's unassigned queue read this, so the count has one home.
+ */
+export function changeRequestsWaitingSql(): SQL<number> {
+  return sql<number>`(select count(*) from ${eventChangeRequests} where ${eventChangeRequests.eventRequestId} = ${eventRequests.id} and ${eventChangeRequests.outcome} is null)`.mapWith(
+    Number
+  );
 }
 
 /**

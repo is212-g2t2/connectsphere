@@ -1365,6 +1365,13 @@ describe("server-function authorization (PTR-69)", () => {
         body: "Forbidden",
       });
 
+      // The middleware refuses before the validator runs: an empty payload gets the same answer.
+      signIn("venue_staff");
+      expect(await refusalFrom(getOversightRequest, {}, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+
       signIn("event_coordinator_lead");
       expect((await call(getOversightRequest, { id: 1 }, "GET")).error).toBeUndefined();
     });

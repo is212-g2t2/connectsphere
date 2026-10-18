@@ -1,7 +1,8 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventCancellationRequests } from "#/db/schema";
+import { eventCancellationRequests, eventRequests } from "#/db/schema";
 import { ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { lockOwnedEvent } from "#/features/event-requests/owned-event.server";
@@ -36,6 +37,14 @@ export async function listEventCancellationRequests(
     .from(eventCancellationRequests)
     .where(eq(eventCancellationRequests.eventRequestId, eventRequestId))
     .orderBy(asc(eventCancellationRequests.createdAt), asc(eventCancellationRequests.id));
+}
+
+/**
+ * PTR-144 AC2: whether the event has a live cancellation request. The Lead's unassigned queue
+ * reads it, so the predicate has one home.
+ */
+export function cancellationRequestedSql(): SQL<boolean> {
+  return sql<boolean>`exists (select 1 from ${eventCancellationRequests} where ${eventCancellationRequests.eventRequestId} = ${eventRequests.id} and ${eventCancellationRequests.outcome} is null)`;
 }
 
 /**

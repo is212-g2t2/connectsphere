@@ -6,6 +6,7 @@ import type { EventProjection } from "#/features/events/access";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 import {
+  formatInstant,
   formatLocalDate,
   formatLocalDateTime,
   formatProposedWindow,
@@ -153,6 +154,18 @@ function LeadInformation({ event }: { event: EventProjection["event"] }) {
                 "Not required"
               )}
             </Detail>
+
+            {event.confirmation ? (
+              <Detail term="Booking" wide>
+                {event.confirmation.venue
+                  ? `${event.confirmation.venue.name}, ${formatLocalDate(
+                      event.confirmation.venue.date
+                    )}, ${event.confirmation.venue.startTime}–${event.confirmation.venue.endTime}. `
+                  : "The booking has been released. "}
+                Confirmed {formatInstant(new Date(event.confirmation.confirmedAt))} by{" "}
+                {event.confirmation.confirmedByName}.
+              </Detail>
+            ) : null}
           </dl>
         </CardContent>
       </Card>

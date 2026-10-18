@@ -1,17 +1,17 @@
-import { and, asc, desc, eq, getTableColumns, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import {
-  clarificationRequests,
-  eventCancellationRequests,
-  eventChangeRequests,
-  eventRequests,
-  user as users,
-} from "#/db/schema";
+import { clarificationRequests, eventRequests, user as users } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
-import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
+import {
+  cancellationRequestedSql,
+  listEventCancellationRequests,
+} from "#/features/event-requests/cancellation-requests.server";
+import {
+  changeRequestsWaitingSql,
+  listEventChangeRequests,
+} from "#/features/event-requests/change-requests.server";
 import { listLeadIds } from "#/features/event-requests/leads.server";
 import {
   ALREADY_SUBMITTED_MESSAGE,
@@ -274,11 +274,8 @@ export async function handleListUnassignedEventRequests(
     .select({
       ...getTableColumns(eventRequests),
       organiser: { name: users.name, email: users.email },
-      changeRequestsWaiting:
-        sql<number>`(select count(*) from ${eventChangeRequests} where ${eventChangeRequests.eventRequestId} = ${eventRequests.id} and ${eventChangeRequests.outcome} is null)`.mapWith(
-          Number
-        ),
-      cancellationRequested: sql<boolean>`exists (select 1 from ${eventCancellationRequests} where ${eventCancellationRequests.eventRequestId} = ${eventRequests.id} and ${eventCancellationRequests.outcome} is null)`,
+      changeRequestsWaiting: changeRequestsWaitingSql(),
+      cancellationRequested: cancellationRequestedSql(),
     })
     .from(eventRequests)
     .innerJoin(users, eq(users.id, eventRequests.organiserId))

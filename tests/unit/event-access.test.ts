@@ -48,7 +48,7 @@ describe("event access", () => {
     expect(getEventAccess({ ...relationship, role, userId: "unrelated-user" })).toBeNull();
   });
 
-  it("grants the lead every event with no relationship check", () => {
+  it("grants the lead every non-draft event with no relationship check", () => {
     expect(getEventAccess({ ...relationship, role: "event_coordinator_lead" })).toBe("lead");
     expect(
       getEventAccess({
@@ -56,9 +56,12 @@ describe("event access", () => {
         role: "event_coordinator_lead",
         userId: "unrelated-user",
         assignedCoordinatorId: null,
-        status: "draft",
       })
     ).toBe("lead");
+    // A draft never reaches a projection, so the helper fails closed on it (PTR-144).
+    expect(
+      getEventAccess({ ...relationship, role: "event_coordinator_lead", status: "draft" })
+    ).toBeNull();
   });
 
   it("still grants the lead an unassigned event; the projection flag carries the assignment", () => {

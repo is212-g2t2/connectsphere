@@ -306,7 +306,7 @@ describe("venue section", () => {
     }
   });
 
-  it("shows the triage venue entries with the rejection reason and the adjust link", () => {
+  it("shows the triage venue entries read-only, with the rejection reason and no adjust link", () => {
     const data = {
       kind: "triage",
       viewerId: "viewer-1",
@@ -319,7 +319,6 @@ describe("venue section", () => {
         venueRequirements: "10 power sockets, whiteboards",
         venueRequests: [{ ...approvedEntry }, { ...rejectedAdjustable }],
       },
-      coordinators: [],
     } as unknown as EventPageData;
     const defs = venueSections(data);
     expect(defs).toHaveLength(1);
@@ -328,7 +327,8 @@ describe("venue section", () => {
 
     expect(screen.getByRole("heading", { name: "Venue" })).toBeTruthy();
     expect(screen.getByText("The main hall is being rewired that weekend.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Adjust request at Harbor Hall" })).toBeTruthy();
+    // PTR-144: the Lead reads this detail; the Coordinator's adjust action must not render.
+    expect(screen.queryByRole("link", { name: /Adjust request/ })).toBeNull();
   });
 
   it("hides the triage adjust link when the rejected entry is not adjustable", () => {
@@ -344,7 +344,6 @@ describe("venue section", () => {
         venueRequirements: "10 power sockets, whiteboards",
         venueRequests: [{ ...rejectedAnswered }, { ...approvedEntry }],
       },
-      coordinators: [],
     } as unknown as EventPageData;
     const defs = venueSections(data);
     render(<>{defs[0].render(data)}</>);

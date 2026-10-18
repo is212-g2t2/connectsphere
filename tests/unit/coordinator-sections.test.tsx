@@ -407,7 +407,9 @@ describe("changes section", () => {
       "changes"
     );
     expect(screen.getByText("Move the start to 10:00.")).toBeTruthy();
+  });
 
+  it("shows the history read-only in the Lead's triage, without the decisions", () => {
     const triage = triageData(
       coordinationRequest({ status: "submitted", changeRequests: history })
     );
@@ -415,7 +417,11 @@ describe("changes section", () => {
       coordinatorSections(triage)
         .find(section => section.id === "changes")
         ?.visible(triage)
-    ).toBe(false);
+    ).toBe(true);
+    renderSection(triage, "changes");
+    expect(screen.getByText("Move the start to 10:00.")).toBeTruthy();
+    // The decisions card needs an assignee, so triage carries no action.
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
   it("renders nothing with no change history", () => {
@@ -548,16 +554,21 @@ describe("cancellation section", () => {
     expect(screen.getByRole("button", { name: "Decline request" })).toBeTruthy();
   });
 
-  it("renders nothing in triage and with no waiting request", () => {
+  it("shows the Lead the read-only history in triage, and nothing with no waiting request", () => {
     const triage = triageData(
-      coordinationRequest({ status: "planning", cancellationRequests: waiting })
+      coordinationRequest({ status: "submitted", cancellationRequests: waiting })
     );
     expect(
       coordinatorSections(triage)
         .find(section => section.id === "cancellation")
         ?.visible(triage)
-    ).toBe(false);
+    ).toBe(true);
+    renderSection(triage, "cancellation");
+    expect(screen.getByRole("heading", { name: "Cancellation requests" })).toBeTruthy();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
 
+  it("renders nothing with no waiting request", () => {
     const settled = renderSection(
       eventData("planning", owned({ status: "planning" })),
       "cancellation"

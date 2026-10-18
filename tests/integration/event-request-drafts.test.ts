@@ -2255,6 +2255,11 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-110, PTR-144)
       await expect(
         handleGetCoordinationRequest({ id: submitted.id }, coordinator, database as never)
       ).resolves.toMatchObject({ assignedCoordinatorId: coordinator.id });
+
+      // PTR-144: the Lead's read is the queue detail, so an assigned request is refused too.
+      await expect(
+        handleGetCoordinationRequest({ id: submitted.id }, lead, database as never)
+      ).rejects.toMatchObject({ status: 403, message: "Forbidden" });
     });
 
     it("queues the organiser receipt and one notice per Lead on submission", async () => {

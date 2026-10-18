@@ -6,6 +6,7 @@ import {
 } from "#/features/coordination/server-fns";
 import { listEquipmentTypes } from "#/features/equipment-requests/server-fns";
 import { getEventRequest } from "#/features/event-requests/server-fns";
+import { isReviewStatus } from "#/features/event-requests/schema";
 import { hasAttendeePage } from "#/features/events/access";
 import type { EventProjection, RegisteredAttendee } from "#/features/events/access";
 import { hasRegistrationRecord } from "#/features/events/components/registrations-section";
@@ -71,10 +72,11 @@ export async function loadEventPageData(
       return { kind: "event", event: projection, viewerId, coordination, attendees };
     }
     case "lead": {
-      // PTR-144: an unassigned event opens the read-only queue detail, which carries the
-      // organiser, the purpose, and the request record. An assigned event opens the projection
-      // page. Neither offers a coordination action.
-      if (projection.event.awaitingAssignment === true) {
+      // PTR-144: an unassigned request in a review stage opens the read-only queue detail, which
+      // carries the organiser, the purpose, and the request record. Every other event opens the
+      // projection page — including one whose Coordinator account was deleted after approval.
+      // Neither offers a coordination action.
+      if (projection.event.awaitingAssignment === true && isReviewStatus(projection.event.status)) {
         return loadTriage(eventId, role, viewerId);
       }
       return { kind: "event", event: projection, viewerId };

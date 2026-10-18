@@ -17,7 +17,10 @@ export async function listLeadIds(database: Pick<Database, "select">): Promise<s
   const rows = await database
     .select({ id: user.id })
     .from(user)
-    .where(eq(user.role, "event_coordinator_lead"));
+    .where(eq(user.role, "event_coordinator_lead"))
+    // Hold the referenced accounts while the caller writes their notifications, as the
+    // coordination readers do: a deletion racing the insert must not surface as an FK violation.
+    .for("share");
 
   return rows.map(row => row.id);
 }

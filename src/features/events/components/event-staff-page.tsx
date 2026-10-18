@@ -178,8 +178,8 @@ export function TriagePage({ data }: { data: Extract<EventPageData, { kind: "tri
 
   return (
     <Page width="wide">
-      <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
-        Back to dashboard
+      <Link to="/coordination" className={NAV_LINK_CLASSNAME}>
+        Back to coordination
       </Link>
 
       <div className="mt-6">

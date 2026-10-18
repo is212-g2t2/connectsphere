@@ -120,7 +120,7 @@ const payloadSchemas = {
     whatShouldChange: z.string(),
     requestedValue: z.string(),
     /** PTR-144: unassigned events fan out to Leads, who wait for assignment. Absent before this story. */
-    audience: z.enum(["coordinator", "lead"]).optional(),
+    audience: z.literal("lead").optional(),
   }),
   handover_requested: z.object({
     eventName: z.string(),
@@ -209,7 +209,7 @@ const payloadSchemas = {
   event_cancellation_requested: z.object({
     eventName: z.string(),
     /** PTR-144: unassigned events fan out to Leads, who wait for assignment. Absent before this story. */
-    audience: z.enum(["coordinator", "lead"]).optional(),
+    audience: z.literal("lead").optional(),
   }),
   /**
    * PTR-54 AC3, AC4, AC7: the event is cancelled, told to each party in their own words. The Venue

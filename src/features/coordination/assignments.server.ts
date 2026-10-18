@@ -1,31 +1,23 @@
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  getTableColumns,
-  inArray,
-  isNull,
-  ne,
-  notInArray,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray, isNull, ne, notInArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import {
   clarificationRequests,
   eventAssignments,
-  eventChangeRequests,
   eventHandovers,
   equipmentRequests,
   eventRequests,
   user,
 } from "#/db/schema";
+import { can } from "#/features/auth/permissions";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
-import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
+import {
+  changeRequestsWaitingSql,
+  listEventChangeRequests,
+} from "#/features/event-requests/change-requests.server";
 import { loadOutstandingReleases } from "#/features/events/arrangements.server";
 import { hasBlockedArrangementSql } from "#/features/venues/blocked-arrangements.server";
 import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
@@ -78,10 +70,7 @@ export async function handleListAssignedEventRequests(actor: SessionUser, databa
       /** PTR-137 AC1: a live venue block has suspended one of the event's bookings or holds. */
       venueBlocked: hasBlockedArrangementSql(eventRequests.id, eventRequests.status),
       /** PTR-52 AC1: the Organiser's change requests still waiting on this Coordinator. */
-      changeRequestsWaiting:
-        sql<number>`(select count(*) from ${eventChangeRequests} where ${eventChangeRequests.eventRequestId} = ${eventRequests.id} and ${eventChangeRequests.outcome} is null)`.mapWith(
-          Number
-        ),
+      changeRequestsWaiting: changeRequestsWaitingSql(),
     })
     .from(eventRequests)
     .innerJoin(user, eq(user.id, eventRequests.organiserId))
@@ -114,8 +103,9 @@ export async function handleListCoordinators(database: Database) {
 
 /**
  * Re-reads ownership on every request; a previous assignment never confers access. PTR-144: the
- * assigned Coordinator reads their own assignment, and the Lead reads every event read-only.
- * A coordinator is refused an unassigned request — the id space reveals nothing about the queue.
+ * assigned Coordinator reads their own assignment, and a caller with `event_request:oversee`
+ * reads the unassigned queue detail. A coordinator is refused an unassigned request — the id
+ * space reveals nothing about the queue.
  */
 export async function handleGetCoordinationRequest(
   data: unknown,
@@ -123,7 +113,9 @@ export async function handleGetCoordinationRequest(
   database: Database
 ) {
   const { id } = parseEventRequestId(data);
-  const readsEveryRequest = actor.role === "event_coordinator_lead";
+  // The permission decides the scope, not the role literal: the verb has one owner today, and
+  // this reads the same source of truth as the middleware.
+  const readsQueue = can(actor.role, { event_request: ["oversee"] });
   const rows = await database
     .select({
       ...getTableColumns(eventRequests),
@@ -137,7 +129,9 @@ export async function handleGetCoordinationRequest(
       and(
         eq(eventRequests.id, id),
         ne(eventRequests.status, "draft"),
-        readsEveryRequest ? undefined : eq(eventRequests.assignedCoordinatorId, actor.id)
+        readsQueue
+          ? isNull(eventRequests.assignedCoordinatorId)
+          : eq(eventRequests.assignedCoordinatorId, actor.id)
       )
     );
   const request = rows.at(0);
@@ -286,7 +280,7 @@ export async function handleRequestEventHandover(
  * Locks are taken in the same order as a raise (request, then handover): the unlocked read learns
  * which request to lock first and refuses anyone but the addressee before a lock is taken, so a
  * concurrent raise cannot deadlock against an accept and a wrong actor cannot lock another
- * assignment. An offer whose request moved on (the account was deleted and the request picked up
+ * assignment. An offer whose request moved on (the account was deleted and the request assigned
  * again) is resolved as declined — that still records who answered and when — and refused
  * with 409.
  *

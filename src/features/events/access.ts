@@ -33,10 +33,11 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
   if (input.role === "event_coordinator" && input.assignedCoordinatorId === input.userId) {
     return "coordinator";
   }
-  // PTR-144: the Event Coordinator Lead reads every event, assigned or not. This matches the
-  // `event_coordinator_lead` arm of `connectedEventCondition` in `events/records.server.ts`, which
-  // lists every non-draft event. The projection is read-only and offers no coordination action.
-  if (input.role === "event_coordinator_lead") return "lead";
+  // PTR-144: the Event Coordinator Lead reads every non-draft event, assigned or not. This
+  // matches the `event_coordinator_lead` arm of `connectedEventCondition` in
+  // `events/records.server.ts`, which lists every non-draft event. The projection is read-only and
+  // offers no coordination action.
+  if (input.role === "event_coordinator_lead" && input.status !== "draft") return "lead";
   if (input.role === "venue_staff" && input.venueStaffIds.includes(input.userId))
     return "venue_staff";
   if (

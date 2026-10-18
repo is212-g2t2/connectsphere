@@ -79,7 +79,7 @@ export function CoordinationPage({
         title={view === "lead" ? "Unassigned requests" : "Coordination"}
         description={
           view === "lead"
-            ? "Every submitted request waits here until a Coordinator is assigned. Open one to read it."
+            ? "Submitted requests that no Coordinator holds yet. Open one to read it."
             : "The requests assigned to you, and the handovers awaiting your answer."
         }
       />
@@ -200,7 +200,7 @@ export function CoordinationPage({
       {view === "lead" && (
         <section aria-labelledby="unassigned-heading">
           <h2 id="unassigned-heading" className="display-h2">
-            Unassigned requests
+            Waiting for a Coordinator
           </h2>
 
           {unassigned.length === 0 ? (

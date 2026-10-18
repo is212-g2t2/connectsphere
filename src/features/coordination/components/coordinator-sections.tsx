@@ -44,6 +44,7 @@ import {
 } from "#/features/coordination/server-fns";
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
 import {
+  CancellationRequestHistory,
   ChangeRequestHistory,
   ClarificationThread,
 } from "#/features/event-requests/components/request-message-blocks";
@@ -52,8 +53,10 @@ import {
   CLARIFICATION_FIELDS,
   CLARIFICATION_TEXT_MAX,
   ClarificationFormSchema,
+  EVENT_REQUEST_REVIEW_STATUSES,
   canRequestEventCancellation,
   canUpdateEventInformation,
+  isReviewStatus,
 } from "#/features/event-requests/schema";
 import type { ClarificationField, EventRequestStatus } from "#/features/event-requests/schema";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
@@ -64,16 +67,9 @@ import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import { skipRootFilter } from "#/lib/invalidate";
 
-/** The review stages: the decision, the clarification thread, and the assignment all live here. */
-const REVIEW_STATUSES: readonly EventRequestStatus[] = [
-  "submitted",
-  "under_review",
-  "awaiting_organiser",
-];
-
 /** The stages with live coordination work: review onward, short of closed. */
 const ACTIVE_STATUSES: readonly EventRequestStatus[] = [
-  ...REVIEW_STATUSES,
+  ...EVENT_REQUEST_REVIEW_STATUSES,
   "approved",
   "planning",
   "confirmed",
@@ -81,30 +77,18 @@ const ACTIVE_STATUSES: readonly EventRequestStatus[] = [
 
 /** A cancellation request with no outcome recorded is still waiting on the Coordinator. */
 function hasPendingCancellation(data: EventPageData): boolean {
-  const requests =
-    data.kind === "triage"
-      ? data.request.cancellationRequests
-      : (data.coordination?.request.cancellationRequests ??
-        data.organiserRequest?.cancellationRequests ??
-        []);
-  return requests.some(request => request.outcome === null);
+  return (coordinationRequest(data)?.cancellationRequests ?? []).some(
+    item => item.outcome === null
+  );
 }
 
 function hasChangeHistory(data: EventPageData): boolean {
-  const requests =
-    data.kind === "triage"
-      ? data.request.changeRequests
-      : (data.coordination?.request.changeRequests ?? data.organiserRequest?.changeRequests ?? []);
-  return requests.length > 0;
+  return (coordinationRequest(data)?.changeRequests ?? []).length > 0;
 }
 
 /** The clarification thread has entries to show, mirroring `MessagesBody`'s null condition. */
 function hasClarifications(data: EventPageData): boolean {
-  const clarifications =
-    data.kind === "triage"
-      ? data.request.clarifications
-      : (data.coordination?.request.clarifications ?? data.organiserRequest?.clarifications ?? []);
-  return clarifications.length > 0;
+  return (coordinationRequest(data)?.clarifications ?? []).length > 0;
 }
 
 /** The request carries outstanding releases, mirroring `ReleasesBody`'s null condition. */
@@ -154,7 +138,7 @@ export function coordinatorSections(data: EventPageData): EventSectionDef[] {
   if (status === null) return [];
   // Triage is the unassigned view; only the assigned event view carries the review flow.
   const assignedView = data.kind === "event";
-  const inReview = REVIEW_STATUSES.some(candidate => candidate === status);
+  const inReview = isReviewStatus(status);
   return [
     {
       id: "request",
@@ -177,7 +161,8 @@ export function coordinatorSections(data: EventPageData): EventSectionDef[] {
     {
       id: "changes",
       label: "Change requests",
-      visible: inner => assignedView && hasChangeHistory(inner),
+      // PTR-144: the Lead reads the history too; the decisions stay on the assigned view.
+      visible: inner => hasChangeHistory(inner),
       render: inner => <ChangesBody data={inner} />,
     },
     {
@@ -192,9 +177,7 @@ export function coordinatorSections(data: EventPageData): EventSectionDef[] {
       id: "cancellation",
       label: "Cancellation request",
       visible: inner =>
-        assignedView &&
-        hasPendingCancellation(inner) &&
-        coordinationRequest(inner)?.status !== "cancelled",
+        hasPendingCancellation(inner) && coordinationRequest(inner)?.status !== "cancelled",
       render: inner => <CancellationBody data={inner} />,
     },
   ];
@@ -903,12 +886,16 @@ function AssignmentForm({
   );
 }
 
-/** The waiting cancellation request, for the assigned Coordinator to cancel or decline. */
+/**
+ * The waiting cancellation request. The assigned Coordinator decides it; the Lead reads the same
+ * record as history, with no action (PTR-144).
+ */
 function CancellationBody({ data }: { data: EventPageData }) {
   const request = coordinationRequest(data);
-  if (!request || !isAssignedView(data, request)) return null;
+  if (!request) return null;
   if (request.status === "cancelled") return null;
   if (!request.cancellationRequests.some(item => item.outcome === null)) return null;
+  if (!isAssignedView(data, request)) return <CancellationRequestHistory request={request} />;
   return (
     <div>
       <h2 className="display-h3">Cancellation request</h2>
