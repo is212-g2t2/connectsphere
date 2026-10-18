@@ -56,7 +56,7 @@ export const ACCESSIBILITY_REQUIREMENTS_MESSAGE = `Accessibility requirements mu
 export const SPECIAL_ARRANGEMENTS_MESSAGE = `Special arrangements must be ${SPECIAL_ARRANGEMENTS_MAX_LENGTH} characters or fewer`;
 export const EQUIPMENT_TYPE_MESSAGE = `Equipment type must be ${EQUIPMENT_TYPE_MAX_LENGTH} characters or fewer`;
 
-const LocalDateTime = (message: string) =>
+export const LocalDateTime = (message: string) =>
   z.iso.datetime({ local: true, error: message }).regex(LOCAL_DATE_TIME_SHAPE, message);
 
 /**

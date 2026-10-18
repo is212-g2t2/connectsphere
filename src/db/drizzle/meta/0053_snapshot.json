@@ -1,5 +1,5 @@
 {
-  "id": "e1809df5-ab64-4205-b2e9-2b2643b2113a",
+  "id": "db9dec33-7462-4e00-b166-400fdfb77157",
   "prevId": "68eadad5-73d6-4426-a070-36a84dd422a5",
   "version": "7",
   "dialect": "postgresql",
@@ -1899,6 +1899,30 @@
           "notNull": true,
           "default": "'held'"
         },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warn_at": {
+          "name": "warn_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expiry_changed_by_id": {
+          "name": "expiry_changed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expiry_changed_at": {
+          "name": "expiry_changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "held_by_id": {
           "name": "held_by_id",
           "type": "text",
@@ -1984,6 +2008,21 @@
           "method": "btree",
           "with": {}
         },
+        "venue_holds_expiry_changed_by_id_idx": {
+          "name": "venue_holds_expiry_changed_by_id_idx",
+          "columns": [
+            {
+              "expression": "expiry_changed_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "venue_holds_held_by_id_idx": {
           "name": "venue_holds_held_by_id_idx",
           "columns": [
@@ -2034,6 +2073,15 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
+        "venue_holds_expiry_changed_by_id_user_id_fk": {
+          "name": "venue_holds_expiry_changed_by_id_user_id_fk",
+          "tableFrom": "venue_holds",
+          "tableTo": "user",
+          "columnsFrom": ["expiry_changed_by_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "venue_holds_held_by_id_user_id_fk": {
           "name": "venue_holds_held_by_id_user_id_fk",
           "tableFrom": "venue_holds",
@@ -2068,6 +2116,10 @@
         "venue_holds_turnaround_minutes_nonnegative": {
           "name": "venue_holds_turnaround_minutes_nonnegative",
           "value": "\"venue_holds\".\"turnaround_minutes\" >= 0"
+        },
+        "venue_holds_warn_before_expiry": {
+          "name": "venue_holds_warn_before_expiry",
+          "value": "\"venue_holds\".\"warn_at\" is null or (\"venue_holds\".\"expires_at\" is not null and \"venue_holds\".\"warn_at\" < \"venue_holds\".\"expires_at\")"
         }
       },
       "isRLSEnabled": false

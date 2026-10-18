@@ -578,7 +578,7 @@ describe("Email templates rendering", () => {
     );
     expect(extended).toContain("Expiry extended on your tentative hold");
     expect(extended).toContain("now expires on 10 October 2026, 12:00");
-    expect(extended).toContain("previously expired on 8 October 2026, 12:00");
+    expect(extended).toContain("The previous expiry was 8 October 2026, 12:00");
     expect(extended).toContain("warning time stays at 7 October 2026, 09:00");
     expect(extended).toContain("http://localhost:3000/venues/availability");
 
@@ -586,7 +586,7 @@ describe("Email templates rendering", () => {
       <VenueHoldExpiryEmail {...props} action="set" previousExpiresAt={null} warnAt={null} />
     );
     expect(first).toContain("Expiry set on your tentative hold");
-    expect(first).not.toContain("previously expired");
+    expect(first).not.toContain("The previous expiry was");
     expect(first).toContain("have not set a warning time");
   });
 

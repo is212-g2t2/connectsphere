@@ -144,6 +144,8 @@ export interface AvailabilityRecord extends AvailabilityPeriod {
   /** PTR-142: a hold's expiry and warning instant, as `YYYY-MM-DDTHH:MM:SS`. Null when unset. */
   expiresAt?: string | null;
   warnAt?: string | null;
+  /** Set on a hold whose event is not cancelled, so its expiry can change (PTR-142). */
+  canChangeHold?: boolean;
   /** Set on a hold whose warning the viewer, its Coordinator, can change. */
   canSetWarning?: boolean;
 }
@@ -162,6 +164,7 @@ export interface OccupiedPeriod extends AvailabilityPeriod {
   convertDefaults?: SessionRequirements;
   expiresAt?: string | null;
   warnAt?: string | null;
+  canChangeHold?: boolean;
   canSetWarning?: boolean;
 }
 
@@ -229,6 +232,7 @@ export function projectAvailability(
       convertDefaults: record.convertDefaults,
       expiresAt: record.expiresAt,
       warnAt: record.warnAt,
+      canChangeHold: record.canChangeHold,
       canSetWarning: record.canSetWarning,
     });
   }

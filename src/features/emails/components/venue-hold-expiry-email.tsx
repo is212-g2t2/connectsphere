@@ -44,7 +44,7 @@ export const VenueHoldExpiryEmail = ({
         {`Your tentative hold on ${venueName} for ${formatDate(startsAt)}, ${formatTime(startsAt)}–${formatTime(endsAt)} now expires on ${when(expiresAt)}.`}
       </Text>
       {previousExpiresAt === null ? null : (
-        <Text style={emailText}>{`It previously expired on ${when(previousExpiresAt)}.`}</Text>
+        <Text style={emailText}>{`The previous expiry was ${when(previousExpiresAt)}.`}</Text>
       )}
       <Text style={emailText}>
         {warnAt === null

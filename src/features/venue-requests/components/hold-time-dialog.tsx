@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
@@ -11,10 +12,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "#/components/ui/dialog";
-import { Field, FieldLabel } from "#/components/ui/field";
+import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import {
+  HoldLocalDateTime,
+  VENUE_HOLD_EXPIRY_MESSAGE,
+  VENUE_HOLD_WARNING_MESSAGE,
+} from "#/features/venue-requests/schema";
 import { setVenueHoldExpiry, setVenueHoldWarning } from "#/features/venue-requests/server-fns";
-import { useMutation } from "#/hooks/use-mutation";
 import { skipRootFilter } from "#/lib/invalidate";
 
 interface HoldTimeDialogProps {
@@ -23,70 +28,167 @@ interface HoldTimeDialogProps {
   description: string;
   /** The saved value as `YYYY-MM-DDTHH:MM:SS`, or null when none is set. */
   current: string | null;
+  saveLabel: string;
   save: (value: string) => Promise<unknown>;
   /** Set only where the value may be cleared. The expiry cannot be: no hold stays active without one. */
   clear?: () => Promise<unknown>;
   successMessage: string;
 }
 
+const padTwo = (value: number) => String(value).padStart(2, "0");
+
+/** The browser's clock as a `datetime-local` minimum, `YYYY-MM-DDTHH:MM`. */
+function localMinuteValue(date: Date) {
+  return `${date.getFullYear()}-${padTwo(date.getMonth() + 1)}-${padTwo(date.getDate())}T${padTwo(date.getHours())}:${padTwo(date.getMinutes())}`;
+}
+
 /** The dialog's form. It mounts when the dialog opens, so a reopened dialog starts clean. */
 function HoldTimeForm({
   current,
+  saveLabel,
   save,
   clear,
   successMessage,
   onDone,
-}: Pick<HoldTimeDialogProps, "current" | "save" | "clear" | "successMessage"> & {
+}: Pick<HoldTimeDialogProps, "current" | "saveLabel" | "save" | "clear" | "successMessage"> & {
   onDone: () => void;
 }) {
-  const [value, setValue] = useState(current?.slice(0, 16) ?? "");
   const router = useRouter();
-  const [state, run, pending] = useMutation(async (next: string | null) => {
-    await (next === null ? clear?.() : save(next));
+  // The server refuses a past value. This guard only spares the submit; the server stays authoritative.
+  const [min] = useState(() => localMinuteValue(new Date()));
+  // The Clear button saves on its own, so it carries its own pending flag and error.
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const form = useForm({
+    defaultValues: { value: current?.slice(0, 16) ?? "" },
+    validators: {
+      onSubmit: ({ value }) => {
+        const parsed = HoldLocalDateTime(
+          clear === undefined ? VENUE_HOLD_EXPIRY_MESSAGE : VENUE_HOLD_WARNING_MESSAGE
+        ).safeParse(value.value);
+        return parsed.success
+          ? undefined
+          : { fields: { value: { message: parsed.error.issues[0].message } } };
+      },
+    },
+    onSubmit: async ({ value, formApi }) => {
+      setClearError(null);
+      try {
+        await save(value.value);
+      } catch (error) {
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form:
+              error instanceof Error && error.message
+                ? error.message
+                : "Could not save. Try again.",
+          },
+        });
+        // The hold may have changed since the calendar loaded. Reload it, keeping the message.
+        await router.invalidate({ filter: skipRootFilter }).catch(() => {});
+        return;
+      }
+      toast.success(successMessage);
+      onDone();
+      await router.invalidate({ filter: skipRootFilter });
+    },
+  });
+
+  async function handleClear() {
+    if (clear === undefined) return;
+    setClearError(null);
+    setClearing(true);
+    try {
+      await clear();
+    } catch (error) {
+      setClearError(
+        error instanceof Error && error.message ? error.message : "Could not save. Try again."
+      );
+      // The hold may have changed since the calendar loaded. Reload it, keeping the message.
+      await router.invalidate({ filter: skipRootFilter }).catch(() => {});
+      return;
+    } finally {
+      setClearing(false);
+    }
     toast.success(successMessage);
     onDone();
     await router.invalidate({ filter: skipRootFilter });
-  }, "Could not save. Try again.");
+  }
 
   return (
     <form
       className="space-y-4"
+      noValidate
       onSubmit={event => {
         event.preventDefault();
-        void run(value);
+        event.stopPropagation();
+        if (form.state.isSubmitting) return;
+        void form.handleSubmit();
       }}
     >
-      <Field>
-        <FieldLabel htmlFor="hold-time">Date and time</FieldLabel>
-        <Input
-          id="hold-time"
-          type="datetime-local"
-          value={value}
-          onChange={event => setValue(event.target.value)}
-          required={clear === undefined}
-        />
-      </Field>
-      {state.status === "error" && (
-        <p role="alert" className="body-sm text-destructive">
-          {state.error}
-        </p>
-      )}
-      <div className="flex justify-end gap-2 pt-2">
-        {clear !== undefined && current !== null && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={pending}
-            onClick={() => void run(null)}
-          >
-            Clear
-          </Button>
+      <form.Field name="value">
+        {field => (
+          <Field data-invalid={field.state.meta.errors.length > 0}>
+            <FieldLabel htmlFor="hold-time">Date and time</FieldLabel>
+            <Input
+              id="hold-time"
+              type="datetime-local"
+              min={min}
+              value={field.state.value}
+              onChange={event => field.handleChange(event.target.value)}
+              onBlur={field.handleBlur}
+              aria-invalid={field.state.meta.errors.length > 0}
+            />
+            <FieldError errors={field.state.meta.errors} />
+          </Field>
         )}
-        <Button type="submit" size="sm" disabled={pending || value === ""}>
-          {pending ? "Saving…" : "Save"}
-        </Button>
-      </div>
+      </form.Field>
+      <form.Subscribe
+        selector={state => [state.isSubmitting, state.errorMap.onSubmit, state.values.value]}
+      >
+        {([isSubmitting, onSubmitError, value]) => {
+          const message = clearError ?? (typeof onSubmitError === "string" ? onSubmitError : null);
+          return (
+            <>
+              {message !== null ? (
+                <p role="alert" className="body-sm text-destructive">
+                  {message}
+                </p>
+              ) : null}
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={Boolean(isSubmitting) || clearing}
+                  onClick={onDone}
+                >
+                  Cancel
+                </Button>
+                {clear !== undefined && current !== null && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={Boolean(isSubmitting) || clearing}
+                    onClick={() => void handleClear()}
+                  >
+                    {clearing ? "Clearing…" : "Clear"}
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={Boolean(isSubmitting) || clearing || value === ""}
+                >
+                  {isSubmitting ? "Saving…" : saveLabel}
+                </Button>
+              </div>
+            </>
+          );
+        }}
+      </form.Subscribe>
     </form>
   );
 }
@@ -124,8 +226,9 @@ export function SetVenueHoldExpiryButton({
     <HoldTimeDialog
       triggerLabel={expiresAt === null ? "Set expiry" : "Change expiry"}
       title="Hold expiry"
-      description="The hold stays active until this venue-local date and time. The Coordinator is notified of the change."
+      description="The hold expires at this venue-local date and time. The Coordinator is notified of the change."
       current={expiresAt}
+      saveLabel="Save expiry"
       save={value => setVenueHoldExpiry({ data: { id: holdId, expiresAt: value } })}
       successMessage="Hold expiry saved."
     />
@@ -136,16 +239,21 @@ export function SetVenueHoldExpiryButton({
 export function SetVenueHoldWarningButton({
   holdId,
   warnAt,
+  expiresAt,
 }: {
   holdId: string;
   warnAt: string | null;
+  /** A warning needs an expiry. Hide the trigger until the hold has one. */
+  expiresAt: string | null;
 }) {
+  if (expiresAt === null) return null;
   return (
     <HoldTimeDialog
       triggerLabel={warnAt === null ? "Set warning" : "Change warning"}
       title="Hold warning"
       description="You are warned at this venue-local date and time, before the hold expires. An extended expiry does not move it."
       current={warnAt}
+      saveLabel="Save warning"
       save={value => setVenueHoldWarning({ data: { id: holdId, warnAt: value } })}
       clear={() => setVenueHoldWarning({ data: { id: holdId, warnAt: null } })}
       successMessage="Hold warning saved."

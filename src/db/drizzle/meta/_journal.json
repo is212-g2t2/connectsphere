@@ -376,15 +376,8 @@
     {
       "idx": 53,
       "version": "7",
-      "when": 1792257277675,
-      "tag": "0053_public_living_mummy",
-      "breakpoints": true
-    },
-    {
-      "idx": 54,
-      "version": "7",
       "when": 1792257284561,
-      "tag": "0054_neat_wallow",
+      "tag": "0053_tough_pandemic",
       "breakpoints": true
     }
   ]

@@ -410,9 +410,18 @@ export function VenueCalendarPage({
                           {timeRange(period)} · {schedule.venue.name}
                         </p>
                         {period.state === "tentative_hold" && (
-                          <p className="body-sm text-muted-foreground">
-                            {holdExpiryText(period.expiresAt, period.warnAt)}
-                          </p>
+                          <div className="body-sm text-muted-foreground">
+                            <p className="whitespace-nowrap">
+                              {period.expiresAt
+                                ? `Expires ${formatLocalDateTime(period.expiresAt.slice(0, 16))}`
+                                : "No expiry set"}
+                            </p>
+                            {period.warnAt && (
+                              <p className="whitespace-nowrap">
+                                Warning {formatLocalDateTime(period.warnAt.slice(0, 16))}
+                              </p>
+                            )}
+                          </div>
                         )}
                       </div>
                       {period.state !== "available" && (
@@ -422,30 +431,34 @@ export function VenueCalendarPage({
                       )}
                       {period.state === "tentative_hold" &&
                         period.id &&
-                        canHold &&
-                        (period.canRelease || period.convertDefaults) && (
+                        ((canHold && (period.canRelease || period.convertDefaults)) ||
+                          (canSetExpiry && period.canChangeHold) ||
+                          (period.canSetWarning && period.expiresAt)) && (
                           <div className="flex items-center gap-2">
-                            {period.convertDefaults && (
+                            {canHold && period.convertDefaults && (
                               <ConvertVenueHoldButton
                                 holdId={period.id}
                                 requirements={period.convertDefaults}
                               />
                             )}
-                            {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
+                            {canHold && period.canRelease && (
+                              <ReleaseVenueHoldButton holdId={period.id} />
+                            )}
+                            {canSetExpiry && period.canChangeHold && (
+                              <SetVenueHoldExpiryButton
+                                holdId={period.id}
+                                expiresAt={period.expiresAt ?? null}
+                              />
+                            )}
+                            {period.canSetWarning && (
+                              <SetVenueHoldWarningButton
+                                holdId={period.id}
+                                warnAt={period.warnAt ?? null}
+                                expiresAt={period.expiresAt ?? null}
+                              />
+                            )}
                           </div>
                         )}
-                      {period.state === "tentative_hold" && period.id && canSetExpiry && (
-                        <SetVenueHoldExpiryButton
-                          holdId={period.id}
-                          expiresAt={period.expiresAt ?? null}
-                        />
-                      )}
-                      {period.state === "tentative_hold" && period.id && period.canSetWarning && (
-                        <SetVenueHoldWarningButton
-                          holdId={period.id}
-                          warnAt={period.warnAt ?? null}
-                        />
-                      )}
                       {period.state === "blocked" && period.id && canBlock && (
                         <LiftVenueBlockButton
                           blockId={period.id}
@@ -485,15 +498,6 @@ export function VenueCalendarPage({
       )}
     </Page>
   );
-}
-
-/** PTR-142 AC3: the expiry and the warning instant beside a hold, as the venue wall clock reads. */
-function holdExpiryText(expiresAt: string | null | undefined, warnAt: string | null | undefined) {
-  const parts = [
-    expiresAt ? `Expires ${formatLocalDateTime(expiresAt.slice(0, 16))}` : "No expiry set",
-  ];
-  if (warnAt) parts.push(`Warning ${formatLocalDateTime(warnAt.slice(0, 16))}`);
-  return parts.join(" · ");
 }
 
 /**

@@ -1,1 +1,0 @@
-ALTER TYPE "public"."notification_kind" ADD VALUE 'venue_hold_expiry_changed';

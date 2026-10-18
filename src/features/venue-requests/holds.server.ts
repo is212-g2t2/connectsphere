@@ -17,7 +17,9 @@ import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
   VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE,
   VENUE_HOLD_EXPIRY_PAST_MESSAGE,
+  VENUE_HOLD_WARNING_NEEDS_EXPIRY_MESSAGE,
   VENUE_HOLD_WARNING_ORDER_MESSAGE,
+  VENUE_HOLD_WARNING_PAST_MESSAGE,
   parseVenueHoldConversion,
   parseVenueHoldExpiry,
   parseVenueHoldId,
@@ -113,8 +115,6 @@ async function lockHold(tx: VenueTx, id: string) {
       status: venueHolds.status,
       expiresAt: venueHolds.expiresAt,
       warnAt: venueHolds.warnAt,
-      expiryChangedById: venueHolds.expiryChangedById,
-      expiryChangedAt: venueHolds.expiryChangedAt,
       assignedCoordinatorId: eventRequests.assignedCoordinatorId,
     })
     .from(venueHolds)
@@ -135,7 +135,7 @@ async function lockActiveHold(
   tx: VenueTx,
   id: string,
   actorId: string,
-  conflictMessage = "This hold has already been released."
+  conflictMessage = "This hold is no longer active."
 ) {
   const hold = await lockHold(tx, id);
   // An orphaned hold has no owner because both actor columns are null. Let any user who can reach
@@ -212,7 +212,7 @@ export async function handleConvertVenueHold(
       tx,
       id,
       actor.id,
-      "This hold has already been released or converted."
+      "This hold is no longer active or has been converted."
     );
 
     // Conversion creates a pending request, so apply the request gate: an assigned event in
@@ -302,18 +302,18 @@ export async function handleSetVenueHoldExpiry(
   const stored = `${expiresAt.replace("T", " ")}:00`;
 
   const result = await database.transaction(async tx => {
-    // Lock the event before the venue, as every hold writer does.
+    // Lock the event before the venue, as hold creation, conversion and the warning write do.
     const locked = await keyShareEventForHold(tx, id);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const hold = await lockHold(tx, id);
-    if (hold.status !== "held") throw new ConflictError("This hold has already been released.");
+    if (hold.status !== "held") throw new ConflictError("This hold is no longer active.");
     if (stored <= venueLocalTimestamp(new Date())) {
       throw new ConflictError(VENUE_HOLD_EXPIRY_PAST_MESSAGE);
     }
     if (hold.warnAt !== null && stored <= hold.warnAt) {
       throw new ConflictError(VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE);
     }
-    if (hold.expiresAt === stored) return { hold, notified: true };
+    if (hold.expiresAt === stored) return hold;
 
     const [updated] = await tx
       .update(venueHolds)
@@ -322,32 +322,34 @@ export async function handleSetVenueHoldExpiry(
       .returning();
 
     // Holds exist only on assigned events. If that is relaxed, notify the Lead queue instead.
-    if (hold.assignedCoordinatorId === null) return { hold: updated, notified: false };
-    const venue = await loadLockedVenue(tx, hold.venueId);
-    await raiseNotifications(tx, [
-      {
-        recipientId: hold.assignedCoordinatorId,
-        eventRequestId: hold.eventId,
-        kind: "venue_hold_expiry_changed",
-        payload: {
-          venueHoldId: id,
-          venueId: hold.venueId,
-          venueName: venue.name,
-          startsAt: hold.startsAt,
-          endsAt: hold.endsAt,
-          action:
-            hold.expiresAt === null ? "set" : stored > hold.expiresAt ? "extended" : "shortened",
-          expiresAt: stored,
-          previousExpiresAt: hold.expiresAt,
-          warnAt: hold.warnAt,
+    if (hold.assignedCoordinatorId !== null) {
+      const venue = await loadLockedVenue(tx, hold.venueId);
+      await raiseNotifications(tx, [
+        {
+          recipientId: hold.assignedCoordinatorId,
+          eventRequestId: hold.eventId,
+          kind: "venue_hold_expiry_changed",
+          payload: {
+            venueHoldId: id,
+            venueId: hold.venueId,
+            venueName: venue.name,
+            startsAt: hold.startsAt,
+            endsAt: hold.endsAt,
+            action:
+              hold.expiresAt === null ? "set" : stored > hold.expiresAt ? "extended" : "shortened",
+            expiresAt: stored,
+            previousExpiresAt: hold.expiresAt,
+            warnAt: hold.warnAt,
+          },
         },
-      },
-    ]);
-    return { hold: updated, notified: true };
+      ]);
+    } else {
+      log.warn("No Coordinator to notify of the hold expiry", { holdId: id });
+    }
+    return updated;
   });
 
-  if (!result.notified) log.warn("No Coordinator to notify of the hold expiry", { holdId: id });
-  return result.hold;
+  return result;
 }
 
 /**
@@ -368,9 +370,17 @@ export async function handleSetVenueHoldWarning(
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const hold = await lockHold(tx, id);
     if (hold.assignedCoordinatorId !== actor.id) throw new AuthorizationError("Forbidden");
-    if (hold.status !== "held") throw new ConflictError("This hold has already been released.");
-    if (stored !== null && hold.expiresAt !== null && stored >= hold.expiresAt) {
-      throw new ConflictError(VENUE_HOLD_WARNING_ORDER_MESSAGE);
+    if (hold.status !== "held") throw new ConflictError("This hold is no longer active.");
+    if (stored !== null) {
+      if (hold.expiresAt === null) {
+        throw new ConflictError(VENUE_HOLD_WARNING_NEEDS_EXPIRY_MESSAGE);
+      }
+      if (stored <= venueLocalTimestamp(new Date())) {
+        throw new ConflictError(VENUE_HOLD_WARNING_PAST_MESSAGE);
+      }
+      if (stored >= hold.expiresAt) {
+        throw new ConflictError(VENUE_HOLD_WARNING_ORDER_MESSAGE);
+      }
     }
     const [updated] = await tx
       .update(venueHolds)

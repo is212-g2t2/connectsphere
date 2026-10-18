@@ -738,12 +738,15 @@ export async function handleGetVenueAvailability(
   const manageableHolds = holds.map(hold => {
     // The warning is the Coordinator's own setting, so only the assignee reads it (PTR-142 AC3).
     const isAssignee = viewerId !== "" && hold.assignedCoordinatorId === viewerId;
+    // A cancelled event keeps its hold, but neither its expiry nor its warning may change.
+    const canChangeHold = hold.eventStatus !== "cancelled";
     return {
       ...hold,
       canRelease: canReleaseHold(hold, viewerId),
       convertDefaults: convertDefaults.get(hold.eventId),
       warnAt: isAssignee ? hold.warnAt : null,
-      canSetWarning: isAssignee,
+      canChangeHold,
+      canSetWarning: isAssignee && canChangeHold && hold.expiresAt !== null,
     };
   });
 

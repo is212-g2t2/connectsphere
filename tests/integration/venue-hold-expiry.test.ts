@@ -15,7 +15,9 @@ import {
 import {
   VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE,
   VENUE_HOLD_EXPIRY_PAST_MESSAGE,
+  VENUE_HOLD_WARNING_NEEDS_EXPIRY_MESSAGE,
   VENUE_HOLD_WARNING_ORDER_MESSAGE,
+  VENUE_HOLD_WARNING_PAST_MESSAGE,
 } from "#/features/venue-requests/schema";
 import { handleGetVenueAvailability } from "#/features/venues/records.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
@@ -161,10 +163,14 @@ describe("tentative hold expiry (PTR-142)", () => {
     const hold = await setExpiry("2099-06-10T12:00");
     expect(hold).toMatchObject({
       expiresAt: "2099-06-10 12:00:00",
-      expiryChangedById: users.venueStaff.id,
       status: "held",
     });
-    expect(hold.expiryChangedAt).toBeInstanceOf(Date);
+    const [persisted] = await database
+      .select()
+      .from(schema.venueHolds)
+      .where(eq(schema.venueHolds.id, holdId));
+    expect(persisted.expiryChangedById).toBe(users.venueStaff.id);
+    expect(persisted.expiryChangedAt).toBeInstanceOf(Date);
     expect(await notices()).toMatchObject([
       {
         recipientId: users.coordinator.id,
@@ -220,13 +226,36 @@ describe("tentative hold expiry (PTR-142)", () => {
   });
 
   it("lets only the assigned Coordinator set the warning, before the expiry (AC3)", async () => {
+    await setExpiry("2099-06-10T12:00");
     await expect(setWarning("2099-06-09T09:00", users.otherCoordinator)).rejects.toThrow(
       "Forbidden"
     );
-    await setExpiry("2099-06-10T12:00");
     await expect(setWarning("2099-06-10T12:00")).rejects.toThrow(VENUE_HOLD_WARNING_ORDER_MESSAGE);
     expect((await setWarning("2099-06-09T09:00")).warnAt).toBe("2099-06-09 09:00:00");
     expect((await setWarning(null)).warnAt).toBeNull();
+  });
+
+  it("refuses a warning while the hold has no expiry, and still allows a clear", async () => {
+    await expect(setWarning("2099-06-09T09:00")).rejects.toThrow(
+      VENUE_HOLD_WARNING_NEEDS_EXPIRY_MESSAGE
+    );
+    expect((await setWarning(null)).warnAt).toBeNull();
+  });
+
+  it("refuses a warning in the past", async () => {
+    await setExpiry("2099-06-10T12:00");
+    await expect(setWarning("2000-01-01T00:00")).rejects.toThrow(VENUE_HOLD_WARNING_PAST_MESSAGE);
+  });
+
+  it("sets the expiry with no assigned Coordinator and raises no notification", async () => {
+    await database
+      .update(schema.eventRequests)
+      .set({ assignedCoordinatorId: null })
+      .where(eq(schema.eventRequests.id, eventId));
+    expect(await setExpiry("2099-06-10T12:00")).toMatchObject({
+      expiresAt: "2099-06-10 12:00:00",
+    });
+    expect(await notices()).toEqual([]);
   });
 
   it("refuses both writes on a cancelled event", async () => {
@@ -236,6 +265,33 @@ describe("tentative hold expiry (PTR-142)", () => {
       .where(eq(schema.eventRequests.id, eventId));
     await expect(setExpiry("2099-06-10T12:00")).rejects.toThrow(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     await expect(setWarning("2099-06-09T09:00")).rejects.toThrow(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+    const schedule = await handleGetVenueAvailability(
+      { venueId, startDate: "2099-06-15", endDate: "2099-06-15" },
+      users.coordinator.id,
+      database as never
+    );
+    expect(schedule?.occupied.find(period => period.id === holdId)).toMatchObject({
+      canChangeHold: false,
+      canSetWarning: false,
+    });
+  });
+
+  it("keeps the expiry control on a confirmed event's held hold", async () => {
+    await database
+      .update(schema.eventRequests)
+      .set(eventStatusColumns("confirmed", users.coordinator))
+      .where(eq(schema.eventRequests.id, eventId));
+    const schedule = await handleGetVenueAvailability(
+      { venueId, startDate: "2099-06-15", endDate: "2099-06-15" },
+      users.coordinator.id,
+      database as never
+    );
+    expect(schedule?.occupied.find(period => period.id === holdId)).toMatchObject({
+      canChangeHold: true,
+    });
+    expect(await setExpiry("2099-06-10T12:00")).toMatchObject({
+      expiresAt: "2099-06-10 12:00:00",
+    });
   });
 
   it("shows the expiry to every viewer and the warning only to the assigned Coordinator (AC3)", async () => {
@@ -269,8 +325,8 @@ describe("tentative hold expiry (PTR-142)", () => {
       .update(schema.venueHolds)
       .set({ status: "released" })
       .where(eq(schema.venueHolds.id, holdId));
-    await expect(setExpiry("2099-06-10T12:00")).rejects.toThrow("already been released");
-    await expect(setWarning("2099-06-09T09:00")).rejects.toThrow("already been released");
+    await expect(setExpiry("2099-06-10T12:00")).rejects.toThrow("This hold is no longer active.");
+    await expect(setWarning("2099-06-09T09:00")).rejects.toThrow("This hold is no longer active.");
     await expect(setExpiry("tomorrow")).rejects.toThrow("Enter a valid expiry date and time");
   });
 });

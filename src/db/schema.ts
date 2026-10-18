@@ -743,7 +743,7 @@ export const venueHolds = pgTable(
     check("venue_holds_turnaround_minutes_nonnegative", sql`${table.turnaroundMinutes} >= 0`),
     check(
       "venue_holds_warn_before_expiry",
-      sql`${table.warnAt} is null or ${table.expiresAt} is null or ${table.warnAt} < ${table.expiresAt}`
+      sql`${table.warnAt} is null or (${table.expiresAt} is not null and ${table.warnAt} < ${table.expiresAt})`
     ),
     index("venue_holds_event_id_idx").on(table.eventId),
     index("venue_holds_venue_id_starts_at_idx").on(table.venueId, table.startsAt),

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { formatLocalDateTime } from "#/features/event-requests/format";
+import { LocalDateTime } from "#/features/event-requests/schema";
 import {
   LAYOUT_MESSAGE,
   TIME_SHAPE,
@@ -610,14 +611,16 @@ export const parseVenueHoldId = parseVenueRequestId;
 export const VENUE_HOLD_EXPIRY_MESSAGE = "Enter a valid expiry date and time";
 export const VENUE_HOLD_WARNING_MESSAGE = "Enter a valid warning date and time";
 export const VENUE_HOLD_EXPIRY_PAST_MESSAGE = "The expiry must be in the future";
+/** A warning measures against the expiry, so the hold needs an expiry before it can have one. */
+export const VENUE_HOLD_WARNING_NEEDS_EXPIRY_MESSAGE = "Set the hold expiry before the warning";
+export const VENUE_HOLD_WARNING_PAST_MESSAGE = "The warning must be in the future";
 export const VENUE_HOLD_WARNING_ORDER_MESSAGE = "The warning must come before the hold expires";
 /** Venue Staff cannot read the warning, so their refusal names no time. */
 export const VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE =
   "The expiry must come after the Coordinator's warning time";
 
 /** The shape of `<input type="datetime-local">`: venue-local, no seconds, no offset. */
-const HoldLocalDateTime = (message: string) =>
-  z.iso.datetime({ local: true, error: message }).regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, message);
+export const HoldLocalDateTime = LocalDateTime;
 
 /**
  * PTR-142 AC1: Venue Staff set or change the expiry of a hold. The expiry is a venue-local wall
