@@ -12,8 +12,13 @@ import { user } from "#/db/schema";
  * Event Coordinator Lead. The fan-out reads the accounts here, so the rule has one home.
  */
 type Database = typeof Db;
+/**
+ * The transaction handle. Typing the parameter with it stops a caller from passing `db`: the
+ * `for share` lock below only holds the accounts for the caller's own transaction.
+ */
+type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-export async function listLeadIds(database: Pick<Database, "select">): Promise<string[]> {
+export async function listLeadIds(database: Pick<Transaction, "select">): Promise<string[]> {
   const rows = await database
     .select({ id: user.id })
     .from(user)
