@@ -122,7 +122,6 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 8. **Loader freshness**: the router sets `defaultStaleReloadMode: "blocking"`. A revisit waits for its loaders, so a page never renders a cached value that a later change replaced.
 9. **Venue occupancy**: each approved booking, held hold and live block has a `venue_occupancy` row. A block suspends the rows that it covers and a lift restores them; a block that covers a confirmed event's booking also returns the event to planning, where its Coordinator sees the suspended arrangements until the lift or a release ([ADR-7](./adrs/ADR-7-venue-occupancy-ledger.md)). `venue_occupancy_no_overlap` refuses two active rows whose periods overlap once setup and turnaround count.
 10. **Venue requests**: each request stores its session's requirements. The request writers check suitability, availability and overlap with the same event's sessions for each venue on its own.
-11. **Hold expiry**: Venue Staff set the expiry of a tentative hold, and the assigned Coordinator sets its warning instant. Both are venue-local timestamps on `venue_holds`, and a hold may have neither. A change to either leaves the hold's `venue_occupancy` row alone. An expiry change records the acting user and time and raises a `venue_hold_expiry_changed` notification for the Coordinator.
 
 ## Database and Migrations
 

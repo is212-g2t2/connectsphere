@@ -736,9 +736,9 @@ export async function handleGetVenueAvailability(
   // Copy rows before adding viewer flags. The loader shares these rows with other callers.
   // oxlint-disable-next-line oxc/no-map-spread
   const manageableHolds = holds.map(hold => {
-    // The warning is the Coordinator's own setting, so only the assignee reads it (PTR-142 AC3).
+    // The warning belongs to the Coordinator, so only the assignee reads it (PTR-142 AC3).
     const isAssignee = viewerId !== "" && hold.assignedCoordinatorId === viewerId;
-    // A cancelled event keeps its hold, but neither its expiry nor its warning may change.
+    // A cancelled event keeps its hold, but its expiry and warning cannot change.
     const canChangeHold = hold.eventStatus !== "cancelled";
     return {
       ...hold,

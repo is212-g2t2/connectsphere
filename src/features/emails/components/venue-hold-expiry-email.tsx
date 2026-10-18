@@ -24,8 +24,8 @@ const ACTION_HEADING = {
 const when = (value: string) => `${formatDate(value)}, ${formatTime(value)}`;
 
 /**
- * PTR-142 AC2, AC4: Venue Staff set or changed the expiry of a tentative hold. Tells the event's
- * assigned Coordinator when the hold now expires and when the warning fires.
+ * PTR-142 AC2, AC4: Venue Staff set or change the expiry of a tentative hold. The email tells the
+ * assigned Coordinator of the event when the hold expires and when the warning occurs.
  */
 export const VenueHoldExpiryEmail = ({
   action,

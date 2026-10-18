@@ -42,7 +42,7 @@ export const NOTIFICATION_KINDS = [
   "venue_block_changed",
   /** PTR-137: the Coordinator released a booking that a venue block had suspended. */
   "venue_booking_released_by_coordinator",
-  /** PTR-142 AC2, AC4: Venue Staff set or changed a tentative hold's expiry; told to its Coordinator. */
+  /** PTR-142 AC2, AC4: Venue Staff set or change the expiry of a tentative hold. The Coordinator receives this notice. */
   "venue_hold_expiry_changed",
 ] as const;
 
@@ -300,9 +300,9 @@ const payloadSchemas = {
     reason: z.string(),
   }),
   /**
-   * PTR-142 AC2, AC4: Venue Staff set, extended or shortened a tentative hold's expiry, told to the
-   * event's assigned Coordinator. Times are venue-local floating strings. The copy names the venue
-   * and the hold's period, never the staff member.
+   * PTR-142 AC2, AC4: Venue Staff set, extend or shorten the expiry of a tentative hold. The
+   * assigned Coordinator of the event receives this notice. The times are venue-local values. The
+   * text names the venue and the hold period, but not the staff member.
    */
   venue_hold_expiry_changed: z.object({
     venueHoldId: z.string().min(1),
@@ -616,7 +616,7 @@ export function notificationHref(
       // the released row itself is not shown there.
       return "/venue-bookings";
     case "venue_hold_expiry_changed":
-      // The venue calendar, opened on the hold's days, shows its expiry and warning (PTR-142 AC3).
+      // The venue calendar shows the expiry and the warning for the days of the hold (PTR-142 AC3).
       return `/venues/availability?venueId=${notification.payload.venueId}&startDate=${notification.payload.startsAt.slice(0, 10)}&endDate=${notification.payload.endsAt.slice(0, 10)}`;
     default: {
       const unhandled: never = notification;

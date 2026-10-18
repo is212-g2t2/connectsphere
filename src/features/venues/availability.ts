@@ -141,12 +141,12 @@ export interface AvailabilityRecord extends AvailabilityPeriod {
    * the conversion form starts from (PTR-138 AC1).
    */
   convertDefaults?: SessionRequirements;
-  /** PTR-142: a hold's expiry and warning instant, as `YYYY-MM-DDTHH:MM:SS`. Null when unset. */
+  /** PTR-142: the expiry and warning time of a hold, as `YYYY-MM-DDTHH:MM:SS`. The value is null when unset. */
   expiresAt?: string | null;
   warnAt?: string | null;
-  /** Set on a hold whose event is not cancelled, so its expiry can change (PTR-142). */
+  /** Set on a hold when its event is not cancelled. The expiry can then change (PTR-142). */
   canChangeHold?: boolean;
-  /** Set on a hold whose warning the viewer, its Coordinator, can change. */
+  /** Set on a hold when the viewer is its Coordinator and can change the warning. */
   canSetWarning?: boolean;
 }
 

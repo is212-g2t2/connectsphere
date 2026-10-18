@@ -24,14 +24,14 @@ import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import { eventStatusColumns } from "./event-status";
 
 /**
- * PTR-142: a tentative hold's expiry and warning at the handler boundary.
+ * PTR-142: the expiry and warning of a tentative hold, tested through the handlers.
  *
  * Acceptance criteria:
- *   AC1: Venue Staff set the expiry; a hold without one is flagged, not swept.
- *   AC2: A change records the acting user and time and notifies the assigned Coordinator.
- *   AC3: The Coordinator sets the warning instant and reads it back.
- *   AC4: An extension keeps the stored warning instant and notifies the Coordinator.
- *   AC5: Setting or extending the expiry leaves the occupancy row and its buffers unchanged.
+ *   AC1: Venue Staff set the expiry. A hold without one is flagged. PTR-143's sweep ignores it.
+ *   AC2: A change records the acting user and the time, and notifies the assigned Coordinator.
+ *   AC3: The Coordinator sets the warning time and reads it back.
+ *   AC4: An extension keeps the stored warning time and notifies the Coordinator.
+ *   AC5: Setting or extending the expiry does not change the occupancy row or its buffers.
  */
 
 const users = {

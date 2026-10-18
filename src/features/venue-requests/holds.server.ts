@@ -94,8 +94,8 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
 }
 
 /**
- * Take the venue lock and then the hold row lock, and return the hold with its event's assignee.
- * Refuse a missing hold. The caller checks status and ownership.
+ * This function takes the venue lock and then the hold row lock. It returns the hold and the
+ * assignee of its event. It refuses a missing hold. The caller checks the status and the owner.
  */
 async function lockHold(tx: VenueTx, id: string) {
   // Read the venue, take the advisory lock, then lock the row. Locking the row first lets a
@@ -128,8 +128,9 @@ async function lockHold(tx: VenueTx, id: string) {
 }
 
 /**
- * Lock an active hold that the actor can release, and return it. Refuse a missing hold, another
- * user's hold, and a hold that is no longer held. The caller releases it with `releaseHold`.
+ * This function locks an active hold that the actor can release. It refuses a missing hold,
+ * another user's hold, and a hold that is not held. The caller releases the hold with
+ * `releaseHold`.
  */
 async function lockActiveHold(
   tx: VenueTx,
@@ -287,11 +288,13 @@ export async function handleConvertVenueHold(
 }
 
 /**
- * PTR-142 AC1, AC2, AC4, AC5: Venue Staff set, extend or shorten a held hold's expiry. Record the
- * acting user and time, and tell the event's assigned Coordinator. The warning instant is stored
- * as an absolute time and this write leaves it alone, so an extension cannot move it. The hold's
- * ledger row and buffers are not touched (AC5): this function never calls `occupyVenue`.
- * Refuse an expiry that is not in the future, or that is not after the warning instant.
+ * PTR-142 AC1, AC2, AC4, AC5: Venue Staff set, extend or shorten the expiry of a held hold.
+ * This function records the acting user and the time, and tells the assigned Coordinator of the
+ * event. It stores the warning time as a fixed value, so an extension cannot move the warning.
+ *
+ * It does not change the ledger row or the buffers of the hold (AC5), and it never calls
+ * `occupyVenue`. It refuses an expiry that is not in the future, or that is not after the
+ * warning time.
  */
 export async function handleSetVenueHoldExpiry(
   data: unknown,
@@ -302,7 +305,8 @@ export async function handleSetVenueHoldExpiry(
   const stored = `${expiresAt.replace("T", " ")}:00`;
 
   const result = await database.transaction(async tx => {
-    // Lock the event before the venue, as hold creation, conversion and the warning write do.
+    // The event lock comes before the venue lock, as in hold creation, conversion, and the
+    // warning write.
     const locked = await keyShareEventForHold(tx, id);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const hold = await lockHold(tx, id);
@@ -321,7 +325,7 @@ export async function handleSetVenueHoldExpiry(
       .where(eq(venueHolds.id, id))
       .returning();
 
-    // Holds exist only on assigned events. If that is relaxed, notify the Lead queue instead.
+    // A hold exists only on an assigned event. If this rule changes, notify the Lead queue instead.
     if (hold.assignedCoordinatorId !== null) {
       const venue = await loadLockedVenue(tx, hold.venueId);
       await raiseNotifications(tx, [
@@ -353,9 +357,9 @@ export async function handleSetVenueHoldExpiry(
 }
 
 /**
- * PTR-142 AC3: the event's assigned Coordinator sets the hold's warning instant, or clears it with
- * `null`. It is an absolute time with no system default. It must come before the expiry, if one
- * is set. Like the expiry write, it leaves the ledger row alone.
+ * PTR-142 AC3: the assigned Coordinator of the event sets the warning time of the hold, or clears
+ * it with `null`. The time is fixed and has no system default. It must come before the expiry, if
+ * the hold has an expiry. Like the expiry write, it does not change the ledger row.
  */
 export async function handleSetVenueHoldWarning(
   data: unknown,

@@ -611,20 +611,20 @@ export const parseVenueHoldId = parseVenueRequestId;
 export const VENUE_HOLD_EXPIRY_MESSAGE = "Enter a valid expiry date and time";
 export const VENUE_HOLD_WARNING_MESSAGE = "Enter a valid warning date and time";
 export const VENUE_HOLD_EXPIRY_PAST_MESSAGE = "The expiry must be in the future";
-/** A warning measures against the expiry, so the hold needs an expiry before it can have one. */
+/** A warning refers to the expiry, so the hold must have an expiry first. */
 export const VENUE_HOLD_WARNING_NEEDS_EXPIRY_MESSAGE = "Set the hold expiry before the warning";
 export const VENUE_HOLD_WARNING_PAST_MESSAGE = "The warning must be in the future";
 export const VENUE_HOLD_WARNING_ORDER_MESSAGE = "The warning must come before the hold expires";
-/** Venue Staff cannot read the warning, so their refusal names no time. */
+/** Venue Staff cannot read the warning, so the refusal names no time. */
 export const VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE =
   "The expiry must come after the Coordinator's warning time";
 
-/** The shape of `<input type="datetime-local">`: venue-local, no seconds, no offset. */
+/** The shape of `<input type="datetime-local">`. It is venue-local and has no seconds or offset. */
 export const HoldLocalDateTime = LocalDateTime;
 
 /**
- * PTR-142 AC1: Venue Staff set or change the expiry of a hold. The expiry is a venue-local wall
- * clock, like the hold's own period.
+ * PTR-142 AC1: Venue Staff set or change the expiry of a hold. The expiry is a venue-local time,
+ * like the period of the hold.
  */
 export const VenueHoldExpiryInput = z.object({
   id: VenueRequestIdInput.shape.id,
@@ -638,8 +638,8 @@ export function parseVenueHoldExpiry(data: unknown): z.infer<typeof VenueHoldExp
 }
 
 /**
- * PTR-142 AC3: the Coordinator sets a hold's warning instant, or clears it with `null`. It is an
- * absolute time, not an offset from the expiry.
+ * PTR-142 AC3: the Coordinator sets the warning time of a hold, or clears it with `null`. The time
+ * is fixed. It is not an offset from the expiry.
  */
 export const VenueHoldWarningInput = z.object({
   id: VenueRequestIdInput.shape.id,

@@ -266,8 +266,8 @@ export const convertVenueHold = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-142: Venue Staff set or change a tentative hold's expiry. The handler records who and when,
- * and tells the event's Coordinator.
+ * PTR-142: Venue Staff set or change the expiry of a tentative hold. The handler records the user
+ * and the time, and tells the Coordinator of the event.
  */
 export const setVenueHoldExpiry = createServerFn({ method: "POST" })
   .validator(parseVenueHoldExpiry)
@@ -282,12 +282,12 @@ export const setVenueHoldExpiry = createServerFn({ method: "POST" })
       actorId: context.user.id,
     });
 
-    // Return no more than the caller may read. The row carries the Coordinator's warning and
-    // the hold's owner ids, which Venue Staff must not see.
+    // Return only the values that the caller can read. The row contains the warning of the
+    // Coordinator and the owner IDs of the hold, which Venue Staff must not see.
     return { id: hold.id, expiresAt: hold.expiresAt };
   });
 
-/** PTR-142: the event's Coordinator sets or clears the hold's warning instant. */
+/** PTR-142: the Coordinator of the event sets or clears the warning time of the hold. */
 export const setVenueHoldWarning = createServerFn({ method: "POST" })
   .validator(parseVenueHoldWarning)
   .middleware([requireVenueRequest])

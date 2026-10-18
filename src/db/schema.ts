@@ -545,9 +545,9 @@ export const venueRequestStatus = pgEnum("venue_request_status", [
 ]);
 
 /**
- * `expired` is for the PTR-143 sweep. PTR-142 adds the literal in its own migration and never
- * writes it: the migrator runs pending migrations in one transaction, and a new enum value cannot
- * be used in the transaction that adds it.
+ * `expired` is for the PTR-143 sweep. PTR-142 adds the literal and never writes it. The migrator
+ * runs all pending migrations in one transaction, and no transaction can use an enum value that
+ * it adds.
  */
 export const venueHoldStatus = pgEnum("venue_hold_status", ["held", "released", "expired"]);
 
@@ -720,9 +720,9 @@ export const venueHolds = pgTable(
     setupMinutes: integer("setup_minutes").notNull().default(0),
     turnaroundMinutes: integer("turnaround_minutes").notNull().default(0),
     status: venueHoldStatus("status").default("held").notNull(),
-    // PTR-142: Venue Staff set the expiry; null means none yet. Both instants are venue-local
-    // floating timestamps, like `starts_at`. `warn_at` is an absolute instant the Coordinator
-    // sets, so an extension never moves it. PTR-143's sweep leaves a hold with no expiry alone.
+    // PTR-142: Venue Staff set the expiry. A null value means that the hold has no expiry. Both
+    // values are venue-local timestamps, like `starts_at`. The Coordinator sets `warn_at` as a
+    // fixed time, so an extension does not move it. PTR-143's sweep ignores a hold with no expiry.
     expiresAt: timestamp("expires_at", { mode: "string" }),
     warnAt: timestamp("warn_at", { mode: "string" }),
     expiryChangedById: text("expiry_changed_by_id").references(() => user.id, {
@@ -1031,7 +1031,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_block_changed",
   /** PTR-137: the Coordinator released a booking that a venue block had suspended. */
   "venue_booking_released_by_coordinator",
-  /** PTR-142: Venue Staff set or changed a tentative hold's expiry. */
+  /** PTR-142: Venue Staff set or change the expiry of a tentative hold. */
   "venue_hold_expiry_changed",
 ]);
 

@@ -1,4 +1,5 @@
 ALTER TYPE "public"."notification_kind" ADD VALUE 'venue_hold_expiry_changed';--> statement-breakpoint
+ALTER TYPE "public"."venue_hold_status" ADD VALUE 'expired';--> statement-breakpoint
 ALTER TABLE "venue_holds" ADD COLUMN "expires_at" timestamp;--> statement-breakpoint
 ALTER TABLE "venue_holds" ADD COLUMN "warn_at" timestamp;--> statement-breakpoint
 ALTER TABLE "venue_holds" ADD COLUMN "expiry_changed_by_id" text;--> statement-breakpoint

@@ -140,7 +140,7 @@ describe("Database Schema Definitions", () => {
     expect(columns.heldById.notNull).toBe(false);
     expect(columns.releasedById.name).toBe("released_by_id");
     expect(columns.releasedById.notNull).toBe(false);
-    // PTR-142: a hold may have no expiry or warning yet, and audits its latest expiry change.
+    // PTR-142: a hold can have no expiry or warning, and it records the latest expiry change.
     expect(columns.expiresAt.name).toBe("expires_at");
     expect(columns.expiresAt.notNull).toBe(false);
     expect(columns.warnAt.name).toBe("warn_at");

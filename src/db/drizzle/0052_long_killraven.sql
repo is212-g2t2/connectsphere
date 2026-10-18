@@ -1,1 +1,0 @@
-ALTER TYPE "public"."venue_hold_status" ADD VALUE 'expired';

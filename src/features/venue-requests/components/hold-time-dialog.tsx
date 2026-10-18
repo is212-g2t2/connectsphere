@@ -26,23 +26,23 @@ interface HoldTimeDialogProps {
   triggerLabel: string;
   title: string;
   description: string;
-  /** The saved value as `YYYY-MM-DDTHH:MM:SS`, or null when none is set. */
+  /** The saved value as `YYYY-MM-DDTHH:MM:SS`, or null when the hold has no value. */
   current: string | null;
   saveLabel: string;
   save: (value: string) => Promise<unknown>;
-  /** Set only where the value may be cleared. The expiry cannot be: no hold stays active without one. */
+  /** Set only when the user can clear the value. The expiry cannot be cleared. */
   clear?: () => Promise<unknown>;
   successMessage: string;
 }
 
 const padTwo = (value: number) => String(value).padStart(2, "0");
 
-/** The browser's clock as a `datetime-local` minimum, `YYYY-MM-DDTHH:MM`. */
+/** The current browser time as a `datetime-local` minimum, `YYYY-MM-DDTHH:MM`. */
 function localMinuteValue(date: Date) {
   return `${date.getFullYear()}-${padTwo(date.getMonth() + 1)}-${padTwo(date.getDate())}T${padTwo(date.getHours())}:${padTwo(date.getMinutes())}`;
 }
 
-/** The dialog's form. It mounts when the dialog opens, so a reopened dialog starts clean. */
+/** The form of the dialog. It mounts when the dialog opens, so a reopened dialog has no stale state. */
 function HoldTimeForm({
   current,
   saveLabel,
@@ -54,9 +54,9 @@ function HoldTimeForm({
   onDone: () => void;
 }) {
   const router = useRouter();
-  // The server refuses a past value. This guard only spares the submit; the server stays authoritative.
+  // The server refuses a past value. This guard prevents the submit, but the server decides.
   const [min] = useState(() => localMinuteValue(new Date()));
-  // The Clear button saves on its own, so it carries its own pending flag and error.
+  // The Clear button sends its own request, so it has its own pending flag and error.
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
   const form = useForm({
@@ -85,7 +85,7 @@ function HoldTimeForm({
                 : "Could not save. Try again.",
           },
         });
-        // The hold may have changed since the calendar loaded. Reload it, keeping the message.
+        // The hold can change after the calendar loads. Reload the calendar, but keep the message.
         await router.invalidate({ filter: skipRootFilter }).catch(() => {});
         return;
       }
@@ -105,7 +105,7 @@ function HoldTimeForm({
       setClearError(
         error instanceof Error && error.message ? error.message : "Could not save. Try again."
       );
-      // The hold may have changed since the calendar loaded. Reload it, keeping the message.
+      // The hold can change after the calendar loads. Reload the calendar, but keep the message.
       await router.invalidate({ filter: skipRootFilter }).catch(() => {});
       return;
     } finally {
@@ -212,8 +212,8 @@ function HoldTimeDialog({ triggerLabel, title, description, ...form }: HoldTimeD
 }
 
 /**
- * PTR-142 AC1, AC2, AC4: Venue Staff set, extend or shorten a hold's expiry. The server records
- * who changed it and tells the Coordinator.
+ * PTR-142 AC1, AC2, AC4: Venue Staff set, extend or shorten the expiry of a hold. The server
+ * records the user and the time, and tells the Coordinator.
  */
 export function SetVenueHoldExpiryButton({
   holdId,
@@ -235,7 +235,7 @@ export function SetVenueHoldExpiryButton({
   );
 }
 
-/** PTR-142 AC3: the Coordinator sets an absolute warning time for the hold, or clears it. */
+/** PTR-142 AC3: the Coordinator sets a fixed warning time for the hold, or clears it. */
 export function SetVenueHoldWarningButton({
   holdId,
   warnAt,
