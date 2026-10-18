@@ -9,7 +9,7 @@ import { VenueDetailPage } from "#/features/venues/components/venue-detail-page"
 import { VenueDetailPageSkeleton } from "#/features/venues/components/venue-detail-page-skeleton";
 import { TIME_SHAPE, VENUE_SEARCH_TEXT_MAX_LENGTH, VenueIdInput } from "#/features/venues/schema";
 import { getVenue } from "#/features/venues/server-fns";
-import type { Venue } from "#/features/venues/server-fns";
+import type { VenueWithConflicts } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/_authenticated/venues/$venueId")({
@@ -49,7 +49,7 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
     deps,
     context,
   }): Promise<{
-    venue: Venue;
+    venue: VenueWithConflicts;
     requestContext: VenueRequestContext | null;
     requestContextFailed: boolean;
   }> => {
