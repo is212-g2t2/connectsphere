@@ -1033,6 +1033,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_booking_released_by_coordinator",
   /** PTR-142: Venue Staff set or change the expiry of a tentative hold. */
   "venue_hold_expiry_changed",
+  /** PTR-132: buffer change created a conflict for existing commitments. */
+  "venue_buffer_conflict",
 ]);
 
 export const notifications = pgTable(

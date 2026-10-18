@@ -1,10 +1,12 @@
-import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import {
   eventRequests,
   venueBufferChanges,
   venueHolds,
+  venueOccupancy,
   venueRequests,
   venueUnavailability,
   venues,
@@ -13,8 +15,14 @@ import type { SessionUser } from "#/features/auth/session";
 import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { eventTiming } from "#/features/events/access";
+import type { NotificationPayloads } from "#/features/notifications/message";
+import { raiseNotifications } from "#/features/notifications/raise.server";
+import type { NewNotification } from "#/features/notifications/raise.server";
 import { canConvertHold, canReleaseHold } from "#/features/venue-requests/holds";
-import { lockVenue } from "#/features/venue-requests/venue-lock.server";
+import { isDeadlock, overlapsPeriod } from "#/features/venue-requests/occupancy.server";
+import { keyShareEvent, lockVenue } from "#/features/venue-requests/venue-lock.server";
+import type { LockedEvent } from "#/features/venue-requests/venue-lock.server";
+import { suspendedPieceWhere } from "#/features/venues/blocked-arrangements.server";
 import {
   nextCivilDate,
   normalizeDatabaseTimestamp,
@@ -22,7 +30,11 @@ import {
   projectAvailability,
   toLocalMinuteValue,
 } from "#/features/venues/availability";
-import type { AvailabilityRecord, OccupiedPeriod } from "#/features/venues/availability";
+import type {
+  AvailabilityRecord,
+  OccupiedPeriod,
+  VenueBufferConflict,
+} from "#/features/venues/availability";
 import {
   DUPLICATE_NAME_MESSAGE,
   LAYOUT_LABELS,
@@ -35,7 +47,9 @@ import {
   parseVenueSearchRequest,
 } from "#/features/venues/schema";
 import type { OperatingHours, VenueLayout, VenueSearch } from "#/features/venues/schema";
+import type { VenueWithConflicts } from "#/features/venues/server-fns";
 import { isConstraintViolation } from "#/lib/db-errors";
+import { logger } from "#/lib/logger";
 
 /**
  * Keep this module server-only. A static `#/db/schema` import from a client-reachable module
@@ -48,6 +62,11 @@ import { isConstraintViolation } from "#/lib/db-errors";
 
 type Database = typeof Db;
 export type Venue = typeof venues.$inferSelect;
+export type BufferedVenue = Pick<Venue, "id" | "setupMinutes" | "turnaroundMinutes">;
+
+const CLOSED_EVENT_STATUSES = ["cancelled", "completed"] as const;
+
+const log = logger.getChild("venues");
 
 interface VenueSuitabilityCandidate {
   location: string;
@@ -677,10 +696,202 @@ export async function handleSearchVenues(
   return { event, filters, venues: suitable, unsuitable };
 }
 
-export async function handleGetVenue(data: unknown, database: Database): Promise<Venue | null> {
+interface VenueBufferConflictRow {
+  id: number;
+  venueRequestId: string | null;
+  venueHoldId: string | null;
+  eventId: number;
+  startsAt: string;
+  endsAt: string | null;
+  active: boolean;
+  eventName: string;
+}
+
+export function mapConflictRowsToConflicts(
+  rows: readonly VenueBufferConflictRow[]
+): VenueBufferConflict[] {
+  return rows.map(row => {
+    const kind: VenueBufferConflict["kind"] = !row.active
+      ? "suspended"
+      : row.venueRequestId !== null
+        ? "booking"
+        : "hold";
+    return {
+      id: row.venueRequestId ?? row.venueHoldId ?? String(row.id),
+      kind,
+      eventId: row.eventId,
+      eventName: row.eventName,
+      startsAt: row.startsAt,
+      endsAt: row.endsAt ?? row.startsAt,
+    };
+  });
+}
+
+function effectiveBuffer(
+  existingOrCandidate: {
+    startsAt: unknown;
+    endsAt: unknown;
+    venueRequestId: unknown;
+    venueHoldId: unknown;
+  },
+  req: { startsAt: unknown; endsAt: unknown },
+  hold: { startsAt: unknown; endsAt: unknown },
+  minutes: number
+) {
+  return sql`case
+    when (${existingOrCandidate.venueRequestId} is not null and (${existingOrCandidate.startsAt} <> ${req.startsAt} or ${existingOrCandidate.endsAt} <> ${req.endsAt}))
+      or (${existingOrCandidate.venueHoldId} is not null and (${existingOrCandidate.startsAt} <> ${hold.startsAt} or ${existingOrCandidate.endsAt} <> ${hold.endsAt}))
+    then 0
+    else ${minutes}
+  end`;
+}
+
+/**
+ * PTR-132: Load conflicting venue occupancy rows created by a buffer change.
+ * Each ledger row retests using its own stored buffers (split piece has absolute extent with 0/0 buffers);
+ * only newly created overlaps between different commitment sources are returned.
+ */
+export async function loadVenueBufferConflictRows(
+  database: Pick<Database, "select">,
+  venue: BufferedVenue
+): Promise<VenueBufferConflictRow[]> {
+  if (venue.setupMinutes === 0 && venue.turnaroundMinutes === 0) return [];
+
+  const candidate = alias(venueOccupancy, "candidate");
+  const existingEvent = alias(eventRequests, "existing_event");
+  const candidateEvent = alias(eventRequests, "candidate_event");
+  const existingRequest = alias(venueRequests, "existing_request");
+  const existingHold = alias(venueHolds, "existing_hold");
+  const candidateRequest = alias(venueRequests, "candidate_request");
+  const candidateHold = alias(venueHolds, "candidate_hold");
+
+  const existingNewSetup = effectiveBuffer(
+    venueOccupancy,
+    existingRequest,
+    existingHold,
+    venue.setupMinutes
+  );
+  const existingNewTurnaround = effectiveBuffer(
+    venueOccupancy,
+    existingRequest,
+    existingHold,
+    venue.turnaroundMinutes
+  );
+  const candidateNewSetup = effectiveBuffer(
+    candidate,
+    candidateRequest,
+    candidateHold,
+    venue.setupMinutes
+  );
+  const candidateNewTurnaround = effectiveBuffer(
+    candidate,
+    candidateRequest,
+    candidateHold,
+    venue.turnaroundMinutes
+  );
+
+  const existingNewRange = sql`tsrange(${venueOccupancy.startsAt} - make_interval(mins => (${existingNewSetup})::integer), ${venueOccupancy.endsAt} + make_interval(mins => (${existingNewTurnaround})::integer), '[)')`;
+  const candidateNewRange = sql`tsrange(${candidate.startsAt} - make_interval(mins => (${candidateNewSetup})::integer), ${candidate.endsAt} + make_interval(mins => (${candidateNewTurnaround})::integer), '[)')`;
+
+  const storedOverlap = overlapsPeriod({
+    venueId: venue.id,
+    startsAt: candidate.startsAt,
+    endsAt: candidate.endsAt,
+    setupMinutes: candidate.setupMinutes,
+    turnaroundMinutes: candidate.turnaroundMinutes,
+  });
+
+  const pairs = await database
+    .select({
+      existingId: venueOccupancy.id,
+      candidateId: candidate.id,
+    })
+    .from(venueOccupancy)
+    .innerJoin(
+      candidate,
+      and(
+        eq(candidate.venueId, venueOccupancy.venueId),
+        lt(venueOccupancy.id, candidate.id),
+        isNull(candidate.venueUnavailabilityId),
+        sql`coalesce(${venueOccupancy.venueRequestId} <> ${candidate.venueRequestId}, true)`,
+        sql`coalesce(${venueOccupancy.venueHoldId} <> ${candidate.venueHoldId}, true)`
+      )
+    )
+    .innerJoin(
+      existingEvent,
+      and(
+        eq(existingEvent.id, venueOccupancy.eventId),
+        notInArray(existingEvent.status, [...CLOSED_EVENT_STATUSES])
+      )
+    )
+    .innerJoin(
+      candidateEvent,
+      and(
+        eq(candidateEvent.id, candidate.eventId),
+        notInArray(candidateEvent.status, [...CLOSED_EVENT_STATUSES])
+      )
+    )
+    .leftJoin(existingRequest, eq(existingRequest.id, venueOccupancy.venueRequestId))
+    .leftJoin(existingHold, eq(existingHold.id, venueOccupancy.venueHoldId))
+    .leftJoin(candidateRequest, eq(candidateRequest.id, candidate.venueRequestId))
+    .leftJoin(candidateHold, eq(candidateHold.id, candidate.venueHoldId))
+    .where(
+      and(
+        eq(venueOccupancy.venueId, venue.id),
+        or(
+          and(eq(venueOccupancy.active, true), isNull(venueOccupancy.venueUnavailabilityId)),
+          suspendedPieceWhere()
+        ),
+        sql`${existingNewRange} && ${candidateNewRange} and not (${storedOverlap})`
+      )
+    );
+
+  if (pairs.length === 0) return [];
+
+  const conflictIds = new Set<number>();
+  for (const pair of pairs) {
+    conflictIds.add(pair.existingId);
+    conflictIds.add(pair.candidateId);
+  }
+
+  return database
+    .select({
+      id: venueOccupancy.id,
+      venueRequestId: venueOccupancy.venueRequestId,
+      venueHoldId: venueOccupancy.venueHoldId,
+      eventId: eventRequests.id,
+      startsAt: venueOccupancy.startsAt,
+      endsAt: venueOccupancy.endsAt,
+      active: venueOccupancy.active,
+      eventName: eventRequests.eventName,
+    })
+    .from(venueOccupancy)
+    .innerJoin(eventRequests, eq(eventRequests.id, venueOccupancy.eventId))
+    .where(inArray(venueOccupancy.id, [...conflictIds]))
+    .orderBy(asc(venueOccupancy.startsAt), asc(venueOccupancy.id));
+}
+
+/**
+ * PTR-132: Return commitments that newly conflict under a venue's buffer settings.
+ */
+export async function loadVenueBufferConflicts(
+  database: Pick<Database, "select">,
+  venue: BufferedVenue
+): Promise<VenueBufferConflict[]> {
+  const rows = await loadVenueBufferConflictRows(database, venue);
+  return mapConflictRowsToConflicts(rows);
+}
+
+export async function handleGetVenue(
+  data: unknown,
+  database: Database
+): Promise<VenueWithConflicts | null> {
   const { id } = parseVenueId(data);
   const rows = await database.select().from(venues).where(eq(venues.id, id));
-  return rows.at(0) ?? null;
+  const row = rows.at(0);
+  if (!row) return null;
+  const bufferConflicts = await loadVenueBufferConflicts(database, row);
+  return { ...row, bufferConflicts };
 }
 
 /**
@@ -697,7 +908,13 @@ export async function handleGetVenueAvailability(
   const selection = parseAvailabilityRequest(data);
 
   const venueRows = await database
-    .select({ id: venues.id, name: venues.name, operatingHours: venues.operatingHours })
+    .select({
+      id: venues.id,
+      name: venues.name,
+      setupMinutes: venues.setupMinutes,
+      turnaroundMinutes: venues.turnaroundMinutes,
+      operatingHours: venues.operatingHours,
+    })
     .from(venues)
     .where(eq(venues.id, selection.venueId))
     .limit(1);
@@ -711,11 +928,26 @@ export async function handleGetVenueAvailability(
   const endsAt = `${nextCivilDate(selection.endDate)}T00:00:00`;
   const databaseStartsAt = startsAt.replace("T", " ");
   const databaseEndsAt = endsAt.replace("T", " ");
-  const [blocks, bookings, holds] = await Promise.all([
+  const [blocks, bookings, holds, conflictRows] = await Promise.all([
     loadVenueBlocks(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueBookings(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueHolds(database, [venue.id], databaseStartsAt, databaseEndsAt),
+    loadVenueBufferConflictRows(database, venue),
   ]);
+
+  const conflictRequestIds = new Set(
+    conflictRows.map(r => r.venueRequestId).filter((id): id is string => id !== null)
+  );
+  const conflictHoldIds = new Set(
+    conflictRows.map(r => r.venueHoldId).filter((id): id is string => id !== null)
+  );
+
+  // Copy rows before adding conflict flags. The loader shares these rows with other callers.
+  // oxlint-disable-next-line oxc/no-map-spread
+  const markedBookings = bookings.map(b => ({
+    ...b,
+    ...(conflictRequestIds.has(b.id) ? { bufferConflict: true } : {}),
+  }));
 
   // Keep the owner ids on the server, so Venue Staff cannot learn who owns another user's hold. A
   // hold that the viewer can convert (`canConvertHold`) carries `convertDefaults`: the event's
@@ -747,6 +979,7 @@ export async function handleGetVenueAvailability(
       warnAt: isAssignee ? hold.warnAt : null,
       canChangeHold,
       canSetWarning: isAssignee && canChangeHold && hold.expiresAt !== null,
+      ...(conflictHoldIds.has(hold.id) ? { bufferConflict: true } : {}),
     };
   });
 
@@ -758,7 +991,7 @@ export async function handleGetVenueAvailability(
       { startsAt, endsAt },
       {
         // Read the same approved bookings and holds as the search (PTR-36, PTR-109).
-        bookings,
+        bookings: markedBookings,
         blocks,
         holds: manageableHolds,
         openPeriods: openingPeriods(selection.startDate, selection.endDate, venue.operatingHours),
@@ -789,49 +1022,153 @@ export async function handleSaveVenue(
   data: unknown,
   database: Database,
   actorId: string
-): Promise<Venue> {
+): Promise<VenueWithConflicts> {
   const { id, ...fields } = parseVenueInput(data);
-  return database.transaction(async tx => {
-    let previousSetupMinutes = 0;
-    let previousTurnaroundMinutes = 0;
-    let saved: Venue;
-    if (id === undefined) {
-      [saved] = await tx.insert(venues).values(fields).returning().catch(rethrowReadable);
-    } else {
-      // Take the hold writer's advisory lock first. It serializes every writer of the buffer
-      // columns, so the read below is the current version.
-      await lockVenue(tx, id);
-      const previousRows = await tx
-        .select({
-          setupMinutes: venues.setupMinutes,
-          turnaroundMinutes: venues.turnaroundMinutes,
-        })
-        .from(venues)
-        .where(eq(venues.id, id));
-      const previous = previousRows.at(0);
-      if (!previous) throw new NotFoundError("Not Found");
-      previousSetupMinutes = previous.setupMinutes;
-      previousTurnaroundMinutes = previous.turnaroundMinutes;
-      [saved] = await tx
-        .update(venues)
-        .set(fields)
-        .where(eq(venues.id, id))
-        .returning()
-        .catch(rethrowReadable);
-    }
-    if (
-      previousSetupMinutes !== saved.setupMinutes ||
-      previousTurnaroundMinutes !== saved.turnaroundMinutes
-    ) {
-      await tx.insert(venueBufferChanges).values({
-        venueId: saved.id,
-        previousSetupMinutes,
-        previousTurnaroundMinutes,
-        setupMinutes: saved.setupMinutes,
-        turnaroundMinutes: saved.turnaroundMinutes,
-        changedById: actorId,
+
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    try {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- retry loop on concurrent deadlock
+      return await database.transaction(async tx => {
+        if (id === undefined) {
+          const [saved] = await tx.insert(venues).values(fields).returning().catch(rethrowReadable);
+          if (saved.setupMinutes !== 0 || saved.turnaroundMinutes !== 0) {
+            await tx.insert(venueBufferChanges).values({
+              venueId: saved.id,
+              previousSetupMinutes: 0,
+              previousTurnaroundMinutes: 0,
+              setupMinutes: saved.setupMinutes,
+              turnaroundMinutes: saved.turnaroundMinutes,
+              changedById: actorId,
+            });
+          }
+          return { ...saved, bufferConflicts: [] };
+        }
+
+        // Key-share existing events before locking the venue so lock order stays event -> venue.
+        const existingOccupancies = await tx
+          .selectDistinct({ eventId: venueOccupancy.eventId })
+          .from(venueOccupancy)
+          .where(and(eq(venueOccupancy.venueId, id), isNull(venueOccupancy.venueUnavailabilityId)));
+
+        const preLockEventIds = existingOccupancies
+          .map(r => r.eventId)
+          .filter((eid): eid is number => eid !== null)
+          .toSorted((a, b) => a - b);
+
+        const lockedEvents = new Map<number, LockedEvent>();
+        for (const eventId of preLockEventIds) {
+          // oxlint-disable-next-line eslint/no-await-in-loop -- key-share in ascending id order
+          const locked = await keyShareEvent(tx, eventId);
+          if (locked) lockedEvents.set(locked.id, locked);
+        }
+
+        await lockVenue(tx, id);
+
+        const previousRows = await tx
+          .select({
+            setupMinutes: venues.setupMinutes,
+            turnaroundMinutes: venues.turnaroundMinutes,
+          })
+          .from(venues)
+          .where(eq(venues.id, id));
+        const previous = previousRows.at(0);
+        if (!previous) throw new NotFoundError("Not Found");
+        const previousSetupMinutes = previous.setupMinutes;
+        const previousTurnaroundMinutes = previous.turnaroundMinutes;
+
+        const [saved] = await tx
+          .update(venues)
+          .set(fields)
+          .where(eq(venues.id, id))
+          .returning()
+          .catch(rethrowReadable);
+
+        if (
+          previousSetupMinutes !== saved.setupMinutes ||
+          previousTurnaroundMinutes !== saved.turnaroundMinutes
+        ) {
+          await tx.insert(venueBufferChanges).values({
+            venueId: saved.id,
+            previousSetupMinutes,
+            previousTurnaroundMinutes,
+            setupMinutes: saved.setupMinutes,
+            turnaroundMinutes: saved.turnaroundMinutes,
+            changedById: actorId,
+          });
+
+          const conflictRows = await loadVenueBufferConflictRows(tx, saved);
+          for (const row of conflictRows) {
+            if (!lockedEvents.has(row.eventId)) {
+              // oxlint-disable-next-line eslint/no-await-in-loop -- key-share remaining event
+              const locked = await keyShareEvent(tx, row.eventId);
+              if (locked) lockedEvents.set(locked.id, locked);
+            }
+          }
+
+          const activeConflictRows = conflictRows.filter(row => {
+            const locked = lockedEvents.get(row.eventId);
+            return Boolean(
+              locked && locked.status !== "cancelled" && locked.status !== "completed"
+            );
+          });
+
+          const rowsByEvent = Map.groupBy(activeConflictRows, row => row.eventId);
+          const notices: NewNotification[] = [];
+          for (const [eventId, rows] of rowsByEvent) {
+            const locked = lockedEvents.get(eventId);
+            if (!locked?.assignedCoordinatorId) continue;
+            const firstRow = rows[0];
+            const safeEventName =
+              (locked.eventName || firstRow.eventName || "Untitled event").trim() ||
+              "Untitled event";
+
+            const payload: NotificationPayloads["venue_buffer_conflict"] = {
+              eventName: safeEventName,
+              venueName: saved.name,
+              startsAt: firstRow.startsAt,
+              endsAt: firstRow.endsAt ?? firstRow.startsAt,
+              setupMinutes: saved.setupMinutes,
+              turnaroundMinutes: saved.turnaroundMinutes,
+              ...(rows.length > 1
+                ? {
+                    periods: rows.map(r => ({
+                      startsAt: r.startsAt,
+                      endsAt: r.endsAt ?? r.startsAt,
+                    })),
+                  }
+                : {}),
+            };
+
+            notices.push({
+              recipientId: locked.assignedCoordinatorId,
+              eventRequestId: locked.id,
+              kind: "venue_buffer_conflict",
+              payload,
+            });
+          }
+
+          if (notices.length > 0) {
+            await raiseNotifications(tx, notices);
+          }
+
+          return {
+            ...saved,
+            bufferConflicts: mapConflictRowsToConflicts(activeConflictRows),
+          };
+        }
+
+        const bufferConflicts = await loadVenueBufferConflicts(tx, saved);
+        return { ...saved, bufferConflicts };
       });
+    } catch (error) {
+      if (isDeadlock(error) && attempt < 2) {
+        log.warn("Retrying venue buffer save that deadlocked", { attempt, sqlstate: "40P01" });
+        continue;
+      }
+      throw error;
     }
-    return saved;
-  });
+  }
+
+  // oxlint-disable-next-line @typescript-eslint/only-throw-error
+  throw new Error("Venue save retry limit exceeded");
 }

@@ -429,6 +429,7 @@ export function VenueCalendarPage({
                           {OCCUPIED_STATES[period.state].label}
                         </Badge>
                       )}
+                      {period.bufferConflict && <Badge variant="stopped">Buffer conflict</Badge>}
                       {period.state === "tentative_hold" &&
                         period.id &&
                         ((canHold && (period.canRelease || period.convertDefaults)) ||

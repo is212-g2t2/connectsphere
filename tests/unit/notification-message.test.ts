@@ -146,6 +146,14 @@ const validPayloads = {
     previousExpiresAt: "2026-10-08 12:00:00",
     warnAt: "2026-10-07 09:00:00",
   },
+  venue_buffer_conflict: {
+    eventName: "Gala",
+    venueName: "Harbour Hall",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: "2026-10-12 17:00:00",
+    setupMinutes: 30,
+    turnaroundMinutes: 30,
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -243,6 +251,12 @@ describe("notification summaries (PTR-55 AC2)", () => {
     });
     expect(attendee.payload).toMatchObject({ audience: "attendee" });
     expect(notificationHref({ ...attendee, eventRequestId: 7 })).toBe("/events/7");
+  });
+
+  it("names the venue for the venue buffer conflict line (PTR-132)", () => {
+    const conflict = parse("venue_buffer_conflict", validPayloads.venue_buffer_conflict);
+    expect(notificationSummary(conflict)).toBe("Venue buffer conflict: Harbour Hall");
+    expect(notificationHref({ ...conflict, eventRequestId: 7 })).toBe("/events/7");
   });
 
   it("names the event for the registration lines (PTR-45)", () => {
@@ -480,6 +494,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       venue_booking_released_by_coordinator: "/venue-bookings",
       venue_hold_expiry_changed:
         "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
+      venue_buffer_conflict: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

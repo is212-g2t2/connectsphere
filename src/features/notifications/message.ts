@@ -44,9 +44,13 @@ export const NOTIFICATION_KINDS = [
   "venue_booking_released_by_coordinator",
   /** PTR-142 AC2, AC4: Venue Staff set or change the expiry of a tentative hold. The Coordinator receives this notice. */
   "venue_hold_expiry_changed",
+  /** PTR-132: buffer change created a conflict for existing commitments. */
+  "venue_buffer_conflict",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+const nonEmpty = z.string().trim().min(1);
 
 /**
  * The payloads are domain facts, never React props: the inbox line, the email subject and the
@@ -315,6 +319,18 @@ const payloadSchemas = {
     previousExpiresAt: z.string().nullable(),
     warnAt: z.string().nullable(),
   }),
+  venue_buffer_conflict: z.object({
+    eventName: nonEmpty,
+    venueName: nonEmpty,
+    startsAt: nonEmpty,
+    endsAt: nonEmpty,
+    setupMinutes: z.number().int().nonnegative(),
+    turnaroundMinutes: z.number().int().nonnegative(),
+    periods: z
+      .array(z.object({ startsAt: nonEmpty, endsAt: nonEmpty }))
+      .nonempty()
+      .optional(),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -423,6 +439,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("venue_hold_expiry_changed"),
     payload: payloadSchemas.venue_hold_expiry_changed,
   }),
+  z.object({
+    kind: z.literal("venue_buffer_conflict"),
+    payload: payloadSchemas.venue_buffer_conflict,
+  }),
 ]);
 
 /**
@@ -512,6 +532,8 @@ export function notificationSummary(notification: NotificationPayload): string {
       return `Venue booking released by the Coordinator: ${notification.payload.venueName}`;
     case "venue_hold_expiry_changed":
       return `Tentative hold expiry ${notification.payload.action}: ${notification.payload.venueName}`;
+    case "venue_buffer_conflict":
+      return `Venue buffer conflict: ${notification.payload.venueName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -618,6 +640,8 @@ export function notificationHref(
     case "venue_hold_expiry_changed":
       // The venue calendar shows the expiry and the warning for the days of the hold (PTR-142 AC3).
       return `/venues/availability?venueId=${notification.payload.venueId}&startDate=${notification.payload.startsAt.slice(0, 10)}&endDate=${notification.payload.endsAt.slice(0, 10)}`;
+    case "venue_buffer_conflict":
+      return `/events/${eventRequestId}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);
@@ -673,6 +697,7 @@ export function notificationReachable(
     case "venue_block_changed":
     case "venue_booking_released_by_coordinator":
     case "venue_hold_expiry_changed":
+    case "venue_buffer_conflict":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

@@ -9,6 +9,7 @@ import {
   parseVenueInput,
   parseVenueSearchRequest,
 } from "#/features/venues/schema";
+import type { VenueBufferConflict } from "#/features/venues/availability";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("venues");
@@ -24,6 +25,7 @@ async function loadServer() {
 
 /** Shape a venue row as the client sees it. Derive it here so routes avoid the server module. */
 export type Venue = Awaited<ReturnType<typeof listVenues>>[number];
+export type VenueWithConflicts = Venue & { bufferConflicts?: VenueBufferConflict[] };
 
 /** Create or update a venue in `saveVenue`. The payload id selects the path. */
 function venueAction(data: unknown): "create" | "update" {

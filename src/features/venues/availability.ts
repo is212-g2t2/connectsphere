@@ -3,6 +3,18 @@ import { WEEKDAYS } from "#/features/venues/schema";
 import type { OperatingHours } from "#/features/venues/schema";
 
 /**
+ * PTR-132: a commitment flagged as conflicting under a venue's new buffer values.
+ */
+export interface VenueBufferConflict {
+  id: string;
+  kind: "booking" | "hold" | "suspended";
+  eventId: number;
+  eventName: string;
+  startsAt: string;
+  endsAt: string;
+}
+
+/**
  * Measure venue availability with local wall-clock values, not `Date` objects.
  *
  * Postgres stores unavailability as `timestamp without time zone`. Drizzle reads it as a string
@@ -148,6 +160,8 @@ export interface AvailabilityRecord extends AvailabilityPeriod {
   canChangeHold?: boolean;
   /** Set on a hold when the viewer is its Coordinator and can change the warning. */
   canSetWarning?: boolean;
+  /** PTR-132: buffer conflict created by a venue buffer change. */
+  bufferConflict?: boolean;
 }
 
 export interface OccupiedPeriod extends AvailabilityPeriod {
@@ -166,6 +180,8 @@ export interface OccupiedPeriod extends AvailabilityPeriod {
   warnAt?: string | null;
   canChangeHold?: boolean;
   canSetWarning?: boolean;
+  /** PTR-132: buffer conflict created by a venue buffer change. */
+  bufferConflict?: boolean;
 }
 
 export interface AvailabilityProjection {
@@ -234,6 +250,7 @@ export function projectAvailability(
       warnAt: record.warnAt,
       canChangeHold: record.canChangeHold,
       canSetWarning: record.canSetWarning,
+      ...(record.bufferConflict ? { bufferConflict: true } : {}),
     });
   }
   for (const booking of source.bookings) addOccupied(booking, "confirmed");

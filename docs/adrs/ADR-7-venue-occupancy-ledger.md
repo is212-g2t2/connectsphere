@@ -36,7 +36,9 @@ Two concurrent inserts of overlapping rows can deadlock in the exclusion check. 
 
 ### Snapshot policy
 
-A venue buffer change does not rewrite stored rows, so the constraint does not guard the added buffer time of an existing commitment. PTR-132 adds a report that lists these commitments. Venue Staff amend or release a listed booking, and the Coordinator releases a listed hold. An amendment or a new approval writes a row with the current buffers.
+A venue buffer save never rewrites stored ledger rows or blocks the change. Rewriting stored rows can violate the exclusion constraint mid-save, so existing rows stay intact. The save logs the update in `venue_buffer_changes` and tests commitments with a differential query. Each commitment retests against stored buffers, split pieces retest at `0 / 0`, and the query excludes pre-existing overlaps.
+
+The venue save flags newly overlapping commitments on the venue page and calendar, and notifies assigned Coordinators. Users resolve flagged commitments manually. Venue Staff release or amend conflicting bookings, and Coordinators release conflicting holds or suspended bookings. Subsequent approvals or amendments insert fresh ledger rows with current buffers.
 
 ### Suspension
 
