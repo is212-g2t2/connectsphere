@@ -20,6 +20,7 @@ import {
   VENUE_HOLD_WARNING_MESSAGE,
 } from "#/features/venue-requests/schema";
 import { setVenueHoldExpiry, setVenueHoldWarning } from "#/features/venue-requests/server-fns";
+import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 import { skipRootFilter } from "#/lib/invalidate";
 
 interface HoldTimeDialogProps {
@@ -35,11 +36,9 @@ interface HoldTimeDialogProps {
   successMessage: string;
 }
 
-const padTwo = (value: number) => String(value).padStart(2, "0");
-
-/** The current browser time as a `datetime-local` minimum, `YYYY-MM-DDTHH:MM`. */
-function localMinuteValue(date: Date) {
-  return `${date.getFullYear()}-${padTwo(date.getMonth() + 1)}-${padTwo(date.getDate())}T${padTwo(date.getHours())}:${padTwo(date.getMinutes())}`;
+/** The venue clock as a `datetime-local` minimum, `YYYY-MM-DDTHH:MM`. */
+function venueMinuteMinimum() {
+  return toLocalMinuteValue(venueLocalTimestamp(new Date()));
 }
 
 /** The form of the dialog. It mounts when the dialog opens, so a reopened dialog has no stale state. */
@@ -55,7 +54,7 @@ function HoldTimeForm({
 }) {
   const router = useRouter();
   // The server refuses a past value. This guard prevents the submit, but the server decides.
-  const [min] = useState(() => localMinuteValue(new Date()));
+  const [min] = useState(venueMinuteMinimum);
   // The Clear button sends its own request, so it has its own pending flag and error.
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
