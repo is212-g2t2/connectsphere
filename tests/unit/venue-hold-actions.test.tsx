@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,30 +13,39 @@ import { VenueCalendarPage } from "#/features/venues/components/venue-calendar-p
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
 
-const { mockInvalidate, mockNavigate, mockCreateHold, mockReleaseHold, mockConvertHold } =
-  vi.hoisted(() => ({
-    mockInvalidate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    mockNavigate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    mockCreateHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
-      id: "hold-new",
-      status: "held",
+const {
+  mockInvalidate,
+  mockNavigate,
+  mockCreateHold,
+  mockReleaseHold,
+  mockConvertHold,
+  mockSetExpiry,
+  mockSetWarning,
+} = vi.hoisted(() => ({
+  mockSetExpiry: vi.fn<(input: unknown) => Promise<unknown>>().mockResolvedValue({}),
+  mockSetWarning: vi.fn<(input: unknown) => Promise<unknown>>().mockResolvedValue({}),
+  mockInvalidate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  mockNavigate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  mockCreateHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
+    id: "hold-new",
+    status: "held",
+  }),
+  mockReleaseHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
+    id: "hold-1",
+    status: "released",
+  }),
+  mockConvertHold: vi
+    .fn<
+      () => Promise<{
+        hold: { id: string; status: string };
+        request: { id: string; status: string };
+      }>
+    >()
+    .mockResolvedValue({
+      hold: { id: "hold-1", status: "released" },
+      request: { id: "req-1", status: "pending" },
     }),
-    mockReleaseHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
-      id: "hold-1",
-      status: "released",
-    }),
-    mockConvertHold: vi
-      .fn<
-        () => Promise<{
-          hold: { id: string; status: string };
-          request: { id: string; status: string };
-        }>
-      >()
-      .mockResolvedValue({
-        hold: { id: "hold-1", status: "released" },
-        request: { id: "req-1", status: "pending" },
-      }),
-  }));
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -53,6 +62,8 @@ vi.mock("#/features/venue-requests/server-fns", () => ({
   createVenueHold: mockCreateHold,
   releaseVenueHold: mockReleaseHold,
   convertVenueHold: mockConvertHold,
+  setVenueHoldExpiry: mockSetExpiry,
+  setVenueHoldWarning: mockSetWarning,
 }));
 
 vi.mock("sonner", () => ({
@@ -131,6 +142,26 @@ const scheduleWithUnownedHold: VenueAvailability = {
   ],
 };
 
+const withExpiry = (
+  expiresAt: string | null,
+  warnAt: string | null,
+  canSetWarning: boolean,
+  canChangeHold = true
+) => ({
+  ...scheduleWithHold,
+  occupied: [{ ...scheduleWithHold.occupied[0], expiresAt, warnAt, canChangeHold, canSetWarning }],
+});
+const renderAs = (user: SessionUser, schedule: VenueAvailability) =>
+  render(
+    <VenueCalendarPage
+      venues={[venue]}
+      schedule={schedule}
+      search={{ venueId: 7, startDate: "2026-10-05", endDate: "2026-10-06" }}
+      user={user}
+      coordinatorEvents={[]}
+    />
+  );
+
 describe("venue hold action components and calendar write-path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -161,7 +192,7 @@ describe("venue hold action components and calendar write-path", () => {
     });
 
     it("displays error message if releaseVenueHold fails", async () => {
-      mockReleaseHold.mockRejectedValueOnce(new Error("This hold has already been released."));
+      mockReleaseHold.mockRejectedValueOnce(new Error("This hold is no longer active."));
       const user = userEvent.setup();
       render(<ReleaseVenueHoldButton holdId="hold-42" />);
 
@@ -169,7 +200,7 @@ describe("venue hold action components and calendar write-path", () => {
       await user.click(await screen.findByRole("button", { name: "Confirm release" }));
 
       await waitFor(() => {
-        expect(screen.getByRole("alert").textContent).toContain("already been released");
+        expect(screen.getByRole("alert").textContent).toContain("no longer active");
       });
     });
   });
@@ -241,7 +272,9 @@ describe("venue hold action components and calendar write-path", () => {
     });
 
     it("displays error message if convertVenueHold fails", async () => {
-      mockConvertHold.mockRejectedValueOnce(new Error("This hold has already been converted."));
+      mockConvertHold.mockRejectedValueOnce(
+        new Error("This hold is no longer active or has been converted.")
+      );
       const user = userEvent.setup();
       render(<ConvertVenueHoldButton holdId="hold-42" requirements={eventRequirements} />);
 
@@ -251,7 +284,9 @@ describe("venue hold action components and calendar write-path", () => {
       await user.click(await screen.findByRole("button", { name: "Confirm conversion" }));
 
       await waitFor(() => {
-        expect(screen.getByRole("alert").textContent).toContain("already been converted");
+        expect(screen.getByRole("alert").textContent).toContain(
+          "no longer active or has been converted"
+        );
       });
     });
   });
@@ -467,6 +502,104 @@ describe("venue hold action components and calendar write-path", () => {
       expect(
         screen.queryByRole("button", { name: "Convert tentative hold to booking request" })
       ).toBeNull();
+    });
+
+    describe("hold expiry (PTR-142)", () => {
+      it("shows the Coordinator the expiry and the warning, and a warning control (AC3)", () => {
+        renderAs(coordinatorUser, withExpiry("2026-10-04T12:00:00", "2026-10-03T09:00:00", true));
+        expect(screen.getByText(/Expires 4 Oct 2026, 12:00/)).toBeTruthy();
+        expect(screen.getByText(/Warning 3 Oct 2026, 09:00/)).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Change warning" })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: /expiry/ })).toBeNull();
+      });
+
+      it("hides the warning trigger until an expiry exists", () => {
+        renderAs(coordinatorUser, withExpiry(null, null, true, true));
+        expect(screen.getByText(/No expiry set/)).toBeTruthy();
+        expect(screen.queryByRole("button", { name: /warning/i })).toBeNull();
+      });
+
+      it("shows neither trigger for a hold on a cancelled event", () => {
+        renderAs(staffUser, withExpiry("2026-10-04T12:00:00", null, false, false));
+        expect(screen.queryByRole("button", { name: /expiry/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /warning/i })).toBeNull();
+      });
+
+      it("flags a hold without an expiry and offers Venue Staff the setter", async () => {
+        const user = userEvent.setup();
+        renderAs(staffUser, withExpiry(null, null, false));
+        expect(screen.getByText(/No expiry set/)).toBeTruthy();
+        expect(screen.queryByRole("button", { name: /warning/i })).toBeNull();
+
+        await user.click(screen.getByRole("button", { name: "Set expiry" }));
+        await user.type(screen.getByLabelText("Date and time"), "2026-10-04T12:00");
+        await user.click(screen.getByRole("button", { name: "Save expiry" }));
+        await waitFor(() =>
+          expect(mockSetExpiry).toHaveBeenCalledWith({
+            data: { id: "hold-42", expiresAt: "2026-10-04T12:00" },
+          })
+        );
+      });
+
+      it("shows a server refusal in the dialog", async () => {
+        mockSetExpiry.mockRejectedValueOnce(new Error("The expiry must be in the future"));
+        const user = userEvent.setup();
+        renderAs(staffUser, withExpiry(null, null, false));
+
+        await user.click(screen.getByRole("button", { name: "Set expiry" }));
+        await user.type(screen.getByLabelText("Date and time"), "2026-10-04T12:00");
+        await user.click(screen.getByRole("button", { name: "Save expiry" }));
+
+        await waitFor(() =>
+          expect(screen.getByRole("alert").textContent).toContain("must be in the future")
+        );
+      });
+
+      it("lets the Coordinator clear the warning", async () => {
+        const user = userEvent.setup();
+        renderAs(coordinatorUser, withExpiry("2026-10-04T12:00:00", "2026-10-03T09:00:00", true));
+        await user.click(screen.getByRole("button", { name: "Change warning" }));
+        await user.click(screen.getByRole("button", { name: "Clear" }));
+        await waitFor(() =>
+          expect(mockSetWarning).toHaveBeenCalledWith({ data: { id: "hold-42", warnAt: null } })
+        );
+      });
+
+      it("refuses a blank warning instead of clearing it", async () => {
+        const user = userEvent.setup();
+        renderAs(coordinatorUser, withExpiry("2026-10-04T12:00:00", "2026-10-03T09:00:00", true));
+
+        await user.click(screen.getByRole("button", { name: "Change warning" }));
+        const input = screen.getByLabelText("Date and time");
+        await user.clear(input);
+
+        expect(screen.getByRole("button", { name: "Save warning" })).toHaveProperty(
+          "disabled",
+          true
+        );
+
+        const form = input.closest("form");
+        expect(form).toBeTruthy();
+        fireEvent.submit(form as HTMLFormElement);
+
+        expect(await screen.findByText("Enter a valid warning date and time")).toBeTruthy();
+        expect(input.getAttribute("aria-invalid")).toBe("true");
+        expect(mockSetWarning).not.toHaveBeenCalled();
+      });
+
+      it("renders no action group when the warning flag has no expiry", () => {
+        const noExpiry = withExpiry(null, null, true);
+        const unowned: VenueAvailability = {
+          ...noExpiry,
+          occupied: [{ ...noExpiry.occupied[0], canRelease: false, convertDefaults: undefined }],
+        };
+        renderAs(coordinatorUser, unowned);
+
+        const row = screen.getByText("No expiry set").closest("li");
+        expect(row).toBeTruthy();
+        expect(within(row as HTMLElement).queryAllByRole("button")).toHaveLength(0);
+        expect(row?.querySelector("div.flex.items-center.gap-2")).toBeNull();
+      });
     });
   });
 });

@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { can } from "#/features/auth/permissions";
+import { formatLocalDateTime } from "#/features/event-requests/format";
 import type { SessionUser } from "#/features/auth/session";
 import {
   ConvertVenueHoldButton,
@@ -28,6 +29,10 @@ import {
   LiftVenueBlockButton,
   RecordVenueBlockDialog,
 } from "#/features/venues/components/venue-block-actions";
+import {
+  SetVenueHoldExpiryButton,
+  SetVenueHoldWarningButton,
+} from "#/features/venue-requests/components/hold-time-dialog";
 import type { CoordinatorEventOption } from "#/features/venue-requests/components/venue-hold-actions";
 import {
   compareTimestamps,
@@ -186,6 +191,7 @@ export function VenueCalendarPage({
   }, [schedule]);
 
   const canHold = user ? can(user.role, { venue_request: ["request"] }) : false;
+  const canSetExpiry = user ? can(user.role, { venue_request: ["decide"] }) : false;
   const canBlock = user ? can(user.role, { venue: ["update"] }) : false;
 
   return (
@@ -403,6 +409,20 @@ export function VenueCalendarPage({
                         <p className="body-sm text-muted-foreground">
                           {timeRange(period)} · {schedule.venue.name}
                         </p>
+                        {period.state === "tentative_hold" && (
+                          <div className="body-sm text-muted-foreground">
+                            <p className="whitespace-nowrap">
+                              {period.expiresAt
+                                ? `Expires ${formatLocalDateTime(period.expiresAt.slice(0, 16))}`
+                                : "No expiry set"}
+                            </p>
+                            {period.warnAt && (
+                              <p className="whitespace-nowrap">
+                                Warning {formatLocalDateTime(period.warnAt.slice(0, 16))}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                       {period.state !== "available" && (
                         <Badge variant={OCCUPIED_STATES[period.state].variant}>
@@ -411,16 +431,32 @@ export function VenueCalendarPage({
                       )}
                       {period.state === "tentative_hold" &&
                         period.id &&
-                        canHold &&
-                        (period.canRelease || period.convertDefaults) && (
+                        ((canHold && (period.canRelease || period.convertDefaults)) ||
+                          (canSetExpiry && period.canChangeHold) ||
+                          (period.canSetWarning && period.expiresAt)) && (
                           <div className="flex items-center gap-2">
-                            {period.convertDefaults && (
+                            {canHold && period.convertDefaults && (
                               <ConvertVenueHoldButton
                                 holdId={period.id}
                                 requirements={period.convertDefaults}
                               />
                             )}
-                            {period.canRelease && <ReleaseVenueHoldButton holdId={period.id} />}
+                            {canHold && period.canRelease && (
+                              <ReleaseVenueHoldButton holdId={period.id} />
+                            )}
+                            {canSetExpiry && period.canChangeHold && (
+                              <SetVenueHoldExpiryButton
+                                holdId={period.id}
+                                expiresAt={period.expiresAt ?? null}
+                              />
+                            )}
+                            {period.canSetWarning && (
+                              <SetVenueHoldWarningButton
+                                holdId={period.id}
+                                warnAt={period.warnAt ?? null}
+                                expiresAt={period.expiresAt ?? null}
+                              />
+                            )}
                           </div>
                         )}
                       {period.state === "blocked" && period.id && canBlock && (

@@ -544,7 +544,12 @@ export const venueRequestStatus = pgEnum("venue_request_status", [
   "released",
 ]);
 
-export const venueHoldStatus = pgEnum("venue_hold_status", ["held", "released"]);
+/**
+ * `expired` is for the PTR-143 sweep. PTR-142 adds the literal and never writes it. The migrator
+ * runs all pending migrations in one transaction, and no transaction can use an enum value that
+ * it adds.
+ */
+export const venueHoldStatus = pgEnum("venue_hold_status", ["held", "released", "expired"]);
 
 /**
  * PTR-39 added `not_required` and `unavailable`, which Technical Support sets by hand.
@@ -715,6 +720,15 @@ export const venueHolds = pgTable(
     setupMinutes: integer("setup_minutes").notNull().default(0),
     turnaroundMinutes: integer("turnaround_minutes").notNull().default(0),
     status: venueHoldStatus("status").default("held").notNull(),
+    // PTR-142: Venue Staff set the expiry. A null value means that the hold has no expiry. Both
+    // values are venue-local timestamps, like `starts_at`. The Coordinator sets `warn_at` as a
+    // fixed time, so an extension does not move it. PTR-143's sweep ignores a hold with no expiry.
+    expiresAt: timestamp("expires_at", { mode: "string" }),
+    warnAt: timestamp("warn_at", { mode: "string" }),
+    expiryChangedById: text("expiry_changed_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    expiryChangedAt: timestamp("expiry_changed_at", { withTimezone: true }),
     heldById: text("held_by_id").references(() => user.id, { onDelete: "set null" }),
     releasedById: text("released_by_id").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -727,6 +741,10 @@ export const venueHolds = pgTable(
     check("venue_holds_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
     check("venue_holds_setup_minutes_nonnegative", sql`${table.setupMinutes} >= 0`),
     check("venue_holds_turnaround_minutes_nonnegative", sql`${table.turnaroundMinutes} >= 0`),
+    check(
+      "venue_holds_warn_before_expiry",
+      sql`${table.warnAt} is null or (${table.expiresAt} is not null and ${table.warnAt} < ${table.expiresAt})`
+    ),
     index("venue_holds_event_id_idx").on(table.eventId),
     index("venue_holds_venue_id_starts_at_idx").on(table.venueId, table.startsAt),
     // `loadVenueHolds` reads the occupied start, so the plain `starts_at` index cannot serve it.
@@ -736,6 +754,7 @@ export const venueHolds = pgTable(
       table.venueId,
       sql`(${table.startsAt} - make_interval(mins => ${table.setupMinutes}))`
     ),
+    index("venue_holds_expiry_changed_by_id_idx").on(table.expiryChangedById),
     index("venue_holds_held_by_id_idx").on(table.heldById),
     index("venue_holds_released_by_id_idx").on(table.releasedById),
   ]
@@ -1012,6 +1031,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_block_changed",
   /** PTR-137: the Coordinator released a booking that a venue block had suspended. */
   "venue_booking_released_by_coordinator",
+  /** PTR-142: Venue Staff set or change the expiry of a tentative hold. */
+  "venue_hold_expiry_changed",
 ]);
 
 export const notifications = pgTable(

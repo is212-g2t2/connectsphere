@@ -141,6 +141,13 @@ export interface AvailabilityRecord extends AvailabilityPeriod {
    * the conversion form starts from (PTR-138 AC1).
    */
   convertDefaults?: SessionRequirements;
+  /** PTR-142: the expiry and warning time of a hold, as `YYYY-MM-DDTHH:MM:SS`. The value is null when unset. */
+  expiresAt?: string | null;
+  warnAt?: string | null;
+  /** Set on a hold when its event is not cancelled. The expiry can then change (PTR-142). */
+  canChangeHold?: boolean;
+  /** Set on a hold when the viewer is its Coordinator and can change the warning. */
+  canSetWarning?: boolean;
 }
 
 export interface OccupiedPeriod extends AvailabilityPeriod {
@@ -155,6 +162,10 @@ export interface OccupiedPeriod extends AvailabilityPeriod {
   /** Copy this value from the source record. Omit it for bookings and blocks. */
   canRelease?: boolean;
   convertDefaults?: SessionRequirements;
+  expiresAt?: string | null;
+  warnAt?: string | null;
+  canChangeHold?: boolean;
+  canSetWarning?: boolean;
 }
 
 export interface AvailabilityProjection {
@@ -219,6 +230,10 @@ export function projectAvailability(
       openEnded: record.openEnded,
       canRelease: record.canRelease,
       convertDefaults: record.convertDefaults,
+      expiresAt: record.expiresAt,
+      warnAt: record.warnAt,
+      canChangeHold: record.canChangeHold,
+      canSetWarning: record.canSetWarning,
     });
   }
   for (const booking of source.bookings) addOccupied(booking, "confirmed");

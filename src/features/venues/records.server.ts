@@ -487,6 +487,8 @@ export type VenueHold = AvailabilityRecord & {
   heldById: string | null;
   assignedCoordinatorId: string | null;
   eventStatus: EventRequestStatus;
+  expiresAt: string | null;
+  warnAt: string | null;
 };
 
 /**
@@ -520,6 +522,8 @@ export async function loadVenueHolds(
       heldById: venueHolds.heldById,
       assignedCoordinatorId: eventRequests.assignedCoordinatorId,
       eventStatus: eventRequests.status,
+      expiresAt: venueHolds.expiresAt,
+      warnAt: venueHolds.warnAt,
     })
     .from(venueHolds)
     .innerJoin(eventRequests, eq(venueHolds.eventId, eventRequests.id))
@@ -543,6 +547,8 @@ export async function loadVenueHolds(
     heldById: row.heldById,
     assignedCoordinatorId: row.assignedCoordinatorId,
     eventStatus: row.eventStatus,
+    expiresAt: row.expiresAt === null ? null : normalizeDatabaseTimestamp(row.expiresAt),
+    warnAt: row.warnAt === null ? null : normalizeDatabaseTimestamp(row.warnAt),
   }));
 }
 
@@ -729,11 +735,20 @@ export async function handleGetVenueAvailability(
   );
   // Copy rows before adding viewer flags. The loader shares these rows with other callers.
   // oxlint-disable-next-line oxc/no-map-spread
-  const manageableHolds = holds.map(hold => ({
-    ...hold,
-    canRelease: canReleaseHold(hold, viewerId),
-    convertDefaults: convertDefaults.get(hold.eventId),
-  }));
+  const manageableHolds = holds.map(hold => {
+    // The warning belongs to the Coordinator, so only the assignee reads it (PTR-142 AC3).
+    const isAssignee = viewerId !== "" && hold.assignedCoordinatorId === viewerId;
+    // A cancelled event keeps its hold, but its expiry and warning cannot change.
+    const canChangeHold = hold.eventStatus !== "cancelled";
+    return {
+      ...hold,
+      canRelease: canReleaseHold(hold, viewerId),
+      convertDefaults: convertDefaults.get(hold.eventId),
+      warnAt: isAssignee ? hold.warnAt : null,
+      canChangeHold,
+      canSetWarning: isAssignee && canChangeHold && hold.expiresAt !== null,
+    };
+  });
 
   return {
     venue: { id: venue.id, name: venue.name },

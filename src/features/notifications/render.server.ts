@@ -38,6 +38,7 @@ import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/compon
 import { VenueBookingChangedEmail } from "#/features/emails/components/venue-booking-changed-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
+import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
 import { notificationHref, notificationSummary } from "#/features/notifications/message";
 import type { NotificationPayload } from "#/features/notifications/message";
 
@@ -373,6 +374,14 @@ export function renderNotificationEmail(
         }),
       };
     }
+    case "venue_hold_expiry_changed":
+      return {
+        subject,
+        element: createElement(VenueHoldExpiryEmail, {
+          ...notification.payload,
+          calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
     default: {
       const unhandled: never = notification;
       throw new Error(`No email template for notification kind "${String(unhandled)}"`);

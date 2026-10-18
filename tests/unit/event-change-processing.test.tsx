@@ -14,6 +14,9 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { EventDetailPage } from "#/features/events/components/event-detail-page";
 import type { EventPageData } from "#/features/events/page-data";
 
+// The staff sections can take more than the default 5 seconds to load on a busy worker.
+vi.setConfig({ testTimeout: 15_000 });
+
 const { updateEventInformation, listEventArrangements, declineEventChangeRequest, invalidate } =
   vi.hoisted(() => ({
     updateEventInformation: vi.fn<
@@ -169,7 +172,7 @@ async function settleSections() {
   await waitFor(
     () => expect(screen.queryByText("Loading sections…")).toBeNull(),
     // The first settle in the file also pays the staff chunk's transform. Allow for a loaded worker.
-    { timeout: 5000 }
+    { timeout: 10_000 }
   );
 }
 

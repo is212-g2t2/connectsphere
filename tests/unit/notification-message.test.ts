@@ -135,6 +135,17 @@ const validPayloads = {
     endsAt: "2026-10-12 17:00:00",
     reason: "Released by the Coordinator while Harbour Hall was blocked: Floor resurfacing",
   },
+  venue_hold_expiry_changed: {
+    venueHoldId: "hold-1",
+    venueId: 3,
+    venueName: "Harbour Hall",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: "2026-10-12 17:00:00",
+    action: "extended",
+    expiresAt: "2026-10-10 12:00:00",
+    previousExpiresAt: "2026-10-08 12:00:00",
+    warnAt: "2026-10-07 09:00:00",
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -418,6 +429,25 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     }
   });
 
+  it("summarises a hold expiry change by action and venue, and rejects an unknown action (PTR-142)", () => {
+    const changed = parse("venue_hold_expiry_changed", validPayloads.venue_hold_expiry_changed);
+    expect(notificationSummary(changed)).toBe("Tentative hold expiry extended: Harbour Hall");
+    expect(
+      parseNotificationPayload("venue_hold_expiry_changed", {
+        ...validPayloads.venue_hold_expiry_changed,
+        action: "removed",
+      })
+    ).toBeNull();
+    // A hold that ends on a later day links to the calendar for both days.
+    const overnight = parse("venue_hold_expiry_changed", {
+      ...validPayloads.venue_hold_expiry_changed,
+      endsAt: "2026-10-13 02:00:00",
+    });
+    expect(notificationHref({ ...overnight, eventRequestId: 7 })).toBe(
+      "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-13"
+    );
+  });
+
   it("sends every kind to its default surface with no facts", () => {
     const expected: Record<NotificationKind, string | null> = {
       venue_booking_requested: null,
@@ -448,6 +478,8 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       event_change_processed: "/events/7",
       venue_block_changed: "/events/7",
       venue_booking_released_by_coordinator: "/venue-bookings",
+      venue_hold_expiry_changed:
+        "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
     };
 
     for (const kind of NOTIFICATION_KINDS) {
