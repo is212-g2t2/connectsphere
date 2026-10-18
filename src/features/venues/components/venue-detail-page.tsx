@@ -7,7 +7,7 @@ import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
 import { VenueRequestPanel } from "#/features/venue-requests/components/venue-request-panel";
 import type { VenueRequestPrefill } from "#/features/venue-requests/schema";
-import { formatDate, formatTime } from "#/features/emails/format";
+import { formatPeriod } from "#/features/emails/format";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";
@@ -15,12 +15,6 @@ import { saveVenue } from "#/features/venues/server-fns";
 import type { VenueWithConflicts } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import { skipRootFilter } from "#/lib/invalidate";
-
-export function formatOccupiedPeriod(startsAt: string, endsAt: string): string {
-  return startsAt.slice(0, 10) === endsAt.slice(0, 10)
-    ? `${formatDate(startsAt)}, ${formatTime(startsAt)}–${formatTime(endsAt)}`
-    : `${formatDate(startsAt)}, ${formatTime(startsAt)} – ${formatDate(endsAt)}, ${formatTime(endsAt)}`;
-}
 
 /**
  * Show one venue record. Holders of `venue:update` can edit it. Other admitted roles see it
@@ -87,19 +81,24 @@ export function VenueDetailPage({
       />
 
       {saved && (
-        <output className="mb-6 block body-sm font-medium text-foreground">Venue saved.</output>
+        <output className="mb-6 block body-sm font-medium text-foreground">
+          Venue saved.
+          {activeConflicts.length > 0 &&
+            ` ${activeConflicts.length} ${activeConflicts.length === 1 ? "commitment now conflicts" : "commitments now conflict"}.`}
+        </output>
       )}
 
       {canUpdate && activeConflicts.length > 0 && (
         <section
           aria-label="Flagged buffer conflicts"
-          className="mb-6 rounded-lg border border-destructive/50 bg-destructive/10 p-4"
+          className="mb-6 rounded-lg border border-destructive/50 bg-destructive-tint p-4"
         >
-          <h2 className="font-semibold text-destructive">Flagged buffer conflicts</h2>
+          <h2 className="display-h3 text-destructive">Flagged buffer conflicts</h2>
           <p className="mt-1 body-sm text-muted-foreground">
             A buffer change created scheduling conflicts with the following commitments. The
-            Coordinator decides what to do; Venue Staff release or amend a flagged booking, and the
-            Coordinator releases a flagged hold.
+            Coordinator decides what to do; Venue Staff release or amend a flagged booking (the
+            Coordinator releases one that a block suspended), and the Coordinator releases a flagged
+            hold.
           </p>
           <ul className="mt-3 divide-y divide-border/60">
             {activeConflicts.map(conflict => (
@@ -115,7 +114,18 @@ export function VenueDetailPage({
                       : "Block-suspended piece"}
                 </span>
                 : <span className="font-medium">{conflict.eventName}</span> (
-                {formatOccupiedPeriod(conflict.startsAt, conflict.endsAt)})
+                <Link
+                  to="/venues/availability"
+                  search={{
+                    venueId: venue.id,
+                    startDate: conflict.startsAt.slice(0, 10),
+                    endDate: conflict.endsAt.slice(0, 10),
+                  }}
+                  className="underline decoration-foreground/60 underline-offset-4 hover:decoration-foreground"
+                >
+                  {formatPeriod(conflict.startsAt, conflict.endsAt)}
+                </Link>
+                )
               </li>
             ))}
           </ul>

@@ -386,7 +386,10 @@ export function renderNotificationEmail(
     case "venue_buffer_conflict":
       return {
         subject,
-        element: createElement(VenueBufferConflictEmail, notification.payload),
+        element: createElement(VenueBufferConflictEmail, {
+          ...notification.payload,
+          calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
       };
     default: {
       const unhandled: never = notification;

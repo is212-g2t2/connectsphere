@@ -20,7 +20,7 @@ import type { BlockedArrangement } from "#/features/events/access";
 type Database = typeof Db;
 
 /** The statuses that no longer plan: the flag and the list skip an event in one of them. */
-const CLOSED_STATUSES = ["cancelled", "completed"] as const;
+export const CLOSED_STATUSES = ["cancelled", "completed"] as const;
 
 /**
  * A suspended piece is a booking or hold ledger row that a live block deactivated (ADR-7). A

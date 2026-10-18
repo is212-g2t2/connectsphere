@@ -1,0 +1,1 @@
+CREATE INDEX "venue_occupancy_venue_id_starts_at_idx" ON "venue_occupancy" USING btree ("venue_id","starts_at");

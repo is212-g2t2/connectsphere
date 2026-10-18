@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventRequests, venueHolds, venueRequests } from "#/db/schema";
@@ -78,6 +78,28 @@ export async function keyShareEvent(tx: VenueTx, eventId: number): Promise<Locke
     .where(eq(eventRequests.id, eventId))
     .for("key share");
   return rows.at(0) ?? null;
+}
+
+/**
+ * Key-share many events before any venue lock, in ascending id order so concurrent writers take
+ * the same order. Return the rows read under the locks.
+ */
+export async function keyShareEvents(
+  tx: VenueTx,
+  eventIds: readonly number[]
+): Promise<LockedEvent[]> {
+  if (eventIds.length === 0) return [];
+  return tx
+    .select({
+      id: eventRequests.id,
+      status: eventRequests.status,
+      eventName: eventRequests.eventName,
+      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+    })
+    .from(eventRequests)
+    .where(inArray(eventRequests.id, [...eventIds]))
+    .orderBy(asc(eventRequests.id))
+    .for("key share");
 }
 
 /**

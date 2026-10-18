@@ -321,6 +321,7 @@ const payloadSchemas = {
   }),
   venue_buffer_conflict: z.object({
     eventName: nonEmpty,
+    venueId: z.number().int().positive(),
     venueName: nonEmpty,
     startsAt: nonEmpty,
     endsAt: nonEmpty,
@@ -533,7 +534,7 @@ export function notificationSummary(notification: NotificationPayload): string {
     case "venue_hold_expiry_changed":
       return `Tentative hold expiry ${notification.payload.action}: ${notification.payload.venueName}`;
     case "venue_buffer_conflict":
-      return `Venue buffer conflict: ${notification.payload.venueName}`;
+      return `Venue buffer conflict: ${notification.payload.eventName} at ${notification.payload.venueName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -640,8 +641,22 @@ export function notificationHref(
     case "venue_hold_expiry_changed":
       // The venue calendar shows the expiry and the warning for the days of the hold (PTR-142 AC3).
       return `/venues/availability?venueId=${notification.payload.venueId}&startDate=${notification.payload.startsAt.slice(0, 10)}&endDate=${notification.payload.endsAt.slice(0, 10)}`;
-    case "venue_buffer_conflict":
-      return `/events/${eventRequestId}`;
+    case "venue_buffer_conflict": {
+      // Open the venue calendar on the whole disputed window. Several periods span a range that
+      // the top-level pair alone does not cover.
+      const periods = notification.payload.periods ?? [
+        { startsAt: notification.payload.startsAt, endsAt: notification.payload.endsAt },
+      ];
+      const start = periods.reduce(
+        (min, period) => (period.startsAt < min ? period.startsAt : min),
+        periods[0].startsAt
+      );
+      const end = periods.reduce(
+        (max, period) => (period.endsAt > max ? period.endsAt : max),
+        periods[0].endsAt
+      );
+      return `/venues/availability?venueId=${notification.payload.venueId}&startDate=${start.slice(0, 10)}&endDate=${end.slice(0, 10)}`;
+    }
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification href for kind "${String(unhandled)}"`);

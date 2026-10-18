@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 
+import { can } from "#/features/auth/permissions";
 import { requirePermission } from "#/features/auth/session";
 import {
   parseAvailabilityRequest,
@@ -81,9 +82,13 @@ export type VenueSearchResult = Awaited<ReturnType<typeof searchVenues>>;
 export const getVenue = createServerFn({ method: "GET" })
   .validator(parseVenueId)
   .middleware([requireVenueRead])
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const [{ db }, { handleGetVenue }] = await loadServer();
-    return { venue: await handleGetVenue(data, db) };
+    return {
+      venue: await handleGetVenue(data, db, {
+        includeConflicts: can(context.user.role, { venue: ["update"] }),
+      }),
+    };
   });
 
 export const saveVenue = createServerFn({ method: "POST" })

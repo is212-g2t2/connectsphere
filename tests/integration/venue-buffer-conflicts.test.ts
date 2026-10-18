@@ -647,7 +647,9 @@ describe("Venue buffer conflicts (PTR-132)", () => {
     );
 
     // Verify conflicts exist before resolution
-    const venueBefore = await handleGetVenue({ id: venueId }, database as never);
+    const venueBefore = await handleGetVenue({ id: venueId }, database as never, {
+      includeConflicts: true,
+    });
     expect(venueBefore?.bufferConflicts).toHaveLength(4);
 
     // Amend Pair 1's first booking to 09:00-10:00
@@ -665,7 +667,9 @@ describe("Venue buffer conflicts (PTR-132)", () => {
     );
 
     // Verify conflicts cleared
-    const venueAfter = await handleGetVenue({ id: venueId }, database as never);
+    const venueAfter = await handleGetVenue({ id: venueId }, database as never, {
+      includeConflicts: true,
+    });
     expect(venueAfter?.bufferConflicts).toEqual([]);
 
     // Availability for DATE_1 has no conflicts
@@ -716,7 +720,9 @@ describe("Venue buffer conflicts (PTR-132)", () => {
       staff.id
     );
 
-    const venueBefore = await handleGetVenue({ id: venueId }, database as never);
+    const venueBefore = await handleGetVenue({ id: venueId }, database as never, {
+      includeConflicts: true,
+    });
     expect(venueBefore?.bufferConflicts?.length).toBeGreaterThanOrEqual(4);
 
     // Call handleGetVenueAvailability for DATE_1 and DATE_2 BEFORE release
@@ -746,7 +752,9 @@ describe("Venue buffer conflicts (PTR-132)", () => {
     // Coordinator releases hold
     await handleReleaseVenueHold({ id: holdDate2.holdId }, coordA, database as never);
 
-    const venueAfter = await handleGetVenue({ id: venueId }, database as never);
+    const venueAfter = await handleGetVenue({ id: venueId }, database as never, {
+      includeConflicts: true,
+    });
     expect(venueAfter?.bufferConflicts).toEqual([]);
 
     // Call handleGetVenueAvailability for DATE_1 and DATE_2 AFTER release
@@ -765,5 +773,134 @@ describe("Venue buffer conflicts (PTR-132)", () => {
     );
     const holdPeriodAfter = avail2After?.occupied.find(p => p.startsAt.includes("11:30"));
     expect(holdPeriodAfter?.bufferConflict).toBeUndefined();
+  });
+
+  it("PTR-132-TC09: A read without the conflicts flag returns no buffer conflicts", async () => {
+    await book("10:00", "11:00");
+    await book("11:30", "12:30");
+    await handleSaveVenue(
+      {
+        id: venueId,
+        name: VENUE_NAME,
+        location: "Level 1, Buffer Hall",
+        maxCapacity: 100,
+        setupMinutes: 0,
+        turnaroundMinutes: 45,
+        facilities: [],
+        accessibilityFeatures: [],
+        supportedLayouts: [],
+        operatingHours: TEST_OPERATING_HOURS,
+      },
+      database as never,
+      staff.id
+    );
+
+    const hidden = await handleGetVenue({ id: venueId }, database as never);
+    expect(hidden).not.toBeNull();
+    expect(hidden).not.toHaveProperty("bufferConflicts");
+
+    const shown = await handleGetVenue({ id: venueId }, database as never, {
+      includeConflicts: true,
+    });
+    expect(shown?.bufferConflicts).toHaveLength(2);
+  });
+
+  it("PTR-132-TC10: A cancelled event's active commitment still flags a live commitment that newly overlaps it", async () => {
+    const cancelledEvent = await createEvent("Cancelled Neighbour");
+    await book("10:00", "11:00", cancelledEvent);
+    // A cancellation keeps the booking row and its active ledger row (PTR-54 AC6), so the row
+    // still takes part in the overlap test.
+    await database
+      .update(schema.eventRequests)
+      .set({
+        status: "cancelled",
+        cancelledById: users.coordinatorA.id,
+        cancelledByName: "Coordinator A",
+        cancelledAt: new Date(),
+      })
+      .where(eq(schema.eventRequests.id, cancelledEvent));
+
+    const liveEvent = await createEvent("Live Neighbour");
+    await book("11:30", "12:30", liveEvent);
+
+    await handleSaveVenue(
+      {
+        id: venueId,
+        name: VENUE_NAME,
+        location: "Level 1, Buffer Hall",
+        maxCapacity: 100,
+        setupMinutes: 0,
+        turnaroundMinutes: 45,
+        facilities: [],
+        accessibilityFeatures: [],
+        supportedLayouts: [],
+        operatingHours: TEST_OPERATING_HOURS,
+      },
+      database as never,
+      staff.id
+    );
+
+    const venue = await handleGetVenue({ id: venueId }, database as never, {
+      includeConflicts: true,
+    });
+    expect(venue?.bufferConflicts?.map(c => c.eventId)).toEqual([liveEvent]);
+    expect(venue?.bufferConflicts?.some(c => c.eventId === cancelledEvent)).toBe(false);
+
+    const avail = await handleGetVenueAvailability(
+      { venueId, startDate: DATE, endDate: DATE },
+      staff.id,
+      database as never
+    );
+    const livePeriod = avail?.occupied.find(p => p.startsAt.includes("11:30"));
+    expect(livePeriod?.bufferConflict).toBe(true);
+  });
+
+  it("PTR-132-TC11: A later buffer change does not re-notify an event that was already flagged", async () => {
+    await book("10:00", "11:00");
+    await book("11:30", "12:30");
+
+    await handleSaveVenue(
+      {
+        id: venueId,
+        name: VENUE_NAME,
+        location: "Level 1, Buffer Hall",
+        maxCapacity: 100,
+        setupMinutes: 0,
+        turnaroundMinutes: 45,
+        facilities: [],
+        accessibilityFeatures: [],
+        supportedLayouts: [],
+        operatingHours: TEST_OPERATING_HOURS,
+      },
+      database as never,
+      staff.id
+    );
+    const firstNotices = await database
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.kind, "venue_buffer_conflict"));
+    expect(firstNotices.length).toBeGreaterThan(0);
+
+    await handleSaveVenue(
+      {
+        id: venueId,
+        name: VENUE_NAME,
+        location: "Level 1, Buffer Hall",
+        maxCapacity: 100,
+        setupMinutes: 0,
+        turnaroundMinutes: 60,
+        facilities: [],
+        accessibilityFeatures: [],
+        supportedLayouts: [],
+        operatingHours: TEST_OPERATING_HOURS,
+      },
+      database as never,
+      staff.id
+    );
+    const secondNotices = await database
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.kind, "venue_buffer_conflict"));
+    expect(secondNotices).toHaveLength(firstNotices.length);
   });
 });
