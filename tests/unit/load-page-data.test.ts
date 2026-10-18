@@ -404,16 +404,18 @@ describe("loadEventPageData", () => {
     expect(mockGetOversightRequest).not.toHaveBeenCalled();
   });
 
-  it("returns the lead projection for an unassigned request past review", async () => {
-    // A deleted Coordinator can vacate an approved event. It is no longer review work, so it
-    // opens the read-only projection instead of the queue detail (PTR-144).
-    const event = projection("lead", { status: "approved", awaitingAssignment: true });
-    mockListEvents.mockResolvedValue([event]);
+  it("opens the lead triage view for an unassigned request past review", async () => {
+    // A deleted Coordinator can vacate an approved event. It is still a queue row, so it opens
+    // the read-only queue detail, and the detail reads the record in any status (PTR-144).
+    mockListEvents.mockResolvedValue([
+      projection("lead", { status: "approved", awaitingAssignment: true }),
+    ]);
+    const request = { id: 7, status: "approved" };
+    mockGetOversightRequest.mockResolvedValue(request);
 
     const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
-    expect(mockGetOversightRequest).not.toHaveBeenCalled();
+    expect(data).toEqual({ kind: "triage", viewerId: VIEWER_ID, request });
   });
 
   it("returns null on Forbidden for a Coordinator with no assigned event", async () => {

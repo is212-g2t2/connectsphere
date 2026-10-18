@@ -113,6 +113,18 @@ function leadPage(): EventPageData {
       registrationEnabled: false,
       registrationOpensAt: null,
       registrationClosesAt: null,
+      confirmation: {
+        confirmedAt: "2026-10-20T02:00:00Z",
+        confirmedByName: "Seeded Event Coordinator",
+        venue: {
+          name: "Harbour Hall",
+          location: "Level 1, ConnectSphere Marina Centre",
+          date: "2026-11-04",
+          endDate: "2026-11-04",
+          startTime: "10:00",
+          endTime: "16:00",
+        },
+      },
     },
   };
   return { kind: "event", viewerId: "lead-1", event };
@@ -159,6 +171,9 @@ describe("event information section", () => {
     expect(screen.getByText("An open day for new members.")).toBeTruthy();
     expect(screen.queryByText("Update event information")).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit event information" })).toBeNull();
+    // The confirmed venue is part of the read-only record (PTR-144).
+    expect(screen.getByText(/Harbour Hall, 4 Nov 2026, 10:00–16:00/)).toBeTruthy();
+    expect(screen.getByText(/Seeded Event Coordinator/)).toBeTruthy();
   });
 
   it("stays hidden and renders nothing without its request", () => {

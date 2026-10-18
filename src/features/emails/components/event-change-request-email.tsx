@@ -8,8 +8,8 @@ interface EventChangeRequestEmailProps {
   whatShouldChange: string;
   requestedValue: string;
   eventRequestUrl: string;
-  /** PTR-144: Leads get the queue link and wait for assignment. Absent on older rows. */
-  audience?: "coordinator" | "lead";
+  /** PTR-144: Leads get the queue link and wait for assignment. Absent on the coordinator copy. */
+  audience?: "lead";
 }
 
 export const EventChangeRequestEmail = ({

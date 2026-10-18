@@ -13,8 +13,8 @@ export const EventCancellationRequestedEmail = ({
 }: {
   eventName: string;
   eventUrl: string;
-  /** PTR-144: Leads get the queue link and wait for assignment. Absent on older rows. */
-  audience?: "coordinator" | "lead";
+  /** PTR-144: Leads get the queue link and wait for assignment. Absent on the coordinator copy. */
+  audience?: "lead";
 }) => {
   const lead = audience === "lead";
   return (

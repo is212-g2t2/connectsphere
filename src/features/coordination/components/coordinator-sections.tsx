@@ -143,7 +143,9 @@ export function coordinatorSections(data: EventPageData): EventSectionDef[] {
     {
       id: "request",
       label: "Request details",
-      visible: () => inReview,
+      // PTR-144: the queue detail reads the record in any status, including a request whose
+      // Coordinator account was deleted after a decision. The assigned view keeps it in review.
+      visible: () => data.kind === "triage" || inReview,
       render: inner => <RequestDetailsBody data={inner} />,
     },
     {

@@ -313,6 +313,16 @@ describe("triage section set", () => {
     ).toBe(false);
   });
 
+  it("keeps the request detail for a vacated request past review", () => {
+    // A deleted Coordinator can vacate an approved event; the queue row still opens the record.
+    const data = triageData(coordinationRequest({ status: "approved" }));
+    const defs = coordinatorSections(data);
+
+    expect(defs.find(section => section.id === "request")?.visible(data)).toBe(true);
+    expect(defs.find(section => section.id === "review")?.visible(data)).toBe(false);
+    expect(defs.find(section => section.id === "assignment")?.visible(data)).toBe(false);
+  });
+
   it("renders no assignment body in triage: the unassigned detail carries no claim action", () => {
     const { container } = renderSection(triageData(coordinationRequest()), "assignment");
 
