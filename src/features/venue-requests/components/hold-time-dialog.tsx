@@ -36,9 +36,9 @@ interface HoldTimeDialogProps {
   successMessage: string;
 }
 
-/** The venue clock as a `datetime-local` minimum, `YYYY-MM-DDTHH:MM`. */
+/** The next venue minute as a `datetime-local` minimum. The server refuses a value at or before now. */
 function venueMinuteMinimum() {
-  return toLocalMinuteValue(venueLocalTimestamp(new Date()));
+  return toLocalMinuteValue(venueLocalTimestamp(new Date(Date.now() + 60_000)));
 }
 
 /** The form of the dialog. It mounts when the dialog opens, so a reopened dialog has no stale state. */
