@@ -1,5 +1,5 @@
 {
-  "id": "1786b7d7-76b7-45f3-b65e-d0e103208030",
+  "id": "b6921807-12dc-4d4b-8106-76f2d947273d",
   "prevId": "a3373616-1d5d-4b67-bb7e-5a841affd441",
   "version": "7",
   "dialect": "postgresql",
@@ -2249,6 +2249,27 @@
           "columns": [
             {
               "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "venue_occupancy_venue_id_starts_at_idx": {
+          "name": "venue_occupancy_venue_id_starts_at_idx",
+          "columns": [
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
