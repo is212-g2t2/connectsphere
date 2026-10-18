@@ -8,18 +8,17 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
   handleAcceptEventHandover,
-  handleAssignEventRequest,
-  ASSIGNED_REQUEST_HANDOVER_MESSAGE,
   handleDecideEventRequest,
   handleDeclineEventHandover,
   handleGetCoordinationRequest,
   handleListAssignedEventRequests,
-  handleListCoordinators,
   handleListPendingEventHandovers,
   handleRaiseClarificationRequest,
   handleRequestEventHandover,
   handleTakeUpForReview,
 } from "#/features/coordination/assignments.server";
+import { handleRaiseEventChangeRequest } from "#/features/event-requests/change-requests.server";
+import { handleRequestEventCancellation } from "#/features/event-requests/cancellation-requests.server";
 import {
   handleGetEventRequest,
   handleListEventRequests,
@@ -28,7 +27,6 @@ import {
   handleGetEventRequestDraft,
   handleSaveEventRequestDraft,
   handleSubmitEventRequest,
-  pickLeastLoadedCoordinator,
 } from "#/features/event-requests/drafts.server";
 import type { EventRequestDraftValues } from "#/features/event-requests/schema";
 import { handleLiftVenueBlock, handleRecordVenueBlock } from "#/features/venues/blocks.server";
@@ -913,6 +911,21 @@ const tieBreakCoordinator = {
 
 const fixtureCoordinators = [...extraCoordinators, tieBreakCoordinator];
 
+/** The Lead account this file's PTR-144 submission tests notify. Seeded Leads also exist. */
+const fixtureLead = {
+  id: "test-lead-144",
+  name: "PTR-144 Lead",
+  email: "lead.144@example.com",
+  emailVerified: true,
+  role: "event_coordinator_lead",
+};
+
+const lead: SessionUser = {
+  id: fixtureLead.id,
+  email: fixtureLead.email,
+  role: "event_coordinator_lead",
+};
+
 async function submitNew(
   values: EventRequestDraftValues,
   who: SessionUser,
@@ -922,7 +935,7 @@ async function submitNew(
   return handleSubmitEventRequest({ id: saved.id }, who, database as never);
 }
 
-describe("Assigning a Coordinator at submission (PTR-15)", () => {
+describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-110, PTR-144)", () => {
   let pool: Pool;
   let database: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -932,15 +945,13 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     // Create the fixtures far in the past for the earliest-account tie-break. Date them after
     // the two known accounts, so those accounts win in order.
     await database.insert(schema.user).values(fixtureCoordinators).onConflictDoNothing();
+    await database.insert(schema.user).values(fixtureLead).onConflictDoNothing();
   });
 
   afterAll(async () => {
-    await database.delete(schema.user).where(
-      inArray(
-        schema.user.id,
-        fixtureCoordinators.map(c => c.id)
-      )
-    );
+    await database
+      .delete(schema.user)
+      .where(inArray(schema.user.id, [...fixtureCoordinators.map(c => c.id), fixtureLead.id]));
     await pool.end();
   });
 
@@ -950,9 +961,17 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       .where(inArray(schema.eventRequests.organiserId, organiserIds));
   });
 
-  /** Submit a fresh request. The least-loaded rule assigns it. */
-  async function assignedRequest() {
-    return submitNew(fullRequest, organiser, database);
+  /** Submit a fresh request, then record its assignment to `coordinatorId` in SQL. There is no
+   * assign handler anymore (PTR-144): a submission never auto-assigns, so the test assigns the
+   * row the way the queue would. */
+  async function assignedRequest(coordinatorId: string = extraCoordinators[0].id) {
+    const submitted = await submitNew(fullRequest, organiser, database);
+    const [row] = await database
+      .update(schema.eventRequests)
+      .set({ assignedCoordinatorId: coordinatorId, assignedAt: new Date() })
+      .where(eq(schema.eventRequests.id, submitted.id))
+      .returning();
+    return row;
   }
 
   /** Build a submitted row. Assign it to `coordinatorId`, or leave it unassigned when null. */
@@ -978,184 +997,6 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       .where(eq(schema.eventRequests.id, id));
     return rows.at(0)?.status;
   }
-
-  describe("manual handover and pickup (PTR-16)", () => {
-    const outgoing = extraCoordinators[0];
-    const incoming = extraCoordinators[1];
-
-    async function decidedRequest() {
-      const request = await submitNew(fullRequest, organiser, database);
-      await handleTakeUpForReview({ id: request.id }, outgoing, database as never);
-      await handleDecideEventRequest(
-        { id: request.id, decision: "approved" },
-        outgoing,
-        database as never
-      );
-      return request;
-    }
-
-    it("refuses to move an assigned request directly; the accepted handover is the only path (PTR-116 AC1, AC2)", async () => {
-      const request = await submitNew(fullRequest, organiser, database);
-      const input = {
-        id: request.id,
-        coordinatorId: incoming.id,
-        expectedCoordinatorId: outgoing.id,
-        actorId: "forged",
-      };
-      // The request's own Coordinator attempts the handover. Nothing moves. Nothing reaches
-      // the audit.
-      await expect(
-        handleAssignEventRequest(input, outgoing, database as never)
-      ).rejects.toMatchObject({ status: 409, message: ASSIGNED_REQUEST_HANDOVER_MESSAGE });
-      expect(
-        await handleGetCoordinationRequest({ id: request.id }, outgoing, database as never)
-      ).toMatchObject({ assignedCoordinatorId: outgoing.id });
-      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
-      expect(
-        await handleGetEventRequest({ id: request.id }, organiser, database as never)
-      ).toMatchObject({ coordinator: { name: outgoing.name, email: outgoing.email } });
-
-      // The handover path still works. The event waits for acceptance before it moves.
-      const handover = await handleRequestEventHandover(input, outgoing, database as never);
-      expect(handover).toMatchObject({ toCoordinatorId: incoming.id });
-      expect(
-        await handleGetCoordinationRequest({ id: request.id }, outgoing, database as never)
-      ).toMatchObject({ assignedCoordinatorId: outgoing.id });
-    });
-
-    it.each([0, 1])(
-      "lets any Coordinator pick up an unassigned event for themselves or a named Coordinator (%s)",
-      async index => {
-        const request = await submittedRequest(null);
-        const target = extraCoordinators[index];
-        await handleAssignEventRequest(
-          { id: request.id, coordinatorId: target.id, expectedCoordinatorId: null },
-          outgoing,
-          database as never
-        );
-        const [audit] = await database.select().from(schema.eventAssignments);
-        expect(audit).toMatchObject({
-          fromCoordinatorId: null,
-          toCoordinatorId: target.id,
-          actorId: outgoing.id,
-        });
-        expect(await handleListUnassignedEventRequests(database as never)).toEqual([]);
-      }
-    );
-
-    it("refuses another Coordinator's pick-up, drafts, and missing requests", async () => {
-      const assigned = await submitNew(fullRequest, organiser, database);
-      const draft = await handleSaveEventRequestDraft(fullRequest, organiser, database as never);
-      await Promise.all(
-        [assigned.id, draft.id, 999_999].map(async id => {
-          await expect(
-            handleAssignEventRequest(
-              { id, coordinatorId: incoming.id, expectedCoordinatorId: outgoing.id },
-              incoming,
-              database as never
-            )
-          ).rejects.toMatchObject({
-            status: 403,
-            message: "Only an unassigned request can be picked up here.",
-          });
-          await expect(
-            handleGetCoordinationRequest({ id }, incoming, database as never)
-          ).rejects.toMatchObject({ status: 403 });
-        })
-      );
-      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
-    });
-
-    it("refuses a pick-up for a non-Coordinator or deleted account, and a stale observation", async () => {
-      const request = await submittedRequest(null);
-      await Promise.all(
-        [organiser.id, "deleted-account"].map(async coordinatorId => {
-          await expect(
-            handleAssignEventRequest(
-              { id: request.id, coordinatorId, expectedCoordinatorId: null },
-              outgoing,
-              database as never
-            )
-          ).rejects.toMatchObject({
-            status: 409,
-            message: "Choose an existing Event Coordinator.",
-          });
-        })
-      );
-      // A page that still shows a Coordinator on an unassigned request is stale.
-      await expect(
-        handleAssignEventRequest(
-          { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: outgoing.id },
-          outgoing,
-          database as never
-        )
-      ).rejects.toMatchObject({
-        status: 409,
-        message: expect.stringMatching(/assignment has changed/),
-      });
-      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
-      expect(
-        (await handleListCoordinators(database as never)).every(row => row.id !== organiser.id)
-      ).toBe(true);
-    });
-
-    it("allows only one competing pickup, with one audit entry", async () => {
-      const request = await submittedRequest(null);
-      const results = await Promise.allSettled(
-        extraCoordinators.map(coordinator =>
-          handleAssignEventRequest(
-            { id: request.id, coordinatorId: coordinator.id, expectedCoordinatorId: null },
-            coordinator,
-            database as never
-          )
-        )
-      );
-      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
-      expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
-      expect(await database.select().from(schema.eventAssignments)).toHaveLength(1);
-    });
-
-    it("refuses to pick up a decided request its deleted Coordinator left unassigned", async () => {
-      const request = await decidedRequest();
-      // Deleting the deciding account sets `assigned_coordinator_id` to NULL (`ON DELETE SET
-      // NULL). `assigned_at` still records the assignment. The closed request has no owner. The
-      // unassigned list shows it.
-      await database
-        .update(schema.eventRequests)
-        .set({ assignedCoordinatorId: null })
-        .where(eq(schema.eventRequests.id, request.id));
-
-      await expect(
-        handleAssignEventRequest(
-          { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: null },
-          incoming,
-          database as never
-        )
-      ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/decided request/) });
-      const [row] = await database
-        .select({ assignedCoordinatorId: schema.eventRequests.assignedCoordinatorId })
-        .from(schema.eventRequests)
-        .where(eq(schema.eventRequests.id, request.id));
-      expect(row.assignedCoordinatorId).toBeNull();
-      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
-    });
-
-    it("refuses a decided request still assigned to the acting Coordinator as decided", async () => {
-      const request = await decidedRequest();
-
-      await expect(
-        handleAssignEventRequest(
-          { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: outgoing.id },
-          outgoing,
-          database as never
-        )
-      ).rejects.toMatchObject({
-        status: 409,
-        message: expect.stringMatching(/decided request/),
-      });
-      expect(await database.select().from(schema.eventAssignments)).toEqual([]);
-    });
-  });
 
   describe("accepting or declining a handover (PTR-110)", () => {
     const outgoing = extraCoordinators[0];
@@ -1514,11 +1355,11 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       await database.insert(schema.user).values(vacated).onConflictDoNothing();
       try {
         const request = await submittedRequest(null);
-        await handleAssignEventRequest(
-          { id: request.id, coordinatorId: vacated.id, expectedCoordinatorId: null },
-          outgoing,
-          database as never
-        );
+        // PTR-144: no assign handler exists. Record the assignment in SQL, as the queue would.
+        await database
+          .update(schema.eventRequests)
+          .set({ assignedCoordinatorId: vacated.id, assignedAt: new Date() })
+          .where(eq(schema.eventRequests.id, request.id));
         const handover = await handleRequestEventHandover(
           { id: request.id, coordinatorId: incoming.id, expectedCoordinatorId: vacated.id },
           { id: vacated.id, email: vacated.email, name: vacated.name, role: "event_coordinator" },
@@ -1533,11 +1374,11 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
           .from(schema.eventRequests)
           .where(eq(schema.eventRequests.id, request.id));
         expect(vacatedRow.assignedCoordinatorId).toBeNull();
-        await handleAssignEventRequest(
-          { id: request.id, coordinatorId: tieBreakCoordinator.id, expectedCoordinatorId: null },
-          tieBreakCoordinator,
-          database as never
-        );
+        // Another Coordinator takes the request. Record it in SQL, as the queue would.
+        await database
+          .update(schema.eventRequests)
+          .set({ assignedCoordinatorId: tieBreakCoordinator.id, assignedAt: new Date() })
+          .where(eq(schema.eventRequests.id, request.id));
 
         // Hide the previous assignment's offer from the new assignee's page.
         const newAssigneeView = await handleGetCoordinationRequest(
@@ -1947,7 +1788,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     const other = extraCoordinators[1];
 
     async function underReviewRequest() {
-      const request = await submitNew(fullRequest, organiser, database);
+      const request = await assignedRequest(actor.id);
       await handleTakeUpForReview({ id: request.id }, actor, database as never);
       return request;
     }
@@ -2003,11 +1844,17 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
           database as never
         )
       ).rejects.toThrow("Enter a reason to reject this request");
+      // The refused decision queues nothing. The submission receipt and Lead notices stay.
       expect(
         await database
           .select()
           .from(schema.notifications)
-          .where(eq(schema.notifications.eventRequestId, request.id))
+          .where(
+            and(
+              eq(schema.notifications.eventRequestId, request.id),
+              eq(schema.notifications.kind, "event_decided")
+            )
+          )
       ).toHaveLength(0);
 
       const rejected = await handleDecideEventRequest(
@@ -2047,11 +1894,9 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
 
     it("refuses the wrong Coordinator, a pre-review request and a second decision", async () => {
       const request = await underReviewRequest();
-      const submitted = await submitNew(fullRequest, organiser, database);
-      const submittedCoordinator = fixtureCoordinators.find(
-        coordinator => coordinator.id === submitted.assignedCoordinatorId
-      );
-      if (!submittedCoordinator) throw new Error("Expected the submitted request to be assigned");
+      // A submitted request the queue assigned to the acting Coordinator: deciding it before
+      // review is refused with 409, not 403.
+      const submitted = await assignedRequest(actor.id);
 
       await expect(
         handleDecideEventRequest({ id: request.id, decision: "approved" }, other, database as never)
@@ -2059,7 +1904,7 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
       await expect(
         handleDecideEventRequest(
           { id: submitted.id, decision: "approved" },
-          submittedCoordinator,
+          actor,
           database as never
         )
       ).rejects.toMatchObject({ status: 409 });
@@ -2342,37 +2187,115 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     });
   });
 
-  it("assigns exactly one Coordinator, with the time, when a request is submitted (AC1, AC2)", async () => {
-    const submitted = await submitNew(fullRequest, organiser, database);
+  describe("leaving submissions unassigned for the Lead queue (PTR-144)", () => {
+    const coordinator: SessionUser = {
+      id: extraCoordinators[0].id,
+      email: extraCoordinators[0].email,
+      role: "event_coordinator",
+    };
 
-    expect(submitted.assignedCoordinatorId).not.toBeNull();
-    expect(submitted.assignedAt).toBeInstanceOf(Date);
-    expect(submitted.assignedAt?.getTime()).toBe(submitted.submittedAt?.getTime());
-  });
+    it("leaves a submission unassigned and lists it for the Lead queue", async () => {
+      const submitted = await submitNew(fullRequest, organiser, database);
 
-  it("chooses the least-loaded Coordinator, then the earliest account", async () => {
-    // With no load anywhere, the earliest-created Coordinator wins the tie.
-    const first = await submitNew(fullRequest, organiser, database);
-    expect(first.assignedCoordinatorId).toBe("test-coordinator-a");
+      expect(submitted).toMatchObject({
+        id: submitted.id,
+        status: "submitted",
+        assignedCoordinatorId: null,
+        assignedAt: null,
+      });
+      expect(submitted.submittedAt).toBeInstanceOf(Date);
 
-    // A carries one. B takes the next.
-    const second = await submitNew({ ...fullRequest, eventName: "Second" }, organiser, database);
-    expect(second.assignedCoordinatorId).toBe("test-coordinator-b");
+      const unassigned = await handleListUnassignedEventRequests(database as never);
+      expect(unassigned.map(row => row.id)).toContain(submitted.id);
+      const row = unassigned.find(item => item.id === submitted.id);
+      expect(row?.organiser).toEqual({
+        name: "Drafts Organiser",
+        email: "drafts.organiser@example.com",
+      });
+      expect(row).toMatchObject({ changeRequestsWaiting: 0, cancellationRequested: false });
+    });
 
-    // A and B carry one each. The later third fixture takes the third.
-    const third = await submitNew({ ...fullRequest, eventName: "Third" }, organiser, database);
-    expect(third.assignedCoordinatorId).toBe("test-coordinator-c");
+    it("carries the waiting change and cancellation counts on each unassigned row", async () => {
+      const event = await submitNew(fullRequest, organiser, database);
+      await handleRaiseEventChangeRequest(
+        { id: event.id, whatShouldChange: "Venue", requestedValue: "Harbour Hall" },
+        organiser,
+        database as never
+      );
+      await handleRequestEventCancellation({ id: event.id }, organiser, database as never);
 
-    // Everyone carries one. The earliest account takes the next.
-    const fourth = await submitNew({ ...fullRequest, eventName: "Fourth" }, organiser, database);
-    expect(fourth.assignedCoordinatorId).toBe("test-coordinator-a");
-  });
+      const unassigned = await handleListUnassignedEventRequests(database as never);
+      const row = unassigned.find(item => item.id === event.id);
+      expect(row).toMatchObject({ changeRequestsWaiting: 1, cancellationRequested: true });
+    });
 
-  it("does not count drafts as load", async () => {
-    await handleSaveEventRequestDraft({ eventName: "Only a draft" }, organiser, database as never);
+    it("refuses a Coordinator the unassigned detail while the Lead reads it", async () => {
+      const submitted = await submitNew(fullRequest, organiser, database);
 
-    expect(await pickLeastLoadedCoordinator(database as never)).toEqual({
-      id: "test-coordinator-a",
+      await expect(
+        handleGetCoordinationRequest({ id: submitted.id }, coordinator, database as never)
+      ).rejects.toMatchObject({ status: 403, message: "Forbidden" });
+
+      const leadView = await handleGetCoordinationRequest(
+        { id: submitted.id },
+        lead,
+        database as never
+      );
+      expect(leadView).toMatchObject({
+        id: submitted.id,
+        status: "submitted",
+        assignedCoordinatorId: null,
+      });
+
+      // The assigned Coordinator keeps reading their own assignment.
+      await database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: coordinator.id, assignedAt: new Date() })
+        .where(eq(schema.eventRequests.id, submitted.id));
+      await expect(
+        handleGetCoordinationRequest({ id: submitted.id }, coordinator, database as never)
+      ).resolves.toMatchObject({ assignedCoordinatorId: coordinator.id });
+    });
+
+    it("queues the organiser receipt and one notice per Lead on submission", async () => {
+      const submitted = await submitNew(fullRequest, organiser, database);
+
+      const queued = await database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, submitted.id),
+            eq(schema.notifications.kind, "event_submitted")
+          )
+        );
+      const receipt = queued.find(row => row.recipientId === organiser.id);
+      expect(receipt).toMatchObject({ emailedAt: null, payload: { audience: "organiser" } });
+      expect(
+        notificationSummary({ kind: receipt?.kind, payload: receipt?.payload } as never)
+      ).toContain("Event request submitted");
+
+      // Every Lead hears, seeded accounts included. Each Lead notice names the Lead audience.
+      const leadIds = (
+        await database
+          .select({ id: schema.user.id })
+          .from(schema.user)
+          .where(eq(schema.user.role, "event_coordinator_lead"))
+      ).map(row => row.id);
+      expect(leadIds).toContain(lead.id);
+      expect(
+        queued
+          .filter(row => row.recipientId !== organiser.id)
+          .map(row => row.recipientId)
+          .toSorted()
+      ).toEqual(leadIds.toSorted());
+      for (const row of queued.filter(item => item.recipientId !== organiser.id)) {
+        expect(row).toMatchObject({ emailedAt: null, payload: { audience: "lead" } });
+      }
+      const leadNotice = queued.find(row => row.recipientId === lead.id);
+      expect(
+        notificationSummary({ kind: leadNotice?.kind, payload: leadNotice?.payload } as never)
+      ).toContain("New event request awaiting a Coordinator");
     });
   });
 
@@ -2387,7 +2310,11 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     };
     await database.insert(schema.user).values(gone);
     const submitted = await submitNew(fullRequest, organiser, database);
-    expect(submitted.assignedCoordinatorId).toBe(gone.id);
+    // PTR-144: the submission waits unassigned. The queue assigns the row in SQL.
+    await database
+      .update(schema.eventRequests)
+      .set({ assignedCoordinatorId: gone.id, assignedAt: new Date() })
+      .where(eq(schema.eventRequests.id, submitted.id));
 
     await database.delete(schema.user).where(eq(schema.user.id, gone.id));
 
@@ -2413,8 +2340,13 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     ).rejects.toMatchObject({ cause: { constraint: "event_requests_draft_has_no_coordinator" } });
   });
 
-  it("returns the Coordinator's name and email with the organiser's reads (AC3)", async () => {
+  it("returns the Coordinator's name and email with the organiser's reads once assigned", async () => {
     const submitted = await submitNew(fullRequest, organiser, database);
+    // PTR-144: the submission waits unassigned. The queue assigns the row in SQL.
+    await database
+      .update(schema.eventRequests)
+      .set({ assignedCoordinatorId: "test-coordinator-a", assignedAt: new Date() })
+      .where(eq(schema.eventRequests.id, submitted.id));
 
     const listed = await handleListEventRequests(organiser, database as never);
     expect(listed[0].coordinator).toEqual({
@@ -2437,55 +2369,13 @@ describe("Assigning a Coordinator at submission (PTR-15)", () => {
     expect(readDraft?.coordinator).toBeNull();
   });
 
-  describe("when no Coordinator can be assigned (AC5)", () => {
-    const coordinatorIds = [...fixtureCoordinators.map(c => c.id), "seed-coordinator-1"];
-
-    it("still records the submission, unassigned, and lists it for pick-up", async () => {
-      // Demote every Coordinator for the test. Do not delete them: the seeded account has a
-      // credential row and sessions. Restore in `finally`, so a failed assertion leaves no seeded
-      // account defunct.
-      await demoteCoordinators();
-      try {
-        const submitted = await submitNew(fullRequest, organiser, database);
-
-        expect(submitted.status).toBe("submitted");
-        expect(submitted.assignedCoordinatorId).toBeNull();
-        expect(submitted.assignedAt).toBeNull();
-
-        const unassigned = await handleListUnassignedEventRequests(database as never);
-        expect(unassigned.map(row => row.id)).toEqual([submitted.id]);
-        expect(unassigned[0].organiser).toEqual({
-          name: "Drafts Organiser",
-          email: "drafts.organiser@example.com",
-        });
-      } finally {
-        await restoreCoordinators();
-      }
-    });
-
-    function demoteCoordinators() {
-      return database
-        .update(schema.user)
-        .set({ role: "technical_support_staff" })
-        .where(inArray(schema.user.id, coordinatorIds));
-    }
-
-    function restoreCoordinators() {
-      return database
-        .update(schema.user)
-        .set({ role: "event_coordinator" })
-        .where(inArray(schema.user.id, coordinatorIds));
-    }
-  });
-
   it("lists only submitted, unassigned requests, oldest wait first", async () => {
     await handleSaveEventRequestDraft({ eventName: "A draft" }, organiser, database as never);
 
-    const assigned = await submitNew(fullRequest, organiser, database);
+    // An assigned request never reaches the queue.
+    await assignedRequest(extraCoordinators[0].id);
 
-    expect(assigned.assignedCoordinatorId).not.toBeNull();
-
-    // Submit two requests while no Coordinator can take them. Keep their order known.
+    // Two unassigned submissions with known wait order.
     const [older, newer] = await Promise.all([
       handleSaveEventRequestDraft(
         { ...fullRequest, eventName: "Older wait" },

@@ -35,6 +35,10 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
   switch (data.event.access) {
     case "attendee":
       return [];
+    case "lead":
+      // PTR-144: the Lead reads the record and holds no coordination verb, so the read-only
+      // information sections are the whole page.
+      return eventInformationSections(data).filter(section => section.visible(data));
     case "organiser":
       return [
         ...venueSections(data),
@@ -73,7 +77,8 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
  * other section is a record, a wide table, or a heavy form. Those need the main column.
  */
 export function railSectionIds(data: EventPageData): Set<string> {
-  if (data.kind === "triage") return new Set(["assignment"]);
+  // PTR-144: the Lead's unassigned detail is read-only, so it has no rail action.
+  if (data.kind === "triage") return new Set();
   switch (data.event.access) {
     case "coordinator":
       return new Set(["assignment", "cancellation", "confirm", "complete"]);
@@ -161,8 +166,8 @@ export function StaffSections({ data }: { data: Extract<EventPageData, { kind: "
 }
 
 /**
- * Show a Coordinator opening an unassigned event. Read the staff header off the coordination
- * request. Place the triage sections below.
+ * Show the Lead the unassigned request behind a queue row (PTR-144). Read the staff header off
+ * the coordination request. Place the read-only sections below.
  */
 export function TriagePage({ data }: { data: Extract<EventPageData, { kind: "triage" }> }) {
   const { request } = data;
@@ -178,7 +183,7 @@ export function TriagePage({ data }: { data: Extract<EventPageData, { kind: "tri
       </Link>
 
       <div className="mt-6">
-        <p className="eyebrow text-muted-foreground">coordinator access</p>
+        <p className="eyebrow text-muted-foreground">unassigned request</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <EventRequestStatusBadge status={request.status} />
         </div>

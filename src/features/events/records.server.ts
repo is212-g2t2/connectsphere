@@ -64,7 +64,7 @@ type Database = typeof Db;
  * reuses it to check whether a notification's subject is still reachable (PTR-55 AC5). `undefined`
  * means an unknown or missing role. Grant it no events.
  *
- * Scope every branch in SQL: the four internal roles see every non-draft status, while a
+ * Scope every branch in SQL: the internal roles see every non-draft status, while a
  * browsing attendee sees a `confirmed` event with registration enabled (PTR-44, superseding
  * PTR-8's `submitted` stand-in). The live window is not a visibility gate, and an existing
  * registration keeps a non-draft event visible.
@@ -85,6 +85,10 @@ export function connectedEventCondition(
       return and(visible, eq(eventRequests.organiserId, user.id));
     case "event_coordinator":
       return and(visible, eq(eventRequests.assignedCoordinatorId, user.id));
+    // PTR-144: the Event Coordinator Lead reaches every non-draft event, assigned or not. This is
+    // the same reach `getEventAccess` grants (`access.ts`), so the list and the inbox agree.
+    case "event_coordinator_lead":
+      return visible;
     case "venue_staff":
       // PTR-31: An unassigned `pending` row is the shared queue. It connects every Venue Staff
       // member to the event. An assigned row connects only the named staff. `isVenueQueueRow` in
@@ -330,10 +334,14 @@ export async function handleListEvents(
         ]
       : [];
   // PTR-24 AC3: Show the Organiser and the Coordinator the current booking of a confirmed event.
-  // Show an Attendee the booking for every event they reach (PTR-44 AC2): published events and
-  // events they registered for (PTR-46 AC2). Count the venue's places for confirmed events only.
+  // PTR-144: the Lead reads the confirmation too. Show an Attendee the booking for every event
+  // they reach (PTR-44 AC2): published events and events they registered for (PTR-46 AC2). Count
+  // the venue's places for confirmed events only.
   const wantsBookings =
-    role === "event_organiser" || role === "event_coordinator" || role === "attendee";
+    role === "event_organiser" ||
+    role === "event_coordinator" ||
+    role === "event_coordinator_lead" ||
+    role === "attendee";
   // PTR-45 AC10: Show Attendees, Organisers, and Coordinators how many places each confirmed
   // event has taken. Count VIPs (PTR-111) apart. They take venue places only.
   const wantsCounts =

@@ -199,6 +199,23 @@ describe("Header role links", () => {
     expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
   });
 
+  it("renders only Coordination for an event coordinator lead", () => {
+    useRouteContext.mockReturnValue({
+      user: { ...user, role: "event_coordinator_lead" },
+      unreadNotifications: 0,
+    });
+
+    render(<Header />);
+
+    expect(screen.getByRole("link", { name: "Coordination" }).getAttribute("href")).toBe(
+      "/coordination"
+    );
+    expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Venues" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Venue calendar" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
+  });
+
   it("renders Venues, Venue calendar, and Approved bookings for venue staff", () => {
     useRouteContext.mockReturnValue({
       user: { ...user, role: "venue_staff" },

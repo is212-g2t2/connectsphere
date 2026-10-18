@@ -285,22 +285,24 @@ describe("eventSections", () => {
     ]);
   });
 
-  it("lists the coordinator triage sections for an unassigned request", () => {
+  it("lists only the read-only request detail in triage for an unassigned request", () => {
     const found = ids({
       kind: "triage",
+      viewerId: "lead-1",
       request: {
         status: "submitted",
         cancellationRequests: [],
         changeRequests: [],
         venueRequests: [],
       },
-      coordinators: [],
     } as unknown as EventPageData);
 
-    expect(found).toContain("request");
-    expect(found).toContain("assignment");
-    expect(found).not.toContain("review");
-    expect(found).not.toContain("confirm");
+    expect(found).toEqual(["request"]);
+  });
+
+  it("lists only the read-only details section for the lead, with no rail actions", () => {
+    expect(ids(page("lead"))).toEqual(["details"]);
+    expect([...railSectionIds(page("lead"))]).toEqual([]);
   });
 });
 
@@ -314,14 +316,13 @@ describe("railSectionIds", () => {
     ]);
   });
 
-  it("rails only the assignment in triage", () => {
+  it("rails nothing in the read-only unassigned detail", () => {
     const data = {
       kind: "triage",
       request: { status: "submitted" },
-      coordinators: [],
     } as unknown as EventPageData;
 
-    expect([...railSectionIds(data)]).toEqual(["assignment"]);
+    expect([...railSectionIds(data)]).toEqual([]);
   });
 
   it("rails the venue staff decision", () => {

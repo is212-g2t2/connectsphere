@@ -10,6 +10,7 @@ import {
 } from "#/features/emails/components/event-cancellation-email";
 import { EventChangeProcessedEmail } from "#/features/emails/components/event-change-request-email";
 import { EventDecisionEmail } from "#/features/emails/components/event-decision-email";
+import { EventSubmittedEmail } from "#/features/emails/components/event-submitted-email";
 import { EventSignificantChangeEmail } from "#/features/emails/components/event-significant-change-email";
 import {
   EventRegisteredEmail,
@@ -717,5 +718,33 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Harbour Hall");
     expect(html).toContain("View the event");
     expect(html).not.toContain("Your event is confirmed");
+  });
+
+  it("renders the submitted request for the Organiser and the queue for a Lead (PTR-144)", async () => {
+    const organiserHtml = await render(
+      <EventSubmittedEmail
+        eventName="Community workshop"
+        audience="organiser"
+        eventUrl="http://localhost:3000/events/42"
+      />
+    );
+    expect(organiserHtml).toContain("Event request submitted");
+    expect(organiserHtml).toContain("Community workshop");
+    expect(organiserHtml).toContain("is recorded");
+    expect(organiserHtml).toContain("http://localhost:3000/events/42");
+    expect(organiserHtml).toContain("View your request");
+
+    const leadHtml = await render(
+      <EventSubmittedEmail
+        eventName="Community workshop"
+        audience="lead"
+        eventUrl="http://localhost:3000/coordination"
+      />
+    );
+    expect(leadHtml).toContain("New event request");
+    expect(leadHtml).toContain("Community workshop");
+    expect(leadHtml).toContain("waits for a Coordinator to be assigned");
+    expect(leadHtml).toContain("http://localhost:3000/coordination");
+    expect(leadHtml).toContain("View the queue");
   });
 });

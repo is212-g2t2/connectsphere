@@ -81,6 +81,8 @@ const waiting: UnassignedEventRequest = {
   createdAt: new Date("2026-09-14T00:00:00Z"),
   updatedAt: new Date("2026-09-15T02:00:00Z"),
   organiser: { name: "Jane Doe", email: "jane.doe@example.com" },
+  changeRequestsWaiting: 0,
+  cancellationRequested: false,
 };
 
 const handover: PendingEventHandover = {
@@ -95,9 +97,9 @@ beforeEach(() => {
   vi.resetAllMocks();
 });
 
-describe("CoordinationPage (PTR-15 criterion 5)", () => {
+describe("CoordinationPage lead view (PTR-144)", () => {
   it("lists each unassigned request with its organiser, proposed date and submission time", () => {
-    render(<CoordinationPage unassigned={[waiting]} assigned={[]} handovers={[]} />);
+    render(<CoordinationPage view="lead" unassigned={[waiting]} assigned={[]} handovers={[]} />);
 
     const row = screen.getAllByRole("row")[1];
     expect(within(row).getByText("Annual dinner")).toBeTruthy();
@@ -111,12 +113,44 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
   });
 
   it("says so when every submitted request already has a Coordinator", () => {
-    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[]} />);
+    render(<CoordinationPage view="lead" unassigned={[]} assigned={[]} handovers={[]} />);
 
     expect(screen.getByText("Every submitted request has a Coordinator.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
 
+  it("flags an unassigned request with its waiting change and cancellation requests", () => {
+    render(
+      <CoordinationPage
+        view="lead"
+        unassigned={[
+          { ...waiting, id: 1, eventName: "One waiting", changeRequestsWaiting: 1 },
+          { ...waiting, id: 2, eventName: "Two waiting", changeRequestsWaiting: 2 },
+          { ...waiting, id: 3, eventName: "Cancel me", cancellationRequested: true },
+          { ...waiting, id: 4, eventName: "Quiet one" },
+        ]}
+        assigned={[]}
+        handovers={[]}
+      />
+    );
+
+    expect(screen.getByText("1 change request waiting")).toBeTruthy();
+    expect(screen.getByText("2 change requests waiting")).toBeTruthy();
+    expect(screen.getByText("Cancellation requested")).toBeTruthy();
+    expect(screen.getAllByText(/change requests? waiting/)).toHaveLength(2);
+  });
+
+  it("shows the Coordinator no unassigned section", () => {
+    render(
+      <CoordinationPage view="coordinator" unassigned={[waiting]} assigned={[]} handovers={[]} />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Unassigned requests" })).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+});
+
+describe("CoordinationPage coordinator view (PTR-15 criterion 5)", () => {
   it("lists the requests assigned to the signed-in Coordinator, and says so when there are none", () => {
     const assignedRow: AssignedEventRequest = {
       ...waiting,
@@ -127,7 +161,12 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       venueBlocked: false,
     };
     const { rerender } = render(
-      <CoordinationPage unassigned={[]} assigned={[assignedRow]} handovers={[]} />
+      <CoordinationPage
+        view="coordinator"
+        unassigned={[]}
+        assigned={[assignedRow]}
+        handovers={[]}
+      />
     );
 
     expect(screen.getByRole("link", { name: "Annual dinner" }).getAttribute("href")).toBe(
@@ -135,7 +174,7 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
     );
     expect(screen.getByText("Jane Doe")).toBeTruthy();
 
-    rerender(<CoordinationPage unassigned={[]} assigned={[]} handovers={[]} />);
+    rerender(<CoordinationPage view="coordinator" unassigned={[]} assigned={[]} handovers={[]} />);
     expect(screen.getByText("No requests are assigned to you.")).toBeTruthy();
   });
 
@@ -149,7 +188,9 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       changeRequestsWaiting: 0,
       venueBlocked: false,
     };
-    render(<CoordinationPage unassigned={[]} assigned={[decided]} handovers={[]} />);
+    render(
+      <CoordinationPage view="coordinator" unassigned={[]} assigned={[decided]} handovers={[]} />
+    );
 
     expect(screen.getByText("Rejected")).toBeTruthy();
   });
@@ -163,7 +204,14 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
       changeRequestsWaiting: 0,
       venueBlocked: false,
     };
-    render(<CoordinationPage unassigned={[]} assigned={[assignedRow]} handovers={[]} />);
+    render(
+      <CoordinationPage
+        view="coordinator"
+        unassigned={[]}
+        assigned={[assignedRow]}
+        handovers={[]}
+      />
+    );
 
     expect(screen.getByText("Jane Doe")).toBeTruthy();
     expect(screen.getByText("Handover to Bailey pending")).toBeTruthy();
@@ -172,7 +220,9 @@ describe("CoordinationPage (PTR-15 criterion 5)", () => {
 
 describe("Handovers awaiting a response (PTR-110)", () => {
   it("lists the handover with who offered it, when, and the organiser", () => {
-    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+    render(
+      <CoordinationPage view="coordinator" unassigned={[]} assigned={[]} handovers={[handover]} />
+    );
 
     expect(screen.getByRole("heading", { name: "Handovers awaiting your response" })).toBeTruthy();
     expect(screen.getByText("Annual dinner")).toBeTruthy();
@@ -182,7 +232,9 @@ describe("Handovers awaiting a response (PTR-110)", () => {
   });
 
   it("accepts a handover and re-reads the page", async () => {
-    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+    render(
+      <CoordinationPage view="coordinator" unassigned={[]} assigned={[]} handovers={[handover]} />
+    );
     await userEvent.click(screen.getByRole("button", { name: /Accept handover/ }));
 
     await waitFor(() => expect(acceptEventHandover).toHaveBeenCalledWith({ data: { id: 11 } }));
@@ -192,7 +244,9 @@ describe("Handovers awaiting a response (PTR-110)", () => {
   });
 
   it("declines a handover and re-reads the page", async () => {
-    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+    render(
+      <CoordinationPage view="coordinator" unassigned={[]} assigned={[]} handovers={[handover]} />
+    );
     await userEvent.click(screen.getByRole("button", { name: /Decline handover/ }));
 
     await waitFor(() => expect(declineEventHandover).toHaveBeenCalledWith({ data: { id: 11 } }));
@@ -203,7 +257,9 @@ describe("Handovers awaiting a response (PTR-110)", () => {
 
   it("shows a refusal without pretending the handover was answered, and re-reads the list", async () => {
     acceptEventHandover.mockRejectedValue(new Error("This handover has already been answered."));
-    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+    render(
+      <CoordinationPage view="coordinator" unassigned={[]} assigned={[]} handovers={[handover]} />
+    );
     await userEvent.click(screen.getByRole("button", { name: /Accept handover/ }));
 
     expect(await screen.findByRole("alert")).toHaveProperty(
@@ -218,7 +274,9 @@ describe("Handovers awaiting a response (PTR-110)", () => {
   it("labels the answer in flight with the event for assistive tech", async () => {
     const { promise, resolve } = Promise.withResolvers<unknown>();
     acceptEventHandover.mockReturnValue(promise);
-    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[handover]} />);
+    render(
+      <CoordinationPage view="coordinator" unassigned={[]} assigned={[]} handovers={[handover]} />
+    );
 
     const accept = screen.getByRole("button", { name: "Accept handover for Annual dinner" });
     await userEvent.click(accept);
@@ -234,7 +292,7 @@ describe("Handovers awaiting a response (PTR-110)", () => {
   });
 
   it("hides the section when no handover waits", () => {
-    render(<CoordinationPage unassigned={[]} assigned={[]} handovers={[]} />);
+    render(<CoordinationPage view="coordinator" unassigned={[]} assigned={[]} handovers={[]} />);
 
     expect(screen.queryByRole("heading", { name: "Handovers awaiting your response" })).toBeNull();
   });
@@ -252,6 +310,7 @@ describe("change requests waiting on the Coordinator (PTR-52 AC1)", () => {
     };
     render(
       <CoordinationPage
+        view="coordinator"
         unassigned={[]}
         assigned={[
           { ...base, id: 1, eventName: "One waiting", changeRequestsWaiting: 1 },
@@ -280,6 +339,7 @@ describe("venue blocks on the Coordinator's list (PTR-137 AC1)", () => {
     };
     render(
       <CoordinationPage
+        view="coordinator"
         unassigned={[]}
         assigned={[
           { ...base, id: 1, eventName: "Blocked one", venueBlocked: true },

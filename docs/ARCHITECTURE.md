@@ -4,17 +4,18 @@ ConnectSphere is a full-stack React application. TanStack Start renders it on th
 
 ## System Context
 
-Five roles use ConnectSphere through a browser. The system depends on four external services for data, email, error tracking, and scheduled work.
+Six roles use ConnectSphere through a browser. The system depends on four external services for data, email, error tracking, and scheduled work.
 
 ```mermaid
 C4Context
     Person(attendee, "Attendee", "Signs up and registers for events")
     Person(organiser, "Event Organiser", "Raises event requests and answers clarifications")
     Person(coordinator, "Event Coordinator", "Coordinates, confirms, and completes events")
+    Person(lead, "Event Coordinator Lead", "Allocates work and watches every event")
     Person(venueStaff, "Venue Staff", "Approves, rejects, releases, and amends bookings")
     Person(techSupport, "Technical Support Staff", "Arranges and reserves equipment")
 
-    System(connectsphere, "ConnectSphere", "Event planning and venue booking for five roles")
+    System(connectsphere, "ConnectSphere", "Event planning and venue booking for six roles")
     SystemDb_Ext(supabase, "Supabase PostgreSQL", "Stores application data")
     System_Ext(resend, "Resend", "Delivers transactional email")
     System_Ext(sentry, "Sentry", "Tracks errors and traces")
@@ -23,6 +24,7 @@ C4Context
     Rel(attendee, connectsphere, "Uses", "HTTPS")
     Rel(organiser, connectsphere, "Uses", "HTTPS")
     Rel(coordinator, connectsphere, "Uses", "HTTPS")
+    Rel(lead, connectsphere, "Uses", "HTTPS")
     Rel(venueStaff, connectsphere, "Uses", "HTTPS")
     Rel(techSupport, connectsphere, "Uses", "HTTPS")
     Rel(connectsphere, supabase, "Reads and writes", "SQL")
@@ -38,7 +40,7 @@ C4Context
 - **Framework**: [TanStack Start](https://tanstack.com/start). Full-stack React with TanStack Router, server functions, and server-side rendering (SSR).
 - **Server**: [Nitro](https://nitro.unjs.io/). Server-side logic and deployment presets.
 - **ORM and database**: [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL driver (`bun:sql` / `drizzle-orm/bun-sql`) for PostgreSQL, with no extra dependency.
-- **Authentication**: [Better Auth](https://better-auth.com/). Email and password authentication with a five-role permission model.
+- **Authentication**: [Better Auth](https://better-auth.com/). Email and password authentication with a six-role permission model.
 - **Styling**: Tailwind CSS v4 via `@tailwindcss/vite`. The visual system and its tokens are in [`DESIGN.md`](./DESIGN.md).
 - **Theme**: [next-themes](https://github.com/pacocoursey/next-themes). Class-based on `html`, with a mounted client toggle.
 
@@ -81,7 +83,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │   │   │                 # components/, Zod schemas, server functions, and
 │   │   │                 # feature-local *.server.ts modules
 │   │   ├── auth/         # Sessions, permissions, login/signup/reset/settings
-│   │   ├── coordination/ # Coordinator pick-ups of unassigned events, and accepted handovers of assigned ones
+│   │   ├── coordination/ # Lead's unassigned queue, and accepted handovers of assigned events
 │   │   ├── dashboard/    # Signed-in home view
 │   │   ├── emails/       # Email templates and shared date formatting
 │   │   ├── equipment-requests/ # Equipment lines, submission to Technical Support, its arrangement work list, availability checks, and reservations
@@ -333,34 +335,35 @@ erDiagram
 
 ### Roles
 
-`user.role` holds one of the five values in `RoleSchema` (`src/features/auth/schema/role.ts`). A person who needs two roles holds two accounts. The column is plain `text` with no CHECK constraint, so the single-role guarantee is not structural. `can()` parses `RoleSchema` and fails closed, so a hand-written `"attendee,event_coordinator"` grants nothing, not both roles.
+`user.role` holds one of the six values in `RoleSchema` (`src/features/auth/schema/role.ts`). A person who needs two roles holds two accounts. The column is plain `text` with no CHECK constraint, so the single-role guarantee is not structural. `can()` parses `RoleSchema` and fails closed, so a hand-written `"attendee,event_coordinator"` grants nothing, not both roles.
 
-`SelfAssignableRoleSchema` is the subset that a stranger can pick at registration (`attendee`, `event_organiser`). The Better Auth `role` field's `validator.input` uses that schema, not `RoleSchema`, so a wider role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.server.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. `bun run db:seed` (`scripts/seed.ts`) provisions the three internal roles, and no self-service path reaches them.
+`SelfAssignableRoleSchema` is the subset that a stranger can pick at registration (`attendee`, `event_organiser`). The Better Auth `role` field's `validator.input` uses that schema, not `RoleSchema`, so a wider role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.server.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. `bun run db:seed` (`scripts/seed.ts`) provisions the six internal staff accounts (two Coordinators, two Coordinator Leads, Venue Staff, and Technical Support Staff), and no self-service path reaches them.
 
 ### Role/function matrix
 
 `src/features/auth/permissions.ts` is the source of truth, and `tests/unit/auth-permissions.test.ts` holds it to this table. Only role-varying functions appear.
 
-| Function                    | Attendee | Event Organiser | Event Coordinator | Venue Staff | Technical Support Staff |
-| --------------------------- | :------: | :-------------: | :---------------: | :---------: | :---------------------: |
-| `event:register`            |    ✅    |        —        |         —         |      —      |            —            |
-| `event_request:create`      |    —     |       ✅        |         —         |      —      |            —            |
-| `event_request:coordinate`  |    —     |        —        |        ✅         |      —      |            —            |
-| `venue:read`                |    —     |        —        |        ✅         |     ✅      |           ✅            |
-| `venue:search`              |    —     |        —        |        ✅         |      —      |            —            |
-| `venue:create`              |    —     |        —        |         —         |     ✅      |            —            |
-| `venue:update`              |    —     |        —        |         —         |     ✅      |            —            |
-| `venue_request:request`     |    —     |        —        |        ✅         |      —      |            —            |
-| `venue_request:read`        |    —     |        —        |         —         |     ✅      |            —            |
-| `venue_request:decide`      |    —     |        —        |         —         |     ✅      |            —            |
-| `equipment_request:manage`  |    —     |        —        |        ✅         |      —      |            —            |
-| `equipment_request:submit`  |    —     |        —        |        ✅         |      —      |            —            |
-| `equipment_request:read`    |    —     |        —        |         —         |      —      |           ✅            |
-| `equipment_request:arrange` |    —     |        —        |         —         |      —      |           ✅            |
-| `equipment:reserve`         |    —     |        —        |         —         |      —      |           ✅            |
-| `equipment:release`         |    —     |        —        |         —         |      —      |           ✅            |
-| `vip_registration:manage`   |    —     |       ✅        |        ✅         |      —      |            —            |
-| `event_registration:read`   |    —     |       ✅        |        ✅         |      —      |            —            |
+| Function                    | Attendee | Event Organiser | Event Coordinator | Event Coordinator Lead | Venue Staff | Technical Support Staff |
+| --------------------------- | :------: | :-------------: | :---------------: | :--------------------: | :---------: | :---------------------: |
+| `event:register`            |    ✅    |        —        |         —         |           —            |      —      |            —            |
+| `event_request:create`      |    —     |       ✅        |         —         |           —            |      —      |            —            |
+| `event_request:coordinate`  |    —     |        —        |        ✅         |           —            |      —      |            —            |
+| `event_request:oversee`     |    —     |        —        |         —         |           ✅           |      —      |            —            |
+| `venue:read`                |    —     |        —        |        ✅         |           —            |     ✅      |           ✅            |
+| `venue:search`              |    —     |        —        |        ✅         |           —            |      —      |            —            |
+| `venue:create`              |    —     |        —        |         —         |           —            |     ✅      |            —            |
+| `venue:update`              |    —     |        —        |         —         |           —            |     ✅      |            —            |
+| `venue_request:request`     |    —     |        —        |        ✅         |           —            |      —      |            —            |
+| `venue_request:read`        |    —     |        —        |         —         |           —            |     ✅      |            —            |
+| `venue_request:decide`      |    —     |        —        |         —         |           —            |     ✅      |            —            |
+| `equipment_request:manage`  |    —     |        —        |        ✅         |           —            |      —      |            —            |
+| `equipment_request:submit`  |    —     |        —        |        ✅         |           —            |      —      |            —            |
+| `equipment_request:read`    |    —     |        —        |         —         |           —            |      —      |           ✅            |
+| `equipment_request:arrange` |    —     |        —        |         —         |           —            |      —      |           ✅            |
+| `equipment:reserve`         |    —     |        —        |         —         |           —            |      —      |           ✅            |
+| `equipment:release`         |    —     |        —        |         —         |           —            |      —      |           ✅            |
+| `vip_registration:manage`   |    —     |       ✅        |        ✅         |           —            |      —      |            —            |
+| `event_registration:read`   |    —     |       ✅        |        ✅         |           —            |      —      |            —            |
 
 ### Enforcing it
 

@@ -48,6 +48,37 @@ describe("event access", () => {
     expect(getEventAccess({ ...relationship, role, userId: "unrelated-user" })).toBeNull();
   });
 
+  it("grants the lead every event with no relationship check", () => {
+    expect(getEventAccess({ ...relationship, role: "event_coordinator_lead" })).toBe("lead");
+    expect(
+      getEventAccess({
+        ...relationship,
+        role: "event_coordinator_lead",
+        userId: "unrelated-user",
+        assignedCoordinatorId: null,
+        status: "draft",
+      })
+    ).toBe("lead");
+  });
+
+  it("still grants the lead an unassigned event; the projection flag carries the assignment", () => {
+    expect(
+      getEventAccess({
+        ...relationship,
+        role: "event_coordinator_lead",
+        assignedCoordinatorId: null,
+      })
+    ).toBe("lead");
+    const unassigned = projectEvent(
+      { ...request, assignedCoordinatorId: null },
+      "lead",
+      null,
+      [],
+      []
+    );
+    expect(unassigned.event.awaitingAssignment).toBe(true);
+  });
+
   it("allows attendees only confirmed events with registration on, or events they are already registered for (PTR-44)", () => {
     // A confirmed, enabled event shows to the browsing attendee.
     expect(getEventAccess(relationship)).toBe("attendee");
@@ -321,13 +352,17 @@ describe("event access", () => {
     );
   });
 
-  it.each(["attendee", "venue_staff", "technical_support", "organiser", "coordinator"] as const)(
-    "carries the event's stage for the %s, who has access to it (PTR-21 AC2)",
-    access => {
-      const result = projectEvent(request, access, null, [], []);
-      expect(result.event.status).toBe("submitted");
-    }
-  );
+  it.each([
+    "attendee",
+    "venue_staff",
+    "technical_support",
+    "organiser",
+    "coordinator",
+    "lead",
+  ] as const)("carries the event's stage for the %s, who has access to it (PTR-21 AC2)", access => {
+    const result = projectEvent(request, access, null, [], []);
+    expect(result.event.status).toBe("submitted");
+  });
 
   it.each(["organiser", "coordinator"] as const)("projects the full record for the %s", access => {
     const result = projectEvent(
@@ -354,6 +389,41 @@ describe("event access", () => {
       equipment: [],
       venueRequests: [{ status: "pending" }],
     });
+  });
+
+  it("projects the lead's read-only record with its assignment flag (PTR-144)", () => {
+    const equipment = [
+      {
+        id: "line-1",
+        item: "Projector",
+        quantity: 1,
+        arrangementStatus: "reserved",
+        notes: "Coordinator note",
+        arrangementNotes: "Technical Support note",
+        unavailableReason: "Loaned out",
+      },
+    ];
+    const assigned = projectEvent(
+      { ...request, assignedCoordinatorId: "coordinator-1" },
+      "lead",
+      null,
+      equipment,
+      []
+    );
+    expect(assigned.event.awaitingAssignment).toBe(false);
+    expect(assigned.event).not.toHaveProperty("blockedArrangements");
+    expect(assigned.event).not.toHaveProperty("completionUnavailableReason");
+    expect(assigned.event).not.toHaveProperty("equipmentArrangementsCompletedAt");
+    const [line] = assigned.event.equipment ?? [];
+    expect(line).toMatchObject({
+      id: "line-1",
+      item: "Projector",
+      quantity: 1,
+      arrangementStatus: "reserved",
+      notes: "Coordinator note",
+    });
+    expect(line).not.toHaveProperty("arrangementNotes");
+    expect(line).not.toHaveProperty("unavailableReason");
   });
 });
 

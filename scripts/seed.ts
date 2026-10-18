@@ -46,8 +46,8 @@ export const seedUsers: SeedUser[] = [
  * One hundred extra people for local browsing, search, and dashboards. The same index always
  * builds the same person, and the trailing index keeps every email unique.
  *
- * Use only the two self-assignable roles. More internal roles would take new submissions from
- * the seeded Coordinator, and the e2e suite expects only that Coordinator.
+ * Use only the two self-assignable roles. The seed provisions staff accounts deliberately in
+ * `seedStaffUsers`.
  */
 const EXTRA_FIRST_NAMES = [
   "Amara",
@@ -154,6 +154,27 @@ export const seedStaffUsers: SeedUser[] = [
     email: "coordinator.seed@example.com",
     emailVerified: true,
     role: "event_coordinator",
+  },
+  {
+    id: "seed-coordinator-2",
+    name: "Second Seeded Event Coordinator",
+    email: "coordinator2.seed@example.com",
+    emailVerified: true,
+    role: "event_coordinator",
+  },
+  {
+    id: "seed-lead-1",
+    name: "Seeded Event Coordinator Lead",
+    email: "lead.seed@example.com",
+    emailVerified: true,
+    role: "event_coordinator_lead",
+  },
+  {
+    id: "seed-lead-2",
+    name: "Second Seeded Event Coordinator Lead",
+    email: "lead2.seed@example.com",
+    emailVerified: true,
+    role: "event_coordinator_lead",
   },
   {
     id: SEED_VENUE_STAFF_ID,

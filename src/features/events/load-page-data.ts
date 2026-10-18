@@ -1,5 +1,9 @@
 import { can } from "#/features/auth/permissions";
-import { getCoordinationRequest, listCoordinators } from "#/features/coordination/server-fns";
+import {
+  getCoordinationRequest,
+  getOversightRequest,
+  listCoordinators,
+} from "#/features/coordination/server-fns";
 import { listEquipmentTypes } from "#/features/equipment-requests/server-fns";
 import { getEventRequest } from "#/features/event-requests/server-fns";
 import { hasAttendeePage } from "#/features/events/access";
@@ -29,7 +33,8 @@ export async function loadEventPageData(
   try {
     projections = await listEvents({ data: { eventId } });
   } catch (error) {
-    // No projection: a coordinator may still triage the underlying request when unassigned.
+    // No projection. The Lead's unassigned detail reads on from here; every other caller resolves
+    // to no page. Rethrow a genuine fault for the route to see.
     if (error instanceof Error && error.message === "Forbidden") {
       return loadTriage(eventId, role, viewerId);
     }
@@ -64,6 +69,15 @@ export async function loadEventPageData(
         loadAttendees(projection, eventId),
       ]);
       return { kind: "event", event: projection, viewerId, coordination, attendees };
+    }
+    case "lead": {
+      // PTR-144: an unassigned event opens the read-only queue detail, which carries the
+      // organiser, the purpose, and the request record. An assigned event opens the projection
+      // page. Neither offers a coordination action.
+      if (projection.event.awaitingAssignment === true) {
+        return loadTriage(eventId, role, viewerId);
+      }
+      return { kind: "event", event: projection, viewerId };
     }
     case "venue_staff": {
       // Load the full request of every pending entry in one read. A failed read logs and leaves
@@ -114,24 +128,21 @@ async function loadAttendees(
   return listEventRegistrations({ data: { id: eventId } }).catch(() => null);
 }
 
-/** Coordinator triage fallback: the request behind an event with no projection. */
+/** PTR-144: the Lead's read-only detail for an unassigned request, the queue's opened row. */
 async function loadTriage(
   eventId: number,
   role: string | null | undefined,
   viewerId: string
 ): Promise<EventPageData | null> {
-  if (!can(role, { event_request: ["coordinate"] })) return null;
+  if (!can(role, { event_request: ["oversee"] })) return null;
   try {
-    const [request, coordinators] = await Promise.all([
-      getCoordinationRequest({ data: { id: eventId } }),
-      listCoordinators(),
-    ]);
-    return { kind: "triage", viewerId, request, coordinators };
+    const request = await getOversightRequest({ data: { id: eventId } });
+    return { kind: "triage", viewerId, request };
   } catch (error) {
     // A refusal means the request settled or vanished under the fallback. Rethrow any other fault
     // for the route to see.
     if (error instanceof Error && error.message === "Forbidden") {
-      log.info("Triage fallback refused", { eventId });
+      log.info("Oversight detail refused", { eventId });
       return null;
     }
     throw error;

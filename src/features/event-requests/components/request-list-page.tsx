@@ -23,10 +23,8 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import { skipRootFilter } from "#/lib/invalidate";
 
 export const UNTITLED_REQUEST = "Untitled request";
-/** The Coordinator column value for a submitted request with no assignment (criterion 2). */
+/** The Coordinator column value while no assignment exists: a draft, or PTR-144's unassigned submission. */
 export const NOT_YET_ASSIGNED = "Not yet assigned";
-/** The Coordinator column value for a draft, which PTR-15 assigns on submission. */
-export const ASSIGNED_ON_SUBMIT = "Assigned when you submit";
 
 const DELETE_FAILED = "Could not delete this draft. Try again.";
 
@@ -116,9 +114,7 @@ export function EventRequestListPage({ requests }: { requests: EventRequestSumma
                     <TableCell>{request.coordinator.name}</TableCell>
                   ) : (
                     <TableCell>
-                      <span className="text-muted-foreground">
-                        {request.status === "draft" ? ASSIGNED_ON_SUBMIT : NOT_YET_ASSIGNED}
-                      </span>
+                      <span className="text-muted-foreground">{NOT_YET_ASSIGNED}</span>
                     </TableCell>
                   )}
                   <TableCell>

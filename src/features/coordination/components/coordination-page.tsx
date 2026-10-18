@@ -28,15 +28,18 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import { skipRootFilter } from "#/lib/invalidate";
 
 /**
- * Submitted requests the Coordinator can act on: their own assignments, the unassigned queue,
- * and (PTR-110) the handovers waiting on them to accept or decline. Rows arrive from the route's
- * loader; the detail repeats the ownership check on read.
+ * The coordination queue. A Coordinator sees their own assignments and the handovers waiting on
+ * them. The Event Coordinator Lead (PTR-144) sees the unassigned requests instead: submissions
+ * wait for allocation, so the queue is the Lead's, and the page offers no coordination action.
+ * Rows arrive from the route's loader; the detail repeats the ownership check on read.
  */
 export function CoordinationPage({
+  view,
   unassigned,
   assigned,
   handovers,
 }: {
+  view: "lead" | "coordinator";
   unassigned: UnassignedEventRequest[];
   assigned: AssignedEventRequest[];
   handovers: PendingEventHandover[];
@@ -73,11 +76,15 @@ export function CoordinationPage({
       </Link>
 
       <PageHeader
-        title="Coordination"
-        description="Submitted requests are assigned to the least-loaded Coordinator as they arrive. Handovers awaiting your answer, and requests that could not be assigned, wait here."
+        title={view === "lead" ? "Unassigned requests" : "Coordination"}
+        description={
+          view === "lead"
+            ? "Every submitted request waits here until a Coordinator is assigned. Open one to read it."
+            : "The requests assigned to you, and the handovers awaiting your answer."
+        }
       />
 
-      {handovers.length > 0 && (
+      {view === "coordinator" && handovers.length > 0 && (
         <section className="mt-10" aria-labelledby="handovers-heading">
           <h2 id="handovers-heading" className="display-h2">
             Handovers awaiting your response
@@ -144,102 +151,121 @@ export function CoordinationPage({
         </p>
       )}
 
-      <section
-        className={handovers.length > 0 ? "mt-10" : undefined}
-        aria-labelledby="assigned-heading"
-      >
-        <h2 id="assigned-heading" className="display-h2">
-          Assigned to you
-        </h2>
-        <p className="mt-2 body-sm text-muted-foreground">
-          Open a request to view it or hand it over to another Coordinator.
-        </p>
-        {assigned.length === 0 ? (
-          <p className="mt-4 body-sm text-muted-foreground">No requests are assigned to you.</p>
-        ) : (
-          <ul className="mt-4 divide-y divide-border">
-            {assigned.map(request => (
-              <li key={request.id} className="py-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    to="/events/$eventId"
-                    params={{ eventId: String(request.id) }}
-                    className={NAV_LINK_CLASSNAME}
-                  >
-                    {request.eventName.trim() || UNTITLED_REQUEST}
-                  </Link>
-                  <EventRequestStatusBadge status={request.status} />
-                  {request.handoverTo ? (
-                    <Badge variant="progress">Handover to {request.handoverTo} pending</Badge>
-                  ) : null}
-                  {request.venueBlocked ? <Badge variant="stopped">Venue blocked</Badge> : null}
-                  {request.changeRequestsWaiting > 0 ? (
-                    <Badge variant="secondary">
-                      {request.changeRequestsWaiting === 1
-                        ? "1 change request waiting"
-                        : `${request.changeRequestsWaiting} change requests waiting`}
-                    </Badge>
-                  ) : null}
-                </div>
-                <p className="mt-1 body-sm text-muted-foreground">{request.organiser.name}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="mt-10" aria-labelledby="unassigned-heading">
-        <h2 id="unassigned-heading" className="display-h2">
-          Unassigned requests
-        </h2>
-
-        {unassigned.length === 0 ? (
-          <p className="mt-4 body-sm text-muted-foreground">
-            Every submitted request has a Coordinator.
+      {view === "coordinator" && (
+        <section
+          className={handovers.length > 0 ? "mt-10" : undefined}
+          aria-labelledby="assigned-heading"
+        >
+          <h2 id="assigned-heading" className="display-h2">
+            Assigned to you
+          </h2>
+          <p className="mt-2 body-sm text-muted-foreground">
+            Open a request to view it or hand it over to another Coordinator.
           </p>
-        ) : (
-          <div className="mt-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Event</TableHead>
-                  <TableHead>Organiser</TableHead>
-                  <TableHead>Proposed date</TableHead>
-                  <TableHead>Submitted</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {unassigned.map(request => (
-                  <TableRow key={request.id}>
-                    <TableCell>
-                      <Link
-                        to="/events/$eventId"
-                        params={{ eventId: String(request.id) }}
-                        className={NAV_LINK_CLASSNAME}
-                      >
-                        {request.eventName.trim() || UNTITLED_REQUEST}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      {request.organiser.name}
-                      <br />
-                      <a href={`mailto:${request.organiser.email}`} className={NAV_LINK_CLASSNAME}>
-                        {request.organiser.email}
-                      </a>
-                    </TableCell>
-                    <TableCell>{formatFirstProposedDate(request.proposedDates)}</TableCell>
-                    <TableCell>
-                      <time dateTime={request.submittedAt?.toISOString()}>
-                        {formatInstant(request.submittedAt)}
-                      </time>
-                    </TableCell>
+          {assigned.length === 0 ? (
+            <p className="mt-4 body-sm text-muted-foreground">No requests are assigned to you.</p>
+          ) : (
+            <ul className="mt-4 divide-y divide-border">
+              {assigned.map(request => (
+                <li key={request.id} className="py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      to="/events/$eventId"
+                      params={{ eventId: String(request.id) }}
+                      className={NAV_LINK_CLASSNAME}
+                    >
+                      {request.eventName.trim() || UNTITLED_REQUEST}
+                    </Link>
+                    <EventRequestStatusBadge status={request.status} />
+                    {request.handoverTo ? (
+                      <Badge variant="progress">Handover to {request.handoverTo} pending</Badge>
+                    ) : null}
+                    {request.venueBlocked ? <Badge variant="stopped">Venue blocked</Badge> : null}
+                    {request.changeRequestsWaiting > 0 ? (
+                      <Badge variant="secondary">
+                        {request.changeRequestsWaiting === 1
+                          ? "1 change request waiting"
+                          : `${request.changeRequestsWaiting} change requests waiting`}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 body-sm text-muted-foreground">{request.organiser.name}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {view === "lead" && (
+        <section aria-labelledby="unassigned-heading">
+          <h2 id="unassigned-heading" className="display-h2">
+            Unassigned requests
+          </h2>
+
+          {unassigned.length === 0 ? (
+            <p className="mt-4 body-sm text-muted-foreground">
+              Every submitted request has a Coordinator.
+            </p>
+          ) : (
+            <div className="mt-4">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Event</TableHead>
+                    <TableHead>Organiser</TableHead>
+                    <TableHead>Proposed date</TableHead>
+                    <TableHead>Submitted</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </section>
+                </TableHeader>
+                <TableBody>
+                  {unassigned.map(request => (
+                    <TableRow key={request.id}>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            to="/events/$eventId"
+                            params={{ eventId: String(request.id) }}
+                            className={NAV_LINK_CLASSNAME}
+                          >
+                            {request.eventName.trim() || UNTITLED_REQUEST}
+                          </Link>
+                          {request.cancellationRequested ? (
+                            <Badge variant="stopped">Cancellation requested</Badge>
+                          ) : null}
+                          {request.changeRequestsWaiting > 0 ? (
+                            <Badge variant="secondary">
+                              {request.changeRequestsWaiting === 1
+                                ? "1 change request waiting"
+                                : `${request.changeRequestsWaiting} change requests waiting`}
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {request.organiser.name}
+                        <br />
+                        <a
+                          href={`mailto:${request.organiser.email}`}
+                          className={NAV_LINK_CLASSNAME}
+                        >
+                          {request.organiser.email}
+                        </a>
+                      </TableCell>
+                      <TableCell>{formatFirstProposedDate(request.proposedDates)}</TableCell>
+                      <TableCell>
+                        <time dateTime={request.submittedAt?.toISOString()}>
+                          {formatInstant(request.submittedAt)}
+                        </time>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </section>
+      )}
     </Page>
   );
 }

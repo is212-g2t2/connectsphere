@@ -8,6 +8,8 @@ interface EventChangeRequestEmailProps {
   whatShouldChange: string;
   requestedValue: string;
   eventRequestUrl: string;
+  /** PTR-144: Leads get the queue link and wait for assignment. Absent on older rows. */
+  audience?: "coordinator" | "lead";
 }
 
 export const EventChangeRequestEmail = ({
@@ -15,13 +17,16 @@ export const EventChangeRequestEmail = ({
   whatShouldChange,
   requestedValue,
   eventRequestUrl,
+  audience,
 }: EventChangeRequestEmailProps) => {
+  const lead = audience === "lead";
   return (
     <Layout previewText={`Change requested for ${eventName}`}>
       <Section>
         <Text style={emailHeading}>Event change requested</Text>
         <Text style={emailText}>
           The Organiser has requested a change to <strong>{eventName}</strong>.
+          {lead ? " No Coordinator is assigned yet, so the request waits for assignment." : ""}
         </Text>
         <Text style={{ ...emailText, whiteSpace: "pre-line" }}>
           <strong>What should change</strong>
@@ -34,7 +39,7 @@ export const EventChangeRequestEmail = ({
           {requestedValue}
         </Text>
         <Button href={eventRequestUrl} style={emailButton}>
-          Review the request
+          {lead ? "View the queue" : "Review the request"}
         </Button>
       </Section>
     </Layout>

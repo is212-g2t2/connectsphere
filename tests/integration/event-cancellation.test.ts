@@ -65,6 +65,7 @@ const organiser = actor("cancellation-organiser", "event_organiser", "Cancel Org
 const otherOrganiser = actor("cancellation-other-organiser", "event_organiser");
 const coordinator = actor("cancellation-coordinator", "event_coordinator", "Cancel Coordinator");
 const otherCoordinator = actor("cancellation-other-coordinator", "event_coordinator");
+const lead = actor("cancellation-lead", "event_coordinator_lead", "Cancel Lead");
 const venueStaff = actor("cancellation-venue-staff", "venue_staff", "Cancel Venue Staff");
 const technicalSupport = actor(
   "cancellation-tech-support",
@@ -79,6 +80,7 @@ const users = [
   otherOrganiser,
   coordinator,
   otherCoordinator,
+  lead,
   venueStaff,
   technicalSupport,
   attendee,
@@ -508,12 +510,30 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       );
     });
 
-    test("leaves an unassigned event in the unassigned list, with no one to notify (AC3)", async () => {
+    test("leaves an unassigned event in the unassigned list and notifies every Lead (AC3)", async () => {
       const event = await createEvent("submitted", { assigned: false });
 
       await requestCancellation(event.id);
 
-      expect(await notificationsFor(event.id, "event_cancellation_requested")).toEqual([]);
+      // Every Lead hears, seeded accounts included. Each notice names the Lead audience and
+      // links to the coordination queue.
+      const leadIds = (
+        await database
+          .select({ id: schema.user.id })
+          .from(schema.user)
+          .where(eq(schema.user.role, "event_coordinator_lead"))
+      ).map(row => row.id);
+      expect(leadIds).toContain(lead.id);
+      const notices = await notificationsFor(event.id, "event_cancellation_requested");
+      expect(notices.map(notice => notice.recipientId).toSorted()).toEqual(leadIds.toSorted());
+      for (const notice of notices) {
+        expect(notice.payload).toMatchObject({ audience: "lead" });
+        const notification = parsed(notice);
+        expect(notificationSummary(notification)).toBe(
+          `Event cancellation requested: ${event.eventName}`
+        );
+        expect(notificationHref(notification)).toBe("/coordination");
+      }
       const unassigned = await handleListUnassignedEventRequests(database as never);
       expect(unassigned.map(row => row.id)).toContain(event.id);
     });

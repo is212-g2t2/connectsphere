@@ -13,17 +13,29 @@ import { createSeoHead } from "#/lib/seo";
 export const Route = createFileRoute("/_authenticated/coordination/")({
   head: () => createSeoHead({ title: "Coordination — ConnectSphere", noindex: true }),
   beforeLoad: ({ context }) => {
-    if (!can(context.user.role, { event_request: ["coordinate"] })) {
+    if (
+      !can(context.user.role, { event_request: ["coordinate"] }) &&
+      !can(context.user.role, { event_request: ["oversee"] })
+    ) {
       throw redirect({ to: "/dashboard" });
     }
   },
-  loader: async () => {
-    const [unassigned, assigned, handovers] = await Promise.all([
-      listUnassignedEventRequests(),
+  loader: async ({ context }) => {
+    // PTR-144: the Lead reads the unassigned queue, the Coordinator their assignments and the
+    // handovers waiting on them. Each view loads only the lists it shows.
+    if (can(context.user.role, { event_request: ["oversee"] })) {
+      return {
+        view: "lead" as const,
+        unassigned: await listUnassignedEventRequests(),
+        assigned: [],
+        handovers: [],
+      };
+    }
+    const [assigned, handovers] = await Promise.all([
       listAssignedEventRequests(),
       listPendingEventHandovers(),
     ]);
-    return { unassigned, assigned, handovers };
+    return { view: "coordinator" as const, unassigned: [], assigned, handovers };
   },
   component: () => <CoordinationPage {...Route.useLoaderData()} />,
   pendingComponent: CoordinationPageSkeleton,

@@ -5,6 +5,7 @@ import { eventChangeRequests } from "#/db/schema";
 import { ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { lockOwnedEvent } from "#/features/event-requests/owned-event.server";
+import { listLeadIds } from "#/features/event-requests/leads.server";
 import {
   EVENT_CHANGE_REQUEST_CLOSED,
   canRaiseEventChangeRequest,
@@ -41,7 +42,8 @@ export async function listEventChangeRequests(
 /**
  * Record an owned request after submission without changing an `event_requests` field. The row
  * lock prevents completion or cancellation from passing the eligibility check at the same time.
- * Notify an assigned Coordinator in the same transaction. Unassigned events remain in the queue.
+ * Notify the assigned Coordinator, or every Event Coordinator Lead while the event is unassigned
+ * (PTR-144), in the same transaction.
  */
 export async function handleRaiseEventChangeRequest(
   data: unknown,
@@ -79,6 +81,23 @@ export async function handleRaiseEventChangeRequest(
           },
         },
       ]);
+    } else {
+      // PTR-144: no Coordinator is assigned, so every Event Coordinator Lead gets a copy.
+      const leadIds = await listLeadIds(tx);
+      await raiseNotifications(
+        tx,
+        leadIds.map(recipientId => ({
+          recipientId,
+          eventRequestId: event.id,
+          kind: "event_change_requested" as const,
+          payload: {
+            eventName: event.eventName.trim() || "Untitled request",
+            whatShouldChange: input.whatShouldChange,
+            requestedValue: input.requestedValue,
+            audience: "lead" as const,
+          },
+        }))
+      );
     }
 
     return changeRequest;

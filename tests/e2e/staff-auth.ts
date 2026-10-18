@@ -5,6 +5,7 @@ import { SEED_STAFF_PASSWORD } from "../../scripts/seed";
 
 const STAFF_ACCOUNTS = {
   event_coordinator: "coordinator.seed@example.com",
+  event_coordinator_lead: "lead.seed@example.com",
   venue_staff: "venue.staff.seed@example.com",
   technical_support_staff: "tech.support.seed@example.com",
 } as const;

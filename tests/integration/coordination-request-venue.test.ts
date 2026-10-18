@@ -24,11 +24,24 @@ const users = {
     emailVerified: true,
     role: "event_coordinator",
   },
+  // PTR-144: the unassigned detail is the Lead's read, so the venue summary is asserted as one.
+  lead: {
+    id: "triage-venue-lead",
+    name: "Triage Lead",
+    email: "triage-venue-lead@example.invalid",
+    emailVerified: true,
+    role: "event_coordinator_lead",
+  },
 } satisfies Record<string, typeof schema.user.$inferInsert>;
 
 const VENUE_NAMES = ["Triage Refused Hall", "Triage Suggested Room"];
 
-function session(): SessionUser {
+function leadSession(): SessionUser {
+  const lead = users.lead;
+  return { id: lead.id, email: lead.email, name: lead.name, role: lead.role };
+}
+
+function coordinatorSession(): SessionUser {
   const coordinator = users.coordinator;
   return {
     id: coordinator.id,
@@ -115,7 +128,7 @@ describe("coordination request venue summary", () => {
 
     const request = await handleGetCoordinationRequest(
       { id: eventId },
-      session(),
+      leadSession(),
       database as never
     );
 
@@ -155,7 +168,7 @@ describe("coordination request venue summary", () => {
 
     const request = await handleGetCoordinationRequest(
       { id: eventId },
-      session(),
+      leadSession(),
       database as never
     );
 
@@ -173,10 +186,17 @@ describe("coordination request venue summary", () => {
   it("lists no entries when the event has no venue request", async () => {
     const request = await handleGetCoordinationRequest(
       { id: eventId },
-      session(),
+      leadSession(),
       database as never
     );
 
     expect(request.venueRequests).toEqual([]);
+  });
+
+  // PTR-144 AC3: a Coordinator can no longer read an unassigned request.
+  it("refuses a Coordinator the unassigned detail", async () => {
+    await expect(
+      handleGetCoordinationRequest({ id: eventId }, coordinatorSession(), database as never)
+    ).rejects.toMatchObject({ name: "AuthorizationError", status: 403 });
   });
 });

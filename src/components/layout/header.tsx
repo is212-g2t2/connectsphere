@@ -60,7 +60,9 @@ export function Header() {
   const role = user?.role ?? null;
   const { pathname } = useLocation();
   const showEventRequests = can(role, { event_request: ["create"] });
-  const showCoordination = can(role, { event_request: ["coordinate"] });
+  // PTR-144: the Lead reaches the unassigned queue, the Coordinator their assignments.
+  const showCoordination =
+    can(role, { event_request: ["coordinate"] }) || can(role, { event_request: ["oversee"] });
   const showVenues = can(role, { venue: ["read"] });
   const showApprovedBookings = can(role, { venue_request: ["decide"] });
   const showSections = showEventRequests || showCoordination || showVenues || showApprovedBookings;

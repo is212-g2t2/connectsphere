@@ -15,6 +15,8 @@ export const requireEventRequestCreate = requirePermission({ event_request: ["cr
 export const requireEventRequestCoordinate = requirePermission({
   event_request: ["coordinate"],
 });
+/** PTR-144: the Event Coordinator Lead's read-only functions — the queue and every event. */
+export const requireEventRequestOversee = requirePermission({ event_request: ["oversee"] });
 
 /** A saved draft as the client sees it. Derive it here, so no route imports the server module. */
 export type EventRequestDraft = Awaited<ReturnType<typeof saveEventRequestDraft>>;
@@ -27,7 +29,7 @@ export type EventRequestDetail = NonNullable<
   Awaited<ReturnType<typeof getEventRequest>>["request"]
 >;
 
-/** A submitted request awaiting a Coordinator, as the coordination page sees it (PTR-15). */
+/** A submitted request awaiting a Coordinator, as the Lead's queue sees it (PTR-144). */
 export type UnassignedEventRequest = Awaited<
   ReturnType<typeof listUnassignedEventRequests>
 >[number];
@@ -104,12 +106,12 @@ export const getEventRequest = createServerFn({ method: "GET" })
   });
 
 /**
- * PTR-15 criterion 5: Return requests with no assigned Coordinator for any Event Coordinator.
- * PTR-16's assignment functions live in `coordination/server-fns.ts`. They use the same
- * `event_request:coordinate` middleware and check current ownership in each handler.
+ * PTR-144: return requests with no assigned Coordinator, oldest first, with the Organiser's
+ * details. The unassigned queue is the Event Coordinator Lead's; a Coordinator is refused.
+ * Submission no longer auto-assigns, so every fresh submission starts here.
  */
 export const listUnassignedEventRequests = createServerFn({ method: "GET" })
-  .middleware([requireEventRequestCoordinate])
+  .middleware([requireEventRequestOversee])
   .handler(async () => {
     const [{ db }, { handleListUnassignedEventRequests }] = await loadServer();
     return handleListUnassignedEventRequests(db);

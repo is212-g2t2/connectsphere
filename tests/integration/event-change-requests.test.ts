@@ -29,7 +29,12 @@ const coordinator: SessionUser = {
   email: "ptr-51-coordinator@example.com",
   role: "event_coordinator",
 };
-const userIds = [organiser.id, otherOrganiser.id, coordinator.id];
+const lead: SessionUser = {
+  id: "ptr-51-lead",
+  email: "ptr-51-lead@example.com",
+  role: "event_coordinator_lead",
+};
+const userIds = [organiser.id, otherOrganiser.id, coordinator.id, lead.id];
 
 describe("event change requests (PTR-51)", () => {
   let pool: Pool;
@@ -61,6 +66,13 @@ describe("event change requests (PTR-51)", () => {
           email: "ptr-51-coordinator@example.com",
           emailVerified: true,
           role: "event_coordinator",
+        },
+        {
+          id: lead.id,
+          name: "PTR-51 Lead",
+          email: "ptr-51-lead@example.com",
+          emailVerified: true,
+          role: "event_coordinator_lead",
         },
       ])
       .onConflictDoNothing();
@@ -321,7 +333,7 @@ describe("event change requests (PTR-51)", () => {
     }
   });
 
-  it("keeps an unassigned event in the unassigned list and queues no notification (AC5)", async () => {
+  it("keeps an unassigned event in the unassigned list and notifies every Lead (AC5)", async () => {
     const event = await createEvent("submitted", null);
     await handleRaiseEventChangeRequest(
       { id: event.id, whatShouldChange: "Venue", requestedValue: "Harbour Hall" },
@@ -330,11 +342,34 @@ describe("event change requests (PTR-51)", () => {
     );
 
     const unassigned = await handleListUnassignedEventRequests(database as never);
-    expect(unassigned.map(item => item.id)).toContain(event.id);
+    const row = unassigned.find(item => item.id === event.id);
+    expect(row).toMatchObject({ changeRequestsWaiting: 1, cancellationRequested: false });
+
+    // Every Lead hears, seeded accounts included. Each notice names the Lead audience.
+    const leadIds = (
+      await database
+        .select({ id: schema.user.id })
+        .from(schema.user)
+        .where(eq(schema.user.role, "event_coordinator_lead"))
+    ).map(leadRow => leadRow.id);
+    expect(leadIds).toContain(lead.id);
     const notifications = await database
       .select()
       .from(schema.notifications)
-      .where(eq(schema.notifications.eventRequestId, event.id));
-    expect(notifications).toHaveLength(0);
+      .where(
+        and(
+          eq(schema.notifications.eventRequestId, event.id),
+          eq(schema.notifications.kind, "event_change_requested")
+        )
+      );
+    expect(notifications.map(notice => notice.recipientId).toSorted()).toEqual(leadIds.toSorted());
+    for (const notice of notifications) {
+      expect(notice.payload).toMatchObject({
+        eventName: `${event.status} workshop`,
+        whatShouldChange: "Venue",
+        requestedValue: "Harbour Hall",
+        audience: "lead",
+      });
+    }
   });
 });

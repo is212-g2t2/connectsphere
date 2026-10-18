@@ -7,6 +7,7 @@ const {
   mockListEventRegistrations,
   mockGetEventRequest,
   mockGetCoordinationRequest,
+  mockGetOversightRequest,
   mockListCoordinators,
   mockGetPendingVenueRequestsForEvent,
   mockListVenueOptions,
@@ -18,6 +19,7 @@ const {
   mockListEventRegistrations: vi.fn<() => Promise<unknown[]>>(),
   mockGetEventRequest: vi.fn<() => Promise<unknown>>(),
   mockGetCoordinationRequest: vi.fn<() => Promise<unknown>>(),
+  mockGetOversightRequest: vi.fn<() => Promise<unknown>>(),
   mockListCoordinators: vi.fn<() => Promise<unknown[]>>(),
   mockGetPendingVenueRequestsForEvent: vi.fn<() => Promise<unknown>>(),
   mockListVenueOptions: vi.fn<() => Promise<unknown[]>>(),
@@ -35,6 +37,7 @@ vi.mock("#/features/event-requests/server-fns", () => ({
 }));
 vi.mock("#/features/coordination/server-fns", () => ({
   getCoordinationRequest: mockGetCoordinationRequest,
+  getOversightRequest: mockGetOversightRequest,
   listCoordinators: mockListCoordinators,
 }));
 vi.mock("#/features/venue-requests/server-fns", () => ({
@@ -82,6 +85,7 @@ beforeEach(() => {
     mockListEventRegistrations,
     mockGetEventRequest,
     mockGetCoordinationRequest,
+    mockGetOversightRequest,
     mockListCoordinators,
     mockGetPendingVenueRequestsForEvent,
     mockListVenueOptions,
@@ -377,41 +381,57 @@ describe("loadEventPageData", () => {
     expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID, equipmentTypes: null });
   });
 
-  it("falls back to the coordinator triage view for an unassigned request", async () => {
-    mockListEvents.mockRejectedValue(new Error("Forbidden"));
+  it("opens the lead triage view for an unassigned projection", async () => {
+    mockListEvents.mockResolvedValue([
+      projection("lead", { status: "submitted", awaitingAssignment: true }),
+    ]);
     const request = { id: 7, status: "submitted" };
-    const coordinators = [{ id: "c-1" }];
-    mockGetCoordinationRequest.mockResolvedValue(request);
-    mockListCoordinators.mockResolvedValue(coordinators);
+    mockGetOversightRequest.mockResolvedValue(request);
 
-    const data = await loadEventPageData(7, "event_coordinator", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
 
-    expect(data).toEqual({ kind: "triage", viewerId: VIEWER_ID, request, coordinators });
-    expect(mockGetCoordinationRequest).toHaveBeenCalledWith({ data: { id: 7 } });
+    expect(data).toEqual({ kind: "triage", viewerId: VIEWER_ID, request });
+    expect(mockGetOversightRequest).toHaveBeenCalledWith({ data: { id: 7 } });
   });
 
-  it("returns null on Forbidden for a role that cannot coordinate", async () => {
+  it("returns the lead event page once a Coordinator is assigned", async () => {
+    const event = projection("lead", { status: "submitted", awaitingAssignment: false });
+    mockListEvents.mockResolvedValue([event]);
+
+    const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
+
+    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    expect(mockGetOversightRequest).not.toHaveBeenCalled();
+  });
+
+  it("returns null on Forbidden for a Coordinator with no assigned event", async () => {
     mockListEvents.mockRejectedValue(new Error("Forbidden"));
 
-    await expect(loadEventPageData(7, "attendee", VIEWER_ID)).resolves.toBeNull();
+    await expect(loadEventPageData(7, "event_coordinator", VIEWER_ID)).resolves.toBeNull();
+    expect(mockGetOversightRequest).not.toHaveBeenCalled();
     expect(mockGetCoordinationRequest).not.toHaveBeenCalled();
   });
 
-  it("returns null when the triage fallback is refused", async () => {
+  it("returns null on Forbidden for a role that cannot oversee", async () => {
     mockListEvents.mockRejectedValue(new Error("Forbidden"));
-    mockGetCoordinationRequest.mockRejectedValue(new Error("Forbidden"));
-    mockListCoordinators.mockResolvedValue([]);
 
-    await expect(loadEventPageData(7, "event_coordinator", VIEWER_ID)).resolves.toBeNull();
+    await expect(loadEventPageData(7, "attendee", VIEWER_ID)).resolves.toBeNull();
+    expect(mockGetOversightRequest).not.toHaveBeenCalled();
   });
 
-  it("rethrows a non-refusal triage failure", async () => {
+  it("returns null when the oversight fallback is refused", async () => {
     mockListEvents.mockRejectedValue(new Error("Forbidden"));
-    mockGetCoordinationRequest.mockRejectedValue(new Error("coordination store down"));
-    mockListCoordinators.mockResolvedValue([]);
+    mockGetOversightRequest.mockRejectedValue(new Error("Forbidden"));
 
-    await expect(loadEventPageData(7, "event_coordinator", VIEWER_ID)).rejects.toThrow(
-      "coordination store down"
+    await expect(loadEventPageData(7, "event_coordinator_lead", VIEWER_ID)).resolves.toBeNull();
+  });
+
+  it("rethrows a non-refusal oversight failure", async () => {
+    mockListEvents.mockRejectedValue(new Error("Forbidden"));
+    mockGetOversightRequest.mockRejectedValue(new Error("oversight store down"));
+
+    await expect(loadEventPageData(7, "event_coordinator_lead", VIEWER_ID)).rejects.toThrow(
+      "oversight store down"
     );
   });
 });

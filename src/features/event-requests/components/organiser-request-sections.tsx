@@ -10,10 +10,7 @@ import {
   ChangeRequestHistory,
   ClarificationThread,
 } from "#/features/event-requests/components/request-message-blocks";
-import {
-  ASSIGNED_ON_SUBMIT,
-  NOT_YET_ASSIGNED,
-} from "#/features/event-requests/components/request-list-page";
+import { NOT_YET_ASSIGNED } from "#/features/event-requests/components/request-list-page";
 import {
   canRaiseEventChangeRequest,
   canRequestEventCancellation,
@@ -192,9 +189,7 @@ function CoordinatorContact({ request }: { request: EventRequestDetail }) {
                   </a>
                 </>
               ) : (
-                <span className="text-muted-foreground">
-                  {request.status === "draft" ? ASSIGNED_ON_SUBMIT : NOT_YET_ASSIGNED}
-                </span>
+                <span className="text-muted-foreground">{NOT_YET_ASSIGNED}</span>
               )}
             </dd>
           </div>

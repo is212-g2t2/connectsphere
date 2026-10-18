@@ -11,6 +11,7 @@ import type {
 export type EventAccess =
   | "organiser"
   | "coordinator"
+  | "lead"
   | "venue_staff"
   | "technical_support"
   | "attendee";
@@ -32,6 +33,10 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
   if (input.role === "event_coordinator" && input.assignedCoordinatorId === input.userId) {
     return "coordinator";
   }
+  // PTR-144: the Event Coordinator Lead reads every event, assigned or not. This matches the
+  // `event_coordinator_lead` arm of `connectedEventCondition` in `events/records.server.ts`, which
+  // lists every non-draft event. The projection is read-only and offers no coordination action.
+  if (input.role === "event_coordinator_lead") return "lead";
   if (input.role === "venue_staff" && input.venueStaffIds.includes(input.userId))
     return "venue_staff";
   if (
@@ -116,6 +121,8 @@ interface EventRecord {
   status: EventRequestStatus;
   proposedDates: Array<{ start?: string; end?: string }>;
   registrationEnabled: boolean;
+  /** PTR-144: the Lead's projection states whether the request still waits for a Coordinator. */
+  assignedCoordinatorId?: string | null;
   equipmentSubmittedAt?: Date | null;
   equipmentArrangementsCompletedAt?: Date | null;
   confirmedAt?: Date | null;
@@ -322,6 +329,9 @@ export interface EventProjection {
     completionUnavailableReason?: string | null;
     /** PTR-137 AC1: Coordinator only. The arrangements a live venue block has suspended. */
     blockedArrangements?: BlockedArrangement[];
+    /** PTR-144: Lead only. The request still waits for a Coordinator, so its page opens the
+     * read-only queue detail instead of the projection. */
+    awaitingAssignment?: boolean;
   };
 }
 
@@ -439,6 +449,47 @@ export function projectEvent(
             equipment,
             record.equipmentArrangementsCompletedAt
           ),
+        },
+      };
+
+    // PTR-144: the event record the Lead reads, with no coordination field. The branch is
+    // read-only: no coordinator-only notes, reasons, or completion state, and no action anywhere
+    // on the page. The comment above "organiser" applies: add fields here deliberately.
+    case "lead":
+      return {
+        access,
+        event: {
+          id: record.id,
+          name: record.name,
+          description: record.description,
+          ...timing,
+          status: record.status,
+          registrationOpensAt: record.registrationOpensAt,
+          registrationClosesAt: record.registrationClosesAt,
+          registrationEnabled: record.registrationEnabled,
+          expectedAttendance: record.expectedAttendance,
+          layout: record.roomLayoutPreference,
+          accessibilityRequirements: record.accessibilityRequirements,
+          requiredFacilities: record.venueRequirements,
+          equipment: equipment.map(line => ({
+            id: line.id,
+            item: line.item,
+            quantity: line.quantity,
+            arrangementStatus: line.arrangementStatus,
+            notes: line.notes,
+          })),
+          equipmentSubmittedAt: record.equipmentSubmittedAt?.toISOString() ?? null,
+          // PTR-144: the page swaps this projection for the read-only queue detail while the
+          // request waits for a Coordinator.
+          awaitingAssignment: record.assignedCoordinatorId === null,
+          confirmation:
+            record.status === "confirmed" && record.confirmedAt && record.confirmedByName
+              ? {
+                  confirmedAt: record.confirmedAt.toISOString(),
+                  confirmedByName: record.confirmedByName,
+                  venue: currentVenue,
+                }
+              : null,
         },
       };
 
