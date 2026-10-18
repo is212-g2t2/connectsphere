@@ -242,6 +242,10 @@ export function VenueCalendarPage({
                     {entry.label}
                   </li>
                 ))}
+                <li className="flex items-center gap-2">
+                  <span aria-hidden="true" className="size-2 rounded-full bg-destructive" />
+                  Buffer conflict
+                </li>
               </ul>
             </CardContent>
           </Card>
@@ -429,6 +433,7 @@ export function VenueCalendarPage({
                           {OCCUPIED_STATES[period.state].label}
                         </Badge>
                       )}
+                      {period.bufferConflict && <Badge variant="stopped">Buffer conflict</Badge>}
                       {period.state === "tentative_hold" &&
                         period.id &&
                         ((canHold && (period.canRelease || period.convertDefaults)) ||

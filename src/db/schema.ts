@@ -819,6 +819,8 @@ export const venueOccupancy = pgTable(
     index("venue_occupancy_venue_hold_id_idx").on(table.venueHoldId),
     index("venue_occupancy_venue_unavailability_id_idx").on(table.venueUnavailabilityId),
     index("venue_occupancy_event_id_idx").on(table.eventId),
+    // The buffer-conflict pair scan reads one venue's rows by start time.
+    index("venue_occupancy_venue_id_starts_at_idx").on(table.venueId, table.startsAt),
   ]
 );
 
@@ -1033,6 +1035,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_booking_released_by_coordinator",
   /** PTR-142: Venue Staff set or change the expiry of a tentative hold. */
   "venue_hold_expiry_changed",
+  /** PTR-132: buffer change created a conflict for existing commitments. */
+  "venue_buffer_conflict",
 ]);
 
 export const notifications = pgTable(

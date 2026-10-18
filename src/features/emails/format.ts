@@ -9,3 +9,10 @@ export function formatDate(value: string) {
 export function formatTime(value: string) {
   return value.slice(11, 16);
 }
+
+/** `2026-10-12 14:30:00` to `17:00:00` → `12 October 2026, 14:30–17:00`. Name both days when it crosses one. */
+export function formatPeriod(startsAt: string, endsAt: string) {
+  return startsAt.slice(0, 10) === endsAt.slice(0, 10)
+    ? `${formatDate(startsAt)}, ${formatTime(startsAt)}–${formatTime(endsAt)}`
+    : `${formatDate(startsAt)}, ${formatTime(startsAt)} – ${formatDate(endsAt)}, ${formatTime(endsAt)}`;
+}

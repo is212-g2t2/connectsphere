@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 
+import { can } from "#/features/auth/permissions";
 import { requirePermission } from "#/features/auth/session";
 import {
   parseAvailabilityRequest,
@@ -9,6 +10,7 @@ import {
   parseVenueInput,
   parseVenueSearchRequest,
 } from "#/features/venues/schema";
+import type { VenueBufferConflict } from "#/features/venues/availability";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("venues");
@@ -24,6 +26,7 @@ async function loadServer() {
 
 /** Shape a venue row as the client sees it. Derive it here so routes avoid the server module. */
 export type Venue = Awaited<ReturnType<typeof listVenues>>[number];
+export type VenueWithConflicts = Venue & { bufferConflicts?: VenueBufferConflict[] };
 
 /** Create or update a venue in `saveVenue`. The payload id selects the path. */
 function venueAction(data: unknown): "create" | "update" {
@@ -79,9 +82,13 @@ export type VenueSearchResult = Awaited<ReturnType<typeof searchVenues>>;
 export const getVenue = createServerFn({ method: "GET" })
   .validator(parseVenueId)
   .middleware([requireVenueRead])
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const [{ db }, { handleGetVenue }] = await loadServer();
-    return { venue: await handleGetVenue(data, db) };
+    return {
+      venue: await handleGetVenue(data, db, {
+        includeConflicts: can(context.user.role, { venue: ["update"] }),
+      }),
+    };
   });
 
 export const saveVenue = createServerFn({ method: "POST" })
