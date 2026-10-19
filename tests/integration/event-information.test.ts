@@ -205,6 +205,7 @@ async function addHold(eventId: number, status: "held" | "released" = "held") {
     venueId,
     heldById: coordinator.id,
     status,
+    expiresAt: "2099-12-01 00:00:00",
     ...nextWindow(),
   });
   return id;
