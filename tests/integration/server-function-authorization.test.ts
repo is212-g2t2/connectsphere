@@ -10,15 +10,12 @@ import * as schema from "#/db/schema";
 import { getSessionContext, listAccounts, requireSession } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
-  acceptEventHandover,
+  assignEventRequest,
   decideEventRequest,
-  declineEventHandover,
   getCoordinationRequest,
   getOversightRequest,
   listAssignedEventRequests,
   listCoordinators,
-  listPendingEventHandovers,
-  requestEventHandover,
   takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
 import {
@@ -250,46 +247,59 @@ describe("server-function authorization (PTR-69)", () => {
   describe("PTR-16 coordination boundaries", () => {
     // These calls share the mocked request context; keep its lazy module loading sequential.
     // oxlint-disable no-await-in-loop
-    const endpoints = [
+    const coordinatorEndpoints = [
       { fn: decideEventRequest, data: { id: 1, decision: "approved" }, method: "POST" as const },
       { fn: getCoordinationRequest, data: { id: 1 }, method: "GET" as const },
       { fn: takeUpEventRequestForReview, data: { id: 1 }, method: "POST" as const },
       { fn: listAssignedEventRequests, data: undefined, method: "GET" as const },
+    ];
+    // PTR-145: assignment is the Lead's, so these admit the Lead alone.
+    const leadEndpoints = [
       { fn: listCoordinators, data: undefined, method: "GET" as const },
-      { fn: listPendingEventHandovers, data: undefined, method: "GET" as const },
       {
-        fn: requestEventHandover,
-        data: { id: 1, coordinatorId: "coord-b", expectedCoordinatorId: "coord-a" },
+        fn: assignEventRequest,
+        data: { id: 1, coordinatorId: "coord-b", expectedCoordinatorId: null },
         method: "POST" as const,
       },
-      { fn: acceptEventHandover, data: { id: 1 }, method: "POST" as const },
-      { fn: declineEventHandover, data: { id: 1 }, method: "POST" as const },
     ];
     it("requires a session for every coordination endpoint", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
-      for (const endpoint of endpoints) {
+      for (const endpoint of [...coordinatorEndpoints, ...leadEndpoints]) {
         expect(await refusalFrom(endpoint.fn, endpoint.data, endpoint.method)).toMatchObject({
           status: 401,
         });
       }
     });
-    it.each([
-      "attendee",
-      "event_organiser",
-      "venue_staff",
-      "technical_support_staff",
-      "event_coordinator_lead",
-    ])("refuses %s even before payload validation", async role => {
-      signIn(role);
-      for (const endpoint of endpoints) {
-        expect(await refusalFrom(endpoint.fn, {}, endpoint.method)).toMatchObject({
-          status: 403,
-        });
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s even before payload validation",
+      async role => {
+        signIn(role);
+        for (const endpoint of [...coordinatorEndpoints, ...leadEndpoints]) {
+          expect(await refusalFrom(endpoint.fn, {}, endpoint.method)).toMatchObject({
+            status: 403,
+          });
+        }
+      }
+    );
+    it("refuses the Lead the coordination actions and the Coordinator the Lead's assignment", async () => {
+      signIn("event_coordinator_lead");
+      for (const endpoint of coordinatorEndpoints) {
+        expect(await refusalFrom(endpoint.fn, {}, endpoint.method)).toMatchObject({ status: 403 });
+      }
+
+      signIn("event_coordinator");
+      for (const endpoint of leadEndpoints) {
+        expect(await refusalFrom(endpoint.fn, {}, endpoint.method)).toMatchObject({ status: 403 });
       }
     });
-    it("permits a Coordinator through every boundary", async () => {
+    it("permits a Coordinator through its boundaries and a Lead through the assignment", async () => {
       signIn("event_coordinator");
-      for (const endpoint of endpoints) {
+      for (const endpoint of coordinatorEndpoints) {
+        expect((await call(endpoint.fn, endpoint.data, endpoint.method)).error).toBeUndefined();
+      }
+
+      signIn("event_coordinator_lead");
+      for (const endpoint of leadEndpoints) {
         expect((await call(endpoint.fn, endpoint.data, endpoint.method)).error).toBeUndefined();
       }
     });
@@ -1760,13 +1770,6 @@ describe("server-function authorization (PTR-69)", () => {
           "GET"
         )
       ).toBe(AVAILABILITY_ORDER_MESSAGE);
-      expect(
-        await messageFrom(requestEventHandover, {
-          id: 1,
-          coordinatorId: "   ",
-          expectedCoordinatorId: null,
-        })
-      ).toBe("Choose an Event Coordinator");
       expect(await messageFrom(getCoordinationRequest, { id: 0 }, "GET")).toBe(
         EVENT_REQUEST_ID_MESSAGE
       );
@@ -1792,6 +1795,22 @@ describe("server-function authorization (PTR-69)", () => {
       expect(await messageFrom(removeVipRegistration, { id: 1, attendeeId: "a\u0000b" })).toBe(
         "Choose an Attendee"
       );
+
+      signIn("event_coordinator_lead");
+      expect(
+        await messageFrom(
+          assignEventRequest,
+          { id: 0, coordinatorId: "coord-b", expectedCoordinatorId: null },
+          "POST"
+        )
+      ).toBe(EVENT_REQUEST_ID_MESSAGE);
+      expect(
+        await messageFrom(assignEventRequest, {
+          id: 1,
+          coordinatorId: "   ",
+          expectedCoordinatorId: null,
+        })
+      ).toBe("Choose an Event Coordinator");
 
       signIn("technical_support_staff");
       expect(await messageFrom(reserveEquipment, { equipmentRequestId: "", quantity: 1 })).toBe(

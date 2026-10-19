@@ -6,6 +6,7 @@ import { ChangeRequestApplyProvider } from "#/features/coordination/components/c
 import {
   coordinatorClosingSections,
   coordinatorSections,
+  leadAssignmentSections,
 } from "#/features/coordination/components/coordinator-sections";
 import { equipmentSections } from "#/features/equipment-requests/components/equipment-sections";
 import { organiserRequestSections } from "#/features/event-requests/components/organiser-request-sections";
@@ -29,17 +30,21 @@ import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 /** Map the sections for one event access, in display order. */
 export function eventSections(data: EventPageData): EventSectionDef[] {
   if (data.kind === "triage") {
-    return [...coordinatorSections(data), ...venueSections(data)].filter(section =>
-      section.visible(data)
-    );
+    return [
+      ...coordinatorSections(data),
+      ...leadAssignmentSections(data),
+      ...venueSections(data),
+    ].filter(section => section.visible(data));
   }
   switch (data.event.access) {
     case "attendee":
       return [];
     case "lead":
-      // PTR-144: the Lead reads the record and holds no coordination verb, so the read-only
-      // information sections are the whole page.
-      return eventInformationSections(data).filter(section => section.visible(data));
+      // PTR-144: the Lead reads the record. PTR-145 adds the assignment form; the rest of the
+      // page stays read-only.
+      return [...leadAssignmentSections(data), ...eventInformationSections(data)].filter(section =>
+        section.visible(data)
+      );
     case "organiser":
       return [
         ...venueSections(data),
@@ -76,15 +81,15 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
 
 /**
  * Place compact actions on the sticky rail instead of the main stack. These are the Coordinator's
- * assignment, cancellation, confirm, and complete, plus Venue Staff's record-a-decision. Every
- * other section is a record, a wide table, or a heavy form. Those need the main column.
+ * cancellation, confirm, and complete, plus Venue Staff's record-a-decision. Every other section
+ * is a record, a wide table, or a heavy form. Those need the main column.
  */
 export function railSectionIds(data: EventPageData): Set<string> {
-  // PTR-144: the Lead's unassigned detail is read-only, so it has no rail action.
+  // PTR-144: the Lead's detail has no rail action; the assignment form sits in the main column.
   if (data.kind === "triage") return new Set();
   switch (data.event.access) {
     case "coordinator":
-      return new Set(["assignment", "cancellation", "confirm", "complete"]);
+      return new Set(["cancellation", "confirm", "complete"]);
     case "venue_staff":
       return new Set(["decision"]);
     default:

@@ -15,8 +15,10 @@ export const requireEventRequestCreate = requirePermission({ event_request: ["cr
 export const requireEventRequestCoordinate = requirePermission({
   event_request: ["coordinate"],
 });
-/** PTR-144: the Event Coordinator Lead's read-only functions — the queue and every event. */
+/** PTR-144: the Event Coordinator Lead's read — the queue and every event. */
 export const requireEventRequestOversee = requirePermission({ event_request: ["oversee"] });
+/** PTR-145: the Lead's assignment and reassignment verb. No other role holds it. */
+export const requireEventRequestAssign = requirePermission({ event_request: ["assign"] });
 
 /** A saved draft as the client sees it. Derive it here, so no route imports the server module. */
 export type EventRequestDraft = Awaited<ReturnType<typeof saveEventRequestDraft>>;

@@ -1,7 +1,7 @@
-import { and, count, desc, eq, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventHandovers, eventRequests, notifications, venueRequests } from "#/db/schema";
+import { eventRequests, notifications, venueRequests } from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { connectedEventCondition } from "#/features/events/records.server";
 import {
@@ -38,11 +38,10 @@ interface NotificationListItem {
 
 /**
  * The signed-in user's notifications, newest first (AC1), scoped to their recipient id (AC3).
- * Reachability comes from the same SQL relationship rule the event pages use (PTR-8), with one
- * special case: a `handover_requested` row is reachable while a live handover still names the
- * caller, because the incoming Coordinator is not yet assigned and the event does not connect
- * them yet. The reachability reads are scoped to the page's own event ids, so they never sweep
- * the caller's whole event set.
+ * Reachability comes from the same SQL relationship rule the event pages use (PTR-8). Two kinds
+ * carry their own right of access, and `notificationReachable` states that rule (PTR-145 retires
+ * the handover, whose record stays readable). The reachability reads are scoped to the page's own
+ * event ids, so they never sweep the caller's whole event set.
  */
 export async function handleListNotifications(
   actor: SessionUser,
@@ -81,7 +80,6 @@ export async function handleListNotifications(
           .select({ id: eventRequests.id })
           .from(eventRequests)
           .where(and(condition, inArray(eventRequests.id, eventIds)));
-  const handoverRows = await liveHandoverEventIds(actor.id, eventIds, database);
   const venueRequestStatusRows =
     venueRequestIds.length === 0
       ? []
@@ -90,7 +88,6 @@ export async function handleListNotifications(
           .from(venueRequests)
           .where(inArray(venueRequests.id, venueRequestIds));
   const accessibleEventIds = new Set(accessibleRows.map(row => row.id));
-  const pendingHandoverEventIds = new Set(handoverRows);
   const venueRequestStatuses = new Map(venueRequestStatusRows.map(row => [row.id, row.status]));
 
   return rows.map(row => {
@@ -108,16 +105,14 @@ export async function handleListNotifications(
       return item(null, null);
     }
 
-    const handoverPending = pendingHandoverEventIds.has(row.eventRequestId);
-    const reachable = notificationReachable(parsed.kind, {
+    const reachable = notificationReachable(parsed, {
       eventAccessible: accessibleEventIds.has(row.eventRequestId),
-      handoverPending,
     });
     if (!reachable) {
       return item(null, null);
     }
 
-    const facts: NotificationHrefFacts = { handoverPending };
+    const facts: NotificationHrefFacts = {};
     if (parsed.kind === "venue_booking_requested") {
       facts.venueRequestStatus = venueRequestStatuses.get(parsed.payload.venueRequestId) ?? null;
     }
@@ -181,31 +176,4 @@ export async function handleMarkNotificationsRead(
     .update(notifications)
     .set({ readAt: sql`now()` })
     .where(and(eq(notifications.recipientId, actor.id), isNull(notifications.readAt), target));
-}
-
-/**
- * The live handover offers addressed to this Coordinator, mirroring `handleListPendingEventHandovers`:
- * an offer only reaches its recipient while the event still belongs to the Coordinator who made
- * it and the request is not decided. A later assignment can void an offer, so the predicate — not
- * the row alone — is what keeps a stale offer from leaking.
- */
-async function liveHandoverEventIds(
-  userId: string,
-  eventIds: readonly number[],
-  database: Pick<Database, "select">
-): Promise<number[]> {
-  const rows = await database
-    .select({ eventRequestId: eventHandovers.eventRequestId })
-    .from(eventHandovers)
-    .innerJoin(eventRequests, eq(eventRequests.id, eventHandovers.eventRequestId))
-    .where(
-      and(
-        isNull(eventHandovers.decision),
-        eq(eventHandovers.toCoordinatorId, userId),
-        inArray(eventHandovers.eventRequestId, [...eventIds]),
-        eq(eventRequests.assignedCoordinatorId, eventHandovers.fromCoordinatorId),
-        notInArray(eventRequests.status, ["approved", "rejected"])
-      )
-    );
-  return rows.map(row => row.eventRequestId);
 }

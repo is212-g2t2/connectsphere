@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_authenticated/events/$eventId/")({
     }
     // A refusal or missing event returns `null`, then the route returns 404.
     // The response does not reveal whether the event is hidden, belongs to someone else, or does not exist.
-    const data = await loadEventPageData(parsed.data, context.user.role, context.user.id);
+    const data = await loadEventPageData(parsed.data, context.user.role);
     if (!data) {
       throw notFound();
     }

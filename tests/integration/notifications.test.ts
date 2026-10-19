@@ -269,15 +269,7 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
       expect(serialized).not.toContain("confirmation");
     });
 
-    it("keeps a live handover offer visible before the recipient is assigned, and hides a stale one", async () => {
-      const [handover] = await database
-        .insert(schema.eventHandovers)
-        .values({
-          eventRequestId: eventId,
-          fromCoordinatorId: users.coordinator.id,
-          toCoordinatorId: users.otherCoordinator.id,
-        })
-        .returning();
+    it("keeps a retired handover record readable and points it at the event (PTR-145 AC5)", async () => {
       await raise(
         session("otherCoordinator").id,
         "handover_requested",
@@ -285,30 +277,11 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
         eventId
       );
 
-      const live = await handleListNotifications(session("otherCoordinator"), database);
-      expect(live[0]).toMatchObject({
+      const items = await handleListNotifications(session("otherCoordinator"), database);
+      expect(items[0]).toMatchObject({
         summary: "Handover requested: Notification Gala",
-        href: "/coordination",
+        href: `/events/${eventId}`,
       });
-
-      // A direct reassignment vacates the offer with no answer. The event leaves the offering
-      // Coordinator, so the notification hides the event.
-      await database
-        .update(schema.eventRequests)
-        .set({ assignedCoordinatorId: null })
-        .where(eq(schema.eventRequests.id, eventId));
-      try {
-        const stale = await handleListNotifications(session("otherCoordinator"), database);
-        expect(stale[0]).toMatchObject({ summary: null, href: null });
-      } finally {
-        await database
-          .update(schema.eventRequests)
-          .set({ assignedCoordinatorId: users.coordinator.id })
-          .where(eq(schema.eventRequests.id, eventId));
-        await database
-          .delete(schema.eventHandovers)
-          .where(eq(schema.eventHandovers.id, handover.id));
-      }
     });
 
     it("shows a Lead the submission notice with a coordination link while the event waits unassigned", async () => {

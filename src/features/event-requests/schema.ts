@@ -426,6 +426,24 @@ export function isReviewStatus(status: EventRequestStatus): boolean {
   return EVENT_REQUEST_REVIEW_STATUSES.some(reviewStatus => reviewStatus === status);
 }
 
+/**
+ * PTR-145: a Lead assigns or reassigns from submission through confirmation. A draft has no
+ * Coordinator, and a rejected, completed or cancelled request is closed. Keep this list in one
+ * home, so the server refusal and the assignment form cannot disagree.
+ */
+const ASSIGNABLE_EVENT_REQUEST_STATUSES = [
+  "submitted",
+  "under_review",
+  "awaiting_organiser",
+  "approved",
+  "planning",
+  "confirmed",
+] as const satisfies readonly EventRequestStatus[];
+
+export function canAssignEventRequest(status: EventRequestStatus): boolean {
+  return ASSIGNABLE_EVENT_REQUEST_STATUSES.some(assignable => assignable === status);
+}
+
 export const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.";
 
 // ── Processing a change request (PTR-52) ────────────────────────────────────

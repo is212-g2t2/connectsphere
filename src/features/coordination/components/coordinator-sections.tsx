@@ -37,9 +37,9 @@ import {
   parseDecisionInput,
 } from "#/features/coordination/schema";
 import {
+  assignEventRequest,
   decideEventRequest,
   raiseClarificationRequest,
-  requestEventHandover,
   takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
@@ -48,12 +48,12 @@ import {
   ChangeRequestHistory,
   ClarificationThread,
 } from "#/features/event-requests/components/request-message-blocks";
-import { formatInstant, formatProposedWindow } from "#/features/event-requests/format";
+import { formatProposedWindow } from "#/features/event-requests/format";
 import {
   CLARIFICATION_FIELDS,
   CLARIFICATION_TEXT_MAX,
   ClarificationFormSchema,
-  EVENT_REQUEST_REVIEW_STATUSES,
+  canAssignEventRequest,
   canRequestEventCancellation,
   canUpdateEventInformation,
   isReviewStatus,
@@ -66,14 +66,6 @@ import type { EventPageData, EventSectionDef } from "#/features/events/page-data
 import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import { skipRootFilter } from "#/lib/invalidate";
-
-/** The stages with live coordination work: review onward, short of closed. */
-const ACTIVE_STATUSES: readonly EventRequestStatus[] = [
-  ...EVENT_REQUEST_REVIEW_STATUSES,
-  "approved",
-  "planning",
-  "confirmed",
-];
 
 /** A cancellation request with no outcome recorded is still waiting on the Coordinator. */
 function hasPendingCancellation(data: EventPageData): boolean {
@@ -113,22 +105,17 @@ function coordinationRequest(data: EventPageData): CoordinationRequest | null {
   return data.coordination?.request ?? null;
 }
 
-function coordinationTeam(data: EventPageData): Coordinator[] | null {
-  // The unassigned detail (triage, PTR-144) holds no assignment form, so it carries no team.
-  if (data.kind === "triage") return null;
-  return data.coordination?.coordinators ?? null;
-}
-
 /** The viewer holds this request exactly when the page is the assigned (event) kind. */
 function isAssignedView(data: EventPageData, request: CoordinationRequest): boolean {
   return data.kind === "event" && request.assignedCoordinatorId !== null;
 }
 
 /**
- * The Coordinator's review flow: the request record, the decision, the clarification thread,
- * change requests, the assignment, and a waiting cancellation request. The unassigned detail
- * (triage) renders the record alone: every action needs an assignee, so those sections stay on
- * the assigned event view (PTR-144).
+ * The Coordinator's review flow: the request record, the decision, the clarification thread, the
+ * change requests, and a waiting cancellation request. The unassigned detail (triage) renders the
+ * record alone: every action needs an assignee, so those sections stay on the assigned event
+ * view (PTR-144). PTR-145 retires the handover, so the Coordinator gets no transfer action.
+ * `leadAssignmentSections` carries the Lead's assign and reassign form instead.
  *
  * Gating contract: SectionStack shows only sections whose `visible()` passes, while each body
  * still null-checks its own empty state — tests render bodies directly and bypass `visible()`.
@@ -166,14 +153,6 @@ export function coordinatorSections(data: EventPageData): EventSectionDef[] {
       // PTR-144: the Lead reads the history too; the decisions stay on the assigned view.
       visible: inner => hasChangeHistory(inner),
       render: inner => <ChangesBody data={inner} />,
-    },
-    {
-      id: "assignment",
-      label: "Assignment and handover",
-      // PTR-144: the handover belongs to the assigned view. The unassigned detail is read-only:
-      // moving an unassigned request is the Lead's action in PTR-145.
-      visible: () => assignedView && ACTIVE_STATUSES.some(candidate => candidate === status),
-      render: inner => <AssignmentBody data={inner} />,
     },
     {
       id: "cancellation",
@@ -673,218 +652,169 @@ function ChangesBody({ data }: { data: EventPageData }) {
 }
 
 /**
- * The handover, as the assigned Coordinator's page shows it. The viewer identity rides
- * `EventPageData` from the loader for the "— you" label. A mutation refreshes the loader in
- * place, so the waiting offer appears on its own. PTR-144: the unassigned queue is the Lead's,
- * and moving an unassigned request is PTR-145, so no claim action renders here.
+ * PTR-145: the Lead's assignment form. It renders on the unassigned queue detail and on an
+ * assigned event, and it offers every Event Coordinator, unfiltered and unranked (criterion 6).
+ * A move takes effect at once, and the server refuses a stale observation (criterion 8).
  */
-function AssignmentBody({ data }: { data: EventPageData }) {
-  const request = coordinationRequest(data);
-  const coordinators = coordinationTeam(data);
-  const router = useRouter();
-  if (!request || !coordinators) return null;
-
-  return (
-    <div>
-      <h2 className="display-h3">Assignment and handover</h2>
-      <div className="mt-4 space-y-4">
-        <AssignmentSummary request={request} />
-        <AssignmentForm
-          request={request}
-          coordinators={coordinators}
-          viewerId={data.viewerId}
-          onAssigned={async () => {
-            await router.invalidate({ filter: skipRootFilter });
-          }}
-        />
-      </div>
-    </div>
-  );
+export function leadAssignmentSections(data: EventPageData): EventSectionDef[] {
+  // Only the queue detail and the Lead's event page carry the assignment read.
+  const request =
+    data.kind === "triage"
+      ? data.request
+      : data.event.access === "lead"
+        ? (data.coordination?.request ?? null)
+        : null;
+  const coordinators =
+    data.kind === "triage" ? data.coordinators : (data.coordination?.coordinators ?? []);
+  if (!request) return [];
+  return [
+    {
+      id: "assignment",
+      label: "Assign Coordinator",
+      visible: () => canAssignEventRequest(request.status),
+      render: () => <LeadAssignmentBody request={request} coordinators={coordinators} />,
+    },
+  ];
 }
 
 /**
- * Who holds this request, beside the form that moves it: the Organiser, the current
- * Coordinator, and when it was offered on. The form below carries only the move itself.
+ * The Lead's one assignment action, as the queue detail and an assigned event show it. The
+ * current holder rides the summary above the form so a reassignment states what it replaces.
  */
-function AssignmentSummary({ request }: { request: CoordinationRequest }) {
-  const pendingHandover = request.pendingHandover;
-  return (
-    <Card>
-      <CardContent>
-        <dl className="grid gap-4">
-          <Record
-            label="Organiser"
-            value={
-              <>
-                {request.organiser.name}
-                <br />
-                <a href={`mailto:${request.organiser.email}`} className={NAV_LINK_CLASSNAME}>
-                  {request.organiser.email}
-                </a>
-              </>
-            }
-          />
-          <Record
-            label="Coordinator"
-            value={
-              request.coordinator ? (
-                <>
-                  {request.coordinator.name}
-                  <br />
-                  <a href={`mailto:${request.coordinator.email}`} className={NAV_LINK_CLASSNAME}>
-                    {request.coordinator.email}
-                  </a>
-                </>
-              ) : (
-                <span className="text-muted-foreground">Assigned coordinator unavailable</span>
-              )
-            }
-          />
-          {pendingHandover ? (
-            <Record
-              label="Handover offer"
-              value={`Offered to ${pendingHandover.toName} on ${formatInstant(
-                pendingHandover.requestedAt
-              )}. You remain the assigned Coordinator until they accept; offering it to someone else replaces this offer.`}
-            />
-          ) : request.assignedAt ? (
-            <Record
-              label="Assigned"
-              value={`Assigned on ${formatInstant(request.assignedAt)}. The request stays yours until the incoming Coordinator accepts; a declined handover leaves it with you.`}
-            />
-          ) : null}
-        </dl>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AssignmentForm({
+function LeadAssignmentBody({
   request,
   coordinators,
-  viewerId,
-  onAssigned,
 }: {
   request: CoordinationRequest;
   coordinators: Coordinator[];
-  viewerId: string | null;
-  onAssigned: () => Promise<void>;
 }) {
-  // PTR-110: an assigned request is offered, not moved. The outgoing Coordinator keeps the
-  // request and its access until the incoming one accepts, so the page stays and re-reads itself
-  // to show the waiting offer.
-  const [handover, requestHandover, requestingHandover] = useMutation(
-    async (incomingId: string) => {
-      await requestEventHandover({
-        data: {
-          id: request.id,
-          coordinatorId: incomingId,
-          expectedCoordinatorId: request.assignedCoordinatorId,
-        },
-      });
-      toast.success("Handover requested.");
-      try {
-        await onAssigned();
-      } catch {
-        // The offer already recorded; a missed refresh must not mask it as an error.
-      }
-    },
-    "Could not request this handover. Try again."
-  );
+  const router = useRouter();
+  const reassigning = request.assignedCoordinatorId !== null;
+  const [result, assign, assigning] = useMutation(async (coordinatorId: string) => {
+    await assignEventRequest({
+      data: {
+        id: request.id,
+        coordinatorId,
+        expectedCoordinatorId: request.assignedCoordinatorId,
+      },
+    });
+    toast.success(reassigning ? "Coordinator reassigned." : "Coordinator assigned.");
+    try {
+      await router.invalidate({ filter: skipRootFilter });
+    } catch {
+      // The move already committed; a missed refresh must not mask it as an error.
+    }
+  }, "Could not assign this Coordinator. Try again.");
 
   const form = useForm({
     defaultValues: { coordinatorId: "" },
     validators: { onSubmit: CoordinatorSelection },
     onSubmit: async ({ value, formApi }) => {
-      const result = await requestHandover(value.coordinatorId);
-      // Clear the selection only once the offer is recorded: an offer already waits on that
-      // Coordinator, and re-submitting the same choice would replace it and email them again.
-      if (result.status === "success") formApi.reset();
+      const outcome = await assign(value.coordinatorId);
+      if (outcome.status === "success") {
+        // Clear the selection only once the move is recorded.
+        formApi.reset();
+        return;
+      }
+      // A refusal is usually a stale page. Re-read, so the form carries the current holder and
+      // its expected Coordinator rather than resubmitting a value the server already refused.
+      try {
+        await router.invalidate({ filter: skipRootFilter });
+      } catch {
+        // The refusal still stands; a missed refresh must not mask it.
+      }
     },
   });
 
-  const availableCoordinators = coordinators.filter(
-    coordinator => coordinator.id !== request.assignedCoordinatorId
-  );
-
-  const pendingHandover = request.pendingHandover;
-
-  // One label per state, in precedence order, so the submit button's truth table is readable.
-  let submitLabel = "Hand over";
-  if (requestingHandover) submitLabel = "Requesting…";
-  else if (pendingHandover) submitLabel = "Offer to someone else";
-
   return (
-    <section aria-labelledby="assignment-heading">
-      <Card className="max-w-md">
+    <div>
+      <h2 className="display-h3">Assign a Coordinator</h2>
+      <Card className="mt-4 max-w-md">
         <CardContent>
-          <div>
-            <h3 id="assignment-heading" className="display-h3">
-              Hand over this request
-            </h3>
-            <form
-              noValidate
-              className="mt-4 space-y-3"
-              onSubmit={event => {
-                event.preventDefault();
-                if (requestingHandover) return;
-                void form.handleSubmit();
-              }}
-            >
-              <form.Field name="coordinatorId">
-                {field => (
-                  <Field data-invalid={field.state.meta.errors.length > 0}>
-                    <FieldLabel htmlFor={field.name}>Event Coordinator</FieldLabel>
-                    <Select
-                      value={field.state.value === "" ? null : field.state.value}
-                      onValueChange={value => field.handleChange(value ?? "")}
-                      disabled={requestingHandover}
-                      required
+          <dl className="grid gap-4">
+            <Record
+              label="Current Coordinator"
+              value={
+                request.coordinator ? (
+                  <>
+                    {request.coordinator.name}
+                    <br />
+                    <a href={`mailto:${request.coordinator.email}`} className={NAV_LINK_CLASSNAME}>
+                      {request.coordinator.email}
+                    </a>
+                  </>
+                ) : request.assignedCoordinatorId ? (
+                  <span className="text-muted-foreground">Assigned coordinator unavailable</span>
+                ) : (
+                  <span className="text-muted-foreground">Not yet assigned</span>
+                )
+              }
+            />
+          </dl>
+          <form
+            noValidate
+            className="mt-4 space-y-3"
+            onSubmit={event => {
+              event.preventDefault();
+              if (assigning) return;
+              void form.handleSubmit();
+            }}
+          >
+            <form.Field name="coordinatorId">
+              {field => (
+                <Field data-invalid={field.state.meta.errors.length > 0}>
+                  <FieldLabel htmlFor="lead-assignment-coordinator">Event Coordinator</FieldLabel>
+                  <Select
+                    value={field.state.value === "" ? null : field.state.value}
+                    onValueChange={value => field.handleChange(value ?? "")}
+                    disabled={assigning}
+                    required
+                  >
+                    <SelectTrigger
+                      id="lead-assignment-coordinator"
+                      className="w-full"
+                      aria-invalid={field.state.meta.errors.length > 0}
+                      onBlur={field.handleBlur}
                     >
-                      <SelectTrigger
-                        id={field.name}
-                        className="w-full"
-                        aria-invalid={field.state.meta.errors.length > 0}
-                        onBlur={field.handleBlur}
-                      >
-                        <SelectValue>
-                          {(value: string | null) => {
-                            const selected = availableCoordinators.find(
-                              coordinator => coordinator.id === value
-                            );
-                            return selected
-                              ? coordinatorLabel(selected, viewerId)
-                              : "Choose an Event Coordinator";
-                          }}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableCoordinators.map(coordinator => (
-                          <SelectItem key={coordinator.id} value={coordinator.id}>
-                            {coordinatorLabel(coordinator, viewerId)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FieldError errors={field.state.meta.errors} />
-                  </Field>
-                )}
-              </form.Field>
-              <div className="flex flex-wrap gap-3">
-                <Button type="submit" disabled={requestingHandover}>
-                  {submitLabel}
-                </Button>
-              </div>
-            </form>
-            {handover.status === "error" && (
-              <p role="alert" className="mt-4 body-sm text-destructive">
-                {handover.error}
-              </p>
-            )}
-          </div>
+                      <SelectValue>
+                        {(value: string | null) => {
+                          const selected = coordinators.find(
+                            coordinator => coordinator.id === value
+                          );
+                          return selected
+                            ? `${selected.name} (${selected.email})`
+                            : "Choose an Event Coordinator";
+                        }}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {coordinators.map(coordinator => (
+                        <SelectItem key={coordinator.id} value={coordinator.id}>
+                          {coordinator.name} ({coordinator.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FieldError errors={field.state.meta.errors} />
+                </Field>
+              )}
+            </form.Field>
+            <Button type="submit" disabled={assigning}>
+              {assigning
+                ? "Assigning…"
+                : reassigning
+                  ? "Reassign Coordinator"
+                  : "Assign Coordinator"}
+            </Button>
+          </form>
+          {result.status === "error" && (
+            <p role="alert" className="mt-4 body-sm text-destructive">
+              {result.error}
+            </p>
+          )}
         </CardContent>
       </Card>
-    </section>
+    </div>
   );
 }
 
@@ -949,8 +879,4 @@ function ReleasesBody({ data }: { data: EventPageData }) {
   const request = coordinationRequest(data);
   if (!request?.outstandingReleases) return null;
   return <OutstandingReleasesList releases={request.outstandingReleases} />;
-}
-
-function coordinatorLabel(coordinator: Coordinator, viewerId: string | null) {
-  return `${coordinator.name} (${coordinator.email})${coordinator.id === viewerId ? " — you" : ""}`;
 }

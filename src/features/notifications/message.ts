@@ -61,6 +61,8 @@ export const NOTIFICATION_KINDS = [
   "venue_hold_expiring",
   /** PTR-143 AC1, AC2: the sweep expired a held hold and freed its venue time. */
   "venue_hold_expired",
+  /** PTR-145: a Lead assigned or reassigned the event's Coordinator. */
+  "coordinator_assigned",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -415,6 +417,17 @@ const payloadSchemas = {
   venue_hold_expiring: VenueHoldNoticeSchema,
   /** PTR-143 AC1, AC2: the sweep expired the hold. Its venue time is free again. */
   venue_hold_expired: VenueHoldNoticeSchema,
+  /**
+   * PTR-145: a Lead assigned or reassigned the event's Coordinator. The incoming Coordinator and
+   * the Organiser receive the move; the outgoing Coordinator receives a reassignment too.
+   */
+  coordinator_assigned: z.object({
+    eventName: nonEmpty,
+    action: z.enum(["assign", "reassign"]),
+    coordinatorName: nonEmpty,
+    previousCoordinatorName: nonEmpty.optional(),
+    audience: z.enum(["coordinator", "outgoing_coordinator", "organiser"]),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -555,6 +568,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("venue_hold_expired"),
     payload: payloadSchemas.venue_hold_expired,
   }),
+  z.object({
+    kind: z.literal("coordinator_assigned"),
+    payload: payloadSchemas.coordinator_assigned,
+  }),
 ]);
 
 /**
@@ -662,6 +679,16 @@ export function notificationSummary(notification: NotificationPayload): string {
       return `Tentative hold expires soon: ${notification.payload.venueName}`;
     case "venue_hold_expired":
       return `Tentative hold expired: ${notification.payload.venueName}`;
+    case "coordinator_assigned": {
+      const { action, eventName, audience } = notification.payload;
+      if (audience === "outgoing_coordinator") return `Event reassigned: ${eventName}`;
+      if (audience === "organiser") {
+        return action === "assign"
+          ? `Event Coordinator assigned: ${eventName}`
+          : `Event Coordinator changed: ${eventName}`;
+      }
+      return `Event assigned to you: ${eventName}`;
+    }
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -672,8 +699,6 @@ export function notificationSummary(notification: NotificationPayload): string {
 export interface NotificationHrefFacts {
   /** Current status of the venue request a `venue_booking_requested` row concerns. */
   venueRequestStatus?: string | null;
-  /** Whether a live handover still names the recipient (checked for `handover_requested`). */
-  handoverPending?: boolean;
 }
 
 /**
@@ -713,19 +738,22 @@ export function notificationHref(
       return notification.payload.audience === "lead"
         ? "/coordination"
         : `/events/${eventRequestId}`;
-    case "handover_declined":
-    case "handover_requested":
-      // While the offer is live the event page refuses the not-yet-assigned Coordinator, so the
-      // notification points at the coordination dashboard where accept/decline sits.
-      return facts.handoverPending ? "/coordination" : `/events/${eventRequestId}`;
     case "clarification_requested":
     case "handover_accepted":
+    case "handover_declined":
+    case "handover_requested":
     case "event_decided":
     case "event_confirmed":
     case "safety_review_decided":
       // PTR-146: the assigned Coordinator opens the event page, and so does a Lead, who reaches
-      // every non-draft event (PTR-144).
+      // every non-draft event (PTR-144). PTR-145: a retired handover record points at the event.
       return `/events/${eventRequestId}`;
+    case "coordinator_assigned":
+      // The outgoing Coordinator no longer reaches the event, so their copy carries no link; the
+      // incoming Coordinator and the Organiser open it.
+      return notification.payload.audience === "outgoing_coordinator"
+        ? null
+        : `/events/${eventRequestId}`;
     case "equipment_requested":
       return `/events/${eventRequestId}`;
     case "event_registered":
@@ -814,23 +842,32 @@ export function notificationHref(
 export interface NotificationAccessFacts {
   /** Whether the notification's event is still reachable through the caller's relationships. */
   eventAccessible: boolean;
-  /** Whether a live handover on the event still names the caller. */
-  handoverPending: boolean;
 }
 
 /**
  * PTR-55 criteria 1 and 5: a notification stays listed when its subject is still reachable, and
- * is neutralised when it is not. `handover_requested` reaches a Coordinator the event does not
- * connect yet, so the live offer is its own right of access. Every other kind rides the caller's
- * event relationship; the enumerated arms make a new kind state its rule rather than inherit one.
+ * is neutralised when it is not. The retired handover record and the outgoing Coordinator's own
+ * removal notice are the exceptions: each is the recipient's own history, so it stays readable
+ * when the event does not connect them (PTR-145 AC5). Every other kind rides the caller's event
+ * relationship; the enumerated arms make a new kind state its rule rather than inherit one.
  */
 export function notificationReachable(
-  kind: NotificationKind,
+  notification: NotificationPayload,
   facts: NotificationAccessFacts
 ): boolean {
-  switch (kind) {
+  switch (notification.kind) {
     case "handover_requested":
-      return facts.eventAccessible || facts.handoverPending;
+    case "handover_accepted":
+    case "handover_declined":
+      // PTR-145 AC5: a handover record is the recipient's own history and stays readable.
+      return true;
+    case "coordinator_assigned":
+      // The Coordinator parties own their assignment notices; the Organiser reaches the event.
+      return (
+        notification.payload.audience === "outgoing_coordinator" ||
+        notification.payload.audience === "coordinator" ||
+        facts.eventAccessible
+      );
     case "venue_hold_requested":
       // Every Venue Staff member reads the shared queue. The payload names the venue and the
       // period only, which the venue calendar shows to the same staff, so no event relation is
@@ -843,8 +880,6 @@ export function notificationReachable(
     case "clarification_requested":
     case "clarification_replied":
     case "event_change_requested":
-    case "handover_accepted":
-    case "handover_declined":
     case "event_decided":
     case "event_confirmed":
     case "equipment_requested":
@@ -873,7 +908,7 @@ export function notificationReachable(
     case "venue_hold_expired":
       return facts.eventAccessible;
     default: {
-      const unhandled: never = kind;
+      const unhandled: never = notification;
       throw new Error(`No reachability rule for notification kind "${String(unhandled)}"`);
     }
   }

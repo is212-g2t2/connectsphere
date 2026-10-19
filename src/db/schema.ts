@@ -1159,6 +1159,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_hold_expiring",
   /** PTR-143 AC1, AC2: the sweep expired a held hold and freed its venue time. */
   "venue_hold_expired",
+  /** PTR-145: a Lead assigned or reassigned the event's Coordinator. */
+  "coordinator_assigned",
 ]);
 
 export const notifications = pgTable(

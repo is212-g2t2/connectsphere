@@ -19,7 +19,6 @@ vi.mock("sonner", () => ({ toast: { success } }));
 
 const data = {
   kind: "event",
-  viewerId: "safety-1",
   event: {
     access: "safety_officer",
     event: {

@@ -19,18 +19,22 @@ export interface VenueOption {
 /**
  * Gather everything the universal event page needs in the route loader. Include each field beyond
  * `event` only for the access that reads it. The Lead opening an unassigned event gets no
- * projection for it: the loader reads the queue detail instead (PTR-144). The shell and the
+ * projection for it: the loader reads the queue detail instead (PTR-144). PTR-145 gives the Lead
+ * the coordination read on an assigned event too, for the reassignment form. The shell and the
  * section modules then stay client-safe. This module carries types alone.
  */
 export type EventPageData =
   | {
       kind: "event";
       event: EventProjection;
-      viewerId: string;
       organiserRequest?: EventRequestDetail | null;
+      /**
+       * PTR-145: the assignment read. Only the Lead's page fills `coordinators`; the
+       * Coordinator's page carries the request alone.
+       */
       coordination?: {
         request: CoordinationRequest;
-        coordinators: Coordinator[];
+        coordinators?: Coordinator[];
       } | null;
       /**
        * Venue Staff only: the full pending requests that one read loaded, and the venue options
@@ -51,8 +55,9 @@ export type EventPageData =
     }
   | {
       kind: "triage";
-      viewerId: string;
       request: CoordinationRequest;
+      /** PTR-145: every Event Coordinator, the Lead's assignment candidates. */
+      coordinators: Coordinator[];
     };
 
 /** One stacked block of the staff event page with its section entry, gate, and body. */

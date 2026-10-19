@@ -75,24 +75,26 @@ test("answers not found for a junk request id instead of the error boundary", as
   }
 });
 
-test("hands an event over only once the incoming Coordinator accepts", async ({
+test("a Lead assigns an unassigned request at once and notifies the Coordinator and Organiser", async ({
   page,
   browser,
   baseURL,
 }) => {
-  const incomingContext = await browser.newContext({ baseURL });
+  const coordinatorContext = await browser.newContext({ baseURL });
   const organiserContext = await browser.newContext({ baseURL });
-  const incomingPage = await incomingContext.newPage();
+  const coordinatorPage = await coordinatorContext.newPage();
   const organiserPage = await organiserContext.newPage();
   const ids: string[] = [];
   try {
-    const outgoing = await register(page, "event_coordinator", "Outgoing Coordinator");
-    ids.push(outgoing.id);
-    const incoming = await register(incomingPage, "event_coordinator", "Incoming Coordinator");
-    ids.push(incoming.id);
-    const organiser = await register(organiserPage, "event_organiser", "Handover Organiser");
+    const coordinator = await register(
+      coordinatorPage,
+      "event_coordinator",
+      "Assigned Coordinator"
+    );
+    ids.push(coordinator.id);
+    const organiser = await register(organiserPage, "event_organiser", "Assign Organiser");
     ids.push(organiser.id);
-    const eventName = `Handover ${randomUUID()}`;
+    const eventName = `Assign ${randomUUID()}`;
     const [request] = await database
       .insert(schema.eventRequests)
       .values({
@@ -100,43 +102,91 @@ test("hands an event over only once the incoming Coordinator accepts", async ({
         eventName,
         status: "submitted",
         submittedAt: new Date(),
-        assignedCoordinatorId: outgoing.id,
-        assignedAt: new Date(),
         purpose: "Coordinate a workshop",
         expectedAttendance: 25,
       })
       .returning();
 
-    // The current Coordinator offers the event. The request stays assigned to them while the offer waits.
+    // The Lead opens the queue row and assigns the Coordinator.
+    await signInAsStaff(page, "event_coordinator_lead");
     await page.goto("/coordination");
     await page.getByRole("link", { name: eventName }).click();
     await waitForHydration(page);
-    await page.locator("#coordinatorId").click();
-    // The unique email is part of the option label. Match it so another Coordinator with a similar
-    // name cannot be selected.
-    await page.getByRole("option", { name: incoming.email }).click();
-    await page.getByRole("button", { name: "Hand over" }).click();
-    await expect(page.getByText(/You remain the assigned Coordinator/)).toBeVisible();
-    await expect(page.getByText(/Offered to Incoming Coordinator/)).toBeVisible();
-    await page.reload();
-    await expect(page.getByRole("heading", { name: eventName })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Hand over" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Assign a Coordinator" })).toBeVisible();
+    await page.locator("#lead-assignment-coordinator").click();
+    await page.getByRole("option", { name: coordinator.email }).click();
+    await page.getByRole("button", { name: "Assign Coordinator" }).click();
+    await expect(page.getByRole("button", { name: "Reassign Coordinator" })).toBeVisible();
 
-    const [pending] = await database
+    const [stored] = await database
       .select()
       .from(schema.eventRequests)
       .where(eq(schema.eventRequests.id, request.id));
-    expect(pending.assignedCoordinatorId).toBe(outgoing.id);
+    expect(stored.assignedCoordinatorId).toBe(coordinator.id);
 
-    // The incoming Coordinator answers from the coordination page.
-    await incomingPage.goto("/coordination");
-    await waitForHydration(incomingPage);
+    // The move is immediate: the incoming Coordinator reaches the event, and the Organiser sees
+    // the new holder.
+    await coordinatorPage.goto(`/events/${request.id}`);
+    await expect(coordinatorPage.getByRole("heading", { name: eventName })).toBeVisible();
+    await organiserPage.goto(`/events/${request.id}`);
     await expect(
-      incomingPage.getByRole("heading", { name: "Handovers awaiting your response" })
+      organiserPage
+        .getByRole("region", { name: "Requests & messages" })
+        .getByRole("link", { name: coordinator.email })
     ).toBeVisible();
-    const offer = incomingPage.locator("li", { hasText: eventName });
-    await offer.getByRole("button", { name: "Accept handover" }).click();
-    await expect(incomingPage.getByRole("link", { name: eventName })).toBeVisible();
+
+    const assignedEmail = await waitForEmail(
+      coordinator.email,
+      `Event assigned to you: ${eventName}`
+    );
+    expect(assignedEmail).toContain(eventName);
+    const organiserEmail = await waitForEmail(
+      organiser.email,
+      `Event Coordinator assigned: ${eventName}`
+    );
+    expect(organiserEmail).toContain(coordinator.name);
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await coordinatorContext.close();
+    await organiserContext.close();
+  }
+});
+
+test("a Lead reassigns immediately and notifies the outgoing, incoming and Organiser", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const outgoingContext = await browser.newContext({ baseURL });
+  const incomingContext = await browser.newContext({ baseURL });
+  const organiserContext = await browser.newContext({ baseURL });
+  const outgoingPage = await outgoingContext.newPage();
+  const incomingPage = await incomingContext.newPage();
+  const organiserPage = await organiserContext.newPage();
+  const ids: string[] = [];
+  try {
+    const outgoing = await register(outgoingPage, "event_coordinator", "Reassigned Outgoing");
+    ids.push(outgoing.id);
+    const incoming = await register(incomingPage, "event_coordinator", "Reassigned Incoming");
+    ids.push(incoming.id);
+    const organiser = await register(organiserPage, "event_organiser", "Reassign Organiser");
+    ids.push(organiser.id);
+    const request = await seedAssignedRequest(ids, outgoing.id, {
+      eventName: `Reassign ${randomUUID()}`,
+      // Keep the registered Organiser as the owner, so its notification has a recipient to check.
+      organiserId: organiser.id,
+    });
+    const eventName = request.eventName;
+
+    await signInAsStaff(page, "event_coordinator_lead");
+    await page.goto(`/events/${request.id}`);
+    await waitForHydration(page);
+    await expect(page.getByRole("heading", { name: "Assign a Coordinator" })).toBeVisible();
+    await page.locator("#lead-assignment-coordinator").click();
+    await page.getByRole("option", { name: incoming.email }).click();
+    await page.getByRole("button", { name: "Reassign Coordinator" }).click();
+    // The move commits before the page re-reads; the current holder then names the incoming one.
+    await expect(page.getByRole("link", { name: incoming.email })).toBeVisible();
 
     const [stored] = await database
       .select()
@@ -144,84 +194,27 @@ test("hands an event over only once the incoming Coordinator accepts", async ({
       .where(eq(schema.eventRequests.id, request.id));
     expect(stored.assignedCoordinatorId).toBe(incoming.id);
 
-    // Access moves to the new Coordinator. The former Coordinator now gets a 404.
-    await page.goto(`/events/${request.id}`);
-    await expect(page.getByText(/not found/i)).toBeVisible();
+    // Access moves at once, with no acceptance step.
+    await outgoingPage.goto(`/events/${request.id}`);
+    await expect(outgoingPage.getByText(/not found/i)).toBeVisible();
     await incomingPage.goto(`/events/${request.id}`);
     await expect(incomingPage.getByRole("heading", { name: eventName })).toBeVisible();
 
-    // Show the new Coordinator to the Organiser and deliver both notifications. Read the address
-    // from the messages contact card.
-    await organiserPage.goto(`/events/${request.id}`);
-    await expect(
-      organiserPage
-        .getByRole("region", { name: "Requests & messages" })
-        .getByRole("link", { name: incoming.email })
-    ).toBeVisible();
-    const requestEmail = await waitForEmail(incoming.email, `Handover requested: ${eventName}`);
-    expect(requestEmail).toContain(outgoing.name);
-    expect(requestEmail).toContain(eventName);
-    const acceptedEmail = await waitForEmail(
+    const outgoingEmail = await waitForEmail(outgoing.email, `Event reassigned: ${eventName}`);
+    expect(outgoingEmail).toContain(incoming.name);
+    const incomingEmail = await waitForEmail(incoming.email, `Event assigned to you: ${eventName}`);
+    expect(incomingEmail).toContain(eventName);
+    const organiserEmail = await waitForEmail(
       organiser.email,
-      `Your event request has a new Coordinator: ${eventName}`
+      `Event Coordinator changed: ${eventName}`
     );
-    expect(acceptedEmail).toContain(incoming.name);
-    expect(acceptedEmail).toContain(eventName);
+    expect(organiserEmail).toContain(incoming.name);
+    expect(organiserEmail).toContain(outgoing.name);
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
+    await outgoingContext.close();
     await incomingContext.close();
     await organiserContext.close();
-  }
-});
-
-test("declines a handover and leaves the event with the outgoing Coordinator", async ({
-  page,
-  browser,
-  baseURL,
-}) => {
-  const incomingContext = await browser.newContext({ baseURL });
-  const incomingPage = await incomingContext.newPage();
-  const ids: string[] = [];
-  try {
-    const outgoing = await register(page, "event_coordinator", "Decline Outgoing Coordinator");
-    ids.push(outgoing.id);
-    const incoming = await register(
-      incomingPage,
-      "event_coordinator",
-      "Decline Incoming Coordinator"
-    );
-    ids.push(incoming.id);
-    const request = await seedAssignedRequest(ids, outgoing.id, {
-      eventName: `Decline ${randomUUID()}`,
-    });
-    const eventName = request.eventName;
-
-    await page.goto(`/events/${request.id}`);
-    await waitForHydration(page);
-    await page.locator("#coordinatorId").click();
-    await page.getByRole("option", { name: incoming.email }).click();
-    await page.getByRole("button", { name: "Hand over" }).click();
-    await expect(page.getByText(/Offered to Decline Incoming Coordinator/)).toBeVisible();
-
-    await incomingPage.goto("/coordination");
-    await waitForHydration(incomingPage);
-    const offer = incomingPage.locator("li", { hasText: eventName });
-    await offer.getByRole("button", { name: "Decline handover" }).click();
-    await expect(
-      incomingPage.getByRole("heading", { name: "Handovers awaiting your response" })
-    ).toHaveCount(0);
-
-    const [stored] = await database
-      .select()
-      .from(schema.eventRequests)
-      .where(eq(schema.eventRequests.id, request.id));
-    expect(stored.assignedCoordinatorId).toBe(outgoing.id);
-    const declinedEmail = await waitForEmail(outgoing.email, `Handover declined: ${eventName}`);
-    expect(declinedEmail).toContain(incoming.name);
-    expect(declinedEmail).toContain("You remain its Event Coordinator.");
-  } finally {
-    await database.delete(schema.user).where(inArray(schema.user.id, ids));
-    await incomingContext.close();
   }
 });
 
@@ -251,7 +244,8 @@ test("shows the unassigned queue to the Lead and hides it from Coordinators", as
       submittedAt: new Date(),
     });
 
-    // The Lead reads the unassigned queue and opens the read-only detail.
+    // The Lead reads the unassigned queue and opens the detail, where the assignment form is the
+    // only action (PTR-145). No handover or claim action is offered.
     await signInAsStaff(page, "event_coordinator_lead");
     await page.goto("/coordination");
     await expect(
@@ -261,9 +255,9 @@ test("shows the unassigned queue to the Lead and hides it from Coordinators", as
     await waitForHydration(page);
     await expect(page.getByText("unassigned request", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Request details" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Assign this request" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Assign a Coordinator" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Assign Coordinator" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Assign to me" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Assign Coordinator" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Hand over this request" })).toHaveCount(0);
 
     // A Coordinator never sees the unassigned queue: neither the heading nor the row.

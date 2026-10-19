@@ -199,6 +199,12 @@ const validPayloads = {
     endsAt: "2026-10-12 17:00:00",
     expiresAt: "2026-10-10 12:00:00",
   },
+  coordinator_assigned: {
+    eventName: "Gala",
+    action: "assign",
+    coordinatorName: "Bob",
+    audience: "coordinator",
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -309,6 +315,31 @@ describe("notification summaries (PTR-55 AC2)", () => {
     });
     expect(attendee.payload).toMatchObject({ audience: "attendee" });
     expect(notificationHref({ ...attendee, eventRequestId: 7 })).toBe("/events/7");
+  });
+
+  it("tells each party of an assignment in their own words (PTR-145)", () => {
+    const assigned = parse("coordinator_assigned", validPayloads.coordinator_assigned);
+    expect(notificationSummary(assigned)).toBe("Event assigned to you: Gala");
+
+    const reassigned = parse("coordinator_assigned", {
+      eventName: "Gala",
+      action: "reassign",
+      coordinatorName: "Bob",
+      previousCoordinatorName: "Alice",
+      audience: "organiser",
+    });
+    expect(notificationSummary(reassigned)).toBe("Event Coordinator changed: Gala");
+    expect(notificationHref({ ...reassigned, eventRequestId: 7 })).toBe("/events/7");
+
+    const outgoing = parse("coordinator_assigned", {
+      eventName: "Gala",
+      action: "reassign",
+      coordinatorName: "Bob",
+      audience: "outgoing_coordinator",
+    });
+    expect(notificationSummary(outgoing)).toBe("Event reassigned: Gala");
+    // The outgoing Coordinator no longer reaches the event, so their copy carries no dead link.
+    expect(notificationHref({ ...outgoing, eventRequestId: 7 })).toBeNull();
   });
 
   it("names the venue, never the event, on the hold request lines (PTR-150)", () => {
@@ -435,11 +466,8 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     ).toBeNull();
   });
 
-  it("sends the not-yet-assigned Coordinator to the coordination dashboard", () => {
+  it("points a retired handover record at the event (PTR-145 AC5)", () => {
     const handover = parse("handover_requested", { eventName: "Gala", fromName: "Alice" });
-    expect(notificationHref({ ...handover, eventRequestId: 7 }, { handoverPending: true })).toBe(
-      "/coordination"
-    );
     expect(notificationHref({ ...handover, eventRequestId: 7 })).toBe("/events/7");
   });
 
@@ -637,6 +665,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       venue_hold_declined: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       venue_hold_expiring: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       venue_hold_expired: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
+      coordinator_assigned: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {
@@ -653,51 +682,58 @@ describe("notification hrefs (PTR-55 AC4)", () => {
 });
 
 describe("notification reachability (PTR-55 AC5)", () => {
+  const confirmed = parse("event_confirmed", validPayloads.event_confirmed);
+
   it("neutralises rows whose event is out of reach", () => {
-    expect(
-      notificationReachable("event_confirmed", { eventAccessible: false, handoverPending: false })
-    ).toBe(false);
-    expect(
-      notificationReachable("event_confirmed", { eventAccessible: true, handoverPending: false })
-    ).toBe(true);
+    expect(notificationReachable(confirmed, { eventAccessible: false })).toBe(false);
+    expect(notificationReachable(confirmed, { eventAccessible: true })).toBe(true);
   });
 
-  it("keeps a live handover offer visible before the recipient is assigned", () => {
-    expect(
-      notificationReachable("handover_requested", {
-        eventAccessible: false,
-        handoverPending: true,
-      })
-    ).toBe(true);
-    expect(
-      notificationReachable("handover_requested", {
-        eventAccessible: false,
-        handoverPending: false,
-      })
-    ).toBe(false);
+  it("keeps every retired handover record readable without an event relation (PTR-145 AC5)", () => {
+    for (const kind of ["handover_requested", "handover_accepted", "handover_declined"] as const) {
+      expect(
+        notificationReachable(parse(kind, validPayloads[kind]), { eventAccessible: false })
+      ).toBe(true);
+    }
+  });
+
+  it("keeps the Coordinator parties' assignment notices readable (PTR-145 AC1, AC2)", () => {
+    const outgoing = parse("coordinator_assigned", {
+      eventName: "Gala",
+      action: "reassign",
+      coordinatorName: "Bob",
+      audience: "outgoing_coordinator",
+    });
+    expect(notificationReachable(outgoing, { eventAccessible: false })).toBe(true);
+
+    const incoming = parse("coordinator_assigned", validPayloads.coordinator_assigned);
+    expect(notificationReachable(incoming, { eventAccessible: false })).toBe(true);
+    expect(notificationReachable(incoming, { eventAccessible: true })).toBe(true);
+
+    // The Organiser always reaches the event; that relationship is the rule.
+    const organiser = parse("coordinator_assigned", {
+      eventName: "Gala",
+      action: "assign",
+      coordinatorName: "Bob",
+      audience: "organiser",
+    });
+    expect(notificationReachable(organiser, { eventAccessible: false })).toBe(false);
+    expect(notificationReachable(organiser, { eventAccessible: true })).toBe(true);
   });
 
   it("keeps a hold request visible to Venue Staff without an event relation (PTR-150)", () => {
     // The shared queue reaches every Venue Staff member. The payload names no event.
-    expect(
-      notificationReachable("venue_hold_requested", {
-        eventAccessible: false,
-        handoverPending: false,
-      })
-    ).toBe(true);
-    expect(
-      notificationReachable("venue_hold_declined", {
-        eventAccessible: false,
-        handoverPending: false,
-      })
-    ).toBe(false);
+    const requested = parse("venue_hold_requested", validPayloads.venue_hold_requested);
+    expect(notificationReachable(requested, { eventAccessible: false })).toBe(true);
+    const declined = parse("venue_hold_declined", validPayloads.venue_hold_declined);
+    expect(notificationReachable(declined, { eventAccessible: false })).toBe(false);
   });
 
   it("rides the event relationship for the hold warning and the expiry (PTR-143)", () => {
-    const facts = { eventAccessible: false, handoverPending: true };
     for (const kind of ["venue_hold_expiring", "venue_hold_expired"] as const) {
-      expect(notificationReachable(kind, facts)).toBe(false);
-      expect(notificationReachable(kind, { ...facts, eventAccessible: true })).toBe(true);
+      const payload = parse(kind, validPayloads[kind]);
+      expect(notificationReachable(payload, { eventAccessible: false })).toBe(false);
+      expect(notificationReachable(payload, { eventAccessible: true })).toBe(true);
     }
   });
 
@@ -706,17 +742,7 @@ describe("notification reachability (PTR-55 AC5)", () => {
     // rides the ordinary event relationship.
     const decision = parse("safety_review_decided", validPayloads.safety_review_decided);
     expect(notificationHref({ ...decision, eventRequestId: 7 })).toBe("/events/7");
-    expect(
-      notificationReachable("safety_review_decided", {
-        eventAccessible: true,
-        handoverPending: false,
-      })
-    ).toBe(true);
-    expect(
-      notificationReachable("safety_review_decided", {
-        eventAccessible: false,
-        handoverPending: false,
-      })
-    ).toBe(false);
+    expect(notificationReachable(decision, { eventAccessible: true })).toBe(true);
+    expect(notificationReachable(decision, { eventAccessible: false })).toBe(false);
   });
 });

@@ -25,7 +25,7 @@ function page(
   access: EventProjection["access"],
   event: Partial<EventProjection["event"]> = {}
 ): EventPageData {
-  return { kind: "event", event: projection(access, event), viewerId: "viewer-1" };
+  return { kind: "event", event: projection(access, event) };
 }
 
 function ids(data: EventPageData): string[] {
@@ -41,7 +41,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("organiser", { name: "Open Day", expectedAttendance: 60 }),
-      viewerId: "viewer-1",
       organiserRequest: { status: "confirmed" },
     } as unknown as EventPageData;
     expect(ids(data)).toEqual([
@@ -58,7 +57,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("organiser", { status: "submitted" }),
-      viewerId: "viewer-1",
       organiserRequest: { status: "submitted" },
     } as unknown as EventPageData;
     expect(ids(data)).toEqual(["requests", "details"]);
@@ -68,7 +66,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("organiser", { status: "rejected" }),
-      viewerId: "viewer-1",
       organiserRequest: { status: "rejected" },
     } as unknown as EventPageData;
 
@@ -79,20 +76,20 @@ describe("eventSections", () => {
     const data: EventPageData = {
       kind: "event",
       event: projection("organiser", { status: "submitted" }),
-      viewerId: "viewer-1",
       attendees: [],
     };
 
     expect(ids(data)).not.toContain("registrations");
   });
 
-  it("shows the review and assignment sections for a submitted coordinator event", () => {
+  it("shows the review flow and no assignment section for a submitted coordinator event", () => {
     const found = ids(page("coordinator", { status: "submitted" }));
 
     expect(found).toContain("review");
     expect(found).not.toContain("messages");
     expect(found).not.toContain("changes");
-    expect(found).toContain("assignment");
+    // PTR-145: the Coordinator gets no transfer action.
+    expect(found).not.toContain("assignment");
     expect(found).not.toContain("confirm");
     expect(found).not.toContain("releases");
   });
@@ -101,7 +98,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "under_review" }),
-      viewerId: "viewer-1",
       coordination: {
         request: {
           clarifications: [{ id: 11 }],
@@ -135,7 +131,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "planning" }),
-      viewerId: "viewer-1",
       coordination: { request: {}, coordinators: [] },
     } as unknown as EventPageData;
     const found = ids(data);
@@ -150,7 +145,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "cancelled" }),
-      viewerId: "viewer-1",
       coordination: {
         request: {
           clarifications: [],
@@ -176,7 +170,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "cancelled" }),
-      viewerId: "viewer-1",
       coordination: {
         request: {
           clarifications: [],
@@ -204,7 +197,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "confirmed" }),
-      viewerId: "viewer-1",
       coordination: { request: {}, coordinators: [] },
     } as unknown as EventPageData;
     const found = ids(data);
@@ -260,7 +252,6 @@ describe("eventSections", () => {
     expect(
       ids({
         kind: "event",
-        viewerId: "viewer-1",
         event: projection("venue_staff", {
           venueRequests: [
             {
@@ -285,31 +276,51 @@ describe("eventSections", () => {
     ]);
   });
 
-  it("lists only the read-only request detail in triage for an unassigned request", () => {
+  it("lists the request detail and the Lead's assignment form in triage (PTR-145)", () => {
     const found = ids({
       kind: "triage",
-      viewerId: "lead-1",
       request: {
         status: "submitted",
         cancellationRequests: [],
         changeRequests: [],
         venueRequests: [],
       },
+      coordinators: [],
     } as unknown as EventPageData);
 
-    expect(found).toEqual(["request"]);
+    expect(found).toEqual(["request", "assignment"]);
   });
 
-  it("lists only the read-only details section for the lead, with no rail actions", () => {
+  it("lists only the read-only details section for the lead with no assignment read", () => {
     expect(ids(page("lead"))).toEqual(["details"]);
     expect([...railSectionIds(page("lead"))]).toEqual([]);
+  });
+
+  it("shows the Lead the assignment form on an assigned event, with no rail action", () => {
+    const data = {
+      kind: "event",
+      event: projection("lead", { status: "planning", awaitingAssignment: false }),
+      coordination: {
+        request: {
+          id: 1042,
+          status: "planning",
+          assignedCoordinatorId: "coord-a",
+          coordinator: { name: "Coordinator A", email: "coordinator.a@example.com" },
+        },
+        coordinators: [
+          { id: "coord-a", name: "Coordinator A", email: "coordinator.a@example.com" },
+        ],
+      },
+    } as unknown as EventPageData;
+
+    expect(ids(data)).toEqual(["assignment", "details"]);
+    expect([...railSectionIds(data)]).toEqual([]);
   });
 });
 
 describe("railSectionIds", () => {
   it("rails the coordinator's compact actions", () => {
     expect([...railSectionIds(page("coordinator", { status: "confirmed" }))]).toEqual([
-      "assignment",
       "cancellation",
       "confirm",
       "complete",
