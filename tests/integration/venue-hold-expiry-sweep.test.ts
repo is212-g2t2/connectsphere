@@ -157,8 +157,11 @@ describe("venue hold expiry sweep (PTR-143)", () => {
    * passes its expiry; this helper also stages a due expiry on a requested or released row, which
    * the sweep must ignore.
    */
-  const setExpiryDirect = (id: string, expiresAt: string | null) =>
-    database.update(schema.venueHolds).set({ expiresAt }).where(eq(schema.venueHolds.id, id));
+  const setExpiryDirect = (id: string, expiresAt: string | null, warnAt?: string | null) =>
+    database
+      .update(schema.venueHolds)
+      .set({ expiresAt, ...(warnAt === undefined ? {} : { warnAt }) })
+      .where(eq(schema.venueHolds.id, id));
   const holdRow = async () =>
     (await database.select().from(schema.venueHolds).where(eq(schema.venueHolds.id, holdId))).at(0);
   const occupancy = () =>
@@ -380,7 +383,7 @@ describe("venue hold expiry sweep (PTR-143)", () => {
     expect(await allNotices()).toEqual(before);
   });
 
-  it("leaves requested and released holds alone even with a due expiry", async () => {
+  it("leaves requested and released holds alone when their times are due", async () => {
     const requested = await handleRequestVenueHold(
       { venueId, eventId, date: EVENT_DAY, startTime: "14:00", endTime: "15:00" },
       session(users.coordinator),
@@ -397,10 +400,13 @@ describe("venue hold expiry sweep (PTR-143)", () => {
       session(users.coordinator),
       database as never
     );
-    // Give every non-held state a due expiry. Only the held row may change.
+    // The requested row has a due expiry. The released row has a past warning and a future
+    // expiry, so removing the sweep's status filter would raise a warning for it. Only the held
+    // row may change.
     await setExpiryDirect(requested.id, PAST);
-    await setExpiryDirect(released.id, PAST);
+    await setExpiryDirect(released.id, FUTURE, PAST);
     await setExpiryDirect(holdId, PAST);
+    const before = await allNotices();
 
     expect(await sweepVenueHoldExpiries(database as never, NOON)).toBe(1);
 
@@ -414,8 +420,10 @@ describe("venue hold expiry sweep (PTR-143)", () => {
         { id: released.id, status: "released" },
       ])
     );
-    expect(await notices("venue_hold_expired")).toMatchObject([
-      { payload: { venueHoldId: holdId } },
+    // The sweep adds the held row's expiry notice and nothing else.
+    const after = await allNotices();
+    expect(after.filter(row => !before.some(existing => existing.id === row.id))).toMatchObject([
+      { kind: "venue_hold_expired", payload: { venueHoldId: holdId } },
     ]);
   });
 
