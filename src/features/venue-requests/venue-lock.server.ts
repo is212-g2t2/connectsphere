@@ -10,8 +10,8 @@ type Database = typeof Db;
 export type VenueTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 /**
- * PTR-109: Serialize all occupancy writes for one venue with this advisory lock. Hold creation,
- * request, placement, decline, release, conversion, booking approval, release, and amendment
+ * PTR-109: Serialize all occupancy writes for one venue with this advisory lock. Hold request,
+ * withdrawal, placement, decline, release, conversion, booking approval, release, and amendment
  * take it before locking rows or changing `venue_holds`, `venue_requests` or `venue_occupancy`
  * (ADR-7). Their pre-checks read the ledger under it, so they see every committed row.
  *

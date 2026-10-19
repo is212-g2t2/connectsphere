@@ -210,19 +210,18 @@ async function loadHoldsServer() {
 }
 
 /**
- * PTR-109: Coordinator places a tentative hold naming venue and period.
+ * PTR-151 AC3: the requester or the event's assigned Coordinator withdraws a hold request before
+ * Venue Staff place it.
  */
-export const createVenueHold = createServerFn({ method: "POST" })
-  .validator(parseVenueHoldInput)
+export const withdrawVenueHoldRequest = createServerFn({ method: "POST" })
+  .validator(parseVenueHoldId)
   .middleware([requireVenueRequest])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleCreateVenueHold }] = await loadHoldsServer();
-    const hold = await handleCreateVenueHold(data, context.user, db);
+    const [{ db }, { handleWithdrawVenueHoldRequest }] = await loadHoldsServer();
+    const hold = await handleWithdrawVenueHoldRequest(data, context.user, db);
 
-    log.info("Venue hold created", {
+    log.info("Venue hold request withdrawn", {
       holdId: hold.id,
-      eventId: hold.eventId,
-      venueId: hold.venueId,
       actorId: context.user.id,
     });
 
@@ -303,8 +302,8 @@ export const setVenueHoldWarning = createServerFn({ method: "POST" })
   });
 
 /**
- * PTR-150 AC1: the Coordinator requests a hold. The request passes the hold creation checks, holds
- * no venue time, and notifies every Venue Staff member.
+ * PTR-150 AC1: the Coordinator requests a hold. The request passes the hold's checks, holds no
+ * venue time, and notifies every Venue Staff member.
  */
 export const requestVenueHold = createServerFn({ method: "POST" })
   .validator(parseVenueHoldInput)

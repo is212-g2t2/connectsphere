@@ -22,8 +22,9 @@ import { formatLocalDateTime } from "#/features/event-requests/format";
 import type { SessionUser } from "#/features/auth/session";
 import {
   ConvertVenueHoldButton,
-  PlaceVenueHoldDialog,
   ReleaseVenueHoldButton,
+  RequestVenueHoldDialog,
+  WithdrawVenueHoldRequestButton,
 } from "#/features/venue-requests/components/venue-hold-actions";
 import {
   LiftVenueBlockButton,
@@ -41,6 +42,10 @@ import {
   timestampTime,
 } from "#/features/venues/availability";
 import type { OccupiedPeriod } from "#/features/venues/availability";
+import {
+  VENUE_HOLD_REQUEST_LABEL,
+  VENUE_HOLD_REQUEST_NOTE,
+} from "#/features/venue-requests/schema";
 import { AvailabilitySelectionFormInput } from "#/features/venues/schema";
 import type { AvailabilitySearch } from "#/features/venues/schema";
 import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
@@ -193,7 +198,8 @@ export function VenueCalendarPage({
   const canHold = user ? can(user.role, { venue_request: ["request"] }) : false;
   const canSetExpiry = user ? can(user.role, { venue_request: ["decide"] }) : false;
   const canBlock = user ? can(user.role, { venue: ["update"] }) : false;
-
+  // PTR-151: a requested hold shows here but reserves no venue time, so it changes no period.
+  const requestedHolds = schedule?.requestedHolds ?? [];
   return (
     <Page
       width="wide"
@@ -384,7 +390,7 @@ export function VenueCalendarPage({
                   </p>
                 </div>
                 {canHold && (
-                  <PlaceVenueHoldDialog
+                  <RequestVenueHoldDialog
                     venueId={schedule.venue.id}
                     venueName={schedule.venue.name}
                     defaultDate={schedule.startDate}
@@ -399,6 +405,32 @@ export function VenueCalendarPage({
                   />
                 )}
               </div>
+              {requestedHolds.length > 0 && (
+                <div className="border-b border-border pb-5">
+                  <h3 className="display-h3">Hold requests</h3>
+                  <p className="mt-2 body-sm text-muted-foreground">{VENUE_HOLD_REQUEST_NOTE}</p>
+                  <ul className="mt-3 divide-y divide-border">
+                    {requestedHolds.map(hold => (
+                      <li key={hold.id} className="flex flex-wrap items-center gap-4 py-3">
+                        <DateChip day={timestampDay(hold.startsAt)} />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">{VENUE_HOLD_REQUEST_LABEL}</p>
+                          <p className="body-sm text-muted-foreground">
+                            {timeRange({
+                              visibleStart: hold.startsAt,
+                              visibleEnd: hold.endsAt,
+                            })}{" "}
+                            · {schedule.venue.name}
+                          </p>
+                        </div>
+                        {hold.canWithdraw && canHold && (
+                          <WithdrawVenueHoldRequestButton holdId={hold.id} />
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {periods.length === 0 ? (
                 <p className="py-6 body-sm text-muted-foreground">
                   The venue has no opening hours in this range.
@@ -474,7 +506,7 @@ export function VenueCalendarPage({
                         />
                       )}
                       {period.state === "available" && canHold && (
-                        <PlaceVenueHoldDialog
+                        <RequestVenueHoldDialog
                           venueId={schedule.venue.id}
                           venueName={schedule.venue.name}
                           defaultDate={timestampDay(period.startsAt)}
@@ -483,7 +515,7 @@ export function VenueCalendarPage({
                           coordinatorEvents={coordinatorEvents}
                           trigger={
                             <Button size="sm" variant="ghost">
-                              Hold slot
+                              Request this slot
                             </Button>
                           }
                         />

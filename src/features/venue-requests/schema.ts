@@ -655,6 +655,13 @@ export function parseVenueHoldWarning(data: unknown): z.infer<typeof VenueHoldWa
 /** PTR-150 AC6: a hold request that another Venue Staff member placed or declined first. */
 export const VENUE_HOLD_REQUEST_HANDLED_MESSAGE = "This hold request was already handled";
 
+/** PTR-151 AC2: the label every screen shows for a hold that waits for Venue Staff placement. */
+export const VENUE_HOLD_REQUEST_LABEL = "Hold requested";
+
+/** PTR-151 AC2: a request reserves no venue time, so the calendar and event card say so. */
+export const VENUE_HOLD_REQUEST_NOTE =
+  "A hold request protects nothing until Venue Staff place it. Venue time stays first come, first served at placement.";
+
 export const VENUE_HOLD_DECLINE_REASON_REQUIRED = "Enter a reason to decline this hold request";
 export const VENUE_HOLD_DECLINE_REASON_MAX_LENGTH = 2000;
 

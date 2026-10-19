@@ -211,7 +211,7 @@ function rethrowReleaseDeadlock(error: unknown): never {
 
 /**
  * The venue row that the venue-request writers read under the venue lock: request creation,
- * approval, amendment, and hold creation and conversion.
+ * approval, amendment, and hold request and conversion.
  */
 export interface LockedVenue {
   id: number;
@@ -662,7 +662,7 @@ export async function handleGetVenueRequestContext(
 /**
  * PTR-31 criteria 1–4: Create one unassigned `pending` row and notify all Venue Staff. Refuse a
  * window that does not describe a real civil day. The event must be in `SEARCHABLE_EVENT_STATUSES`
- * and assigned to the caller, as the PTR-29 search allows. Hold creation and conversion use the
+ * and assigned to the caller, as the PTR-29 search allows. Hold request and conversion use the
  * same gate. A cancelled event cannot receive a request (PTR-54 AC9).
  *
  * PTR-138 AC1: store the session requirements, and refuse a venue that does not meet them

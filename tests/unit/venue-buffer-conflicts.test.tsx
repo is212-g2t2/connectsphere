@@ -209,6 +209,7 @@ describe("PTR-132-TC10: availability projection and calendar conflict badges", (
       endDate: "2026-11-10",
       available: projection.available,
       occupied: projection.occupied,
+      requestedHolds: [],
     };
 
     render(

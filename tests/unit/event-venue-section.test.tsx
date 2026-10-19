@@ -22,6 +22,10 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
+  useRouter: () => ({
+    invalidate: () => Promise.resolve(),
+    navigate: () => Promise.resolve(),
+  }),
 }));
 
 function projection(
@@ -289,6 +293,46 @@ describe("venue section", () => {
       }
     }
   );
+
+  it("shows a requested hold with its note and the Coordinator's withdrawal (PTR-151)", () => {
+    const holdRequests = [
+      {
+        id: "hold-1",
+        venueName: "Harbor Hall",
+        startsAt: "2026-12-05T17:00:00",
+        endsAt: "2026-12-05T21:00:00",
+      },
+    ];
+    expect(isVenueVisible("coordinator", { status: "submitted", holdRequests })).toBe(true);
+    expect(isVenueVisible("organiser", { status: "submitted", holdRequests })).toBe(false);
+
+    renderVenue("coordinator", { status: "planning", holdRequests });
+
+    expect(screen.getByText("Hold requests")).toBeTruthy();
+    expect(screen.getByText("Hold requested")).toBeTruthy();
+    expect(screen.getByText("5 Dec 2026, 17:00 – 21:00")).toBeTruthy();
+    expect(screen.getByText(/protects nothing until Venue Staff place it/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Withdraw hold request" })).toBeTruthy();
+  });
+
+  it("does not list a requested hold for the organiser", () => {
+    renderVenue("organiser", {
+      status: "planning",
+      holdRequests: [
+        {
+          id: "hold-1",
+          venueName: "Harbor Hall",
+          startsAt: "2026-12-05T17:00:00",
+          endsAt: "2026-12-05T21:00:00",
+        },
+      ],
+    });
+
+    // The server projection sends hold requests to the Coordinator only. The view also drops any
+    // value it does receive, so an organiser never sees the hold or its action.
+    expect(screen.queryByText("Hold requests")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Withdraw hold request" })).toBeNull();
+  });
 
   it("always shows approved, planning and confirmed events", () => {
     for (const status of ["approved", "planning", "confirmed"] as const) {

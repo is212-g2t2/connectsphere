@@ -12,7 +12,7 @@ import { VENUE_BOOKING_SUSPENDED_MESSAGE } from "#/features/events/confirmation"
 import { handleListEvents } from "#/features/events/records.server";
 import { handleRegisterForEvent } from "#/features/events/register.server";
 import { handleUpdateEventInformation } from "#/features/events/update.server";
-import { handleCreateVenueHold } from "#/features/venue-requests/holds.server";
+import { requestAndPlaceHold } from "./hold-request";
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
@@ -297,7 +297,7 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
 
   it("leaves a confirmed event alone when a block covers only its hold", async () => {
     const event = await createEvent("submitted");
-    await handleCreateVenueHold(
+    await requestAndPlaceHold(
       { eventId: event.id, venueId: hallId, date: DATE, startTime: "14:00", endTime: "16:00" },
       coordinator,
       database as never
@@ -449,7 +449,7 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
 
   it("flags a suspended hold too, and a booking a block only partly covers", async () => {
     const event = await createEvent("submitted");
-    await handleCreateVenueHold(
+    await requestAndPlaceHold(
       { eventId: event.id, venueId: hallId, date: DATE, startTime: "14:00", endTime: "16:00" },
       coordinator,
       database as never
