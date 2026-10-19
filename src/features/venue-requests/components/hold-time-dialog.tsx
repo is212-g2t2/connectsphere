@@ -18,7 +18,7 @@ import {
   HoldLocalDateTime,
   VENUE_HOLD_EXPIRY_MESSAGE,
   VENUE_HOLD_WARNING_MESSAGE,
-  leftHoldQueue,
+  isLeftHoldQueueMessage,
 } from "#/features/venue-requests/schema";
 import {
   placeVenueHold,
@@ -280,7 +280,8 @@ export function PlaceHoldRequestButton({ holdId }: { holdId: string }) {
       save={value =>
         placeVenueHold({ data: { id: holdId, expiresAt: value } }).catch((error: unknown) => {
           // The reload removes the request and this dialog with it, so show the refusal here too.
-          if (error instanceof Error && leftHoldQueue(error.message)) toast.error(error.message);
+          if (error instanceof Error && isLeftHoldQueueMessage(error.message))
+            toast.error(error.message);
           throw error;
         })
       }

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { VenueHoldRequestsPage } from "#/features/venue-requests/components/venue-hold-requests-page";
 import {
+  VENUE_EVENT_STATUS_PHRASE,
   VENUE_HOLD_DECLINE_REASON_REQUIRED,
   VENUE_HOLD_REQUEST_HANDLED_MESSAGE,
 } from "#/features/venue-requests/schema";
@@ -101,7 +102,7 @@ describe("VenueHoldRequestsPage", () => {
   });
 
   it("toasts a placement refusal for an event that left the searchable statuses (AC4)", async () => {
-    const refusal = "This event is confirmed, so it cannot take a new venue booking.";
+    const refusal = `This event is confirmed, so it ${VENUE_EVENT_STATUS_PHRASE}.`;
     mockPlace.mockRejectedValueOnce(new Error(refusal));
     const user = userEvent.setup();
     render(<VenueHoldRequestsPage requests={[request]} />);

@@ -14,7 +14,7 @@ import {
   VENUE_HOLD_DECLINE_REASON_MAX_LENGTH,
   VenueHoldDeclineInput,
   formIssues,
-  leftHoldQueue,
+  isLeftHoldQueueMessage,
 } from "#/features/venue-requests/schema";
 import { declineVenueHold } from "#/features/venue-requests/server-fns";
 import type { VenueHoldRequest } from "#/features/venue-requests/server-fns";
@@ -46,7 +46,7 @@ function DeclineHoldRequestForm({
             : "Could not decline this hold request. Try again.";
         // The reload removes a request that left the queue, and this form with it. Show that
         // refusal as a toast. Keep any other refusal in the form.
-        if (leftHoldQueue(message)) toast.error(message);
+        if (isLeftHoldQueueMessage(message)) toast.error(message);
         else formApi.setErrorMap({ onSubmit: { fields: {}, form: message } });
         await router.invalidate({ filter: skipRootFilter }).catch(() => {});
         return;

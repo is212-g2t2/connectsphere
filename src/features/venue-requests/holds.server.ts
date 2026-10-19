@@ -14,7 +14,7 @@ import {
   venueRequestEventStatusMessage,
 } from "#/features/venue-requests/requests.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
-import type { NotificationPayloads } from "#/features/notifications/message";
+import type { NotificationPayload } from "#/features/notifications/message";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
   VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE,
@@ -503,9 +503,8 @@ export async function handleSetVenueHoldWarning(
  */
 async function lockHoldRequest(tx: VenueTx, id: string) {
   const event = await keyShareEventForHold(tx, id);
-  const hold = await lockHold(tx, id);
-  // `lockHold` found the hold, so its event exists: the foreign key cascades on delete.
   if (event === null) throw new NotFoundError("Not Found");
+  const hold = await lockHold(tx, id);
   if (hold.status !== "requested") throw new ConflictError(VENUE_HOLD_REQUEST_HANDLED_MESSAGE);
   return { event, hold };
 }
@@ -522,9 +521,7 @@ async function raiseHoldDecisionNotification(
     assignedCoordinatorId: string | null;
     heldById: string | null;
   },
-  notice:
-    | { kind: "venue_hold_placed"; payload: NotificationPayloads["venue_hold_placed"] }
-    | { kind: "venue_hold_declined"; payload: NotificationPayloads["venue_hold_declined"] }
+  notice: Extract<NotificationPayload, { kind: "venue_hold_placed" | "venue_hold_declined" }>
 ) {
   const recipientId = hold.assignedCoordinatorId ?? hold.heldById;
   if (recipientId === null) {

@@ -604,7 +604,8 @@ export const venueRequestStatus = pgEnum("venue_request_status", [
  * `expired` is for the PTR-143 sweep. PTR-142 adds the literal and never writes it. The migrator
  * runs all pending migrations in one transaction, and no transaction can use an enum value that
  * it adds. PTR-150 adds `requested` and `declined`: a hold request waits for Venue Staff to place
- * or decline it, and occupies no venue time in either state. Its predicates cast to text.
+ * or decline it, and occupies no venue time in either state. A predicate that names these values
+ * casts `status` to text, for the same reason.
  */
 export const venueHoldStatus = pgEnum("venue_hold_status", [
   "held",
