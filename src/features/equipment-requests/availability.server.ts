@@ -1,13 +1,8 @@
 import { and, asc, eq, gt, lt, ne, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import {
-  equipmentReservations,
-  equipmentTypes,
-  equipmentUnavailability,
-  venueRequests,
-} from "#/db/schema";
-import { ConflictError, NotFoundError } from "#/features/auth/session";
+import { equipmentReservations, equipmentTypes, equipmentUnavailability } from "#/db/schema";
+import { NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   computeAvailableEquipmentQuantity,
@@ -15,7 +10,11 @@ import {
 } from "#/features/equipment-requests/availability";
 import { loadWorkableLines } from "#/features/equipment-requests/equipment.server";
 import { parseAvailabilityCheckInput } from "#/features/equipment-requests/schema";
-import { toLocalMinuteValue } from "#/features/venues/availability";
+import {
+  bookingPeriod,
+  chooseEquipmentBooking,
+  selectEquipmentBookings,
+} from "#/features/equipment-requests/bookings.server";
 
 /** Server-only because it imports `#/db/schema`. See `equipment.server.ts`. */
 
@@ -99,13 +98,7 @@ export async function loadTypeAvailability(
   };
 }
 
-/**
- * PTR-40 AC1-AC4: Return units available during an event's approved venue booking. Use the queue
- * rule from `handleUpdateArrangement`. The actor must be able to work on at least one event line.
- *
- * Include the event's own reservations. Check each approved booking window. Report the window with
- * the least availability. If there is a tie, report the earliest window.
- */
+/** Check the chosen booking's buffered window, including the event's own reservations. */
 export async function handleCheckEquipmentAvailability(
   data: unknown,
   actor: SessionUser,
@@ -115,87 +108,33 @@ export async function handleCheckEquipmentAvailability(
 
   await loadWorkableLines(database, input.eventId, actor);
 
-  const bookings = await database
-    .select({ startsAt: venueRequests.startsAt, endsAt: venueRequests.endsAt })
-    .from(venueRequests)
-    .where(and(eq(venueRequests.eventId, input.eventId), eq(venueRequests.status, "approved")))
-    .orderBy(asc(venueRequests.startsAt));
-  if (bookings.length === 0) throw new ConflictError("The event has no approved venue booking yet");
-
-  const rows = await database
-    .select({
-      id: equipmentTypes.id,
-      name: equipmentTypes.name,
-      quantityHeld: equipmentTypes.quantityHeld,
-    })
-    .from(equipmentTypes)
-    .where(eq(equipmentTypes.id, input.equipmentTypeId))
-    .limit(1);
-  const equipmentType = rows.at(0);
+  const booking = chooseEquipmentBooking(
+    await selectEquipmentBookings(database, [input.eventId]),
+    input.venueRequestId,
+    "The event has no active approved venue booking yet"
+  );
+  const equipmentType = (
+    await database
+      .select({ name: equipmentTypes.name })
+      .from(equipmentTypes)
+      .where(eq(equipmentTypes.id, input.equipmentTypeId))
+      .limit(1)
+  ).at(0);
   if (!equipmentType) throw new NotFoundError("Not Found");
-
-  // One read for every window: unavailable units are type-wide, and one union-window
-  // reservation fetch covers all bookings. Each peak computes in JS from that list.
-  let minStart = bookings[0].startsAt;
-  let maxEnd = bookings[0].endsAt;
-  for (const booking of bookings) {
-    if (booking.startsAt < minStart) minStart = booking.startsAt;
-    if (booking.endsAt > maxEnd) maxEnd = booking.endsAt;
-  }
-  const [unavailableRows, overlapping] = await Promise.all([
-    database
-      .select({
-        unavailable: sql<number>`coalesce(sum(${equipmentUnavailability.quantityUnavailable}), 0)::int`,
-      })
-      .from(equipmentUnavailability)
-      .where(eq(equipmentUnavailability.equipmentTypeId, equipmentType.id)),
-    database
-      .select({
-        startsAt: equipmentReservations.startsAt,
-        endsAt: equipmentReservations.endsAt,
-        quantity: equipmentReservations.quantity,
-      })
-      .from(equipmentReservations)
-      .where(
-        and(
-          eq(equipmentReservations.equipmentTypeId, equipmentType.id),
-          lt(equipmentReservations.startsAt, maxEnd),
-          gt(equipmentReservations.endsAt, minStart)
-        )
-      ),
-  ]);
-  const unavailable = unavailableRows[0].unavailable;
-
-  const perBooking = bookings.map(booking => {
-    const { availableQuantity, peakReserved } = computeAvailableEquipmentQuantity(
-      equipmentType.quantityHeld,
-      unavailable,
-      { startsAt: booking.startsAt, endsAt: booking.endsAt },
-      overlapping
-    );
-    return {
-      startsAt: booking.startsAt,
-      endsAt: booking.endsAt,
-      quantityHeld: equipmentType.quantityHeld,
-      totalUnavailable: unavailable,
-      peakReserved,
-      availableQuantity,
-    };
+  const availability = await loadTypeAvailability(database, {
+    equipmentTypeId: input.equipmentTypeId,
+    window: booking,
   });
-  const tightest = perBooking.reduce((a, b) => (b.availableQuantity < a.availableQuantity ? b : a));
 
   return {
     ...summariseAvailability({
-      held: tightest.quantityHeld,
-      reserved: tightest.peakReserved,
-      unavailable: tightest.totalUnavailable,
+      held: availability.quantityHeld,
+      reserved: availability.peakReserved,
+      unavailable: availability.totalUnavailable,
       requested: input.requestedQuantity,
     }),
     equipmentTypeName: equipmentType.name,
-    period: {
-      startsAt: toLocalMinuteValue(tightest.startsAt),
-      endsAt: toLocalMinuteValue(tightest.endsAt),
-    },
+    period: bookingPeriod(booking),
   };
 }
 

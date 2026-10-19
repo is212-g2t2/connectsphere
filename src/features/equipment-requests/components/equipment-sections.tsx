@@ -103,7 +103,11 @@ export function equipmentSections(data: EventPageData): EventSectionDef[] {
           <div>
             <h2 className="display-h3">Equipment lines</h2>
             <div className="mt-4">
-              <ArrangementLines eventId={event.id} lines={lines} />
+              <ArrangementLines
+                eventId={event.id}
+                lines={lines}
+                bookings={event.equipmentBookings ?? []}
+              />
             </div>
           </div>
         ),
@@ -134,6 +138,7 @@ export function equipmentSections(data: EventPageData): EventSectionDef[] {
             <div className="mt-3">
               <AvailabilityCheck
                 eventId={event.id}
+                bookings={event.equipmentBookings ?? []}
                 equipmentTypes={body.kind === "event" ? (body.equipmentTypes ?? null) : null}
               />
             </div>

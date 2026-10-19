@@ -7,7 +7,7 @@ import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import { runSeed } from "../../scripts/seed";
-import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
+import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   handleCheckEquipmentAvailability,
@@ -268,7 +268,7 @@ describe("equipment availability (PTR-40)", () => {
     expect((await check(target.eventId, type.id)).reserved).toBe(4);
   });
 
-  test("with several approved bookings, reports the tightest one and its period", async () => {
+  test("with several approved bookings, checks only the selected period", async () => {
     const type = await createType(10);
     const target = await createEvent(["10:00", "12:00"]);
     await addBooking(target.eventId, ["10:00", "12:00"], { day: "2030-01-02" });
@@ -276,7 +276,23 @@ describe("equipment availability (PTR-40)", () => {
     await addBooking(other.eventId, ["11:00", "13:00"], { day: "2030-01-02" });
     await reserve(other.lineId, type.id, 4);
 
-    const result = await check(target.eventId, type.id);
+    await expect(check(target.eventId, type.id)).rejects.toThrow(
+      "Choose an active approved venue booking"
+    );
+    const [booking] = await database
+      .select()
+      .from(schema.venueRequests)
+      .where(
+        and(
+          eq(schema.venueRequests.eventId, target.eventId),
+          eq(schema.venueRequests.startsAt, "2030-01-02 10:00:00")
+        )
+      );
+    const result = await handleCheckEquipmentAvailability(
+      { eventId: target.eventId, equipmentTypeId: type.id, venueRequestId: booking.id },
+      techSupport,
+      database as never
+    );
 
     expect(result).toMatchObject({ reserved: 4, available: 6 });
     expect(result.period).toEqual({ startsAt: "2030-01-02T10:00", endsAt: "2030-01-02T12:00" });
@@ -286,7 +302,9 @@ describe("equipment availability (PTR-40)", () => {
     const type = await createType(10);
     const target = await createEvent(null);
 
-    await expect(check(target.eventId, type.id)).rejects.toBeInstanceOf(ConflictError);
+    await expect(check(target.eventId, type.id)).rejects.toThrow(
+      "The event has no active approved venue booking yet"
+    );
   });
 
   test("refuses a missing type", async () => {

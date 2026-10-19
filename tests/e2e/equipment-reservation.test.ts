@@ -6,7 +6,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { Pool } from "pg";
 
 import * as schema from "../../src/db/schema";
@@ -112,8 +112,9 @@ async function addBooking(eventId: number, [start, end]: [string, string]) {
     })
     .returning({ id: schema.venues.id });
   venueIds.push(venue.id);
+  const bookingId = crypto.randomUUID();
   await database.insert(schema.venueRequests).values({
-    id: crypto.randomUUID(),
+    id: bookingId,
     eventId,
     venueId: venue.id,
     startsAt: `2030-01-01T${start}:00`,
@@ -121,6 +122,7 @@ async function addBooking(eventId: number, [start, end]: [string, string]) {
     status: "approved",
     requestedById: COORDINATOR_ID,
   });
+  return { id: bookingId, venueId: venue.id };
 }
 
 async function openEventPage(page: Page, eventId: number) {
@@ -151,7 +153,7 @@ test("reserving the full quantity marks the line reserved and shows the count", 
 
   const { line, dialog } = await openAndReserve(page, target.id, target.item, "2");
 
-  await expect(dialog.getByText(/5 units available for/)).toBeVisible();
+  await expect(dialog).not.toBeVisible();
   await expect(line.getByText("2 reserved")).toBeVisible();
 
   await page.reload();
@@ -180,4 +182,62 @@ test("refuses a request exceeding what is available, naming the shortfall", asyn
   await expect(dialog.getByRole("alert")).toContainText("shortfall of 1");
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(line.getByLabel(`Arrangement state for ${target.item}`)).toContainText("Requested");
+});
+
+test("chooses a session, snapshots its buffers, and shows Window changed after release", async ({
+  page,
+  browser,
+}) => {
+  const type = await createType(5);
+  const target = await createEvent(type.name, type.id, 2);
+  await addBooking(target.id, ["10:00", "12:00"]);
+  const afternoon = await addBooking(target.id, ["15:00", "17:00"]);
+  await database.insert(schema.venueOccupancy).values({
+    venueRequestId: afternoon.id,
+    eventId: target.id,
+    venueId: afternoon.venueId,
+    startsAt: "2030-01-01 15:00:00",
+    endsAt: "2030-01-01 17:00:00",
+    setupMinutes: 30,
+    turnaroundMinutes: 45,
+  });
+  await openEventPage(page, target.id);
+  const line = lineFor(page, target.item);
+  await line.getByRole("button", { name: `Reserve equipment for ${target.item}` }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("button", { name: "Confirm reservation" })).toBeDisabled();
+  await dialog.getByRole("combobox", { name: "Session venue booking" }).click();
+  await page.getByRole("option", { name: /14:30/ }).click();
+  await expect(dialog.getByText(/5 units available for/)).toContainText("17:45");
+  await dialog.getByRole("button", { name: "Confirm reservation" }).click();
+  await expect(line.getByText("2 reserved")).toBeVisible();
+  const [reservation] = await database
+    .select()
+    .from(schema.equipmentReservations)
+    .innerJoin(
+      schema.equipmentRequests,
+      eq(schema.equipmentRequests.id, schema.equipmentReservations.equipmentRequestId)
+    )
+    .where(eq(schema.equipmentRequests.eventId, target.id));
+  expect(reservation.equipment_reservations).toMatchObject({
+    venueRequestId: afternoon.id,
+    startsAt: "2030-01-01 14:30:00",
+    endsAt: "2030-01-01 17:45:00",
+  });
+  await expect(line.getByText("Window changed")).toHaveCount(0);
+  await database
+    .update(schema.venueRequests)
+    .set({ status: "released", releaseReason: "Test" })
+    .where(eq(schema.venueRequests.id, afternoon.id));
+  await page.reload();
+  await expect(lineFor(page, target.item).getByText("Window changed")).toBeVisible();
+  const coordinatorContext = await browser.newContext();
+  try {
+    const coordinator = await coordinatorContext.newPage();
+    await signInAsStaff(coordinator, "event_coordinator");
+    await coordinator.goto(`/events/${target.id}`);
+    await expect(coordinator.getByText("Window changed", { exact: true })).toBeVisible();
+  } finally {
+    await coordinatorContext.close();
+  }
 });

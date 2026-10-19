@@ -1,5 +1,8 @@
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import type { EquipmentReleaseRecord } from "#/features/equipment-requests/schema";
+import type {
+  EquipmentBookingOption,
+  EquipmentReleaseRecord,
+} from "#/features/equipment-requests/schema";
 import type { RegistrationAvailability } from "#/features/events/registration";
 import type {
   SessionRequirements,
@@ -296,6 +299,8 @@ export interface EquipmentLineProjection {
   assignedStaffName?: string | null | undefined;
   /** PTR-41 AC4: The line's reserved units, when a reservation exists. */
   reservedQuantity?: number | null | undefined;
+  venueRequestId?: string | null | undefined;
+  windowChanged?: boolean | undefined;
   /** PTR-42: The latest reduction or release. Shown to Technical Support and Coordinators only. */
   lastRelease?: EquipmentReleaseRecord | null | undefined;
 }
@@ -347,6 +352,7 @@ export interface EventProjection {
      * and Technical Support. */
     venueRequests?: EventVenueRequest[];
     equipment?: EquipmentLineProjection[];
+    equipmentBookings?: EquipmentBookingOption[];
     confirmation?: EventConfirmation | null;
     /** Why the Coordinator cannot complete this confirmed event now; null means it is eligible. */
     completionUnavailableReason?: string | null;
@@ -417,6 +423,7 @@ export function projectEvent(
       accessibilityRequirements: string | null;
       requiredFacilities: string | null;
     } | null;
+    equipmentBookings?: EquipmentBookingOption[];
   } = {}
 ): EventProjection {
   const {
@@ -475,6 +482,7 @@ export function projectEvent(
           ...timing,
           status: record.status,
           equipment,
+          equipmentBookings: extras.equipmentBookings ?? [],
           equipmentArrangementsCompletedAt: effectiveEquipmentArrangementsCompletedAt(
             record.equipmentArrangementsCompletedAt,
             equipment
@@ -587,6 +595,8 @@ export function projectEvent(
                   arrangementNotes: line.arrangementNotes,
                   unavailableReason: line.unavailableReason,
                   lastRelease: line.lastRelease,
+                  venueRequestId: line.venueRequestId,
+                  windowChanged: line.windowChanged,
                 }
               : {}),
           })),

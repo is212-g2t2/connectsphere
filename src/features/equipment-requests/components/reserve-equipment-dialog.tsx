@@ -14,9 +14,11 @@ import {
 } from "#/components/ui/dialog";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import { BookingSelect } from "#/features/equipment-requests/components/booking-select";
+import type { EquipmentBookingOption } from "#/features/equipment-requests/schema";
 import { ReserveEquipmentFormInput } from "#/features/equipment-requests/schema";
 import { checkLineAvailability, reserveEquipment } from "#/features/equipment-requests/server-fns";
-import { formatLocalDateTime } from "#/features/event-requests/format";
+import { formatProposedWindow } from "#/features/event-requests/format";
 import { parseWholeNumber } from "#/features/event-requests/schema";
 import { skipRootFilter } from "#/lib/invalidate";
 
@@ -26,18 +28,22 @@ export interface ReserveEquipmentDialogProps {
     item: string;
     quantity: number;
     reservedQuantity?: number | null;
+    venueRequestId?: string | null;
   };
+  bookings: EquipmentBookingOption[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 type Availability =
   | { status: "loading" }
+  | { status: "unselected" }
   | { status: "ready"; available: number; startsAt: string; endsAt: string }
   | { status: "error"; error: string };
 
 export function ReserveEquipmentDialog({
   equipmentRequest,
+  bookings,
   open,
   onOpenChange,
 }: ReserveEquipmentDialogProps) {
@@ -49,15 +55,27 @@ export function ReserveEquipmentDialog({
   const errorId = `${quantityId}-error`;
 
   const [availability, setAvailability] = useState<Availability>({ status: "loading" });
-  const cancelledRef = useRef(false);
+  const requestVersion = useRef(0);
+  const [venueRequestId, setVenueRequestId] = useState(() =>
+    bookings.some(booking => booking.id === equipmentRequest.venueRequestId)
+      ? (equipmentRequest.venueRequestId ?? "")
+      : bookings.length === 1
+        ? bookings[0].id
+        : ""
+  );
 
   const refreshAvailability = useCallback(async () => {
+    const version = ++requestVersion.current;
+    if (!venueRequestId) {
+      setAvailability({ status: "unselected" });
+      return;
+    }
     setAvailability({ status: "loading" });
     try {
       const result = await checkLineAvailability({
-        data: { equipmentRequestId: equipmentRequest.id },
+        data: { equipmentRequestId: equipmentRequest.id, venueRequestId },
       });
-      if (!cancelledRef.current) {
+      if (version === requestVersion.current) {
         setAvailability({
           status: "ready",
           available: result.availableQuantity,
@@ -66,14 +84,14 @@ export function ReserveEquipmentDialog({
         });
       }
     } catch (error) {
-      if (!cancelledRef.current) {
+      if (version === requestVersion.current) {
         setAvailability({
           status: "error",
           error: error instanceof Error ? error.message : "Could not check availability.",
         });
       }
     }
-  }, [equipmentRequest.id]);
+  }, [equipmentRequest.id, venueRequestId]);
 
   const form = useForm({
     defaultValues: { quantity: String(requested) },
@@ -85,6 +103,7 @@ export function ReserveEquipmentDialog({
         const result = await reserveEquipment({
           data: {
             equipmentRequestId: equipmentRequest.id,
+            venueRequestId,
             quantity: parseWholeNumber(value.quantity),
           },
         });
@@ -107,23 +126,16 @@ export function ReserveEquipmentDialog({
   });
 
   useEffect(() => {
-    cancelledRef.current = false;
-    if (open) {
-      // This dialog stays mounted while closed. Reset the form and read availability again each time it opens.
-      form.reset();
-      // oxlint-disable-next-line react/set-state-in-effect -- opening the controlled dialog is the event that triggers the re-read
-      void refreshAvailability();
-    }
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [open, form, refreshAvailability]);
+    // Read availability when the dialog opens or its selected booking changes.
+    // oxlint-disable-next-line react/set-state-in-effect -- opening the controlled dialog is the event that triggers the re-read
+    void refreshAvailability();
+  }, [refreshAvailability]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <form
-          className="space-y-4"
+          className="min-w-0 space-y-4"
           noValidate
           onSubmit={event => {
             event.preventDefault();
@@ -134,11 +146,30 @@ export function ReserveEquipmentDialog({
           <DialogHeader>
             <DialogTitle>Reserve equipment</DialogTitle>
             <DialogDescription>
-              Reserving records the current approved venue booking period.
+              Choose the session this line serves. The period includes setup and turnaround time.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            <form.Subscribe selector={state => state.isSubmitting}>
+              {isSubmitting => (
+                <BookingSelect
+                  id={`reserve-booking-${equipmentRequest.id}`}
+                  bookings={bookings}
+                  value={venueRequestId}
+                  onChange={next => {
+                    // Re-picking the same booking changes nothing, and the effect below would not re-run.
+                    if (next === venueRequestId) return;
+                    // Bump the version before the effect runs, so a reply for the last booking cannot write ready for this one.
+                    requestVersion.current++;
+                    // Clear the last window's answer at once, so its numbers and an enabled Confirm do not survive this render.
+                    setAvailability({ status: "loading" });
+                    setVenueRequestId(next);
+                  }}
+                  disabled={isSubmitting}
+                />
+              )}
+            </form.Subscribe>
             <div className="rounded-md bg-muted p-3 body-sm">
               <div className="flex justify-between font-medium">
                 <span>Item:</span>
@@ -154,13 +185,20 @@ export function ReserveEquipmentDialog({
               </div>
               <div className="mt-1 flex justify-between gap-3 text-muted-foreground">
                 <span>Availability:</span>
-                {availability.status === "loading" ? (
+                {availability.status === "unselected" ? (
+                  <span>
+                    {bookings.length === 0 ? "—" : "Choose a booking to check availability."}
+                  </span>
+                ) : availability.status === "loading" ? (
                   <span aria-live="polite">Checking availability…</span>
                 ) : availability.status === "ready" ? (
                   <span className="text-right">
                     {availability.available} unit{availability.available === 1 ? "" : "s"} available
-                    for {formatLocalDateTime(availability.startsAt)} to{" "}
-                    {formatLocalDateTime(availability.endsAt)}
+                    for{" "}
+                    {formatProposedWindow({
+                      start: availability.startsAt,
+                      end: availability.endsAt,
+                    })}
                     {currentReserved > 0 ? " (excluding this line's current holding)." : "."}
                   </span>
                 ) : (
@@ -219,7 +257,11 @@ export function ReserveEquipmentDialog({
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm" disabled={isSubmitting}>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isSubmitting || !venueRequestId || availability.status !== "ready"}
+                  >
                     {isSubmitting ? "Reserving…" : "Confirm reservation"}
                   </Button>
                 </>

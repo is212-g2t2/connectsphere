@@ -23,7 +23,7 @@ export type VenueTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
  * sees every committed request. Reject only locks its row because it holds no venue time. Withdraw
  * key-shares the event first, so it reads the event's current Coordinator.
  */
-export async function lockVenue(tx: VenueTx, venueId: number): Promise<void> {
+export async function lockVenue(tx: Pick<VenueTx, "execute">, venueId: number): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(${venueId})`);
 }
 

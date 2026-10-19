@@ -12,6 +12,11 @@ import {
   venueRequests,
   venues,
 } from "#/db/schema";
+import {
+  bookingPeriod,
+  selectEquipmentBookings,
+} from "#/features/equipment-requests/bookings.server";
+import { parseUtcTimestamp } from "#/features/equipment-requests/availability";
 import { user as userTable } from "#/db/auth-schema";
 import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
@@ -252,6 +257,23 @@ export async function loadCurrentBookings(
   return current;
 }
 
+/**
+ * State whether the reservation window moved from the booking's buffered window. A missing
+ * booking, a missing snapshot, or a timestamp mismatch all count as moved.
+ */
+function windowMoved(
+  row: { reservationStartsAt: string | null; reservationEndsAt: string | null },
+  booking: { startsAt: string; endsAt: string } | undefined
+): boolean {
+  return (
+    !booking ||
+    row.reservationStartsAt === null ||
+    row.reservationEndsAt === null ||
+    parseUtcTimestamp(row.reservationStartsAt) !== parseUtcTimestamp(booking.startsAt) ||
+    parseUtcTimestamp(row.reservationEndsAt) !== parseUtcTimestamp(booking.endsAt)
+  );
+}
+
 export async function handleListEvents(
   data: unknown,
   user: SessionUser,
@@ -335,6 +357,9 @@ export async function handleListEvents(
         arrangementNotes: equipmentRequests.arrangementNotes,
         unavailableReason: equipmentRequests.unavailableReason,
         reservedQuantity: equipmentReservations.quantity,
+        venueRequestId: equipmentReservations.venueRequestId,
+        reservationStartsAt: equipmentReservations.startsAt,
+        reservationEndsAt: equipmentReservations.endsAt,
         lastReleasedAt: equipmentRequests.lastReleasedAt,
         lastReleasedQuantity: equipmentRequests.lastReleasedQuantity,
         lastReleasedByStaffName: equipmentRequests.lastReleasedByStaffName,
@@ -356,6 +381,13 @@ export async function handleListEvents(
         )
       ),
   ]);
+
+  const wantsEquipmentBookings =
+    user.role === "technical_support_staff" || user.role === "event_coordinator";
+  const equipmentBookings = wantsEquipmentBookings
+    ? await selectEquipmentBookings(database, requestIds)
+    : [];
+  const equipmentBookingById = new Map(equipmentBookings.map(booking => [booking.id, booking]));
 
   // Group child rows once. The card render below reads per event, so a map lookup
   // replaces the per-event scan.
@@ -497,6 +529,11 @@ export async function handleListEvents(
       arrangementNotes: row.arrangementNotes,
       unavailableReason: row.unavailableReason,
       reservedQuantity: row.reservedQuantity,
+      venueRequestId: row.venueRequestId,
+      windowChanged:
+        row.reservedQuantity !== null &&
+        wantsEquipmentBookings &&
+        windowMoved(row, equipmentBookingById.get(row.venueRequestId ?? "")),
       lastRelease:
         row.lastReleasedAt !== null && row.lastReleasedQuantity !== null
           ? {
@@ -574,6 +611,14 @@ export async function handleListEvents(
           // PTR-146: the Safety Officer's copy states the current booking's own session
           // requirements, which the fingerprint hashes, beside the event's fields.
           sessionRequirements: bookings.get(record.id)?.session ?? null,
+          equipmentBookings: equipmentBookings
+            .filter(booking => booking.eventId === record.id && !booking.suspended)
+            // oxlint-disable-next-line oxc/no-map-spread
+            .map(booking => ({
+              id: booking.id,
+              venueName: booking.venueName,
+              ...bookingPeriod(booking),
+            })),
         }
       ),
     ];

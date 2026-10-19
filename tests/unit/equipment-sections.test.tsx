@@ -173,6 +173,28 @@ describe("equipment sections", () => {
     expect(screen.getByRole("button", { name: "Check availability" })).toBeTruthy();
   });
 
+  it.each(["technical_support", "coordinator"] as const)(
+    "shows the derived window marker to %s",
+    access => {
+      renderSections(
+        page(access, {
+          equipment: [{ ...lines[0], windowChanged: true }],
+          equipmentSubmittedAt: "2026-10-01T00:00:00.000Z",
+        })
+      );
+      expect(screen.getByText("Window changed")).toBeTruthy();
+    }
+  );
+
+  it("shows one window marker on a line another member arranges", () => {
+    renderSections(
+      page("technical_support", {
+        equipment: [{ ...lines[0], windowChanged: true, arrangeable: false }],
+      })
+    );
+    expect(screen.getAllByText("Window changed")).toHaveLength(1);
+  });
+
   it("shows technical support the completion once recorded", () => {
     renderSections(
       page("technical_support", {

@@ -93,8 +93,8 @@ export async function vacateVenue(tx: VenueTx, source: OccupancySource): Promise
  * A ledger row's occupied period: its times extended by the buffers stored on it. Keep these
  * expressions identical to the constraint's, so the GiST index serves the overlap.
  */
-const occupiedStart = sql`${venueOccupancy.startsAt} - make_interval(mins => ${venueOccupancy.setupMinutes})`;
-const occupiedEnd = sql`${venueOccupancy.endsAt} + make_interval(mins => ${venueOccupancy.turnaroundMinutes})`;
+export const occupiedStart = sql`${venueOccupancy.startsAt} - make_interval(mins => ${venueOccupancy.setupMinutes})`;
+export const occupiedEnd = sql`${venueOccupancy.endsAt} + make_interval(mins => ${venueOccupancy.turnaroundMinutes})`;
 
 /**
  * Join a non-block ledger row to its source: `.leftJoin(venueRequests, joinsRequest)` and

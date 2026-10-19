@@ -500,7 +500,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     ).rejects.toMatchObject({
       name: "ConflictError",
       status: 409,
-      message: "Event must have an approved venue booking before equipment can be reserved",
+      message: "Event must have an active approved venue booking before equipment can be reserved",
     });
   });
 
@@ -580,7 +580,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     });
   });
 
-  it("refuses reservation when the event has more than one approved venue booking", async () => {
+  it("requires a booking choice when the event has several active bookings", async () => {
     const { eventId, equipmentRequestId } = await createEventWithApprovedBooking({
       name: "Two Bookings Event",
       startsAt: "2026-12-09 10:00:00",
@@ -607,9 +607,497 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     ).rejects.toMatchObject({
       name: "ConflictError",
       status: 409,
-      message:
-        "Event has more than one approved venue booking; equipment can only be reserved against a single period",
+      message: "Choose an active approved venue booking for this line",
     });
+    expect(
+      await database
+        .select()
+        .from(schema.equipmentReservations)
+        .where(eq(schema.equipmentReservations.equipmentRequestId, equipmentRequestId))
+    ).toEqual([]);
+    const [line] = await database
+      .select()
+      .from(schema.equipmentRequests)
+      .where(eq(schema.equipmentRequests.id, equipmentRequestId));
+    expect(line).toMatchObject({ arrangementStatus: "requested", assignedStaffId: null });
+  });
+
+  it("requires a choice if another booking is approved while reserve waits for the venue", async () => {
+    const target = await createEventWithApprovedBooking({
+      name: "Concurrent session approval",
+      startsAt: "2030-02-04 10:00:00",
+      endsAt: "2030-02-04 12:00:00",
+    });
+    const gate = await pool.connect();
+    await gate.query("select pg_advisory_lock($1::bigint)", [fixtureVenueId]);
+    const [{ pid }] = (await gate.query<{ pid: number }>("select pg_backend_pid() as pid")).rows;
+    const attempt = handleReserveEquipment(
+      { equipmentRequestId: target.equipmentRequestId, quantity: 1 },
+      session("tech1"),
+      database as never
+    ).then(
+      value => ({ value }),
+      (error: unknown) => ({ error })
+    );
+    try {
+      await expect
+        .poll(
+          async () => {
+            const result = await pool.query<{ waiting: number }>(
+              "select count(*)::int as waiting from pg_stat_activity where wait_event_type = 'Lock' and $1::int = any(pg_blocking_pids(pid))",
+              [pid]
+            );
+            return result.rows[0].waiting;
+          },
+          { timeout: 5000 }
+        )
+        .toBeGreaterThan(0);
+      await database.insert(schema.venueRequests).values({
+        id: `vr-${crypto.randomUUID()}`,
+        eventId: target.eventId,
+        venueId: fixtureVenueId2,
+        requestedById: fixtureUsers.coordinator.id,
+        startsAt: "2030-02-04 14:00:00",
+        endsAt: "2030-02-04 16:00:00",
+        status: "approved",
+      });
+    } finally {
+      await gate.query("select pg_advisory_unlock($1::bigint)", [fixtureVenueId]);
+      gate.release();
+    }
+    expect(await attempt).toMatchObject({
+      error: { message: "Choose an active approved venue booking for this line" },
+    });
+    expect(
+      await database
+        .select()
+        .from(schema.equipmentReservations)
+        .where(eq(schema.equipmentReservations.equipmentRequestId, target.equipmentRequestId))
+    ).toEqual([]);
+    const [line] = await database
+      .select()
+      .from(schema.equipmentRequests)
+      .where(eq(schema.equipmentRequests.id, target.equipmentRequestId));
+    expect(line).toMatchObject({ arrangementStatus: "requested", assignedStaffId: null });
+  });
+
+  it("refuses when the sole active booking changes while reserve waits for the venue", async () => {
+    const target = await createEventWithApprovedBooking({
+      name: "Concurrent session swap",
+      startsAt: "2030-02-04 10:00:00",
+      endsAt: "2030-02-04 12:00:00",
+    });
+    await database.insert(schema.venueOccupancy).values({
+      venueRequestId: target.venueRequestId,
+      eventId: target.eventId,
+      venueId: fixtureVenueId,
+      startsAt: "2030-02-04 10:00:00",
+      endsAt: "2030-02-04 12:00:00",
+      active: true,
+    });
+    const gate = await pool.connect();
+    await gate.query("select pg_advisory_lock($1::bigint)", [fixtureVenueId]);
+    const [{ pid }] = (await gate.query<{ pid: number }>("select pg_backend_pid() as pid")).rows;
+    const attempt = handleReserveEquipment(
+      { equipmentRequestId: target.equipmentRequestId, quantity: 1 },
+      session("tech1"),
+      database as never
+    ).then(
+      value => ({ value }),
+      (error: unknown) => ({ error })
+    );
+    try {
+      await expect
+        .poll(
+          async () => {
+            const result = await pool.query<{ waiting: number }>(
+              "select count(*)::int as waiting from pg_stat_activity where wait_event_type = 'Lock' and $1::int = any(pg_blocking_pids(pid))",
+              [pid]
+            );
+            return result.rows[0].waiting;
+          },
+          { timeout: 5000 }
+        )
+        .toBeGreaterThan(0);
+      // Swap the sole active booking while the reserve waits. The re-read meets the new choice.
+      await database.insert(schema.venueRequests).values({
+        id: `vr-${crypto.randomUUID()}`,
+        eventId: target.eventId,
+        venueId: fixtureVenueId2,
+        requestedById: fixtureUsers.coordinator.id,
+        startsAt: "2030-02-04 14:00:00",
+        endsAt: "2030-02-04 16:00:00",
+        status: "approved",
+      });
+      await database
+        .update(schema.venueOccupancy)
+        .set({ active: false })
+        .where(eq(schema.venueOccupancy.venueRequestId, target.venueRequestId));
+    } finally {
+      await gate.query("select pg_advisory_unlock($1::bigint)", [fixtureVenueId]);
+      gate.release();
+    }
+    expect(await attempt).toMatchObject({
+      error: { message: "The venue booking changed. Try again." },
+    });
+    expect(
+      await database
+        .select()
+        .from(schema.equipmentReservations)
+        .where(eq(schema.equipmentReservations.equipmentRequestId, target.equipmentRequestId))
+    ).toEqual([]);
+    const [line] = await database
+      .select()
+      .from(schema.equipmentRequests)
+      .where(eq(schema.equipmentRequests.id, target.equipmentRequestId));
+    expect(line).toMatchObject({ arrangementStatus: "requested", assignedStaffId: null });
+  });
+
+  it("uses the chosen session's stored buffers across both checks and reservation", async () => {
+    const target = await createEventWithApprovedBooking({
+      name: "Session windows",
+      startsAt: "2030-02-01 10:00:00",
+      endsAt: "2030-02-01 12:00:00",
+      itemRequestedQuantity: 4,
+    });
+    const secondId = `vr-${crypto.randomUUID()}`;
+    await database.insert(schema.venueRequests).values({
+      id: secondId,
+      eventId: target.eventId,
+      venueId: fixtureVenueId,
+      requestedById: fixtureUsers.coordinator.id,
+      startsAt: "2030-02-01 15:00:00",
+      endsAt: "2030-02-01 17:00:00",
+      status: "approved",
+    });
+    await database.insert(schema.venueOccupancy).values([
+      {
+        venueRequestId: target.venueRequestId,
+        eventId: target.eventId,
+        venueId: fixtureVenueId,
+        startsAt: "2030-02-01 10:00:00",
+        endsAt: "2030-02-01 12:00:00",
+        setupMinutes: 30,
+        turnaroundMinutes: 45,
+      },
+      {
+        venueRequestId: secondId,
+        eventId: target.eventId,
+        venueId: fixtureVenueId,
+        startsAt: "2030-02-01 15:00:00",
+        endsAt: "2030-02-01 17:00:00",
+        setupMinutes: 30,
+        turnaroundMinutes: 45,
+      },
+    ]);
+    const competitor = await createEventWithApprovedBooking({
+      name: "Setup competitor",
+      startsAt: "2030-02-01 09:00:00",
+      endsAt: "2030-02-01 09:45:00",
+      venueId: fixtureVenueId2,
+    });
+    await handleReserveEquipment(
+      { equipmentRequestId: competitor.equipmentRequestId, quantity: 2 },
+      session("tech2"),
+      database as never
+    );
+    const input = {
+      equipmentRequestId: target.equipmentRequestId,
+      venueRequestId: target.venueRequestId,
+    };
+    expect(await handleCheckLineAvailability(input, session("tech1"), database as never)).toEqual({
+      availableQuantity: 2,
+      period: { startsAt: "2030-02-01T09:30", endsAt: "2030-02-01T12:45" },
+    });
+    expect(
+      await handleCheckEquipmentAvailability(
+        {
+          eventId: target.eventId,
+          equipmentTypeId: testEquipmentTypeId,
+          venueRequestId: target.venueRequestId,
+        },
+        session("tech1"),
+        database as never
+      )
+    ).toMatchObject({ available: 2 });
+    await expect(
+      handleReserveEquipment({ ...input, quantity: 3 }, session("tech1"), database as never)
+    ).rejects.toThrow("shortfall of 1");
+    await handleReserveEquipment({ ...input, quantity: 2 }, session("tech1"), database as never);
+    const [reservation] = await database
+      .select()
+      .from(schema.equipmentReservations)
+      .where(eq(schema.equipmentReservations.equipmentRequestId, target.equipmentRequestId));
+    expect(reservation).toMatchObject({
+      venueRequestId: target.venueRequestId,
+      startsAt: "2030-02-01 09:30:00",
+      endsAt: "2030-02-01 12:45:00",
+    });
+    expect(
+      await handleCheckLineAvailability(
+        { ...input, venueRequestId: secondId },
+        session("tech1"),
+        database as never
+      )
+    ).toMatchObject({
+      availableQuantity: 4,
+      period: { startsAt: "2030-02-01T14:30", endsAt: "2030-02-01T17:45" },
+    });
+    expect(
+      await handleCheckEquipmentAvailability(
+        { eventId: target.eventId, equipmentTypeId: testEquipmentTypeId, venueRequestId: secondId },
+        session("tech1"),
+        database as never
+      )
+    ).toMatchObject({ available: 4 });
+    await handleReserveEquipment(
+      { ...input, venueRequestId: secondId, quantity: 4 },
+      session("tech1"),
+      database as never
+    );
+    expect(
+      await handleCheckEquipmentAvailability(
+        {
+          eventId: target.eventId,
+          equipmentTypeId: testEquipmentTypeId,
+          venueRequestId: target.venueRequestId,
+        },
+        session("tech1"),
+        database as never
+      )
+    ).toMatchObject({ available: 2 });
+  });
+
+  it("spans both pieces of a split booking when reading the period", async () => {
+    const target = await createEventWithApprovedBooking({
+      name: "Split Pieces Event",
+      startsAt: "2030-02-05 15:00:00",
+      endsAt: "2030-02-05 17:00:00",
+    });
+    await database.insert(schema.venueOccupancy).values([
+      {
+        venueRequestId: target.venueRequestId,
+        eventId: target.eventId,
+        venueId: fixtureVenueId,
+        startsAt: "2030-02-05 15:00:00",
+        endsAt: "2030-02-05 16:00:00",
+        setupMinutes: 30,
+        turnaroundMinutes: 0,
+      },
+      {
+        venueRequestId: target.venueRequestId,
+        eventId: target.eventId,
+        venueId: fixtureVenueId,
+        startsAt: "2030-02-05 16:00:00",
+        endsAt: "2030-02-05 17:00:00",
+        setupMinutes: 0,
+        turnaroundMinutes: 45,
+      },
+    ]);
+
+    await expect(
+      handleCheckEquipmentAvailability(
+        { eventId: target.eventId, equipmentTypeId: testEquipmentTypeId },
+        session("tech1"),
+        database as never
+      )
+    ).resolves.toMatchObject({
+      period: { startsAt: "2030-02-05T14:30", endsAt: "2030-02-05T17:45" },
+    });
+
+    await handleReserveEquipment(
+      { equipmentRequestId: target.equipmentRequestId, quantity: 1 },
+      session("tech1"),
+      database as never
+    );
+    const [reservation] = await database
+      .select()
+      .from(schema.equipmentReservations)
+      .where(eq(schema.equipmentReservations.equipmentRequestId, target.equipmentRequestId));
+    expect(reservation).toMatchObject({
+      startsAt: "2030-02-05 14:30:00",
+      endsAt: "2030-02-05 17:45:00",
+    });
+  });
+
+  it("falls back to the venue buffers when the booking has no ledger rows", async () => {
+    const [venue] = await database
+      .insert(schema.venues)
+      .values({
+        name: `Buffered Venue ${crypto.randomUUID()}`,
+        location: "Building E",
+        maxCapacity: 200,
+        setupMinutes: 20,
+        turnaroundMinutes: 40,
+        operatingHours: DEFAULT_OPERATING_HOURS,
+      })
+      .returning({ id: schema.venues.id });
+    const target = await createEventWithApprovedBooking({
+      name: "Fallback Buffers Event",
+      startsAt: "2030-02-06 10:00:00",
+      endsAt: "2030-02-06 12:00:00",
+      venueId: venue.id,
+    });
+    try {
+      await expect(
+        handleCheckEquipmentAvailability(
+          { eventId: target.eventId, equipmentTypeId: testEquipmentTypeId },
+          session("tech1"),
+          database as never
+        )
+      ).resolves.toMatchObject({
+        period: { startsAt: "2030-02-06T09:40", endsAt: "2030-02-06T12:40" },
+      });
+
+      await handleReserveEquipment(
+        { equipmentRequestId: target.equipmentRequestId, quantity: 1 },
+        session("tech1"),
+        database as never
+      );
+      const [reservation] = await database
+        .select()
+        .from(schema.equipmentReservations)
+        .where(eq(schema.equipmentReservations.equipmentRequestId, target.equipmentRequestId));
+      expect(reservation).toMatchObject({
+        startsAt: "2030-02-06 09:40:00",
+        endsAt: "2030-02-06 12:40:00",
+      });
+    } finally {
+      await database
+        .delete(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, target.eventId));
+      await database.delete(schema.venues).where(eq(schema.venues.id, venue.id));
+    }
+  });
+
+  it("excludes a partially suspended booking and refuses foreign and released targets", async () => {
+    const target = await createEventWithApprovedBooking({
+      name: "Suspended session",
+      startsAt: "2030-02-02 10:00:00",
+      endsAt: "2030-02-02 12:00:00",
+    });
+    await database.insert(schema.venueOccupancy).values([
+      {
+        venueRequestId: target.venueRequestId,
+        eventId: target.eventId,
+        venueId: fixtureVenueId,
+        startsAt: "2030-02-02 10:00:00",
+        endsAt: "2030-02-02 11:00:00",
+        active: true,
+      },
+      {
+        venueRequestId: target.venueRequestId,
+        eventId: target.eventId,
+        venueId: fixtureVenueId,
+        startsAt: "2030-02-02 11:00:00",
+        endsAt: "2030-02-02 12:00:00",
+        active: false,
+      },
+    ]);
+    const input = {
+      equipmentRequestId: target.equipmentRequestId,
+      venueRequestId: target.venueRequestId,
+    };
+    await expect(
+      handleReserveEquipment({ ...input, quantity: 1 }, session("tech1"), database as never)
+    ).rejects.toThrow("approved venue booking");
+    await expect(
+      handleCheckLineAvailability(input, session("tech1"), database as never)
+    ).rejects.toThrow("approved venue booking");
+    await expect(
+      handleCheckEquipmentAvailability(
+        {
+          eventId: target.eventId,
+          equipmentTypeId: testEquipmentTypeId,
+          venueRequestId: target.venueRequestId,
+        },
+        session("tech1"),
+        database as never
+      )
+    ).rejects.toThrow("approved venue booking");
+    const [projection] = await handleListEvents(
+      { eventId: target.eventId },
+      session("tech1"),
+      database as never
+    );
+    expect(projection.event.equipmentBookings).toEqual([]);
+    await database
+      .update(schema.venueOccupancy)
+      .set({ active: true })
+      .where(eq(schema.venueOccupancy.venueRequestId, target.venueRequestId));
+    await expect(
+      handleReserveEquipment(
+        { ...input, venueRequestId: "another-event", quantity: 1 },
+        session("tech1"),
+        database as never
+      )
+    ).rejects.toThrow("Choose an active");
+    await database
+      .update(schema.venueRequests)
+      .set({ status: "released", releaseReason: "Test" })
+      .where(eq(schema.venueRequests.id, target.venueRequestId));
+    await expect(
+      handleReserveEquipment({ ...input, quantity: 1 }, session("tech1"), database as never)
+    ).rejects.toThrow("approved venue booking");
+    expect(
+      await database
+        .select()
+        .from(schema.equipmentReservations)
+        .where(eq(schema.equipmentReservations.equipmentRequestId, target.equipmentRequestId))
+    ).toEqual([]);
+  });
+
+  it("derives Window changed on read without changing the holding or sending a notice", async () => {
+    const target = await createEventWithApprovedBooking({
+      name: "Changed session",
+      startsAt: "2030-02-03 10:00:00",
+      endsAt: "2030-02-03 12:00:00",
+    });
+    await handleReserveEquipment(
+      { equipmentRequestId: target.equipmentRequestId, quantity: 2 },
+      session("tech1"),
+      database as never
+    );
+    const read = async (actor: SessionUser) =>
+      (await handleListEvents({ eventId: target.eventId }, actor, database as never))[0].event
+        .equipment?.[0];
+    expect(await read(session("tech1"))).toMatchObject({ windowChanged: false });
+    const noticesBefore = await database
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.eventRequestId, target.eventId));
+    await database
+      .update(schema.venueRequests)
+      .set({ endsAt: "2030-02-03 13:00:00" })
+      .where(eq(schema.venueRequests.id, target.venueRequestId));
+    const projections = await Promise.all([session("tech1"), session("coordinator")].map(read));
+    for (const projection of projections) {
+      expect(projection).toMatchObject({
+        windowChanged: true,
+        reservedQuantity: 2,
+        arrangementStatus: "reserved",
+      });
+    }
+    await handleReserveEquipment(
+      { equipmentRequestId: target.equipmentRequestId, quantity: 2 },
+      session("tech1"),
+      database as never
+    );
+    expect(await read(session("tech1"))).toMatchObject({ windowChanged: false });
+    await database
+      .update(schema.venueRequests)
+      .set({ status: "released", releaseReason: "Test" })
+      .where(eq(schema.venueRequests.id, target.venueRequestId));
+    expect(await read(session("coordinator"))).toMatchObject({
+      windowChanged: true,
+      reservedQuantity: 2,
+    });
+    expect(
+      await database
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.eventRequestId, target.eventId))
+    ).toEqual(noticesBefore);
   });
 
   it("resolves the catalogue type by name when the line has none yet", async () => {
