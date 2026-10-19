@@ -47,7 +47,7 @@ import {
   VENUE_HOLD_REQUEST_NOTE,
 } from "#/features/venue-requests/schema";
 import { AvailabilitySelectionFormInput } from "#/features/venues/schema";
-import type { AvailabilitySearch } from "#/features/venues/schema";
+import type { AvailabilitySearch, RoomLayout } from "#/features/venues/schema";
 import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
 import { cn, NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -114,12 +114,15 @@ export function VenueCalendarPage({
   venues,
   schedule,
   search,
+  layouts,
   user,
   coordinatorEvents,
 }: {
   venues: Venue[];
   schedule: VenueAvailability | null;
   search: AvailabilitySearch;
+  /** The maintained list. Hold conversion refuses a typo against it. */
+  layouts?: readonly RoomLayout[];
   user?: SessionUser | null;
   coordinatorEvents?: readonly CoordinatorEventOption[];
 }) {
@@ -481,6 +484,7 @@ export function VenueCalendarPage({
                               <ConvertVenueHoldButton
                                 holdId={period.id}
                                 requirements={period.convertDefaults}
+                                layouts={layouts}
                               />
                             )}
                             {canHold && period.canRelease && (

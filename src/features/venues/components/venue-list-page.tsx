@@ -18,7 +18,11 @@ import {
 } from "#/components/ui/table";
 import { can } from "#/features/auth/permissions";
 import type { SessionUser } from "#/features/auth/session";
-import { LAYOUT_LABELS, VenueSearchFormInput, crossesMidnight } from "#/features/venues/schema";
+import {
+  createVenueSearchFormInput,
+  crossesMidnight,
+  layoutLabelForKey,
+} from "#/features/venues/schema";
 import type { VenueSearch, VenueSearchFormValues } from "#/features/venues/schema";
 import type { VenueSearchResult } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -113,14 +117,15 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
   const navigate = useNavigate();
   const canCreate = can(user.role, { venue: ["create"] });
   const canSearch = can(user.role, { venue: ["search"] });
-  const { event, filters, venues, unsuitable } = result;
+  const { event, filters, venues, unsuitable, layouts } = result;
+  const searchFormInput = createVenueSearchFormInput(layouts);
 
   const form = useForm({
     defaultValues: toSearchFormValues(filters),
-    validators: { onSubmit: VenueSearchFormInput },
+    validators: { onSubmit: searchFormInput },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await navigate({ to: "/venues", search: VenueSearchFormInput.parse(value) });
+        await navigate({ to: "/venues", search: searchFormInput.parse(value) });
       } catch (searchError) {
         formApi.setErrorMap({
           onSubmit: {
@@ -326,7 +331,9 @@ export function VenueListPage({ user, result }: { user: SessionUser; result: Ven
                   <TableCell>{venue.maxCapacity}</TableCell>
                   <TableCell>{venue.facilities.join(", ") || "—"}</TableCell>
                   <TableCell>
-                    {venue.supportedLayouts.map(layout => LAYOUT_LABELS[layout]).join(", ") || "—"}
+                    {venue.supportedLayouts
+                      .map(key => layoutLabelForKey(key, layouts))
+                      .join(", ") || "—"}
                   </TableCell>
                 </TableRow>
               ))}

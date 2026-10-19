@@ -12,6 +12,7 @@ import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetails } from "#/features/venues/components/venue-details";
 import { VenueForm } from "#/features/venues/components/venue-form";
 import { saveVenue } from "#/features/venues/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 import type { VenueWithConflicts } from "#/features/venues/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import { skipRootFilter } from "#/lib/invalidate";
@@ -27,6 +28,7 @@ import { skipRootFilter } from "#/lib/invalidate";
  */
 export function VenueDetailPage({
   venue,
+  layouts,
   user,
   justCreated,
   requestContext,
@@ -34,6 +36,8 @@ export function VenueDetailPage({
   prefill = null,
 }: {
   venue: VenueWithConflicts;
+  /** The maintained list, from the route loader. The form and read-only view read it. */
+  layouts: readonly RoomLayout[];
   user: SessionUser;
   justCreated: boolean;
   requestContext: VenueRequestContext | null;
@@ -140,6 +144,7 @@ export function VenueDetailPage({
           // links to it today. `initial` stays loader-derived in all cases.
           key={`${venue.id}-${venue.updatedAt.toString()}`}
           initial={venue}
+          layouts={layouts}
           onSave={async values => {
             // Drop and re-raise the banner around the save. Do not just set it. `<output>` is an implicit
             // live region. Re-announcing a repeat save needs the node to leave and return. Holding the same
@@ -155,7 +160,7 @@ export function VenueDetailPage({
           }}
         />
       ) : (
-        <VenueDetails venue={venue} />
+        <VenueDetails venue={venue} layouts={layouts} />
       )}
 
       {requestContext ? (
@@ -166,6 +171,7 @@ export function VenueDetailPage({
           venueId={venue.id}
           venueName={venue.name}
           context={requestContext}
+          layouts={layouts}
           prefill={prefill}
         />
       ) : (

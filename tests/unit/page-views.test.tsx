@@ -8,7 +8,7 @@ import { DashboardPage } from "#/features/dashboard/components/dashboard-page";
 import { DashboardPageSkeleton } from "#/features/dashboard/components/dashboard-page-skeleton";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
 import { VenueListPage } from "#/features/venues/components/venue-list-page";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { DEFAULT_OPERATING_HOURS, INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
 import type { SessionUser } from "#/features/auth/session";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { Venue } from "#/features/venues/server-fns";
@@ -244,7 +244,13 @@ describe("VenueListPage", () => {
     render(
       <VenueListPage
         user={userWithRole("event_coordinator")}
-        result={{ event: null, filters: {}, venues: [venue], unsuitable: [] }}
+        result={{
+          event: null,
+          filters: {},
+          venues: [venue],
+          unsuitable: [],
+          layouts: [...INITIAL_ROOM_LAYOUTS],
+        }}
       />
     );
 
@@ -257,7 +263,13 @@ describe("VenueListPage", () => {
     render(
       <VenueListPage
         user={userWithRole("venue_staff")}
-        result={{ event: null, filters: {}, venues: [], unsuitable: [] }}
+        result={{
+          event: null,
+          filters: {},
+          venues: [],
+          unsuitable: [],
+          layouts: [...INITIAL_ROOM_LAYOUTS],
+        }}
       />
     );
 
@@ -271,7 +283,13 @@ describe("VenueListPage", () => {
       render(
         <VenueListPage
           user={userWithRole(role)}
-          result={{ event: null, filters: {}, venues: [venue], unsuitable: [] }}
+          result={{
+            event: null,
+            filters: {},
+            venues: [venue],
+            unsuitable: [],
+            layouts: [...INITIAL_ROOM_LAYOUTS],
+          }}
         />
       );
 
@@ -299,6 +317,7 @@ describe("VenueDetailPage", () => {
       <VenueDetailPage
         user={userWithRole("event_coordinator")}
         venue={venue}
+        layouts={INITIAL_ROOM_LAYOUTS}
         justCreated={false}
         requestContext={null}
         requestContextFailed={false}
@@ -315,6 +334,7 @@ describe("VenueDetailPage", () => {
       <VenueDetailPage
         user={userWithRole("venue_staff")}
         venue={venue}
+        layouts={INITIAL_ROOM_LAYOUTS}
         justCreated
         requestContext={null}
         requestContextFailed={false}
@@ -330,6 +350,7 @@ describe("VenueDetailPage", () => {
       <VenueDetailPage
         user={userWithRole("event_coordinator")}
         venue={venue}
+        layouts={INITIAL_ROOM_LAYOUTS}
         justCreated={false}
         requestContext={null}
         requestContextFailed={false}
@@ -346,6 +367,7 @@ describe("VenueDetailPage", () => {
       <VenueDetailPage
         user={userWithRole("event_coordinator")}
         venue={venue}
+        layouts={INITIAL_ROOM_LAYOUTS}
         justCreated={false}
         requestContext={null}
         requestContextFailed
@@ -367,6 +389,7 @@ describe("VenueDetailPage", () => {
       <VenueDetailPage
         user={userWithRole("venue_staff")}
         venue={venue}
+        layouts={INITIAL_ROOM_LAYOUTS}
         justCreated={false}
         requestContext={null}
         requestContextFailed={false}
@@ -402,6 +425,7 @@ describe("VenueDetailPage", () => {
       <VenueDetailPage
         user={userWithRole("event_coordinator")}
         venue={venue}
+        layouts={INITIAL_ROOM_LAYOUTS}
         justCreated={false}
         requestContext={openContext}
         requestContextFailed={false}
@@ -414,6 +438,7 @@ describe("VenueDetailPage", () => {
       <VenueDetailPage
         user={userWithRole("event_coordinator")}
         venue={venue}
+        layouts={INITIAL_ROOM_LAYOUTS}
         justCreated={false}
         requestContext={{
           ...openContext,

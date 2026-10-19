@@ -81,8 +81,14 @@ import {
   loadWindowAvailabilityFailures,
   requirementFailures,
 } from "#/features/venues/records.server";
-import { SEARCHABLE_EVENT_STATUSES, VENUE_BLOCK_RETRY_MESSAGE } from "#/features/venues/schema";
-import type { OperatingHours, VenueLayout } from "#/features/venues/schema";
+import {
+  INITIAL_ROOM_LAYOUTS,
+  SEARCHABLE_EVENT_STATUSES,
+  VENUE_BLOCK_RETRY_MESSAGE,
+  assertKnownLayoutText,
+} from "#/features/venues/schema";
+import type { OperatingHours, RoomLayout, VenueLayout } from "#/features/venues/schema";
+import { handleListRoomLayouts } from "#/features/venues/layouts.server";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
 
@@ -304,13 +310,21 @@ export async function checkVenueTakesBooking(
  * that search applies (`requirementFailures`), and name every failure. Pass the venue that
  * `loadLockedVenue` read under the venue lock.
  */
-export function assertMeetsRequirements(venue: LockedVenue, requirements: SessionRequirements) {
-  const failures = requirementFailures(venue, {
-    expectedAttendance: requirements.expectedAttendance ?? undefined,
-    layout: requirements.layout,
-    accessibility: requirements.accessibilityRequirements,
-    facilities: requirements.requiredFacilities,
-  });
+export function assertMeetsRequirements(
+  venue: LockedVenue,
+  requirements: SessionRequirements,
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[]
+) {
+  const failures = requirementFailures(
+    venue,
+    {
+      expectedAttendance: requirements.expectedAttendance ?? undefined,
+      layout: requirements.layout,
+      accessibility: requirements.accessibilityRequirements,
+      facilities: requirements.requiredFacilities,
+    },
+    layouts
+  );
   if (failures.length > 0) {
     throw new ConflictError(
       venueRequirementsMessage(
@@ -329,7 +343,8 @@ export function assertMeetsRequirements(venue: LockedVenue, requirements: Sessio
 export function checkSessionRequirements(
   venue: LockedVenue,
   event: SessionRequirements,
-  session: SessionRequirementInput
+  session: SessionRequirementInput,
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[]
 ): SessionRequirements {
   const requirements: SessionRequirements = {
     expectedAttendance: session.expectedAttendance ?? event.expectedAttendance,
@@ -337,7 +352,11 @@ export function checkSessionRequirements(
     accessibilityRequirements: session.accessibilityRequirements ?? event.accessibilityRequirements,
     requiredFacilities: session.requiredFacilities ?? event.requiredFacilities,
   };
-  assertMeetsRequirements(venue, requirements);
+  assertKnownLayoutText(
+    requirements.layout.trim() === "" ? undefined : requirements.layout,
+    layouts ?? INITIAL_ROOM_LAYOUTS
+  );
+  assertMeetsRequirements(venue, requirements, layouts);
   return requirements;
 }
 
@@ -766,7 +785,8 @@ export async function handleCreateVenueRequest(
     // creators for one event, so the overlap check sees the other creator's committed row.
     await lockVenue(tx, input.venueId);
     const venue = await loadLockedVenue(tx, input.venueId);
-    const requirements = checkSessionRequirements(venue, event.requirements, input);
+    const layouts = await handleListRoomLayouts(tx);
+    const requirements = checkSessionRequirements(venue, event.requirements, input, layouts);
     // The column returns `YYYY-MM-DD HH:MM:SS` because it uses `mode: "string"`.
     const startsAt = `${input.date} ${input.startTime}:00`;
     const endsAt = `${input.date} ${input.endTime}:00`;
@@ -1084,7 +1104,7 @@ export async function handleApproveVenueRequest(
 
     const venue = await loadLockedVenue(tx, row.venueId);
     // A row from before session requirements carries the event's current requirements.
-    assertMeetsRequirements(venue, row.requirements);
+    assertMeetsRequirements(venue, row.requirements, await handleListRoomLayouts(tx));
     const occupancy = await checkVenueTakesBooking(tx, venue, row);
 
     // A new approved booking can raise the total venue ceiling and open a place for the
