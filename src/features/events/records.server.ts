@@ -5,6 +5,8 @@ import type { db as Db } from "#/db";
 import {
   equipmentRequests,
   equipmentReservations,
+  equipmentTypes,
+  equipmentUnavailability,
   eventRegistrations,
   eventRequests,
   safetyReviews,
@@ -15,7 +17,10 @@ import {
   bookingPeriod,
   selectEquipmentBookings,
 } from "#/features/equipment-requests/bookings.server";
-import { parseUtcTimestamp } from "#/features/equipment-requests/availability";
+import {
+  computeEquipmentShortfalls,
+  parseUtcTimestamp,
+} from "#/features/equipment-requests/availability";
 import { user as userTable } from "#/db/auth-schema";
 import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
@@ -286,6 +291,53 @@ function windowMoved(
   );
 }
 
+/**
+ * PTR-162 AC3: load the shortfall per equipment line for the given types. Capacity is held
+ * minus out-of-service. The peak counts every reservation for the type, across all events.
+ */
+async function loadEquipmentShortfalls(
+  database: Pick<Database, "select">,
+  typeIds: number[]
+): Promise<Map<string, number>> {
+  if (typeIds.length === 0) return new Map();
+  const [types, unavailable, reservations] = await Promise.all([
+    database
+      .select({ id: equipmentTypes.id, quantityHeld: equipmentTypes.quantityHeld })
+      .from(equipmentTypes)
+      .where(inArray(equipmentTypes.id, typeIds)),
+    database
+      .select({
+        equipmentTypeId: equipmentUnavailability.equipmentTypeId,
+        quantityUnavailable: equipmentUnavailability.quantityUnavailable,
+      })
+      .from(equipmentUnavailability)
+      .where(inArray(equipmentUnavailability.equipmentTypeId, typeIds)),
+    database
+      .select({
+        equipmentRequestId: equipmentReservations.equipmentRequestId,
+        equipmentTypeId: equipmentReservations.equipmentTypeId,
+        startsAt: equipmentReservations.startsAt,
+        endsAt: equipmentReservations.endsAt,
+        quantity: equipmentReservations.quantity,
+      })
+      .from(equipmentReservations)
+      .where(inArray(equipmentReservations.equipmentTypeId, typeIds)),
+  ]);
+  const heldByType = new Map(types.map(type => [type.id, type.quantityHeld]));
+  const unavailableByType = new Map<number, number>();
+  for (const row of unavailable) {
+    unavailableByType.set(
+      row.equipmentTypeId,
+      (unavailableByType.get(row.equipmentTypeId) ?? 0) + row.quantityUnavailable
+    );
+  }
+  const capacities = new Map<number, number>();
+  for (const id of typeIds) {
+    capacities.set(id, Math.max(0, (heldByType.get(id) ?? 0) - (unavailableByType.get(id) ?? 0)));
+  }
+  return computeEquipmentShortfalls({ capacities, reservations });
+}
+
 export async function handleListEvents(
   data: unknown,
   user: SessionUser,
@@ -368,7 +420,9 @@ export async function handleListEvents(
         notes: equipmentRequests.notes,
         arrangementNotes: equipmentRequests.arrangementNotes,
         unavailableReason: equipmentRequests.unavailableReason,
+        equipmentTypeId: equipmentRequests.equipmentTypeId,
         reservedQuantity: equipmentReservations.quantity,
+        reservationTypeId: equipmentReservations.equipmentTypeId,
         venueRequestId: equipmentReservations.venueRequestId,
         reservationStartsAt: equipmentReservations.startsAt,
         reservationEndsAt: equipmentReservations.endsAt,
@@ -400,6 +454,18 @@ export async function handleListEvents(
     ? await selectEquipmentBookings(database, requestIds)
     : [];
   const equipmentBookingById = new Map(equipmentBookings.map(booking => [booking.id, booking]));
+
+  // PTR-162 AC3: derive "Short by N" when overlapping reservations exceed held minus
+  // out-of-service. Read capacities and every reservation for the reserved types once, then
+  // compute the peak per reservation window. A saved catalogue change never releases units.
+  const shortfallByLine =
+    wantsEquipmentBookings && equipmentRows.some(row => row.reservedQuantity !== null)
+      ? await loadEquipmentShortfalls(database, [
+          ...new Set(
+            equipmentRows.flatMap(row => (row.reservationTypeId ? [row.reservationTypeId] : []))
+          ),
+        ])
+      : new Map<string, number>();
 
   // Group child rows once. The card render below reads per event, so a map lookup
   // replaces the per-event scan.
@@ -580,6 +646,11 @@ export async function handleListEvents(
               byName: row.lastReleasedByStaffName ?? "Technical Support",
               at: row.lastReleasedAt.toISOString(),
             }
+          : null,
+      equipmentTypeId: row.equipmentTypeId,
+      shortfall:
+        row.reservedQuantity !== null && wantsEquipmentBookings
+          ? (shortfallByLine.get(row.id) ?? 0)
           : null,
       // Only Technical Support acts on a line. Only their copy states whether they may act.
       arrangeable:

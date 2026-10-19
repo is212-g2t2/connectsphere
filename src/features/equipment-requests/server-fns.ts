@@ -7,6 +7,10 @@ import {
   parseCheckLineAvailabilityInput,
   parseCompleteArrangementsInput,
   parseEquipmentLineInput,
+  parseEquipmentTypeId,
+  parseEquipmentTypeInput,
+  parseEquipmentUnavailabilityInput,
+  parseMapEquipmentLineInput,
   parseRecordUnavailableInput,
   parseReleaseEquipmentInput,
   parseRemoveEquipmentLineInput,
@@ -170,6 +174,84 @@ export const listEquipmentTypes = createServerFn({ method: "GET" })
       import("#/features/equipment-requests/availability.server"),
     ]);
     return handleListEquipmentTypes(db);
+  });
+
+/** PTR-162 AC1: add a type or change its quantity held. Technical Support maintains the catalogue. */
+export const saveEquipmentType = createServerFn({ method: "POST" })
+  .validator(parseEquipmentTypeInput)
+  .middleware([requireEquipmentArrange])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleSaveEquipmentType }] = await Promise.all([
+      import("#/db"),
+      import("#/features/equipment-requests/availability.server"),
+    ]);
+    const type = await handleSaveEquipmentType(data, context.user, db);
+
+    log.info("Equipment type saved", {
+      equipmentTypeId: type.id,
+      name: type.name,
+      actorId: context.user.id,
+    });
+
+    return type;
+  });
+
+/** PTR-162 AC4: delete a type that no line or reservation references. */
+export const deleteEquipmentType = createServerFn({ method: "POST" })
+  .validator(parseEquipmentTypeId)
+  .middleware([requireEquipmentArrange])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleDeleteEquipmentType }] = await Promise.all([
+      import("#/db"),
+      import("#/features/equipment-requests/availability.server"),
+    ]);
+    const type = await handleDeleteEquipmentType(data, context.user, db);
+
+    log.info("Equipment type deleted", {
+      equipmentTypeId: type.id,
+      actorId: context.user.id,
+    });
+
+    return type;
+  });
+
+/** PTR-162 AC2: record or change the out-of-service quantity for one type and reason. */
+export const saveEquipmentUnavailability = createServerFn({ method: "POST" })
+  .validator(parseEquipmentUnavailabilityInput)
+  .middleware([requireEquipmentArrange])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleSaveEquipmentUnavailability }] = await Promise.all([
+      import("#/db"),
+      import("#/features/equipment-requests/availability.server"),
+    ]);
+    const row = await handleSaveEquipmentUnavailability(data, context.user, db);
+
+    log.info("Equipment out-of-service quantity saved", {
+      equipmentTypeId: row.equipmentTypeId,
+      actorId: context.user.id,
+    });
+
+    return row;
+  });
+
+/** PTR-162 AC5: map a free-text line to a catalogue type so reserve works. */
+export const mapEquipmentLine = createServerFn({ method: "POST" })
+  .validator(parseMapEquipmentLineInput)
+  .middleware([requireEquipmentArrange])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleMapEquipmentLine }] = await Promise.all([
+      import("#/db"),
+      import("#/features/equipment-requests/equipment.server"),
+    ]);
+    const line = await handleMapEquipmentLine(data, context.user, db);
+
+    log.info("Equipment line mapped to type", {
+      lineId: line.id,
+      equipmentTypeId: line.equipmentTypeId,
+      actorId: context.user.id,
+    });
+
+    return line;
   });
 
 /** PTR-41: Reserve equipment for an event's approved venue booking period. */

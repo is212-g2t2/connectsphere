@@ -34,6 +34,7 @@ import {
 import {
   checkEquipmentAvailability,
   completeEquipmentArrangements,
+  mapEquipmentLine,
   recordEquipmentUnavailable,
   updateEquipmentArrangement,
 } from "#/features/equipment-requests/server-fns";
@@ -49,10 +50,12 @@ export function ArrangementLines({
   eventId,
   lines,
   bookings,
+  equipmentTypes = null,
 }: {
   eventId: number;
   lines: EquipmentLineProjection[];
   bookings: EquipmentBookingOption[];
+  equipmentTypes?: EquipmentTypeOption[] | null;
 }) {
   if (lines.length === 0) {
     return <p className="body-sm text-muted-foreground">No equipment lines recorded.</p>;
@@ -60,7 +63,13 @@ export function ArrangementLines({
   return (
     <ul className="space-y-4">
       {lines.map(line => (
-        <ArrangementLine key={line.id} eventId={eventId} line={line} bookings={bookings} />
+        <ArrangementLine
+          key={line.id}
+          eventId={eventId}
+          line={line}
+          bookings={bookings}
+          equipmentTypes={equipmentTypes}
+        />
       ))}
     </ul>
   );
@@ -281,10 +290,12 @@ function ArrangementLine({
   eventId,
   line,
   bookings,
+  equipmentTypes,
 }: {
   eventId: number;
   line: EquipmentLineProjection;
   bookings: EquipmentBookingOption[];
+  equipmentTypes?: EquipmentTypeOption[] | null;
 }) {
   const canReserve = line.arrangeable !== false && line.arrangementStatus === "requested";
   // PTR-42: only units already held can be given back.
@@ -300,11 +311,17 @@ function ArrangementLine({
       {line.windowChanged && line.arrangeable !== false && (
         <p className="mt-1 body-sm font-medium">Window changed</p>
       )}
+      {(line.shortfall ?? 0) > 0 && line.arrangeable !== false && (
+        <p className="mt-1 body-sm font-medium">Short by {line.shortfall}</p>
+      )}
       {line.notes && <p className="mt-1 body-sm text-muted-foreground">{line.notes}</p>}
       {line.lastRelease && (
         <div className="mt-1">
           <LastReleaseNote release={line.lastRelease} />
         </div>
+      )}
+      {(line.equipmentTypeId ?? null) === null && line.arrangeable !== false && (
+        <MapLineToType eventId={eventId} line={line} equipmentTypes={equipmentTypes} />
       )}
 
       {line.arrangeable === false ? (
@@ -329,6 +346,79 @@ function ArrangementLine({
         </>
       )}
     </li>
+  );
+}
+
+/** PTR-162 AC5: map a free-text line to a catalogue type so reserve works. */
+function MapLineToType({
+  eventId,
+  line,
+  equipmentTypes,
+}: {
+  eventId: number;
+  line: EquipmentLineProjection;
+  equipmentTypes?: EquipmentTypeOption[] | null;
+}) {
+  const router = useRouter();
+  const [typeId, setTypeId] = useState("");
+  const [mapping, map, mappingInFlight] = useMutation(async () => {
+    await mapEquipmentLine({
+      data: { eventId, id: line.id, equipmentTypeId: Number(typeId) },
+    });
+    toast.success("Equipment line mapped to type.");
+    await router.invalidate({ filter: skipRootFilter });
+  }, "Could not map this line. Try again.");
+
+  if (equipmentTypes === null) {
+    return <p className="mt-2 body-sm text-muted-foreground">Could not load equipment types.</p>;
+  }
+  if (!equipmentTypes || equipmentTypes.length === 0) {
+    return (
+      <p className="mt-2 body-sm text-muted-foreground">
+        No catalogue type matches &ldquo;{line.item}&rdquo;. Add the type in the catalogue first.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-2">
+      <div className="min-w-48 flex-1">
+        <Field>
+          <FieldLabel htmlFor={`map-type-${line.id}`}>
+            Map &ldquo;{line.item}&rdquo; to type
+          </FieldLabel>
+          <Select value={typeId || null} onValueChange={value => setTypeId(value ?? "")}>
+            <SelectTrigger id={`map-type-${line.id}`} className="w-full">
+              <SelectValue placeholder="Choose a type">
+                {typeId === ""
+                  ? null
+                  : (value: string) => equipmentTypes.find(t => String(t.id) === value)?.name}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {equipmentTypes.map(type => (
+                <SelectItem key={type.id} value={String(type.id)}>
+                  {type.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={mappingInFlight || typeId === ""}
+        onClick={() => void map()}
+      >
+        {mappingInFlight ? "Mapping…" : "Map to type"}
+      </Button>
+      {mapping.status === "error" && (
+        <p role="alert" className="body-sm w-full text-destructive">
+          {mapping.error}
+        </p>
+      )}
+    </div>
   );
 }
 
