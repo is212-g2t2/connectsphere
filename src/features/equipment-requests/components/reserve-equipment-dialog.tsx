@@ -55,7 +55,6 @@ export function ReserveEquipmentDialog({
   const errorId = `${quantityId}-error`;
 
   const [availability, setAvailability] = useState<Availability>({ status: "loading" });
-  const cancelledRef = useRef(false);
   const requestVersion = useRef(0);
   const [venueRequestId, setVenueRequestId] = useState(() =>
     bookings.some(booking => booking.id === equipmentRequest.venueRequestId)
@@ -76,7 +75,7 @@ export function ReserveEquipmentDialog({
       const result = await checkLineAvailability({
         data: { equipmentRequestId: equipmentRequest.id, venueRequestId },
       });
-      if (!cancelledRef.current && version === requestVersion.current) {
+      if (version === requestVersion.current) {
         setAvailability({
           status: "ready",
           available: result.availableQuantity,
@@ -85,7 +84,7 @@ export function ReserveEquipmentDialog({
         });
       }
     } catch (error) {
-      if (!cancelledRef.current && version === requestVersion.current) {
+      if (version === requestVersion.current) {
         setAvailability({
           status: "error",
           error: error instanceof Error ? error.message : "Could not check availability.",
@@ -127,16 +126,10 @@ export function ReserveEquipmentDialog({
   });
 
   useEffect(() => {
-    cancelledRef.current = false;
-    if (open) {
-      // Read availability when the dialog opens or its selected booking changes.
-      // oxlint-disable-next-line react/set-state-in-effect -- opening the controlled dialog is the event that triggers the re-read
-      void refreshAvailability();
-    }
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [open, refreshAvailability]);
+    // Read availability when the dialog opens or its selected booking changes.
+    // oxlint-disable-next-line react/set-state-in-effect -- opening the controlled dialog is the event that triggers the re-read
+    void refreshAvailability();
+  }, [refreshAvailability]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -164,7 +157,11 @@ export function ReserveEquipmentDialog({
                   id={`reserve-booking-${equipmentRequest.id}`}
                   bookings={bookings}
                   value={venueRequestId}
-                  onChange={setVenueRequestId}
+                  onChange={next => {
+                    // Clear the last window's answer at once, so its numbers and an enabled Confirm do not survive this render.
+                    setAvailability({ status: "loading" });
+                    setVenueRequestId(next);
+                  }}
                   disabled={isSubmitting}
                 />
               )}

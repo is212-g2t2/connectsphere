@@ -11,10 +11,10 @@ import {
 import { loadWorkableLines } from "#/features/equipment-requests/equipment.server";
 import { parseAvailabilityCheckInput } from "#/features/equipment-requests/schema";
 import {
+  bookingPeriod,
   chooseEquipmentBooking,
   selectEquipmentBookings,
 } from "#/features/equipment-requests/bookings.server";
-import { toLocalMinuteValue } from "#/features/venues/availability";
 
 /** Server-only because it imports `#/db/schema`. See `equipment.server.ts`. */
 
@@ -111,7 +111,7 @@ export async function handleCheckEquipmentAvailability(
   const booking = chooseEquipmentBooking(
     await selectEquipmentBookings(database, [input.eventId]),
     input.venueRequestId,
-    "The event has no approved venue booking yet"
+    "The event has no active approved venue booking yet"
   );
   const equipmentType = (
     await database
@@ -134,10 +134,7 @@ export async function handleCheckEquipmentAvailability(
       requested: input.requestedQuantity,
     }),
     equipmentTypeName: equipmentType.name,
-    period: {
-      startsAt: toLocalMinuteValue(booking.startsAt),
-      endsAt: toLocalMinuteValue(booking.endsAt),
-    },
+    period: bookingPeriod(booking),
   };
 }
 

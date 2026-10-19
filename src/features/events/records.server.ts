@@ -254,6 +254,23 @@ export async function loadCurrentBookings(
   return current;
 }
 
+/**
+ * State whether the reservation window moved from the booking's buffered window. A missing
+ * booking, a missing snapshot, or a timestamp mismatch all count as moved.
+ */
+function windowMoved(
+  row: { reservationStartsAt: string | null; reservationEndsAt: string | null },
+  booking: { startsAt: string; endsAt: string } | undefined
+): boolean {
+  return (
+    !booking ||
+    row.reservationStartsAt === null ||
+    row.reservationEndsAt === null ||
+    parseUtcTimestamp(row.reservationStartsAt) !== parseUtcTimestamp(booking.startsAt) ||
+    parseUtcTimestamp(row.reservationEndsAt) !== parseUtcTimestamp(booking.endsAt)
+  );
+}
+
 export async function handleListEvents(
   data: unknown,
   user: SessionUser,
@@ -362,10 +379,11 @@ export async function handleListEvents(
       ),
   ]);
 
-  const equipmentBookings =
-    user.role === "technical_support_staff" || user.role === "event_coordinator"
-      ? await selectEquipmentBookings(database, requestIds)
-      : [];
+  const wantsEquipmentBookings =
+    user.role === "technical_support_staff" || user.role === "event_coordinator";
+  const equipmentBookings = wantsEquipmentBookings
+    ? await selectEquipmentBookings(database, requestIds)
+    : [];
   const equipmentBookingById = new Map(equipmentBookings.map(booking => [booking.id, booking]));
 
   // Group child rows once. The card render below reads per event, so a map lookup
@@ -511,16 +529,8 @@ export async function handleListEvents(
       venueRequestId: row.venueRequestId,
       windowChanged:
         row.reservedQuantity !== null &&
-        (() => {
-          const booking = equipmentBookingById.get(row.venueRequestId ?? "");
-          return (
-            !booking ||
-            row.reservationStartsAt === null ||
-            row.reservationEndsAt === null ||
-            parseUtcTimestamp(row.reservationStartsAt) !== parseUtcTimestamp(booking.startsAt) ||
-            parseUtcTimestamp(row.reservationEndsAt) !== parseUtcTimestamp(booking.endsAt)
-          );
-        })(),
+        wantsEquipmentBookings &&
+        windowMoved(row, equipmentBookingById.get(row.venueRequestId ?? "")),
       lastRelease:
         row.lastReleasedAt !== null && row.lastReleasedQuantity !== null
           ? {

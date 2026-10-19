@@ -7,10 +7,10 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import type { EquipmentBookingOption } from "#/features/equipment-requests/schema";
-import { formatLocalDateTime } from "#/features/event-requests/format";
+import { formatProposedWindow } from "#/features/event-requests/format";
 
 const bookingLabel = (booking: EquipmentBookingOption) =>
-  `${booking.venueName}: ${formatLocalDateTime(booking.startsAt)} to ${formatLocalDateTime(booking.endsAt)}`;
+  `${booking.venueName}: ${formatProposedWindow({ start: booking.startsAt, end: booking.endsAt })}`;
 
 /** Name both the venue and the buffered period, so separate sessions stay distinct. */
 export function BookingSelect({
@@ -33,11 +33,11 @@ export function BookingSelect({
       <Select
         value={value || null}
         onValueChange={next => onChange(next ?? "")}
-        disabled={disabled}
+        disabled={disabled || bookings.length === 0}
       >
-        <SelectTrigger id={id} className="w-full">
+        <SelectTrigger id={id} className="w-full min-w-0">
           <SelectValue placeholder="Choose an active approved booking">
-            {selected ? bookingLabel(selected) : null}
+            {selected ? <span className="min-w-0 truncate">{bookingLabel(selected)}</span> : null}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>

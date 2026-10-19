@@ -44,17 +44,15 @@ import type { EquipmentLineProjection } from "#/features/events/access";
 import { useMutation } from "#/hooks/use-mutation";
 import { skipRootFilter } from "#/lib/invalidate";
 
-const NO_BOOKINGS: EquipmentBookingOption[] = [];
-
 /** Show the review page's line, completion, and availability sections. The host provides the headings. */
 export function ArrangementLines({
   eventId,
   lines,
-  bookings = NO_BOOKINGS,
+  bookings,
 }: {
   eventId: number;
   lines: EquipmentLineProjection[];
-  bookings?: EquipmentBookingOption[];
+  bookings: EquipmentBookingOption[];
 }) {
   if (lines.length === 0) {
     return <p className="body-sm text-muted-foreground">No equipment lines recorded.</p>;
@@ -106,16 +104,21 @@ export function ArrangementsCompletion({
 export function AvailabilityCheck({
   eventId,
   equipmentTypes,
-  bookings = NO_BOOKINGS,
+  bookings,
 }: {
   eventId: number;
   equipmentTypes: EquipmentTypeOption[] | null;
-  bookings?: EquipmentBookingOption[];
+  bookings: EquipmentBookingOption[];
 }) {
   const [venueRequestId, setVenueRequestId] = useState(bookings.length === 1 ? bookings[0].id : "");
   // Store the server's answer outside the form. TanStack Form owns the inputs and errors.
   const [outcome, setOutcome] = useState<{ message: string; shortfall: number } | null>(null);
   const requestVersion = useRef(0);
+  // Drop a stale answer when the next check starts from new inputs.
+  const resetOutcome = () => {
+    requestVersion.current++;
+    setOutcome(null);
+  };
 
   const form = useForm({
     defaultValues: { equipmentTypeId: "", requestedQuantity: "" },
@@ -179,8 +182,7 @@ export function AvailabilityCheck({
         bookings={bookings}
         value={venueRequestId}
         onChange={value => {
-          requestVersion.current++;
-          setOutcome(null);
+          resetOutcome();
           setVenueRequestId(value);
         }}
       />
@@ -191,8 +193,7 @@ export function AvailabilityCheck({
             <Select
               value={field.state.value || null}
               onValueChange={value => {
-                requestVersion.current++;
-                setOutcome(null);
+                resetOutcome();
                 field.handleChange(value ?? "");
               }}
             >
@@ -232,8 +233,7 @@ export function AvailabilityCheck({
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={e => {
-                requestVersion.current++;
-                setOutcome(null);
+                resetOutcome();
                 field.handleChange(e.target.value);
               }}
               aria-invalid={field.state.meta.errors.length > 0}
@@ -257,7 +257,7 @@ export function AvailabilityCheck({
 
       <form.Subscribe selector={state => state.isSubmitting}>
         {isSubmitting => (
-          <Button type="submit" size="sm" disabled={isSubmitting}>
+          <Button type="submit" size="sm" disabled={isSubmitting || !venueRequestId}>
             {isSubmitting ? "Checking…" : "Check availability"}
           </Button>
         )}

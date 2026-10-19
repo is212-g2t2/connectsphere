@@ -500,7 +500,7 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     ).rejects.toMatchObject({
       name: "ConflictError",
       status: 409,
-      message: "Event must have an approved venue booking before equipment can be reserved",
+      message: "Event must have an active approved venue booking before equipment can be reserved",
     });
   });
 
@@ -794,6 +794,108 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
         database as never
       )
     ).toMatchObject({ available: 2 });
+  });
+
+  it("spans both pieces of a split booking when reading the period", async () => {
+    const target = await createEventWithApprovedBooking({
+      name: "Split Pieces Event",
+      startsAt: "2030-02-05 15:00:00",
+      endsAt: "2030-02-05 17:00:00",
+    });
+    await database.insert(schema.venueOccupancy).values([
+      {
+        venueRequestId: target.venueRequestId,
+        eventId: target.eventId,
+        venueId: fixtureVenueId,
+        startsAt: "2030-02-05 15:00:00",
+        endsAt: "2030-02-05 16:00:00",
+        setupMinutes: 30,
+        turnaroundMinutes: 0,
+      },
+      {
+        venueRequestId: target.venueRequestId,
+        eventId: target.eventId,
+        venueId: fixtureVenueId,
+        startsAt: "2030-02-05 16:00:00",
+        endsAt: "2030-02-05 17:00:00",
+        setupMinutes: 0,
+        turnaroundMinutes: 45,
+      },
+    ]);
+
+    await expect(
+      handleCheckEquipmentAvailability(
+        { eventId: target.eventId, equipmentTypeId: testEquipmentTypeId },
+        session("tech1"),
+        database as never
+      )
+    ).resolves.toMatchObject({
+      period: { startsAt: "2030-02-05T14:30", endsAt: "2030-02-05T17:45" },
+    });
+
+    await handleReserveEquipment(
+      { equipmentRequestId: target.equipmentRequestId, quantity: 1 },
+      session("tech1"),
+      database as never
+    );
+    const [reservation] = await database
+      .select()
+      .from(schema.equipmentReservations)
+      .where(eq(schema.equipmentReservations.equipmentRequestId, target.equipmentRequestId));
+    expect(reservation).toMatchObject({
+      startsAt: "2030-02-05 14:30:00",
+      endsAt: "2030-02-05 17:45:00",
+    });
+  });
+
+  it("falls back to the venue buffers when the booking has no ledger rows", async () => {
+    const [venue] = await database
+      .insert(schema.venues)
+      .values({
+        name: `Buffered Venue ${crypto.randomUUID()}`,
+        location: "Building E",
+        maxCapacity: 200,
+        setupMinutes: 20,
+        turnaroundMinutes: 40,
+        operatingHours: DEFAULT_OPERATING_HOURS,
+      })
+      .returning({ id: schema.venues.id });
+    const target = await createEventWithApprovedBooking({
+      name: "Fallback Buffers Event",
+      startsAt: "2030-02-06 10:00:00",
+      endsAt: "2030-02-06 12:00:00",
+      venueId: venue.id,
+    });
+    try {
+      await expect(
+        handleCheckEquipmentAvailability(
+          { eventId: target.eventId, equipmentTypeId: testEquipmentTypeId },
+          session("tech1"),
+          database as never
+        )
+      ).resolves.toMatchObject({
+        period: { startsAt: "2030-02-06T09:40", endsAt: "2030-02-06T12:40" },
+      });
+
+      await handleReserveEquipment(
+        { equipmentRequestId: target.equipmentRequestId, quantity: 1 },
+        session("tech1"),
+        database as never
+      );
+      const [reservation] = await database
+        .select()
+        .from(schema.equipmentReservations)
+        .where(eq(schema.equipmentReservations.equipmentRequestId, target.equipmentRequestId));
+      expect(reservation).toMatchObject({
+        startsAt: "2030-02-06 09:40:00",
+        endsAt: "2030-02-06 12:40:00",
+      });
+    } finally {
+      await database
+        .delete(schema.eventRequests)
+        .where(eq(schema.eventRequests.id, target.eventId));
+      await database.delete(schema.venues).where(eq(schema.venues.id, venue.id));
+    }
   });
 
   it("excludes a partially suspended booking and refuses foreign and released targets", async () => {

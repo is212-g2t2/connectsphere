@@ -3,21 +3,18 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { db as Db } from "#/db";
 import { venueOccupancy, venueRequests, venues } from "#/db/schema";
 import { ConflictError } from "#/features/auth/session";
+import { occupiedEnd, occupiedStart } from "#/features/venue-requests/occupancy.server";
+import { toLocalMinuteValue } from "#/features/venues/availability";
+import { suspendedPieceWhere } from "#/features/venues/blocked-arrangements.server";
 
 /** Read each booking's stored buffers, including all pieces of a split ledger row. */
 export function selectEquipmentBookings(database: Pick<typeof Db, "select">, eventIds: number[]) {
   const extent = database
     .select({
       venueRequestId: venueOccupancy.venueRequestId,
-      startsAt:
-        sql<string>`min(${venueOccupancy.startsAt} - make_interval(mins => ${venueOccupancy.setupMinutes}))`.as(
-          "buffered_start"
-        ),
-      endsAt:
-        sql<string>`max(${venueOccupancy.endsAt} + make_interval(mins => ${venueOccupancy.turnaroundMinutes}))`.as(
-          "buffered_end"
-        ),
-      suspended: sql<boolean>`bool_or(not ${venueOccupancy.active})`.as("suspended"),
+      startsAt: sql<string>`min(${occupiedStart})`.as("buffered_start"),
+      endsAt: sql<string>`max(${occupiedEnd})`.as("buffered_end"),
+      suspended: sql<boolean>`bool_or(${suspendedPieceWhere()})`.as("suspended"),
     })
     .from(venueOccupancy)
     .where(inArray(venueOccupancy.eventId, eventIds))
@@ -45,7 +42,7 @@ export function selectEquipmentBookings(database: Pick<typeof Db, "select">, eve
 export function chooseEquipmentBooking<T extends { id: string; suspended: boolean }>(
   bookings: T[],
   venueRequestId?: string,
-  emptyMessage = "Event must have an approved venue booking before equipment can be reserved"
+  emptyMessage = "Event must have an active approved venue booking before equipment can be reserved"
 ): T {
   const active = bookings.filter(booking => !booking.suspended);
   if (active.length === 0) {
@@ -58,4 +55,12 @@ export function chooseEquipmentBooking<T extends { id: string; suspended: boolea
       : undefined;
   if (!selected) throw new ConflictError("Choose an active approved venue booking for this line");
   return selected;
+}
+
+/** Return the booking window as local minute values for availability and reserve reads. */
+export function bookingPeriod(booking: { startsAt: string; endsAt: string }) {
+  return {
+    startsAt: toLocalMinuteValue(booking.startsAt),
+    endsAt: toLocalMinuteValue(booking.endsAt),
+  };
 }

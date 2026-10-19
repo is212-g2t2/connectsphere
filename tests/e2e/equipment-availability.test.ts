@@ -177,11 +177,10 @@ test("states what is available when no quantity is asked", async ({ page }) => {
 });
 
 test("refuses an event with no approved venue booking", async ({ page }) => {
-  const type = await createType(4);
   const target = await createEvent();
 
   await openRequest(page, target.id);
-  await check(page, type.name);
 
-  await expect(page.getByText("The event has no approved venue booking yet")).toBeVisible();
+  await expect(page.getByText("No active approved venue bookings.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Check availability" })).toBeDisabled();
 });

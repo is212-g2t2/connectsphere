@@ -29,11 +29,12 @@ import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation
 import { assertEventAcceptsActivity } from "#/features/events/completion";
 import { logger } from "#/lib/logger";
 import {
+  bookingPeriod,
   chooseEquipmentBooking,
   selectEquipmentBookings,
 } from "#/features/equipment-requests/bookings.server";
 import { lockVenue } from "#/features/venue-requests/venue-lock.server";
-import { toLocalMinuteValue } from "#/features/venues/availability";
+import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 
 type Database = typeof Db;
 
@@ -70,9 +71,13 @@ async function loadLineForStaff(
   return line;
 }
 
-/** Check the line, event, chosen booking, and type. Reserve locks the venue before the event. */
+/**
+ * Check the line, event, chosen booking, and type. Reserved calls take the venue advisory lock
+ * after locking the line and before reading the event, because they write no venue row; the
+ * booking re-read happens under that lock. ADR-7 states the order for venue writers.
+ */
 async function loadReservableLine(
-  database: Database | Parameters<Parameters<Database["transaction"]>[0]>[0],
+  database: Database | VenueTx,
   args: {
     lineId: string;
     actor: SessionUser;
@@ -144,6 +149,7 @@ async function loadReservableLine(
         args.venueRequestId
       )
     : preview;
+  // Assert the lock target: the same row wins on both reads, so the held lock covers it.
   if (booking.id !== preview.id || booking.venueId !== preview.venueId) {
     throw new ConflictError("The venue booking changed. Try again.");
   }
@@ -315,10 +321,7 @@ export async function handleCheckLineAvailability(
 
   return {
     availableQuantity,
-    period: {
-      startsAt: toLocalMinuteValue(booking.startsAt),
-      endsAt: toLocalMinuteValue(booking.endsAt),
-    },
+    period: bookingPeriod(booking),
   };
 }
 
