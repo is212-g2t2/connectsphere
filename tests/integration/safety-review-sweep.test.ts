@@ -333,6 +333,18 @@ describe("automatic safety review sweep", () => {
     }
   );
 
+  test("skips an event that started before the default clock", async () => {
+    const id = await createEvent("approved");
+    const booking = await createBooking(id);
+    await database
+      .update(schema.venueRequests)
+      .set({ startsAt: "2020-01-01 09:00:00", endsAt: "2020-01-01 12:00:00" })
+      .where(eq(schema.venueRequests.id, booking));
+    await sweepSafetyReviews(database as never);
+    expect(await reviews(id)).toHaveLength(0);
+    expect(await notices(id)).toHaveLength(0);
+  });
+
   test("reverts a stale confirmed approval once, clears its stamp, and notifies its Coordinator", async () => {
     const id = await createEvent("confirmed");
     await createBooking(id);
