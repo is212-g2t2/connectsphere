@@ -4,6 +4,7 @@ import type { db as Db } from "#/db";
 import { eventRequests, venueUnavailability, venues } from "#/db/schema";
 import { ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { revertConfirmedEvents } from "#/features/events/revert.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 import {
@@ -53,25 +54,6 @@ export function assertBlockStartNotPast(date: string, now: Date): void {
   if (date < venueLocalTimestamp(now).slice(0, 10)) {
     throw new Error(VENUE_BLOCK_PAST_START_MESSAGE);
   }
-}
-
-/**
- * PTR-137 AC2: a block that covers a confirmed event's booking takes the event back to planning.
- * The status returns to planning and the confirmation stamp clears, so the row passes the status
- * CHECKs. The decision and the information stay. A hold alone does not revert: the event's
- * booking is intact. Return the ids that reverted.
- */
-async function revertConfirmedEvents(
-  tx: Pick<Database, "update">,
-  eventIds: readonly number[]
-): Promise<Set<number>> {
-  if (eventIds.length === 0) return new Set();
-  const rows = await tx
-    .update(eventRequests)
-    .set({ status: "planning", confirmedById: null, confirmedByName: null, confirmedAt: null })
-    .where(and(inArray(eventRequests.id, [...eventIds]), eq(eventRequests.status, "confirmed")))
-    .returning({ id: eventRequests.id });
-  return new Set(rows.map(row => row.id));
 }
 
 /**

@@ -1,3 +1,4 @@
+import { SafetySweepEmail } from "#/features/emails/components/safety-sweep-email";
 import { createElement } from "react";
 import type { ReactElement } from "react";
 
@@ -424,6 +425,16 @@ export function renderNotificationEmail(
         element: createElement(VenueBufferConflictEmail, {
           ...notification.payload,
           calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    case "safety_review_requested":
+    case "event_safety_reconfirmation_required":
+      return {
+        subject,
+        element: createElement(SafetySweepEmail, {
+          eventName: notification.payload.eventName,
+          requested: notification.kind === "safety_review_requested",
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     case "safety_review_decided": {

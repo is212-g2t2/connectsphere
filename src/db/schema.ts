@@ -560,6 +560,8 @@ export const safetyReviews = pgTable(
     decidedByName: text("decided_by_name"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Set when the sweep refreshes a pending review after an arrangement change. */
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }),
   },
   table => [
     check("safety_reviews_fingerprint_present", sql`btrim(${table.fingerprint}) <> ''`),
@@ -1161,6 +1163,10 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_hold_expired",
   /** PTR-145: a Lead assigned or reassigned the event's Coordinator. */
   "coordinator_assigned",
+  /** PTR-148: complete arrangements entered safety review, told to every Safety Officer. */
+  "safety_review_requested",
+  /** PTR-148: the sweep returned a confirmed event to planning, told to its Coordinator. */
+  "event_safety_reconfirmation_required",
 ]);
 
 export const notifications = pgTable(

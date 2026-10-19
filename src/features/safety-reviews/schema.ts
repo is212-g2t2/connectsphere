@@ -75,6 +75,7 @@ export interface SafetyReviewDetail {
 
 /** PTR-146 AC2: one pending review on the Safety Officer's list. */
 export interface PendingSafetyReview {
+  updated: boolean;
   id: number;
   eventId: number;
   eventName: string;

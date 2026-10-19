@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Route } from "#/routes/api/cron/notifications";
 
-const { mockEnv, mockDeliver, mockSweep, mockExpire } = vi.hoisted(() => {
+const { mockEnv, mockDeliver, mockSweep, mockExpire, mockSafety } = vi.hoisted(() => {
   const env: { CRON_TOKEN?: string } = {};
   return {
     mockEnv: env,
+    mockSafety: vi.fn<(database: unknown) => Promise<unknown>>(),
     mockDeliver: vi.fn<(database: unknown) => Promise<unknown>>(),
     mockSweep: vi.fn<(database: unknown) => Promise<number>>(),
     mockExpire: vi.fn<(database: unknown) => Promise<number>>(),
@@ -19,6 +20,7 @@ vi.mock("#/features/events/registration-boundaries.server", () => ({
 vi.mock("#/features/venue-requests/hold-expiry.server", () => ({
   sweepVenueHoldExpiries: mockExpire,
 }));
+vi.mock("#/features/safety-reviews/sweep.server", () => ({ sweepSafetyReviews: mockSafety }));
 vi.mock("#/features/notifications/deliver.server", () => ({
   deliverPendingNotifications: mockDeliver,
 }));
@@ -44,6 +46,12 @@ function cronRequest(authorization?: string) {
 describe("POST /api/cron/notifications", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSafety.mockResolvedValue({
+      reviewsCreated: 1,
+      reviewsUpdated: 0,
+      eventsReverted: 0,
+      notificationsRaised: 2,
+    });
     mockEnv.CRON_TOKEN = "cron-token";
     mockDeliver.mockResolvedValue({ sent: 0, failed: 0, pending: 0 });
     mockExpire.mockResolvedValue(0);
@@ -86,12 +94,29 @@ describe("POST /api/cron/notifications", () => {
     await expect(response.json()).resolves.toEqual({
       raised: 5,
       expired: 4,
+      safety: { reviewsCreated: 1, reviewsUpdated: 0, eventsReverted: 0, notificationsRaised: 2 },
       sent: 2,
       failed: 1,
       pending: 3,
     });
     expect(mockSweep).toHaveBeenCalledOnce();
     expect(mockExpire).toHaveBeenCalledOnce();
+    expect(mockSafety).toHaveBeenCalledOnce();
+    expect(mockDeliver).toHaveBeenCalledOnce();
+  });
+
+  it("continues delivery when the safety sweep fails", async () => {
+    mockSweep.mockResolvedValue(0);
+    mockSafety.mockRejectedValue(new Error("safety failed"));
+    const response = await getPostHandler()({ request: cronRequest("Bearer cron-token") });
+    expect(await response.json()).toEqual({
+      raised: 0,
+      expired: 0,
+      safety: "failed",
+      sent: 0,
+      failed: 0,
+      pending: 0,
+    });
     expect(mockDeliver).toHaveBeenCalledOnce();
   });
 
@@ -105,6 +130,7 @@ describe("POST /api/cron/notifications", () => {
     await expect(response.json()).resolves.toEqual({
       raised: "failed",
       expired: 0,
+      safety: { reviewsCreated: 1, reviewsUpdated: 0, eventsReverted: 0, notificationsRaised: 2 },
       sent: 1,
       failed: 0,
       pending: 0,
@@ -125,6 +151,7 @@ describe("POST /api/cron/notifications", () => {
     await expect(response.json()).resolves.toEqual({
       raised: 2,
       expired: "failed",
+      safety: { reviewsCreated: 1, reviewsUpdated: 0, eventsReverted: 0, notificationsRaised: 2 },
       sent: 1,
       failed: 0,
       pending: 0,

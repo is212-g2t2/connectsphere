@@ -5,8 +5,9 @@ import { logger } from "#/lib/logger";
 
 /**
  * PTR-55: Cloud Scheduler calls this worker every minute with the `CRON_TOKEN` bearer token.
- * First sweep registration boundaries, then expire the due tentative holds, then run one delivery
- * batch. Each sweep has its own failure handling, so one failure does not stop the others.
+ * First sweep registration boundaries, then expire the due tentative holds, then sweep safety
+ * reviews, then run one delivery batch. Each sweep has its own failure handling, so one failure
+ * does not stop the others.
  * Return the work result so Cloud Scheduler can show each run.
  * Import the delivery module and `#/db` dynamically. A static `#/db/schema` import from a route
  * would ship the full schema to the client build. The bundle-safety test does not scan `src/routes`.
@@ -25,11 +26,13 @@ export const Route = createFileRoute("/api/cron/notifications")({
           { deliverPendingNotifications },
           { sweepRegistrationWindows },
           { sweepVenueHoldExpiries },
+          { sweepSafetyReviews },
         ] = await Promise.all([
           import("#/db"),
           import("#/features/notifications/deliver.server"),
           import("#/features/events/registration-boundaries.server"),
           import("#/features/venue-requests/hold-expiry.server"),
+          import("#/features/safety-reviews/sweep.server"),
         ]);
 
         let raised: number | "failed" = 0;
@@ -50,8 +53,17 @@ export const Route = createFileRoute("/api/cron/notifications")({
           });
           expired = "failed";
         }
+        let safety: Awaited<ReturnType<typeof sweepSafetyReviews>> | "failed";
+        try {
+          safety = await sweepSafetyReviews(db);
+        } catch (error) {
+          logger.getChild("cron").error("Safety review sweep failed", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+          });
+          safety = "failed";
+        }
         const delivered = await deliverPendingNotifications(db);
-        return Response.json({ raised, expired, ...delivered });
+        return Response.json({ raised, expired, safety, ...delivered });
       },
     },
   },

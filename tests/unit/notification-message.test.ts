@@ -156,6 +156,8 @@ const validPayloads = {
     turnaroundMinutes: 30,
   },
   event_submitted: { eventName: "Gala", audience: "organiser" },
+  safety_review_requested: { eventName: "Gala" },
+  event_safety_reconfirmation_required: { eventName: "Gala", reason: "out_of_date" },
   safety_review_decided: {
     eventName: "Gala",
     decision: "changes_requested",
@@ -659,6 +661,8 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       venue_buffer_conflict:
         "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       event_submitted: "/events/7",
+      safety_review_requested: "/events/7",
+      event_safety_reconfirmation_required: "/events/7",
       safety_review_decided: "/events/7",
       venue_hold_requested: "/venue-holds",
       venue_hold_placed: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
