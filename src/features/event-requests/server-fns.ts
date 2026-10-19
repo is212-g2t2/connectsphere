@@ -2,6 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { requirePermission } from "#/features/auth/session";
 import {
+  parseAttachmentDownload,
+  parseAttachmentUpload,
+} from "#/features/event-requests/attachments";
+import {
   parseClarificationReply,
   parseDraftInput,
   parseEventChangeRequestInput,
@@ -154,6 +158,65 @@ export const deleteEventRequestDraft = createServerFn({ method: "POST" })
   });
 
 export type EventRequestDeleted = Awaited<ReturnType<typeof deleteEventRequestDraft>>;
+
+/**
+ * Supporting documents on an Organiser's draft. The client sends the draft id and the file as
+ * `FormData` (multipart); the validator reads the id through Zod and the handler checks the
+ * bytes. Uploads buffer the whole body per request (10 MB limit); downloads return base64 so
+ * the bytes serialize across the server-function boundary.
+ *
+ * Routes import this module, so do not add static server imports here. The handlers import
+ * `./attachments.server` and `#/db` dynamically; TanStack Start removes the handler from the
+ * client build.
+ */
+export const uploadEventRequestAttachment = createServerFn({ method: "POST" })
+  .validator(parseAttachmentUpload)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { getAttachmentStorage, handleUploadEventRequestAttachment }] =
+      await Promise.all([import("#/db"), import("#/features/event-requests/attachments.server")]);
+
+    const bytes = new Uint8Array(await data.file.arrayBuffer());
+    const attachment = await handleUploadEventRequestAttachment(
+      { eventRequestId: data.id, filename: data.file.name, bytes },
+      context.user,
+      db,
+      getAttachmentStorage()
+    );
+
+    log.info("Draft attachment uploaded", {
+      requestId: data.id,
+      attachmentId: attachment.id,
+      organiserId: context.user.id,
+    });
+
+    return attachment;
+  });
+
+/** One draft's attachments with whether attaching is available (storage configured). */
+export type EventRequestAttachmentList = Awaited<ReturnType<typeof listEventRequestAttachments>>;
+
+export const listEventRequestAttachments = createServerFn({ method: "GET" })
+  .validator(parseEventRequestId)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleListEventRequestAttachments }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/attachments.server"),
+    ]);
+
+    return handleListEventRequestAttachments(data, context.user, db);
+  });
+
+export const downloadEventRequestAttachment = createServerFn({ method: "GET" })
+  .validator(parseAttachmentDownload)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { getAttachmentStorage, handleDownloadEventRequestAttachment }] =
+      await Promise.all([import("#/db"), import("#/features/event-requests/attachments.server")]);
+
+    return handleDownloadEventRequestAttachment(data, context.user, db, getAttachmentStorage());
+  });
 
 export const replyToClarification = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCreate])

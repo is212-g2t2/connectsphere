@@ -10,7 +10,8 @@ State lives in `gs://connectsphere-is212-tfstate` (`prefix = terraform/state`). 
 | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `state-bucket.tf` | The state bucket (imported, see below) and the project API enablement                                             |
 | `cloud-run.tf`    | Both Cloud Run services, their public invoker, the startup probe, and the domain mappings                         |
-| `secrets.tf`      | Twelve Secret Manager containers and the per-environment runtime `secretAccessor` grants                          |
+| `secrets.tf`      | Sixteen Secret Manager containers and the per-environment runtime `secretAccessor` grants                         |
+| `storage.tf`      | One private bucket per environment for draft supporting documents, with per-environment object grants             |
 | `iam.tf`          | The WIF pool and provider, the deploy service account, its ref- and ref_type-scoped binding, the runtime accounts |
 | `cloudflare.tf`   | One CNAME per environment, pointing at `ghs.googlehosted.com`                                                     |
 | `scheduler.tf`    | One Cloud Scheduler job per environment: the every-minute notification email worker (PTR-55)                      |
@@ -47,7 +48,7 @@ Before the first run, authenticate. Run `gcloud auth login` for the bootstrap sc
    - Take the **transaction pooler** URL (`:6543`) for the application's `DATABASE_URL` secret.
    - Take the **session pooler** URL (`:5432`) for the GitHub Environment's `DATABASE_URL_SESSION`. Do not use the direct connection: on Supabase Free it is IPv6-only, and GitHub-hosted runners cannot reach it.
 
-5. **Populate all twelve secret versions** (see below). Create `staging-CRON_TOKEN` and `prod-CRON_TOKEN` before the full apply. A revision that references a versionless secret never becomes ready.
+5. **Populate all sixteen secret versions** (see below). Create `staging-CRON_TOKEN` and `prod-CRON_TOKEN` before the full apply. A revision that references a versionless secret never becomes ready.
 
 6. **Now the full apply.** Both services come up on the `hello` placeholder with every secret resolvable.
 
@@ -105,6 +106,27 @@ gcloud scheduler jobs describe staging-notification-emails \
 ```
 
 Observe delivery from the job result and from the application. The response holds `{sent, failed, pending}`. Failures appear in Sentry. The dead-letter query is in [DEPLOYMENT.md](../docs/DEPLOYMENT.md#notification-email-worker).
+
+### Attachment storage bucket and HMAC keys
+
+`storage.tf` creates one private bucket per environment for draft supporting documents. The
+application reaches the bucket through the S3 interop API, which authenticates with HMAC keys,
+not the runtime service account. Create one key per environment and store the pair as secrets.
+The values never enter the Terraform state:
+
+```bash
+# Staging (repeat with prod- for production)
+gcloud storage hmac create cs-staging-run@connectsphere-is212.iam.gserviceaccount.com \
+  --project=connectsphere-is212
+printf "%s" "<access-id>" | gcloud secrets versions add staging-STORAGE_ACCESS_KEY_ID \
+  --project=connectsphere-is212 --data-file=-
+printf "%s" "<secret>" | gcloud secrets versions add staging-STORAGE_SECRET_ACCESS_KEY \
+  --project=connectsphere-is212 --data-file=-
+```
+
+Create both versions before the first deploy that mounts them. A revision that references a
+versionless secret never becomes ready. The `/api/smoke` release gate uploads and deletes a
+test object through the real bucket, so a deploy fails while the bucket or the keys are wrong.
 
 ### Webmaster Central
 

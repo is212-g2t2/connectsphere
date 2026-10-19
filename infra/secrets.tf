@@ -9,6 +9,10 @@ locals {
     "CRON_TOKEN", # bearer the notification email worker is called with (PTR-55)
     "VITE_SENTRY_DSN",
     "RESEND_API_KEY",
+    # GCS S3-interop HMAC pair for draft supporting documents. Created by hand with
+    # `gcloud storage hmac create`, stored here, never in Terraform state.
+    "STORAGE_ACCESS_KEY_ID",
+    "STORAGE_SECRET_ACCESS_KEY",
   ]
 
   # { "prod-DATABASE_URL" = { env = "prod", name = "DATABASE_URL" }, ... }
@@ -30,7 +34,7 @@ resource "google_secret_manager_secret" "app" {
   }
 }
 
-# Give each environment's runtime service account access to only its six secrets. For example,
+# Give each environment's runtime service account access to only its eight secrets. For example,
 # cs-staging-run cannot read prod-DATABASE_URL, even though both use one project. This grant keeps
 # the environments isolated.
 resource "google_secret_manager_secret_iam_member" "runtime" {

@@ -1,0 +1,287 @@
+// oxlint-disable node/no-process-env
+import { and, asc, eq } from "drizzle-orm";
+import { S3Client } from "bun";
+
+import type { db as Db } from "#/db";
+import { eventRequestAttachments, eventRequests } from "#/db/schema";
+import type { SessionUser } from "#/features/auth/session";
+import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
+import {
+  ATTACHMENT_LIMIT_MESSAGE,
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_MAX_COUNT,
+  ATTACHMENT_NOT_DRAFT_MESSAGE,
+  ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE,
+  ATTACHMENT_TOO_LARGE_MESSAGE,
+  ATTACHMENT_UNSUPPORTED_TYPE_MESSAGE,
+  attachmentExtensionFor,
+  detectAttachmentContentType,
+  parseAttachmentDownload,
+  sanitizeAttachmentFilename,
+} from "#/features/event-requests/attachments";
+import { parseEventRequestId } from "#/features/event-requests/schema";
+import { env } from "#/env";
+import { logger } from "#/lib/logger";
+
+/**
+ * Keep this module server-only. Its value imports of `#/db/schema` and `bun` build tables and
+ * the object client at module scope. `server-fns.ts` and the smoke route import it dynamically
+ * inside their handlers.
+ *
+ * Middleware verifies the session and `event_request:create` before this runs. `user` is the
+ * verified organiser. Follow-ups reuse this seam: PTR-159 removes objects beside rows, and
+ * PTR-160 reads them for the Coordinator.
+ */
+
+type Database = typeof Db;
+export type EventRequestAttachment = typeof eventRequestAttachments.$inferSelect;
+
+const log = logger.getChild("event-request-attachments");
+
+/** The object store behind attachment rows. Bytes in, bytes out; the handlers own every check. */
+export interface AttachmentStorage {
+  put(key: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  get(key: string): Promise<Uint8Array | null>;
+  remove(key: string): Promise<void>;
+}
+
+/**
+ * In-memory store for integration tests. Refuses to start on Cloud Run, so a test double can
+ * never serve production traffic.
+ */
+export class MemoryAttachmentStorage implements AttachmentStorage {
+  private objects = new Map<string, { bytes: Uint8Array; contentType: string }>();
+
+  constructor() {
+    if (process.env.K_SERVICE ?? process.env.K_REVISION) {
+      throw new Error("The in-memory attachment store must not run on Cloud Run.");
+    }
+  }
+
+  async put(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    this.objects.set(key, { bytes: bytes.slice(), contentType });
+  }
+
+  async get(key: string): Promise<Uint8Array | null> {
+    return this.objects.get(key)?.bytes.slice() ?? null;
+  }
+
+  async remove(key: string): Promise<void> {
+    this.objects.delete(key);
+  }
+
+  /** Test hook: the keys this store still holds. */
+  keys(): string[] {
+    return [...this.objects.keys()];
+  }
+}
+
+/** Bun's built-in S3 client against the private bucket (GCS S3 interop in deployed
+ * environments, MinIO locally). Keys are server-generated; callers never choose them. */
+export class S3AttachmentStorage implements AttachmentStorage {
+  private readonly client: S3Client;
+
+  constructor(options: {
+    bucket: string;
+    endpoint?: string;
+    region?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+  }) {
+    this.client = new S3Client(options);
+  }
+
+  async put(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    await this.client.write(key, bytes, { type: contentType });
+  }
+
+  async get(key: string): Promise<Uint8Array | null> {
+    const file = this.client.file(key);
+    if (!(await file.exists())) return null;
+    return new Uint8Array(await file.arrayBuffer());
+  }
+
+  async remove(key: string): Promise<void> {
+    await this.client.file(key).delete();
+  }
+}
+
+/**
+ * The configured store, or `null` when `STORAGE_BUCKET` is unset. Callers answer with
+ * `ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE` and keep the rest of the page working. GCS answers
+ * the S3 API at its interop endpoint; a set `STORAGE_ENDPOINT` points at MinIO instead.
+ */
+export function getAttachmentStorage(): AttachmentStorage | null {
+  if (!env.STORAGE_BUCKET) return null;
+  return new S3AttachmentStorage({
+    bucket: env.STORAGE_BUCKET,
+    endpoint: env.STORAGE_ENDPOINT ?? "https://storage.googleapis.com",
+    region: env.STORAGE_REGION,
+    accessKeyId: env.STORAGE_ACCESS_KEY_ID,
+    secretAccessKey: env.STORAGE_SECRET_ACCESS_KEY,
+  });
+}
+
+/**
+ * Write one object, then round-trip it back. The release pipeline calls `/api/smoke`, which
+ * runs this against the real bucket, so a deploy fails while the bucket is unreachable.
+ */
+export async function runAttachmentSmokeCheck(storage: AttachmentStorage): Promise<void> {
+  const key = `smoke/${crypto.randomUUID()}.txt`;
+  const sent = new TextEncoder().encode("connectsphere storage smoke check");
+  await storage.put(key, sent, "text/plain");
+  try {
+    const read = await storage.get(key);
+    if (
+      !read ||
+      read.length !== sent.length ||
+      !read.every((byte, index) => byte === sent[index])
+    ) {
+      throw new Error("Attachment smoke check read back unexpected bytes.");
+    }
+  } finally {
+    await storage.remove(key);
+  }
+}
+
+/**
+ * AC1: store the file under a server-generated key, then in one short transaction lock the
+ * event row, check the request is still this organiser's draft with fewer than
+ * `ATTACHMENT_MAX_COUNT` attachments, and insert the row. Any failed check deletes the object
+ * (best effort, logged) and refuses with the reason named. Size and byte checks run before the
+ * write, so they need no cleanup.
+ */
+export async function handleUploadEventRequestAttachment(
+  input: { eventRequestId: number; filename: string; bytes: Uint8Array },
+  user: SessionUser,
+  database: Database,
+  storage: AttachmentStorage | null
+): Promise<EventRequestAttachment> {
+  if (!storage) throw new Error(ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE);
+  if (input.bytes.length > ATTACHMENT_MAX_BYTES) throw new Error(ATTACHMENT_TOO_LARGE_MESSAGE);
+  const contentType = detectAttachmentContentType(input.bytes);
+  if (!contentType) throw new Error(ATTACHMENT_UNSUPPORTED_TYPE_MESSAGE);
+
+  const key = `event-requests/${input.eventRequestId}/${crypto.randomUUID()}.${attachmentExtensionFor(contentType)}`;
+  await storage.put(key, input.bytes, contentType);
+
+  try {
+    return await database.transaction(async tx => {
+      const ownRows = await tx
+        .select()
+        .from(eventRequests)
+        .where(
+          and(eq(eventRequests.id, input.eventRequestId), eq(eventRequests.organiserId, user.id))
+        )
+        .for("update");
+
+      const draft = ownRows.at(0);
+      if (!draft) throw new AuthorizationError("Forbidden");
+      if (draft.status !== "draft") throw new ConflictError(ATTACHMENT_NOT_DRAFT_MESSAGE);
+
+      const existing = await tx
+        .select({ id: eventRequestAttachments.id })
+        .from(eventRequestAttachments)
+        .where(eq(eventRequestAttachments.eventRequestId, input.eventRequestId));
+      if (existing.length >= ATTACHMENT_MAX_COUNT) {
+        throw new ConflictError(ATTACHMENT_LIMIT_MESSAGE);
+      }
+
+      const [row] = await tx
+        .insert(eventRequestAttachments)
+        .values({
+          eventRequestId: input.eventRequestId,
+          objectKey: key,
+          originalFilename: sanitizeAttachmentFilename(input.filename),
+          contentType,
+          sizeBytes: input.bytes.length,
+          uploadedById: user.id,
+        })
+        .returning();
+      return row;
+    });
+  } catch (error) {
+    await storage
+      .remove(key)
+      .catch(removeError => log.warn("Attachment object cleanup failed", { key, removeError }));
+    throw error;
+  }
+}
+
+/**
+ * AC3: list this organiser's attachments for one request, oldest first. Metadata only, so this
+ * works while storage is unconfigured. Another organiser's rows read as absent. The result also
+ * carries whether attaching is available, so the draft page shows the AC4 notice on open.
+ */
+export async function handleListEventRequestAttachments(
+  data: unknown,
+  user: SessionUser,
+  database: Database
+) {
+  const { id } = parseEventRequestId(data);
+  const rows = await database
+    .select({
+      id: eventRequestAttachments.id,
+      originalFilename: eventRequestAttachments.originalFilename,
+      contentType: eventRequestAttachments.contentType,
+      sizeBytes: eventRequestAttachments.sizeBytes,
+      createdAt: eventRequestAttachments.createdAt,
+    })
+    .from(eventRequestAttachments)
+    .innerJoin(eventRequests, eq(eventRequests.id, eventRequestAttachments.eventRequestId))
+    .where(
+      and(eq(eventRequestAttachments.eventRequestId, id), eq(eventRequests.organiserId, user.id))
+    )
+    .orderBy(asc(eventRequestAttachments.id));
+
+  return { attachments: rows, storageAvailable: getAttachmentStorage() !== null };
+}
+
+/** One listed attachment as the draft page sees it. */
+export type EventRequestAttachmentListing = Awaited<
+  ReturnType<typeof handleListEventRequestAttachments>
+>["attachments"][number];
+
+/**
+ * AC3: download one of the organiser's attachments through the server. Returns the stored
+ * content type (byte-identified at upload) and the bytes as base64, which serializes across
+ * the server-function boundary. A missing row or object reads as gone.
+ */
+export async function handleDownloadEventRequestAttachment(
+  data: unknown,
+  user: SessionUser,
+  database: Database,
+  storage: AttachmentStorage | null
+) {
+  const { id, attachmentId } = parseAttachmentDownload(data);
+  if (!storage) throw new Error(ATTACHMENT_STORAGE_UNAVAILABLE_MESSAGE);
+
+  const rows = await database
+    .select({
+      originalFilename: eventRequestAttachments.originalFilename,
+      contentType: eventRequestAttachments.contentType,
+      sizeBytes: eventRequestAttachments.sizeBytes,
+      objectKey: eventRequestAttachments.objectKey,
+    })
+    .from(eventRequestAttachments)
+    .innerJoin(eventRequests, eq(eventRequests.id, eventRequestAttachments.eventRequestId))
+    .where(
+      and(
+        eq(eventRequestAttachments.id, attachmentId),
+        eq(eventRequestAttachments.eventRequestId, id),
+        eq(eventRequests.organiserId, user.id)
+      )
+    );
+  const row = rows.at(0);
+  if (!row) throw new NotFoundError("This attachment is no longer available.");
+
+  const bytes = await storage.get(row.objectKey);
+  if (!bytes) throw new NotFoundError("This attachment is no longer available.");
+
+  return {
+    filename: row.originalFilename,
+    contentType: row.contentType,
+    sizeBytes: row.sizeBytes,
+    base64: Buffer.from(bytes).toString("base64"),
+  };
+}

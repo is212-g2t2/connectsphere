@@ -23,3 +23,23 @@ export class RedisClient {
     return true;
   }
 }
+
+/**
+ * Stand-in for Bun's built-in S3 client, which Node-based Vitest cannot load. Import-safe;
+ * every method fails loudly so a test that reaches the real bucket fails instead of passing.
+ */
+export class S3Client {
+  constructor(public options?: unknown) {}
+
+  async write(): Promise<number> {
+    throw new Error("S3Client is not available in tests");
+  }
+
+  file(): {
+    exists(): Promise<boolean>;
+    arrayBuffer(): Promise<ArrayBuffer>;
+    delete(): Promise<void>;
+  } {
+    throw new Error("S3Client is not available in tests");
+  }
+}
