@@ -3,7 +3,10 @@ import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoordinationPage } from "#/features/coordination/components/coordination-page";
-import type { AssignedEventRequest } from "#/features/coordination/server-fns";
+import type {
+  AssignedEventRequest,
+  CoordinatorOversight,
+} from "#/features/coordination/server-fns";
 import type { UnassignedEventRequest } from "#/features/event-requests/server-fns";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -114,6 +117,71 @@ describe("CoordinationPage lead view (PTR-144)", () => {
 
     expect(screen.queryByRole("heading", { name: "Unassigned requests" })).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+});
+
+describe("CoordinationPage oversight (PTR-149)", () => {
+  const ana: CoordinatorOversight = {
+    id: "usr_ana",
+    name: "Ana Coordinator",
+    email: "ana@example.com",
+    events: [
+      {
+        id: 11,
+        eventName: "Active gala",
+        status: "planning",
+        assignedAt: new Date("2026-09-20T02:00:00Z"),
+      },
+      {
+        id: 12,
+        eventName: "Finished fair",
+        status: "completed",
+        assignedAt: new Date("2026-09-10T02:00:00Z"),
+      },
+      {
+        id: 13,
+        eventName: "Turned down",
+        status: "rejected",
+        assignedAt: new Date("2026-09-05T02:00:00Z"),
+      },
+    ],
+  };
+  const bo: CoordinatorOversight = {
+    id: "usr_bo",
+    name: "Bo Coordinator",
+    email: "bo@example.com",
+    events: [],
+  };
+
+  it("lists every Coordinator, their active events and every assigned event", () => {
+    render(<CoordinationPage view="lead" unassigned={[]} assigned={[]} oversight={[ana, bo]} />);
+
+    const section = screen.getByRole("region", { name: "Coordinator oversight" });
+    expect(within(section).getByRole("heading", { name: "Ana Coordinator" })).toBeTruthy();
+    expect(within(section).getByRole("link", { name: "ana@example.com" })).toBeTruthy();
+    expect(within(section).getByText(/1 active event/)).toBeTruthy();
+    expect(within(section).getByText(/3 assigned events/)).toBeTruthy();
+    expect(within(section).getByRole("heading", { name: "Active events" })).toBeTruthy();
+    expect(within(section).getByRole("link", { name: "Active gala" }).getAttribute("href")).toBe(
+      "/events/11"
+    );
+    expect(within(section).getByText("Planning")).toBeTruthy();
+    // Completed and rejected events stay listed under their own heading.
+    expect(
+      within(section).getByRole("heading", { name: "Completed, cancelled or rejected" })
+    ).toBeTruthy();
+    expect(within(section).getByRole("link", { name: "Finished fair" })).toBeTruthy();
+    expect(within(section).getByRole("link", { name: "Turned down" })).toBeTruthy();
+
+    // A Coordinator with no events still appears, so the Lead sees the whole team.
+    expect(within(section).getByRole("heading", { name: "Bo Coordinator" })).toBeTruthy();
+    expect(within(section).getByText("No events are assigned to this Coordinator.")).toBeTruthy();
+  });
+
+  it("keeps the oversight list off the Coordinator view", () => {
+    render(<CoordinationPage view="coordinator" unassigned={[]} assigned={[]} oversight={[ana]} />);
+
+    expect(screen.queryByRole("region", { name: "Coordinator oversight" })).toBeNull();
   });
 });
 

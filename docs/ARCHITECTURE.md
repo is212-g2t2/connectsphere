@@ -85,7 +85,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │   │   │                 # components/, Zod schemas, server functions, and
 │   │   │                 # feature-local *.server.ts modules
 │   │   ├── auth/         # Sessions, permissions, login/signup/reset/settings
-│   │   ├── coordination/ # Lead's unassigned queue, assignment, and the Coordinator's review flow
+│   │   ├── coordination/ # Lead's unassigned queue, oversight and assignment, and the Coordinator's review flow
 │   │   ├── dashboard/    # Signed-in home view
 │   │   ├── emails/       # Email templates and shared date formatting
 │   │   ├── equipment-requests/ # Equipment lines, submission to Technical Support, its arrangement work list, availability checks, and reservations

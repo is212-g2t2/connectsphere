@@ -272,6 +272,69 @@ test("shows the unassigned queue to the Lead and hides it from Coordinators", as
     await coordinatorContext.close();
   }
 });
+test("a Lead oversees every Coordinator's assigned events and opens one read-only", async ({
+  page,
+}) => {
+  const ids: string[] = [];
+  try {
+    const coordinator = await register(page, "event_coordinator", "Oversight Coordinator");
+    ids.push(coordinator.id);
+    const decided = {
+      decidedByCoordinatorId: coordinator.id,
+      decidedByCoordinatorName: coordinator.name,
+      decidedAt: new Date(),
+    };
+    const active = await seedAssignedRequest(ids, coordinator.id, {
+      eventName: `Oversight active ${randomUUID()}`,
+      status: "planning",
+      ...decided,
+    });
+    const completed = await seedAssignedRequest(ids, coordinator.id, {
+      eventName: `Oversight completed ${randomUUID()}`,
+      status: "completed",
+      ...decided,
+      completedById: coordinator.id,
+      completedByName: coordinator.name,
+      completedAt: new Date(),
+    });
+    const rejected = await seedAssignedRequest(ids, coordinator.id, {
+      eventName: `Oversight rejected ${randomUUID()}`,
+      status: "rejected",
+      ...decided,
+      decisionReason: "The date cannot be supported.",
+    });
+
+    await signInAsStaff(page, "event_coordinator_lead");
+    await page.goto("/coordination");
+    const oversight = page.getByRole("region", { name: "Coordinator oversight" });
+    await expect(oversight).toBeVisible();
+    const coordinatorRow = oversight.locator("li").filter({ hasText: coordinator.name }).first();
+    await expect(coordinatorRow.getByRole("heading", { name: coordinator.name })).toBeVisible();
+    await expect(coordinatorRow.getByText("1 active event")).toBeVisible();
+    await expect(coordinatorRow.getByText(/3 assigned events/)).toBeVisible();
+    await expect(coordinatorRow.getByRole("link", { name: active.eventName })).toBeVisible();
+    await expect(coordinatorRow.getByRole("link", { name: completed.eventName })).toBeVisible();
+    await expect(coordinatorRow.getByRole("link", { name: rejected.eventName })).toBeVisible();
+
+    // An event opened from oversight is read-only: the reassignment form is its only action.
+    await coordinatorRow.getByRole("link", { name: active.eventName }).click();
+    await waitForHydration(page);
+    await expect(page.getByRole("heading", { name: active.eventName })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Assign a Coordinator" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reassign Coordinator" })).toBeVisible();
+    for (const action of [
+      "Take up for review",
+      "Record a decision",
+      "Confirm event",
+      "Complete event",
+    ]) {
+      await expect(page.getByRole("button", { name: action })).toHaveCount(0);
+    }
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+  }
+});
+
 test("lists a submitted request assigned to the Coordinator", async ({ page }) => {
   const ids: string[] = [];
   try {

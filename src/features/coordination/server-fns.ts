@@ -24,6 +24,8 @@ export type Coordinator = Awaited<ReturnType<typeof listCoordinators>>[number];
 export type CoordinationRequest = Awaited<ReturnType<typeof getCoordinationRequest>>;
 /** A request already assigned to the signed-in Coordinator, as the coordination page sees it. */
 export type AssignedEventRequest = Awaited<ReturnType<typeof listAssignedEventRequests>>[number];
+/** PTR-149: one Coordinator and every event assigned to them, as the Lead's oversight list sees it. */
+export type CoordinatorOversight = Awaited<ReturnType<typeof listCoordinatorOversight>>[number];
 
 export const listAssignedEventRequests = createServerFn({ method: "GET" })
   .middleware([requireEventRequestCoordinate])
@@ -41,6 +43,17 @@ export const listCoordinators = createServerFn({ method: "GET" })
   .handler(async () => {
     const [{ db }, { handleListCoordinators }] = await loadServer();
     return handleListCoordinators(db);
+  });
+
+/**
+ * PTR-149 criterion 1: every Coordinator with their assigned events, system-wide. The same read
+ * opens no event by itself; each row links to the event page, whose access still decides.
+ */
+export const listCoordinatorOversight = createServerFn({ method: "GET" })
+  .middleware([requireEventRequestOversee])
+  .handler(async () => {
+    const [{ db }, { handleListCoordinatorOversight }] = await loadServer();
+    return handleListCoordinatorOversight(db);
   });
 
 export const getCoordinationRequest = createServerFn({ method: "GET" })
