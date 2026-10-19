@@ -1,10 +1,9 @@
-import { useState } from "react";
-
+import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button";
-import { Field, FieldError, FieldLabel } from "#/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldLabel } from "#/components/ui/field";
 import {
   Table,
   TableBody,
@@ -24,10 +23,11 @@ import {
   SAFETY_REVIEW_DECISIONS,
   SAFETY_REVIEW_STATE_LABELS,
   SAFETY_REVIEW_WITHDRAWN_LABEL,
+  SafetyReviewDecisionInput,
 } from "#/features/safety-reviews/schema";
 import type { SafetyReviewDecision, SafetyReviewDetail } from "#/features/safety-reviews/schema";
 import { decideSafetyReview } from "#/features/safety-reviews/server-fns";
-import { useMutation } from "#/hooks/use-mutation";
+import { formIssues } from "#/features/venue-requests/schema";
 import { skipRootFilter } from "#/lib/invalidate";
 
 /**
@@ -245,72 +245,123 @@ function SafetyReviewSection({ data }: { data: Extract<EventPageData, { kind: "e
 
 function DecisionForm({ review }: { review: SafetyReviewDetail }) {
   const router = useRouter();
-  const [comments, setComments] = useState("");
-  const [inFlight, setInFlight] = useState<SafetyReviewDecision | null>(null);
-  const [state, decide, deciding] = useMutation(
-    async (input: { decision: SafetyReviewDecision; comments: string }) => {
+  const form = useForm({
+    // The decision has no input of its own: a button sets it, then submits.
+    defaultValues: { decision: "" as SafetyReviewDecision | "", comments: "" },
+    validators: {
+      onSubmit: ({ value }) => {
+        const issues = formIssues(SafetyReviewDecisionInput, {
+          reviewId: review.id,
+          decision: value.decision,
+          fingerprint: review.fingerprint,
+          comments: value.comments,
+        });
+        // A decision field has nothing to render its message on. If one ever arrives unset, show
+        // it in the form slot instead of a hidden field.
+        if (issues?.fields.decision) return { form: issues.fields.decision.message, fields: {} };
+        return issues;
+      },
+    },
+    onSubmit: async ({ value, formApi }) => {
+      if (value.decision === "") return; // The validator refuses this.
       try {
         await decideSafetyReview({
           data: {
             reviewId: review.id,
-            decision: input.decision,
+            decision: value.decision,
             fingerprint: review.fingerprint,
-            comments: input.comments,
+            comments: value.comments,
           },
         });
       } catch (error) {
-        // A refusal usually means the arrangements moved or another Safety Officer decided. Re-read
-        // either way; the message still surfaces beside the form.
+        // A refusal usually means the arrangements moved or another Safety Officer decided.
+        // Set the message before the re-read; a reload failure must not hide it.
+        formApi.setErrorMap({
+          onSubmit: {
+            fields: {},
+            form:
+              error instanceof Error && error.message
+                ? error.message
+                : "Could not record this decision. Try again.",
+          },
+        });
         await router.invalidate({ filter: skipRootFilter }).catch(() => {
           // Best effort. The refusal is already shown.
         });
-        throw error;
+        return;
       }
+      toast.success("Safety review decision recorded.");
       await router.invalidate({ filter: skipRootFilter }).catch(() => {
         // The decision already committed. A failed refresh must not report it as a failure.
       });
-      toast.success("Safety review decision recorded.");
     },
-    "Could not record this decision. Try again."
-  );
+  });
 
   return (
-    <div className="mt-4 space-y-4">
-      <Field>
-        <FieldLabel htmlFor={`safety-review-comments-${review.id}`}>Decision comments</FieldLabel>
-        <Textarea
-          id={`safety-review-comments-${review.id}`}
-          value={comments}
-          maxLength={SAFETY_REVIEW_COMMENTS_MAX}
-          onChange={event => setComments(event.target.value)}
-        />
-      </Field>
+    <form
+      noValidate
+      className="mt-4 space-y-4"
+      onSubmit={event => {
+        event.preventDefault();
+        // The library has no re-entrancy check. A second click can arrive before React disables
+        // the button.
+        if (form.state.isSubmitting) return;
+        void form.handleSubmit();
+      }}
+    >
+      <form.Field name="comments">
+        {field => (
+          <Field data-invalid={field.state.meta.errors.length > 0}>
+            <FieldLabel htmlFor={`safety-review-comments-${review.id}`}>
+              Decision comments
+            </FieldLabel>
+            <Textarea
+              id={`safety-review-comments-${review.id}`}
+              value={field.state.value}
+              maxLength={SAFETY_REVIEW_COMMENTS_MAX}
+              aria-invalid={field.state.meta.errors.length > 0}
+              onChange={event => field.handleChange(event.target.value)}
+              onBlur={field.handleBlur}
+            />
+            <FieldDescription>Required when you reject or request changes.</FieldDescription>
+            <FieldError errors={field.state.meta.errors} />
+          </Field>
+        )}
+      </form.Field>
 
-      <div className="flex flex-wrap gap-3">
-        {SAFETY_REVIEW_DECISIONS.map(decision => (
-          <Button
-            key={decision}
-            type="button"
-            variant={decision === "rejected" ? "destructive" : "outline"}
-            disabled={deciding}
-            aria-label={`${DECISION_LABELS[decision]} this safety review`}
-            onClick={() => {
-              setInFlight(decision);
-              void decide({ decision, comments }).finally(() => setInFlight(null));
-            }}
-          >
-            {inFlight === decision ? DECISION_PENDING_LABELS[decision] : DECISION_LABELS[decision]}
-          </Button>
-        ))}
-      </div>
+      <form.Subscribe selector={state => [state.isSubmitting, state.values.decision]}>
+        {([isSubmitting, decision]) => (
+          <div className="flex flex-wrap gap-3">
+            {SAFETY_REVIEW_DECISIONS.map(candidate => (
+              <Button
+                key={candidate}
+                type="button"
+                variant={candidate === "rejected" ? "destructive" : "outline"}
+                disabled={Boolean(isSubmitting)}
+                aria-label={`${DECISION_LABELS[candidate]} this safety review`}
+                onClick={() => {
+                  form.setFieldValue("decision", candidate);
+                  void form.handleSubmit();
+                }}
+              >
+                {isSubmitting && decision === candidate
+                  ? DECISION_PENDING_LABELS[candidate]
+                  : DECISION_LABELS[candidate]}
+              </Button>
+            ))}
+          </div>
+        )}
+      </form.Subscribe>
 
-      {state.status === "error" ? (
-        <FieldError>
-          <p role="alert" className="whitespace-pre-line">
-            {state.error}
-          </p>
-        </FieldError>
-      ) : null}
-    </div>
+      <form.Subscribe selector={state => state.errorMap.onSubmit}>
+        {onSubmitError =>
+          typeof onSubmitError === "string" ? (
+            <FieldError>
+              <p className="whitespace-pre-line">{onSubmitError}</p>
+            </FieldError>
+          ) : null
+        }
+      </form.Subscribe>
+    </form>
   );
 }

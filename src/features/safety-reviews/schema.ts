@@ -108,6 +108,8 @@ export const SafetyReviewDecisionInput = z
   })
   .refine(input => input.decision === "approved" || input.comments !== "", {
     error: SAFETY_REVIEW_COMMENTS_REQUIRED_MESSAGE,
+    // Name the field, so a form maps the message onto the comments input.
+    path: ["comments"],
   });
 
 export function parseSafetyReviewDecision(data: unknown) {
