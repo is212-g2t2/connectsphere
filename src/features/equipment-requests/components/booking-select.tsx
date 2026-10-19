@@ -9,10 +9,14 @@ import {
 import type { EquipmentBookingOption } from "#/features/equipment-requests/schema";
 import { formatProposedWindow } from "#/features/event-requests/format";
 
+/**
+ * Name the buffered period first and the venue second. The trigger and the option rows truncate
+ * their tail, so the period — the part that tells separate sessions apart — must lead.
+ */
 const bookingLabel = (booking: EquipmentBookingOption) =>
-  `${booking.venueName}: ${formatProposedWindow({ start: booking.startsAt, end: booking.endsAt })}`;
+  `${formatProposedWindow({ start: booking.startsAt, end: booking.endsAt })} · ${booking.venueName}`;
 
-/** Name both the venue and the buffered period, so separate sessions stay distinct. */
+/** Name the period and the venue, so separate sessions stay distinct. */
 export function BookingSelect({
   id,
   bookings,

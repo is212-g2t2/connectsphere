@@ -187,9 +187,7 @@ export function ReserveEquipmentDialog({
                 <span>Availability:</span>
                 {availability.status === "unselected" ? (
                   <span>
-                    {bookings.length === 0
-                      ? "No active approved venue bookings."
-                      : "Choose a booking to check availability."}
+                    {bookings.length === 0 ? "—" : "Choose a booking to check availability."}
                   </span>
                 ) : availability.status === "loading" ? (
                   <span aria-live="polite">Checking availability…</span>

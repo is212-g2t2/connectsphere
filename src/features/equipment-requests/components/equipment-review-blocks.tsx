@@ -177,6 +177,11 @@ export function AvailabilityCheck({
         void form.handleSubmit();
       }}
     >
+      {venueRequestId === "" && bookings.length > 0 && (
+        <p id="availability-booking-help" className="body-sm text-muted-foreground">
+          Choose a booking to check availability.
+        </p>
+      )}
       <BookingSelect
         id="availability-booking"
         bookings={bookings}
@@ -260,16 +265,9 @@ export function AvailabilityCheck({
 
       <form.Subscribe selector={state => state.isSubmitting}>
         {isSubmitting => (
-          <>
-            {venueRequestId === "" && bookings.length > 0 && (
-              <p id="availability-booking-help" className="body-sm text-muted-foreground">
-                Choose a booking to check availability.
-              </p>
-            )}
-            <Button type="submit" size="sm" disabled={isSubmitting || !venueRequestId}>
-              {isSubmitting ? "Checking…" : "Check availability"}
-            </Button>
-          </>
+          <Button type="submit" size="sm" disabled={isSubmitting || !venueRequestId}>
+            {isSubmitting ? "Checking…" : "Check availability"}
+          </Button>
         )}
       </form.Subscribe>
     </form>
