@@ -12,7 +12,7 @@ import {
 } from "#/components/ui/table";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { UNTITLED_REQUEST } from "#/features/event-requests/components/request-list-page";
-import { formatInstant, formatVenuePeriod } from "#/features/event-requests/format";
+import { formatInstant, formatVenueWindow } from "#/features/event-requests/format";
 import type { PendingSafetyReview } from "#/features/safety-reviews/schema";
 import { SAFETY_REVIEW_WITHDRAWN_LABEL } from "#/features/safety-reviews/schema";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
@@ -65,14 +65,7 @@ export function SafetyReviewsPage({ reviews }: { reviews: PendingSafetyReview[] 
                     </div>
                   </TableCell>
                   <TableCell>{review.venue?.name ?? "No approved venue"}</TableCell>
-                  <TableCell>
-                    {review.venue
-                      ? formatVenuePeriod(
-                          `${review.venue.date} ${review.venue.startTime}:00`,
-                          `${review.venue.endDate} ${review.venue.endTime}:00`
-                        )
-                      : "—"}
-                  </TableCell>
+                  <TableCell>{review.venue ? formatVenueWindow(review.venue) : "—"}</TableCell>
                   <TableCell>
                     <time dateTime={review.createdAt}>
                       {formatInstant(new Date(review.createdAt))}

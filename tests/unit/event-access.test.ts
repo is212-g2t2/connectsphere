@@ -413,6 +413,27 @@ describe("event access", () => {
       expect(result.event).not.toHaveProperty("confirmation");
       expect(result.event).not.toHaveProperty("equipmentSubmittedAt");
     });
+
+    it("keeps the booking's session requirements to the Safety Officer alone", () => {
+      for (const access of [
+        "organiser",
+        "coordinator",
+        "lead",
+        "venue_staff",
+        "technical_support",
+        "attendee",
+      ] as const) {
+        const result = projectEvent(request, access, null, [], [], venue, null, {
+          sessionRequirements: {
+            expectedAttendance: 90,
+            layout: "Cabaret",
+            accessibilityRequirements: "Ramp",
+            requiredFacilities: "Stage",
+          },
+        });
+        expect(result.event).not.toHaveProperty("sessionRequirements");
+      }
+    });
   });
 
   it("returns only an attendee's own registration and the PTR-44 fields", () => {

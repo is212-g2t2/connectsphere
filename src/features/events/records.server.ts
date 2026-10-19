@@ -292,6 +292,14 @@ export async function handleListEvents(
             registrationCapacity: eventRequests.registrationCapacity,
             registrationOpensAt: eventRequests.registrationOpensAt,
             registrationClosesAt: eventRequests.registrationClosesAt,
+            // PTR-146: the row's own review presence. The safety arm of `connectedEventCondition`
+            // states the same rule in SQL, so the in-memory access check cannot drift from it.
+            hasSafetyReview: exists(
+              database
+                .select({ id: safetyReviews.id })
+                .from(safetyReviews)
+                .where(eq(safetyReviews.eventRequestId, eventRequests.id))
+            ).mapWith(Boolean),
           })
           .from(eventRequests)
           .where(
@@ -474,9 +482,7 @@ export async function handleListEvents(
       status: record.status,
       registrationEnabled: record.registrationEnabled,
       hasOwnRegistration: ownRegistration !== null,
-      // PTR-146: the SQL relationship above already keeps only reviewed events for this role, so
-      // every listed row has one.
-      hasSafetyReview: role === "safety_officer",
+      hasSafetyReview: record.hasSafetyReview,
     });
 
     if (!access) return [];

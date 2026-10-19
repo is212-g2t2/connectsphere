@@ -17,7 +17,7 @@ import { Textarea } from "#/components/ui/textarea";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import { formatInstant, formatVenuePeriod } from "#/features/event-requests/format";
+import { formatInstant, formatVenueWindow } from "#/features/event-requests/format";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import {
   SAFETY_REVIEW_COMMENTS_MAX,
@@ -74,12 +74,7 @@ export function safetySections(data: EventPageData): EventSectionDef[] {
  */
 function ArrangementsSection({ data }: { data: Extract<EventPageData, { kind: "event" }> }) {
   const { event } = data.event;
-  const bookingPeriod = event.venue
-    ? formatVenuePeriod(
-        `${event.venue.date} ${event.venue.startTime}:00`,
-        `${event.venue.endDate} ${event.venue.endTime}:00`
-      )
-    : "No current approved venue";
+  const bookingPeriod = event.venue ? formatVenueWindow(event.venue) : "No current approved venue";
 
   return (
     <div>
@@ -145,7 +140,8 @@ function ArrangementsSection({ data }: { data: Extract<EventPageData, { kind: "e
           <h3 className="mt-6 display-h3">Approved session requirements</h3>
           <p className="mt-2 body-sm text-muted-foreground">
             The current booking's own requirements, which the review covers. A change to them
-            withdraws this review.
+            withdraws this review. The review covers every approved booking; this page shows the
+            current one.
           </p>
           <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
             <Fact
