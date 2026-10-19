@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoordinationPage } from "#/features/coordination/components/coordination-page";
@@ -169,8 +169,8 @@ describe("CoordinationPage oversight (PTR-149)", () => {
     expect(within(section).getByRole("heading", { name: "Ana Coordinator" })).toBeTruthy();
     expect(within(section).getByRole("link", { name: "ana@example.com" })).toBeTruthy();
     expect(within(section).getByText("1 active event")).toBeTruthy();
-    // The badge and the closed disclosure each state the closed count.
-    expect(within(section).getAllByText("3 closed events")).toHaveLength(2);
+    // Only the closed disclosure states the closed count.
+    expect(within(section).getByText("3 closed events")).toBeTruthy();
     expect(within(section).getByRole("heading", { name: "Active events" })).toBeTruthy();
     const activeList = within(section).getByRole("list", { name: "Ana Coordinator active events" });
     expect(within(activeList).getByRole("link", { name: "Active gala" }).getAttribute("href")).toBe(
@@ -247,13 +247,15 @@ describe("CoordinationPage oversight (PTR-149)", () => {
     render(<CoordinationPage view="lead" unassigned={[]} assigned={[]} oversight={[ana]} />);
 
     const section = screen.getByRole("region", { name: "Coordinator oversight" });
-    const disclosure = within(section)
-      .getByText("3 closed events", { selector: "summary" })
-      .closest("details");
+    // jsdom runs the summary activation behavior, so a click opens the disclosure like a browser.
+    const summary = within(section).getByText("3 closed events", { selector: "summary" });
+    const disclosure = summary.closest("details");
     expect(disclosure).not.toBeNull();
-    expect(
-      within(disclosure as HTMLElement).getByRole("link", { name: "Called off" })
-    ).toBeTruthy();
+    const details = disclosure as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+    expect(within(details).getByRole("link", { name: "Called off" })).toBeTruthy();
   });
 
   it("keeps the oversight list off the Coordinator view", () => {

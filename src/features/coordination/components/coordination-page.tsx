@@ -61,7 +61,7 @@ export function CoordinationPage({
         title="Coordination"
         description={
           view === "lead"
-            ? "Assign each submitted request a Coordinator, and compare every Coordinator's active load below."
+            ? "Assign each submitted request a Coordinator, and balance each Coordinator's load below."
             : "The requests assigned to you."
         }
       />
@@ -182,7 +182,7 @@ export function CoordinationPage({
             Coordinator oversight
           </h2>
           <p className="mt-2 body-sm text-muted-foreground">
-            Compare each Coordinator&apos;s active load. Open an event to reassign it.
+            Busiest first. Open an event to reassign it.
           </p>
 
           {oversight.length === 0 ? (
@@ -208,16 +208,11 @@ export function CoordinationPage({
                         {coordinator.email}
                       </a>
                       {coordinator.events.length > 0 ? (
-                        <>
-                          <Badge variant="secondary">
-                            {active.length === 1
-                              ? "1 active event"
-                              : `${active.length} active events`}
-                          </Badge>
-                          {closed.length > 0 ? (
-                            <Badge variant="secondary">{closedLabel}</Badge>
-                          ) : null}
-                        </>
+                        <Badge variant="secondary">
+                          {active.length === 1
+                            ? "1 active event"
+                            : `${active.length} active events`}
+                        </Badge>
                       ) : null}
                     </div>
 
@@ -240,10 +235,7 @@ export function CoordinationPage({
                           <>
                             <h4 className="mt-3 eyebrow text-muted-foreground">Closed</h4>
                             <details className="mt-2">
-                              <summary
-                                aria-label={`Show ${closedLabel} for ${coordinator.name}`}
-                                className="w-fit cursor-pointer body-sm text-muted-foreground"
-                              >
+                              <summary className="w-fit cursor-pointer body-sm text-muted-foreground">
                                 {closedLabel}
                               </summary>
                               <OversightEventList
@@ -291,7 +283,7 @@ function OversightEventList({
           <EventRequestStatusBadge status={event.status} />
           {event.assignedAt ? (
             <span className="body-sm text-muted-foreground">
-              <span className="sr-only">Assigned </span>
+              Assigned{" "}
               <time dateTime={event.assignedAt.toISOString()}>
                 {formatInstant(event.assignedAt)}
               </time>
