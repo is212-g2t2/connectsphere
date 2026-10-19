@@ -138,6 +138,7 @@ const reopenedDraft = {
   purpose: "Plan the year with members",
   proposedDates: [{ start: "2030-11-18T09:30", end: "2030-11-18T12:45" }],
   expectedAttendance: 25,
+  actualAttendance: null,
   equipmentSubmittedAt: null,
   equipmentArrangementsCompletedAt: null,
   equipmentArrangementsCompletedById: null,

@@ -7,6 +7,12 @@ import {
   NO_EVENT_END_MESSAGE,
   singaporeLocalEndHasPassed,
 } from "#/features/events/completion";
+import {
+  ACTUAL_ATTENDANCE_MAX_MESSAGE,
+  ACTUAL_ATTENDANCE_MESSAGE,
+  ATTENDANCE_MAX,
+  parseEventCompleteInput,
+} from "#/features/event-requests/schema";
 
 const NOW = new Date("2026-10-06T00:00:00+08:00");
 
@@ -94,5 +100,36 @@ describe("completionRefusalForEvent", () => {
         NOW
       )
     ).toBe("Its status is approved.");
+  });
+});
+
+describe("actual attendance input (PTR-157 AC1)", () => {
+  it("accepts an omitted count", () => {
+    expect(parseEventCompleteInput({ id: 7 })).toEqual({ id: 7 });
+  });
+
+  it.each([0, 1, 42])("accepts a count of %s", value => {
+    expect(parseEventCompleteInput({ id: 7, actualAttendance: value })).toEqual({
+      id: 7,
+      actualAttendance: value,
+    });
+  });
+
+  it.each([[-1], [1.5], [Number.NaN], ["42"]])("refuses an attendance of %s", value => {
+    expect(() => parseEventCompleteInput({ id: 7, actualAttendance: value })).toThrow(
+      ACTUAL_ATTENDANCE_MESSAGE
+    );
+  });
+
+  it("refuses a count past the storage limit with its own message", () => {
+    expect(() => parseEventCompleteInput({ id: 7, actualAttendance: ATTENDANCE_MAX + 1 })).toThrow(
+      ACTUAL_ATTENDANCE_MAX_MESSAGE
+    );
+  });
+
+  it("still refuses a bad id first", () => {
+    expect(() => parseEventCompleteInput({ id: -3, actualAttendance: 5 })).toThrow(
+      "Choose an event request"
+    );
   });
 });

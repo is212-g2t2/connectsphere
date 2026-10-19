@@ -4,7 +4,7 @@ import type { db as Db } from "#/db";
 import { eventCancellationRequests, eventChangeRequests, eventRequests } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { parseEventRequestId } from "#/features/event-requests/schema";
+import { parseEventCompleteInput } from "#/features/event-requests/schema";
 import {
   COMPLETION_REFUSAL_HEADING,
   EVENT_COMPLETED_CLOSEOUT_REASON,
@@ -25,7 +25,7 @@ type Database = typeof Db;
  * for each.
  */
 export async function handleCompleteEvent(data: unknown, actor: SessionUser, database: Database) {
-  const input = parseEventRequestId(data);
+  const input = parseEventCompleteInput(data);
 
   return database.transaction(async tx => {
     const request = (
@@ -49,6 +49,7 @@ export async function handleCompleteEvent(data: unknown, actor: SessionUser, dat
         completedById: actor.id,
         completedByName: actor.name?.trim() || actor.email,
         completedAt,
+        actualAttendance: input.actualAttendance ?? null,
       })
       .where(eq(eventRequests.id, request.id))
       .returning();

@@ -42,6 +42,9 @@ function OrganiserInformation({ request }: { request: EventRequestDetail }) {
         <CardContent>
           <dl className="grid gap-6 sm:grid-cols-2">
             <Detail term="Expected attendance">{request.expectedAttendance ?? NONE}</Detail>
+            {request.status === "completed" && (
+              <Detail term="Actual attendance">{request.actualAttendance ?? "Not recorded"}</Detail>
+            )}
 
             <Detail term="Purpose" wide>
               {request.purpose || NONE}
@@ -192,6 +195,26 @@ function LeadInformation({ event }: { event: EventProjection["event"] }) {
 }
 
 /**
+ * PTR-157: the Coordinator's read-only turnout record for a completed event. The update form
+ * closes with the event, so expected and actual attendance show here instead.
+ */
+function CoordinatorCompletedRecord({ event }: { event: EventProjection["event"] }) {
+  return (
+    <div>
+      <h2 className="display-h3">Event record</h2>
+      <Card className="mt-4">
+        <CardContent>
+          <dl className="grid gap-6 sm:grid-cols-2">
+            <Detail term="Expected attendance">{event.expectedAttendance ?? NONE}</Detail>
+            <Detail term="Actual attendance">{event.actualAttendance ?? "Not recorded"}</Detail>
+          </dl>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/**
  * Show the event's recorded information to every staff role that reads it. The Coordinator can
  * update it while the event is approved, planning, or confirmed; in those statuses the form also
  * applies a waiting change request (PTR-52). In other statuses the change requests section holds
@@ -207,18 +230,25 @@ export function eventInformationSections(data: EventPageData): EventSectionDef[]
     return [];
   }
   const { access } = data.event;
+  const coordinatorCompleted = access === "coordinator" && data.event.event.status === "completed";
   return [
     {
       id: "details",
-      label: access === "coordinator" ? "Update event information" : "Event information",
+      label:
+        access === "coordinator"
+          ? coordinatorCompleted
+            ? "Event record"
+            : "Update event information"
+          : "Event information",
       visible: inner => {
         if (inner.kind !== "event") return false;
         if (inner.event.access === "organiser") {
           return inner.organiserRequest !== null && inner.organiserRequest !== undefined;
         }
         if (inner.event.access === "coordinator") {
+          const completed = inner.event.event.status === "completed";
           return (
-            canUpdateEventInformation(inner.event.event.status) &&
+            (canUpdateEventInformation(inner.event.event.status) || completed) &&
             inner.coordination?.request !== undefined
           );
         }
@@ -231,11 +261,17 @@ export function eventInformationSections(data: EventPageData): EventSectionDef[]
           return <LeadInformation event={body.event.event} />;
         }
         if (body.event.access === "coordinator") {
-          const request = body.coordination?.request;
-          // The form owns its own disclosure and heading; do not nest a second one.
-          return request ? (
-            <CoordinatorInformationForm request={request} layouts={body.layouts} />
-          ) : null;
+          if (canUpdateEventInformation(body.event.event.status)) {
+            const request = body.coordination?.request;
+            // The form owns its own disclosure and heading; do not nest a second one.
+            return request ? (
+              <CoordinatorInformationForm request={request} layouts={body.layouts} />
+            ) : null;
+          }
+          if (body.event.event.status === "completed") {
+            return <CoordinatorCompletedRecord event={body.event.event} />;
+          }
+          return null;
         }
         const request = body.organiserRequest;
         return request ? <OrganiserInformation request={request} /> : null;

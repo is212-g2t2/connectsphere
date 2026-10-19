@@ -5,6 +5,7 @@ import {
   parseEventCancellationDeclineInput,
   parseEventCancellationInput,
   parseEventChangeRequestDeclineInput,
+  parseEventCompleteInput,
   parseEventInformationInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
@@ -293,7 +294,7 @@ export const removeVipRegistration = createServerFn({ method: "POST" })
 /** PTR-25: Only an Event Coordinator reaches the handler. It re-checks the live assignment. */
 export const completeEvent = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCoordinate])
-  .validator(parseEventRequestId)
+  .validator(parseEventCompleteInput)
   .handler(async ({ data, context }) => {
     const [{ db }, { handleCompleteEvent }] = await loadCompleteServer();
     const event = await handleCompleteEvent(data, context.user, db);
