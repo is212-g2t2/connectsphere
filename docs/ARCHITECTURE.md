@@ -12,7 +12,7 @@ C4Context
     Person(organiser, "Event Organiser", "Raises event requests and answers clarifications")
     Person(coordinator, "Event Coordinator", "Coordinates, confirms, and completes events")
     Person(lead, "Event Coordinator Lead", "Watches the unassigned queue and every event")
-    Person(venueStaff, "Venue Staff", "Approves, rejects, releases, and amends bookings")
+    Person(venueStaff, "Venue Staff", "Approves, rejects, releases, and amends bookings; places or declines hold requests")
     Person(techSupport, "Technical Support Staff", "Arranges and reserves equipment")
     Person(safetyOfficer, "Safety Officer", "Reviews an event's operational safety")
 

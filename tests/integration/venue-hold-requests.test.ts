@@ -22,6 +22,7 @@ import {
   VENUE_HOLD_DECLINE_REASON_REQUIRED,
   VENUE_HOLD_EXPIRY_PAST_MESSAGE,
   VENUE_HOLD_REQUEST_HANDLED_MESSAGE,
+  isLeftHoldQueueMessage,
   venueHoldConflictMessage,
 } from "#/features/venue-requests/schema";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
@@ -392,6 +393,13 @@ describe("hold requests (PTR-150)", () => {
       await expect(place(hold.id)).rejects.toThrow(venueRequestEventStatusMessage("confirmed"));
       expect((await holdRow(hold.id)).status).toBe("requested");
       expect(await ledger(hold.id)).toEqual([]);
+    });
+
+    it("names the cancelled status, which the queue page shows as a toast", async () => {
+      const hold = await requestHold();
+      await setEventStatus("cancelled");
+      await expect(place(hold.id)).rejects.toThrow(venueRequestEventStatusMessage("cancelled"));
+      expect(isLeftHoldQueueMessage(venueRequestEventStatusMessage("cancelled"))).toBe(true);
     });
   });
 

@@ -37,7 +37,7 @@ export const VenueHoldPlacedEmail = (
     <Section>
       <Text style={emailHeading}>Tentative hold placed</Text>
       <Text style={emailText}>
-        {`Your tentative hold on ${props.venueName} for ${formatPeriod(props.startsAt, props.endsAt)} is placed. It expires on ${formatDate(props.expiresAt)}, ${formatTime(props.expiresAt)}.`}
+        {`The tentative hold on ${props.venueName} for ${formatPeriod(props.startsAt, props.endsAt)} is placed. It expires on ${formatDate(props.expiresAt)}, ${formatTime(props.expiresAt)}.`}
       </Text>
       <Button href={props.calendarUrl} style={emailButton}>
         View venue calendar
@@ -54,7 +54,7 @@ export const VenueHoldDeclinedEmail = (
     <Section>
       <Text style={emailHeading}>Tentative hold request declined</Text>
       <Text style={emailText}>
-        {`Your request to hold ${props.venueName} for ${formatPeriod(props.startsAt, props.endsAt)} was declined.`}
+        {`The request to hold ${props.venueName} for ${formatPeriod(props.startsAt, props.endsAt)} was declined.`}
       </Text>
       <Text style={emailText}>{`Reason: ${props.reason}`}</Text>
       <Button href={props.calendarUrl} style={emailButton}>
