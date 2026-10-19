@@ -11,7 +11,7 @@ C4Context
     Person(attendee, "Attendee", "Signs up and registers for events")
     Person(organiser, "Event Organiser", "Raises event requests and answers clarifications")
     Person(coordinator, "Event Coordinator", "Coordinates, confirms, and completes events")
-    Person(lead, "Event Coordinator Lead", "Allocates work and watches every event")
+    Person(lead, "Event Coordinator Lead", "Watches the unassigned queue and every event")
     Person(venueStaff, "Venue Staff", "Approves, rejects, releases, and amends bookings")
     Person(techSupport, "Technical Support Staff", "Arranges and reserves equipment")
 
