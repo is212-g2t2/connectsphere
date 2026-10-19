@@ -51,8 +51,11 @@ export function getEventAccess(input: EventAccessInput): EventAccess | null {
     return "technical_support";
   }
   // PTR-146: every Safety Officer reads every event under review. The review row is the
-  // relationship, so a decided review keeps the event readable.
-  if (input.role === "safety_officer" && input.hasSafetyReview) return "safety_officer";
+  // relationship, so a decided review keeps the event readable. A draft has no review, and the
+  // SQL arm excludes drafts too; keep the same guard here.
+  if (input.role === "safety_officer" && input.status !== "draft" && input.hasSafetyReview) {
+    return "safety_officer";
+  }
   // PTR-44: A browsing Attendee sees confirmed events with registration open. The registration
   // action checks the registration window (PTR-45/PTR-50). An existing registration keeps a
   // non-draft event visible. This matches `connectedEventCondition` in SQL.
@@ -324,6 +327,16 @@ export interface EventProjection {
     requiredFacilities?: string | null;
     /** PTR-146: Safety Officer only. The current venue's maximum capacity. */
     venueCapacity?: number | null;
+    /**
+     * PTR-146: Safety Officer only. The current booking's own session requirements (PTR-138),
+     * which the arrangement fingerprint hashes.
+     */
+    sessionRequirements?: {
+      expectedAttendance: number | null;
+      layout: string | null;
+      accessibilityRequirements: string | null;
+      requiredFacilities: string | null;
+    } | null;
     registration?: { status: string; registeredAt: string } | null;
     /** PTR-45 AC10: the event's normal `registered` registrations against its place limit. */
     places?: EventPlaces | null;
@@ -397,6 +410,13 @@ export function projectEvent(
     blockedArrangements?: BlockedArrangement[];
     /** PTR-146: the current venue's maximum capacity, for the Safety Officer's copy. */
     venueCapacity?: number | null;
+    /** PTR-146: the current booking's own session requirements, which the fingerprint hashes. */
+    sessionRequirements?: {
+      expectedAttendance: number | null;
+      layout: string | null;
+      accessibilityRequirements: string | null;
+      requiredFacilities: string | null;
+    } | null;
   } = {}
 ): EventProjection {
   const {
@@ -404,6 +424,7 @@ export function projectEvent(
     registrationAvailability = null,
     blockedArrangements = [],
     venueCapacity = null,
+    sessionRequirements = null,
   } = extras;
   const timing = eventTiming(record.proposedDates);
 
@@ -524,6 +545,7 @@ export function projectEvent(
           requiredFacilities: record.venueRequirements,
           venue: currentVenue,
           venueCapacity,
+          sessionRequirements,
           equipment: equipment.map(line => ({
             id: line.id,
             item: line.item,

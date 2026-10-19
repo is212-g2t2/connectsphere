@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { EventVenue } from "#/features/events/access";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 
 /** Routes and forms import this module. Keep it free of server-only dependencies. */
@@ -47,6 +48,9 @@ export const SAFETY_REVIEW_NOT_PENDING_MESSAGE = "This safety review has already
 export const SAFETY_REVIEW_OUTDATED_MESSAGE =
   "The arrangements changed after this review was raised.";
 export const SAFETY_REVIEW_STALE_MESSAGE = "Arrangements changed since you opened this review.";
+/** PTR-146: a deadlock aborts the decision; the caller retries, as the venue block writers do. */
+export const SAFETY_REVIEW_RETRY_MESSAGE =
+  "Another change conflicted with this decision. Try again.";
 
 export const SAFETY_REVIEW_COMMENTS_MAX = 2000;
 export const SAFETY_REVIEW_COMMENTS_MESSAGE = `Comments must be ${SAFETY_REVIEW_COMMENTS_MAX} characters or fewer`;
@@ -75,10 +79,8 @@ export interface PendingSafetyReview {
   eventId: number;
   eventName: string;
   eventStatus: EventRequestStatus;
-  /** The earliest approved booking, for the list's venue and window columns. */
-  venueName: string | null;
-  startsAt: string | null;
-  endsAt: string | null;
+  /** The event's current approved booking, as the event page reads it. Null when none is current. */
+  venue: EventVenue | null;
   createdAt: string;
   /** False when the arrangements changed after the review was raised. */
   current: boolean;

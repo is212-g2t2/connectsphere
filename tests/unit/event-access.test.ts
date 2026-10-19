@@ -95,6 +95,16 @@ describe("event access", () => {
     expect(
       getEventAccess({ ...relationship, role: "safety_officer", userId: "safety-1" })
     ).toBeNull();
+    // A draft never carries a review; the guard mirrors the SQL relationship (PTR-146).
+    expect(
+      getEventAccess({
+        ...relationship,
+        role: "safety_officer",
+        userId: "safety-1",
+        hasSafetyReview: true,
+        status: "draft",
+      })
+    ).toBeNull();
   });
 
   it("allows attendees only confirmed events with registration on, or events they are already registered for (PTR-44)", () => {
@@ -342,6 +352,12 @@ describe("event access", () => {
     it("carries the venue, its capacity, the layout and every equipment detail", () => {
       const result = projectEvent(request, "safety_officer", null, [line], [], venue, null, {
         venueCapacity: 120,
+        sessionRequirements: {
+          expectedAttendance: 90,
+          layout: "Cabaret",
+          accessibilityRequirements: "Ramp",
+          requiredFacilities: "Stage",
+        },
       });
 
       expect(result.event).toMatchObject({
@@ -353,6 +369,12 @@ describe("event access", () => {
         requiredFacilities: "Projector",
         venue,
         venueCapacity: 120,
+        sessionRequirements: {
+          expectedAttendance: 90,
+          layout: "Cabaret",
+          accessibilityRequirements: "Ramp",
+          requiredFacilities: "Stage",
+        },
         equipment: [
           {
             id: "line-1",

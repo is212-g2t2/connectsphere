@@ -64,10 +64,13 @@ export function SafetyReviewsPage({ reviews }: { reviews: PendingSafetyReview[] 
                       <EventRequestStatusBadge status={review.eventStatus} />
                     </div>
                   </TableCell>
-                  <TableCell>{review.venueName ?? "No approved venue"}</TableCell>
+                  <TableCell>{review.venue?.name ?? "No approved venue"}</TableCell>
                   <TableCell>
-                    {review.startsAt !== null && review.endsAt !== null
-                      ? formatVenuePeriod(review.startsAt, review.endsAt)
+                    {review.venue
+                      ? formatVenuePeriod(
+                          `${review.venue.date} ${review.venue.startTime}:00`,
+                          `${review.venue.endDate} ${review.venue.endTime}:00`
+                        )
                       : "—"}
                   </TableCell>
                   <TableCell>

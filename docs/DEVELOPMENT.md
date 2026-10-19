@@ -75,7 +75,7 @@ This guide covers the local development environment, the scripts catalogue, data
 | Technical Support Staff | tech.support.seed@example.com   | `password1!` |
 | Safety Officer          | safety.officer.seed@example.com | `password1!` |
 
-The seeded attendee (`john.doe@example.com`) and organiser (`jane.doe@example.com`) also use `password1!`. The demo event request connects to the five event roles, so you can check each access projection locally. It belongs to jane. The seeded Coordinator and Venue Staff are assigned to it. Technical Support holds an equipment request for it, and john is registered.
+The seeded attendee (`john.doe@example.com`) and organiser (`jane.doe@example.com`) also use `password1!`. The demo event request reaches the attendee, organiser, coordinator, lead, venue staff, and technical support projections. It belongs to jane. The seeded Coordinator and Venue Staff are assigned to it. Technical Support holds an equipment request for it, and john is registered. The Safety Officer projection needs a review row, which PTR-148's sweep raises; the seed only creates the account.
 
 A second event, ConnectSphere Open Day, is confirmed with registration on, so attendees can open its event page.
 

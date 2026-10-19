@@ -176,15 +176,27 @@ export function connectedEventCondition(
 }
 
 /**
- * Read each event's current approved booking with its venue and capacity. Pick the
- * earliest-created approved booking, so the render stays stable. The confirmation booking is not
- * stored (a PTR-24 follow-up). A booking approved after confirmation can change the shown venue.
+ * The event's current approved booking: its venue, capacity, and session requirements (PTR-138),
+ * which the arrangement fingerprint hashes. Pick the earliest-created approved booking, so the
+ * render stays stable. The confirmation booking is not stored (a PTR-24 follow-up). A booking
+ * approved after confirmation can change the shown venue.
  */
-async function loadCurrentBookings(
+export interface CurrentBooking {
+  venue: EventVenue;
+  maxCapacity: number;
+  session: {
+    expectedAttendance: number | null;
+    layout: string | null;
+    accessibilityRequirements: string | null;
+    requiredFacilities: string | null;
+  };
+}
+
+export async function loadCurrentBookings(
   database: Pick<Database, "select">,
   eventIds: number[]
-): Promise<Map<number, { venue: EventVenue; maxCapacity: number }>> {
-  const current = new Map<number, { venue: EventVenue; maxCapacity: number }>();
+): Promise<Map<number, CurrentBooking>> {
+  const current = new Map<number, CurrentBooking>();
   if (eventIds.length === 0) return current;
 
   const bookings = await database
@@ -195,6 +207,10 @@ async function loadCurrentBookings(
       maxCapacity: venues.maxCapacity,
       startsAt: venueRequests.startsAt,
       endsAt: venueRequests.endsAt,
+      expectedAttendance: venueRequests.expectedAttendance,
+      layout: venueRequests.layout,
+      accessibilityRequirements: venueRequests.accessibilityRequirements,
+      requiredFacilities: venueRequests.requiredFacilities,
     })
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
@@ -225,6 +241,12 @@ async function loadCurrentBookings(
         endTime: booking.endsAt.slice(11, 16),
       },
       maxCapacity: booking.maxCapacity,
+      session: {
+        expectedAttendance: booking.expectedAttendance,
+        layout: booking.layout,
+        accessibilityRequirements: booking.accessibilityRequirements,
+        requiredFacilities: booking.requiredFacilities,
+      },
     });
   }
   return current;
@@ -374,7 +396,7 @@ export async function handleListEvents(
         database,
         role === "attendee" || role === "safety_officer" ? requestIds : confirmedIds
       )
-    : Promise.resolve(new Map<number, { venue: EventVenue; maxCapacity: number }>());
+    : Promise.resolve(new Map<number, CurrentBooking>());
   const countRead = wantsCounts
     ? database
         .select({ eventId: eventRegistrations.eventId, ...registrationCounts })
@@ -394,26 +416,13 @@ export async function handleListEvents(
     role === "event_coordinator"
       ? loadBlockedArrangements(database, requestIds)
       : Promise.resolve(new Map<number, BlockedArrangement[]>());
-  // PTR-146: which of these events carry a safety review. The access check below needs the flag
-  // for the Safety Officer's branch.
-  const safetyReviewRead =
-    role === "safety_officer"
-      ? database
-          .selectDistinct({ eventId: safetyReviews.eventRequestId })
-          .from(safetyReviews)
-          .where(inArray(safetyReviews.eventRequestId, requestIds))
-      : Promise.resolve([] as { eventId: number }[]);
-  const [holderRows, bookings, countRows, conflictKinds, blockedArrangements, safetyReviewRows] =
-    await Promise.all([
-      holderRead,
-      bookingRead,
-      countRead,
-      loadPendingConflictKinds(database, pendingIds),
-      blockedRead,
-      safetyReviewRead,
-    ]);
-
-  const safetyReviewEventIds = new Set(safetyReviewRows.map(row => row.eventId));
+  const [holderRows, bookings, countRows, conflictKinds, blockedArrangements] = await Promise.all([
+    holderRead,
+    bookingRead,
+    countRead,
+    loadPendingConflictKinds(database, pendingIds),
+    blockedRead,
+  ]);
 
   const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
 
@@ -465,7 +474,9 @@ export async function handleListEvents(
       status: record.status,
       registrationEnabled: record.registrationEnabled,
       hasOwnRegistration: ownRegistration !== null,
-      hasSafetyReview: safetyReviewEventIds.has(record.id),
+      // PTR-146: the SQL relationship above already keeps only reviewed events for this role, so
+      // every listed row has one.
+      hasSafetyReview: role === "safety_officer",
     });
 
     if (!access) return [];
@@ -554,6 +565,9 @@ export async function handleListEvents(
               : null,
           blockedArrangements: blockedArrangements.get(record.id) ?? [],
           venueCapacity: venueCapacities.get(record.id) ?? null,
+          // PTR-146: the Safety Officer's copy states the current booking's own session
+          // requirements, which the fingerprint hashes, beside the event's fields.
+          sessionRequirements: bookings.get(record.id)?.session ?? null,
         }
       ),
     ];

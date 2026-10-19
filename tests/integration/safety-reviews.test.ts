@@ -287,8 +287,7 @@ describe("reviewing an event's operational safety (PTR-146)", () => {
       expect(entry).toMatchObject({
         eventId,
         eventStatus: "approved",
-        venueName,
-        startsAt: "2041-03-10 09:00:00",
+        venue: { name: venueName, startTime: "09:00", endTime: "12:30" },
         current: true,
       });
     });
@@ -335,8 +334,7 @@ describe("reviewing an event's operational safety (PTR-146)", () => {
         const list = await handleListSafetyReviews(database as never);
 
         expect(list.find(row => row.id === review.id)).toMatchObject({
-          venueName: null,
-          startsAt: null,
+          venue: null,
           current: false,
         });
       } finally {
@@ -666,6 +664,13 @@ describe("reviewing an event's operational safety (PTR-146)", () => {
         layout: "Theatre",
         expectedAttendance: 10,
         venue: { name: venueName, startTime: "09:00", endTime: "12:30" },
+        // PTR-138: the current booking's own session requirements, which the fingerprint hashes.
+        sessionRequirements: {
+          expectedAttendance: 10,
+          layout: "Theatre",
+          accessibilityRequirements: "",
+          requiredFacilities: "",
+        },
         equipment: [
           { item: "Projector", quantity: 2, arrangementStatus: "reserved", reservedQuantity: null },
         ],

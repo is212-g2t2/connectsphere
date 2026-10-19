@@ -414,7 +414,7 @@ export function renderNotificationEmail(
           eventName,
           decision,
           comments,
-          eventRequestUrl: `${base}/events/${eventRequestId}`,
+          eventRequestUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     }

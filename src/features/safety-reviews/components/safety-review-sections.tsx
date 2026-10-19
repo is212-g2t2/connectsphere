@@ -15,6 +15,8 @@ import {
 } from "#/components/ui/table";
 import { Textarea } from "#/components/ui/textarea";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
+import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { formatInstant, formatVenuePeriod } from "#/features/event-requests/format";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import {
@@ -137,6 +139,31 @@ function ArrangementsSection({ data }: { data: Extract<EventPageData, { kind: "e
           </Table>
         </div>
       )}
+
+      {event.sessionRequirements ? (
+        <>
+          <h3 className="mt-6 display-h3">Approved session requirements</h3>
+          <p className="mt-2 body-sm text-muted-foreground">
+            The current booking's own requirements, which the review covers. A change to them
+            withdraws this review.
+          </p>
+          <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+            <Fact
+              label="Attendance"
+              value={String(event.sessionRequirements.expectedAttendance ?? "Not stated")}
+            />
+            <Fact label="Layout" value={event.sessionRequirements.layout?.trim() || "Not stated"} />
+            <Fact
+              label="Accessibility"
+              value={event.sessionRequirements.accessibilityRequirements?.trim() || "Not stated"}
+            />
+            <Fact
+              label="Facilities"
+              value={event.sessionRequirements.requiredFacilities?.trim() || "Not stated"}
+            />
+          </dl>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -152,6 +179,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 function SafetyReviewSection({ data }: { data: Extract<EventPageData, { kind: "event" }> }) {
   const review = data.safetyReview;
+  const eventStatus: EventRequestStatus = data.event.event.status;
   if (review === undefined) {
     return (
       <p className="body-sm text-muted-foreground">
@@ -164,6 +192,19 @@ function SafetyReviewSection({ data }: { data: Extract<EventPageData, { kind: "e
   }
 
   if (review.state === "pending" && review.current) {
+    // The handler decides only approved or planning events (PTR-146 AC3). A stale tab on an
+    // event that has since moved on states that reason instead of offering buttons that refuse.
+    if (eventStatus !== "approved" && eventStatus !== "planning") {
+      return (
+        <div>
+          <h2 className="display-h2">Safety review</h2>
+          <p className="mt-2 body-sm text-muted-foreground">
+            This event's safety review cannot be decided while its status is{" "}
+            {EVENT_REQUEST_STATUS_LABELS[eventStatus].toLowerCase()}.
+          </p>
+        </div>
+      );
+    }
     return (
       <div>
         <h2 className="display-h2">Safety review</h2>
