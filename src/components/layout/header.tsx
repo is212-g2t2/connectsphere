@@ -92,12 +92,14 @@ export function Header() {
   const showRoomLayouts = can(role, { venue: ["update"] });
   const showApprovedBookings = can(role, { venue_request: ["decide"] });
   const showSafetyReviews = can(role, { safety_review: ["read"] });
+  const showEquipmentCatalogue = can(role, { equipment_request: ["arrange"] });
   const showSections =
     showEventRequests ||
     showCoordination ||
     showVenues ||
     showApprovedBookings ||
-    showSafetyReviews;
+    showSafetyReviews ||
+    showEquipmentCatalogue;
 
   const destinations = [
     { to: "/dashboard", label: "Dashboard", show: true },
@@ -205,6 +207,15 @@ export function Header() {
                 className={SECTION_LINK_CLASSNAME}
               >
                 Safety reviews
+              </Link>
+            )}
+            {showEquipmentCatalogue && (
+              <Link
+                to="/equipment-types"
+                aria-current={pathname === "/equipment-types" ? "page" : undefined}
+                className={SECTION_LINK_CLASSNAME}
+              >
+                Equipment catalogue
               </Link>
             )}
           </nav>

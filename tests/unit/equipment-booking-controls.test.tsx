@@ -65,7 +65,9 @@ describe("equipment booking controls", () => {
     render(
       <AvailabilityCheck
         eventId={12}
-        equipmentTypes={[{ id: 1, name: "Projector" }]}
+        equipmentTypes={[
+          { id: 1, name: "Projector", quantityHeld: 10, totalUnavailable: 0, unavailable: [] },
+        ]}
         bookings={bookings}
       />
     );

@@ -156,8 +156,14 @@ describe("equipment sections", () => {
         },
         {
           equipmentTypes: [
-            { id: 1, name: "Power extension" },
-            { id: 2, name: "Projector" },
+            {
+              id: 1,
+              name: "Power extension",
+              quantityHeld: 10,
+              totalUnavailable: 0,
+              unavailable: [],
+            },
+            { id: 2, name: "Projector", quantityHeld: 10, totalUnavailable: 0, unavailable: [] },
           ],
         }
       )
@@ -217,7 +223,15 @@ describe("equipment sections", () => {
           equipmentArrangementsCompletedAt: null,
         },
         {
-          equipmentTypes: [{ id: 1, name: "Power extension" }],
+          equipmentTypes: [
+            {
+              id: 1,
+              name: "Power extension",
+              quantityHeld: 10,
+              totalUnavailable: 0,
+              unavailable: [],
+            },
+          ],
         }
       )
     );
