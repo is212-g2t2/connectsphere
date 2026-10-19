@@ -492,6 +492,23 @@ describe("venue hold action components and calendar write-path", () => {
       expect(screen.queryByRole("button", { name: "Withdraw hold request" })).toBeNull();
     });
 
+    it("hides the withdrawal from a non-coordinator even when the row allows it", () => {
+      renderAs(staffUser, {
+        ...scheduleWithHold,
+        requestedHolds: [
+          {
+            id: "hold-request-1",
+            startsAt: "2026-10-05T09:00:00",
+            endsAt: "2026-10-05T12:00:00",
+            canWithdraw: true,
+          },
+        ],
+      });
+
+      expect(screen.getByText("Hold requested")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Withdraw hold request" })).toBeNull();
+    });
+
     it("does not render hold write controls for non-coordinator user", () => {
       render(
         <VenueCalendarPage
