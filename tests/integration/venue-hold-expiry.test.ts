@@ -171,7 +171,7 @@ describe("tentative hold expiry (PTR-142)", () => {
       .where(eq(schema.venueHolds.id, holdId));
     expect(hold).toMatchObject({
       status: "held",
-      expiresAt: "2099-06-10 12:00:00",
+      expiresAt: "2099-06-14 12:00:00",
       placedById: users.coordinator.id,
       warnAt: null,
       expiryChangedById: null,

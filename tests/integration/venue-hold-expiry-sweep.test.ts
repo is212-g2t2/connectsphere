@@ -12,6 +12,8 @@ import { renderNotificationEmail } from "#/features/notifications/render.server"
 import { sweepVenueHoldExpiries } from "#/features/venue-requests/hold-expiry.server";
 import {
   handleConvertVenueHold,
+  handleReleaseVenueHold,
+  handleRequestVenueHold,
   handleSetVenueHoldExpiry,
   handleSetVenueHoldWarning,
 } from "#/features/venue-requests/holds.server";
@@ -151,9 +153,9 @@ describe("venue hold expiry sweep (PTR-143)", () => {
   const setWarning = (warnAt: string | null, actor = users.coordinator) =>
     handleSetVenueHoldWarning({ id: holdId, warnAt }, session(actor), database as never);
   /**
-   * Write the expiry without the handler's future check, so the suite can make a hold due or a
-   * legacy row with no expiry. Venue Staff place a hold with a future expiry, so only direct input
-   * reaches these shapes.
+   * Write the expiry without the handler's future check. A held row becomes due when the clock
+   * passes its expiry; this helper also stages a due expiry on a requested or released row, which
+   * the sweep must ignore.
    */
   const setExpiryDirect = (id: string, expiresAt: string | null) =>
     database.update(schema.venueHolds).set({ expiresAt }).where(eq(schema.venueHolds.id, id));
@@ -180,6 +182,12 @@ describe("venue hold expiry sweep (PTR-143)", () => {
               inArray(schema.notifications.kind, ["venue_hold_expiring", "venue_hold_expired"])
             )
       );
+  /** Every notice of the event, of any kind, for a before/after comparison. */
+  const allNotices = () =>
+    database
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.eventRequestId, eventId));
 
   /**
    * Hold the venue's advisory lock while both runs start, so both wait on the same lock and
@@ -333,13 +341,15 @@ describe("venue hold expiry sweep (PTR-143)", () => {
       .set({ heldById: null })
       .where(eq(schema.venueHolds.id, holdId));
     await setExpiryDirect(holdId, PAST);
+    const before = await allNotices();
 
     const count = await sweepVenueHoldExpiries(database as never, NOON);
 
     expect(count).toBe(1);
     expect(await holdRow()).toMatchObject({ status: "expired" });
     expect(await occupancy()).toEqual([]);
-    expect(await notices()).toEqual([]);
+    // No notice of any kind is added when no recipient exists.
+    expect(await allNotices()).toEqual(before);
   });
 
   it("does not process an expired hold again (AC3)", async () => {
@@ -362,11 +372,51 @@ describe("venue hold expiry sweep (PTR-143)", () => {
   it("never sweeps a hold with no expiry", async () => {
     // A row placed before this release may have no expiry. Clear the placed one.
     await setExpiryDirect(holdId, null);
+    const before = await allNotices();
     expect(
       await sweepVenueHoldExpiries(database as never, new Date("2100-01-01T00:00:00+08:00"))
     ).toBe(0);
     expect(await holdRow()).toMatchObject({ status: "held", expiresAt: null });
-    expect(await notices()).toEqual([]);
+    expect(await allNotices()).toEqual(before);
+  });
+
+  it("leaves requested and released holds alone even with a due expiry", async () => {
+    const requested = await handleRequestVenueHold(
+      { venueId, eventId, date: EVENT_DAY, startTime: "14:00", endTime: "15:00" },
+      session(users.coordinator),
+      database as never
+    );
+    const released = await requestAndPlaceHold(
+      { venueId, eventId, date: EVENT_DAY, startTime: "15:00", endTime: "16:00" },
+      session(users.coordinator),
+      database as never,
+      HOLD_REQUEST_EXPIRY
+    );
+    await handleReleaseVenueHold(
+      { id: released.id },
+      session(users.coordinator),
+      database as never
+    );
+    // Give every non-held state a due expiry. Only the held row may change.
+    await setExpiryDirect(requested.id, PAST);
+    await setExpiryDirect(released.id, PAST);
+    await setExpiryDirect(holdId, PAST);
+
+    expect(await sweepVenueHoldExpiries(database as never, NOON)).toBe(1);
+
+    const rows = await database
+      .select({ id: schema.venueHolds.id, status: schema.venueHolds.status })
+      .from(schema.venueHolds)
+      .where(eq(schema.venueHolds.venueId, venueId));
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { id: requested.id, status: "requested" },
+        { id: released.id, status: "released" },
+      ])
+    );
+    expect(await notices("venue_hold_expired")).toMatchObject([
+      { payload: { venueHoldId: holdId } },
+    ]);
   });
 
   it("raises one notice per hold when two sweeps run at once (AC3)", async () => {
