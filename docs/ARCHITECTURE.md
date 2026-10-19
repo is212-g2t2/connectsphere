@@ -127,6 +127,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 9. **Venue occupancy**: each approved booking, held hold and live block has a `venue_occupancy` row, and `venue_occupancy_no_overlap` refuses overlapping active rows. A block suspends the rows that it covers and a lift restores them; a block that covers a confirmed event's booking also returns the event to planning, where its Coordinator sees the suspended arrangements until the lift or a release. A venue buffer change flags commitments that newly overlap on the venue page and calendar, and notifies the assigned Coordinators ([ADR-7](./adrs/ADR-7-venue-occupancy-ledger.md)).
 10. **Venue requests**: each request stores its session's requirements. The request writers check suitability, availability and overlap with the same event's sessions for each venue on its own.
 11. **Safety reviews**: each review stores the arrangement fingerprint it covers, and an event's current review is its most recent one. A Safety Officer reads the events under review and decides the pending review; a rejection or a change request returns an approved event to planning. Venue catalogue attributes stay outside the fingerprint, so a catalogue edit never reverts an event.
+12. **Equipment reservations**: each line serves one active approved venue booking. Availability checks and reservations use that booking's buffered ledger window. The reservation stores the booking link and a window snapshot. Staff views derive "Window changed" when the snapshot differs or the booking is released. This check changes no reservation and sends no notification.
 
 ## Database and Migrations
 
@@ -179,6 +180,7 @@ erDiagram
     equipment_types |o--o{ equipment_requests : "classifies"
     equipment_types ||--o{ equipment_reservations : "has"
     equipment_requests ||--o| equipment_reservations : "commits"
+    venue_requests |o--o{ equipment_reservations : "serves"
 
     user {
         text id PK
@@ -296,6 +298,7 @@ erDiagram
     equipment_reservations {
         text id PK
         text equipment_request_id FK
+        text venue_request_id FK
         int equipment_type_id FK
         int quantity
     }

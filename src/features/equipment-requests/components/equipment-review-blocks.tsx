@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button";
@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Textarea } from "#/components/ui/textarea";
+import { BookingSelect } from "#/features/equipment-requests/components/booking-select";
+import type { EquipmentBookingOption } from "#/features/equipment-requests/schema";
 import { availabilityMessage } from "#/features/equipment-requests/availability";
 import { ArrangementPosition } from "#/features/equipment-requests/components/arrangement-position";
 import { LastReleaseNote } from "#/features/equipment-requests/components/last-release-note";
@@ -42,13 +44,17 @@ import type { EquipmentLineProjection } from "#/features/events/access";
 import { useMutation } from "#/hooks/use-mutation";
 import { skipRootFilter } from "#/lib/invalidate";
 
+const NO_BOOKINGS: EquipmentBookingOption[] = [];
+
 /** Show the review page's line, completion, and availability sections. The host provides the headings. */
 export function ArrangementLines({
   eventId,
   lines,
+  bookings = NO_BOOKINGS,
 }: {
   eventId: number;
   lines: EquipmentLineProjection[];
+  bookings?: EquipmentBookingOption[];
 }) {
   if (lines.length === 0) {
     return <p className="body-sm text-muted-foreground">No equipment lines recorded.</p>;
@@ -56,7 +62,7 @@ export function ArrangementLines({
   return (
     <ul className="space-y-4">
       {lines.map(line => (
-        <ArrangementLine key={line.id} eventId={eventId} line={line} />
+        <ArrangementLine key={line.id} eventId={eventId} line={line} bookings={bookings} />
       ))}
     </ul>
   );
@@ -100,22 +106,28 @@ export function ArrangementsCompletion({
 export function AvailabilityCheck({
   eventId,
   equipmentTypes,
+  bookings = NO_BOOKINGS,
 }: {
   eventId: number;
   equipmentTypes: EquipmentTypeOption[] | null;
+  bookings?: EquipmentBookingOption[];
 }) {
+  const [venueRequestId, setVenueRequestId] = useState(bookings.length === 1 ? bookings[0].id : "");
   // Store the server's answer outside the form. TanStack Form owns the inputs and errors.
   const [outcome, setOutcome] = useState<{ message: string; shortfall: number } | null>(null);
+  const requestVersion = useRef(0);
 
   const form = useForm({
     defaultValues: { equipmentTypeId: "", requestedQuantity: "" },
     validators: { onSubmit: AvailabilityCheckFormInput },
     onSubmit: async ({ value, formApi }) => {
+      const version = ++requestVersion.current;
       setOutcome(null);
       try {
         const result = await checkEquipmentAvailability({
           data: {
             eventId,
+            venueRequestId: venueRequestId || undefined,
             equipmentTypeId: Number(value.equipmentTypeId),
             requestedQuantity:
               value.requestedQuantity === ""
@@ -123,12 +135,14 @@ export function AvailabilityCheck({
                 : parseWholeNumber(value.requestedQuantity),
           },
         });
+        if (version !== requestVersion.current) return;
         const { startsAt, endsAt } = result.period;
         setOutcome({
           message: `${result.equipmentTypeName}: ${availabilityMessage(result)} (${formatLocalDateTime(startsAt)} to ${formatLocalDateTime(endsAt)})`,
           shortfall: result.shortfall,
         });
       } catch (error) {
+        if (version !== requestVersion.current) return;
         formApi.setErrorMap({
           onSubmit: {
             fields: {},
@@ -160,6 +174,16 @@ export function AvailabilityCheck({
         void form.handleSubmit();
       }}
     >
+      <BookingSelect
+        id="availability-booking"
+        bookings={bookings}
+        value={venueRequestId}
+        onChange={value => {
+          requestVersion.current++;
+          setOutcome(null);
+          setVenueRequestId(value);
+        }}
+      />
       <form.Field name="equipmentTypeId">
         {field => (
           <Field data-invalid={field.state.meta.errors.length > 0}>
@@ -167,6 +191,7 @@ export function AvailabilityCheck({
             <Select
               value={field.state.value || null}
               onValueChange={value => {
+                requestVersion.current++;
                 setOutcome(null);
                 field.handleChange(value ?? "");
               }}
@@ -207,6 +232,7 @@ export function AvailabilityCheck({
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={e => {
+                requestVersion.current++;
                 setOutcome(null);
                 field.handleChange(e.target.value);
               }}
@@ -241,7 +267,15 @@ export function AvailabilityCheck({
 }
 
 /** Show the requested item and its form. Show its state if another Technical Support member arranges it. Hide the form only when `arrangeable` is false. Keep the form when the server omits `arrangeable`. */
-function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLineProjection }) {
+function ArrangementLine({
+  eventId,
+  line,
+  bookings,
+}: {
+  eventId: number;
+  line: EquipmentLineProjection;
+  bookings: EquipmentBookingOption[];
+}) {
   const canReserve =
     line.arrangeable !== false &&
     (line.arrangementStatus === "requested" || line.arrangementStatus === "reserved");
@@ -255,6 +289,9 @@ function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLi
           <ReservedCount quantity={line.reservedQuantity} className="text-muted-foreground" />
         )}
       </h3>
+      {line.windowChanged && line.arrangeable !== false && (
+        <p className="mt-1 body-sm font-medium">Window changed</p>
+      )}
       {line.notes && <p className="mt-1 body-sm text-muted-foreground">{line.notes}</p>}
       {line.lastRelease && (
         <div className="mt-1">
@@ -276,7 +313,7 @@ function ArrangementLine({ eventId, line }: { eventId: number; line: EquipmentLi
           )}
           {(canReserve || canRelease) && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {canReserve && <ReserveEquipmentAction line={line} />}
+              {canReserve && <ReserveEquipmentAction line={line} bookings={bookings} />}
               {canRelease && <ReleaseEquipmentAction line={line} />}
             </div>
           )}

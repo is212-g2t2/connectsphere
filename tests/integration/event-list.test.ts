@@ -1290,6 +1290,8 @@ describe("event list handler (PTR-8)", () => {
             arrangementNotes: null,
             unavailableReason: null,
             reservedQuantity: null,
+            venueRequestId: null,
+            windowChanged: false,
             lastRelease: null,
             arrangeable: true,
             assignedStaffName: "Event List Tech Support",
@@ -1303,6 +1305,8 @@ describe("event list handler (PTR-8)", () => {
             arrangementNotes: null,
             unavailableReason: null,
             reservedQuantity: null,
+            venueRequestId: null,
+            windowChanged: false,
             lastRelease: null,
             // The event is not submitted and the line is unassigned. Show it, but do not let this
             // member open it.

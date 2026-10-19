@@ -14,6 +14,8 @@ import {
 } from "#/components/ui/dialog";
 import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import { BookingSelect } from "#/features/equipment-requests/components/booking-select";
+import type { EquipmentBookingOption } from "#/features/equipment-requests/schema";
 import { ReserveEquipmentFormInput } from "#/features/equipment-requests/schema";
 import { checkLineAvailability, reserveEquipment } from "#/features/equipment-requests/server-fns";
 import { formatLocalDateTime } from "#/features/event-requests/format";
@@ -26,18 +28,22 @@ export interface ReserveEquipmentDialogProps {
     item: string;
     quantity: number;
     reservedQuantity?: number | null;
+    venueRequestId?: string | null;
   };
+  bookings: EquipmentBookingOption[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 type Availability =
   | { status: "loading" }
+  | { status: "unselected" }
   | { status: "ready"; available: number; startsAt: string; endsAt: string }
   | { status: "error"; error: string };
 
 export function ReserveEquipmentDialog({
   equipmentRequest,
+  bookings,
   open,
   onOpenChange,
 }: ReserveEquipmentDialogProps) {
@@ -50,14 +56,27 @@ export function ReserveEquipmentDialog({
 
   const [availability, setAvailability] = useState<Availability>({ status: "loading" });
   const cancelledRef = useRef(false);
+  const requestVersion = useRef(0);
+  const [venueRequestId, setVenueRequestId] = useState(() =>
+    bookings.some(booking => booking.id === equipmentRequest.venueRequestId)
+      ? (equipmentRequest.venueRequestId ?? "")
+      : bookings.length === 1
+        ? bookings[0].id
+        : ""
+  );
 
   const refreshAvailability = useCallback(async () => {
+    const version = ++requestVersion.current;
+    if (!venueRequestId) {
+      setAvailability({ status: "unselected" });
+      return;
+    }
     setAvailability({ status: "loading" });
     try {
       const result = await checkLineAvailability({
-        data: { equipmentRequestId: equipmentRequest.id },
+        data: { equipmentRequestId: equipmentRequest.id, venueRequestId },
       });
-      if (!cancelledRef.current) {
+      if (!cancelledRef.current && version === requestVersion.current) {
         setAvailability({
           status: "ready",
           available: result.availableQuantity,
@@ -66,14 +85,14 @@ export function ReserveEquipmentDialog({
         });
       }
     } catch (error) {
-      if (!cancelledRef.current) {
+      if (!cancelledRef.current && version === requestVersion.current) {
         setAvailability({
           status: "error",
           error: error instanceof Error ? error.message : "Could not check availability.",
         });
       }
     }
-  }, [equipmentRequest.id]);
+  }, [equipmentRequest.id, venueRequestId]);
 
   const form = useForm({
     defaultValues: { quantity: String(requested) },
@@ -85,6 +104,7 @@ export function ReserveEquipmentDialog({
         const result = await reserveEquipment({
           data: {
             equipmentRequestId: equipmentRequest.id,
+            venueRequestId,
             quantity: parseWholeNumber(value.quantity),
           },
         });
@@ -109,15 +129,14 @@ export function ReserveEquipmentDialog({
   useEffect(() => {
     cancelledRef.current = false;
     if (open) {
-      // This dialog stays mounted while closed. Reset the form and read availability again each time it opens.
-      form.reset();
+      // Read availability when the dialog opens or its selected booking changes.
       // oxlint-disable-next-line react/set-state-in-effect -- opening the controlled dialog is the event that triggers the re-read
       void refreshAvailability();
     }
     return () => {
       cancelledRef.current = true;
     };
-  }, [open, form, refreshAvailability]);
+  }, [open, refreshAvailability]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -134,11 +153,22 @@ export function ReserveEquipmentDialog({
           <DialogHeader>
             <DialogTitle>Reserve equipment</DialogTitle>
             <DialogDescription>
-              Reserving records the current approved venue booking period.
+              Choose the session this line serves. The period includes setup and turnaround time.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            <form.Subscribe selector={state => state.isSubmitting}>
+              {isSubmitting => (
+                <BookingSelect
+                  id={`reserve-booking-${equipmentRequest.id}`}
+                  bookings={bookings}
+                  value={venueRequestId}
+                  onChange={setVenueRequestId}
+                  disabled={isSubmitting}
+                />
+              )}
+            </form.Subscribe>
             <div className="rounded-md bg-muted p-3 body-sm">
               <div className="flex justify-between font-medium">
                 <span>Item:</span>
@@ -154,7 +184,9 @@ export function ReserveEquipmentDialog({
               </div>
               <div className="mt-1 flex justify-between gap-3 text-muted-foreground">
                 <span>Availability:</span>
-                {availability.status === "loading" ? (
+                {availability.status === "unselected" ? (
+                  <span>Choose a booking to check availability.</span>
+                ) : availability.status === "loading" ? (
                   <span aria-live="polite">Checking availability…</span>
                 ) : availability.status === "ready" ? (
                   <span className="text-right">
@@ -219,7 +251,11 @@ export function ReserveEquipmentDialog({
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm" disabled={isSubmitting}>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isSubmitting || !venueRequestId || availability.status !== "ready"}
+                  >
                     {isSubmitting ? "Reserving…" : "Confirm reservation"}
                   </Button>
                 </>

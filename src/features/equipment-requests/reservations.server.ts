@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import {
@@ -6,7 +6,6 @@ import {
   equipmentReservations,
   equipmentTypes,
   eventRequests,
-  venueRequests,
 } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
@@ -29,6 +28,11 @@ import { isEquipmentQueueRow } from "#/features/events/access";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { assertEventAcceptsActivity } from "#/features/events/completion";
 import { logger } from "#/lib/logger";
+import {
+  chooseEquipmentBooking,
+  selectEquipmentBookings,
+} from "#/features/equipment-requests/bookings.server";
+import { lockVenue } from "#/features/venue-requests/venue-lock.server";
 import { toLocalMinuteValue } from "#/features/venues/availability";
 
 type Database = typeof Db;
@@ -66,21 +70,28 @@ async function loadLineForStaff(
   return line;
 }
 
-/**
- * Apply the shared reserve checks: event completion, line state, quantity limit, booking window,
- * and equipment type. The reserve path locks in this order: line, booking rows, then equipment
- * type (AC5). It checks the quantity limit before it reads the booking. The check path passes no
- * quantity and takes no locks.
- */
+/** Check the line, event, chosen booking, and type. Reserve locks the venue before the event. */
 async function loadReservableLine(
-  database: Pick<Database, "select">,
-  args: { lineId: string; actor: SessionUser; lock?: boolean; quantity?: number }
+  database: Database | Parameters<Parameters<Database["transaction"]>[0]>[0],
+  args: {
+    lineId: string;
+    actor: SessionUser;
+    lock?: boolean;
+    quantity?: number;
+    venueRequestId?: string | undefined;
+  }
 ) {
   const line = await loadLineForStaff(database, {
     lineId: args.lineId,
     actor: args.actor,
     lock: args.lock,
   });
+
+  const preview = chooseEquipmentBooking(
+    await selectEquipmentBookings(database, [line.eventId]),
+    args.venueRequestId
+  );
+  if (args.lock) await lockVenue(database, preview.venueId);
 
   // PTR-54 AC9: Do not reserve equipment for a cancelled event. The row lock waits for a
   // cancellation to finish, then reads the new status. Use FOR NO KEY UPDATE because this
@@ -109,35 +120,6 @@ async function loadReservableLine(
     );
   }
 
-  // Read the booking window and type name before the type lock. The overlap read and writes below
-  // run under that lock.
-  const bookingQuery = database
-    .select({
-      id: venueRequests.id,
-      startsAt: venueRequests.startsAt,
-      endsAt: venueRequests.endsAt,
-    })
-    .from(venueRequests)
-    .where(and(eq(venueRequests.eventId, line.eventId), eq(venueRequests.status, "approved")))
-    .limit(2);
-  // In the reserve path, FOR SHARE stops a booking change from committing between this read and
-  // the reservation insert.
-  const approvedBookings = await (args.lock ? bookingQuery.for("share") : bookingQuery);
-
-  const approvedBooking = approvedBookings.at(0);
-
-  if (!approvedBooking) {
-    throw new ConflictError(
-      "Event must have an approved venue booking before equipment can be reserved"
-    );
-  }
-
-  if (approvedBookings.length > 1) {
-    throw new ConflictError(
-      "Event has more than one approved venue booking; equipment can only be reserved against a single period"
-    );
-  }
-
   let effectiveEquipmentTypeId = line.equipmentTypeId;
   if (effectiveEquipmentTypeId === null) {
     const matchedType = (
@@ -156,7 +138,16 @@ async function loadReservableLine(
     effectiveEquipmentTypeId = matchedType.id;
   }
 
-  return { line, equipmentTypeId: effectiveEquipmentTypeId, booking: approvedBooking };
+  const booking = args.lock
+    ? chooseEquipmentBooking(
+        await selectEquipmentBookings(database, [line.eventId]),
+        args.venueRequestId
+      )
+    : preview;
+  if (booking.id !== preview.id || booking.venueId !== preview.venueId) {
+    throw new ConflictError("The venue booking changed. Try again.");
+  }
+  return { line, equipmentTypeId: effectiveEquipmentTypeId, booking };
 }
 
 /**
@@ -188,6 +179,7 @@ export async function handleReserveEquipment(
       actor,
       lock: true,
       quantity: input.quantity,
+      venueRequestId: input.venueRequestId,
     });
 
     // Lock the equipment type row to serialize reservations (PTR-41 AC5).
@@ -236,6 +228,7 @@ export async function handleReserveEquipment(
         .update(equipmentReservations)
         .set({
           quantity: input.quantity,
+          venueRequestId: approvedBooking.id,
           equipmentTypeId,
           startsAt: approvedBooking.startsAt,
           endsAt: approvedBooking.endsAt,
@@ -246,6 +239,7 @@ export async function handleReserveEquipment(
       await tx.insert(equipmentReservations).values({
         id: reservationId,
         equipmentRequestId: line.id,
+        venueRequestId: approvedBooking.id,
         equipmentTypeId,
         quantity: input.quantity,
         startsAt: approvedBooking.startsAt,
@@ -302,6 +296,7 @@ export async function handleCheckLineAvailability(
   const { line, equipmentTypeId, booking } = await loadReservableLine(database, {
     lineId: input.equipmentRequestId,
     actor,
+    venueRequestId: input.venueRequestId,
   });
 
   const existingReservation = (

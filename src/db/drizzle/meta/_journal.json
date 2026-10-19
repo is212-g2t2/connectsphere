@@ -393,6 +393,13 @@
       "when": 1792375051335,
       "tag": "0055_perpetual_white_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1792386068617,
+      "tag": "0056_short_human_cannonball",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,8 @@ import {
   venueRequests,
   venues,
 } from "#/db/schema";
+import { selectEquipmentBookings } from "#/features/equipment-requests/bookings.server";
+import { parseUtcTimestamp } from "#/features/equipment-requests/availability";
 import { user as userTable } from "#/db/auth-schema";
 import { RoleSchema } from "#/features/auth/schema/role";
 import { AuthorizationError } from "#/features/auth/session";
@@ -335,6 +337,9 @@ export async function handleListEvents(
         arrangementNotes: equipmentRequests.arrangementNotes,
         unavailableReason: equipmentRequests.unavailableReason,
         reservedQuantity: equipmentReservations.quantity,
+        venueRequestId: equipmentReservations.venueRequestId,
+        reservationStartsAt: equipmentReservations.startsAt,
+        reservationEndsAt: equipmentReservations.endsAt,
         lastReleasedAt: equipmentRequests.lastReleasedAt,
         lastReleasedQuantity: equipmentRequests.lastReleasedQuantity,
         lastReleasedByStaffName: equipmentRequests.lastReleasedByStaffName,
@@ -356,6 +361,12 @@ export async function handleListEvents(
         )
       ),
   ]);
+
+  const equipmentBookings =
+    user.role === "technical_support_staff" || user.role === "event_coordinator"
+      ? await selectEquipmentBookings(database, requestIds)
+      : [];
+  const equipmentBookingById = new Map(equipmentBookings.map(booking => [booking.id, booking]));
 
   // Group child rows once. The card render below reads per event, so a map lookup
   // replaces the per-event scan.
@@ -497,6 +508,19 @@ export async function handleListEvents(
       arrangementNotes: row.arrangementNotes,
       unavailableReason: row.unavailableReason,
       reservedQuantity: row.reservedQuantity,
+      venueRequestId: row.venueRequestId,
+      windowChanged:
+        row.reservedQuantity !== null &&
+        (() => {
+          const booking = equipmentBookingById.get(row.venueRequestId ?? "");
+          return (
+            !booking ||
+            row.reservationStartsAt === null ||
+            row.reservationEndsAt === null ||
+            parseUtcTimestamp(row.reservationStartsAt) !== parseUtcTimestamp(booking.startsAt) ||
+            parseUtcTimestamp(row.reservationEndsAt) !== parseUtcTimestamp(booking.endsAt)
+          );
+        })(),
       lastRelease:
         row.lastReleasedAt !== null && row.lastReleasedQuantity !== null
           ? {
@@ -574,6 +598,14 @@ export async function handleListEvents(
           // PTR-146: the Safety Officer's copy states the current booking's own session
           // requirements, which the fingerprint hashes, beside the event's fields.
           sessionRequirements: bookings.get(record.id)?.session ?? null,
+          equipmentBookings: equipmentBookings
+            .filter(booking => booking.eventId === record.id && !booking.suspended)
+            .map(booking => ({
+              id: booking.id,
+              venueName: booking.venueName,
+              startsAt: toLocalMinuteValue(booking.startsAt),
+              endsAt: toLocalMinuteValue(booking.endsAt),
+            })),
         }
       ),
     ];

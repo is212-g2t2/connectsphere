@@ -7,8 +7,10 @@ import type { ReserveEquipmentDialogProps } from "#/features/equipment-requests/
 /** The Reserve button and dialog used by the workspace card and review page. */
 export function ReserveEquipmentAction({
   line,
+  bookings,
 }: {
   line: ReserveEquipmentDialogProps["equipmentRequest"];
+  bookings: ReserveEquipmentDialogProps["bookings"];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -23,7 +25,14 @@ export function ReserveEquipmentAction({
       >
         Reserve
       </Button>
-      <ReserveEquipmentDialog equipmentRequest={line} open={open} onOpenChange={setOpen} />
+      {open && (
+        <ReserveEquipmentDialog
+          equipmentRequest={line}
+          bookings={bookings}
+          open={open}
+          onOpenChange={setOpen}
+        />
+      )}
     </>
   );
 }

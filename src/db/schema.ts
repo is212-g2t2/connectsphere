@@ -981,13 +981,17 @@ export const equipmentReservations = pgTable(
       .notNull()
       .references(() => equipmentTypes.id, { onDelete: "restrict" }),
     quantity: integer("quantity").notNull(),
-    /** Snapshot of the approved booking window the reservation was made against. */
+    venueRequestId: text("venue_request_id").references(() => venueRequests.id, {
+      onDelete: "set null",
+    }),
+    /** Snapshot of the booking window, including its stored setup and turnaround time. */
     startsAt: timestamp("starts_at", { mode: "string" }).notNull(),
     endsAt: timestamp("ends_at", { mode: "string" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   table => [
     uniqueIndex("equipment_reservations_equipment_request_id_idx").on(table.equipmentRequestId),
+    index("equipment_reservations_venue_request_id_idx").on(table.venueRequestId),
     check("equipment_reservations_quantity_positive", sql`${table.quantity} > 0`),
     // The overlap check filters by type and period, so the database reads this index.
     index("equipment_reservations_type_period_idx").on(

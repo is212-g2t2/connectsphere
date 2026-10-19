@@ -1,0 +1,3 @@
+ALTER TABLE "equipment_reservations" ADD COLUMN "venue_request_id" text;--> statement-breakpoint
+ALTER TABLE "equipment_reservations" ADD CONSTRAINT "equipment_reservations_venue_request_id_venue_requests_id_fk" FOREIGN KEY ("venue_request_id") REFERENCES "public"."venue_requests"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "equipment_reservations_venue_request_id_idx" ON "equipment_reservations" USING btree ("venue_request_id");

@@ -25,6 +25,8 @@ export interface EquipmentLine {
   arrangementNotes?: string | null;
   unavailableReason?: string | null;
   reservedQuantity?: number | null;
+  venueRequestId?: string | null;
+  windowChanged?: boolean;
   lastRelease?: EquipmentReleaseRecord | null;
 }
 
@@ -192,7 +194,21 @@ export function parseArrangementUpdateInput(data: unknown): ArrangementUpdateVal
 }
 
 /** PTR-40: Check how many units of an equipment type are free during an approved booking. */
+const VenueBookingId = z
+  .string()
+  .trim()
+  .min(1, "Choose a venue booking")
+  .max(64, "Choose a venue booking");
+
+export interface EquipmentBookingOption {
+  id: string;
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+}
+
 export const AvailabilityCheckInput = z.object({
+  venueRequestId: VenueBookingId.optional(),
   eventId: z.int32({ error: "Choose an event" }).positive("Choose an event"),
   equipmentTypeId: z
     .int32({ error: "Choose an equipment type" })
@@ -219,6 +235,7 @@ const EquipmentRequestId = z
 /** PTR-41: Reserve units of the line's type for the approved booking period. */
 export const ReserveEquipmentInput = z.object({
   equipmentRequestId: EquipmentRequestId,
+  venueRequestId: VenueBookingId.optional(),
   quantity: z
     .number({ error: "Quantity is required" })
     .int("Quantity must be a whole number")
@@ -234,6 +251,7 @@ export function parseReserveEquipmentInput(data: unknown): ReserveEquipmentValue
 /** PTR-41: Check how many units of the line's type are free during its booking. */
 export const CheckLineAvailabilityInput = z.object({
   equipmentRequestId: EquipmentRequestId,
+  venueRequestId: VenueBookingId.optional(),
 });
 
 export type CheckLineAvailabilityValues = z.infer<typeof CheckLineAvailabilityInput>;
