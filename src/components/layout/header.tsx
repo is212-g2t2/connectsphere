@@ -64,14 +64,10 @@ export function Header() {
   const showCoordination =
     can(role, { event_request: ["coordinate"] }) || can(role, { event_request: ["oversee"] });
   const showVenues = can(role, { venue: ["read"] });
-  const showApprovedBookings = can(role, { venue_request: ["decide"] });
+  const showVenueDecisions = can(role, { venue_request: ["decide"] });
   const showSafetyReviews = can(role, { safety_review: ["read"] });
   const showSections =
-    showEventRequests ||
-    showCoordination ||
-    showVenues ||
-    showApprovedBookings ||
-    showSafetyReviews;
+    showEventRequests || showCoordination || showVenues || showVenueDecisions || showSafetyReviews;
 
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-md">
@@ -121,13 +117,22 @@ export function Header() {
                 Venue calendar
               </Link>
             )}
-            {showApprovedBookings && (
+            {showVenueDecisions && (
               <Link
                 to="/venue-bookings"
                 aria-current={pathname === "/venue-bookings" ? "page" : undefined}
                 className={SECTION_LINK_CLASSNAME}
               >
                 Approved bookings
+              </Link>
+            )}
+            {showVenueDecisions && (
+              <Link
+                to="/venue-holds"
+                aria-current={pathname === "/venue-holds" ? "page" : undefined}
+                className={SECTION_LINK_CLASSNAME}
+              >
+                Hold requests
               </Link>
             )}
             {showSafetyReviews && (

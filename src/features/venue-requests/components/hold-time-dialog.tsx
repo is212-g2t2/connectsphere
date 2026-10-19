@@ -19,7 +19,11 @@ import {
   VENUE_HOLD_EXPIRY_MESSAGE,
   VENUE_HOLD_WARNING_MESSAGE,
 } from "#/features/venue-requests/schema";
-import { setVenueHoldExpiry, setVenueHoldWarning } from "#/features/venue-requests/server-fns";
+import {
+  placeVenueHold,
+  setVenueHoldExpiry,
+  setVenueHoldWarning,
+} from "#/features/venue-requests/server-fns";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 import { skipRootFilter } from "#/lib/invalidate";
 
@@ -256,6 +260,24 @@ export function SetVenueHoldWarningButton({
       save={value => setVenueHoldWarning({ data: { id: holdId, warnAt: value } })}
       clear={() => setVenueHoldWarning({ data: { id: holdId, warnAt: null } })}
       successMessage="Hold warning saved."
+    />
+  );
+}
+
+/**
+ * PTR-150 AC3: Venue Staff place a hold request with an expiry. The server re-checks the event and
+ * the venue, and tells the Coordinator.
+ */
+export function PlaceHoldRequestButton({ holdId }: { holdId: string }) {
+  return (
+    <HoldTimeDialog
+      triggerLabel="Place hold"
+      title="Place tentative hold"
+      description="The hold reserves the venue until this venue-local date and time. The Coordinator is notified."
+      current={null}
+      saveLabel="Place hold"
+      save={value => placeVenueHold({ data: { id: holdId, expiresAt: value } })}
+      successMessage="Tentative hold placed."
     />
   );
 }

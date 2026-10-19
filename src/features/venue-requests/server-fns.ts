@@ -3,9 +3,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { requirePermission } from "#/features/auth/session";
 import {
   parseVenueHoldConversion,
+  parseVenueHoldDecline,
   parseVenueHoldExpiry,
   parseVenueHoldId,
   parseVenueHoldInput,
+  parseVenueHoldPlacement,
   parseVenueHoldWarning,
   parseVenueRejectionInput,
   parseVenueAmendmentInput,
@@ -298,4 +300,66 @@ export const setVenueHoldWarning = createServerFn({ method: "POST" })
     log.info("Venue hold warning set", { holdId: hold.id, actorId: context.user.id });
 
     return { id: hold.id, warnAt: hold.warnAt };
+  });
+
+/**
+ * PTR-150 AC1: the Coordinator requests a hold. The request passes the hold creation checks, holds
+ * no venue time, and notifies every Venue Staff member.
+ */
+export const requestVenueHold = createServerFn({ method: "POST" })
+  .validator(parseVenueHoldInput)
+  .middleware([requireVenueRequest])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRequestVenueHold }] = await loadHoldsServer();
+    const hold = await handleRequestVenueHold(data, context.user, db);
+
+    log.info("Venue hold requested", {
+      holdId: hold.id,
+      eventId: hold.eventId,
+      venueId: hold.venueId,
+      actorId: context.user.id,
+    });
+
+    return { id: hold.id, status: hold.status };
+  });
+
+/** PTR-150 AC2: the shared hold-request queue that every Venue Staff member reads. */
+export const listVenueHoldRequests = createServerFn({ method: "GET" })
+  .middleware([requireVenueRequestRead])
+  .handler(async () => {
+    const [{ db }, { handleListVenueHoldRequests }] = await loadHoldsServer();
+    return handleListVenueHoldRequests(db);
+  });
+
+export type VenueHoldRequest = Awaited<ReturnType<typeof listVenueHoldRequests>>[number];
+
+/** PTR-150 AC3, AC4: Venue Staff place a hold request with an expiry. */
+export const placeVenueHold = createServerFn({ method: "POST" })
+  .validator(parseVenueHoldPlacement)
+  .middleware([requireVenueDecision])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handlePlaceVenueHold }] = await loadHoldsServer();
+    const hold = await handlePlaceVenueHold(data, context.user, db);
+
+    log.info("Venue hold placed", {
+      holdId: hold.id,
+      expiresAt: hold.expiresAt,
+      actorId: context.user.id,
+    });
+
+    // The row names the Coordinator. Venue Staff read only the state they changed.
+    return { id: hold.id, status: hold.status, expiresAt: hold.expiresAt };
+  });
+
+/** PTR-150 AC5: Venue Staff decline a hold request with a reason. */
+export const declineVenueHold = createServerFn({ method: "POST" })
+  .validator(parseVenueHoldDecline)
+  .middleware([requireVenueDecision])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleDeclineVenueHold }] = await loadHoldsServer();
+    const hold = await handleDeclineVenueHold(data, context.user, db);
+
+    log.info("Venue hold request declined", { holdId: hold.id, actorId: context.user.id });
+
+    return { id: hold.id, status: hold.status };
   });

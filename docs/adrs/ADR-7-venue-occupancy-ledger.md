@@ -8,6 +8,8 @@ status: accepted
 
 > **Amended 2026-10-15:** venue blocks now suspend and restore ledger rows (PTR-136). The Suspension and Refusal order sections record this change. The block alternatives and the block consequences also record it. The ledger and its constraint do not change.
 
+> **Amended 2026-10-19:** holds gain two states that occupy no venue time, `requested` and `declined` (PTR-150). The Rows, Writers and Buffers rows and the Refusal order section record this change. The ledger and its constraint do not change.
+
 ## Context
 
 [ADR-5](./ADR-5-venue-booking-overlap.md) kept venue time free of overlaps with two exclusion constraints on the requested times: `venue_requests_no_overlap` for approved bookings and `venue_holds_no_overlap` for held holds. Three rules break that shape:
@@ -22,13 +24,13 @@ An index expression cannot read `venues`, so each row must store the buffers tha
 
 Keep every active commitment in one table, `venue_occupancy`, and guard it with one constraint.
 
-| Part       | Rule                                                                                                                                                                                                                                                                                                         |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Rows       | One row per approved booking, held hold or active block. A row has one source (`venue_request_id`, `venue_hold_id` or `venue_unavailability_id`), the venue, the event (none for a block), the requested period, `setup_minutes`, `turnaround_minutes` and `active`. Only a block row can have a null end.   |
-| Constraint | `venue_occupancy_no_overlap`: `EXCLUDE USING gist (venue_id WITH =, tsrange(starts_at - make_interval(mins => setup_minutes), ends_at + make_interval(mins => turnaround_minutes), '[)') WITH &&) WHERE (active)`.                                                                                           |
-| Writers    | The advisory-locked server functions write the rows in the transaction that changes the source. Approval and hold creation insert. Release, hold release and hold conversion delete. Amendment deletes, then inserts. Only the block writers edit a row in place: they set `active`. No trigger writes rows. |
-| Refusals   | Under the venue lock, a writer reads the ledger and names the venue and the occupied period of the conflict, in the [refusal order](#refusal-order). The constraint is the authority. The ledger insert maps 23P01 and 40P01 to `VENUE_OCCUPANCY_CONFLICT_MESSAGE`.                                          |
-| Buffers    | A booking row stores its venue's buffers at approval or amendment. A hold row stores the buffers that the hold stored when it was placed. A later venue edit does not change a stored row.                                                                                                                   |
+| Part       | Rule                                                                                                                                                                                                                                                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rows       | One row per approved booking, held hold or active block. A `requested` or `declined` hold has no row. A row has one source (`venue_request_id`, `venue_hold_id` or `venue_unavailability_id`), the venue, the event (none for a block), the requested period, `setup_minutes`, `turnaround_minutes` and `active`. Only a block row can have a null end. |
+| Constraint | `venue_occupancy_no_overlap`: `EXCLUDE USING gist (venue_id WITH =, tsrange(starts_at - make_interval(mins => setup_minutes), ends_at + make_interval(mins => turnaround_minutes), '[)') WITH &&) WHERE (active)`.                                                                                                                                      |
+| Writers    | The advisory-locked server functions write the rows in the transaction that changes the source. Approval, hold creation and hold placement insert. Release, hold release and hold conversion delete. Amendment deletes, then inserts. Only the block writers edit a row in place: they set `active`. No trigger writes rows.                            |
+| Refusals   | Under the venue lock, a writer reads the ledger and names the venue and the occupied period of the conflict, in the [refusal order](#refusal-order). The constraint is the authority. The ledger insert maps 23P01 and 40P01 to `VENUE_OCCUPANCY_CONFLICT_MESSAGE`.                                                                                     |
+| Buffers    | A booking row stores its venue's buffers at approval or amendment. A hold row stores the buffers that the hold stored when it was placed. Placement of a hold request first refreshes the hold's buffers to the venue's current ones. A later venue edit does not change a stored row.                                                                  |
 
 `make_interval` and `tsrange` are IMMUTABLE, so the buffers can be part of the index expression. Buffers count on both sides. After 10:00–12:00 at a venue with 30 minutes setup and 45 minutes turnaround, the next booking can start at 13:15. `[)` lets two occupied periods touch.
 
@@ -57,7 +59,7 @@ A block is one `venue_unavailability` row and one ledger row. The ledger row has
 Approval, amendment and the conflict flag give one reason for a refusal. The order is: an unavailable venue (closed hours or a block), a booking, a hold.
 
 - Approval and amendment check availability first. Then they check the ledger with `checkVenueFree`, which names a block, a booking and a hold in that order.
-- Hold creation checks only the ledger.
+- Hold creation and hold placement check only the ledger.
 
 ### Migration exemption
 

@@ -124,6 +124,7 @@ test.describe("Role sections nav", () => {
     await expect(nav.getByRole("link", { name: "Venues" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Venue calendar" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Approved bookings" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Hold requests" })).toBeVisible();
   });
 
   test("technical support sees Venues and Venue calendar", async ({ page }) => {

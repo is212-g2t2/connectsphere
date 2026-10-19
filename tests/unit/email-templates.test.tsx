@@ -28,6 +28,11 @@ import { ResetPasswordEmail } from "#/features/emails/components/reset-password-
 import { VenueBookingApprovedEmail } from "#/features/emails/components/venue-booking-approved-email";
 import { VenueBlockEmail } from "#/features/emails/components/venue-block-email";
 import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
+import {
+  VenueHoldDeclinedEmail,
+  VenueHoldPlacedEmail,
+  VenueHoldRequestedEmail,
+} from "#/features/emails/components/venue-hold-request-email";
 import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/components/venue-booking-released-by-coordinator-email";
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
@@ -633,6 +638,40 @@ describe("Email templates rendering", () => {
     expect(first).toContain("Expiry set on your tentative hold");
     expect(first).not.toContain("The previous expiry was");
     expect(first).toContain("have not set a warning time");
+  });
+
+  it("renders the hold request, placement and decline emails (PTR-150)", async () => {
+    const hold = {
+      venueName: "Harbour Hall",
+      startsAt: "2026-10-12 14:00:00",
+      endsAt: "2026-10-12 17:00:00",
+    };
+    const requested = await render(
+      <VenueHoldRequestedEmail {...hold} queueUrl="http://localhost:3000/venue-holds" />
+    );
+    expect(requested).toContain("Tentative hold requested");
+    expect(requested).toContain("Harbour Hall for 12 October 2026, 14:00–17:00");
+    expect(requested).toContain("http://localhost:3000/venue-holds");
+
+    const placed = await render(
+      <VenueHoldPlacedEmail
+        {...hold}
+        expiresAt="2026-10-10 12:00:00"
+        calendarUrl="http://localhost:3000/venues/availability"
+      />
+    );
+    expect(placed).toContain("Tentative hold placed");
+    expect(placed).toContain("expires on 10 October 2026, 12:00");
+
+    const declined = await render(
+      <VenueHoldDeclinedEmail
+        {...hold}
+        reason="Reserved for exams"
+        calendarUrl="http://localhost:3000/venues/availability"
+      />
+    );
+    expect(declined).toContain("Tentative hold request declined");
+    expect(declined).toContain("Reason: Reserved for exams");
   });
 
   it("renders the venue block email open-ended and finite", async () => {
