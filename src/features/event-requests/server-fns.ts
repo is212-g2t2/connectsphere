@@ -155,6 +155,30 @@ export const deleteEventRequestDraft = createServerFn({ method: "POST" })
 
 export type EventRequestDeleted = Awaited<ReturnType<typeof deleteEventRequestDraft>>;
 
+/**
+ * PTR-154: Copy one of the Organiser's past requests into a new draft. The handler scopes the
+ * source to the organiser and refuses a request that is not completed or past-dated.
+ */
+export const reuseEventRequest = createServerFn({ method: "POST" })
+  .validator(parseEventRequestId)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleReuseEventRequest }] = await Promise.all([
+      import("#/db"),
+      import("#/features/event-requests/drafts.server"),
+    ]);
+
+    const draft = await handleReuseEventRequest(data, context.user, db);
+
+    log.info("Event request reused", {
+      requestId: draft.id,
+      reusedRequestId: data.id,
+      organiserId: context.user.id,
+    });
+
+    return draft;
+  });
+
 export const replyToClarification = createServerFn({ method: "POST" })
   .middleware([requireEventRequestCreate])
   .validator(parseClarificationReply)

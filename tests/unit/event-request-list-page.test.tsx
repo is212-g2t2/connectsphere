@@ -10,13 +10,16 @@ import {
 } from "#/features/event-requests/components/request-list-page";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
 
-const { deleteEventRequestDraft, invalidate } = vi.hoisted(() => ({
+const { deleteEventRequestDraft, invalidate, navigate, reuseEventRequest } = vi.hoisted(() => ({
   deleteEventRequestDraft: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
   invalidate: vi.fn<() => Promise<void>>(),
+  navigate: vi.fn<(options: unknown) => Promise<void>>(),
+  reuseEventRequest: vi.fn<(options: { data: { id: number } }) => Promise<unknown>>(),
 }));
 
 vi.mock("#/features/event-requests/server-fns", () => ({
   deleteEventRequestDraft,
+  reuseEventRequest,
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -47,6 +50,8 @@ vi.mock("@tanstack/react-router", () => ({
     navigate: vi.fn<() => void>(),
     invalidate,
   }),
+
+  useNavigate: () => navigate,
 }));
 
 const base: EventRequestDetail = {
@@ -235,5 +240,47 @@ describe("EventRequestListPage draft actions (PTR-12)", () => {
     );
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
     expect(screen.queryByText("Delete this draft?")).toBeNull();
+  });
+});
+
+describe("EventRequestListPage reuse action (PTR-154)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    navigate.mockResolvedValue(undefined);
+  });
+
+  it("offers Reuse on a submitted request but not on a draft (AC1)", () => {
+    render(<EventRequestListPage requests={[submitted, draft]} />);
+
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByRole("button", { name: "Reuse" })).toBeTruthy();
+    expect(within(rows[1]).queryByRole("button", { name: "Reuse" })).toBeNull();
+  });
+
+  it("starts a new draft and opens it for editing (AC1, AC2)", async () => {
+    reuseEventRequest.mockResolvedValue({ id: 77 });
+    render(<EventRequestListPage requests={[submitted]} />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Reuse" }));
+
+    await waitFor(() =>
+      expect(reuseEventRequest).toHaveBeenCalledExactlyOnceWith({ data: { id: 42 } })
+    );
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledExactlyOnceWith({
+        to: "/event-requests/reopenDraft/$id",
+        params: { id: "77" },
+      })
+    );
+  });
+
+  it("shows the refusal when the request cannot start a draft", async () => {
+    reuseEventRequest.mockRejectedValue(new Error("Only a completed request"));
+    render(<EventRequestListPage requests={[submitted]} />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Reuse" }));
+
+    await waitFor(() => expect(screen.getByText("Only a completed request")).toBeTruthy());
+    expect(navigate).not.toHaveBeenCalled();
   });
 });
