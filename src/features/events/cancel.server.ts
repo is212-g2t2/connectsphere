@@ -1,7 +1,12 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventCancellationRequests, eventRegistrations, eventRequests } from "#/db/schema";
+import {
+  eventCancellationRequests,
+  eventChangeRequests,
+  eventRegistrations,
+  eventRequests,
+} from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
@@ -11,7 +16,10 @@ import {
   parseEventRequestId,
 } from "#/features/event-requests/schema";
 import { loadArrangementHolders } from "#/features/events/arrangements.server";
-import { NO_CANCELLATION_REQUEST_MESSAGE } from "#/features/events/cancellation";
+import {
+  EVENT_CANCELLED_CLOSEOUT_REASON,
+  NO_CANCELLATION_REQUEST_MESSAGE,
+} from "#/features/events/cancellation";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 
@@ -61,6 +69,9 @@ function eventName(event: { eventName: string }): string {
  * or equipment (AC6). List the held items to the Coordinator (AC2), and notify the holders,
  * registered Attendees, and Organiser (AC3, AC4, AC7). Commit the changes together. The worker
  * sends the emails.
+ *
+ * PTR-156: the same transaction declines every other waiting change request. The cancelling
+ * Coordinator is the processor, and the Organiser gets the existing decline notice for each.
  */
 export async function handleCancelEvent(data: unknown, actor: SessionUser, database: Database) {
   const input = parseEventRequestId(data);
@@ -93,6 +104,22 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       })
       .where(eq(eventCancellationRequests.id, request.id));
 
+    // The consumed request was the only waiting cancellation request; the open-request index
+    // admits no second one. Decline what else waits so the queue holds only actionable rows.
+    const staleChanges = await tx
+      .update(eventChangeRequests)
+      .set({
+        outcome: "declined",
+        declineReason: EVENT_CANCELLED_CLOSEOUT_REASON,
+        processedById: actor.id,
+        processedByName: actor.name,
+        processedAt: now,
+      })
+      .where(
+        and(eq(eventChangeRequests.eventRequestId, event.id), isNull(eventChangeRequests.outcome))
+      )
+      .returning({ whatShouldChange: eventChangeRequests.whatShouldChange });
+
     await raiseNotifications(tx, [
       ...(await staffNotices(tx, event.id, eventName(event))),
       ...(await attendeeNotices(tx, event.id, eventName(event))),
@@ -102,6 +129,17 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
         kind: "event_cancelled",
         payload: { audience: "organiser", eventName: eventName(event) },
       },
+      ...staleChanges.map(change => ({
+        recipientId: event.organiserId,
+        eventRequestId: event.id,
+        kind: "event_change_processed" as const,
+        payload: {
+          outcome: "declined" as const,
+          eventName: eventName(event),
+          whatShouldChange: change.whatShouldChange,
+          reason: EVENT_CANCELLED_CLOSEOUT_REASON,
+        },
+      })),
     ]);
 
     // A cancelled event clears its waiting list. The waitlisted Attendees above already hold
