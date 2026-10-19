@@ -175,17 +175,16 @@ export async function handleAssignEventRequest(
     // unlocked; the row lock below re-validates the holder it names.
     const preRead = (
       await tx
-        .select({
-          organiserId: eventRequests.organiserId,
-          assignedCoordinatorId: eventRequests.assignedCoordinatorId,
-        })
+        .select({ organiserId: eventRequests.organiserId })
         .from(eventRequests)
         .where(eq(eventRequests.id, input.id))
     ).at(0);
     if (!preRead) throw new NotFoundError("Not Found");
+    // The outgoing account on success is the expected one (checked under the row lock), so the
+    // expected id, not the pre-read holder, is the row the notification insert will reference.
     const recipientIds = [
       ...new Set(
-        [input.coordinatorId, preRead.organiserId, preRead.assignedCoordinatorId].filter(
+        [input.coordinatorId, preRead.organiserId, input.expectedCoordinatorId].filter(
           (id): id is string => id !== null
         )
       ),

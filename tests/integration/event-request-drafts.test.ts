@@ -1387,27 +1387,48 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-144, PTR-145)
 
     it("reassigns while the outgoing Coordinator deletes their account, without a deadlock (AC8)", async () => {
       const request = await assignedRequest(first.id);
-      const [assignment, deletion] = await Promise.allSettled([
-        handleAssignEventRequest(
-          { id: request.id, coordinatorId: second.id, expectedCoordinatorId: first.id },
-          leadActor,
-          database as never
-        ),
-        database.delete(schema.user).where(eq(schema.user.id, first.id)),
-      ]);
+
+      // Hold the outgoing account so both the reassignment and the deletion queue on it before
+      // they can touch the request row. This exercises the contended order every run; the old
+      // request-row-first order could deadlock here.
+      const locked = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const holder = database.transaction(async tx => {
+        await tx
+          .select({ id: schema.user.id })
+          .from(schema.user)
+          .where(eq(schema.user.id, first.id))
+          .for("update");
+        locked.resolve();
+        await release.promise;
+      });
+      await locked.promise;
+
+      const assignment = handleAssignEventRequest(
+        { id: request.id, coordinatorId: second.id, expectedCoordinatorId: first.id },
+        leadActor,
+        database as never
+      );
+      const deletion = database.delete(schema.user).where(eq(schema.user.id, first.id));
+      release.resolve();
+
       try {
-        expect(deletion.status).toBe("fulfilled");
+        const [assignmentResult, deletionResult] = await Promise.allSettled([assignment, deletion]);
+        await holder;
+        expect(deletionResult.status).toBe("fulfilled");
         // Either the move won, or the deletion won and the move refused as stale. A deadlock
         // would reject the move with a driver error instead of the typed conflict.
-        expect(assignment).toMatchObject(
-          assignment.status === "fulfilled" ? { status: "fulfilled" } : { reason: { status: 409 } }
+        expect(assignmentResult).toMatchObject(
+          assignmentResult.status === "fulfilled"
+            ? { status: "fulfilled" }
+            : { reason: { status: 409 } }
         );
         const [stored] = await database
           .select()
           .from(schema.eventRequests)
           .where(eq(schema.eventRequests.id, request.id));
         expect(stored.assignedCoordinatorId).toBe(
-          assignment.status === "fulfilled" ? second.id : null
+          assignmentResult.status === "fulfilled" ? second.id : null
         );
       } finally {
         await database.insert(schema.user).values(first).onConflictDoNothing();
