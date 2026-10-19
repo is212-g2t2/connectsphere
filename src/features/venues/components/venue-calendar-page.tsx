@@ -189,7 +189,12 @@ export function VenueCalendarPage({
             visibleStart: period.startsAt,
             visibleEnd: period.endsAt,
           })),
-          ...schedule.occupied.map(period => ({ key: `${period.state}:${period.id}`, ...period })),
+          // A block can split one booking or hold into active pieces that share its id. Key by
+          // the visible start too, so both pieces render.
+          ...schedule.occupied.map(period => ({
+            key: `${period.state}:${period.id}:${period.visibleStart}`,
+            ...period,
+          })),
         ].toSorted((left, right) => compareTimestamps(left.visibleStart, right.visibleStart))
       : [];
     return { occupiedModifiers: modifiers, periods: rows };

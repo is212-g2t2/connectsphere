@@ -609,8 +609,8 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       renderPanel(withRows(approved, { ...ownPending, conflict: "unavailable" }));
 
       const rows = within(requestList()).getAllByRole("listitem");
-      expect(within(rows[0]).queryByText("Venue unavailable")).toBeNull();
-      expect(within(rows[1]).getByText("Venue unavailable")).toBeTruthy();
+      expect(within(rows[0]).queryByText("Outside operating hours")).toBeNull();
+      expect(within(rows[1]).getByText("Outside operating hours")).toBeTruthy();
     });
 
     it("offers its own settled rows for withdrawal, with their state, reason, and gate effect", () => {

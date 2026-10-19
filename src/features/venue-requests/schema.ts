@@ -529,17 +529,18 @@ export function canBeReplaced(
 }
 
 /**
- * PTR-36, PTR-138 AC1: why approval would refuse a pending request now. It overlaps an approved
- * booking or a held hold once the buffers count, or the venue cannot host its window: the venue is
- * closed then, or a recorded block overlaps it.
+ * PTR-36, PTR-138 AC1, PTR-135 AC2: why approval would refuse a pending request now. It overlaps
+ * an approved booking or a held hold once the buffers count, a recorded block covers its window,
+ * or the venue is not open then.
  */
-export type VenueRequestConflict = "booking" | "hold" | "unavailable";
+export type VenueRequestConflict = "booking" | "hold" | "blocked" | "unavailable";
 
-/** The badge label for each conflict kind. */
+/** The badge label for each conflict kind. Venue Staff read no other event's name. */
 export const VENUE_REQUEST_CONFLICT_LABELS: Record<VenueRequestConflict, string> = {
   booking: "Conflicting booking",
   hold: "Conflicting hold",
-  unavailable: "Venue unavailable",
+  blocked: "Venue blocked",
+  unavailable: "Outside operating hours",
 };
 
 /**

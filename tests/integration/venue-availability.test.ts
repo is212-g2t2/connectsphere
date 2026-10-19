@@ -45,11 +45,22 @@ describe("Venue availability (PTR-28)", () => {
   it("round-trips a recorded block into the schedule for its exact period (AC4)", async () => {
     const venue = await database.transaction(async tx => {
       const [created] = await tx.insert(schema.venues).values(record).returning();
-      await tx.insert(schema.venueUnavailability).values({
+      const [block] = await tx
+        .insert(schema.venueUnavailability)
+        .values({
+          venueId: created.id,
+          startsAt: "2027-03-15 09:00:00",
+          endsAt: "2027-03-15 11:00:00",
+          reason: "Integration maintenance",
+        })
+        .returning({ id: schema.venueUnavailability.id });
+      // The block writers record the ledger row in the same transaction (ADR-7).
+      await tx.insert(schema.venueOccupancy).values({
         venueId: created.id,
+        eventId: null,
+        venueUnavailabilityId: block.id,
         startsAt: "2027-03-15 09:00:00",
         endsAt: "2027-03-15 11:00:00",
-        reason: "Integration maintenance",
       });
       return created;
     });
@@ -92,11 +103,21 @@ describe("Venue availability (PTR-28)", () => {
   it("shows an open-ended block as blocked with openEnded and an end clamped to the range (PTR-136)", async () => {
     const venue = await database.transaction(async tx => {
       const [created] = await tx.insert(schema.venues).values(record).returning();
-      await tx.insert(schema.venueUnavailability).values({
+      const [block] = await tx
+        .insert(schema.venueUnavailability)
+        .values({
+          venueId: created.id,
+          startsAt: "2027-03-15 09:00:00",
+          endsAt: null,
+          reason: "Integration open-ended works",
+        })
+        .returning({ id: schema.venueUnavailability.id });
+      await tx.insert(schema.venueOccupancy).values({
         venueId: created.id,
+        eventId: null,
+        venueUnavailabilityId: block.id,
         startsAt: "2027-03-15 09:00:00",
         endsAt: null,
-        reason: "Integration open-ended works",
       });
       return created;
     });
@@ -149,11 +170,21 @@ describe("Venue availability (PTR-28)", () => {
   it("shows a finite block without openEnded (PTR-136)", async () => {
     const venue = await database.transaction(async tx => {
       const [created] = await tx.insert(schema.venues).values(record).returning();
-      await tx.insert(schema.venueUnavailability).values({
+      const [block] = await tx
+        .insert(schema.venueUnavailability)
+        .values({
+          venueId: created.id,
+          startsAt: "2027-03-15 09:00:00",
+          endsAt: "2027-03-15 11:00:00",
+          reason: "Integration finite works",
+        })
+        .returning({ id: schema.venueUnavailability.id });
+      await tx.insert(schema.venueOccupancy).values({
         venueId: created.id,
+        eventId: null,
+        venueUnavailabilityId: block.id,
         startsAt: "2027-03-15 09:00:00",
         endsAt: "2027-03-15 11:00:00",
-        reason: "Integration finite works",
       });
       return created;
     });
@@ -172,11 +203,21 @@ describe("Venue availability (PTR-28)", () => {
   it("keeps the real end of a finite block that extends past the range (PTR-136)", async () => {
     const venue = await database.transaction(async tx => {
       const [created] = await tx.insert(schema.venues).values(record).returning();
-      await tx.insert(schema.venueUnavailability).values({
+      const [block] = await tx
+        .insert(schema.venueUnavailability)
+        .values({
+          venueId: created.id,
+          startsAt: "2027-03-15 09:00:00",
+          endsAt: "2027-03-20 11:00:00",
+          reason: "Integration extended works",
+        })
+        .returning({ id: schema.venueUnavailability.id });
+      await tx.insert(schema.venueOccupancy).values({
         venueId: created.id,
+        eventId: null,
+        venueUnavailabilityId: block.id,
         startsAt: "2027-03-15 09:00:00",
         endsAt: "2027-03-20 11:00:00",
-        reason: "Integration extended works",
       });
       return created;
     });
@@ -203,11 +244,21 @@ describe("Venue availability (PTR-28)", () => {
   it("refuses a far-future window covered by an open-ended block, naming the reason (PTR-136)", async () => {
     const venue = await database.transaction(async tx => {
       const [created] = await tx.insert(schema.venues).values(record).returning();
-      await tx.insert(schema.venueUnavailability).values({
+      const [block] = await tx
+        .insert(schema.venueUnavailability)
+        .values({
+          venueId: created.id,
+          startsAt: "2027-03-15 09:00:00",
+          endsAt: null,
+          reason: "Integration open-ended works",
+        })
+        .returning({ id: schema.venueUnavailability.id });
+      await tx.insert(schema.venueOccupancy).values({
         venueId: created.id,
+        eventId: null,
+        venueUnavailabilityId: block.id,
         startsAt: "2027-03-15 09:00:00",
         endsAt: null,
-        reason: "Integration open-ended works",
       });
       return created;
     });
