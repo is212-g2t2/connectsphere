@@ -277,27 +277,34 @@ test("a Lead oversees every Coordinator's assigned events and opens one read-onl
 }) => {
   const ids: string[] = [];
   try {
-    const coordinator = await register(page, "event_coordinator", "Oversight Coordinator");
-    ids.push(coordinator.id);
+    const coordinatorId = randomUUID();
+    ids.push(coordinatorId);
+    const coordinatorName = "Oversight Coordinator";
+    await database.insert(schema.user).values({
+      id: coordinatorId,
+      name: coordinatorName,
+      email: `${coordinatorId}@example.invalid`,
+      role: "event_coordinator",
+    });
     const decided = {
-      decidedByCoordinatorId: coordinator.id,
-      decidedByCoordinatorName: coordinator.name,
+      decidedByCoordinatorId: coordinatorId,
+      decidedByCoordinatorName: coordinatorName,
       decidedAt: new Date(),
     };
-    const active = await seedAssignedRequest(ids, coordinator.id, {
+    const active = await seedAssignedRequest(ids, coordinatorId, {
       eventName: `Oversight active ${randomUUID()}`,
       status: "planning",
       ...decided,
     });
-    const completed = await seedAssignedRequest(ids, coordinator.id, {
+    const completed = await seedAssignedRequest(ids, coordinatorId, {
       eventName: `Oversight completed ${randomUUID()}`,
       status: "completed",
       ...decided,
-      completedById: coordinator.id,
-      completedByName: coordinator.name,
+      completedById: coordinatorId,
+      completedByName: coordinatorName,
       completedAt: new Date(),
     });
-    const rejected = await seedAssignedRequest(ids, coordinator.id, {
+    const rejected = await seedAssignedRequest(ids, coordinatorId, {
       eventName: `Oversight rejected ${randomUUID()}`,
       status: "rejected",
       ...decided,
@@ -308,8 +315,8 @@ test("a Lead oversees every Coordinator's assigned events and opens one read-onl
     await page.goto("/coordination");
     const oversight = page.getByRole("region", { name: "Coordinator oversight" });
     await expect(oversight).toBeVisible();
-    const coordinatorRow = oversight.locator("li").filter({ hasText: coordinator.name }).first();
-    await expect(coordinatorRow.getByRole("heading", { name: coordinator.name })).toBeVisible();
+    const coordinatorRow = oversight.locator("li").filter({ hasText: coordinatorName }).first();
+    await expect(coordinatorRow.getByRole("heading", { name: coordinatorName })).toBeVisible();
     await expect(coordinatorRow.getByText("1 active event")).toBeVisible();
     await expect(coordinatorRow.getByText(/3 assigned events/)).toBeVisible();
     await expect(coordinatorRow.getByRole("link", { name: active.eventName })).toBeVisible();
