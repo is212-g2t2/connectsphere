@@ -18,10 +18,10 @@ const statement = {
   /** PTR-45: `register` is an Attendee's own registration for a published event. */
   event: ["register"],
   /**
-   * PTR-144: `oversee` is the Event Coordinator Lead's read-only verb. It opens the unassigned
-   * queue and every event; it never moves an assignment or decides a request.
+   * PTR-144: `oversee` opens the unassigned queue and every event. PTR-145 adds `assign`, the
+   * Lead's verb for assigning and reassigning a Coordinator; no other role holds it.
    */
-  event_request: ["create", "coordinate", "oversee"],
+  event_request: ["create", "coordinate", "oversee", "assign"],
   venue: ["create", "update", "read", "search"],
   venue_request: ["request", "read", "decide"],
   event_registration: ["read"],
@@ -55,10 +55,11 @@ const ac = createAccessControl(statement);
  * with the stories that build them (PTR-8, PTR-38 and the rest).
  *
  * `event_request:coordinate` (PTR-15) is what an Event Coordinator holds over the requests
- * assigned to them: review actions arrived in PTR-17, and handovers in PTR-110. It is
- * deliberately not `create`: a Coordinator never authors a request, and an Organiser never
- * coordinates one. PTR-144 adds `oversee`, the read-only Lead verb: the unassigned queue and
- * every event, with no verb that moves or decides a request.
+ * assigned to them: review actions arrived in PTR-17. It is deliberately not `create`: a
+ * Coordinator never authors a request, and an Organiser never coordinates one. PTR-144 adds
+ * `oversee`, the Lead's read of the unassigned queue and every event. PTR-145 adds `assign`,
+ * the Lead's verb that moves an assignment; the Coordinator never holds it, so no transfer
+ * action is offered to them.
  *
  * `venue` (PTR-26) is the first internal/external split: Venue Staff maintain the catalogue,
  * the other two internal roles read it, and the external roles hold nothing — PTR-28
@@ -89,11 +90,11 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
   }),
   /**
    * PTR-144: the Event Coordinator Lead allocates work. `event_request:oversee` reads the
-   * unassigned queue and every event read-only. The Lead holds no coordination verb, so no
-   * handler that moves or decides a request admits them.
+   * unassigned queue and every event. PTR-145 adds `assign`, which moves an assignment. The
+   * Lead holds no coordination verb, so no handler that reviews or decides a request admits them.
    */
   event_coordinator_lead: ac.newRole({
-    event_request: ["oversee"],
+    event_request: ["oversee", "assign"],
   }),
   venue_staff: ac.newRole({
     venue: ["create", "update", "read"],

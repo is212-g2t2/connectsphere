@@ -227,9 +227,9 @@ describe("EventDetailPage", () => {
               cancellationRequests: [],
               changeRequests: [],
               outstandingReleases: null,
-              pendingHandover: null,
               venueRequests: [],
             },
+            coordinators: [],
           } as unknown as EventPageData
         }
       />
@@ -240,7 +240,7 @@ describe("EventDetailPage", () => {
     expect(screen.getByRole("heading", { name: "Unassigned open day" })).toBeTruthy();
   });
 
-  it("shows the triage record with no assignment rail or section", async () => {
+  it("shows the triage record and the Lead's assignment form in the main column, with no rail", async () => {
     const { container } = render(
       <EventDetailPage
         data={
@@ -255,7 +255,6 @@ describe("EventDetailPage", () => {
               assignedAt: null,
               organiser: { name: "Sofia Andersson", email: "sofia.andersson@example.com" },
               coordinator: null,
-              pendingHandover: null,
               equipmentRequirements: [],
               clarifications: [],
               cancellationRequests: [],
@@ -263,6 +262,7 @@ describe("EventDetailPage", () => {
               outstandingReleases: null,
               venueRequests: [],
             },
+            coordinators: [{ id: "coord-1", name: "Bailey", email: "b@example.com" }],
           } as unknown as EventPageData
         }
       />
@@ -271,6 +271,9 @@ describe("EventDetailPage", () => {
     await screen.findByRole("heading", { name: "Request details" });
     expect(screen.queryByRole("complementary", { name: "Actions" })).toBeNull();
     expect(container.querySelector("main #request")).toBeTruthy();
-    expect(container.querySelector("#assignment")).toBeNull();
+    // PTR-145: the Lead's assignment form is the queue detail's one action, and it sits in the
+    // main column rather than on a rail.
+    expect(container.querySelector("main #assignment")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Assign Coordinator" })).toBeTruthy();
   });
 });

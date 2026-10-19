@@ -1,6 +1,7 @@
 import { render } from "@react-email/render";
 import { describe, expect, it } from "vitest";
 import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
+import { CoordinatorAssignedEmail } from "#/features/emails/components/coordinator-assigned-email";
 import { ClarificationReplyEmail } from "#/features/emails/components/clarification-reply-email";
 import { Layout } from "#/features/emails/components/layout";
 import {
@@ -109,20 +110,63 @@ describe("Email templates rendering", () => {
     expect(html).toContain(eventRequestUrl);
   });
 
-  it("renders the handover request with the event, who offered it, and the coordination link (PTR-110 AC1)", async () => {
+  it("tells each party of an assignment in their own words (PTR-145)", async () => {
+    const eventUrl = "http://localhost:3000/events/42";
+    const incoming = await render(
+      <CoordinatorAssignedEmail
+        eventName="Community workshop"
+        action="assign"
+        coordinatorName="Bailey"
+        audience="coordinator"
+        eventUrl={eventUrl}
+      />
+    );
+    expect(incoming).toContain("Event assigned to you");
+    expect(incoming).toContain("Community workshop");
+    expect(incoming).toContain(eventUrl);
+
+    const outgoing = await render(
+      <CoordinatorAssignedEmail
+        eventName="Community workshop"
+        action="reassign"
+        coordinatorName="Bailey"
+        previousCoordinatorName="Alex"
+        audience="outgoing_coordinator"
+        eventUrl={eventUrl}
+      />
+    );
+    expect(outgoing).toContain("Event reassigned");
+    expect(outgoing).toContain("no longer belongs to you");
+    expect(outgoing).toContain("Bailey");
+
+    const organiser = await render(
+      <CoordinatorAssignedEmail
+        eventName="Community workshop"
+        action="reassign"
+        coordinatorName="Bailey"
+        previousCoordinatorName="Alex"
+        audience="organiser"
+        eventUrl={eventUrl}
+      />
+    );
+    expect(organiser).toContain("replaces Alex");
+    expect(organiser).toContain("Bailey");
+  });
+
+  it("renders a retired handover request against the event (PTR-145 AC5)", async () => {
     const html = await render(
       <HandoverRequestEmail
         eventName="Community workshop"
         fromName="Alex"
-        coordinationUrl="http://localhost:3000/coordination"
+        eventRequestUrl="http://localhost:3000/events/42"
       />
     );
 
     expect(html).toContain("Handover requested");
     expect(html).toContain("Community workshop");
     expect(html).toContain("Alex");
-    expect(html).toContain("http://localhost:3000/coordination");
-    expect(html).toContain("Review the handover");
+    expect(html).toContain("http://localhost:3000/events/42");
+    expect(html).toContain("View the event");
   });
 
   it("renders the accepted handover with the new Coordinator and the organiser's request (PTR-110 AC3)", async () => {

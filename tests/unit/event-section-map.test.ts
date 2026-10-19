@@ -86,13 +86,14 @@ describe("eventSections", () => {
     expect(ids(data)).not.toContain("registrations");
   });
 
-  it("shows the review and assignment sections for a submitted coordinator event", () => {
+  it("shows the review flow and no assignment section for a submitted coordinator event", () => {
     const found = ids(page("coordinator", { status: "submitted" }));
 
     expect(found).toContain("review");
     expect(found).not.toContain("messages");
     expect(found).not.toContain("changes");
-    expect(found).toContain("assignment");
+    // PTR-145: the Coordinator gets no transfer action.
+    expect(found).not.toContain("assignment");
     expect(found).not.toContain("confirm");
     expect(found).not.toContain("releases");
   });
@@ -285,7 +286,7 @@ describe("eventSections", () => {
     ]);
   });
 
-  it("lists only the read-only request detail in triage for an unassigned request", () => {
+  it("lists the request detail and the Lead's assignment form in triage (PTR-145)", () => {
     const found = ids({
       kind: "triage",
       viewerId: "lead-1",
@@ -295,9 +296,10 @@ describe("eventSections", () => {
         changeRequests: [],
         venueRequests: [],
       },
+      coordinators: [],
     } as unknown as EventPageData);
 
-    expect(found).toEqual(["request"]);
+    expect(found).toEqual(["request", "assignment"]);
   });
 
   it("lists only the read-only details section for the lead, with no rail actions", () => {
@@ -309,7 +311,6 @@ describe("eventSections", () => {
 describe("railSectionIds", () => {
   it("rails the coordinator's compact actions", () => {
     expect([...railSectionIds(page("coordinator", { status: "confirmed" }))]).toEqual([
-      "assignment",
       "cancellation",
       "confirm",
       "complete",

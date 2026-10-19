@@ -1,12 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import {
-  parseAssignmentInput,
-  parseDecisionInput,
-  parseEventHandoverId,
-} from "#/features/coordination/schema";
+import { parseAssignmentInput, parseDecisionInput } from "#/features/coordination/schema";
 import { parseClarificationBody, parseEventRequestId } from "#/features/event-requests/schema";
 import {
+  requireEventRequestAssign,
   requireEventRequestCoordinate,
   requireEventRequestOversee,
 } from "#/features/event-requests/server-fns";
@@ -27,8 +24,6 @@ export type Coordinator = Awaited<ReturnType<typeof listCoordinators>>[number];
 export type CoordinationRequest = Awaited<ReturnType<typeof getCoordinationRequest>>;
 /** A request already assigned to the signed-in Coordinator, as the coordination page sees it. */
 export type AssignedEventRequest = Awaited<ReturnType<typeof listAssignedEventRequests>>[number];
-/** PTR-110: one handover waiting on the signed-in Coordinator to accept or decline. */
-export type PendingEventHandover = Awaited<ReturnType<typeof listPendingEventHandovers>>[number];
 
 export const listAssignedEventRequests = createServerFn({ method: "GET" })
   .middleware([requireEventRequestCoordinate])
@@ -37,22 +32,15 @@ export const listAssignedEventRequests = createServerFn({ method: "GET" })
     return handleListAssignedEventRequests(context.user, db);
   });
 
+/**
+ * PTR-145 criterion 6: every Event Coordinator as an assignment candidate. The Lead chooses an
+ * assignment from this list; the UI filters and ranks nothing.
+ */
 export const listCoordinators = createServerFn({ method: "GET" })
-  .middleware([requireEventRequestCoordinate])
+  .middleware([requireEventRequestAssign])
   .handler(async () => {
     const [{ db }, { handleListCoordinators }] = await loadServer();
     return handleListCoordinators(db);
-  });
-
-/**
- * PTR-110: the live handovers addressed to the signed-in Coordinator. Answered from the
- * coordination page, which is also where the notification email sends them.
- */
-export const listPendingEventHandovers = createServerFn({ method: "GET" })
-  .middleware([requireEventRequestCoordinate])
-  .handler(async ({ context }) => {
-    const [{ db }, { handleListPendingEventHandovers }] = await loadServer();
-    return handleListPendingEventHandovers(context.user, db);
   });
 
 export const getCoordinationRequest = createServerFn({ method: "GET" })
@@ -64,8 +52,8 @@ export const getCoordinationRequest = createServerFn({ method: "GET" })
   });
 
 /**
- * PTR-144: the Lead's read of the request behind an unassigned queue row. The handler re-reads
- * the caller's scope, and the read-only detail offers no coordination action.
+ * PTR-144: the Lead's read of a request. PTR-145 uses it for the unassigned queue detail and for
+ * the assignment form on an assigned event. The handler re-reads the caller's scope.
  */
 export const getOversightRequest = createServerFn({ method: "GET" })
   .middleware([requireEventRequestOversee])
@@ -76,59 +64,23 @@ export const getOversightRequest = createServerFn({ method: "GET" })
   });
 
 /**
- * PTR-110 criterion 1: the assigned Coordinator offers the request to a named Coordinator. The
- * assignment does not move until that Coordinator accepts.
+ * PTR-145 criteria 1, 2 and 8: the Lead assigns or reassigns a Coordinator. The move is immediate
+ * and records the acting Lead and the time; a stale expected Coordinator is refused.
  */
-export const requestEventHandover = createServerFn({ method: "POST" })
-  .middleware([requireEventRequestCoordinate])
+export const assignEventRequest = createServerFn({ method: "POST" })
+  .middleware([requireEventRequestAssign])
   .validator(parseAssignmentInput)
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleRequestEventHandover }] = await loadServer();
-    const handover = await handleRequestEventHandover(data, context.user, db);
+    const [{ db }, { handleAssignEventRequest }] = await loadServer();
+    const request = await handleAssignEventRequest(data, context.user, db);
 
-    log.info("Event request handover requested", {
-      requestId: data.id,
-      handoverId: handover.id,
+    log.info("Event request assignment moved", {
+      requestId: request.id,
       actorId: context.user.id,
-      fromCoordinatorId: handover.fromCoordinatorId,
-      toCoordinatorId: handover.toCoordinatorId,
+      coordinatorId: request.assignedCoordinatorId,
     });
 
-    return handover;
-  });
-
-/** PTR-110 criterion 3: the incoming Coordinator accepts, and the assignment moves to them. */
-export const acceptEventHandover = createServerFn({ method: "POST" })
-  .middleware([requireEventRequestCoordinate])
-  .validator(parseEventHandoverId)
-  .handler(async ({ data, context }) => {
-    const [{ db }, { handleAcceptEventHandover }] = await loadServer();
-    const handover = await handleAcceptEventHandover(data, context.user, db);
-
-    log.info("Event request handover accepted", {
-      handoverId: handover.id,
-      eventRequestId: handover.eventRequestId,
-      actorId: context.user.id,
-    });
-
-    return handover;
-  });
-
-/** PTR-110 criterion 4: the incoming Coordinator declines; the outgoing keeps the request. */
-export const declineEventHandover = createServerFn({ method: "POST" })
-  .middleware([requireEventRequestCoordinate])
-  .validator(parseEventHandoverId)
-  .handler(async ({ data, context }) => {
-    const [{ db }, { handleDeclineEventHandover }] = await loadServer();
-    const handover = await handleDeclineEventHandover(data, context.user, db);
-
-    log.info("Event request handover declined", {
-      handoverId: handover.id,
-      eventRequestId: handover.eventRequestId,
-      actorId: context.user.id,
-    });
-
-    return handover;
+    return request;
   });
 
 /**

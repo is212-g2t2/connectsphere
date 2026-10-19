@@ -112,18 +112,8 @@ describe("PTR-132-TC11: venue_buffer_conflict notification schema and email", ()
     );
 
     // Reachability
-    expect(
-      notificationReachable("venue_buffer_conflict", {
-        eventAccessible: true,
-        handoverPending: false,
-      })
-    ).toBe(true);
-    expect(
-      notificationReachable("venue_buffer_conflict", {
-        eventAccessible: false,
-        handoverPending: false,
-      })
-    ).toBe(false);
+    expect(notificationReachable(parsed, { eventAccessible: true })).toBe(true);
+    expect(notificationReachable(parsed, { eventAccessible: false })).toBe(false);
 
     // Email rendering, including the calendar link.
     const rendered = renderNotificationEmail({ ...parsed, eventRequestId: 42 });

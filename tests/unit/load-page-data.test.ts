@@ -202,14 +202,12 @@ describe("loadEventPageData", () => {
     });
   });
 
-  it("gathers the coordinator extras", async () => {
+  it("gathers the coordinator extras, with no candidates for a transfer", async () => {
     const event = projection("coordinator", { name: "Open Day", status: "confirmed" });
     const request = { id: 7, status: "confirmed" };
-    const coordinators = [{ id: "c-1" }];
     const attendees = [{ attendeeId: "a-1" }];
     mockListEvents.mockResolvedValue([event]);
     mockGetCoordinationRequest.mockResolvedValue(request);
-    mockListCoordinators.mockResolvedValue(coordinators);
     mockListEventRegistrations.mockResolvedValue(attendees);
 
     const data = await loadEventPageData(7, "event_coordinator", VIEWER_ID);
@@ -218,19 +216,19 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       viewerId: VIEWER_ID,
-      coordination: { request, coordinators },
+      coordination: { request, coordinators: [] },
       attendees,
     });
     expect(mockGetCoordinationRequest).toHaveBeenCalledWith({ data: { id: 7 } });
+    // PTR-145: the Coordinator no longer moves an assignment, so no candidate list is read.
+    expect(mockListCoordinators).not.toHaveBeenCalled();
   });
 
   it("skips the registration fetch for a coordinator event with no record", async () => {
     const event = projection("coordinator", { name: "Open Day", status: "submitted" });
     const request = { id: 7, status: "submitted" };
-    const coordinators = [{ id: "c-1" }];
     mockListEvents.mockResolvedValue([event]);
     mockGetCoordinationRequest.mockResolvedValue(request);
-    mockListCoordinators.mockResolvedValue(coordinators);
 
     const data = await loadEventPageData(7, "event_coordinator", VIEWER_ID);
 
@@ -238,7 +236,7 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       viewerId: VIEWER_ID,
-      coordination: { request, coordinators },
+      coordination: { request, coordinators: [] },
       attendees: undefined,
     });
     expect(mockListEventRegistrations).not.toHaveBeenCalled();
@@ -249,7 +247,6 @@ describe("loadEventPageData", () => {
     const attendees = [{ attendeeId: "a-1" }];
     mockListEvents.mockResolvedValue([event]);
     mockGetCoordinationRequest.mockRejectedValue(new Error("coordination store down"));
-    mockListCoordinators.mockResolvedValue([]);
     mockListEventRegistrations.mockResolvedValue(attendees);
 
     const data = await loadEventPageData(7, "event_coordinator", VIEWER_ID);
@@ -381,41 +378,63 @@ describe("loadEventPageData", () => {
     expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID, equipmentTypes: null });
   });
 
-  it("opens the lead triage view for an unassigned projection", async () => {
+  it("opens the lead triage view with the assignment candidates for an unassigned projection", async () => {
     mockListEvents.mockResolvedValue([
       projection("lead", { status: "submitted", awaitingAssignment: true }),
     ]);
     const request = { id: 7, status: "submitted" };
+    const coordinators = [{ id: "c-1" }];
     mockGetOversightRequest.mockResolvedValue(request);
+    mockListCoordinators.mockResolvedValue(coordinators);
 
     const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
 
-    expect(data).toEqual({ kind: "triage", viewerId: VIEWER_ID, request });
+    expect(data).toEqual({ kind: "triage", viewerId: VIEWER_ID, request, coordinators });
     expect(mockGetOversightRequest).toHaveBeenCalledWith({ data: { id: 7 } });
   });
 
-  it("returns the lead event page once a Coordinator is assigned", async () => {
+  it("returns the lead event page with the coordination read once a Coordinator is assigned", async () => {
     const event = projection("lead", { status: "submitted", awaitingAssignment: false });
+    const request = { id: 7, status: "submitted", assignedCoordinatorId: "c-1" };
+    const coordinators = [{ id: "c-1" }];
     mockListEvents.mockResolvedValue([event]);
+    mockGetOversightRequest.mockResolvedValue(request);
+    mockListCoordinators.mockResolvedValue(coordinators);
 
     const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
-    expect(mockGetOversightRequest).not.toHaveBeenCalled();
+    expect(data).toEqual({
+      kind: "event",
+      event,
+      viewerId: VIEWER_ID,
+      coordination: { request, coordinators },
+    });
+  });
+
+  it("keeps the lead event page when the reassignment read fails", async () => {
+    const event = projection("lead", { status: "submitted", awaitingAssignment: false });
+    mockListEvents.mockResolvedValue([event]);
+    mockGetOversightRequest.mockRejectedValue(new Error("coordination store down"));
+
+    const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
+
+    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID, coordination: null });
   });
 
   it("opens the lead triage view for an unassigned request past review", async () => {
     // A deleted Coordinator can vacate an approved event. It is still a queue row, so it opens
-    // the read-only queue detail, and the detail reads the record in any status (PTR-144).
+    // the queue detail, and the detail reads the record in any status (PTR-144).
     mockListEvents.mockResolvedValue([
       projection("lead", { status: "approved", awaitingAssignment: true }),
     ]);
     const request = { id: 7, status: "approved" };
+    const coordinators = [{ id: "c-1" }];
     mockGetOversightRequest.mockResolvedValue(request);
+    mockListCoordinators.mockResolvedValue(coordinators);
 
     const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
 
-    expect(data).toEqual({ kind: "triage", viewerId: VIEWER_ID, request });
+    expect(data).toEqual({ kind: "triage", viewerId: VIEWER_ID, request, coordinators });
   });
 
   it("returns null on Forbidden for a Coordinator with no assigned event", async () => {
@@ -436,6 +455,7 @@ describe("loadEventPageData", () => {
   it("returns null when the oversight fallback is refused", async () => {
     mockListEvents.mockRejectedValue(new Error("Forbidden"));
     mockGetOversightRequest.mockRejectedValue(new Error("Forbidden"));
+    mockListCoordinators.mockResolvedValue([]);
 
     await expect(loadEventPageData(7, "event_coordinator_lead", VIEWER_ID)).resolves.toBeNull();
   });
@@ -443,6 +463,7 @@ describe("loadEventPageData", () => {
   it("rethrows a non-refusal oversight failure", async () => {
     mockListEvents.mockRejectedValue(new Error("Forbidden"));
     mockGetOversightRequest.mockRejectedValue(new Error("oversight store down"));
+    mockListCoordinators.mockResolvedValue([]);
 
     await expect(loadEventPageData(7, "event_coordinator_lead", VIEWER_ID)).rejects.toThrow(
       "oversight store down"

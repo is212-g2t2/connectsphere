@@ -49,6 +49,7 @@ import {
 } from "#/features/emails/components/venue-hold-request-email";
 import { VenueBufferConflictEmail } from "#/features/emails/components/venue-buffer-conflict-email";
 import { EventSubmittedEmail } from "#/features/emails/components/event-submitted-email";
+import { CoordinatorAssignedEmail } from "#/features/emails/components/coordinator-assigned-email";
 import { SafetyReviewDecisionEmail } from "#/features/emails/components/safety-review-decision-email";
 import { notificationHref, notificationSummary } from "#/features/notifications/message";
 import type { NotificationPayload } from "#/features/notifications/message";
@@ -170,12 +171,13 @@ export function renderNotificationEmail(
     }
     case "handover_requested": {
       const { eventName, fromName } = notification.payload;
+      // PTR-145 retires the handover; a queued row still points at the event.
       return {
         subject,
         element: createElement(HandoverRequestEmail, {
           eventName,
           fromName,
-          coordinationUrl: `${base}/coordination`,
+          eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     }
@@ -458,6 +460,14 @@ export function renderNotificationEmail(
         element: createElement(VenueHoldDeclinedEmail, {
           ...notification.payload,
           calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    case "coordinator_assigned":
+      return {
+        subject,
+        element: createElement(CoordinatorAssignedEmail, {
+          ...notification.payload,
+          eventUrl: `${base}/events/${eventRequestId}`,
         }),
       };
     default: {

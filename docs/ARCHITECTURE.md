@@ -85,7 +85,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 │   │   │                 # components/, Zod schemas, server functions, and
 │   │   │                 # feature-local *.server.ts modules
 │   │   ├── auth/         # Sessions, permissions, login/signup/reset/settings
-│   │   ├── coordination/ # Lead's unassigned queue, and accepted handovers of assigned events
+│   │   ├── coordination/ # Lead's unassigned queue, assignment, and the Coordinator's review flow
 │   │   ├── dashboard/    # Signed-in home view
 │   │   ├── emails/       # Email templates and shared date formatting
 │   │   ├── equipment-requests/ # Equipment lines, submission to Technical Support, its arrangement work list, availability checks, and reservations
@@ -129,6 +129,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 11. **Safety reviews**: each review stores the arrangement fingerprint it covers, and an event's current review is its most recent one. A Safety Officer reads the events under review and decides the pending review; a rejection or a change request returns an approved event to planning. Venue catalogue attributes stay outside the fingerprint, so a catalogue edit never reverts an event.
 12. **Equipment reservations**: each line serves one active approved venue booking. Availability checks and reservations use that booking's buffered ledger window. The reservation stores the booking link and a window snapshot. Staff views derive "Window changed" when the snapshot differs or the booking is released. This check changes no reservation and sends no notification.
 13. **Hold requests**: a Coordinator requests a hold, which passes the hold's checks but has no `venue_occupancy` row until Venue Staff place it with an expiry ([ADR-7](./adrs/ADR-7-venue-occupancy-ledger.md)). While the event is searchable, every Venue Staff member sees the request in the queue at `/venue-holds`, and every venue reader sees it on the calendar; after that, only a viewer the withdrawal rule admits sees it there. The assigned Coordinator can withdraw it before placement; Venue Staff place or decline it, and the assigned Coordinator (else the requester) is notified.
+14. **Coordinator assignment**: the Event Coordinator Lead assigns an unassigned request or reassigns an assigned one. The move takes effect at once and records the acting Lead and the time. The incoming Coordinator and the Organiser are notified, and a reassignment also notifies the outgoing Coordinator. A Coordinator never transfers a request; the retired handover rows stay in the database as history and are not read or written.
 
 ## Database and Migrations
 
@@ -363,6 +364,7 @@ erDiagram
 | `event_request:create`      |    —     |       ✅        |         —         |           —            |      —      |            —            |       —        |
 | `event_request:coordinate`  |    —     |        —        |        ✅         |           —            |      —      |            —            |       —        |
 | `event_request:oversee`     |    —     |        —        |         —         |           ✅           |      —      |            —            |       —        |
+| `event_request:assign`      |    —     |        —        |         —         |           ✅           |      —      |            —            |       —        |
 | `venue:read`                |    —     |        —        |        ✅         |           —            |     ✅      |           ✅            |       —        |
 | `venue:search`              |    —     |        —        |        ✅         |           —            |      —      |            —            |       —        |
 | `venue:create`              |    —     |        —        |         —         |           —            |     ✅      |            —            |       —        |

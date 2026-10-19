@@ -7,6 +7,7 @@ import { ChangeRequestApplyProvider } from "#/features/coordination/components/c
 import {
   coordinatorClosingSections,
   coordinatorSections,
+  leadAssignmentSections,
 } from "#/features/coordination/components/coordinator-sections";
 import { DECISION_REASON_REQUIRED } from "#/features/coordination/schema";
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
@@ -14,14 +15,14 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EventPageData } from "#/features/events/page-data";
 
 const {
-  requestEventHandover,
+  assignEventRequest,
   takeUpEventRequestForReview,
   decideEventRequest,
   raiseClarificationRequest,
   invalidate,
   success,
 } = vi.hoisted(() => ({
-  requestEventHandover: vi.fn<(input: unknown) => Promise<unknown>>(),
+  assignEventRequest: vi.fn<(input: unknown) => Promise<unknown>>(),
   takeUpEventRequestForReview: vi.fn<(input: unknown) => Promise<unknown>>(),
   decideEventRequest: vi.fn<(input: unknown) => Promise<unknown>>(),
   raiseClarificationRequest: vi.fn<(input: unknown) => Promise<unknown>>(),
@@ -29,9 +30,9 @@ const {
   success: vi.fn<(message: string) => void>(),
 }));
 vi.mock("#/features/coordination/server-fns", () => ({
+  assignEventRequest,
   decideEventRequest,
   raiseClarificationRequest,
-  requestEventHandover,
   takeUpEventRequestForReview,
 }));
 vi.mock("#/features/events/server-fns", () => ({
@@ -75,7 +76,6 @@ function coordinationRequest(overrides: Record<string, unknown> = {}): Coordinat
     changeRequests: [],
     cancellationRequests: [],
     outstandingReleases: null,
-    pendingHandover: null,
     ...overrides,
   } as unknown as CoordinationRequest;
 }
@@ -103,11 +103,15 @@ function eventData(
   } as unknown as EventPageData;
 }
 
-function triageData(request: CoordinationRequest): EventPageData {
+function triageData(
+  request: CoordinationRequest,
+  team: Coordinator[] = coordinators
+): EventPageData {
   return {
     kind: "triage",
     viewerId: viewer.id,
     request,
+    coordinators: team,
   } as unknown as EventPageData;
 }
 
@@ -299,7 +303,7 @@ describe("request section", () => {
 });
 
 describe("triage section set", () => {
-  it("lists the read-only request detail alone, with no review flow and no assignment", () => {
+  it("lists the read-only request detail and the Lead's assignment form, with no review flow", () => {
     const data = triageData(coordinationRequest());
     const visible = coordinatorSections(data)
       .filter(section => section.visible(data))
@@ -307,10 +311,10 @@ describe("triage section set", () => {
 
     expect(visible).toEqual(["request"]);
     expect(
-      coordinatorSections(data)
+      leadAssignmentSections(data)
         .find(section => section.id === "assignment")
         ?.visible(data)
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("keeps the request detail for a vacated request past review", () => {
@@ -320,15 +324,16 @@ describe("triage section set", () => {
 
     expect(defs.find(section => section.id === "request")?.visible(data)).toBe(true);
     expect(defs.find(section => section.id === "review")?.visible(data)).toBe(false);
-    expect(defs.find(section => section.id === "assignment")?.visible(data)).toBe(false);
+    expect(defs.find(section => section.id === "assignment")).toBeUndefined();
   });
 
-  it("renders no assignment body in triage: the unassigned detail carries no claim action", () => {
-    const { container } = renderSection(triageData(coordinationRequest()), "assignment");
-
-    expect(container.textContent).toBe("");
-    expect(screen.queryByRole("button", { name: "Assign to me" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Assign this request" })).toBeNull();
+  it("hides the Lead's assignment form once the request is closed (PTR-145 AC3)", () => {
+    const closed = triageData(coordinationRequest({ status: "rejected" }));
+    expect(
+      leadAssignmentSections(closed)
+        .find(section => section.id === "assignment")
+        ?.visible(closed)
+    ).toBe(false);
   });
 });
 
@@ -459,84 +464,104 @@ describe("changes section", () => {
   });
 });
 
-describe("assignment section", () => {
-  it("offers a handover while assigned, without a claim action", async () => {
-    renderSection(eventData("planning", owned({ status: "planning" })), "assignment");
-    expect(screen.getByRole("heading", { name: "Hand over this request" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Hand over" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Assign to me" })).toBeNull();
-  });
+function leadEventData(
+  status: EventRequestStatus,
+  request: CoordinationRequest,
+  team: Coordinator[] = coordinators
+): EventPageData {
+  return {
+    kind: "event",
+    viewerId: "lead-1",
+    event: {
+      access: "lead",
+      event: {
+        id: 7,
+        name: "Winter Skills Workshop",
+        status,
+        eventDate: null,
+        startTime: null,
+        endTime: null,
+      },
+    },
+    coordination: { request, coordinators: team },
+  } as unknown as EventPageData;
+}
 
-  it("requests a handover with the expected coordinator", async () => {
-    renderSection(eventData("planning", owned({ status: "planning" })), "assignment");
+function renderLeadSection(data: EventPageData, id: string) {
+  cleanup();
+  const section = leadAssignmentSections(data).find(candidate => candidate.id === id);
+  expect(section).toBeDefined();
+  return render(<>{section?.render(data)}</>);
+}
+
+describe("Lead assignment section (PTR-145)", () => {
+  it("assigns the chosen Coordinator on an unassigned request and refreshes", async () => {
+    renderLeadSection(triageData(coordinationRequest()), "assignment");
+
+    expect(screen.getByText("Not yet assigned")).toBeTruthy();
     await userEvent.click(screen.getByLabelText("Event Coordinator"));
     await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
-    await userEvent.click(screen.getByRole("button", { name: "Hand over" }));
+    await userEvent.click(screen.getByRole("button", { name: "Assign Coordinator" }));
+
     await waitFor(() =>
-      expect(requestEventHandover).toHaveBeenCalledWith({
-        data: { id: 7, coordinatorId: "coord-b", expectedCoordinatorId: viewer.id },
+      expect(assignEventRequest).toHaveBeenCalledWith({
+        data: { id: 7, coordinatorId: "coord-b", expectedCoordinatorId: null },
       })
     );
-    expect(success).toHaveBeenCalledWith("Handover requested.");
+    expect(success).toHaveBeenCalledWith("Coordinator assigned.");
     expect(invalidate).toHaveBeenCalled();
   });
 
-  it("replaces a waiting handover with the expected coordinator", async () => {
-    renderSection(
-      eventData(
-        "planning",
-        owned({
-          status: "planning",
-          pendingHandover: { requestedAt: new Date("2026-09-20T02:00:00Z"), toName: "Bailey" },
-        })
-      ),
-      "assignment"
-    );
-    await userEvent.click(screen.getByLabelText("Event Coordinator"));
-    await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
-    await userEvent.click(screen.getByRole("button", { name: "Offer to someone else" }));
-    await waitFor(() =>
-      expect(requestEventHandover).toHaveBeenCalledWith({
-        data: { id: 7, coordinatorId: "coord-b", expectedCoordinatorId: viewer.id },
-      })
-    );
-    expect(success).toHaveBeenCalledWith("Handover requested.");
-    expect(invalidate).toHaveBeenCalled();
-  });
+  it("reassigns with the expected current Coordinator and reassigns the label", async () => {
+    renderLeadSection(leadEventData("planning", owned({ status: "planning" })), "assignment");
 
-  it("shows the waiting handover and offers a replacement", async () => {
-    renderSection(
-      eventData(
-        "planning",
-        owned({
-          status: "planning",
-          pendingHandover: { requestedAt: new Date("2026-09-20T02:00:00Z"), toName: "Bailey" },
-        })
-      ),
-      "assignment"
-    );
-    expect(screen.getByText(/Offered to Bailey/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Offer to someone else" })).toBeTruthy();
-  });
-
-  it("summarises ownership beside the handover form", () => {
-    renderSection(eventData("planning", owned({ status: "planning" })), "assignment");
-
-    expect(screen.getByText("Ravi Kumar")).toBeTruthy();
-    expect(screen.getByText("Myself")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reassign Coordinator" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "me@example.com" })).toBeTruthy();
-    expect(screen.getByText(/Assigned on/)).toBeTruthy();
-    expect(screen.queryByText("Not yet assigned")).toBeNull();
+    await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reassign Coordinator" }));
+
+    await waitFor(() =>
+      expect(assignEventRequest).toHaveBeenCalledWith({
+        data: { id: 7, coordinatorId: "coord-b", expectedCoordinatorId: viewer.id },
+      })
+    );
+    expect(success).toHaveBeenCalledWith("Coordinator reassigned.");
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("lists every Coordinator, including the current one, unfiltered and unranked (AC6)", async () => {
+    renderLeadSection(leadEventData("planning", owned({ status: "planning" })), "assignment");
+
+    await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    expect(await screen.findByRole("option", { name: "Myself (me@example.com)" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Bailey (b@example.com)" })).toBeTruthy();
+  });
+
+  it("surfaces the server refusal and does not claim a move", async () => {
+    assignEventRequest.mockRejectedValue(
+      new Error("This assignment has changed. Refresh the request and try again.")
+    );
+    renderLeadSection(triageData(coordinationRequest()), "assignment");
+
+    await userEvent.click(screen.getByLabelText("Event Coordinator"));
+    await userEvent.click(await screen.findByRole("option", { name: "Bailey (b@example.com)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Assign Coordinator" }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "This assignment has changed. Refresh the request and try again."
+    );
+    expect(success).not.toHaveBeenCalled();
   });
 
   it("marks an assigned-but-orphaned coordinator as unavailable", () => {
-    renderSection(
-      eventData("planning", owned({ status: "planning", coordinator: null })),
+    renderLeadSection(
+      leadEventData("planning", owned({ status: "planning", coordinator: null })),
       "assignment"
     );
 
     expect(screen.getByText("Assigned coordinator unavailable")).toBeTruthy();
-    expect(screen.getByText(/Assigned on/)).toBeTruthy();
     expect(screen.queryByText("Not yet assigned")).toBeNull();
   });
 });

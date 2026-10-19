@@ -7,7 +7,7 @@ const AssignmentInput = z.object({
   // where Postgres raises 22003 instead of the intended refusal.
   id: z.int32({ error: EVENT_REQUEST_ID_MESSAGE }).positive(EVENT_REQUEST_ID_MESSAGE),
   coordinatorId: z.string().trim().min(1, "Choose an Event Coordinator"),
-  // The handover names the Coordinator the sender saw; the server refuses anything stale.
+  // The Lead names the Coordinator they saw; the server refuses a stale observation.
   expectedCoordinatorId: z.string().min(1).nullable(),
 });
 
@@ -21,25 +21,6 @@ export const CoordinatorSelection = AssignmentInput.pick({ coordinatorId: true }
 
 export function parseAssignmentInput(input: unknown): AssignmentValues {
   const parsed = AssignmentInput.safeParse(input);
-  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
-  return parsed.data;
-}
-
-/**
- * PTR-110: the incoming Coordinator answers one handover by its own id, never by event id — two
- * Coordinators can hold offers for two different events, and the answer must name its row.
- */
-const EVENT_HANDOVER_ID_MESSAGE = "Choose a handover";
-
-const EventHandoverIdInput = z.object(
-  {
-    id: z.int32({ error: EVENT_HANDOVER_ID_MESSAGE }).positive(EVENT_HANDOVER_ID_MESSAGE),
-  },
-  { error: EVENT_HANDOVER_ID_MESSAGE }
-);
-
-export function parseEventHandoverId(input: unknown): { id: number } {
-  const parsed = EventHandoverIdInput.safeParse(input);
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;
 }

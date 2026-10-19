@@ -1,11 +1,10 @@
-import { and, asc, desc, eq, getTableColumns, inArray, isNull, ne, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray, ne } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import {
   clarificationRequests,
   eventAssignments,
-  eventHandovers,
   equipmentRequests,
   eventRequests,
   user,
@@ -21,17 +20,15 @@ import {
 import { loadOutstandingReleases } from "#/features/events/arrangements.server";
 import { hasBlockedArrangementSql } from "#/features/venues/blocked-arrangements.server";
 import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
+import { parseAssignmentInput, parseDecisionInput } from "#/features/coordination/schema";
 import {
-  parseAssignmentInput,
-  parseDecisionInput,
-  parseEventHandoverId,
-} from "#/features/coordination/schema";
-import {
+  canAssignEventRequest,
   EQUIPMENT_MAX_LINES,
   parseClarificationBody,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
 import { raiseNotifications } from "#/features/notifications/raise.server";
+import type { NewNotification } from "#/features/notifications/raise.server";
 
 /**
  * Server-only on purpose, and named for it. `#/db/schema` is a value import here: the table
@@ -49,14 +46,8 @@ type Database = typeof Db;
 
 const organisers = alias(user, "organiser");
 const coordinators = alias(user, "coordinator");
-const handoverTargets = alias(user, "handover_target");
-const handoverSenders = alias(user, "handover_sender");
 
-/**
- * One refusal for a handover that does not exist and one that is addressed to someone else: the
- * serial id space must not tell a Coordinator whether another Coordinator holds a live offer.
- */
-const HANDOVER_NOT_ANSWERABLE = "This handover is not available to answer.";
+/** A Lead's stale page names a holder who no longer holds the request. */
 const ASSIGNMENT_CHANGED_MESSAGE =
   "This assignment has changed. Refresh the request and try again.";
 
@@ -65,8 +56,6 @@ export async function handleListAssignedEventRequests(actor: SessionUser, databa
     .select({
       ...getTableColumns(eventRequests),
       organiser: { name: user.name, email: user.email },
-      /** PTR-110: the Coordinator a live handover waits on, so the list can say so. */
-      handoverTo: handoverTargets.name,
       /** PTR-137 AC1: a live venue block has suspended one of the event's bookings or holds. */
       venueBlocked: hasBlockedArrangementSql(eventRequests.id, eventRequests.status),
       /** PTR-52 AC1: the Organiser's change requests still waiting on this Coordinator. */
@@ -74,25 +63,16 @@ export async function handleListAssignedEventRequests(actor: SessionUser, databa
     })
     .from(eventRequests)
     .innerJoin(user, eq(user.id, eventRequests.organiserId))
-    .leftJoin(
-      eventHandovers,
-      and(
-        eq(eventHandovers.eventRequestId, eventRequests.id),
-        isNull(eventHandovers.decision),
-        // Only the current assignment's offer counts: a row left behind by an account deletion
-        // and a later assignment must not label the new Coordinator's request, and a decided
-        // request's offer can never be taken up.
-        eq(eventHandovers.fromCoordinatorId, eventRequests.assignedCoordinatorId),
-        notInArray(eventRequests.status, ["approved", "rejected"])
-      )
-    )
-    .leftJoin(handoverTargets, eq(handoverTargets.id, eventHandovers.toCoordinatorId))
     .where(
       and(ne(eventRequests.status, "draft"), eq(eventRequests.assignedCoordinatorId, actor.id))
     )
     .orderBy(desc(eventRequests.assignedAt), desc(eventRequests.id));
 }
 
+/**
+ * PTR-145 criterion 6: every Event Coordinator, unfiltered and unranked. A Lead may choose any
+ * of them; no availability or workload rule narrows the list.
+ */
 export async function handleListCoordinators(database: Database) {
   return database
     .select({ id: user.id, name: user.name, email: user.email })
@@ -102,10 +82,11 @@ export async function handleListCoordinators(database: Database) {
 }
 
 /**
- * Re-reads ownership on every request; a previous assignment never confers access. PTR-144: the
- * assigned Coordinator reads their own assignment, and a caller with `event_request:oversee`
- * reads the unassigned queue detail. A coordinator is refused an unassigned request — the id
- * space reveals nothing about the queue.
+ * Re-reads ownership on every request; a previous assignment never confers access. The assigned
+ * Coordinator reads their own assignment. PTR-144: a caller with `event_request:oversee` (the
+ * Lead) reads every non-draft request, assigned or not. PTR-145 uses that same read for the
+ * assignment form, which needs the current holder. A coordinator is refused an unassigned
+ * request — the id space reveals nothing about the queue.
  */
 export async function handleGetCoordinationRequest(
   data: unknown,
@@ -129,9 +110,7 @@ export async function handleGetCoordinationRequest(
       and(
         eq(eventRequests.id, id),
         ne(eventRequests.status, "draft"),
-        readsQueue
-          ? isNull(eventRequests.assignedCoordinatorId)
-          : eq(eventRequests.assignedCoordinatorId, actor.id)
+        readsQueue ? undefined : eq(eventRequests.assignedCoordinatorId, actor.id)
       )
     );
   const request = rows.at(0);
@@ -139,53 +118,20 @@ export async function handleGetCoordinationRequest(
   // nonexistent request answers the same 404, and the message carries no request data.
   if (!request) throw new AuthorizationError("Forbidden");
 
-  // PTR-110: the live offer, but only while it is still this assignment's offer — the outgoing
-  // Coordinator sees it and cannot raise a second one. A row the current assignment has moved
-  // past (account deletion and a later assignment), one on a decided request, or one whose incoming
-  // account no longer exists (the inner join) is not shown as if it still waited.
-  const assignedCoordinatorId = request.assignedCoordinatorId;
-
-  const [
-    clarifications,
-    changeRequests,
-    cancellationRequests,
-    outstandingReleases,
-    venueRequests,
-    handoverRows,
-  ] = await Promise.all([
-    database
-      .select()
-      .from(clarificationRequests)
-      .where(eq(clarificationRequests.eventRequestId, id))
-      .orderBy(asc(clarificationRequests.createdAt)),
-    listEventChangeRequests(id, database),
-    listEventCancellationRequests(id, database),
-    // PTR-54 AC2: what a cancelled event still holds, read live so a release takes it off.
-    request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
-    // The triage venue section reads the event's live venue requests from here.
-    loadVenueRequestsForEvent(database, id),
-    // PTR-110: the live offer only while it is still this assignment's offer. A row the
-    // assignment moved past, one on a decided request, or one whose incoming account is gone
-    // (the inner join) is not shown as if it still waited.
-    assignedCoordinatorId !== null && request.status !== "approved" && request.status !== "rejected"
-      ? database
-          .select({
-            requestedAt: eventHandovers.requestedAt,
-            toName: handoverTargets.name,
-          })
-          .from(eventHandovers)
-          .innerJoin(handoverTargets, eq(handoverTargets.id, eventHandovers.toCoordinatorId))
-          .where(
-            and(
-              eq(eventHandovers.eventRequestId, id),
-              isNull(eventHandovers.decision),
-              eq(eventHandovers.fromCoordinatorId, assignedCoordinatorId)
-            )
-          )
-      : Promise.resolve([]),
-  ]);
-
-  const pendingHandover = handoverRows.at(0) ?? null;
+  const [clarifications, changeRequests, cancellationRequests, outstandingReleases, venueRequests] =
+    await Promise.all([
+      database
+        .select()
+        .from(clarificationRequests)
+        .where(eq(clarificationRequests.eventRequestId, id))
+        .orderBy(asc(clarificationRequests.createdAt)),
+      listEventChangeRequests(id, database),
+      listEventCancellationRequests(id, database),
+      // PTR-54 AC2: what a cancelled event still holds, read live so a release takes it off.
+      request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
+      // The triage venue section reads the event's live venue requests from here.
+      loadVenueRequestsForEvent(database, id),
+    ]);
 
   return {
     ...request,
@@ -193,321 +139,118 @@ export async function handleGetCoordinationRequest(
     changeRequests,
     cancellationRequests,
     outstandingReleases,
-    pendingHandover,
     venueRequests,
   };
 }
 
 /**
- * PTR-110 criterion 1: the assigned Coordinator offers the request to a named Event Coordinator.
- * The offer is a pending row; the outgoing Coordinator stays assigned and keeps access (criterion
- * 2) until the incoming one answers. Raising again replaces the live offer, so a change of mind
- * neither leaves two offers waiting nor blocks the event forever. The row lock serialises raises,
- * and the partial unique index is the backstop.
+ * PTR-145: the Lead assigns an unassigned request, or reassigns an assigned one. The move takes
+ * effect at once; the incoming Coordinator never accepts or declines. The request row is locked
+ * before it is read, so two Leads cannot act on the same observation: the later call sees the
+ * first move and refuses a stale expected Coordinator without changing anything (criterion 8).
  *
- * The incoming Coordinator's notification is raised with the offer; the worker delivers the email.
+ * A request from submission through confirmation is assignable. A draft, a rejected request, a
+ * completed event and a cancelled event are closed (criterion 3). The audit row records the
+ * acting Lead and the time (criterion 7). The notifications commit with the move: the incoming
+ * Coordinator and the Organiser hear of every move, and the outgoing Coordinator hears of a
+ * reassignment (criteria 1 and 2).
  */
-export async function handleRequestEventHandover(
+export async function handleAssignEventRequest(
   data: unknown,
   actor: SessionUser,
   database: Database
 ) {
   const input = parseAssignmentInput(data);
 
-  const raised = await database.transaction(async tx => {
+  return database.transaction(async tx => {
     const request = (
       await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
     ).at(0);
-    if (!request || request.status === "draft" || request.assignedCoordinatorId !== actor.id) {
-      throw new AuthorizationError("Only the assigned Coordinator can hand this request over.");
-    }
+    if (!request) throw new NotFoundError("Not Found");
+
+    // Refuse a stale page before any write: the Lead saw a different holder.
     if (request.assignedCoordinatorId !== input.expectedCoordinatorId) {
       throw new ConflictError(ASSIGNMENT_CHANGED_MESSAGE);
     }
-    if (request.status === "approved" || request.status === "rejected") {
-      throw new ConflictError("A decided request can no longer be handed over.");
+    if (!canAssignEventRequest(request.status)) {
+      throw new ConflictError("This request can no longer be assigned.");
     }
     if (request.assignedCoordinatorId === input.coordinatorId) {
       throw new ConflictError("This Coordinator is already assigned to the request.");
     }
 
-    // Hold the selected account while its role is validated and the offer is committed.
+    // Hold the incoming account while its role is validated and the assignment is committed.
     const incoming = (
       await tx
-        .select({ id: user.id })
+        .select({ id: user.id, name: user.name, email: user.email })
         .from(user)
         .where(and(eq(user.id, input.coordinatorId), eq(user.role, "event_coordinator")))
         .for("share")
     ).at(0);
     if (!incoming) throw new ConflictError("Choose an existing Event Coordinator.");
 
-    await tx
-      .delete(eventHandovers)
-      .where(and(eq(eventHandovers.eventRequestId, request.id), isNull(eventHandovers.decision)));
-    const [handover] = await tx
-      .insert(eventHandovers)
-      .values({
-        eventRequestId: request.id,
-        fromCoordinatorId: actor.id,
-        toCoordinatorId: incoming.id,
-      })
-      .returning();
+    // A deleted Coordinator leaves the request unassigned, so this read is absent on an assign.
+    const outgoing = request.assignedCoordinatorId
+      ? (
+          await tx
+            .select({ id: user.id, name: user.name })
+            .from(user)
+            .where(eq(user.id, request.assignedCoordinatorId))
+        ).at(0)
+      : undefined;
 
-    // The offer and its notification commit together; the worker sends the email.
-    await raiseNotifications(tx, [
-      {
-        recipientId: incoming.id,
-        eventRequestId: request.id,
-        kind: "handover_requested",
-        payload: {
-          eventName: request.eventName.trim() || "Untitled request",
-          fromName: actor.name ?? actor.email,
-        },
-      },
-    ]);
-
-    return handover;
-  });
-
-  return raised;
-}
-
-/**
- * PTR-110 criterion 3: the incoming Coordinator accepts, and the assignment moves to them with
- * exactly one assigned Coordinator. The handover row lock settles accept-versus-decline exactly
- * once; the request row lock makes the move and its audit entry atomic with the decision.
- *
- * Locks are taken in the same order as a raise (request, then handover): the unlocked read learns
- * which request to lock first and refuses anyone but the addressee before a lock is taken, so a
- * concurrent raise cannot deadlock against an accept and a wrong actor cannot lock another
- * assignment. An offer whose request moved on (the account was deleted and the request assigned
- * again) is resolved as declined — that still records who answered and when — and refused
- * with 409.
- *
- * The Organiser's notification is raised with the new assignment; the worker delivers it.
- */
-export async function handleAcceptEventHandover(
-  data: unknown,
-  actor: SessionUser,
-  database: Database
-) {
-  const { id } = parseEventHandoverId(data);
-
-  const outcome = await database.transaction(async tx => {
-    const offer = (
-      await tx
-        .select({
-          eventRequestId: eventHandovers.eventRequestId,
-          toCoordinatorId: eventHandovers.toCoordinatorId,
-        })
-        .from(eventHandovers)
-        .where(eq(eventHandovers.id, id))
-    ).at(0);
-    // Refuse a wrong actor before taking any lock: an addressee check only under the locks would
-    // let any Coordinator briefly lock another assignment by presenting a guessed live id.
-    if (!offer || offer.toCoordinatorId !== actor.id) {
-      throw new AuthorizationError(HANDOVER_NOT_ANSWERABLE);
-    }
-
-    const request = (
-      await tx
-        .select()
-        .from(eventRequests)
-        .where(eq(eventRequests.id, offer.eventRequestId))
-        .for("update")
-    ).at(0);
-    if (!request) throw new NotFoundError("Not Found");
-
-    // Hold the accepting account while the assignment references it: a deletion racing this
-    // accept would otherwise surface a raw FK violation instead of a refusal. User before
-    // handover keeps the request → user → handover order the raise path uses.
-    const accepting = (
-      await tx.select({ id: user.id }).from(user).where(eq(user.id, actor.id)).for("share")
-    ).at(0);
-    if (!accepting) throw new ConflictError("Your account is no longer available.");
-
-    const handover = (
-      await tx.select().from(eventHandovers).where(eq(eventHandovers.id, id)).for("update")
-    ).at(0);
-    if (!handover || handover.toCoordinatorId !== actor.id) {
-      throw new AuthorizationError(HANDOVER_NOT_ANSWERABLE);
-    }
-    if (handover.decision !== null) {
-      throw new ConflictError("This handover has already been answered.");
-    }
-
+    const action = request.assignedCoordinatorId === null ? "assign" : "reassign";
     const now = new Date();
-    if (
-      request.assignedCoordinatorId !== handover.fromCoordinatorId ||
-      request.status === "draft" ||
-      request.status === "approved" ||
-      request.status === "rejected"
-    ) {
-      const [voided] = await tx
-        .update(eventHandovers)
-        .set({ decision: "declined", decidedById: actor.id, decidedAt: now })
-        .where(eq(eventHandovers.id, handover.id))
-        .returning();
-      return { kind: "void" as const, handover: voided };
-    }
-
     const [updated] = await tx
       .update(eventRequests)
-      .set({ assignedCoordinatorId: actor.id, assignedAt: now })
+      .set({ assignedCoordinatorId: incoming.id, assignedAt: now })
       .where(eq(eventRequests.id, request.id))
       .returning();
+
     await tx.insert(eventAssignments).values({
       eventRequestId: request.id,
-      fromCoordinatorId: handover.fromCoordinatorId,
-      toCoordinatorId: actor.id,
+      fromCoordinatorId: request.assignedCoordinatorId,
+      toCoordinatorId: incoming.id,
       actorId: actor.id,
       createdAt: now,
     });
-    const [answered] = await tx
-      .update(eventHandovers)
-      .set({ decision: "accepted", decidedById: actor.id, decidedAt: now })
-      .where(eq(eventHandovers.id, handover.id))
-      .returning();
 
-    // The new assignment and the Organiser's notification commit together; the worker sends it.
-    await raiseNotifications(tx, [
+    const eventName = updated.eventName.trim() || "Untitled request";
+    const coordinatorName = incoming.name;
+    const previousCoordinatorName = outgoing?.name ?? undefined;
+    const shared = {
+      eventName,
+      action,
+      coordinatorName,
+      ...(previousCoordinatorName ? { previousCoordinatorName } : {}),
+    } as const;
+
+    const rows: NewNotification[] = [
+      {
+        recipientId: incoming.id,
+        eventRequestId: request.id,
+        kind: "coordinator_assigned",
+        payload: { ...shared, audience: "coordinator" },
+      },
       {
         recipientId: request.organiserId,
         eventRequestId: request.id,
-        kind: "handover_accepted",
-        payload: {
-          eventName: updated.eventName.trim() || "Untitled request",
-          coordinatorName: actor.name ?? actor.email,
-        },
+        kind: "coordinator_assigned",
+        payload: { ...shared, audience: "organiser" },
       },
-    ]);
+    ];
+    if (request.assignedCoordinatorId !== null) {
+      rows.push({
+        recipientId: request.assignedCoordinatorId,
+        eventRequestId: request.id,
+        kind: "coordinator_assigned",
+        payload: { ...shared, audience: "outgoing_coordinator" },
+      });
+    }
+    await raiseNotifications(tx, rows);
 
-    return { kind: "accepted" as const, handover: answered };
+    return updated;
   });
-
-  if (outcome.kind === "void") {
-    throw new ConflictError("This handover is no longer valid because the request has moved on.");
-  }
-
-  return outcome.handover;
-}
-
-/**
- * PTR-110 criterion 4: the incoming Coordinator declines. The event stays with the outgoing
- * Coordinator, the outgoing one is notified, and the answer records the acting user and the time.
- * Declining changes no assignment and must not take the request lock after the handover lock:
- * that order would reintroduce the raise-versus-decline deadlock the accept path avoids.
- */
-export async function handleDeclineEventHandover(
-  data: unknown,
-  actor: SessionUser,
-  database: Database
-) {
-  const { id } = parseEventHandoverId(data);
-
-  const answered = await database.transaction(async tx => {
-    // Refuse a wrong actor before taking the row lock, matching accept: a guessed live id must
-    // not let any Coordinator lock another Coordinator's offer.
-    const offer = (
-      await tx
-        .select({
-          toCoordinatorId: eventHandovers.toCoordinatorId,
-          eventRequestId: eventHandovers.eventRequestId,
-        })
-        .from(eventHandovers)
-        .where(eq(eventHandovers.id, id))
-    ).at(0);
-    if (!offer || offer.toCoordinatorId !== actor.id) {
-      throw new AuthorizationError(HANDOVER_NOT_ANSWERABLE);
-    }
-
-    // The request is key-shared before the handover lock. The notification insert below takes
-    // that lock anyway through its FK, and taking it while holding the handover would deadlock
-    // against a raise that locks the request first and then waits on the handover row. This is
-    // the same request-then-handover order accept and raise already use.
-    await tx
-      .select({ id: eventRequests.id })
-      .from(eventRequests)
-      .where(eq(eventRequests.id, offer.eventRequestId))
-      .for("key share");
-
-    const handover = (
-      await tx.select().from(eventHandovers).where(eq(eventHandovers.id, id)).for("update")
-    ).at(0);
-    if (!handover || handover.toCoordinatorId !== actor.id) {
-      throw new AuthorizationError(HANDOVER_NOT_ANSWERABLE);
-    }
-    if (handover.decision !== null) {
-      throw new ConflictError("This handover has already been answered.");
-    }
-
-    const [declined] = await tx
-      .update(eventHandovers)
-      .set({ decision: "declined", decidedById: actor.id, decidedAt: new Date() })
-      .where(eq(eventHandovers.id, handover.id))
-      .returning();
-
-    const [request] = await tx
-      .select({
-        eventName: eventRequests.eventName,
-        assignedCoordinatorId: eventRequests.assignedCoordinatorId,
-        outgoingId: user.id,
-      })
-      .from(eventRequests)
-      .leftJoin(user, eq(user.id, handover.fromCoordinatorId))
-      .where(eq(eventRequests.id, handover.eventRequestId))
-      .limit(1);
-
-    // Only tell the outgoing Coordinator they keep the request when they actually do: an offer
-    // the request has already moved past is resolved silently. The answer and its notification
-    // commit together.
-    if (request.assignedCoordinatorId === handover.fromCoordinatorId && request.outgoingId) {
-      await raiseNotifications(tx, [
-        {
-          recipientId: request.outgoingId,
-          eventRequestId: handover.eventRequestId,
-          kind: "handover_declined",
-          payload: {
-            eventName: request.eventName.trim() || "Untitled request",
-            coordinatorName: actor.name ?? actor.email,
-          },
-        },
-      ]);
-    }
-
-    return declined;
-  });
-
-  return answered;
-}
-
-/**
- * PTR-110: the live handover offers addressed to the signed-in Coordinator, oldest first, with
- * what they need to answer: the event, its Organiser, and who is offering it. Only answerable
- * offers list: one the request has moved past, or one on a decided request, is not shown.
- */
-export async function handleListPendingEventHandovers(actor: SessionUser, database: Database) {
-  return database
-    .select({
-      id: eventHandovers.id,
-      requestedAt: eventHandovers.requestedAt,
-      eventName: eventRequests.eventName,
-      organiser: { name: organisers.name },
-      from: { name: handoverSenders.name },
-    })
-    .from(eventHandovers)
-    .innerJoin(eventRequests, eq(eventRequests.id, eventHandovers.eventRequestId))
-    .innerJoin(organisers, eq(organisers.id, eventRequests.organiserId))
-    .leftJoin(handoverSenders, eq(handoverSenders.id, eventHandovers.fromCoordinatorId))
-    .where(
-      and(
-        isNull(eventHandovers.decision),
-        eq(eventHandovers.toCoordinatorId, actor.id),
-        eq(eventRequests.assignedCoordinatorId, eventHandovers.fromCoordinatorId),
-        notInArray(eventRequests.status, ["approved", "rejected"])
-      )
-    )
-    .orderBy(asc(eventHandovers.requestedAt), asc(eventHandovers.id));
 }
 
 /**

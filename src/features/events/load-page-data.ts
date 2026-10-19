@@ -62,9 +62,11 @@ export async function loadEventPageData(
       return { kind: "event", event: projection, viewerId, organiserRequest, attendees };
     }
     case "coordinator": {
+      // PTR-145: the Coordinator no longer moves an assignment, so their page carries no
+      // candidate list.
       const [coordination, attendees] = await Promise.all([
-        Promise.all([getCoordinationRequest({ data: { id: eventId } }), listCoordinators()]).then(
-          ([request, coordinators]) => ({ request, coordinators }),
+        getCoordinationRequest({ data: { id: eventId } }).then(
+          request => ({ request, coordinators: [] }),
           () => null
         ),
         loadAttendees(projection, eventId),
@@ -72,14 +74,26 @@ export async function loadEventPageData(
       return { kind: "event", event: projection, viewerId, coordination, attendees };
     }
     case "lead": {
-      // PTR-144: a queue row — any unassigned non-draft request — opens the read-only queue
-      // detail, which carries the organiser, the purpose, the request record, and the waiting
-      // change or cancellation requests. Assigned events open the projection page. Neither
-      // offers a coordination action.
+      // PTR-144: a queue row — any unassigned non-draft request — opens the queue detail, which
+      // carries the organiser, the purpose, the request record, and the waiting change or
+      // cancellation requests. PTR-145 adds the assignment form there. An assigned event opens
+      // the projection with the same read, so the Lead can reassign it.
       if (projection.event.awaitingAssignment === true) {
         return loadTriage(eventId, role, viewerId);
       }
-      return { kind: "event", event: projection, viewerId };
+      const coordination = await Promise.all([
+        getOversightRequest({ data: { id: eventId } }),
+        listCoordinators(),
+      ])
+        .then(([request, coordinators]) => ({ request, coordinators }))
+        .catch(error => {
+          log.warn("Lead coordination read failed", {
+            eventId,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        });
+      return { kind: "event", event: projection, viewerId, coordination };
     }
     case "venue_staff": {
       // Load the full request of every pending entry in one read. A failed read logs and leaves
@@ -142,7 +156,10 @@ async function loadAttendees(
   return listEventRegistrations({ data: { id: eventId } }).catch(() => null);
 }
 
-/** PTR-144: the Lead's read-only detail for an unassigned request, the queue's opened row. */
+/**
+ * PTR-144: the Lead's detail for an unassigned request, the queue's opened row. PTR-145 adds the
+ * Coordinator candidates, so the Lead assigns from here.
+ */
 async function loadTriage(
   eventId: number,
   role: string | null | undefined,
@@ -150,8 +167,11 @@ async function loadTriage(
 ): Promise<EventPageData | null> {
   if (!can(role, { event_request: ["oversee"] })) return null;
   try {
-    const request = await getOversightRequest({ data: { id: eventId } });
-    return { kind: "triage", viewerId, request };
+    const [request, coordinators] = await Promise.all([
+      getOversightRequest({ data: { id: eventId } }),
+      listCoordinators(),
+    ]);
+    return { kind: "triage", viewerId, request, coordinators };
   } catch (error) {
     // A refusal means the request settled or vanished under the fallback. Rethrow any other fault
     // for the route to see.
