@@ -6,8 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "#/features/auth/session";
 import {
   ConvertVenueHoldButton,
-  PlaceVenueHoldDialog,
   ReleaseVenueHoldButton,
+  RequestVenueHoldDialog,
+  WithdrawVenueHoldRequestButton,
 } from "#/features/venue-requests/components/venue-hold-actions";
 import { VenueCalendarPage } from "#/features/venues/components/venue-calendar-page";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
@@ -16,7 +17,8 @@ import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
 const {
   mockInvalidate,
   mockNavigate,
-  mockCreateHold,
+  mockRequestHold,
+  mockWithdrawHold,
   mockReleaseHold,
   mockConvertHold,
   mockSetExpiry,
@@ -26,9 +28,13 @@ const {
   mockSetWarning: vi.fn<(input: unknown) => Promise<unknown>>().mockResolvedValue({}),
   mockInvalidate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
   mockNavigate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-  mockCreateHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
+  mockRequestHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
     id: "hold-new",
-    status: "held",
+    status: "requested",
+  }),
+  mockWithdrawHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
+    id: "hold-request-1",
+    status: "released",
   }),
   mockReleaseHold: vi.fn<() => Promise<{ id: string; status: string }>>().mockResolvedValue({
     id: "hold-1",
@@ -59,7 +65,8 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("#/features/venue-requests/server-fns", () => ({
-  createVenueHold: mockCreateHold,
+  requestVenueHold: mockRequestHold,
+  withdrawVenueHoldRequest: mockWithdrawHold,
   releaseVenueHold: mockReleaseHold,
   convertVenueHold: mockConvertHold,
   setVenueHoldExpiry: mockSetExpiry,
@@ -128,6 +135,7 @@ const scheduleWithHold: VenueAvailability = {
       convertDefaults: eventRequirements,
     },
   ],
+  requestedHolds: [],
 };
 
 /** The same hold as seen by a viewer who cannot manage it. */
@@ -165,11 +173,41 @@ const renderAs = (user: SessionUser, schedule: VenueAvailability) =>
 describe("venue hold action components and calendar write-path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateHold.mockResolvedValue({ id: "hold-new", status: "held" });
+    mockRequestHold.mockResolvedValue({ id: "hold-new", status: "requested" });
+    mockWithdrawHold.mockResolvedValue({ id: "hold-request-1", status: "released" });
     mockReleaseHold.mockResolvedValue({ id: "hold-1", status: "released" });
     mockConvertHold.mockResolvedValue({
       hold: { id: "hold-1", status: "released" },
       request: { id: "req-1", status: "pending" },
+    });
+  });
+
+  describe("WithdrawVenueHoldRequestButton", () => {
+    it("withdraws the request after a confirmation and reloads", async () => {
+      const user = userEvent.setup();
+      render(<WithdrawVenueHoldRequestButton holdId="hold-request-1" />);
+
+      await user.click(screen.getByRole("button", { name: "Withdraw hold request" }));
+      await user.click(await screen.findByRole("button", { name: "Confirm withdrawal" }));
+
+      await waitFor(() => {
+        expect(mockWithdrawHold).toHaveBeenCalledWith({ data: { id: "hold-request-1" } });
+        expect(mockInvalidate).toHaveBeenCalled();
+      });
+    });
+
+    it("shows a refusal when the request was already placed", async () => {
+      mockWithdrawHold.mockRejectedValueOnce(new Error("This hold request was already handled"));
+      const user = userEvent.setup();
+      render(<WithdrawVenueHoldRequestButton holdId="hold-request-1" />);
+
+      await user.click(screen.getByRole("button", { name: "Withdraw hold request" }));
+      await user.click(await screen.findByRole("button", { name: "Confirm withdrawal" }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert").textContent).toContain("already handled");
+        expect(mockInvalidate).toHaveBeenCalled();
+      });
     });
   });
 
@@ -291,11 +329,11 @@ describe("venue hold action components and calendar write-path", () => {
     });
   });
 
-  describe("PlaceVenueHoldDialog", () => {
-    it("submits valid hold and closes dialog", async () => {
+  describe("RequestVenueHoldDialog", () => {
+    it("requests a hold and closes the dialog", async () => {
       const user = userEvent.setup();
       render(
-        <PlaceVenueHoldDialog
+        <RequestVenueHoldDialog
           venueId={7}
           venueName="Great Hall"
           defaultDate="2026-10-05"
@@ -305,13 +343,14 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      await user.click(screen.getByRole("button", { name: "Place tentative hold" }));
-      expect(await screen.findByRole("heading", { name: "Place tentative hold" })).toBeTruthy();
+      await user.click(screen.getByRole("button", { name: "Request hold" }));
+      expect(await screen.findByRole("heading", { name: "Request a hold" })).toBeTruthy();
+      expect(screen.getByText(/protects nothing until Venue Staff place it/)).toBeTruthy();
 
-      await user.click(screen.getByRole("button", { name: "Place hold" }));
+      await user.click(screen.getByRole("button", { name: "Send request" }));
 
       await waitFor(() => {
-        expect(mockCreateHold).toHaveBeenCalledWith({
+        expect(mockRequestHold).toHaveBeenCalledWith({
           data: {
             venueId: 7,
             eventId: 101,
@@ -324,13 +363,13 @@ describe("venue hold action components and calendar write-path", () => {
       });
     });
 
-    it("shows server conflict error in dialog when hold placement conflicts", async () => {
-      mockCreateHold.mockRejectedValueOnce(
+    it("shows a server conflict in the dialog", async () => {
+      mockRequestHold.mockRejectedValueOnce(
         new Error("Great Hall is already booked 2026-10-05 09:00 – 12:00")
       );
       const user = userEvent.setup();
       render(
-        <PlaceVenueHoldDialog
+        <RequestVenueHoldDialog
           venueId={7}
           venueName="Great Hall"
           defaultDate="2026-10-05"
@@ -338,8 +377,8 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      await user.click(screen.getByRole("button", { name: "Place tentative hold" }));
-      await user.click(screen.getByRole("button", { name: "Place hold" }));
+      await user.click(screen.getByRole("button", { name: "Request hold" }));
+      await user.click(screen.getByRole("button", { name: "Send request" }));
 
       await waitFor(() => {
         expect(screen.getByRole("alert").textContent).toContain("already booked");
@@ -349,7 +388,7 @@ describe("venue hold action components and calendar write-path", () => {
     it("shows the no-events message and disables submit when coordinatorEvents is empty", async () => {
       const user = userEvent.setup();
       render(
-        <PlaceVenueHoldDialog
+        <RequestVenueHoldDialog
           venueId={7}
           venueName="Great Hall"
           defaultDate="2026-10-05"
@@ -357,16 +396,18 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      await user.click(screen.getByRole("button", { name: "Place tentative hold" }));
+      await user.click(screen.getByRole("button", { name: "Request hold" }));
 
-      expect(screen.getByText("You have no events that can take a venue hold.")).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Place hold" })).toHaveProperty("disabled", true);
+      expect(
+        screen.getByText("You have no events that can take a venue hold request.")
+      ).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send request" })).toHaveProperty("disabled", true);
     });
 
-    it("displays validation error when start time is after end time", async () => {
+    it("displays a validation error when the start time is after the end time", async () => {
       const user = userEvent.setup();
       render(
-        <PlaceVenueHoldDialog
+        <RequestVenueHoldDialog
           venueId={7}
           venueName="Great Hall"
           defaultDate="2026-10-05"
@@ -376,12 +417,12 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      await user.click(screen.getByRole("button", { name: "Place tentative hold" }));
-      await user.click(screen.getByRole("button", { name: "Place hold" }));
+      await user.click(screen.getByRole("button", { name: "Request hold" }));
+      await user.click(screen.getByRole("button", { name: "Send request" }));
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toBeTruthy();
-        expect(mockCreateHold).not.toHaveBeenCalled();
+        expect(mockRequestHold).not.toHaveBeenCalled();
       });
     });
   });
@@ -398,17 +439,57 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      // Header should have Place tentative hold dialog button
-      expect(screen.getByRole("button", { name: "Place tentative hold" })).toBeTruthy();
+      // Header should have Request hold dialog button
+      expect(screen.getByRole("button", { name: "Request hold" })).toBeTruthy();
 
-      // Available period should have Hold slot button
-      expect(screen.getByRole("button", { name: "Hold slot" })).toBeTruthy();
+      // Available period should have Request this slot button
+      expect(screen.getByRole("button", { name: "Request this slot" })).toBeTruthy();
 
       // Tentative hold period should have Release and Convert buttons
       expect(screen.getByRole("button", { name: "Release tentative hold" })).toBeTruthy();
       expect(
         screen.getByRole("button", { name: "Convert tentative hold to booking request" })
       ).toBeTruthy();
+    });
+
+    it("shows a requested hold as protecting nothing, and offers its withdrawal", () => {
+      const schedule: VenueAvailability = {
+        ...scheduleWithHold,
+        occupied: [],
+        available: [{ startsAt: "2026-10-05T08:00:00", endsAt: "2026-10-05T22:00:00" }],
+        requestedHolds: [
+          {
+            id: "hold-request-1",
+            startsAt: "2026-10-05T09:00:00",
+            endsAt: "2026-10-05T12:00:00",
+            canWithdraw: true,
+          },
+        ],
+      };
+      renderAs(coordinatorUser, schedule);
+
+      expect(screen.getByText("Hold requested")).toBeTruthy();
+      expect(screen.getByText(/protects nothing until Venue Staff place it/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Withdraw hold request" })).toBeTruthy();
+      const row = screen.getByText("Hold requested").closest("li");
+      expect(within(row as HTMLElement).queryByText("Tentative hold")).toBeNull();
+    });
+
+    it("hides the withdrawal for a request the viewer cannot manage", () => {
+      renderAs(coordinatorUser, {
+        ...scheduleWithHold,
+        requestedHolds: [
+          {
+            id: "hold-request-1",
+            startsAt: "2026-10-05T09:00:00",
+            endsAt: "2026-10-05T12:00:00",
+            canWithdraw: false,
+          },
+        ],
+      });
+
+      expect(screen.getByText("Hold requested")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Withdraw hold request" })).toBeNull();
     });
 
     it("does not render hold write controls for non-coordinator user", () => {
@@ -421,8 +502,8 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      expect(screen.queryByRole("button", { name: "Place tentative hold" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Hold slot" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Request hold" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Request this slot" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Release tentative hold" })).toBeNull();
       expect(
         screen.queryByRole("button", { name: "Convert tentative hold to booking request" })
@@ -440,9 +521,9 @@ describe("venue hold action components and calendar write-path", () => {
         />
       );
 
-      // The role permits new holds, so keep "Hold slot". The viewer does not own this hold, so
+      // The role permits new holds, so keep "Request this slot". The viewer does not own this hold, so
       // remove "Release" and "Convert".
-      expect(screen.getByRole("button", { name: "Hold slot" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Request this slot" })).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Release tentative hold" })).toBeNull();
       expect(
         screen.queryByRole("button", { name: "Convert tentative hold to booking request" })

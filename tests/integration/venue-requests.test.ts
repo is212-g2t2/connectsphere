@@ -22,10 +22,8 @@ import {
   VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
 } from "#/features/venue-requests/schema";
-import {
-  handleConvertVenueHold,
-  handleCreateVenueHold,
-} from "#/features/venue-requests/holds.server";
+import { handleConvertVenueHold } from "#/features/venue-requests/holds.server";
+import { requestAndPlaceHold } from "./hold-request";
 import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
 import {
   handleApproveVenueRequest,
@@ -973,7 +971,7 @@ describe("venue request handlers (PTR-31)", () => {
     });
 
     it("refuses a window that overlaps the event's own hold and points to conversion", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...WINDOW, startTime: "09:00", endTime: "10:00", eventId, venueId },
         session(users.coordinator),
         database as never

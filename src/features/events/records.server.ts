@@ -51,6 +51,7 @@ import {
   loadPendingConflictKinds,
   selectVenueRequestEntries,
 } from "#/features/venue-requests/records.server";
+import { loadVenueHoldRequests } from "#/features/venues/records.server";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
 
 /**
@@ -456,13 +457,20 @@ export async function handleListEvents(
     role === "event_coordinator"
       ? loadBlockedArrangements(database, requestIds)
       : Promise.resolve(new Map<number, BlockedArrangement[]>());
-  const [holderRows, bookings, countRows, conflictKinds, blockedArrangements] = await Promise.all([
-    holderRead,
-    bookingRead,
-    countRead,
-    loadPendingConflictKinds(database, pendingIds),
-    blockedRead,
-  ]);
+  // PTR-151: the Coordinator's hold requests, for the event's venue section only.
+  const holdRequestRead =
+    role === "event_coordinator"
+      ? loadVenueHoldRequests(database, { eventIds: requestIds })
+      : Promise.resolve([]);
+  const [holderRows, bookings, countRows, conflictKinds, blockedArrangements, holdRequestRows] =
+    await Promise.all([
+      holderRead,
+      bookingRead,
+      countRead,
+      loadPendingConflictKinds(database, pendingIds),
+      blockedRead,
+      holdRequestRead,
+    ]);
 
   const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
 
@@ -488,6 +496,8 @@ export async function handleListEvents(
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
     countRows.map(row => [row.eventId, { registered: row.registered, vips: row.vips }])
   );
+  // PTR-151: group the Coordinator's hold requests once the batched read returns.
+  const holdRequestsByEvent = Map.groupBy(holdRequestRows, row => row.eventId);
 
   // PTR-50: Read the venue's wall clock in the spelling of the stored registration period.
   const venueNow = toLocalMinuteValue(venueLocalTimestamp(now));
@@ -607,6 +617,12 @@ export async function handleListEvents(
                 )
               : null,
           blockedArrangements: blockedArrangements.get(record.id) ?? [],
+          holdRequests: (holdRequestsByEvent.get(record.id) ?? []).map(row => ({
+            id: row.id,
+            venueName: row.venueName,
+            startsAt: row.startsAt,
+            endsAt: row.endsAt,
+          })),
           venueCapacity: venueCapacities.get(record.id) ?? null,
           // PTR-146: the Safety Officer's copy states the current booking's own session
           // requirements, which the fingerprint hashes, beside the event's fields.

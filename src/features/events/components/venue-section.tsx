@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
+import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
@@ -8,18 +9,29 @@ import {
   formatEntryPeriod,
   formatInstant,
   formatLocalDate,
+  formatVenuePeriod,
 } from "#/features/event-requests/format";
 import { AdjustRequestRow } from "#/features/events/components/adjust-request-row";
 import { BlockedArrangements } from "#/features/events/components/blocked-arrangements";
 import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
+import { WithdrawVenueHoldRequestButton } from "#/features/venue-requests/components/venue-hold-actions";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import {
   EventRequirements,
   hasEventRequirements,
 } from "#/features/events/components/event-requirements";
-import type { BlockedArrangement, EventVenueRequest } from "#/features/events/access";
+import type {
+  BlockedArrangement,
+  EventHoldRequest,
+  EventVenueRequest,
+} from "#/features/events/access";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
-import { formatSessionSummary, formatVenueSuggestion } from "#/features/venue-requests/schema";
+import {
+  VENUE_HOLD_REQUEST_LABEL,
+  VENUE_HOLD_REQUEST_NOTE,
+  formatSessionSummary,
+  formatVenueSuggestion,
+} from "#/features/venue-requests/schema";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 
 interface VenueSource {
@@ -47,6 +59,8 @@ interface VenueSource {
   searchable: boolean;
   /** PTR-137: the Coordinator's suspended bookings and holds; empty for every other reader. */
   blocked: BlockedArrangement[];
+  /** PTR-151: the Coordinator's hold requests; empty for every other reader. */
+  holdRequests: EventHoldRequest[];
 }
 
 /** The Coordinator searches for venues from this block while the event takes venue requests. */
@@ -71,6 +85,7 @@ function venueSource(data: EventPageData): VenueSource | null {
       confirmation: null,
       searchable: false,
       blocked: [],
+      holdRequests: [],
     };
   }
   if (data.event.access !== "organiser" && data.event.access !== "coordinator") return null;
@@ -84,6 +99,7 @@ function venueSource(data: EventPageData): VenueSource | null {
     confirmation: event.confirmation ?? null,
     searchable: true,
     blocked: event.blockedArrangements ?? [],
+    holdRequests: event.holdRequests ?? [],
   };
 }
 
@@ -157,15 +173,45 @@ function VenueRequestEntry({
   );
 }
 
+/**
+ * PTR-151 AC2: one requested hold on the event. It protects no venue time until Venue Staff place
+ * it, so the label and the note say that. Only the Coordinator gets the withdraw action.
+ */
+function HoldRequestEntry({ hold, canWithdraw }: { hold: EventHoldRequest; canWithdraw: boolean }) {
+  const period = formatVenuePeriod(hold.startsAt, hold.endsAt);
+  return (
+    <dl
+      aria-label={`${hold.venueName}, ${period}`}
+      className="grid gap-3 border-t border-border pt-3 first:border-t-0 first:pt-0 sm:grid-cols-2"
+    >
+      <VenueDetail label="Venue" value={hold.venueName} />
+      <VenueDetail label="Period" value={period} />
+      <VenueDetail
+        label="Status"
+        value={<Badge variant="outline">{VENUE_HOLD_REQUEST_LABEL}</Badge>}
+      />
+      {canWithdraw && (
+        <VenueDetail
+          label="Next step"
+          value={<WithdrawVenueHoldRequestButton holdId={hold.id} />}
+        />
+      )}
+    </dl>
+  );
+}
+
 /** Render the venue block as the old dashboard card did: requirements, requests, confirmation. */
 function VenueBody({ data }: { data: EventPageData }) {
   const source = venueSource(data);
   if (!source) return null;
-  const { status, venueRequests } = source;
+  const { status, venueRequests, holdRequests } = source;
   const hasActions = hasVenueActions(source);
   const hasRequested = hasEventRequirements(source.requirements, venueRequests.length > 0);
+  const hasHoldRequests = holdRequests.length > 0;
   const hasBlocked = source.blocked.length > 0;
-  if (!hasRequested && !source.confirmation && !hasActions && !hasBlocked) return null;
+  if (!hasRequested && !hasHoldRequests && !source.confirmation && !hasActions && !hasBlocked) {
+    return null;
+  }
   return (
     <div>
       <h2 id="venue-section-heading" tabIndex={-1} className="display-h3 outline-none">
@@ -198,6 +244,22 @@ function VenueBody({ data }: { data: EventPageData }) {
                 ))}
               </div>
             </>
+          )}
+
+          {hasHoldRequests && (
+            <div className={hasRequested ? "mt-4 border-t border-border pt-4" : ""}>
+              <p className="eyebrow text-muted-foreground">Hold requests</p>
+              <p className="mt-2 body-sm text-muted-foreground">{VENUE_HOLD_REQUEST_NOTE}</p>
+              <div className="mt-2 grid gap-3">
+                {holdRequests.map(hold => (
+                  <HoldRequestEntry
+                    key={hold.id}
+                    hold={hold}
+                    canWithdraw={source.coordinatorActions}
+                  />
+                ))}
+              </div>
+            </div>
           )}
 
           {/* PTR-24 AC3: the confirmed venue, date and time, and who confirmed it. */}
@@ -295,6 +357,7 @@ export function venueSections(data: EventPageData): EventSectionDef[] {
         if (!settled && !searchable) return false;
         return (
           hasEventRequirements(source.requirements, venueRequests.length > 0) ||
+          source.holdRequests.length > 0 ||
           source.confirmation !== null ||
           hasVenueActions(source) ||
           source.blocked.length > 0

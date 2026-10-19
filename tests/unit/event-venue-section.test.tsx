@@ -22,6 +22,10 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
+  useRouter: () => ({
+    invalidate: () => Promise.resolve(),
+    navigate: () => Promise.resolve(),
+  }),
 }));
 
 function projection(
@@ -289,6 +293,44 @@ describe("venue section", () => {
       }
     }
   );
+
+  it("shows a requested hold with its note and the Coordinator's withdrawal (PTR-151)", () => {
+    const holdRequests = [
+      {
+        id: "hold-1",
+        venueName: "Harbor Hall",
+        startsAt: "2026-12-05T17:00:00",
+        endsAt: "2026-12-05T21:00:00",
+      },
+    ];
+    expect(isVenueVisible("coordinator", { status: "submitted", holdRequests })).toBe(true);
+    expect(isVenueVisible("organiser", { status: "submitted", holdRequests })).toBe(false);
+
+    renderVenue("coordinator", { status: "planning", holdRequests });
+
+    expect(screen.getByText("Hold requests")).toBeTruthy();
+    expect(screen.getByText("Hold requested")).toBeTruthy();
+    expect(screen.getByText("5 Dec 2026, 17:00 – 21:00")).toBeTruthy();
+    expect(screen.getByText(/protects nothing until Venue Staff place it/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Withdraw hold request" })).toBeTruthy();
+  });
+
+  it("shows a requested hold to the organiser without a withdrawal action", () => {
+    renderVenue("organiser", {
+      status: "planning",
+      holdRequests: [
+        {
+          id: "hold-1",
+          venueName: "Harbor Hall",
+          startsAt: "2026-12-05T17:00:00",
+          endsAt: "2026-12-05T21:00:00",
+        },
+      ],
+    });
+
+    expect(screen.getByText("Hold requests")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Withdraw hold request" })).toBeNull();
+  });
 
   it("always shows approved, planning and confirmed events", () => {
     for (const status of ["approved", "planning", "confirmed"] as const) {

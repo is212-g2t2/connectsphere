@@ -12,9 +12,9 @@ import {
 } from "#/features/venue-requests/bookings.server";
 import {
   handleConvertVenueHold,
-  handleCreateVenueHold,
   handleReleaseVenueHold,
 } from "#/features/venue-requests/holds.server";
+import { requestAndPlaceHold } from "./hold-request";
 import { occupyVenue } from "#/features/venue-requests/occupancy.server";
 import {
   handleApproveVenueRequest,
@@ -154,7 +154,7 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
   }
 
   async function hold(startTime: string, endTime: string, eventId?: number) {
-    return handleCreateVenueHold(
+    return requestAndPlaceHold(
       {
         eventId: eventId ?? (await createEvent(`PTR-133 hold ${startTime}`)),
         venueId: hallId,
@@ -540,8 +540,13 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
         name: "ConflictError",
         message: VENUE_OCCUPANCY_CONFLICT_MESSAGE,
       });
+      // The request row remains, because a request reserves no venue time. The placement writes
+      // neither a held hold nor a ledger row.
       expect(
-        await database.select().from(schema.venueHolds).where(eq(schema.venueHolds.venueId, hallId))
+        await database
+          .select()
+          .from(schema.venueHolds)
+          .where(and(eq(schema.venueHolds.venueId, hallId), eq(schema.venueHolds.status, "held")))
       ).toEqual([]);
     });
 

@@ -92,6 +92,7 @@ import {
   rejectVenueRequest,
   requestVenue,
   requestVenueHold,
+  withdrawVenueHoldRequest,
   withdrawVenueRequest,
 } from "#/features/venue-requests/server-fns";
 import { handleSaveVenue } from "#/features/venues/records.server";
@@ -665,6 +666,10 @@ describe("server-function authorization (PTR-69)", () => {
         status: 401,
         body: "Unauthorized",
       });
+      expect(await refusalFrom(withdrawVenueHoldRequest, { id: "hold-1" })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
     });
 
     it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
@@ -673,6 +678,7 @@ describe("server-function authorization (PTR-69)", () => {
         signIn(role);
 
         expect(await refusalFrom(requestVenueHold, {})).toMatchObject({ status: 403 });
+        expect(await refusalFrom(withdrawVenueHoldRequest, {})).toMatchObject({ status: 403 });
       }
     );
 
@@ -689,9 +695,10 @@ describe("server-function authorization (PTR-69)", () => {
       }
     );
 
-    it("lets a Coordinator request and Venue Staff decide", async () => {
+    it("lets a Coordinator request and withdraw, and Venue Staff decide", async () => {
       signIn("event_coordinator");
       expect((await call(requestVenueHold, holdInput)).error).toBeUndefined();
+      expect((await call(withdrawVenueHoldRequest, { id: "hold-1" })).error).toBeUndefined();
 
       signIn("venue_staff");
       expect((await call(listVenueHoldRequests, undefined, "GET")).error).toBeUndefined();

@@ -203,6 +203,17 @@ export interface EventVenueRequest {
 }
 
 /**
+ * PTR-151: one requested hold on the event's venue section. It reserves no venue time until Venue
+ * Staff place it. Times keep the floating venue-local `YYYY-MM-DDTHH:MM:SS` spelling.
+ */
+export interface EventHoldRequest {
+  id: string;
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+}
+
+/**
  * PTR-137 AC1: a booking or hold of the event that a live venue block has suspended. The
  * Coordinator sees it with the block's reason and period until the block is lifted or the
  * arrangement is released. Times keep the floating venue-local `YYYY-MM-DD HH:MM:SS` spelling.
@@ -358,6 +369,8 @@ export interface EventProjection {
     completionUnavailableReason?: string | null;
     /** PTR-137 AC1: Coordinator only. The arrangements a live venue block has suspended. */
     blockedArrangements?: BlockedArrangement[];
+    /** PTR-151: Coordinator only. Holds that wait for Venue Staff to place them. */
+    holdRequests?: EventHoldRequest[];
     /** PTR-144: Lead only. The request still waits for a Coordinator, so its page opens the
      * read-only queue detail instead of the projection. */
     awaitingAssignment?: boolean;
@@ -414,6 +427,8 @@ export function projectEvent(
     registrationAvailability?: RegistrationAvailability | null;
     /** PTR-137 AC1: the Coordinator's suspended arrangements. */
     blockedArrangements?: BlockedArrangement[];
+    /** PTR-151: the Coordinator's hold requests that wait for Venue Staff. */
+    holdRequests?: EventHoldRequest[];
     /** PTR-146: the current venue's maximum capacity, for the Safety Officer's copy. */
     venueCapacity?: number | null;
     /** PTR-146: the current booking's own session requirements, which the fingerprint hashes. */
@@ -430,6 +445,7 @@ export function projectEvent(
     completionUnavailableReason,
     registrationAvailability = null,
     blockedArrangements = [],
+    holdRequests = [],
     venueCapacity = null,
     sessionRequirements = null,
   } = extras;
@@ -626,7 +642,8 @@ export function projectEvent(
             ? { completionUnavailableReason }
             : {}),
           // PTR-137 AC1: only the Coordinator re-plans, so only their copy carries the flag.
-          ...(access === "coordinator" ? { blockedArrangements } : {}),
+          // PTR-151: only the Coordinator withdraws a hold request, so only their copy lists them.
+          ...(access === "coordinator" ? { blockedArrangements, holdRequests } : {}),
         },
       };
 

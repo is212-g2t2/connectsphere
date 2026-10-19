@@ -54,8 +54,8 @@ type Database = typeof Db;
 const log = logger.getChild("venue-holds");
 
 /**
- * The creation checks that a hold and a hold request share. Lock the event, then the venue. Refuse
- * a cancelled event, an event that the actor does not coordinate or that is outside
+ * The checks that a hold request makes before it stores a row. Lock the event, then the venue.
+ * Refuse a cancelled event, an event that the actor does not coordinate or that is outside
  * `SEARCHABLE_EVENT_STATUSES`, an occupied period, and a pending request of the same event that
  * overlaps. Return the venue and the row to write, with the venue's current buffers.
  */
@@ -86,37 +86,9 @@ async function checkHoldCreation(
 }
 
 /**
- * PTR-109: Handle tentative venue holds.
- * AC1: Record the venue and period as held on the event.
- * AC2: Return 409 for overlapping holds and name the venue and period. The locked pre-check gives
- * this refusal. The exclusion-constraint fallback uses the generic overlap message.
- * AC4: Return 409 and name the venue and period when an approved booking overlaps.
- * AC7: Store the acting user's id (`heldById`) and timestamp.
- * PTR-54 AC9: Refuse a new hold for a cancelled event.
- * PTR-138: Accept the event statuses that a venue request accepts (`SEARCHABLE_EVENT_STATUSES`).
- * PTR-138 AC4: Refuse a hold that overlaps a pending request of the same event at the venue
- * (`assertNoEventOverlap`). Otherwise approval of the request and conversion of the hold both fail.
- * PTR-134 AC2: Write the hold's ledger row, with the hold's buffers, in the same transaction.
- */
-export async function handleCreateVenueHold(data: unknown, actor: SessionUser, database: Database) {
-  const input = parseVenueHoldInput(data);
-
-  return database.transaction(async tx => {
-    const { occupancy } = await checkHoldCreation(tx, input, actor);
-    const [created] = await tx
-      .insert(venueHolds)
-      .values({ ...occupancy, id: crypto.randomUUID(), heldById: actor.id })
-      .returning();
-    await occupyVenue(tx, { ...occupancy, venueHoldId: created.id });
-
-    return created;
-  });
-}
-
-/**
- * PTR-150 AC1: the Coordinator requests a hold. The request passes the creation checks of a hold,
- * but it is `requested` and has no ledger row, so it reserves no venue time. Every Venue Staff
- * member is notified in the same transaction. `heldById` is the requesting Coordinator.
+ * PTR-150 AC1: the Coordinator requests a hold. The request passes the checks of a hold, but it is
+ * `requested` and has no ledger row, so it reserves no venue time. Every Venue Staff member is
+ * notified in the same transaction. `heldById` is the requesting Coordinator.
  */
 export async function handleRequestVenueHold(
   data: unknown,
@@ -269,6 +241,37 @@ async function releaseHold(tx: VenueTx, id: string, actorId: string) {
 }
 
 /**
+ * PTR-151 AC3: the requester or the event's assigned Coordinator withdraws a hold request before
+ * Venue Staff place it. A request has no ledger row, so no occupancy changes. A placed, declined
+ * or already withdrawn request was handled first and is refused.
+ */
+export async function handleWithdrawVenueHoldRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const { id } = parseVenueHoldId(data);
+
+  return database.transaction(async tx => {
+    // Keep the event, venue, hold lock order that placement and the expiry writers use.
+    const event = await keyShareEventForHold(tx, id);
+    if (event === null) throw new NotFoundError("Not Found");
+    const hold = await lockHold(tx, id);
+    if (!canReleaseHold(hold, actor.id)) throw new AuthorizationError("Forbidden");
+    if (hold.status !== "requested") {
+      throw new ConflictError(VENUE_HOLD_REQUEST_HANDLED_MESSAGE);
+    }
+
+    const [withdrawn] = await tx
+      .update(venueHolds)
+      .set({ status: "released", releasedById: actor.id })
+      .where(eq(venueHolds.id, id))
+      .returning({ id: venueHolds.id, status: venueHolds.status });
+    return withdrawn;
+  });
+}
+
+/**
  * PTR-109 AC5: Release a tentative hold and mark it `released`.
  * This frees the period for other events: the hold's ledger row goes in the same transaction.
  * Return 403 for a non-creator, 404 for a missing id, and 409 for a hold that is already released.
@@ -406,8 +409,8 @@ export async function handleSetVenueHoldExpiry(
   const stored = `${expiresAt.replace("T", " ")}:00`;
 
   const result = await database.transaction(async tx => {
-    // The event lock comes before the venue lock, as in hold creation, conversion, and the
-    // warning write.
+    // The event lock comes before the venue lock, as in hold request, placement, conversion, and
+    // the warning write.
     const locked = await keyShareEventForHold(tx, id);
     if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
     const hold = await lockHold(tx, id);
@@ -536,7 +539,7 @@ async function raiseHoldDecisionNotification(
  * Staff member can act: the actor need not coordinate the event.
  *
  * Refresh the stored buffers to the venue's current ones, so the hold row and its ledger row agree.
- * Apply the same-event overlap rule of hold creation too, because placement writes the same state.
+ * Apply the same-event overlap rule of a hold request too, because placement writes the same state.
  */
 export async function handlePlaceVenueHold(data: unknown, actor: SessionUser, database: Database) {
   const { id, expiresAt } = parseVenueHoldPlacement(data);

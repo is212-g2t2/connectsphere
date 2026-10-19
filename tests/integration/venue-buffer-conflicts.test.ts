@@ -11,10 +11,8 @@ import {
   handleAmendVenueBooking,
   handleReleaseVenueBooking,
 } from "#/features/venue-requests/bookings.server";
-import {
-  handleCreateVenueHold,
-  handleReleaseVenueHold,
-} from "#/features/venue-requests/holds.server";
+import { handleReleaseVenueHold } from "#/features/venue-requests/holds.server";
+import { requestAndPlaceHold } from "./hold-request";
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
@@ -178,7 +176,7 @@ describe("Venue buffer conflicts (PTR-132)", () => {
     actor = coordA
   ) {
     const eid = eventId ?? (await createEvent(`Hold ${startTime}-${endTime}`, actor.id));
-    const h = await handleCreateVenueHold(
+    const h = await requestAndPlaceHold(
       { eventId: eid, venueId, date, startTime, endTime },
       actor,
       database as never

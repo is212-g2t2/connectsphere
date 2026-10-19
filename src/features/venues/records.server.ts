@@ -578,6 +578,74 @@ export async function loadVenueHolds(
 }
 
 /**
+ * PTR-151: a hold request that overlaps a range, or every open request of some events. A
+ * `requested` hold reserves no venue time, so no availability projection subtracts it. The
+ * caller shows it with its ownership check and keeps the owner ids on the server.
+ */
+export interface VenueHoldRequestRow {
+  id: string;
+  venueId: number;
+  eventId: number;
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+  heldById: string | null;
+  assignedCoordinatorId: string | null;
+}
+
+/**
+ * Read requested holds by event or by venue and range. Pass `eventIds` for the event's venue
+ * section, or `venueId` and `range` for the calendar. An empty `eventIds` reads nothing.
+ */
+export async function loadVenueHoldRequests(
+  database: Pick<Database, "select">,
+  filter: {
+    eventIds?: readonly number[];
+    venueId?: number;
+    range?: { startsAt: string; endsAt: string };
+  }
+): Promise<VenueHoldRequestRow[]> {
+  if (filter.eventIds !== undefined && filter.eventIds.length === 0) return [];
+  const conditions = [eq(venueHolds.status, "requested")];
+  if (filter.eventIds !== undefined) {
+    conditions.push(inArray(venueHolds.eventId, [...filter.eventIds]));
+  }
+  if (filter.venueId !== undefined) conditions.push(eq(venueHolds.venueId, filter.venueId));
+  if (filter.range) {
+    conditions.push(lt(venueHolds.startsAt, filter.range.endsAt));
+    conditions.push(gt(venueHolds.endsAt, filter.range.startsAt));
+  }
+
+  const rows = await database
+    .select({
+      id: venueHolds.id,
+      venueId: venueHolds.venueId,
+      eventId: venueHolds.eventId,
+      venueName: venues.name,
+      startsAt: venueHolds.startsAt,
+      endsAt: venueHolds.endsAt,
+      heldById: venueHolds.heldById,
+      assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+    })
+    .from(venueHolds)
+    .innerJoin(eventRequests, eq(venueHolds.eventId, eventRequests.id))
+    .innerJoin(venues, eq(venues.id, venueHolds.venueId))
+    .where(and(...conditions))
+    .orderBy(asc(venueHolds.startsAt), asc(venueHolds.id));
+
+  return rows.map(row => ({
+    id: row.id,
+    venueId: row.venueId,
+    eventId: row.eventId,
+    venueName: row.venueName,
+    startsAt: normalizeDatabaseTimestamp(row.startsAt),
+    endsAt: normalizeDatabaseTimestamp(row.endsAt),
+    heldById: row.heldById,
+    assignedCoordinatorId: row.assignedCoordinatorId,
+  }));
+}
+
+/**
  * PTR-138 AC1: the event's requirements under the session-requirement names. Every server reader
  * that turns an event's requirements into a session's selects these columns.
  */
@@ -591,7 +659,7 @@ export const eventRequirementColumns = {
 /**
  * Read the caller's own event request through the venue gate. The event must belong to the asking
  * Coordinator and stand in `SEARCHABLE_EVENT_STATUSES`. The venue search that prefills the request
- * form, request creation, hold creation and hold conversion use it. `null` is the refusal. Every
+ * form, request creation, hold request and hold conversion use it. `null` is the refusal. Every
  * caller turns it into `AuthorizationError("Forbidden")`.
  */
 export async function loadAssignedEvent(
@@ -941,10 +1009,14 @@ export async function handleGetVenueAvailability(
   const endsAt = `${nextCivilDate(selection.endDate)}T00:00:00`;
   const databaseStartsAt = startsAt.replace("T", " ");
   const databaseEndsAt = endsAt.replace("T", " ");
-  const [blocks, bookings, holds, conflictRows] = await Promise.all([
+  const [blocks, bookings, holds, requestedHolds, conflictRows] = await Promise.all([
     loadVenueBlocks(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueBookings(database, [venue.id], databaseStartsAt, databaseEndsAt),
     loadVenueHolds(database, [venue.id], databaseStartsAt, databaseEndsAt),
+    loadVenueHoldRequests(database, {
+      venueId: venue.id,
+      range: { startsAt: databaseStartsAt, endsAt: databaseEndsAt },
+    }),
     loadVenueBufferConflictRows(database, venue),
   ]);
 
@@ -1000,6 +1072,14 @@ export async function handleGetVenueAvailability(
     venue: { id: venue.id, name: venue.name },
     startDate: selection.startDate,
     endDate: selection.endDate,
+    // PTR-151: a requested hold shows on the calendar but reserves no time, so it stays out of
+    // `projectAvailability`.
+    requestedHolds: requestedHolds.map(hold => ({
+      id: hold.id,
+      startsAt: hold.startsAt,
+      endsAt: hold.endsAt,
+      canWithdraw: canReleaseHold(hold, viewerId),
+    })),
     ...projectAvailability(
       { startsAt, endsAt },
       {

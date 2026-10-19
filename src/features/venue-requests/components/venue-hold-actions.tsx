@@ -46,8 +46,9 @@ import type {
 } from "#/features/venue-requests/schema";
 import {
   convertVenueHold,
-  createVenueHold,
   releaseVenueHold,
+  requestVenueHold,
+  withdrawVenueHoldRequest,
 } from "#/features/venue-requests/server-fns";
 import { useMutation } from "#/hooks/use-mutation";
 import { skipRootFilter } from "#/lib/invalidate";
@@ -99,6 +100,62 @@ export function ReleaseVenueHoldButton({ holdId }: { holdId: string }) {
           <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
           <AlertDialogAction size="sm" disabled={pending} onClick={() => void release()}>
             {pending ? "Releasing…" : "Confirm release"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+        {state.status === "error" && (
+          <p role="alert" className="body-sm text-destructive">
+            {state.error}
+          </p>
+        )}
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/**
+ * PTR-151 AC3: the Coordinator withdraws a hold request before Venue Staff place it. The request
+ * protects no venue time, so the confirmation says that only the queue entry closes.
+ */
+export function WithdrawVenueHoldRequestButton({ holdId }: { holdId: string }) {
+  const router = useRouter();
+  const [state, withdraw, pending] = useMutation(async () => {
+    try {
+      await withdrawVenueHoldRequest({ data: { id: holdId } });
+    } catch (error) {
+      // Venue Staff may have placed or declined the request meanwhile. Reload, keeping the refusal.
+      await router.invalidate({ filter: skipRootFilter });
+      throw error;
+    }
+    toast.success("Hold request withdrawn.");
+    await router.invalidate({ filter: skipRootFilter });
+  }, "Could not withdraw this hold request. Try again.");
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger
+        render={
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            aria-label="Withdraw hold request"
+          />
+        }
+      >
+        {pending ? "Withdrawing…" : "Withdraw request"}
+      </AlertDialogTrigger>
+      <AlertDialogContent size="sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Withdraw hold request</AlertDialogTitle>
+          <AlertDialogDescription>
+            This removes the request from the Venue Staff queue. It never reserved venue time, so
+            the period stays first come, first served.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
+          <AlertDialogAction size="sm" disabled={pending} onClick={() => void withdraw()}>
+            {pending ? "Withdrawing…" : "Confirm withdrawal"}
           </AlertDialogAction>
         </AlertDialogFooter>
         {state.status === "error" && (
@@ -233,9 +290,10 @@ function toHoldInput(
 }
 
 /**
- * PTR-109: Coordinator places a tentative hold naming venue, event, date and period.
+ * PTR-151 AC1: the Coordinator asks Venue Staff to hold a venue for an event. The request does
+ * not reserve the period; Venue Staff place it with an expiry from their queue.
  */
-export function PlaceVenueHoldDialog({
+export function RequestVenueHoldDialog({
   venueId,
   venueName,
   defaultDate = "",
@@ -272,8 +330,8 @@ export function PlaceVenueHoldDialog({
     },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await createVenueHold({ data: toHoldInput(venueId, value) });
-        toast.success("Tentative hold placed.");
+        await requestVenueHold({ data: toHoldInput(venueId, value) });
+        toast.success("Hold requested.");
         setOpen(false);
         await router.invalidate({ filter: skipRootFilter });
       } catch (submitError) {
@@ -283,7 +341,7 @@ export function PlaceVenueHoldDialog({
             form:
               submitError instanceof Error
                 ? submitError.message
-                : "Could not place hold. Try again.",
+                : "Could not request this hold. Try again.",
           },
         });
       }
@@ -296,16 +354,17 @@ export function PlaceVenueHoldDialog({
         render={
           trigger ?? (
             <Button size="sm" variant="outline">
-              Place tentative hold
+              Request hold
             </Button>
           )
         }
       />
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Place tentative hold</DialogTitle>
+          <DialogTitle>Request a hold</DialogTitle>
           <DialogDescription>
-            Tentatively reserve {venueName} for an event while planning.
+            Ask Venue Staff to hold {venueName} for an event. A request protects nothing until Venue
+            Staff place it; the period stays first come, first served at placement.
           </DialogDescription>
         </DialogHeader>
 
@@ -354,7 +413,7 @@ export function PlaceVenueHoldDialog({
             </form.Field>
           ) : (
             <p className="body-sm text-muted-foreground">
-              You have no events that can take a venue hold.
+              You have no events that can take a venue hold request.
             </p>
           )}
 
@@ -430,7 +489,7 @@ export function PlaceVenueHoldDialog({
                     Cancel
                   </Button>
                   <Button type="submit" size="sm" disabled={Boolean(isSubmitting) || !hasEvents}>
-                    {isSubmitting ? "Placing hold…" : "Place hold"}
+                    {isSubmitting ? "Requesting…" : "Send request"}
                   </Button>
                 </div>
               </>

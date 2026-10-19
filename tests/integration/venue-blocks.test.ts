@@ -12,9 +12,9 @@ import {
 } from "#/features/venue-requests/bookings.server";
 import {
   handleConvertVenueHold,
-  handleCreateVenueHold,
   handleReleaseVenueHold,
 } from "#/features/venue-requests/holds.server";
+import { requestAndPlaceHold } from "./hold-request";
 import { loadPendingConflictKinds } from "#/features/venue-requests/records.server";
 import {
   handleApproveVenueRequest,
@@ -173,7 +173,7 @@ describe("venue blocks (PTR-136)", () => {
   }
 
   async function hold(startTime: string, endTime: string, eventId?: number) {
-    return handleCreateVenueHold(
+    return requestAndPlaceHold(
       {
         eventId: eventId ?? (await createEvent(`PTR-136 hold ${startTime}`)),
         venueId: hallId,

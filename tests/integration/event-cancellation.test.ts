@@ -43,8 +43,8 @@ import { renderNotificationEmail } from "#/features/notifications/render.server"
 import { handleReleaseVenueBooking } from "#/features/venue-requests/bookings.server";
 import {
   handleConvertVenueHold,
-  handleCreateVenueHold,
   handleReleaseVenueHold,
+  handleRequestVenueHold,
 } from "#/features/venue-requests/holds.server";
 import {
   handleApproveVenueRequest,
@@ -874,7 +874,9 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       const event = await cancelledEvent();
 
       expect(
-        await conflict(handleCreateVenueHold(periodInput(event.id), coordinator, database as never))
+        await conflict(
+          handleRequestVenueHold(periodInput(event.id), coordinator, database as never)
+        )
       ).toBe(CANCELLED_EVENT_ACTIVITY_MESSAGE);
       expect(await holdsFor(event.id)).toEqual([]);
     });
@@ -925,7 +927,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
           "select pg_backend_pid() as pid"
         );
 
-        holding = handleCreateVenueHold(
+        holding = handleRequestVenueHold(
           periodInput(event.id),
           coordinator,
           database as never

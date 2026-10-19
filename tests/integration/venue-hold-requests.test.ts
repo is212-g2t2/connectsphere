@@ -7,12 +7,13 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
+import { handleListEvents } from "#/features/events/records.server";
 import {
-  handleCreateVenueHold,
   handleDeclineVenueHold,
   handleListVenueHoldRequests,
   handlePlaceVenueHold,
   handleRequestVenueHold,
+  handleWithdrawVenueHoldRequest,
 } from "#/features/venue-requests/holds.server";
 import {
   handleCreateVenueRequest,
@@ -26,8 +27,10 @@ import {
   venueHoldConflictMessage,
 } from "#/features/venue-requests/schema";
 import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
+import { handleGetVenueAvailability } from "#/features/venues/records.server";
 import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
 import { eventStatusColumns } from "./event-status";
+import { requestAndPlaceHold } from "./hold-request";
 
 /**
  * PTR-150: Venue Staff place or decline hold requests, tested through the handlers.
@@ -165,6 +168,8 @@ describe("hold requests (PTR-150)", () => {
     handlePlaceVenueHold({ id, expiresAt }, session(actor), database as never);
   const decline = (id: string, actor: TestUser = users.venueStaff, reason = "Exams that week") =>
     handleDeclineVenueHold({ id, reason }, session(actor), database as never);
+  const withdraw = (id: string, actor: TestUser = users.coordinator) =>
+    handleWithdrawVenueHoldRequest({ id }, session(actor), database as never);
   const holdRow = async (id: string) => {
     const [row] = await database
       .select()
@@ -219,8 +224,8 @@ describe("hold requests (PTR-150)", () => {
       });
     });
 
-    it("applies the hold creation checks", async () => {
-      await handleCreateVenueHold(
+    it("applies the hold checks", async () => {
+      await requestAndPlaceHold(
         { venueId, eventId: otherEventId, ...window },
         session(users.otherCoordinator),
         database as never
@@ -230,12 +235,14 @@ describe("hold requests (PTR-150)", () => {
 
       await setEventStatus("cancelled");
       await expect(requestHold()).rejects.toThrow(CANCELLED_EVENT_ACTIVITY_MESSAGE);
-      expect(await notices("venue_hold_requested")).toEqual([]);
+      expect(
+        (await notices("venue_hold_requested")).filter(row => row.eventRequestId === eventId)
+      ).toEqual([]);
     });
 
     it("lets a requested hold leave the venue free for another event", async () => {
       await requestHold();
-      const other = await handleCreateVenueHold(
+      const other = await requestAndPlaceHold(
         { venueId, eventId: otherEventId, ...window },
         session(users.otherCoordinator),
         database as never
@@ -355,7 +362,7 @@ describe("hold requests (PTR-150)", () => {
   describe("refusing a placement (AC4)", () => {
     it("names the venue and period when the venue is no longer free", async () => {
       const hold = await requestHold();
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { venueId, eventId: otherEventId, ...window },
         session(users.otherCoordinator),
         database as never
@@ -370,7 +377,9 @@ describe("hold requests (PTR-150)", () => {
       );
       expect((await holdRow(hold.id)).status).toBe("requested");
       expect(await ledger(hold.id)).toEqual([]);
-      expect(await notices("venue_hold_placed")).toEqual([]);
+      expect(
+        (await notices("venue_hold_placed")).filter(row => row.eventRequestId === eventId)
+      ).toEqual([]);
     });
 
     it("refuses a window that overlaps a pending request of the same event", async () => {
@@ -464,6 +473,98 @@ describe("hold requests (PTR-150)", () => {
       });
       const { status } = await holdRow(hold.id);
       expect(await ledger(hold.id)).toHaveLength(status === "held" ? 1 : 0);
+    });
+  });
+
+  describe("withdrawing a hold request (PTR-151 AC3)", () => {
+    it("closes the request, records the actor, and keeps it out of the queue", async () => {
+      const hold = await requestHold();
+      const withdrawn = await withdraw(hold.id);
+      expect(withdrawn).toEqual({ id: hold.id, status: "released" });
+      expect(await holdRow(hold.id)).toMatchObject({
+        status: "released",
+        releasedById: users.coordinator.id,
+      });
+      expect(await ledger(hold.id)).toEqual([]);
+      expect((await handleListVenueHoldRequests(database)).map(row => row.id)).not.toContain(
+        hold.id
+      );
+      await expect(place(hold.id)).rejects.toThrow(VENUE_HOLD_REQUEST_HANDLED_MESSAGE);
+    });
+
+    it("lets the current assignee or the requester withdraw, and refuses anyone else", async () => {
+      const refused = await requestHold();
+      await expect(withdraw(refused.id, users.otherCoordinator)).rejects.toThrow("Forbidden");
+      // Raise the second request before the handover, while the original coordinator still
+      // coordinates the event.
+      const requesterHolds = await requestHold(users.coordinator, "2099-06-16");
+      await database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: users.otherCoordinator.id })
+        .where(eq(schema.eventRequests.id, eventId));
+
+      // The current assignee withdraws the first request.
+      expect((await withdraw(refused.id, users.otherCoordinator)).status).toBe("released");
+      // The requester keeps the withdrawal after the reassignment.
+      expect((await withdraw(requesterHolds.id)).status).toBe("released");
+    });
+
+    it("refuses a placed or declined request", async () => {
+      const placed = await requestHold();
+      await place(placed.id);
+      await expect(withdraw(placed.id)).rejects.toThrow(VENUE_HOLD_REQUEST_HANDLED_MESSAGE);
+
+      const declined = await requestHold(users.coordinator, "2099-06-16");
+      await decline(declined.id);
+      await expect(withdraw(declined.id)).rejects.toThrow(VENUE_HOLD_REQUEST_HANDLED_MESSAGE);
+    });
+  });
+
+  describe("showing a hold request (PTR-151 AC2)", () => {
+    it("lists it on the calendar without occupying venue time", async () => {
+      const hold = await requestHold();
+      const calendar = await handleGetVenueAvailability(
+        { venueId, startDate: window.date, endDate: window.date },
+        users.coordinator.id,
+        database as never
+      );
+      expect(calendar?.requestedHolds).toEqual([
+        {
+          id: hold.id,
+          startsAt: "2099-06-15T09:00:00",
+          endsAt: "2099-06-15T12:00:00",
+          canWithdraw: true,
+        },
+      ]);
+      expect(calendar?.occupied).toEqual([]);
+      expect(calendar?.available).toEqual([
+        { startsAt: "2099-06-15T08:00:00", endsAt: "2099-06-15T22:00:00" },
+      ]);
+
+      // Another Coordinator reads the request without the withdrawal action.
+      const otherView = await handleGetVenueAvailability(
+        { venueId, startDate: window.date, endDate: window.date },
+        users.otherCoordinator.id,
+        database as never
+      );
+      expect(otherView?.requestedHolds?.[0]).toMatchObject({ id: hold.id, canWithdraw: false });
+    });
+
+    it("lists it on the event's venue section for its Coordinator", async () => {
+      const hold = await requestHold();
+      const [projection] = await handleListEvents(
+        { eventId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(projection.event.holdRequests).toEqual([
+        {
+          id: hold.id,
+          venueName: VENUE_NAME,
+          startsAt: "2099-06-15T09:00:00",
+          endsAt: "2099-06-15T12:00:00",
+        },
+      ]);
     });
   });
 });

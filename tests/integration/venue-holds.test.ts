@@ -8,7 +8,6 @@ import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
 import {
   handleConvertVenueHold,
-  handleCreateVenueHold,
   handleReleaseVenueHold,
 } from "#/features/venue-requests/holds.server";
 import { handleAmendVenueBooking } from "#/features/venue-requests/bookings.server";
@@ -31,6 +30,7 @@ import {
 } from "#/features/venue-requests/schema";
 import { DEFAULT_OPERATING_HOURS, LAYOUT_MESSAGE } from "#/features/venues/schema";
 import { ACCEPTING_STATUSES, REFUSED_STATUSES, eventStatusColumns } from "./event-status";
+import { requestAndPlaceHold } from "./hold-request";
 
 /**
  * PTR-109: tentative venue holds at the handler boundary.
@@ -183,7 +183,7 @@ describe("tentative venue holds (PTR-109)", () => {
 
   /** Place Event A's hold at `HOLD_WINDOW`. */
   function holdForA() {
-    return handleCreateVenueHold(
+    return requestAndPlaceHold(
       { ...HOLD_WINDOW, eventId: eventIdA, venueId },
       session(users.coordinatorA),
       database as never
@@ -218,7 +218,7 @@ describe("tentative venue holds (PTR-109)", () => {
       .update(schema.venues)
       .set({ setupMinutes: 30, turnaroundMinutes: 45 })
       .where(eq(schema.venues.id, venueId));
-    const hold = await handleCreateVenueHold(
+    const hold = await requestAndPlaceHold(
       { venueId, eventId: eventIdA, date: "2027-06-15", startTime: "00:15", endTime: "23:45" },
       session(users.coordinatorA),
       database as never
@@ -247,19 +247,19 @@ describe("tentative venue holds (PTR-109)", () => {
       .update(schema.venues)
       .set({ setupMinutes: 30, turnaroundMinutes: 45 })
       .where(eq(schema.venues.id, venueId));
-    await handleCreateVenueHold(
+    await requestAndPlaceHold(
       { venueId, eventId: eventIdA, ...HOLD_WINDOW },
       session(users.coordinatorA),
       database as never
     );
     await expect(
-      handleCreateVenueHold(
+      requestAndPlaceHold(
         { venueId, eventId: eventIdB, ...HOLD_WINDOW, startTime: "12:45", endTime: "14:00" },
         session(users.coordinatorB),
         database as never
       )
     ).rejects.toMatchObject({ name: "ConflictError", status: 409 });
-    const adjacent = await handleCreateVenueHold(
+    const adjacent = await requestAndPlaceHold(
       { venueId, eventId: eventIdB, ...HOLD_WINDOW, startTime: "13:15", endTime: "14:00" },
       session(users.coordinatorB),
       database as never
@@ -277,7 +277,7 @@ describe("tentative venue holds (PTR-109)", () => {
         .update(schema.venues)
         .set({ setupMinutes: 2_147_483_647, turnaroundMinutes: 2_147_483_647 })
         .where(eq(schema.venues.id, venueId));
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { venueId, eventId: eventIdA, ...HOLD_WINDOW, date },
         session(users.coordinatorA),
         database as never
@@ -306,7 +306,7 @@ describe("tentative venue holds (PTR-109)", () => {
       .update(schema.venues)
       .set({ setupMinutes: 30, turnaroundMinutes: 45 })
       .where(eq(schema.venues.id, venueId));
-    const hold = await handleCreateVenueHold(
+    const hold = await requestAndPlaceHold(
       { venueId, eventId: eventIdA, ...HOLD_WINDOW },
       session(users.coordinatorA),
       database as never
@@ -363,7 +363,7 @@ describe("tentative venue holds (PTR-109)", () => {
   // ---------------------------------------------------------------------------
   describe("placing a tentative hold (AC1, AC7)", () => {
     it("records a tentative hold against the event and persists in database (TC01)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -393,7 +393,7 @@ describe("tentative venue holds (PTR-109)", () => {
     it("stores the acting user id and a recent timestamp in the database (TC02)", async () => {
       const before = new Date();
 
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -420,13 +420,13 @@ describe("tentative venue holds (PTR-109)", () => {
   // ---------------------------------------------------------------------------
   describe("refusing overlapping holds (AC2)", () => {
     it("refuses a second hold by the same event, naming conflicting venue and period (TC03)", async () => {
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
       );
 
-      const promise = handleCreateVenueHold(
+      const promise = requestAndPlaceHold(
         { ...HOLD_WINDOW, startTime: "11:00", endTime: "14:00", eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -447,13 +447,13 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("refuses a hold by a different event, naming conflicting venue and period (TC04)", async () => {
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
       );
 
-      const promise = handleCreateVenueHold(
+      const promise = requestAndPlaceHold(
         { ...HOLD_WINDOW, startTime: "10:00", endTime: "13:00", eventId: eventIdB, venueId },
         session(users.coordinatorB),
         database as never
@@ -474,13 +474,13 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("allows holds that only touch at the boundary (TC09)", async () => {
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
       );
 
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, startTime: "12:00", endTime: "15:00", eventId: eventIdB, venueId },
         session(users.coordinatorB),
         database as never
@@ -491,12 +491,12 @@ describe("tentative venue holds (PTR-109)", () => {
 
     it("resolves concurrent holds safely: exactly one recorded, loser refused with venue and period (TC16)", async () => {
       const results = await Promise.allSettled([
-        handleCreateVenueHold(
+        requestAndPlaceHold(
           { ...HOLD_WINDOW, eventId: eventIdA, venueId },
           session(users.coordinatorA),
           database as never
         ),
-        handleCreateVenueHold(
+        requestAndPlaceHold(
           { ...HOLD_WINDOW, startTime: "11:00", endTime: "14:00", eventId: eventIdB, venueId },
           session(users.coordinatorB),
           database as never
@@ -557,7 +557,7 @@ describe("tentative venue holds (PTR-109)", () => {
         database as never
       );
 
-      const promise = handleCreateVenueHold(
+      const promise = requestAndPlaceHold(
         { ...HOLD_WINDOW, startTime: "10:00", endTime: "13:00", eventId: eventIdB, venueId },
         session(users.coordinatorB),
         database as never
@@ -583,7 +583,7 @@ describe("tentative venue holds (PTR-109)", () => {
   // ---------------------------------------------------------------------------
   describe("approval vs tentative hold (AC3)", () => {
     it("refuses booking approval while hold exists, naming venue and period (TC06)", async () => {
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -622,7 +622,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("allows the approval once the overlapping hold is released, proving the slot frees (AC3)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -660,7 +660,7 @@ describe("tentative venue holds (PTR-109)", () => {
         session(users.venueStaff),
         database as never
       );
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, startTime: "13:00", endTime: "15:00", eventId: eventIdB, venueId },
         session(users.coordinatorB),
         database as never
@@ -709,7 +709,7 @@ describe("tentative venue holds (PTR-109)", () => {
   // ---------------------------------------------------------------------------
   describe("releasing a tentative hold (AC5)", () => {
     it("releases a hold and frees the period for another event (TC07)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -730,7 +730,7 @@ describe("tentative venue holds (PTR-109)", () => {
       expect(persistedHold.releasedById).toBe(users.coordinatorA.id);
 
       // Another event can now hold the same period.
-      const newHold = await handleCreateVenueHold(
+      const newHold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdB, venueId },
         session(users.coordinatorB),
         database as never
@@ -739,7 +739,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("allows release by the event's assigned Coordinator even if hold was placed by another Coordinator", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -766,7 +766,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("lets the original holder release after the event is reassigned", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -794,7 +794,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("refuses release by a Coordinator who is neither creator nor assigned to event (TC15)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -806,7 +806,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("releases an orphaned hold whose creator and assignee are both gone", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -840,7 +840,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("still refuses an unrelated coordinator when the hold has an owner", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -852,7 +852,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("refuses releasing an already released hold (TC17)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -881,7 +881,7 @@ describe("tentative venue holds (PTR-109)", () => {
   // ---------------------------------------------------------------------------
   describe("converting a tentative hold to a venue booking request (AC5)", () => {
     it("converts hold to request with matching period, releases hold, and notifies Venue Staff (TC08)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -906,7 +906,12 @@ describe("tentative venue holds (PTR-109)", () => {
       const queued = await database
         .select()
         .from(schema.notifications)
-        .where(eq(schema.notifications.recipientId, users.venueStaff.id));
+        .where(
+          and(
+            eq(schema.notifications.recipientId, users.venueStaff.id),
+            eq(schema.notifications.kind, "venue_booking_requested")
+          )
+        );
       expect(queued).toHaveLength(1);
       expect(queued[0].kind).toBe("venue_booking_requested");
       expect(queued[0].emailedAt).toBeNull();
@@ -935,7 +940,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("allows convert by the event's assigned Coordinator even if hold was placed by another Coordinator", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -963,7 +968,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("refuses convert by a Coordinator who is neither creator nor assigned to event (TC19)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -979,7 +984,7 @@ describe("tentative venue holds (PTR-109)", () => {
       async status => {
         await moveEventA(status);
 
-        const hold = await handleCreateVenueHold(
+        const hold = await requestAndPlaceHold(
           { ...HOLD_WINDOW, eventId: eventIdA, venueId },
           session(users.coordinatorA),
           database as never
@@ -998,7 +1003,7 @@ describe("tentative venue holds (PTR-109)", () => {
     it.each(REFUSED_STATUSES)(
       "refuses conversion once the event is %s and leaves the hold held",
       async status => {
-        const hold = await handleCreateVenueHold(
+        const hold = await requestAndPlaceHold(
           { ...HOLD_WINDOW, eventId: eventIdA, venueId },
           session(users.coordinatorA),
           database as never
@@ -1044,7 +1049,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("refuses converting an already released or converted hold (TC20)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1099,7 +1104,12 @@ describe("tentative venue holds (PTR-109)", () => {
           await database
             .select()
             .from(schema.notifications)
-            .where(eq(schema.notifications.eventRequestId, eventIdA))
+            .where(
+              and(
+                eq(schema.notifications.eventRequestId, eventIdA),
+                eq(schema.notifications.kind, "venue_booking_requested")
+              )
+            )
         ).toEqual([]);
       });
 
@@ -1125,7 +1135,12 @@ describe("tentative venue holds (PTR-109)", () => {
         const [notification] = await database
           .select()
           .from(schema.notifications)
-          .where(eq(schema.notifications.recipientId, users.venueStaff.id));
+          .where(
+            and(
+              eq(schema.notifications.recipientId, users.venueStaff.id),
+              eq(schema.notifications.kind, "venue_booking_requested")
+            )
+          );
         expect(notification.payload).toMatchObject({ expectedAttendance: 40 });
         const [pending] = await handleGetPendingVenueRequestsForEvent(
           { eventId: eventIdA },
@@ -1155,7 +1170,7 @@ describe("tentative venue holds (PTR-109)", () => {
   // ---------------------------------------------------------------------------
   describe("calendar and suitability visibility (AC6)", () => {
     it("includes held period in venue availability calendar (TC10)", async () => {
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1177,7 +1192,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("stops showing period as tentatively held on calendar after release (TC14)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1199,7 +1214,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("shows venue as tentatively held in venue search / suitability check (TC22)", async () => {
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1220,7 +1235,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("shows venue as suitable again in venue search after hold is released (TC23)", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1238,7 +1253,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("reports canRelease and convertDefaults based on hold ownership, event status, and viewer", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1299,7 +1314,7 @@ describe("tentative venue holds (PTR-109)", () => {
   // ---------------------------------------------------------------------------
   describe("coordinator event card and the calendar's Convert action", () => {
     it("flags the Coordinator's pending request as conflicting when it overlaps an active hold", async () => {
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdB, venueId },
         session(users.coordinatorB),
         database as never
@@ -1335,7 +1350,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("offers Convert beside a pending request of the event at another window", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1369,7 +1384,7 @@ describe("tentative venue holds (PTR-109)", () => {
   // ---------------------------------------------------------------------------
   describe("pending-request conflict kinds", () => {
     it("reports a hold-kind conflict for a pending request overlapping an active hold", async () => {
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1423,7 +1438,7 @@ describe("tentative venue holds (PTR-109)", () => {
         .update(schema.venues)
         .set({ turnaroundMinutes: 45 })
         .where(eq(schema.venues.id, venueId));
-      await handleCreateVenueHold(
+      await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1509,7 +1524,7 @@ describe("tentative venue holds (PTR-109)", () => {
 
       const results = await raceForVenue(
         () =>
-          handleCreateVenueHold(
+          requestAndPlaceHold(
             { ...HOLD_WINDOW, eventId: eventIdA, venueId },
             session(users.coordinatorA),
             database as never
@@ -1557,7 +1572,7 @@ describe("tentative venue holds (PTR-109)", () => {
     });
 
     it("never leaves a held hold and an approved booking when converting races an approval", async () => {
-      const hold = await handleCreateVenueHold(
+      const hold = await requestAndPlaceHold(
         { ...HOLD_WINDOW, eventId: eventIdA, venueId },
         session(users.coordinatorA),
         database as never
@@ -1742,7 +1757,7 @@ describe("tentative venue holds (PTR-109)", () => {
   describe("authorization and validation guards (AC1)", () => {
     it("refuses a Coordinator not assigned to the event (TC11)", async () => {
       await expect(
-        handleCreateVenueHold(
+        requestAndPlaceHold(
           { ...HOLD_WINDOW, eventId: eventIdA, venueId },
           session(users.coordinatorB), // not assigned to Event A
           database as never
@@ -1752,7 +1767,7 @@ describe("tentative venue holds (PTR-109)", () => {
 
     it("refuses a hold on a non-existent venue (TC12)", async () => {
       await expect(
-        handleCreateVenueHold(
+        requestAndPlaceHold(
           { ...HOLD_WINDOW, eventId: eventIdA, venueId: 987_654 },
           session(users.coordinatorA),
           database as never
@@ -1767,7 +1782,7 @@ describe("tentative venue holds (PTR-109)", () => {
         await moveEventA(status);
 
         await expect(
-          handleCreateVenueHold(
+          requestAndPlaceHold(
             { ...HOLD_WINDOW, eventId: eventIdA, venueId },
             session(users.coordinatorA),
             database as never
