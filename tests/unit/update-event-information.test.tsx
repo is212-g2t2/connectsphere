@@ -59,11 +59,11 @@ const approved: CoordinationRequest = {
   purpose: "Fundraiser",
   proposedDates: [{ start: "2030-12-01T18:00", end: "2030-12-01T22:00" }],
   expectedAttendance: 100,
-  description: "",
+  description: "Annual fundraiser gala",
   eventType: "",
-  venueRequirements: "",
-  roomLayoutPreference: "",
-  accessibilityRequirements: "",
+  venueRequirements: "A stage and a PA system",
+  roomLayoutPreference: "Banquet",
+  accessibilityRequirements: "Step-free access",
   equipmentRequirements: [],
   specialArrangements: "",
   registrationEnabled: false,
@@ -408,7 +408,8 @@ describe("warning before a significant change (PTR-23)", () => {
     updateEventInformation.mockResolvedValue(saved(["roomLayoutPreference"]));
     const user = await openForm();
 
-    const layout = screen.getByLabelText<HTMLInputElement>("Room-layout preference (optional)");
+    const layout = screen.getByLabelText<HTMLInputElement>("Room-layout preference (required)");
+    await user.clear(layout);
     await user.type(layout, "Boardroom");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 

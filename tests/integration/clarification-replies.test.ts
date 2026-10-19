@@ -75,7 +75,10 @@ async function question(permittedFields: string[] = []) {
       eventName: "PTR19 Test Event",
       purpose: "Community workshop",
       expectedAttendance: 100,
+      description: "Community workshop with lunch",
+      venueRequirements: "Ground floor, near MRT",
       roomLayoutPreference: "Theatre",
+      accessibilityRequirements: "Step-free access",
       proposedDates: [{ start: "2026-10-23T09:00", end: "2026-10-23T17:00" }],
     })
     .returning();
@@ -335,7 +338,10 @@ describe("Organiser clarification replies", () => {
         eventName: "Other PTR19 Event",
         purpose: "Private workshop",
         expectedAttendance: 40,
+        description: "Private team workshop",
+        venueRequirements: "Quiet room",
         roomLayoutPreference: "Boardroom",
+        accessibilityRequirements: "None",
         proposedDates: [{ start: "2026-10-24T09:00", end: "2026-10-24T17:00" }],
       })
       .returning();
@@ -447,6 +453,11 @@ describe("Organiser clarification replies", () => {
         permittedFields: ["eventName"],
         amendments: { eventName: "   " },
         message: "This request is missing: Event name",
+      },
+      {
+        permittedFields: ["description"],
+        amendments: { description: "   " },
+        message: "This request is missing: Description",
       },
       {
         permittedFields: ["proposedDates"],

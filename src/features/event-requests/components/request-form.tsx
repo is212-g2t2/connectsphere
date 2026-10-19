@@ -57,14 +57,31 @@ export interface EventRequestFormSubmitContext {
   replyBody: string;
 }
 
-const OPTIONAL_TEXT_FIELDS = [
+/** PTR-155: these details are required at submission, but a draft may leave them blank. */
+const REQUIRED_TEXT_FIELDS = [
   ["description", "Description"],
-  ["eventType", "Type of event"],
   ["venueRequirements", "Venue requirements"],
   ["roomLayoutPreference", "Room-layout preference"],
   ["accessibilityRequirements", "Accessibility requirements"],
+] as const;
+
+const OPTIONAL_TEXT_FIELDS = [
+  ["eventType", "Type of event"],
   ["specialArrangements", "Special arrangements"],
 ] as const;
+
+type TextFieldName =
+  | (typeof REQUIRED_TEXT_FIELDS)[number][0]
+  | (typeof OPTIONAL_TEXT_FIELDS)[number][0];
+
+const TEXT_FIELD_LABELS: Record<TextFieldName, string> = {
+  description: "Description",
+  venueRequirements: "Venue requirements",
+  roomLayoutPreference: "Room-layout preference",
+  accessibilityRequirements: "Accessibility requirements",
+  eventType: "Type of event",
+  specialArrangements: "Special arrangements",
+};
 
 /** Registration rows vary by name, label, and input type, like the equipment rows. */
 const REGISTRATION_FIELDS = [
@@ -169,6 +186,10 @@ const MISSING_FIELD_KEYS: Partial<Record<string, string>> = {
   Purpose: "purpose",
   "Expected attendance": "expectedAttendance",
   "Proposed dates and times": "proposedDates",
+  Description: "description",
+  "Venue requirements": "venueRequirements",
+  "Room-layout preference": "roomLayoutPreference",
+  "Accessibility requirements": "accessibilityRequirements",
   "Equipment requirements": "equipmentRequirements",
 };
 
@@ -501,16 +522,17 @@ export function EventRequestForm({
     </form.Field>
   );
 
-  const renderOptionalText = (name: (typeof OPTIONAL_TEXT_FIELDS)[number][0]) => (
+  const renderTextField = (name: TextFieldName, required: boolean) => (
     <form.Field name={name}>
       {field => (
         <Field data-invalid={field.state.meta.errors.length > 0}>
           <FieldLabel htmlFor={inputId(field.name)}>
-            {OPTIONAL_TEXT_FIELDS.find(([key]) => key === name)?.[1]} (optional)
+            {TEXT_FIELD_LABELS[name]} ({required ? "required" : "optional"})
           </FieldLabel>
           {name === "eventType" ? (
             <Input
               id={inputId(field.name)}
+              required={required}
               disabled={!editable(name)}
               value={field.state.value}
               onBlur={field.handleBlur}
@@ -521,6 +543,7 @@ export function EventRequestForm({
             <Textarea
               id={inputId(field.name)}
               rows={3}
+              required={required}
               disabled={!editable(name)}
               value={field.state.value}
               onBlur={field.handleBlur}
@@ -600,15 +623,15 @@ export function EventRequestForm({
     { key: "proposedDates", render: renderProposedDates },
     { key: "expectedAttendance", render: renderExpectedAttendance },
     { key: "attendeeRegistration", render: renderRegistration },
-    { key: "description", render: () => renderOptionalText("description") },
-    { key: "eventType", render: () => renderOptionalText("eventType") },
-    { key: "venueRequirements", render: () => renderOptionalText("venueRequirements") },
-    { key: "roomLayoutPreference", render: () => renderOptionalText("roomLayoutPreference") },
+    { key: "description", render: () => renderTextField("description", true) },
+    { key: "eventType", render: () => renderTextField("eventType", false) },
+    { key: "venueRequirements", render: () => renderTextField("venueRequirements", true) },
+    { key: "roomLayoutPreference", render: () => renderTextField("roomLayoutPreference", true) },
     {
       key: "accessibilityRequirements",
-      render: () => renderOptionalText("accessibilityRequirements"),
+      render: () => renderTextField("accessibilityRequirements", true),
     },
-    { key: "specialArrangements", render: () => renderOptionalText("specialArrangements") },
+    { key: "specialArrangements", render: () => renderTextField("specialArrangements", false) },
     { key: "equipmentRequirements", render: renderEquipment },
   ];
 
@@ -752,8 +775,11 @@ export function EventRequestForm({
           aria-label="Optional requirements"
         >
           <h3 className="display-h3">Additional requirements</h3>
+          {REQUIRED_TEXT_FIELDS.map(([name]) => (
+            <Fragment key={name}>{renderTextField(name, true)}</Fragment>
+          ))}
           {OPTIONAL_TEXT_FIELDS.map(([name]) => (
-            <Fragment key={name}>{renderOptionalText(name)}</Fragment>
+            <Fragment key={name}>{renderTextField(name, false)}</Fragment>
           ))}
         </section>
 

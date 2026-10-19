@@ -130,11 +130,11 @@ describe("EventRequestForm", () => {
       "Event name (required)": initialValues.eventName,
       "Purpose (required)": initialValues.purpose,
       "Expected attendance (required)": "125",
-      "Description (optional)": initialValues.description,
+      "Description (required)": initialValues.description,
       "Type of event (optional)": initialValues.eventType,
-      "Venue requirements (optional)": initialValues.venueRequirements,
-      "Room-layout preference (optional)": initialValues.roomLayoutPreference,
-      "Accessibility requirements (optional)": initialValues.accessibilityRequirements,
+      "Venue requirements (required)": initialValues.venueRequirements,
+      "Room-layout preference (required)": initialValues.roomLayoutPreference,
+      "Accessibility requirements (required)": initialValues.accessibilityRequirements,
       "Special arrangements (optional)": initialValues.specialArrangements,
       "Proposed start 1 (required)": "2030-11-18T09:30",
       "Proposed end 1 (required)": "2030-11-18T12:45",
@@ -290,13 +290,13 @@ describe("EventRequestForm", () => {
     render(<EventRequestForm initialValues={initialValues} onSave={onSave} />);
 
     const description = "  Updated workshop notes\nKeep these even when saving fails.  ";
-    fill("Description (optional)", description);
+    fill("Description (required)", description);
     await user.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toBe("Could not save this draft. Try again.");
     });
-    expect(inputValue("Description (optional)")).toBe(description);
+    expect(inputValue("Description (required)")).toBe(description);
     expect(inputValue("Event name (required)")).toBe(initialValues.eventName);
     expect(inputValue("Proposed start 2 (required)")).toBe("2030-11-20T14:15");
     expect(inputValue("Equipment type 1")).toBe("  Wireless microphones  ");
@@ -514,13 +514,13 @@ describe("EventRequestForm", () => {
     );
     render(<EventRequestForm onSave={makeOnSave()} onSubmitRequest={onSubmitRequest} />);
 
-    fill("Description (optional)", "  Keep this draft note  ");
+    fill("Description (required)", "  Keep this draft note  ");
     await user.click(screen.getByRole("button", { name: "Submit request" }));
 
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toBe("This request is missing: Event name");
     });
-    expect(inputValue("Description (optional)")).toBe("  Keep this draft note  ");
+    expect(inputValue("Description (required)")).toBe("  Keep this draft note  ");
   });
 
   it("leads with the reply body and the editable fields, folding the rest into a collapsed block", () => {
@@ -576,7 +576,7 @@ describe("EventRequestForm", () => {
     );
     const { rerender } = render(replyForm(initialValues));
 
-    fill("Room-layout preference (optional)", "Boardroom");
+    fill("Room-layout preference (required)", "Boardroom");
     await user.type(screen.getByLabelText("Your reply (required)"), "Please use a boardroom.");
 
     rerender(
@@ -585,7 +585,7 @@ describe("EventRequestForm", () => {
 
     // The form owns its values for this mount. The reply and the organiser's own edits survive.
     expect(inputValue("Expected attendance (required)")).toBe("125");
-    expect(inputValue("Room-layout preference (optional)")).toBe("Boardroom");
+    expect(inputValue("Room-layout preference (required)")).toBe("Boardroom");
     expect(screen.getByLabelText<HTMLTextAreaElement>("Your reply (required)").value).toBe(
       "Please use a boardroom."
     );
@@ -599,7 +599,7 @@ describe("EventRequestForm", () => {
     );
     const { rerender } = render(draftForm(initialValues));
 
-    fill("Room-layout preference (optional)", "Boardroom");
+    fill("Room-layout preference (required)", "Boardroom");
     rerender(
       draftForm({
         ...initialValues,
@@ -626,7 +626,7 @@ describe("EventRequestForm", () => {
     );
 
     expect(inputValue("Expected attendance (required)")).toBe("120");
-    expect(inputValue("Room-layout preference (optional)")).toBe(
+    expect(inputValue("Room-layout preference (required)")).toBe(
       initialValues.roomLayoutPreference
     );
     expect(inputValue("Your reply (required)")).toBe("");

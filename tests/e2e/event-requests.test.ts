@@ -55,14 +55,14 @@ test.describe("Event request drafts", () => {
     await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
     await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year with members");
     await page.getByLabel("Expected attendance (required)", { exact: true }).fill("25");
-    await page.getByLabel("Description (optional)", { exact: true }).fill("Bring your own lunch");
+    await page.getByLabel("Description (required)", { exact: true }).fill("Bring your own lunch");
     await page.getByLabel("Type of event (optional)", { exact: true }).fill("Workshop");
     await page
-      .getByLabel("Venue requirements (optional)", { exact: true })
+      .getByLabel("Venue requirements (required)", { exact: true })
       .fill("Ground floor, near MRT");
-    await page.getByLabel("Room-layout preference (optional)", { exact: true }).fill("U-shape");
+    await page.getByLabel("Room-layout preference (required)", { exact: true }).fill("U-shape");
     await page
-      .getByLabel("Accessibility requirements (optional)", { exact: true })
+      .getByLabel("Accessibility requirements (required)", { exact: true })
       .fill("Step-free access");
     await page
       .getByLabel("Special arrangements (optional)", { exact: true })
@@ -179,6 +179,14 @@ test.describe("Event request submission (PTR-13)", () => {
     await page.getByLabel("Event name (required)", { exact: true }).fill("Community workshop");
     await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year with members");
     await page.getByLabel("Expected attendance (required)", { exact: true }).fill("25");
+    await page.getByLabel("Description (required)", { exact: true }).fill("Bring your own lunch");
+    await page
+      .getByLabel("Venue requirements (required)", { exact: true })
+      .fill("Ground floor, near MRT");
+    await page.getByLabel("Room-layout preference (required)", { exact: true }).fill("U-shape");
+    await page
+      .getByLabel("Accessibility requirements (required)", { exact: true })
+      .fill("Step-free access");
     await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-11-18T09:30");
     await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-11-18T12:45");
 
@@ -198,7 +206,7 @@ test.describe("Event request submission (PTR-13)", () => {
 
     await expect(
       page.getByText(
-        "This request is missing: Event name, Purpose, Proposed dates and times, Expected attendance"
+        "This request is missing: Event name, Purpose, Proposed dates and times, Expected attendance, Description, Venue requirements, Room-layout preference, Accessibility requirements"
       )
     ).toBeVisible();
     await expect(page.getByText("Request submitted.")).toHaveCount(0);
@@ -222,6 +230,10 @@ test.describe("Event request list (PTR-14)", () => {
     await page.getByLabel("Event name (required)", { exact: true }).fill("Annual dinner");
     await page.getByLabel("Purpose (required)", { exact: true }).fill("Thank the volunteers");
     await page.getByLabel("Expected attendance (required)", { exact: true }).fill("120");
+    await page.getByLabel("Description (required)", { exact: true }).fill("Dinner and awards");
+    await page.getByLabel("Venue requirements (required)", { exact: true }).fill("Banquet hall");
+    await page.getByLabel("Room-layout preference (required)", { exact: true }).fill("Banquet");
+    await page.getByLabel("Accessibility requirements (required)", { exact: true }).fill("None");
     await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-12-01T18:00");
     await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-12-01T22:00");
     await page.getByRole("button", { name: "Submit request" }).click();
@@ -326,6 +338,12 @@ test.describe("Coordinator assignment (PTR-144)", () => {
     await page.getByLabel("Event name (required)", { exact: true }).fill("Board retreat");
     await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year");
     await page.getByLabel("Expected attendance (required)", { exact: true }).fill("12");
+    await page.getByLabel("Description (required)", { exact: true }).fill("Board planning retreat");
+    await page
+      .getByLabel("Venue requirements (required)", { exact: true })
+      .fill("Boardroom with projector");
+    await page.getByLabel("Room-layout preference (required)", { exact: true }).fill("Boardroom");
+    await page.getByLabel("Accessibility requirements (required)", { exact: true }).fill("None");
     await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-12-01T09:00");
     await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-12-01T17:00");
     await page.getByRole("button", { name: "Submit request" }).click();
@@ -353,6 +371,10 @@ test.describe("Coordinator assignment (PTR-144)", () => {
     await page.getByLabel("Event name (required)", { exact: true }).fill(eventName);
     await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year");
     await page.getByLabel("Expected attendance (required)", { exact: true }).fill("12");
+    await page.getByLabel("Description (required)", { exact: true }).fill("Planning session");
+    await page.getByLabel("Venue requirements (required)", { exact: true }).fill("Meeting room");
+    await page.getByLabel("Room-layout preference (required)", { exact: true }).fill("Classroom");
+    await page.getByLabel("Accessibility requirements (required)", { exact: true }).fill("None");
     await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-12-01T09:00");
     await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-12-01T17:00");
     await page.getByRole("button", { name: "Submit request" }).click();

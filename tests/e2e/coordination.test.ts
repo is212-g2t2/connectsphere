@@ -390,7 +390,10 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
         eventName,
         purpose: "Community workshop",
         expectedAttendance: 100,
+        description: "Community workshop with lunch",
+        venueRequirements: "Ground floor, near MRT",
         roomLayoutPreference: "Theatre",
+        accessibilityRequirements: "Step-free access",
         proposedDates: [{ start: `${date}T09:00`, end: `${date}T17:00` }],
       })
       .returning();
@@ -411,7 +414,7 @@ test("Organiser amends the concerned fields, replies, and notifies the Coordinat
     await expect(organiserPage.getByLabel("Event name (required)")).toBeDisabled();
     await expect(organiserPage.getByLabel("Purpose (required)")).toBeDisabled();
     await organiserPage.getByLabel("Expected attendance (required)").fill("120");
-    await organiserPage.getByLabel("Room-layout preference (optional)").fill("Classroom");
+    await organiserPage.getByLabel("Room-layout preference (required)").fill("Classroom");
     await organiserPage.getByLabel("Your reply").fill(reply);
     await organiserPage.getByRole("button", { name: "Send reply", exact: true }).click();
     await expect(organiserPage.getByText("Under review", { exact: true })).toBeVisible();
@@ -478,6 +481,10 @@ test("a reply to a second question never reverts the first reply's amendment", a
         eventName,
         purpose: "Community workshop",
         expectedAttendance: 100,
+        description: "Community workshop with lunch",
+        venueRequirements: "Ground floor, near MRT",
+        roomLayoutPreference: "Theatre",
+        accessibilityRequirements: "Step-free access",
         proposedDates: [{ start: `${date}T09:00`, end: `${date}T17:00` }],
       })
       .returning();

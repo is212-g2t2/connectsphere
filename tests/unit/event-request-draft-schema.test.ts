@@ -656,6 +656,10 @@ describe("missingRequiredFields", () => {
     purpose: "Meet volunteers",
     proposedDates: [{ start: "2026-10-10T09:00", end: "2026-10-10T17:00" }],
     expectedAttendance: 25,
+    description: "Bring your own lunch",
+    venueRequirements: "Ground floor, near MRT",
+    roomLayoutPreference: "U-shape",
+    accessibilityRequirements: "None",
     equipmentRequirements: [],
   };
 
@@ -672,6 +676,28 @@ describe("missingRequiredFields", () => {
     expect(missingRequiredFields({ ...completeDraft, expectedAttendance: null })).toEqual([
       "Expected attendance",
     ]);
+  });
+
+  it("reports each newly required detail that is blank", () => {
+    expect(missingRequiredFields({ ...completeDraft, description: "" })).toEqual(["Description"]);
+    expect(missingRequiredFields({ ...completeDraft, description: "   " })).toEqual([
+      "Description",
+    ]);
+    expect(missingRequiredFields({ ...completeDraft, venueRequirements: "" })).toEqual([
+      "Venue requirements",
+    ]);
+    expect(missingRequiredFields({ ...completeDraft, roomLayoutPreference: "  " })).toEqual([
+      "Room-layout preference",
+    ]);
+    expect(missingRequiredFields({ ...completeDraft, accessibilityRequirements: "" })).toEqual([
+      "Accessibility requirements",
+    ]);
+  });
+
+  it("accepts None as the accessibility needs", () => {
+    expect(missingRequiredFields({ ...completeDraft, accessibilityRequirements: "None" })).toEqual(
+      []
+    );
   });
 
   it("reports an absent proposed date list", () => {
@@ -715,6 +741,10 @@ describe("missingRequiredFields", () => {
         purpose: "",
         proposedDates: [],
         expectedAttendance: null,
+        description: "",
+        venueRequirements: "  ",
+        roomLayoutPreference: "",
+        accessibilityRequirements: "",
         equipmentRequirements: [{ type: "Projector" }],
       })
     ).toEqual([
@@ -722,6 +752,10 @@ describe("missingRequiredFields", () => {
       "Purpose",
       "Proposed dates and times",
       "Expected attendance",
+      "Description",
+      "Venue requirements",
+      "Room-layout preference",
+      "Accessibility requirements",
       "Equipment requirements",
     ]);
   });

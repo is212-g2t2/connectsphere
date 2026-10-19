@@ -334,13 +334,19 @@ export function parseEventChangeRequestInput(data: unknown) {
  * Check the saved request for required PTR-10 fields. Drafts can omit fields (PTR-9), so only the
  * submission path calls this. PTR-13 refuses a request when this list is not empty. Report all
  * incomplete equipment as one item because each partial line has the same issue. Accept `null`
- * attendance because the database uses it for an absent value.
+ * attendance because the database uses it for an absent value. PTR-155 also requires the
+ * description, venue requirements, room-layout preference and accessibility requirements
+ * (the Organiser may enter "None" for no needs); registration stays optional.
  */
 export function missingRequiredFields(values: {
   eventName: string;
   purpose: string;
   proposedDates: { start?: string; end?: string }[];
   expectedAttendance?: number | null;
+  description: string;
+  venueRequirements: string;
+  roomLayoutPreference: string;
+  accessibilityRequirements: string;
   equipmentRequirements: { type: string; quantity?: number }[];
 }): string[] {
   const missing: string[] = [];
@@ -356,6 +362,10 @@ export function missingRequiredFields(values: {
   if (values.expectedAttendance === undefined || values.expectedAttendance === null) {
     missing.push("Expected attendance");
   }
+  if (values.description.trim() === "") missing.push("Description");
+  if (values.venueRequirements.trim() === "") missing.push("Venue requirements");
+  if (values.roomLayoutPreference.trim() === "") missing.push("Room-layout preference");
+  if (values.accessibilityRequirements.trim() === "") missing.push("Accessibility requirements");
   // PTR-10 criterion 2: Each added line needs both a type and a quantity. Saves allow half-written lines; submission does not.
   if (
     values.equipmentRequirements.some(
