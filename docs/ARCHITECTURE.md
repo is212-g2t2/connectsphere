@@ -140,10 +140,10 @@ Confirmation requires an approved review whose fingerprint matches the current a
 
 Complete venue and equipment arrangements enter safety review and notify every Safety Officer.
 A changed pending review keeps its row and takes the new fingerprint when arrangements are complete.
+The list shows "Updated" after a refresh, or "Withdrawn: arrangements changed" while its fingerprint is stale.
 
 After a rejected or changes-requested decision, the assigned Coordinator can request a fresh review
 once the arrangements are complete. Every Safety Officer is notified.
-The list shows "Updated" after a refresh, or "Withdrawn: arrangements changed" while its fingerprint is stale.
 
 A future confirmed event returns to planning when its latest review no longer gives current approval.
 The sweep clears the confirmation stamp and notifies the Coordinator, or every Lead if none is assigned.
