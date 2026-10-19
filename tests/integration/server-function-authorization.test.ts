@@ -69,6 +69,7 @@ import {
   decideSafetyReview,
   getEventSafetyReview,
   listSafetyReviews,
+  requestSafetyReReview,
 } from "#/features/safety-reviews/server-fns";
 import { SAFETY_REVIEW_COMMENTS_REQUIRED_MESSAGE } from "#/features/safety-reviews/schema";
 import {
@@ -958,6 +959,46 @@ describe("server-function authorization (PTR-69)", () => {
       expect(
         await messageFrom(decideSafetyReview, { decision: "approved", fingerprint: "abc" })
       ).toBe("Choose a safety review");
+    });
+  });
+
+  // PTR-158: only an Event Coordinator asks for a fresh safety review. The handler re-reads the
+  // assignment and every precondition under the event lock.
+  describe("PTR-158 safety re-review", () => {
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(requestSafetyReReview, { id: 1 })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it.each([
+      "attendee",
+      "event_organiser",
+      "event_coordinator_lead",
+      "venue_staff",
+      "technical_support_staff",
+      "safety_officer",
+    ])("refuses %s before payload validation", async role => {
+      signIn(role);
+
+      expect(await refusalFrom(requestSafetyReReview, {})).toMatchObject({ status: 403 });
+    });
+
+    it("lets an Event Coordinator past the permission boundary", async () => {
+      signIn("event_coordinator");
+
+      // This suite runs the middleware chain only. The handler's own refusals are in
+      // `safety-reviews.test.ts`.
+      expect((await call(requestSafetyReReview, { id: 1 })).error).toBeUndefined();
+    });
+
+    it("refuses a payload without an event id before the handler", async () => {
+      signIn("event_coordinator");
+
+      expect(await messageFrom(requestSafetyReReview, {})).toBe("Choose an event request");
     });
   });
 

@@ -1,4 +1,16 @@
-import { and, asc, eq, exists, inArray, isNotNull, isNull, ne, notExists, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  notExists,
+  or,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
@@ -41,6 +53,8 @@ import type { RegistrationAvailability } from "#/features/events/registration";
 import { completionRefusalForEvent } from "#/features/events/completion";
 import { parseEventListInput } from "#/features/events/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
+import { arrangementFingerprint } from "#/features/safety-reviews/fingerprint.server";
+import type { SafetyReviewStage } from "#/features/safety-reviews/schema";
 import {
   loadBlockedArrangements,
   suspendedPieceWhere,
@@ -259,6 +273,31 @@ export async function loadCurrentBookings(
 }
 
 /**
+ * PTR-158 AC2: the event's latest review and whether it covers the arrangements now. Null before
+ * the first review. The page names the stage from these facts, and the Coordinator's re-review
+ * action reads the state from them.
+ */
+async function loadSafetyStage(
+  database: Pick<Database, "select">,
+  eventId: number
+): Promise<SafetyReviewStage | null> {
+  const review = (
+    await database
+      .select({ state: safetyReviews.state, fingerprint: safetyReviews.fingerprint })
+      .from(safetyReviews)
+      .where(eq(safetyReviews.eventRequestId, eventId))
+      .orderBy(desc(safetyReviews.createdAt), desc(safetyReviews.id))
+      .limit(1)
+  ).at(0);
+  if (!review) return null;
+  const fingerprint = await arrangementFingerprint(database, eventId);
+  return {
+    state: review.state,
+    current: fingerprint !== null && fingerprint === review.fingerprint,
+  };
+}
+
+/**
  * State whether the reservation window moved from the booking's buffered window. A missing
  * booking, a missing snapshot, or a timestamp mismatch all count as moved.
  */
@@ -463,15 +502,29 @@ export async function handleListEvents(
     role === "event_coordinator" && eventId !== undefined
       ? loadVenueHoldRequests(database, { eventIds: requestIds })
       : Promise.resolve([]);
-  const [holderRows, bookings, countRows, conflictKinds, blockedArrangements, holdRequestRows] =
-    await Promise.all([
-      holderRead,
-      bookingRead,
-      countRead,
-      loadPendingConflictKinds(database, pendingIds),
-      blockedRead,
-      holdRequestRead,
-    ]);
+  // PTR-158 AC2: the Organiser and Coordinator read the safety stage on the detail page only.
+  // Lists and cards keep the plain status, so skip the review and fingerprint reads there.
+  const safetyStageRead =
+    eventId !== undefined && (role === "event_organiser" || role === "event_coordinator")
+      ? loadSafetyStage(database, eventId)
+      : Promise.resolve(null);
+  const [
+    holderRows,
+    bookings,
+    countRows,
+    conflictKinds,
+    blockedArrangements,
+    holdRequestRows,
+    safetyStage,
+  ] = await Promise.all([
+    holderRead,
+    bookingRead,
+    countRead,
+    loadPendingConflictKinds(database, pendingIds),
+    blockedRead,
+    holdRequestRead,
+    safetyStageRead,
+  ]);
 
   const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
 
@@ -628,6 +681,8 @@ export async function handleListEvents(
           // PTR-146: the Safety Officer's copy states the current booking's own session
           // requirements, which the fingerprint hashes, beside the event's fields.
           sessionRequirements: bookings.get(record.id)?.session ?? null,
+          // PTR-158 AC2: only the named event's read fills this, and only for the two roles.
+          ...(eventId === undefined ? {} : { safetyStage }),
           equipmentBookings: equipmentBookings
             .filter(booking => booking.eventId === record.id && !booking.suspended)
             // oxlint-disable-next-line oxc/no-map-spread

@@ -17,7 +17,10 @@ import { eventInformationSections } from "#/features/events/components/event-inf
 import { registrationsSections } from "#/features/events/components/registrations-section";
 import { venueSections } from "#/features/events/components/venue-section";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
-import { safetySections } from "#/features/safety-reviews/components/safety-review-sections";
+import {
+  safetyReReviewSections,
+  safetySections,
+} from "#/features/safety-reviews/components/safety-review-sections";
 import { venueRequestSections } from "#/features/venue-requests/components/venue-request-sections";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -60,6 +63,7 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
         ...venueSections(data),
         ...equipmentSections(data),
         ...registrationsSections(data),
+        ...safetyReReviewSections(data),
         confirm,
         ...eventInformationSections(data),
         releases,

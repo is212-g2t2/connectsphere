@@ -123,6 +123,95 @@ describe("EventDetailPage", () => {
     expect(screen.queryByRole("complementary", { name: "Actions" })).toBeNull();
   });
 
+  it.each([
+    ["approved", "Safety approved"],
+    ["planning", "Safety rejected"],
+    ["planning", "Safety changes requested"],
+    ["approved", "Awaiting safety review"],
+  ] as const)("shows the safety stage instead of the status on a %s event", (status, label) => {
+    render(
+      <EventDetailPage
+        data={{
+          kind: "event",
+          event: projection("coordinator", {
+            status,
+            safetyStage: {
+              state:
+                label === "Safety approved"
+                  ? "approved"
+                  : label === "Safety rejected"
+                    ? "rejected"
+                    : label === "Safety changes requested"
+                      ? "changes_requested"
+                      : "pending",
+              current: true,
+            },
+          }),
+        }}
+      />
+    );
+
+    expect(screen.getByText(label)).toBeTruthy();
+    expect(screen.queryByText(status === "approved" ? "Approved" : "Planning")).toBeNull();
+  });
+
+  it("reads a review that no longer covers the arrangements as out of date", () => {
+    render(
+      <EventDetailPage
+        data={{
+          kind: "event",
+          event: projection("organiser", {
+            status: "planning",
+            safetyStage: { state: "approved", current: false },
+          }),
+        }}
+      />
+    );
+
+    expect(screen.getByText("Safety review out of date")).toBeTruthy();
+    expect(screen.queryByText("Planning")).toBeNull();
+  });
+
+  it("keeps the plain status before the first review and once the event is confirmed", () => {
+    const { rerender } = render(
+      <EventDetailPage
+        data={{ kind: "event", event: projection("organiser", { status: "approved" }) }}
+      />
+    );
+    expect(screen.getByText("Approved")).toBeTruthy();
+
+    rerender(
+      <EventDetailPage
+        data={{
+          kind: "event",
+          event: projection("coordinator", {
+            status: "confirmed",
+            safetyStage: { state: "rejected", current: true },
+          }),
+        }}
+      />
+    );
+    expect(screen.getByText("Confirmed")).toBeTruthy();
+    expect(screen.queryByText("Safety rejected")).toBeNull();
+  });
+
+  it("keeps the plain status on a Lead's page, which has no safety stage", () => {
+    render(
+      <EventDetailPage
+        data={{
+          kind: "event",
+          event: projection("lead", {
+            status: "approved",
+            safetyStage: { state: "approved", current: true },
+          }),
+        }}
+      />
+    );
+
+    expect(screen.getByText("Approved")).toBeTruthy();
+    expect(screen.queryByText("Safety approved")).toBeNull();
+  });
+
   it("titles a venue staff event with the requested venue", async () => {
     render(
       <EventDetailPage

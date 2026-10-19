@@ -4,6 +4,7 @@ import type {
   EquipmentReleaseRecord,
 } from "#/features/equipment-requests/schema";
 import type { RegistrationAvailability } from "#/features/events/registration";
+import type { SafetyReviewStage } from "#/features/safety-reviews/schema";
 import type {
   SessionRequirements,
   VenueRequestConflict,
@@ -377,6 +378,12 @@ export interface EventProjection {
     /** PTR-144: Lead only. The request still waits for a Coordinator, so its page opens the
      * read-only queue detail instead of the projection. */
     awaitingAssignment?: boolean;
+    /**
+     * PTR-158 AC2: Organiser and Coordinator only, on a named event. The review facts behind the
+     * stage label. Unset on lists and cards, which keep the plain status, and before the first
+     * review.
+     */
+    safetyStage?: SafetyReviewStage | null;
   };
 }
 
@@ -442,6 +449,8 @@ export function projectEvent(
       requiredFacilities: string | null;
     } | null;
     equipmentBookings?: EquipmentBookingOption[];
+    /** PTR-158 AC2: the event's review, for the Organiser's and Coordinator's stage label. */
+    safetyStage?: SafetyReviewStage | null;
   } = {}
 ): EventProjection {
   const {
@@ -451,6 +460,7 @@ export function projectEvent(
     holdRequests = [],
     venueCapacity = null,
     sessionRequirements = null,
+    safetyStage,
   } = extras;
   const timing = eventTiming(record.proposedDates);
 
@@ -594,6 +604,9 @@ export function projectEvent(
           description: record.description,
           ...timing,
           status: record.status,
+          // PTR-158 AC2: the detail header names the safety stage in place of the plain status.
+          // A list read passes no stage, so its cards keep the plain status.
+          ...(safetyStage === undefined ? {} : { safetyStage }),
           registrationOpensAt: record.registrationOpensAt,
           registrationClosesAt: record.registrationClosesAt,
           expectedAttendance: record.expectedAttendance,
