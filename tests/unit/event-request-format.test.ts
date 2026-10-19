@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { formatLocalDateTime, formatProposedWindow } from "#/features/event-requests/format";
+import {
+  formatLocalDateTime,
+  formatProposedWindow,
+  formatVenueWindow,
+} from "#/features/event-requests/format";
 
 describe("formatLocalDateTime (PTR-14)", () => {
   it("renders a stored datetime-local value as a readable wall-clock", () => {
@@ -32,5 +36,29 @@ describe("formatProposedWindow (PTR-14)", () => {
     expect(formatProposedWindow({ start: "2030-11-18T09:30" })).toBe("18 Nov 2030, 09:30 – ?");
     expect(formatProposedWindow({ end: "2030-11-18T12:45" })).toBe("? – 18 Nov 2030, 12:45");
     expect(formatProposedWindow({})).toBe("Not yet chosen");
+  });
+});
+
+describe("formatVenueWindow (PTR-146)", () => {
+  it("renders a same-day booking as one date", () => {
+    expect(
+      formatVenueWindow({
+        date: "2030-11-18",
+        endDate: "2030-11-18",
+        startTime: "09:30",
+        endTime: "12:45",
+      })
+    ).toBe("18 Nov 2030, 09:30 – 12:45");
+  });
+
+  it("names the end day when the booking ends on a later date", () => {
+    expect(
+      formatVenueWindow({
+        date: "2030-11-18",
+        endDate: "2030-11-19",
+        startTime: "22:00",
+        endTime: "01:00",
+      })
+    ).toBe("18 Nov 2030, 22:00 – 19 Nov 2030, 01:00");
   });
 });
