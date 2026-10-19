@@ -251,7 +251,6 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
           kind: "triage",
           viewerId: "coord-b",
           request: { ...request, status: "submitted" },
-          coordinators,
         }}
       />
     );

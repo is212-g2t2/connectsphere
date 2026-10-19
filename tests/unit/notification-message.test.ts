@@ -155,6 +155,7 @@ const validPayloads = {
     setupMinutes: 30,
     turnaroundMinutes: 30,
   },
+  event_submitted: { eventName: "Gala", audience: "organiser" },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -306,6 +307,41 @@ describe("notification summaries (PTR-55 AC2)", () => {
     expect(
       notificationSummary(parse("registration_closed", validPayloads.registration_closed))
     ).toBe("Registration has closed for Gala");
+  });
+
+  it("tells the Organiser their request is recorded and the Lead it waits for assignment (PTR-144)", () => {
+    const organiser = parse("event_submitted", { eventName: "Gala", audience: "organiser" });
+    expect(notificationSummary(organiser)).toBe("Event request submitted: Gala");
+    expect(notificationHref({ ...organiser, eventRequestId: 7 })).toBe("/events/7");
+
+    const lead = parse("event_submitted", { eventName: "Gala", audience: "lead" });
+    expect(notificationSummary(lead)).toBe("New event request awaiting a Coordinator: Gala");
+    expect(notificationHref({ ...lead, eventRequestId: 7 })).toBe("/coordination");
+
+    // A Lead copy of a change or cancellation request opens the queue, not the event page.
+    const changeLead = parse("event_change_requested", {
+      ...validPayloads.event_change_requested,
+      audience: "lead",
+    });
+    expect(notificationHref({ ...changeLead, eventRequestId: 7 })).toBe("/coordination");
+    const cancellationLead = parse("event_cancellation_requested", {
+      ...validPayloads.event_cancellation_requested,
+      audience: "lead",
+    });
+    expect(notificationHref({ ...cancellationLead, eventRequestId: 7 })).toBe("/coordination");
+    // Rows stored before this story carry no audience and still open the event page.
+    expect(
+      notificationHref({
+        ...parse("event_change_requested", validPayloads.event_change_requested),
+        eventRequestId: 7,
+      })
+    ).toBe("/events/7");
+    expect(
+      notificationHref({
+        ...parse("event_cancellation_requested", validPayloads.event_cancellation_requested),
+        eventRequestId: 7,
+      })
+    ).toBe("/events/7");
   });
 });
 
@@ -517,6 +553,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
         "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       venue_buffer_conflict:
         "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
+      event_submitted: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

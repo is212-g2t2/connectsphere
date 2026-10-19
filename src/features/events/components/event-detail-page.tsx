@@ -47,8 +47,8 @@ export function EventDetailPage({ data }: { data: EventPageData }) {
 
   return (
     <Page width="wide">
-      <Link to="/dashboard" className={NAV_LINK_CLASSNAME}>
-        Back to dashboard
+      <Link to={access === "lead" ? "/coordination" : "/dashboard"} className={NAV_LINK_CLASSNAME}>
+        {access === "lead" ? "Back to coordination" : "Back to dashboard"}
       </Link>
 
       <div className="mt-6">

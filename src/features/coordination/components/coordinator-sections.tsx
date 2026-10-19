@@ -37,7 +37,6 @@ import {
   parseDecisionInput,
 } from "#/features/coordination/schema";
 import {
-  assignEventRequest,
   decideEventRequest,
   raiseClarificationRequest,
   requestEventHandover,
@@ -45,6 +44,7 @@ import {
 } from "#/features/coordination/server-fns";
 import type { Coordinator, CoordinationRequest } from "#/features/coordination/server-fns";
 import {
+  CancellationRequestHistory,
   ChangeRequestHistory,
   ClarificationThread,
 } from "#/features/event-requests/components/request-message-blocks";
@@ -53,8 +53,10 @@ import {
   CLARIFICATION_FIELDS,
   CLARIFICATION_TEXT_MAX,
   ClarificationFormSchema,
+  EVENT_REQUEST_REVIEW_STATUSES,
   canRequestEventCancellation,
   canUpdateEventInformation,
+  isReviewStatus,
 } from "#/features/event-requests/schema";
 import type { ClarificationField, EventRequestStatus } from "#/features/event-requests/schema";
 import { ConfirmEventAction } from "#/features/events/components/confirm-event-action";
@@ -65,16 +67,9 @@ import { useMutation } from "#/hooks/use-mutation";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 import { skipRootFilter } from "#/lib/invalidate";
 
-/** The review stages: the decision, the clarification thread, and the assignment all live here. */
-const REVIEW_STATUSES: readonly EventRequestStatus[] = [
-  "submitted",
-  "under_review",
-  "awaiting_organiser",
-];
-
 /** The stages with live coordination work: review onward, short of closed. */
 const ACTIVE_STATUSES: readonly EventRequestStatus[] = [
-  ...REVIEW_STATUSES,
+  ...EVENT_REQUEST_REVIEW_STATUSES,
   "approved",
   "planning",
   "confirmed",
@@ -82,30 +77,18 @@ const ACTIVE_STATUSES: readonly EventRequestStatus[] = [
 
 /** A cancellation request with no outcome recorded is still waiting on the Coordinator. */
 function hasPendingCancellation(data: EventPageData): boolean {
-  const requests =
-    data.kind === "triage"
-      ? data.request.cancellationRequests
-      : (data.coordination?.request.cancellationRequests ??
-        data.organiserRequest?.cancellationRequests ??
-        []);
-  return requests.some(request => request.outcome === null);
+  return (coordinationRequest(data)?.cancellationRequests ?? []).some(
+    item => item.outcome === null
+  );
 }
 
 function hasChangeHistory(data: EventPageData): boolean {
-  const requests =
-    data.kind === "triage"
-      ? data.request.changeRequests
-      : (data.coordination?.request.changeRequests ?? data.organiserRequest?.changeRequests ?? []);
-  return requests.length > 0;
+  return (coordinationRequest(data)?.changeRequests ?? []).length > 0;
 }
 
 /** The clarification thread has entries to show, mirroring `MessagesBody`'s null condition. */
 function hasClarifications(data: EventPageData): boolean {
-  const clarifications =
-    data.kind === "triage"
-      ? data.request.clarifications
-      : (data.coordination?.request.clarifications ?? data.organiserRequest?.clarifications ?? []);
-  return clarifications.length > 0;
+  return (coordinationRequest(data)?.clarifications ?? []).length > 0;
 }
 
 /** The request carries outstanding releases, mirroring `ReleasesBody`'s null condition. */
@@ -131,7 +114,8 @@ function coordinationRequest(data: EventPageData): CoordinationRequest | null {
 }
 
 function coordinationTeam(data: EventPageData): Coordinator[] | null {
-  if (data.kind === "triage") return data.coordinators;
+  // The unassigned detail (triage, PTR-144) holds no assignment form, so it carries no team.
+  if (data.kind === "triage") return null;
   return data.coordination?.coordinators ?? null;
 }
 
@@ -142,8 +126,9 @@ function isAssignedView(data: EventPageData, request: CoordinationRequest): bool
 
 /**
  * The Coordinator's review flow: the request record, the decision, the clarification thread,
- * change requests, the assignment, and a waiting cancellation request. Triage renders the record
- * and the assignment only — the review flow needs an assignee, so it stays on the event view.
+ * change requests, the assignment, and a waiting cancellation request. The unassigned detail
+ * (triage) renders the record alone: every action needs an assignee, so those sections stay on
+ * the assigned event view (PTR-144).
  *
  * Gating contract: SectionStack shows only sections whose `visible()` passes, while each body
  * still null-checks its own empty state — tests render bodies directly and bypass `visible()`.
@@ -153,12 +138,14 @@ export function coordinatorSections(data: EventPageData): EventSectionDef[] {
   if (status === null) return [];
   // Triage is the unassigned view; only the assigned event view carries the review flow.
   const assignedView = data.kind === "event";
-  const inReview = REVIEW_STATUSES.some(candidate => candidate === status);
+  const inReview = isReviewStatus(status);
   return [
     {
       id: "request",
       label: "Request details",
-      visible: () => inReview,
+      // PTR-144: the queue detail reads the record in any status, including a request whose
+      // Coordinator account was deleted after a decision. The assigned view keeps it in review.
+      visible: () => data.kind === "triage" || inReview,
       render: inner => <RequestDetailsBody data={inner} />,
     },
     {
@@ -176,22 +163,23 @@ export function coordinatorSections(data: EventPageData): EventSectionDef[] {
     {
       id: "changes",
       label: "Change requests",
-      visible: inner => assignedView && hasChangeHistory(inner),
+      // PTR-144: the Lead reads the history too; the decisions stay on the assigned view.
+      visible: inner => hasChangeHistory(inner),
       render: inner => <ChangesBody data={inner} />,
     },
     {
       id: "assignment",
       label: "Assignment and handover",
-      visible: () => ACTIVE_STATUSES.some(candidate => candidate === status),
+      // PTR-144: the handover belongs to the assigned view. The unassigned detail is read-only:
+      // moving an unassigned request is the Lead's action in PTR-145.
+      visible: () => assignedView && ACTIVE_STATUSES.some(candidate => candidate === status),
       render: inner => <AssignmentBody data={inner} />,
     },
     {
       id: "cancellation",
       label: "Cancellation request",
       visible: inner =>
-        assignedView &&
-        hasPendingCancellation(inner) &&
-        coordinationRequest(inner)?.status !== "cancelled",
+        hasPendingCancellation(inner) && coordinationRequest(inner)?.status !== "cancelled",
       render: inner => <CancellationBody data={inner} />,
     },
   ];
@@ -685,10 +673,10 @@ function ChangesBody({ data }: { data: EventPageData }) {
 }
 
 /**
- * The assignment and handover, as the old coordination detail shows it. The viewer identity
- * rides `EventPageData` from the loader for the "Assign to me" claim and the "— you" label.
- * Every mutation refreshes the loader in place: claiming the request flips the page to the
- * assigned view on its own.
+ * The handover, as the assigned Coordinator's page shows it. The viewer identity rides
+ * `EventPageData` from the loader for the "— you" label. A mutation refreshes the loader in
+ * place, so the waiting offer appears on its own. PTR-144: the unassigned queue is the Lead's,
+ * and moving an unassigned request is PTR-145, so no claim action renders here.
  */
 function AssignmentBody({ data }: { data: EventPageData }) {
   const request = coordinationRequest(data);
@@ -716,8 +704,7 @@ function AssignmentBody({ data }: { data: EventPageData }) {
 
 /**
  * Who holds this request, beside the form that moves it: the Organiser, the current
- * Coordinator, and when it changed hands or was offered on. The form below carries only
- * the move itself.
+ * Coordinator, and when it was offered on. The form below carries only the move itself.
  */
 function AssignmentSummary({ request }: { request: CoordinationRequest }) {
   const pendingHandover = request.pendingHandover;
@@ -748,10 +735,8 @@ function AssignmentSummary({ request }: { request: CoordinationRequest }) {
                     {request.coordinator.email}
                   </a>
                 </>
-              ) : request.assignedCoordinatorId !== null ? (
-                <span className="text-muted-foreground">Assigned coordinator unavailable</span>
               ) : (
-                <span className="text-muted-foreground">Not yet assigned</span>
+                <span className="text-muted-foreground">Assigned coordinator unavailable</span>
               )
             }
           />
@@ -785,24 +770,6 @@ function AssignmentForm({
   viewerId: string | null;
   onAssigned: () => Promise<void>;
 }) {
-  const unassigned = request.assignedCoordinatorId === null;
-
-  const [assignment, assign, assigning] = useMutation(async (incomingId: string) => {
-    await assignEventRequest({
-      data: {
-        id: request.id,
-        coordinatorId: incomingId,
-        expectedCoordinatorId: request.assignedCoordinatorId,
-      },
-    });
-    toast.success("Assignment recorded.");
-    try {
-      await onAssigned();
-    } catch {
-      // The assignment already committed; a missed refresh must not mask it as an error.
-    }
-  }, "Could not assign this request. Try again.");
-
   // PTR-110: an assigned request is offered, not moved. The outgoing Coordinator keeps the
   // request and its access until the incoming one accepts, so the page stays and re-reads itself
   // to show the waiting offer.
@@ -825,15 +792,10 @@ function AssignmentForm({
     "Could not request this handover. Try again."
   );
 
-  // The coordinator selection, shared by pickup (immediate assignment) and handover (an offer).
   const form = useForm({
     defaultValues: { coordinatorId: "" },
     validators: { onSubmit: CoordinatorSelection },
     onSubmit: async ({ value, formApi }) => {
-      if (unassigned) {
-        await assign(value.coordinatorId);
-        return;
-      }
       const result = await requestHandover(value.coordinatorId);
       // Clear the selection only once the offer is recorded: an offer already waits on that
       // Coordinator, and re-submitting the same choice would replace it and email them again.
@@ -849,8 +811,7 @@ function AssignmentForm({
 
   // One label per state, in precedence order, so the submit button's truth table is readable.
   let submitLabel = "Hand over";
-  if (unassigned) submitLabel = assigning ? "Assigning…" : "Assign Coordinator";
-  else if (requestingHandover) submitLabel = "Requesting…";
+  if (requestingHandover) submitLabel = "Requesting…";
   else if (pendingHandover) submitLabel = "Offer to someone else";
 
   return (
@@ -859,14 +820,14 @@ function AssignmentForm({
         <CardContent>
           <div>
             <h3 id="assignment-heading" className="display-h3">
-              {unassigned ? "Assign this request" : "Hand over this request"}
+              Hand over this request
             </h3>
             <form
               noValidate
               className="mt-4 space-y-3"
               onSubmit={event => {
                 event.preventDefault();
-                if (assigning || requestingHandover) return;
+                if (requestingHandover) return;
                 void form.handleSubmit();
               }}
             >
@@ -877,7 +838,7 @@ function AssignmentForm({
                     <Select
                       value={field.state.value === "" ? null : field.state.value}
                       onValueChange={value => field.handleChange(value ?? "")}
-                      disabled={assigning || requestingHandover}
+                      disabled={requestingHandover}
                       required
                     >
                       <SelectTrigger
@@ -910,34 +871,16 @@ function AssignmentForm({
                 )}
               </form.Field>
               <div className="flex flex-wrap gap-3">
-                <Button type="submit" disabled={assigning || requestingHandover}>
+                <Button type="submit" disabled={requestingHandover}>
                   {submitLabel}
                 </Button>
-                {unassigned && viewerId !== null && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={assigning || requestingHandover}
-                    onClick={() => {
-                      void assign(viewerId);
-                    }}
-                  >
-                    Assign to me
-                  </Button>
-                )}
               </div>
             </form>
-            {unassigned
-              ? assignment.status === "error" && (
-                  <p role="alert" className="mt-4 body-sm text-destructive">
-                    {assignment.error}
-                  </p>
-                )
-              : handover.status === "error" && (
-                  <p role="alert" className="mt-4 body-sm text-destructive">
-                    {handover.error}
-                  </p>
-                )}
+            {handover.status === "error" && (
+              <p role="alert" className="mt-4 body-sm text-destructive">
+                {handover.error}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -945,12 +888,16 @@ function AssignmentForm({
   );
 }
 
-/** The waiting cancellation request, for the assigned Coordinator to cancel or decline. */
+/**
+ * The waiting cancellation request. The assigned Coordinator decides it; the Lead reads the same
+ * record as history, with no action (PTR-144).
+ */
 function CancellationBody({ data }: { data: EventPageData }) {
   const request = coordinationRequest(data);
-  if (!request || !isAssignedView(data, request)) return null;
+  if (!request) return null;
   if (request.status === "cancelled") return null;
   if (!request.cancellationRequests.some(item => item.outcome === null)) return null;
+  if (!isAssignedView(data, request)) return <CancellationRequestHistory request={request} />;
   return (
     <div>
       <h2 className="display-h3">Cancellation request</h2>

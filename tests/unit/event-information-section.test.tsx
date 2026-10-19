@@ -94,6 +94,42 @@ function coordinatorPage(): EventPageData {
   };
 }
 
+function leadPage(): EventPageData {
+  const event: EventProjection = {
+    access: "lead",
+    event: {
+      id: 1042,
+      eventDate: "2026-11-04",
+      endDate: "2026-11-04",
+      startTime: "10:00",
+      endTime: "16:00",
+      status: "confirmed",
+      expectedAttendance: 60,
+      description: "An open day for new members.",
+      layout: "Mixed seating",
+      accessibilityRequirements: "Step-free access throughout",
+      requiredFacilities: "Step-free access, PA system",
+      equipment: [],
+      registrationEnabled: false,
+      registrationOpensAt: null,
+      registrationClosesAt: null,
+      confirmation: {
+        confirmedAt: "2026-10-20T02:00:00Z",
+        confirmedByName: "Seeded Event Coordinator",
+        venue: {
+          name: "Harbour Hall",
+          location: "Level 1, ConnectSphere Marina Centre",
+          date: "2026-11-04",
+          endDate: "2026-11-04",
+          startTime: "10:00",
+          endTime: "16:00",
+        },
+      },
+    },
+  };
+  return { kind: "event", viewerId: "lead-1", event };
+}
+
 describe("event information section", () => {
   it("shows the organiser the recorded details", () => {
     const data = organiserPage();
@@ -121,6 +157,23 @@ describe("event information section", () => {
 
     expect(screen.getByRole("heading", { name: "Update event information" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit event information" })).toBeTruthy();
+  });
+
+  it("shows the lead the read-only record with no edit form", () => {
+    const data = leadPage();
+    const defs = eventInformationSections(data);
+    expect(defs).toHaveLength(1);
+    expect(defs[0].label).toBe("Event information");
+    expect(defs[0].visible(data)).toBe(true);
+    render(<>{defs[0].render(data)}</>);
+
+    expect(screen.getByRole("heading", { name: "Event information" })).toBeTruthy();
+    expect(screen.getByText("An open day for new members.")).toBeTruthy();
+    expect(screen.queryByText("Update event information")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit event information" })).toBeNull();
+    // The confirmed venue is part of the read-only record (PTR-144).
+    expect(screen.getByText(/Harbour Hall, 4 Nov 2026, 10:00–16:00/)).toBeTruthy();
+    expect(screen.getByText(/Seeded Event Coordinator/)).toBeTruthy();
   });
 
   it("stays hidden and renders nothing without its request", () => {

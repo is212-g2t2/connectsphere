@@ -102,6 +102,32 @@ describe("projectEvent: equipment fields", () => {
   });
 });
 
+describe("getEventAccess: lead (PTR-144)", () => {
+  const base = {
+    userId: "l1",
+    organiserId: "o1",
+    assignedCoordinatorId: "c1",
+    venueStaffIds: [],
+    technicalSupportIds: [],
+    status: "confirmed" as const,
+    registrationEnabled: true,
+    hasOwnRegistration: false,
+  };
+  test("oversee reads every event, assigned or not", () => {
+    expect(getEventAccess({ ...base, role: "event_coordinator_lead" })).toBe("lead");
+    expect(
+      getEventAccess({ ...base, role: "event_coordinator_lead", assignedCoordinatorId: null })
+    ).toBe("lead");
+  });
+
+  test("oversee is the lead's verb alone; coordinate stays the coordinator's", () => {
+    expect(can("event_coordinator_lead", { event_request: ["oversee"] })).toBe(true);
+    expect(can("event_coordinator", { event_request: ["oversee"] })).toBe(false);
+    expect(can("event_coordinator_lead", { event_request: ["coordinate"] })).toBe(false);
+    expect(can("event_coordinator", { event_request: ["coordinate"] })).toBe(true);
+  });
+});
+
 describe("getEventAccess: coordinator", () => {
   const base = {
     userId: "c1",

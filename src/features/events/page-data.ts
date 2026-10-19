@@ -17,8 +17,8 @@ export interface VenueOption {
 
 /**
  * Gather everything the universal event page needs in the route loader. Include each field beyond
- * `event` only for the access that reads it. A coordinator opening an unassigned event gets no
- * projection. They get the triage view of the underlying request instead. The shell and the
+ * `event` only for the access that reads it. The Lead opening an unassigned event gets no
+ * projection for it: the loader reads the queue detail instead (PTR-144). The shell and the
  * section modules then stay client-safe. This module carries types alone.
  */
 export type EventPageData =
@@ -47,7 +47,6 @@ export type EventPageData =
       kind: "triage";
       viewerId: string;
       request: CoordinationRequest;
-      coordinators: Coordinator[];
     };
 
 /** One stacked block of the staff event page with its section entry, gate, and body. */

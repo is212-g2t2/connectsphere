@@ -47,10 +47,17 @@ describe("seeded staff accounts (PTR-59)", () => {
       .from(schema.user)
       .where(inArray(schema.user.id, staffIds));
 
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(6);
     expect(new Set(rows.map(row => row.role))).toEqual(
-      new Set(["event_coordinator", "venue_staff", "technical_support_staff"])
+      new Set([
+        "event_coordinator",
+        "event_coordinator_lead",
+        "venue_staff",
+        "technical_support_staff",
+      ])
     );
+    expect(rows.filter(row => row.role === "event_coordinator")).toHaveLength(2);
+    expect(rows.filter(row => row.role === "event_coordinator_lead")).toHaveLength(2);
   });
 
   it("holds a credential account for each staff user", async () => {
@@ -59,7 +66,7 @@ describe("seeded staff accounts (PTR-59)", () => {
       .from(schema.account)
       .where(inArray(schema.account.userId, staffIds));
 
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(6);
     for (const row of rows) {
       expect(row.providerId).toBe("credential");
       expect(row.password).toBeTruthy();
@@ -92,8 +99,8 @@ describe("seeded staff accounts (PTR-59)", () => {
       .from(schema.account)
       .where(inArray(schema.account.userId, staffIds));
 
-    expect(users).toHaveLength(3);
-    expect(accounts).toHaveLength(3);
+    expect(users).toHaveLength(6);
+    expect(accounts).toHaveLength(6);
   });
 
   it("records one demo request when two seeds run at once", async () => {

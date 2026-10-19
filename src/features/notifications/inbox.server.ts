@@ -186,8 +186,8 @@ export async function handleMarkNotificationsRead(
 /**
  * The live handover offers addressed to this Coordinator, mirroring `handleListPendingEventHandovers`:
  * an offer only reaches its recipient while the event still belongs to the Coordinator who made
- * it and the request is not decided. `handleAssignEventRequest` can void an offer by reassigning
- * the event, so the predicate — not the row alone — is what keeps a stale offer from leaking.
+ * it and the request is not decided. A later assignment can void an offer, so the predicate — not
+ * the row alone — is what keeps a stale offer from leaking.
  */
 async function liveHandoverEventIds(
   userId: string,

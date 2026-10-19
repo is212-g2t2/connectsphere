@@ -5,7 +5,7 @@ import { RoleSchema } from "#/features/auth/schema/role";
 import type { Role } from "#/features/auth/schema/role";
 
 /** Repeat the role/function matrix from PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36,
- * PTR-45, and PTR-111 independently of `permissions.ts`. Keep both copies so a permission change
+ * PTR-45, PTR-111, and PTR-144 independently of `permissions.ts`. Keep both copies so a permission change
  * must update both places. `Record<Role, …>` makes a new role fail `type:check` first.
  */
 const EXPECTED: Record<
@@ -14,6 +14,7 @@ const EXPECTED: Record<
     eventRegister: boolean;
     event_request: boolean;
     coordinate: boolean;
+    oversee: boolean;
     venueRead: boolean;
     venueSearch: boolean;
     venueCreate: boolean;
@@ -31,6 +32,7 @@ const EXPECTED: Record<
     eventRegister: true,
     event_request: false,
     coordinate: false,
+    oversee: false,
     venueRead: false,
     venueSearch: false,
     venueCreate: false,
@@ -47,6 +49,7 @@ const EXPECTED: Record<
     eventRegister: false,
     event_request: true,
     coordinate: false,
+    oversee: false,
     venueRead: false,
     venueSearch: false,
     venueCreate: false,
@@ -63,6 +66,7 @@ const EXPECTED: Record<
     eventRegister: false,
     event_request: false,
     coordinate: true,
+    oversee: false,
     venueRead: true,
     venueSearch: true,
     venueCreate: false,
@@ -75,10 +79,28 @@ const EXPECTED: Record<
     vipManage: true,
     eventRegistrationRead: true,
   },
+  event_coordinator_lead: {
+    eventRegister: false,
+    event_request: false,
+    coordinate: false,
+    oversee: true,
+    venueRead: false,
+    venueSearch: false,
+    venueCreate: false,
+    venueUpdate: false,
+    venueRequest: false,
+    venueRequestRead: false,
+    venueDecide: false,
+    equipmentReserve: false,
+    equipmentRelease: false,
+    vipManage: false,
+    eventRegistrationRead: false,
+  },
   venue_staff: {
     eventRegister: false,
     event_request: false,
     coordinate: false,
+    oversee: false,
     venueRead: true,
     venueSearch: false,
     venueCreate: true,
@@ -95,6 +117,7 @@ const EXPECTED: Record<
     eventRegister: false,
     event_request: false,
     coordinate: false,
+    oversee: false,
     venueRead: true,
     venueSearch: false,
     venueCreate: false,
@@ -109,11 +132,12 @@ const EXPECTED: Record<
   },
 };
 
-describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36, PTR-41, PTR-42, PTR-45, PTR-111)", () => {
+describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PTR-36, PTR-41, PTR-42, PTR-45, PTR-111, PTR-144)", () => {
   it.each(RoleSchema.options)("grants %s exactly its row of the matrix", role => {
     expect(can(role, { event: ["register"] })).toBe(EXPECTED[role].eventRegister);
     expect(can(role, { event_request: ["create"] })).toBe(EXPECTED[role].event_request);
     expect(can(role, { event_request: ["coordinate"] })).toBe(EXPECTED[role].coordinate);
+    expect(can(role, { event_request: ["oversee"] })).toBe(EXPECTED[role].oversee);
     expect(can(role, { venue: ["read"] })).toBe(EXPECTED[role].venueRead);
     expect(can(role, { venue: ["search"] })).toBe(EXPECTED[role].venueSearch);
     expect(can(role, { venue: ["create"] })).toBe(EXPECTED[role].venueCreate);

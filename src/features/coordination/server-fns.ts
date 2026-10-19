@@ -6,7 +6,10 @@ import {
   parseEventHandoverId,
 } from "#/features/coordination/schema";
 import { parseClarificationBody, parseEventRequestId } from "#/features/event-requests/schema";
-import { requireEventRequestCoordinate } from "#/features/event-requests/server-fns";
+import {
+  requireEventRequestCoordinate,
+  requireEventRequestOversee,
+} from "#/features/event-requests/server-fns";
 import { logger } from "#/lib/logger";
 
 const log = logger.getChild("coordination");
@@ -60,20 +63,16 @@ export const getCoordinationRequest = createServerFn({ method: "GET" })
     return handleGetCoordinationRequest(data, context.user, db);
   });
 
-export const assignEventRequest = createServerFn({ method: "POST" })
-  .middleware([requireEventRequestCoordinate])
-  .validator(parseAssignmentInput)
+/**
+ * PTR-144: the Lead's read of the request behind an unassigned queue row. The handler re-reads
+ * the caller's scope, and the read-only detail offers no coordination action.
+ */
+export const getOversightRequest = createServerFn({ method: "GET" })
+  .middleware([requireEventRequestOversee])
+  .validator(parseEventRequestId)
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleAssignEventRequest }] = await loadServer();
-    const request = await handleAssignEventRequest(data, context.user, db);
-
-    log.info("Event request assigned", {
-      requestId: request.id,
-      actorId: context.user.id,
-      toCoordinatorId: request.assignedCoordinatorId,
-    });
-
-    return request;
+    const [{ db }, { handleGetCoordinationRequest }] = await loadServer();
+    return handleGetCoordinationRequest(data, context.user, db);
   });
 
 /**

@@ -1,10 +1,12 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventCancellationRequests } from "#/db/schema";
+import { eventCancellationRequests, eventRequests } from "#/db/schema";
 import { ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { lockOwnedEvent } from "#/features/event-requests/owned-event.server";
+import { listLeadIds } from "#/features/event-requests/leads.server";
 import {
   EVENT_CANCELLATION_ALREADY_REQUESTED,
   EVENT_CANCELLATION_CLOSED,
@@ -38,10 +40,19 @@ export async function listEventCancellationRequests(
 }
 
 /**
+ * PTR-144 AC2: whether the event has a live cancellation request. The Lead's unassigned queue
+ * reads it, so the predicate has one home.
+ */
+export function cancellationRequestedSql(): SQL<boolean> {
+  return sql<boolean>`exists (select 1 from ${eventCancellationRequests} where ${eventCancellationRequests.eventRequestId} = ${eventRequests.id} and ${eventCancellationRequests.outcome} is null)`;
+}
+
+/**
  * PTR-53: Record the Organiser's cancellation request. Keep the event status until the Coordinator
  * decides (AC4). The event row lock orders this request against completion, cancellation, and
- * other requests. The open-request index also rejects a second request. Notify an assigned
- * Coordinator in the same transaction. Any Coordinator can see an unassigned event in the queue (AC3).
+ * other requests. The open-request index also rejects a second request. Notify the assigned
+ * Coordinator, or every Event Coordinator Lead while the event is unassigned (PTR-144), in the
+ * same transaction.
  */
 export async function handleRequestEventCancellation(
   data: unknown,
@@ -81,6 +92,21 @@ export async function handleRequestEventCancellation(
           payload: { eventName: event.eventName.trim() || "Untitled request" },
         },
       ]);
+    } else {
+      // PTR-144: no Coordinator is assigned, so every Event Coordinator Lead gets a copy.
+      const leadIds = await listLeadIds(tx);
+      await raiseNotifications(
+        tx,
+        leadIds.map(recipientId => ({
+          recipientId,
+          eventRequestId: event.id,
+          kind: "event_cancellation_requested" as const,
+          payload: {
+            eventName: event.eventName.trim() || "Untitled request",
+            audience: "lead" as const,
+          },
+        }))
+      );
     }
 
     return request;

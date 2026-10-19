@@ -9,23 +9,31 @@ import { Layout } from "./layout";
 export const EventCancellationRequestedEmail = ({
   eventName,
   eventUrl,
+  audience,
 }: {
   eventName: string;
   eventUrl: string;
-}) => (
-  <Layout previewText={`Cancellation requested for ${eventName}`}>
-    <Section>
-      <Text style={emailHeading}>Event cancellation requested</Text>
-      <Text style={emailText}>
-        The Organiser has asked for this event to be cancelled: <strong>{eventName}</strong>. Its
-        status stays the same until you cancel the event or decline the request.
-      </Text>
-      <Button href={eventUrl} style={emailButton}>
-        Review the request
-      </Button>
-    </Section>
-  </Layout>
-);
+  /** PTR-144: Leads get the queue link and wait for assignment. Absent on the coordinator copy. */
+  audience?: "lead";
+}) => {
+  const lead = audience === "lead";
+  return (
+    <Layout previewText={`Cancellation requested for ${eventName}`}>
+      <Section>
+        <Text style={emailHeading}>Event cancellation requested</Text>
+        <Text style={emailText}>
+          The Organiser has asked for this event to be cancelled: <strong>{eventName}</strong>.
+          {lead
+            ? " No Coordinator is assigned yet, so the request waits for assignment."
+            : " Its status stays the same until you cancel the event or decline the request."}
+        </Text>
+        <Button href={eventUrl} style={emailButton}>
+          {lead ? "View the queue" : "Review the request"}
+        </Button>
+      </Section>
+    </Layout>
+  );
+};
 
 type EventCancelledEmailProps = { eventUrl: string } & (
   | { audience: "organiser" | "attendee" | "technical_support"; eventName: string }

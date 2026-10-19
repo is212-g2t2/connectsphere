@@ -14,7 +14,6 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 import type { EventPageData } from "#/features/events/page-data";
 
 const {
-  assignEventRequest,
   requestEventHandover,
   takeUpEventRequestForReview,
   decideEventRequest,
@@ -22,7 +21,6 @@ const {
   invalidate,
   success,
 } = vi.hoisted(() => ({
-  assignEventRequest: vi.fn<(input: unknown) => Promise<unknown>>(),
   requestEventHandover: vi.fn<(input: unknown) => Promise<unknown>>(),
   takeUpEventRequestForReview: vi.fn<(input: unknown) => Promise<unknown>>(),
   decideEventRequest: vi.fn<(input: unknown) => Promise<unknown>>(),
@@ -31,7 +29,6 @@ const {
   success: vi.fn<(message: string) => void>(),
 }));
 vi.mock("#/features/coordination/server-fns", () => ({
-  assignEventRequest,
   decideEventRequest,
   raiseClarificationRequest,
   requestEventHandover,
@@ -106,15 +103,11 @@ function eventData(
   } as unknown as EventPageData;
 }
 
-function triageData(
-  request: CoordinationRequest,
-  team: Coordinator[] = coordinators
-): EventPageData {
+function triageData(request: CoordinationRequest): EventPageData {
   return {
     kind: "triage",
     viewerId: viewer.id,
     request,
-    coordinators: team,
   } as unknown as EventPageData;
 }
 
@@ -306,13 +299,36 @@ describe("request section", () => {
 });
 
 describe("triage section set", () => {
-  it("lists request and assignment only, never the review flow", () => {
+  it("lists the read-only request detail alone, with no review flow and no assignment", () => {
     const data = triageData(coordinationRequest());
     const visible = coordinatorSections(data)
       .filter(section => section.visible(data))
       .map(section => section.id);
 
-    expect(visible).toEqual(["request", "assignment"]);
+    expect(visible).toEqual(["request"]);
+    expect(
+      coordinatorSections(data)
+        .find(section => section.id === "assignment")
+        ?.visible(data)
+    ).toBe(false);
+  });
+
+  it("keeps the request detail for a vacated request past review", () => {
+    // A deleted Coordinator can vacate an approved event; the queue row still opens the record.
+    const data = triageData(coordinationRequest({ status: "approved" }));
+    const defs = coordinatorSections(data);
+
+    expect(defs.find(section => section.id === "request")?.visible(data)).toBe(true);
+    expect(defs.find(section => section.id === "review")?.visible(data)).toBe(false);
+    expect(defs.find(section => section.id === "assignment")?.visible(data)).toBe(false);
+  });
+
+  it("renders no assignment body in triage: the unassigned detail carries no claim action", () => {
+    const { container } = renderSection(triageData(coordinationRequest()), "assignment");
+
+    expect(container.textContent).toBe("");
+    expect(screen.queryByRole("button", { name: "Assign to me" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Assign this request" })).toBeNull();
   });
 });
 
@@ -401,7 +417,9 @@ describe("changes section", () => {
       "changes"
     );
     expect(screen.getByText("Move the start to 10:00.")).toBeTruthy();
+  });
 
+  it("shows the history read-only in the Lead's triage, without the decisions", () => {
     const triage = triageData(
       coordinationRequest({ status: "submitted", changeRequests: history })
     );
@@ -409,7 +427,11 @@ describe("changes section", () => {
       coordinatorSections(triage)
         .find(section => section.id === "changes")
         ?.visible(triage)
-    ).toBe(false);
+    ).toBe(true);
+    renderSection(triage, "changes");
+    expect(screen.getByText("Move the start to 10:00.")).toBeTruthy();
+    // The decisions card needs an assignee, so triage carries no action.
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
   it("renders nothing with no change history", () => {
@@ -438,28 +460,6 @@ describe("changes section", () => {
 });
 
 describe("assignment section", () => {
-  it("offers assignment with a claim action while unassigned", async () => {
-    renderSection(triageData(coordinationRequest()), "assignment");
-    expect(screen.getByRole("heading", { name: "Assignment and handover" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Assign this request" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Assign Coordinator" })).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Assign to me" })).toBeTruthy();
-    const contact = screen.getByRole("link", { name: "ravi.kumar@example.com" });
-    expect(contact.getAttribute("href")).toBe("mailto:ravi.kumar@example.com");
-  });
-
-  it("assigns to the viewer and refreshes the page in place", async () => {
-    renderSection(triageData(coordinationRequest()), "assignment");
-    await userEvent.click(await screen.findByRole("button", { name: "Assign to me" }));
-    await waitFor(() =>
-      expect(assignEventRequest).toHaveBeenCalledWith({
-        data: { id: 7, coordinatorId: viewer.id, expectedCoordinatorId: null },
-      })
-    );
-    expect(success).toHaveBeenCalledWith("Assignment recorded.");
-    expect(invalidate).toHaveBeenCalled();
-  });
-
   it("offers a handover while assigned, without a claim action", async () => {
     renderSection(eventData("planning", owned({ status: "planning" })), "assignment");
     expect(screen.getByRole("heading", { name: "Hand over this request" })).toBeTruthy();
@@ -504,13 +504,6 @@ describe("assignment section", () => {
     expect(invalidate).toHaveBeenCalled();
   });
 
-  it("keeps the assignment form in a compact readable column", () => {
-    const { container } = renderSection(triageData(coordinationRequest()), "assignment");
-    const compact = container.querySelector(".max-w-md, .max-w-lg");
-    expect(compact).toBeTruthy();
-    expect(compact?.textContent).toContain("Assign this request");
-  });
-
   it("shows the waiting handover and offers a replacement", async () => {
     renderSection(
       eventData(
@@ -546,13 +539,6 @@ describe("assignment section", () => {
     expect(screen.getByText(/Assigned on/)).toBeTruthy();
     expect(screen.queryByText("Not yet assigned")).toBeNull();
   });
-
-  it("shows the unassigned state in the summary", () => {
-    renderSection(triageData(coordinationRequest()), "assignment");
-
-    expect(screen.getByText("Not yet assigned")).toBeTruthy();
-    expect(screen.queryByText(/Assigned on/)).toBeNull();
-  });
 });
 
 describe("cancellation section", () => {
@@ -578,16 +564,21 @@ describe("cancellation section", () => {
     expect(screen.getByRole("button", { name: "Decline request" })).toBeTruthy();
   });
 
-  it("renders nothing in triage and with no waiting request", () => {
+  it("shows the Lead the read-only history in triage, and nothing with no waiting request", () => {
     const triage = triageData(
-      coordinationRequest({ status: "planning", cancellationRequests: waiting })
+      coordinationRequest({ status: "submitted", cancellationRequests: waiting })
     );
     expect(
       coordinatorSections(triage)
         .find(section => section.id === "cancellation")
         ?.visible(triage)
-    ).toBe(false);
+    ).toBe(true);
+    renderSection(triage, "cancellation");
+    expect(screen.getByRole("heading", { name: "Cancellation requests" })).toBeTruthy();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
 
+  it("renders nothing with no waiting request", () => {
     const settled = renderSection(
       eventData("planning", owned({ status: "planning" })),
       "cancellation"

@@ -11,10 +11,10 @@ import { getSessionContext, listAccounts, requireSession } from "#/features/auth
 import type { SessionUser } from "#/features/auth/session";
 import {
   acceptEventHandover,
-  assignEventRequest,
   decideEventRequest,
   declineEventHandover,
   getCoordinationRequest,
+  getOversightRequest,
   listAssignedEventRequests,
   listCoordinators,
   listPendingEventHandovers,
@@ -240,11 +240,6 @@ describe("server-function authorization (PTR-69)", () => {
     // These calls share the mocked request context; keep its lazy module loading sequential.
     // oxlint-disable no-await-in-loop
     const endpoints = [
-      {
-        fn: assignEventRequest,
-        data: { id: 1, coordinatorId: "coord-b", expectedCoordinatorId: null },
-        method: "POST" as const,
-      },
       { fn: decideEventRequest, data: { id: 1, decision: "approved" }, method: "POST" as const },
       { fn: getCoordinationRequest, data: { id: 1 }, method: "GET" as const },
       { fn: takeUpEventRequestForReview, data: { id: 1 }, method: "POST" as const },
@@ -267,17 +262,20 @@ describe("server-function authorization (PTR-69)", () => {
         });
       }
     });
-    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
-      "refuses %s even before payload validation",
-      async role => {
-        signIn(role);
-        for (const endpoint of endpoints) {
-          expect(await refusalFrom(endpoint.fn, {}, endpoint.method)).toMatchObject({
-            status: 403,
-          });
-        }
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s even before payload validation", async role => {
+      signIn(role);
+      for (const endpoint of endpoints) {
+        expect(await refusalFrom(endpoint.fn, {}, endpoint.method)).toMatchObject({
+          status: 403,
+        });
       }
-    );
+    });
     it("permits a Coordinator through every boundary", async () => {
       signIn("event_coordinator");
       for (const endpoint of endpoints) {
@@ -336,11 +334,12 @@ describe("server-function authorization (PTR-69)", () => {
       signIn("event_coordinator");
       expect((await call(searchVenues, {}, "GET")).error).toBeUndefined();
 
-      signIn("venue_staff");
-      expect(await refusalFrom(searchVenues, {}, "GET")).toMatchObject({ status: 403 });
+      for (const role of ["venue_staff", "technical_support_staff", "event_coordinator_lead"]) {
+        signIn(role);
 
-      signIn("technical_support_staff");
-      expect(await refusalFrom(searchVenues, {}, "GET")).toMatchObject({ status: 403 });
+        // oxlint-disable-next-line no-await-in-loop
+        expect(await refusalFrom(searchVenues, {}, "GET")).toMatchObject({ status: 403 });
+      }
     });
 
     it("answers 401 to an unauthenticated save (PTR-98)", async () => {
@@ -518,18 +517,21 @@ describe("server-function authorization (PTR-69)", () => {
       });
     });
 
-    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
-      "refuses %s even before payload validation",
-      async role => {
-        signIn(role);
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s even before payload validation", async role => {
+      signIn(role);
 
-        expect(await refusalFrom(getVenueRequestContext, {}, "GET")).toMatchObject({
-          status: 403,
-        });
-        expect(await refusalFrom(requestVenue, {})).toMatchObject({ status: 403 });
-        expect(await refusalFrom(withdrawVenueRequest, {})).toMatchObject({ status: 403 });
-      }
-    );
+      expect(await refusalFrom(getVenueRequestContext, {}, "GET")).toMatchObject({
+        status: 403,
+      });
+      expect(await refusalFrom(requestVenue, {})).toMatchObject({ status: 403 });
+      expect(await refusalFrom(withdrawVenueRequest, {})).toMatchObject({ status: 403 });
+    });
 
     it.each(["attendee", "event_organiser", "event_coordinator", "technical_support_staff"])(
       "refuses %s the pending request read before payload validation",
@@ -674,14 +676,17 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(confirmEvent, confirmInput)).error).toBeUndefined();
     });
 
-    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
-      "refuses %s",
-      async role => {
-        signIn(role);
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s", async role => {
+      signIn(role);
 
-        expect(await refusalFrom(confirmEvent, confirmInput)).toMatchObject({ status: 403 });
-      }
-    );
+      expect(await refusalFrom(confirmEvent, confirmInput)).toMatchObject({ status: 403 });
+    });
 
     it("rejects a malformed id before the handler", async () => {
       signIn("event_coordinator");
@@ -710,14 +715,17 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(completeEvent, completeInput)).error).toBeUndefined();
     });
 
-    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
-      "refuses %s",
-      async role => {
-        signIn(role);
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s", async role => {
+      signIn(role);
 
-        expect(await refusalFrom(completeEvent, completeInput)).toMatchObject({ status: 403 });
-      }
-    );
+      expect(await refusalFrom(completeEvent, completeInput)).toMatchObject({ status: 403 });
+    });
   });
 
   describe("PTR-22 update event information", () => {
@@ -738,16 +746,19 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(updateEventInformation, informationInput)).error).toBeUndefined();
     });
 
-    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
-      "refuses %s",
-      async role => {
-        signIn(role);
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s", async role => {
+      signIn(role);
 
-        expect(await refusalFrom(updateEventInformation, informationInput)).toMatchObject({
-          status: 403,
-        });
-      }
-    );
+      expect(await refusalFrom(updateEventInformation, informationInput)).toMatchObject({
+        status: 403,
+      });
+    });
 
     it("refuses a payload without amendments, or with other columns, before the handler", async () => {
       signIn("event_coordinator");
@@ -777,16 +788,19 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(listEventArrangements, { id: 1 })).error).toBeUndefined();
     });
 
-    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
-      "refuses %s",
-      async role => {
-        signIn(role);
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s", async role => {
+      signIn(role);
 
-        expect(await refusalFrom(listEventArrangements, { id: 1 })).toMatchObject({
-          status: 403,
-        });
-      }
-    );
+      expect(await refusalFrom(listEventArrangements, { id: 1 })).toMatchObject({
+        status: 403,
+      });
+    });
   });
 
   // PTR-137: only an Event Coordinator releases a booking a venue block suspended; the handler
@@ -809,16 +823,19 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(releaseBlockedVenueBooking, releaseInput)).error).toBeUndefined();
     });
 
-    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
-      "refuses %s",
-      async role => {
-        signIn(role);
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s", async role => {
+      signIn(role);
 
-        expect(await refusalFrom(releaseBlockedVenueBooking, releaseInput)).toMatchObject({
-          status: 403,
-        });
-      }
-    );
+      expect(await refusalFrom(releaseBlockedVenueBooking, releaseInput)).toMatchObject({
+        status: 403,
+      });
+    });
   });
 
   // PTR-53: only an Organiser raises a cancellation request. The handler checks ownership.
@@ -872,14 +889,17 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(serverFn, input)).error).toBeUndefined();
     });
 
-    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
-      "refuses %s",
-      async role => {
-        signIn(role);
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s", async role => {
+      signIn(role);
 
-        expect(await refusalFrom(serverFn, input)).toMatchObject({ status: 403 });
-      }
-    );
+      expect(await refusalFrom(serverFn, input)).toMatchObject({ status: 403 });
+    });
   });
 
   it("refuses a decline without a reason before the handler (PTR-54 AC8)", async () => {
@@ -910,16 +930,19 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(declineEventChangeRequest, declineInput)).error).toBeUndefined();
     });
 
-    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
-      "refuses %s",
-      async role => {
-        signIn(role);
+    it.each([
+      "attendee",
+      "event_organiser",
+      "venue_staff",
+      "technical_support_staff",
+      "event_coordinator_lead",
+    ])("refuses %s", async role => {
+      signIn(role);
 
-        expect(await refusalFrom(declineEventChangeRequest, declineInput)).toMatchObject({
-          status: 403,
-        });
-      }
-    );
+      expect(await refusalFrom(declineEventChangeRequest, declineInput)).toMatchObject({
+        status: 403,
+      });
+    });
 
     it("refuses a decline without a request id or a reason before the handler (AC2)", async () => {
       signIn("event_coordinator");
@@ -1280,6 +1303,17 @@ describe("server-function authorization (PTR-69)", () => {
         status: 403,
         body: "Forbidden",
       });
+
+      signIn("event_coordinator_lead");
+
+      expect(await refusalFrom(listEventRequests, undefined, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+      expect(await refusalFrom(getEventRequest, { id: 1 }, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
     });
 
     it("lets an event organiser list and read (PTR-14)", async () => {
@@ -1289,7 +1323,7 @@ describe("server-function authorization (PTR-69)", () => {
       expect((await call(getEventRequest, { id: 1 }, "GET")).error).toBeUndefined();
     });
 
-    it("answers 401 and 403 on the unassigned list, and lets a Coordinator through (PTR-15)", async () => {
+    it("answers 401 and 403 on the unassigned list, refuses a Coordinator, and lets a Lead through (PTR-144)", async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
       expect(await refusalFrom(listUnassignedEventRequests, undefined, "GET")).toEqual({
         status: 401,
@@ -1303,7 +1337,43 @@ describe("server-function authorization (PTR-69)", () => {
       });
 
       signIn("event_coordinator");
+      expect(await refusalFrom(listUnassignedEventRequests, undefined, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+
+      signIn("event_coordinator_lead");
       expect((await call(listUnassignedEventRequests, undefined, "GET")).error).toBeUndefined();
+    });
+
+    it("answers 401 and 403 on the oversight read, and lets a Lead through (PTR-144)", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+      expect(await refusalFrom(getOversightRequest, { id: 1 }, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+
+      signIn("event_coordinator");
+      expect(await refusalFrom(getOversightRequest, { id: 1 }, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+
+      signIn("event_organiser");
+      expect(await refusalFrom(getOversightRequest, { id: 1 }, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+
+      // The middleware refuses before the validator runs: an empty payload gets the same answer.
+      signIn("venue_staff");
+      expect(await refusalFrom(getOversightRequest, {}, "GET")).toEqual({
+        status: 403,
+        body: "Forbidden",
+      });
+
+      signIn("event_coordinator_lead");
+      expect((await call(getOversightRequest, { id: 1 }, "GET")).error).toBeUndefined();
     });
 
     it("answers 401 to an unauthenticated draft read or delete (PTR-98)", async () => {
@@ -1542,7 +1612,7 @@ describe("server-function authorization (PTR-69)", () => {
         )
       ).toBe(AVAILABILITY_ORDER_MESSAGE);
       expect(
-        await messageFrom(assignEventRequest, {
+        await messageFrom(requestEventHandover, {
           id: 1,
           coordinatorId: "   ",
           expectedCoordinatorId: null,

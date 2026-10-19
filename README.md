@@ -1,6 +1,6 @@
 # ConnectSphere
 
-Event planning and venue booking for attendees, event organisers, event coordinators, venue staff, and technical support staff.
+Event planning and venue booking for attendees, event organisers, event coordinators, event coordinator leads, venue staff, and technical support staff.
 
 Built with TanStack Start, Better Auth, and Drizzle ORM.
 

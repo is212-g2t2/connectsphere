@@ -6,7 +6,8 @@ import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import type { SessionUser } from "#/features/auth/session";
-import { handleListEvents } from "#/features/events/records.server";
+import { handleListEvents, connectedEventCondition } from "#/features/events/records.server";
+import { getEventAccess } from "#/features/events/access";
 import { OPEN_EVERY_DAY } from "./venue-hours";
 
 /** PTR-8: test the rows that `handleListEvents` returns for each role and relationship, and each
@@ -50,6 +51,14 @@ const fixtureUsers = {
     email: "el.coordinator@example.com",
     emailVerified: true,
     role: "event_coordinator",
+  },
+  /** PTR-144: the Lead reads every non-draft event read-only, assigned or not. */
+  lead: {
+    id: "el-lead",
+    name: "Event List Lead",
+    email: "el.lead@example.com",
+    emailVerified: true,
+    role: "event_coordinator_lead",
   },
   venueStaff: {
     id: "el-venue-staff",
@@ -514,6 +523,66 @@ describe("event list handler (PTR-8)", () => {
       expect(listed.every(row => row.access === "coordinator")).toBe(true);
     });
 
+    it("shows a Lead every non-draft event, assigned or not, and never a draft", async () => {
+      const listed = await handleListEvents({}, session("lead"), database as never);
+
+      // The seed adds non-draft rows every Lead sees. Check the fixtures are present with no
+      // draft among them, not an exact id match.
+      const ids = listed.map(row => row.event.id);
+      expect(ids).toEqual(
+        expect.arrayContaining([
+          fixtures.main.id,
+          fixtures.closed.id,
+          fixtures.foreign.id,
+          fixtures.review.id,
+          fixtures.confirmedOpen.id,
+          fixtures.confirmedClosed.id,
+          fixtures.confirmedDisabled.id,
+        ])
+      );
+      expect(ids).not.toContain(fixtures.draft.id);
+      expect(listed.every(row => row.access === "lead")).toBe(true);
+    });
+
+    it("agrees in SQL and in memory that the Lead reaches every non-draft event (parity)", async () => {
+      // The SQL arm lists every non-draft event, assigned or not.
+      expect(connectedEventCondition(database, session("lead"))).toBeDefined();
+
+      const rows = await database
+        .select()
+        .from(schema.eventRequests)
+        .where(inArray(schema.eventRequests.organiserId, organiserIds));
+      const nonDraft = rows.filter(row => row.status !== "draft");
+      expect(nonDraft.length).toBeGreaterThan(0);
+      for (const row of nonDraft) {
+        expect(
+          getEventAccess({
+            role: fixtureUsers.lead.role,
+            userId: fixtureUsers.lead.id,
+            organiserId: row.organiserId,
+            assignedCoordinatorId: row.assignedCoordinatorId,
+            venueStaffIds: [],
+            technicalSupportIds: [],
+            status: row.status,
+            registrationEnabled: row.registrationEnabled ?? false,
+            hasOwnRegistration: false,
+          })
+        ).toBe("lead");
+      }
+
+      // The list serves exactly those fixture events to the Lead, each with Lead access.
+      const listed = await handleListEvents({}, session("lead"), database as never);
+      const listedIds = listed.map(row => row.event.id);
+      for (const row of nonDraft) {
+        expect(listedIds).toContain(row.id);
+      }
+      expect(
+        listed
+          .filter(row => nonDraft.some(fixture => fixture.id === row.event.id))
+          .every(row => row.access === "lead")
+      ).toBe(true);
+    });
+
     it("shows Venue Staff the events with a venue request assigned to them, and nobody else's", async () => {
       const listed = await handleListEvents({}, session("venueStaff"), database as never);
 
@@ -726,6 +795,52 @@ describe("event list handler (PTR-8)", () => {
         venueRequests: [MAIN_VENUE_ENTRY],
       });
       expect(projection.event.equipment).toHaveLength(2);
+    });
+
+    it("gives a Lead the read-only projection with no coordination fields", async () => {
+      const [projection] = await handleListEvents(
+        { eventId: fixtures.main.id },
+        session("lead"),
+        database as never
+      );
+
+      expect(projection.access).toBe("lead");
+      expect(projection.event).toMatchObject({
+        id: fixtures.main.id,
+        name: "Open registration event",
+        description: "el-description",
+        status: "submitted",
+        eventDate: "2026-10-12",
+        startTime: "14:30",
+        endTime: "18:45",
+        expectedAttendance: 25,
+        layout: "U-shape",
+        accessibilityRequirements: "Step-free access",
+        requiredFacilities: "Near MRT",
+        awaitingAssignment: false,
+      });
+      expect(projection.event.equipment).toHaveLength(2);
+      // Coordinator-only fields never reach the Lead: no venue requests, no block flags, no
+      // completion state.
+      expect(projection.event).not.toHaveProperty("venueRequests");
+      expect(projection.event).not.toHaveProperty("blockedArrangements");
+      expect(projection.event).not.toHaveProperty("completionUnavailableReason");
+    });
+
+    it("flags an unassigned event as awaiting assignment for the Lead", async () => {
+      const [projection] = await handleListEvents(
+        { eventId: fixtures.foreign.id },
+        session("lead"),
+        database as never
+      );
+
+      expect(projection.access).toBe("lead");
+      expect(projection.event).toMatchObject({
+        id: fixtures.foreign.id,
+        name: "Another organiser's event",
+        status: "submitted",
+        awaitingAssignment: true,
+      });
     });
 
     it("gives Venue Staff the operational fields and their venue request, with no event name", async () => {

@@ -44,6 +44,13 @@ const users = {
     emailVerified: true,
     role: "event_coordinator",
   },
+  lead: {
+    id: "ntf-lead",
+    name: "Ntf Lead",
+    email: "ntf-lead@example.com",
+    emailVerified: true,
+    role: "event_coordinator_lead",
+  },
   otherCoordinator: {
     id: "ntf-coordinator-2",
     name: "Ntf Other Coordinator",
@@ -302,6 +309,27 @@ describe("Notifications inbox and delivery (PTR-55)", () => {
           .delete(schema.eventHandovers)
           .where(eq(schema.eventHandovers.id, handover.id));
       }
+    });
+
+    it("shows a Lead the submission notice with a coordination link while the event waits unassigned", async () => {
+      // PTR-144: the submission waits with no Coordinator. The Lead still reaches it.
+      await database
+        .update(schema.eventRequests)
+        .set({ assignedCoordinatorId: null })
+        .where(eq(schema.eventRequests.id, eventId));
+      await raise(
+        session("lead").id,
+        "event_submitted",
+        { eventName: "Notification Gala", audience: "lead" },
+        eventId
+      );
+
+      const items = await handleListNotifications(session("lead"), database);
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        summary: "New event request awaiting a Coordinator: Notification Gala",
+        href: "/coordination",
+      });
     });
 
     it("shows venue staff the venue line, links a pending request, and never names the event", async () => {

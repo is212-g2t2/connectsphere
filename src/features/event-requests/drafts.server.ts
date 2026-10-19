@@ -1,11 +1,18 @@
-import { and, asc, count, desc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { clarificationRequests, eventRequests, user as users } from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
-import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
+import {
+  cancellationRequestedSql,
+  listEventCancellationRequests,
+} from "#/features/event-requests/cancellation-requests.server";
+import {
+  changeRequestsWaitingSql,
+  listEventChangeRequests,
+} from "#/features/event-requests/change-requests.server";
+import { listLeadIds } from "#/features/event-requests/leads.server";
 import {
   ALREADY_SUBMITTED_MESSAGE,
   EVENT_REQUEST_DELETE_REFUSAL,
@@ -15,6 +22,7 @@ import {
   parseDraftInput,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
+import { raiseNotifications } from "#/features/notifications/raise.server";
 
 /**
  * Keep this module server-only. Its value import of `#/db/schema` builds tables at module scope, so
@@ -36,8 +44,14 @@ export interface Contact {
 /** A request with its Coordinator for the Organiser's list (PTR-15 AC3). The detail view adds clarifications. */
 export type EventRequestWithCoordinator = EventRequest & { coordinator: Contact | null };
 
-/** A submitted request nobody is handling yet, with its Organiser, for the unassigned list (AC5). */
-export type EventRequestWithOrganiser = EventRequest & { organiser: Contact };
+/** A submitted request nobody is handling yet, with its Organiser, for the Lead's queue (PTR-144). */
+export type EventRequestWithOrganiser = EventRequest & {
+  organiser: Contact;
+  /** PTR-144 AC2: the Organiser's change requests that still wait on the team. */
+  changeRequestsWaiting: number;
+  /** PTR-144 AC2: a live cancellation request waits on the team. */
+  cancellationRequested: boolean;
+};
 
 /**
  * Select the request row and its assigned Coordinator's name and email with a left join.
@@ -128,7 +142,8 @@ export async function handleSaveEventRequestDraft(
 
 /**
  * PTR-13: Submit the Organiser's draft. Refuse it if a required field is missing (criterion 1),
- * and record the submission time (criterion 2).
+ * and record the submission time (criterion 2). PTR-144 supersedes PTR-15's auto-assign: the
+ * request waits unassigned for a Lead, and the receipt and the Lead notices commit with it.
  *
  * Read the stored row, not the page's last values. This prevents a submission from including
  * unsaved data. Do not re-check PTR-11 registration terms: the save path requires all three terms
@@ -164,59 +179,39 @@ export async function handleSubmitEventRequest(
       throw new Error(missingFieldsMessage(missing));
     }
 
-    // PTR-15 criterion 1: Choose a Coordinator in the submission transaction when one is available.
-    // Use `null` when the system has no Coordinator (criterion 5). The request then waits unassigned.
-    const coordinator = await pickLeastLoadedCoordinator(tx);
     const now = new Date();
-
     const [submitted] = await tx
       .update(eventRequests)
       .set({
         status: "submitted",
         submittedAt: now,
-        assignedCoordinatorId: coordinator?.id ?? null,
-        assignedAt: coordinator === null ? null : now,
+        // PTR-144: a submission is never auto-assigned. The Lead allocates it from the queue.
+        assignedCoordinatorId: null,
+        assignedAt: null,
       })
       .where(ownDraft(id, user.id))
       .returning();
 
+    // The submission, the Organiser's receipt, and the notices to every Lead commit together.
+    const eventName = submitted.eventName.trim() || "Untitled request";
+    const leadIds = await listLeadIds(tx);
+    await raiseNotifications(tx, [
+      {
+        recipientId: user.id,
+        eventRequestId: submitted.id,
+        kind: "event_submitted",
+        payload: { eventName, audience: "organiser" },
+      },
+      ...leadIds.map(recipientId => ({
+        recipientId,
+        eventRequestId: submitted.id,
+        kind: "event_submitted" as const,
+        payload: { eventName, audience: "lead" as const },
+      })),
+    ]);
+
     return submitted;
   });
-}
-
-/**
- * The assignment rule (PTR-15 criterion 1): pick the Event Coordinator with the fewest
- * submitted requests. Break ties by earliest account, so the rule stays deterministic and
- * testable. Re-read the load on each submission. Overlapping submissions can read the same
- * counts and pick the same Coordinator. The submit transaction locks the draft row, not this
- * read. Criterion 1 permits that. Serialising the pick would trade contention for fairness.
- * Weigh that trade only if burst fairness ever matters.
- *
- * A rejected request is terminal and counts no coordination load. Approved requests still count.
- * Approval opens their venue and equipment work.
- *
- * Export this for the integration test. Its one application caller is `handleSubmitEventRequest`.
- */
-export async function pickLeastLoadedCoordinator(
-  database: Pick<Database, "select">
-): Promise<{ id: string } | null> {
-  const rows = await database
-    .select({ id: users.id })
-    .from(users)
-    .leftJoin(
-      eventRequests,
-      and(
-        eq(eventRequests.assignedCoordinatorId, users.id),
-        ne(eventRequests.status, "draft"),
-        ne(eventRequests.status, "rejected")
-      )
-    )
-    .where(eq(users.role, "event_coordinator"))
-    .groupBy(users.id, users.createdAt)
-    .orderBy(asc(count(eventRequests.id)), asc(users.createdAt), asc(users.id))
-    .limit(1);
-
-  return rows.at(0) ?? null;
 }
 
 /**
@@ -267,9 +262,10 @@ export async function handleGetEventRequest(
 }
 
 /**
- * PTR-15 criterion 5: Return submitted requests with no assigned Coordinator, oldest first, with
- * the Organiser's details. Any Event Coordinator can read them. PTR-16 checks the assignment
- * before a Coordinator can take one.
+ * PTR-144 AC2/AC3: Return submitted requests with no assigned Coordinator, oldest first, with the
+ * Organiser's details and the live change and cancellation requests. The unassigned queue is the
+ * Event Coordinator Lead's read; submission no longer auto-assigns, so every fresh submission
+ * appears here.
  */
 export async function handleListUnassignedEventRequests(
   database: Database
@@ -278,6 +274,8 @@ export async function handleListUnassignedEventRequests(
     .select({
       ...getTableColumns(eventRequests),
       organiser: { name: users.name, email: users.email },
+      changeRequestsWaiting: changeRequestsWaitingSql(),
+      cancellationRequested: cancellationRequestedSql(),
     })
     .from(eventRequests)
     .innerJoin(users, eq(users.id, eventRequests.organiserId))

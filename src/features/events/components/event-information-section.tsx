@@ -2,9 +2,15 @@ import { Card, CardContent } from "#/components/ui/card";
 import { CoordinatorInformationForm } from "#/features/coordination/components/change-request-decisions";
 import { Detail } from "#/features/event-requests/components/request-message-blocks";
 import { canUpdateEventInformation } from "#/features/event-requests/schema";
+import type { EventProjection } from "#/features/events/access";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
-import { formatLocalDateTime, formatProposedWindow } from "#/features/event-requests/format";
+import {
+  formatInstant,
+  formatLocalDate,
+  formatLocalDateTime,
+  formatProposedWindow,
+} from "#/features/event-requests/format";
 
 const NONE = "None recorded";
 
@@ -87,14 +93,101 @@ function OrganiserInformation({ request }: { request: EventRequestDetail }) {
 }
 
 /**
- * Show the event's recorded information to both staff roles. The Coordinator can update it while
- * the event is approved, planning, or confirmed. In those statuses the Coordinator's form also
+ * PTR-144: the Event Coordinator Lead's read-only record, rendered from the projection alone. The
+ * Lead holds no action, so the card lists what the event records and nothing else.
+ */
+function LeadInformation({ event }: { event: EventProjection["event"] }) {
+  const timing =
+    event.eventDate === null
+      ? NONE
+      : `${formatLocalDate(event.eventDate)}${
+          event.endDate && event.endDate !== event.eventDate
+            ? ` – ${formatLocalDate(event.endDate)}`
+            : ""
+        }${event.startTime && event.endTime ? `, ${event.startTime}–${event.endTime}` : ""}`;
+  return (
+    <div>
+      <h2 className="display-h3">Event information</h2>
+      <Card className="mt-4">
+        <CardContent>
+          <dl className="grid gap-6 sm:grid-cols-2">
+            <Detail term="Expected attendance">{event.expectedAttendance ?? NONE}</Detail>
+
+            <Detail term="Proposed dates and times" wide>
+              {timing}
+            </Detail>
+
+            <Detail term="Room-layout preference">{event.layout || NONE}</Detail>
+            <Detail term="Description" wide>
+              {event.description || NONE}
+            </Detail>
+            <Detail term="Venue requirements" wide>
+              {event.requiredFacilities || NONE}
+            </Detail>
+            <Detail term="Accessibility requirements" wide>
+              {event.accessibilityRequirements || NONE}
+            </Detail>
+
+            <Detail term="Equipment" wide>
+              {event.equipment === undefined || event.equipment.length === 0 ? (
+                NONE
+              ) : (
+                <ul className="space-y-1">
+                  {event.equipment.map(line => (
+                    <li key={line.id}>
+                      {line.item} × {line.quantity} ({line.arrangementStatus.replaceAll("_", " ")})
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Detail>
+
+            <Detail term="Attendee registration" wide>
+              {event.registrationEnabled ? (
+                <ul className="space-y-1">
+                  <li>
+                    Opens {formatLocalDateTime(event.registrationOpensAt ?? "")}, closes{" "}
+                    {formatLocalDateTime(event.registrationClosesAt ?? "")}
+                  </li>
+                </ul>
+              ) : (
+                "Not required"
+              )}
+            </Detail>
+
+            {event.confirmation ? (
+              <Detail term="Booking" wide>
+                {event.confirmation.venue
+                  ? `${event.confirmation.venue.name}, ${formatLocalDate(
+                      event.confirmation.venue.date
+                    )}, ${event.confirmation.venue.startTime}–${event.confirmation.venue.endTime}. `
+                  : "The booking has been released. "}
+                Confirmed {formatInstant(new Date(event.confirmation.confirmedAt))} by{" "}
+                {event.confirmation.confirmedByName}.
+              </Detail>
+            ) : null}
+          </dl>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * Show the event's recorded information to every staff role that reads it. The Coordinator can
+ * update it while the event is approved, planning, or confirmed; in those statuses the form also
  * applies a waiting change request (PTR-52). In other statuses the change requests section holds
- * that form.
+ * that form. The Organiser and the Lead (PTR-144) read the record only.
  */
 export function eventInformationSections(data: EventPageData): EventSectionDef[] {
   if (data.kind !== "event") return [];
-  if (data.event.access !== "organiser" && data.event.access !== "coordinator") return [];
+  if (
+    data.event.access !== "organiser" &&
+    data.event.access !== "coordinator" &&
+    data.event.access !== "lead"
+  ) {
+    return [];
+  }
   const { access } = data.event;
   return [
     {
@@ -111,10 +204,14 @@ export function eventInformationSections(data: EventPageData): EventSectionDef[]
             inner.coordination?.request !== undefined
           );
         }
+        if (inner.event.access === "lead") return true;
         return false;
       },
       render: body => {
         if (body.kind !== "event") return null;
+        if (body.event.access === "lead") {
+          return <LeadInformation event={body.event.event} />;
+        }
         if (body.event.access === "coordinator") {
           const request = body.coordination?.request;
           return request ? <CoordinatorInformationForm request={request} /> : null;

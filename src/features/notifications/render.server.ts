@@ -40,6 +40,7 @@ import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-bo
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
 import { VenueBufferConflictEmail } from "#/features/emails/components/venue-buffer-conflict-email";
+import { EventSubmittedEmail } from "#/features/emails/components/event-submitted-email";
 import { notificationHref, notificationSummary } from "#/features/notifications/message";
 import type { NotificationPayload } from "#/features/notifications/message";
 
@@ -146,14 +147,15 @@ export function renderNotificationEmail(
       };
     }
     case "event_change_requested": {
-      const { eventName, whatShouldChange, requestedValue } = notification.payload;
+      const { eventName, whatShouldChange, requestedValue, audience } = notification.payload;
       return {
         subject,
         element: createElement(EventChangeRequestEmail, {
           eventName,
           whatShouldChange,
           requestedValue,
-          eventRequestUrl: `${base}/events/${eventRequestId}`,
+          audience,
+          eventRequestUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     }
@@ -308,7 +310,8 @@ export function renderNotificationEmail(
         subject,
         element: createElement(EventCancellationRequestedEmail, {
           eventName: notification.payload.eventName,
-          eventUrl: `${base}/events/${eventRequestId}`,
+          audience: notification.payload.audience,
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     case "event_cancelled":
@@ -357,6 +360,17 @@ export function renderNotificationEmail(
           eventRequestUrl: `${base}/events/${eventRequestId}`,
         }),
       };
+    case "event_submitted": {
+      const { eventName, audience } = notification.payload;
+      return {
+        subject,
+        element: createElement(EventSubmittedEmail, {
+          eventName,
+          audience,
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    }
     case "venue_block_changed":
       return {
         subject,

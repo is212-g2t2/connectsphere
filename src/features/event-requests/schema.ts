@@ -411,6 +411,21 @@ export function canRaiseEventChangeRequest(status: EventRequestStatus): boolean 
   return !EVENT_CHANGE_REQUEST_CLOSED_STATUSES.some(closedStatus => closedStatus === status);
 }
 
+/**
+ * PTR-144: the review stages, when a request still waits for a decision. The Lead's unassigned
+ * detail serves these; every other status opens the read-only event projection. One home, so the
+ * sections and the page loader cannot disagree on which statuses count.
+ */
+export const EVENT_REQUEST_REVIEW_STATUSES = [
+  "submitted",
+  "under_review",
+  "awaiting_organiser",
+] as const satisfies readonly EventRequestStatus[];
+
+export function isReviewStatus(status: EventRequestStatus): boolean {
+  return EVENT_REQUEST_REVIEW_STATUSES.some(reviewStatus => reviewStatus === status);
+}
+
 export const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.";
 
 // ── Processing a change request (PTR-52) ────────────────────────────────────

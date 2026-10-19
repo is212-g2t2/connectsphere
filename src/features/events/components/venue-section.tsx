@@ -24,7 +24,8 @@ import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 
 interface VenueSource {
   eventId: number;
-  access: "organiser" | "coordinator";
+  /** PTR-144: whether the reader may act on this block. Only the assigned Coordinator may. */
+  coordinatorActions: boolean;
   status: EventRequestStatus;
   venueRequests: EventVenueRequest[];
   requirements: {
@@ -49,15 +50,16 @@ interface VenueSource {
 }
 
 /** The Coordinator searches for venues from this block while the event takes venue requests. */
-function hasVenueActions({ searchable, access, status }: VenueSource): boolean {
-  return searchable && access === "coordinator" && SEARCHABLE_EVENT_STATUSES.includes(status);
+function hasVenueActions({ searchable, coordinatorActions, status }: VenueSource): boolean {
+  return searchable && coordinatorActions && SEARCHABLE_EVENT_STATUSES.includes(status);
 }
 
 function venueSource(data: EventPageData): VenueSource | null {
   if (data.kind === "triage") {
     return {
       eventId: data.request.id,
-      access: "coordinator",
+      // PTR-144: the Lead reads this detail. No action renders: the link would dead-end.
+      coordinatorActions: false,
       status: data.request.status,
       venueRequests: data.request.venueRequests,
       requirements: {
@@ -75,7 +77,7 @@ function venueSource(data: EventPageData): VenueSource | null {
   const { event } = data.event;
   return {
     eventId: event.id,
-    access: data.event.access,
+    coordinatorActions: data.event.access === "coordinator",
     status: event.status,
     venueRequests: event.venueRequests ?? [],
     requirements: event,
@@ -91,19 +93,18 @@ function venueSource(data: EventPageData): VenueSource | null {
  */
 function VenueRequestEntry({
   entry,
-  access,
+  canAdjust,
   eventId,
   eventStatus,
 }: {
   entry: EventVenueRequest;
-  access: "organiser" | "coordinator";
+  /** PTR-144: only the assigned Coordinator may open the adjust action. */
+  canAdjust: boolean;
   eventId: number;
   eventStatus: EventRequestStatus;
 }) {
   const showAdjust =
-    access === "coordinator" &&
-    entry.adjustable === true &&
-    SEARCHABLE_EVENT_STATUSES.includes(eventStatus);
+    canAdjust && entry.adjustable === true && SEARCHABLE_EVENT_STATUSES.includes(eventStatus);
   // PTR-138 AC1: the Coordinator's entries carry their session, which tells two sessions apart.
   const session = entry.requirements ? formatSessionSummary(entry.requirements) : "";
   const period = formatEntryPeriod(entry);
@@ -160,7 +161,7 @@ function VenueRequestEntry({
 function VenueBody({ data }: { data: EventPageData }) {
   const source = venueSource(data);
   if (!source) return null;
-  const { access, status, venueRequests } = source;
+  const { status, venueRequests } = source;
   const hasActions = hasVenueActions(source);
   const hasRequested = hasEventRequirements(source.requirements, venueRequests.length > 0);
   const hasBlocked = source.blocked.length > 0;
@@ -190,7 +191,7 @@ function VenueBody({ data }: { data: EventPageData }) {
                   <VenueRequestEntry
                     key={entry.id}
                     entry={entry}
-                    access={access}
+                    canAdjust={source.coordinatorActions}
                     eventId={source.eventId}
                     eventStatus={status}
                   />
@@ -286,11 +287,11 @@ export function venueSections(data: EventPageData): EventSectionDef[] {
       visible: inner => {
         const source = venueSource(inner);
         if (!source) return false;
-        const { access, status, venueRequests } = source;
+        const { coordinatorActions, status, venueRequests } = source;
         const settled = status === "approved" || status === "planning" || status === "confirmed";
         const searchable =
           SEARCHABLE_EVENT_STATUSES.includes(status) &&
-          (access === "coordinator" || venueRequests.length > 0);
+          (coordinatorActions || venueRequests.length > 0);
         if (!settled && !searchable) return false;
         return (
           hasEventRequirements(source.requirements, venueRequests.length > 0) ||

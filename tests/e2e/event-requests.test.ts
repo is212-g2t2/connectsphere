@@ -3,6 +3,7 @@ import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 import { waitForHydration } from "./hydration";
+import { signInAsStaff } from "./staff-auth";
 
 const password = "EventRequests123!";
 
@@ -233,8 +234,8 @@ test.describe("Event request list (PTR-14)", () => {
     const workshop = page.getByRole("row", { name: /Community workshop/ });
     await expect(dinner).toContainText("Submitted");
     await expect(dinner).toContainText("1 Dec 2030, 18:00");
-    // PTR-15: submission assigns the seed's only Coordinator.
-    await expect(dinner).toContainText("Seeded Event Coordinator");
+    // PTR-144: a fresh submission waits unassigned. No Coordinator holds it yet.
+    await expect(dinner).toContainText("Not yet assigned");
     await expect(workshop).toContainText("Draft");
 
     await dinner.getByRole("link", { name: "Annual dinner" }).click();
@@ -319,10 +320,8 @@ test.describe("Event request resume and delete (PTR-12)", () => {
   });
 });
 
-test.describe("Coordinator assignment (PTR-15)", () => {
-  test("names the assigned Coordinator on the list and detail after submission", async ({
-    page,
-  }) => {
+test.describe("Coordinator assignment (PTR-144)", () => {
+  test("leaves a fresh submission unassigned on the list and detail", async ({ page }) => {
     await openNewRequest(page);
     await page.getByLabel("Event name (required)", { exact: true }).fill("Board retreat");
     await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year");
@@ -334,34 +333,57 @@ test.describe("Coordinator assignment (PTR-15)", () => {
 
     await page.getByRole("link", { name: "Back to event requests" }).click();
     const row = page.getByRole("row", { name: /Board retreat/ });
-    // The seed provides one Coordinator. Every submission lands on them.
-    await expect(row).toContainText("Seeded Event Coordinator");
+    // A fresh submission waits in the Lead's queue. No Coordinator holds it yet.
+    await expect(row).toContainText("Not yet assigned");
 
     await row.getByRole("link", { name: "Board retreat" }).click();
-    // Read the Coordinator contact in the request messages' contact card. The name also shows
-    // in the cancellation note. Read the contact row itself.
+    // The contact card names no Coordinator while the event is unassigned.
     const record = page.getByRole("region", { name: "Requests & messages" });
-    await expect(record.locator("dd", { hasText: "Seeded Event Coordinator" })).toContainText(
-      "Seeded Event Coordinator"
-    );
-    await expect(
-      record.getByRole("link", { name: "coordinator.seed@example.com" })
-    ).toHaveAttribute("href", "mailto:coordinator.seed@example.com");
+    await expect(record.getByText("Not yet assigned")).toBeVisible();
+    await expect(record.getByRole("link", { name: "coordinator.seed@example.com" })).toHaveCount(0);
   });
 
-  test("gives a Coordinator the coordination page and refuses it to an organiser", async ({
+  test("gives the unassigned queue to the Lead, assignments to a Coordinator, and refuses it to an organiser", async ({
     page,
+    browser,
+    baseURL,
   }) => {
-    const signIn = await page.request.post("/api/auth/sign-in/email", {
-      data: { email: "coordinator.seed@example.com", password: "password1!" },
-    });
-    expect(signIn.ok(), await signIn.text()).toBe(true);
+    await openNewRequest(page);
+    const eventName = `Queue visibility ${randomUUID()}`;
+    await page.getByLabel("Event name (required)", { exact: true }).fill(eventName);
+    await page.getByLabel("Purpose (required)", { exact: true }).fill("Plan the year");
+    await page.getByLabel("Expected attendance (required)", { exact: true }).fill("12");
+    await page.getByLabel("Proposed start 1 (required)", { exact: true }).fill("2030-12-01T09:00");
+    await page.getByLabel("Proposed end 1 (required)", { exact: true }).fill("2030-12-01T17:00");
+    await page.getByRole("button", { name: "Submit request" }).click();
+    await expect(page.getByText("Request submitted.")).toBeVisible();
 
-    await page.goto("/dashboard");
-    await waitForHydration(page);
-    await page.getByRole("link", { name: "Coordination", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Coordination" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Unassigned requests" })).toBeVisible();
+    // The Lead reads the unassigned queue. The fresh submission waits there.
+    const leadContext = await browser.newContext({ baseURL });
+    const leadPage = await leadContext.newPage();
+    const coordinatorContext = await browser.newContext({ baseURL });
+    const coordinatorPage = await coordinatorContext.newPage();
+    try {
+      await signInAsStaff(leadPage, "event_coordinator_lead");
+      await leadPage.goto("/coordination");
+      await expect(
+        leadPage.getByRole("heading", { name: "Unassigned requests", level: 1 })
+      ).toBeVisible();
+      await expect(leadPage.getByRole("link", { name: eventName })).toBeVisible();
+
+      // A Coordinator reads assignments only. The unassigned queue never renders.
+      await signInAsStaff(coordinatorPage, "event_coordinator");
+      await coordinatorPage.goto("/coordination");
+      await expect(coordinatorPage.getByRole("heading", { name: "Coordination" })).toBeVisible();
+      await expect(coordinatorPage.getByRole("heading", { name: "Assigned to you" })).toBeVisible();
+      await expect(
+        coordinatorPage.getByRole("heading", { name: "Unassigned requests" })
+      ).toHaveCount(0);
+      await expect(coordinatorPage.getByRole("link", { name: eventName })).toHaveCount(0);
+    } finally {
+      await leadContext.close();
+      await coordinatorContext.close();
+    }
 
     await page.context().clearCookies();
     await signUp(page, "event_organiser");

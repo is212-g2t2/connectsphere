@@ -1,32 +1,23 @@
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  getTableColumns,
-  inArray,
-  ne,
-  notInArray,
-  or,
-  isNull,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray, isNull, ne, notInArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { db as Db } from "#/db";
 import {
   clarificationRequests,
   eventAssignments,
-  eventChangeRequests,
   eventHandovers,
   equipmentRequests,
   eventRequests,
   user,
 } from "#/db/schema";
+import { can } from "#/features/auth/permissions";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { listEventCancellationRequests } from "#/features/event-requests/cancellation-requests.server";
-import { listEventChangeRequests } from "#/features/event-requests/change-requests.server";
+import {
+  changeRequestsWaitingSql,
+  listEventChangeRequests,
+} from "#/features/event-requests/change-requests.server";
 import { loadOutstandingReleases } from "#/features/events/arrangements.server";
 import { hasBlockedArrangementSql } from "#/features/venues/blocked-arrangements.server";
 import { loadVenueRequestsForEvent } from "#/features/venue-requests/records.server";
@@ -49,8 +40,9 @@ import { raiseNotifications } from "#/features/notifications/raise.server";
  * database schema, Better Auth tables included. `server-fns.ts` reaches it through a dynamic
  * `import()` inside `.handler()`, which is the seam that keeps it off the client.
  *
- * The middleware pipeline has already verified the session and `event_request:coordinate`
- * before these handlers run.
+ * The middleware pipeline has already verified the session and a permission before these handlers
+ * run: `event_request:coordinate` for every coordination action, and `event_request:oversee` for
+ * the Lead's read-only request detail (PTR-144).
  */
 
 type Database = typeof Db;
@@ -67,9 +59,6 @@ const handoverSenders = alias(user, "handover_sender");
 const HANDOVER_NOT_ANSWERABLE = "This handover is not available to answer.";
 const ASSIGNMENT_CHANGED_MESSAGE =
   "This assignment has changed. Refresh the request and try again.";
-/** Refusal for a pick-up call on an assigned request; the accepted handover is the only path. */
-export const ASSIGNED_REQUEST_HANDOVER_MESSAGE =
-  "This request is assigned. Offer it as a handover and wait for that Coordinator to accept.";
 
 export async function handleListAssignedEventRequests(actor: SessionUser, database: Database) {
   return database
@@ -81,10 +70,7 @@ export async function handleListAssignedEventRequests(actor: SessionUser, databa
       /** PTR-137 AC1: a live venue block has suspended one of the event's bookings or holds. */
       venueBlocked: hasBlockedArrangementSql(eventRequests.id, eventRequests.status),
       /** PTR-52 AC1: the Organiser's change requests still waiting on this Coordinator. */
-      changeRequestsWaiting:
-        sql<number>`(select count(*) from ${eventChangeRequests} where ${eventChangeRequests.eventRequestId} = ${eventRequests.id} and ${eventChangeRequests.outcome} is null)`.mapWith(
-          Number
-        ),
+      changeRequestsWaiting: changeRequestsWaitingSql(),
     })
     .from(eventRequests)
     .innerJoin(user, eq(user.id, eventRequests.organiserId))
@@ -94,7 +80,7 @@ export async function handleListAssignedEventRequests(actor: SessionUser, databa
         eq(eventHandovers.eventRequestId, eventRequests.id),
         isNull(eventHandovers.decision),
         // Only the current assignment's offer counts: a row left behind by an account deletion
-        // and a later pick-up must not label the new Coordinator's request, and a decided
+        // and a later assignment must not label the new Coordinator's request, and a decided
         // request's offer can never be taken up.
         eq(eventHandovers.fromCoordinatorId, eventRequests.assignedCoordinatorId),
         notInArray(eventRequests.status, ["approved", "rejected"])
@@ -115,13 +101,21 @@ export async function handleListCoordinators(database: Database) {
     .orderBy(asc(user.name), asc(user.id));
 }
 
-/** Re-reads ownership on every request; a previous assignment never confers access. */
+/**
+ * Re-reads ownership on every request; a previous assignment never confers access. PTR-144: the
+ * assigned Coordinator reads their own assignment, and a caller with `event_request:oversee`
+ * reads the unassigned queue detail. A coordinator is refused an unassigned request — the id
+ * space reveals nothing about the queue.
+ */
 export async function handleGetCoordinationRequest(
   data: unknown,
   actor: SessionUser,
   database: Database
 ) {
   const { id } = parseEventRequestId(data);
+  // The permission decides the scope, not the role literal: the verb has one owner today, and
+  // this reads the same source of truth as the middleware.
+  const readsQueue = can(actor.role, { event_request: ["oversee"] });
   const rows = await database
     .select({
       ...getTableColumns(eventRequests),
@@ -135,20 +129,19 @@ export async function handleGetCoordinationRequest(
       and(
         eq(eventRequests.id, id),
         ne(eventRequests.status, "draft"),
-        or(
-          isNull(eventRequests.assignedCoordinatorId),
-          eq(eventRequests.assignedCoordinatorId, actor.id)
-        )
+        readsQueue
+          ? isNull(eventRequests.assignedCoordinatorId)
+          : eq(eventRequests.assignedCoordinatorId, actor.id)
       )
     );
   const request = rows.at(0);
-  // "Forbidden" is the refusal the event page's triage fallback reads: a hidden, foreign, or
+  // "Forbidden" is the refusal the event page's fallback reads: a hidden, foreign, or
   // nonexistent request answers the same 404, and the message carries no request data.
   if (!request) throw new AuthorizationError("Forbidden");
 
   // PTR-110: the live offer, but only while it is still this assignment's offer — the outgoing
   // Coordinator sees it and cannot raise a second one. A row the current assignment has moved
-  // past (account deletion and a later pick-up), one on a decided request, or one whose incoming
+  // past (account deletion and a later assignment), one on a decided request, or one whose incoming
   // account no longer exists (the inner join) is not shown as if it still waited.
   const assignedCoordinatorId = request.assignedCoordinatorId;
 
@@ -203,74 +196,6 @@ export async function handleGetCoordinationRequest(
     pendingHandover,
     venueRequests,
   };
-}
-
-/**
- * Pick-up assigns an unassigned request immediately with its audit row. An assigned request never
- * moves here (accepted handover raised by `handleRequestEventHandover`, applied by
- * `handleAcceptEventHandover`); a decided request whose Coordinator was deleted is closed work, not
- * a pick-up. The row lock serialises competing pick-ups.
- */
-export async function handleAssignEventRequest(
-  data: unknown,
-  actor: SessionUser,
-  database: Database
-) {
-  const input = parseAssignmentInput(data);
-  return database.transaction(async tx => {
-    const rows = await tx
-      .select()
-      .from(eventRequests)
-      .where(eq(eventRequests.id, input.id))
-      .for("update");
-    const request = rows.at(0);
-    if (
-      !request ||
-      request.status === "draft" ||
-      (request.assignedCoordinatorId !== null && request.assignedCoordinatorId !== actor.id)
-    ) {
-      throw new AuthorizationError("Only an unassigned request can be picked up here.");
-    }
-    // Decided first: a decided request cannot be handed over either, so pointing its Coordinator
-    // at the handover would be advice they cannot follow.
-    if (request.status === "approved" || request.status === "rejected") {
-      throw new ConflictError("A decided request can no longer be assigned.");
-    }
-    if (request.assignedCoordinatorId !== null) {
-      throw new ConflictError(ASSIGNED_REQUEST_HANDOVER_MESSAGE);
-    }
-    // The request is unassigned, so the only observation a stale page can hold is a Coordinator
-    // who has since been removed; `null` is the one value that matches.
-    if (input.expectedCoordinatorId !== null) {
-      throw new ConflictError(ASSIGNMENT_CHANGED_MESSAGE);
-    }
-
-    // Hold the selected account while its role is validated and the assignment is committed.
-    const incoming = (
-      await tx
-        .select({ id: user.id })
-        .from(user)
-        .where(and(eq(user.id, input.coordinatorId), eq(user.role, "event_coordinator")))
-        .for("share")
-    ).at(0);
-    if (!incoming) throw new ConflictError("Choose an existing Event Coordinator.");
-
-    const now = new Date();
-    const [updated] = await tx
-      .update(eventRequests)
-      .set({ assignedCoordinatorId: incoming.id, assignedAt: now })
-      .where(eq(eventRequests.id, request.id))
-      .returning();
-    await tx.insert(eventAssignments).values({
-      eventRequestId: request.id,
-      // A pick-up always starts from nobody; the guards above refuse everything else.
-      fromCoordinatorId: null,
-      toCoordinatorId: incoming.id,
-      actorId: actor.id,
-      createdAt: now,
-    });
-    return updated;
-  });
 }
 
 /**
@@ -355,7 +280,7 @@ export async function handleRequestEventHandover(
  * Locks are taken in the same order as a raise (request, then handover): the unlocked read learns
  * which request to lock first and refuses anyone but the addressee before a lock is taken, so a
  * concurrent raise cannot deadlock against an accept and a wrong actor cannot lock another
- * assignment. An offer whose request moved on (the account was deleted and the request picked up
+ * assignment. An offer whose request moved on (the account was deleted and the request assigned
  * again) is resolved as declined — that still records who answered and when — and refused
  * with 409.
  *

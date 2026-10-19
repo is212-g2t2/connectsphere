@@ -208,12 +208,13 @@ describe("EventDetailPage", () => {
     expect(await screen.findByRole("heading", { name: "Venue request" })).toBeTruthy();
   });
 
-  it("renders the coordinator triage header from the coordination request", async () => {
+  it("renders the lead's read-only triage detail from the coordination request", async () => {
     render(
       <EventDetailPage
         data={
           {
             kind: "triage",
+            viewerId: "lead-1",
             request: {
               eventName: "Unassigned open day",
               status: "submitted",
@@ -229,23 +230,23 @@ describe("EventDetailPage", () => {
               pendingHandover: null,
               venueRequests: [],
             },
-            coordinators: [],
           } as unknown as EventPageData
         }
       />
     );
 
-    expect(await screen.findByText("coordinator access")).toBeTruthy();
+    expect(await screen.findByText("unassigned request")).toBeTruthy();
     expect(screen.getByText("Submitted")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Unassigned open day" })).toBeTruthy();
   });
 
-  it("rails the triage assignment beside the record", async () => {
+  it("shows the triage record with no assignment rail or section", async () => {
     const { container } = render(
       <EventDetailPage
         data={
           {
             kind: "triage",
+            viewerId: "lead-1",
             request: {
               eventName: "Unassigned open day",
               status: "submitted",
@@ -262,17 +263,14 @@ describe("EventDetailPage", () => {
               outstandingReleases: null,
               venueRequests: [],
             },
-            coordinators: [],
           } as unknown as EventPageData
         }
       />
     );
 
-    const rail = await screen.findByRole("complementary", { name: "Actions" });
-    expect(rail.querySelector("#assignment")).toBeTruthy();
+    await screen.findByRole("heading", { name: "Request details" });
+    expect(screen.queryByRole("complementary", { name: "Actions" })).toBeNull();
     expect(container.querySelector("main #request")).toBeTruthy();
-    expect(container.querySelector("main aside #assignment")).toBe(
-      rail.querySelector("#assignment")
-    );
+    expect(container.querySelector("#assignment")).toBeNull();
   });
 });

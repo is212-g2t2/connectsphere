@@ -1037,6 +1037,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_hold_expiry_changed",
   /** PTR-132: buffer change created a conflict for existing commitments. */
   "venue_buffer_conflict",
+  /** PTR-144: a submitted request, told to the Organiser and to every Event Coordinator Lead. */
+  "event_submitted",
 ]);
 
 export const notifications = pgTable(

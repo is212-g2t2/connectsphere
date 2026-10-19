@@ -46,6 +46,8 @@ export const NOTIFICATION_KINDS = [
   "venue_hold_expiry_changed",
   /** PTR-132: buffer change created a conflict for existing commitments. */
   "venue_buffer_conflict",
+  /** PTR-144: a submitted request, told to the Organiser and to every Event Coordinator Lead. */
+  "event_submitted",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -117,6 +119,8 @@ const payloadSchemas = {
     eventName: z.string(),
     whatShouldChange: z.string(),
     requestedValue: z.string(),
+    /** PTR-144: unassigned events fan out to Leads, who wait for assignment. Absent before this story. */
+    audience: z.literal("lead").optional(),
   }),
   handover_requested: z.object({
     eventName: z.string(),
@@ -202,7 +206,11 @@ const payloadSchemas = {
     audience: z.enum(["organiser", "coordinator"]),
   }),
   /** PTR-53 AC3: the Organiser asked the assigned Coordinator to cancel the event. */
-  event_cancellation_requested: z.object({ eventName: z.string() }),
+  event_cancellation_requested: z.object({
+    eventName: z.string(),
+    /** PTR-144: unassigned events fan out to Leads, who wait for assignment. Absent before this story. */
+    audience: z.literal("lead").optional(),
+  }),
   /**
    * PTR-54 AC3, AC4, AC7: the event is cancelled, told to each party in their own words. The Venue
    * Staff copy names the booking to release and not the event, as every Venue Staff notice does
@@ -332,6 +340,14 @@ const payloadSchemas = {
       .nonempty()
       .optional(),
   }),
+  /**
+   * PTR-144: a submitted request. The Organiser's copy confirms the record; the Lead copy waits
+   * for a Coordinator to be assigned.
+   */
+  event_submitted: z.object({
+    eventName: z.string(),
+    audience: z.enum(["organiser", "lead"]),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -444,6 +460,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("venue_buffer_conflict"),
     payload: payloadSchemas.venue_buffer_conflict,
   }),
+  z.object({
+    kind: z.literal("event_submitted"),
+    payload: payloadSchemas.event_submitted,
+  }),
 ]);
 
 /**
@@ -535,6 +555,10 @@ export function notificationSummary(notification: NotificationPayload): string {
       return `Tentative hold expiry ${notification.payload.action}: ${notification.payload.venueName}`;
     case "venue_buffer_conflict":
       return `Venue buffer conflict: ${notification.payload.eventName} at ${notification.payload.venueName}`;
+    case "event_submitted":
+      return notification.payload.audience === "lead"
+        ? `New event request awaiting a Coordinator: ${notification.payload.eventName}`
+        : `Event request submitted: ${notification.payload.eventName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -578,12 +602,15 @@ export function notificationHref(
     case "venue_booking_rejected":
     case "venue_booking_changed":
     case "clarification_replied":
-    case "event_change_requested":
-    case "handover_declined":
     case "equipment_arrangements_completed":
     case "equipment_unavailable":
     case "equipment_released":
       return `/events/${eventRequestId}`;
+    case "event_change_requested":
+      return notification.payload.audience === "lead"
+        ? "/coordination"
+        : `/events/${eventRequestId}`;
+    case "handover_declined":
     case "handover_requested":
       // While the offer is live the event page refuses the not-yet-assigned Coordinator, so the
       // notification points at the coordination dashboard where accept/decline sits.
@@ -604,7 +631,9 @@ export function notificationHref(
       // Every audience opens the same universal event page now.
       return `/events/${eventRequestId}`;
     case "event_cancellation_requested":
-      return `/events/${eventRequestId}`;
+      return notification.payload.audience === "lead"
+        ? "/coordination"
+        : `/events/${eventRequestId}`;
     case "event_cancellation_declined":
       return `/events/${eventRequestId}`;
     case "event_cancelled":
@@ -632,6 +661,10 @@ export function notificationHref(
         : `/events/${eventRequestId}`;
     case "event_change_processed":
       return `/events/${eventRequestId}`;
+    case "event_submitted":
+      return notification.payload.audience === "lead"
+        ? "/coordination"
+        : `/events/${eventRequestId}`;
     case "venue_block_changed":
       return `/events/${eventRequestId}`;
     case "venue_booking_released_by_coordinator":
@@ -713,6 +746,7 @@ export function notificationReachable(
     case "venue_booking_released_by_coordinator":
     case "venue_hold_expiry_changed":
     case "venue_buffer_conflict":
+    case "event_submitted":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

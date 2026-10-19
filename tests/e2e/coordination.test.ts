@@ -11,6 +11,7 @@ import * as schema from "../../src/db/schema";
 import { waitForHydration } from "./hydration";
 import { waitForEmail } from "./mailpit";
 import { registerAccount } from "./register";
+import { signInAsStaff } from "./staff-auth";
 
 const password = "Coordinate123!";
 let pool: Pool;
@@ -224,66 +225,57 @@ test("declines a handover and leaves the event with the outgoing Coordinator", a
   }
 });
 
-test("picks up unassigned events for yourself or a named Coordinator", async ({
+test("shows the unassigned queue to the Lead and hides it from Coordinators", async ({
   page,
   browser,
   baseURL,
 }) => {
-  const otherContext = await browser.newContext({ baseURL });
-  const otherPage = await otherContext.newPage();
+  const coordinatorContext = await browser.newContext({ baseURL });
+  const coordinatorPage = await coordinatorContext.newPage();
   const ids: string[] = [];
   try {
-    const actor = await register(page, "event_coordinator", "Pickup Coordinator");
-    ids.push(actor.id);
-    const other = await register(otherPage, "event_coordinator", "Named Coordinator");
-    ids.push(other.id);
-    // Use a unique organiser row so this test owns its fixtures and cleanup.
+    // A fresh submission waits unassigned: no Coordinator holds it.
     const organiserId = randomUUID();
     ids.push(organiserId);
     await database.insert(schema.user).values({
       id: organiserId,
-      name: "Pickup Organiser",
+      name: "Queue Organiser",
       email: `${organiserId}@example.invalid`,
       role: "event_organiser",
     });
-    for (const target of [actor, other]) {
-      const eventName = `Pickup ${randomUUID()}`;
-      const [request] = await database
-        .insert(schema.eventRequests)
-        .values({ organiserId, eventName, status: "submitted", submittedAt: new Date() })
-        .returning();
-      await page.goto("/coordination");
-      await page.getByRole("link", { name: eventName }).click();
-      await waitForHydration(page);
-      if (target.id === actor.id) {
-        await page.getByRole("button", { name: "Assign to me" }).click();
-        // Claiming reloads the event page and changes triage to the assigned view. Wait for that
-        // change before reading the committed data below.
-        await expect(page.getByRole("heading", { name: "Hand over this request" })).toBeVisible();
-      } else {
-        await page.locator("#coordinatorId").click();
-        await page.getByRole("option", { name: target.name }).click();
-        await page.getByRole("button", { name: "Assign Coordinator", exact: true }).click();
-        // Another user now owns the request, so this actor's event page returns 404. Wait for that
-        // response before reading the committed data below.
-        await expect(page.getByText(/not found/i)).toBeVisible();
-      }
-      await expect(page).toHaveURL(new RegExp(`/events/${request.id}$`));
-      const [stored] = await database
-        .select()
-        .from(schema.eventRequests)
-        .where(eq(schema.eventRequests.id, request.id));
-      expect(stored.assignedCoordinatorId).toBe(target.id);
-      const [audit] = await database
-        .select()
-        .from(schema.eventAssignments)
-        .where(eq(schema.eventAssignments.eventRequestId, request.id));
-      expect(audit.actorId).toBe(actor.id);
-      expect(audit.fromCoordinatorId).toBeNull();
-    }
+    const eventName = `Unassigned ${randomUUID()}`;
+    await database.insert(schema.eventRequests).values({
+      organiserId,
+      eventName,
+      status: "submitted",
+      submittedAt: new Date(),
+    });
+
+    // The Lead reads the unassigned queue and opens the read-only detail.
+    await signInAsStaff(page, "event_coordinator_lead");
+    await page.goto("/coordination");
+    await expect(
+      page.getByRole("heading", { name: "Unassigned requests", level: 1 })
+    ).toBeVisible();
+    await page.getByRole("link", { name: eventName }).click();
+    await waitForHydration(page);
+    await expect(page.getByText("unassigned request", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request details" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Assign this request" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Assign to me" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Assign Coordinator" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Hand over this request" })).toHaveCount(0);
+
+    // A Coordinator never sees the unassigned queue: neither the heading nor the row.
+    await signInAsStaff(coordinatorPage, "event_coordinator");
+    await coordinatorPage.goto("/coordination");
+    await expect(coordinatorPage.getByRole("heading", { name: "Unassigned requests" })).toHaveCount(
+      0
+    );
+    await expect(coordinatorPage.getByRole("link", { name: eventName })).toHaveCount(0);
   } finally {
     await database.delete(schema.user).where(inArray(schema.user.id, ids));
-    await otherContext.close();
+    await coordinatorContext.close();
   }
 });
 test("lists a submitted request assigned to the Coordinator", async ({ page }) => {

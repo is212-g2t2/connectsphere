@@ -17,7 +17,11 @@ import type { Role } from "#/features/auth/schema/role";
 const statement = {
   /** PTR-45: `register` is an Attendee's own registration for a published event. */
   event: ["register"],
-  event_request: ["create", "coordinate"],
+  /**
+   * PTR-144: `oversee` is the Event Coordinator Lead's read-only verb. It opens the unassigned
+   * queue and every event; it never moves an assignment or decides a request.
+   */
+  event_request: ["create", "coordinate", "oversee"],
   venue: ["create", "update", "read", "search"],
   venue_request: ["request", "read", "decide"],
   event_registration: ["read"],
@@ -45,10 +49,11 @@ const ac = createAccessControl(statement);
  * ponytail: the matrix covers only the functions that exist today. The equipment rows arrive
  * with the stories that build them (PTR-8, PTR-38 and the rest).
  *
- * `event_request:coordinate` (PTR-15) is what an Event Coordinator holds over submitted
- * requests: reading and assigning accessible requests (PTR-16), with review actions arriving
- * in PTR-17. It is deliberately not `create`: a Coordinator never authors
- * a request, and an Organiser never coordinates one.
+ * `event_request:coordinate` (PTR-15) is what an Event Coordinator holds over the requests
+ * assigned to them: review actions arrived in PTR-17, and handovers in PTR-110. It is
+ * deliberately not `create`: a Coordinator never authors a request, and an Organiser never
+ * coordinates one. PTR-144 adds `oversee`, the read-only Lead verb: the unassigned queue and
+ * every event, with no verb that moves or decides a request.
  *
  * `venue` (PTR-26) is the first internal/external split: Venue Staff maintain the catalogue,
  * the other two internal roles read it, and the external roles hold nothing — PTR-28
@@ -76,6 +81,14 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
     venue: ["read", "search"],
     venue_request: ["request"],
     equipment_request: ["manage", "submit"],
+  }),
+  /**
+   * PTR-144: the Event Coordinator Lead allocates work. `event_request:oversee` reads the
+   * unassigned queue and every event read-only. The Lead holds no coordination verb, so no
+   * handler that moves or decides a request admits them.
+   */
+  event_coordinator_lead: ac.newRole({
+    event_request: ["oversee"],
   }),
   venue_staff: ac.newRole({
     venue: ["create", "update", "read"],
