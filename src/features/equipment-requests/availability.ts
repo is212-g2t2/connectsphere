@@ -106,3 +106,56 @@ export function computeAvailableEquipmentQuantity(
     peakReserved,
   };
 }
+
+/**
+ * PTR-162 AC3: derive "Short by N" per reservation without changing any row. For each type,
+ * capacity is held minus out-of-service. For each reservation window, find the peak overlapping
+ * quantity (including the window itself). A peak above capacity is short by the difference.
+ * Lines without a reservation or type carry no shortfall.
+ */
+export function computeEquipmentShortfalls(args: {
+  capacities: Map<number, number>;
+  reservations: Array<{
+    equipmentRequestId: string;
+    equipmentTypeId: number;
+    startsAt: string;
+    endsAt: string;
+    quantity: number;
+  }>;
+}): Map<string, number> {
+  const byType = Map.groupBy(args.reservations, row => row.equipmentTypeId);
+  const shortfalls = new Map<string, number>();
+  for (const [typeId, rows] of byType) {
+    const capacity = args.capacities.get(typeId) ?? 0;
+    for (const target of rows) {
+      const targetStart = parseUtcTimestamp(target.startsAt);
+      const targetEnd = parseUtcTimestamp(target.endsAt);
+      if (Number.isNaN(targetStart) || Number.isNaN(targetEnd) || targetEnd <= targetStart) {
+        shortfalls.set(target.equipmentRequestId, 0);
+        continue;
+      }
+      const events: Array<{ time: number; delta: number }> = [];
+      for (const other of rows) {
+        if (other.quantity <= 0) continue;
+        const start = parseUtcTimestamp(other.startsAt);
+        const end = parseUtcTimestamp(other.endsAt);
+        if (Number.isNaN(start) || Number.isNaN(end) || end <= start) continue;
+        const activeStart = Math.max(targetStart, start);
+        const activeEnd = Math.min(targetEnd, end);
+        if (activeEnd > activeStart) {
+          events.push({ time: activeStart, delta: other.quantity });
+          events.push({ time: activeEnd, delta: -other.quantity });
+        }
+      }
+      events.sort((a, b) => (a.time !== b.time ? a.time - b.time : a.delta - b.delta));
+      let current = 0;
+      let peak = 0;
+      for (const event of events) {
+        current += event.delta;
+        if (current > peak) peak = current;
+      }
+      shortfalls.set(target.equipmentRequestId, Math.max(0, peak - capacity));
+    }
+  }
+  return shortfalls;
+}

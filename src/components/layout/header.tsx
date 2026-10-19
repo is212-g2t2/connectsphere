@@ -66,12 +66,14 @@ export function Header() {
   const showVenues = can(role, { venue: ["read"] });
   const showApprovedBookings = can(role, { venue_request: ["decide"] });
   const showSafetyReviews = can(role, { safety_review: ["read"] });
+  const showEquipmentCatalogue = can(role, { equipment_request: ["arrange"] });
   const showSections =
     showEventRequests ||
     showCoordination ||
     showVenues ||
     showApprovedBookings ||
-    showSafetyReviews;
+    showSafetyReviews ||
+    showEquipmentCatalogue;
 
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-md">
@@ -146,6 +148,15 @@ export function Header() {
                 className={SECTION_LINK_CLASSNAME}
               >
                 Safety reviews
+              </Link>
+            )}
+            {showEquipmentCatalogue && (
+              <Link
+                to="/equipment-types"
+                aria-current={pathname === "/equipment-types" ? "page" : undefined}
+                className={SECTION_LINK_CLASSNAME}
+              >
+                Equipment catalogue
               </Link>
             )}
           </nav>

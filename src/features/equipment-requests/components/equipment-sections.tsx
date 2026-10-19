@@ -99,7 +99,7 @@ export function equipmentSections(data: EventPageData): EventSectionDef[] {
         id: "lines",
         label: "Equipment lines",
         visible: alwaysVisible,
-        render: () => (
+        render: body => (
           <div>
             <h2 className="display-h3">Equipment lines</h2>
             <div className="mt-4">
@@ -107,6 +107,7 @@ export function equipmentSections(data: EventPageData): EventSectionDef[] {
                 eventId={event.id}
                 lines={lines}
                 bookings={event.equipmentBookings ?? []}
+                equipmentTypes={body.kind === "event" ? (body.equipmentTypes ?? null) : null}
               />
             </div>
           </div>

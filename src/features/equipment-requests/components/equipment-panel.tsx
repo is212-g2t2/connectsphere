@@ -131,6 +131,9 @@ export function EquipmentPanel({
                     {line.notes && <p className="mt-0.5 text-muted-foreground">{line.notes}</p>}
                     {/* PTR-39 AC4: where Technical Support has got to. Nothing is arranged before the request is submitted, so nothing is shown until then. */}
                     {alreadySubmitted && <ArrangementPosition line={line} />}
+                    {(line.shortfall ?? 0) > 0 && (
+                      <p className="mt-1 body-sm font-medium">Short by {line.shortfall}</p>
+                    )}
                     <LastReleaseNote release={line.lastRelease} />
                   </div>
                   {canEditLines && (
