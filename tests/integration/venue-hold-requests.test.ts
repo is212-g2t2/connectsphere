@@ -14,7 +14,10 @@ import {
   handlePlaceVenueHold,
   handleRequestVenueHold,
 } from "#/features/venue-requests/holds.server";
-import { venueRequestEventStatusMessage } from "#/features/venue-requests/requests.server";
+import {
+  handleCreateVenueRequest,
+  venueRequestEventStatusMessage,
+} from "#/features/venue-requests/requests.server";
 import {
   VENUE_HOLD_DECLINE_REASON_REQUIRED,
   VENUE_HOLD_EXPIRY_PAST_MESSAGE,
@@ -367,6 +370,20 @@ describe("hold requests (PTR-150)", () => {
       expect((await holdRow(hold.id)).status).toBe("requested");
       expect(await ledger(hold.id)).toEqual([]);
       expect(await notices("venue_hold_placed")).toEqual([]);
+    });
+
+    it("refuses a window that overlaps a pending request of the same event", async () => {
+      // A requested hold holds no venue time, so the Coordinator can raise a booking request for
+      // an overlapping window before placement. A placed hold must not overlap it.
+      const hold = await requestHold();
+      await handleCreateVenueRequest(
+        { venueId, eventId, date: "2099-06-15", startTime: "11:00", endTime: "13:00" },
+        session(users.coordinator),
+        database as never
+      );
+      await expect(place(hold.id)).rejects.toThrow("overlaps this event's pending request");
+      expect((await holdRow(hold.id)).status).toBe("requested");
+      expect(await ledger(hold.id)).toEqual([]);
     });
 
     it("names the status when the event left the searchable statuses", async () => {

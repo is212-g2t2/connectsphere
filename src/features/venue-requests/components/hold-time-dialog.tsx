@@ -18,6 +18,7 @@ import {
   HoldLocalDateTime,
   VENUE_HOLD_EXPIRY_MESSAGE,
   VENUE_HOLD_WARNING_MESSAGE,
+  leftHoldQueue,
 } from "#/features/venue-requests/schema";
 import {
   placeVenueHold,
@@ -276,7 +277,13 @@ export function PlaceHoldRequestButton({ holdId }: { holdId: string }) {
       description="The hold reserves the venue until this venue-local date and time. The Coordinator is notified."
       current={null}
       saveLabel="Place hold"
-      save={value => placeVenueHold({ data: { id: holdId, expiresAt: value } })}
+      save={value =>
+        placeVenueHold({ data: { id: holdId, expiresAt: value } }).catch((error: unknown) => {
+          // The reload removes the request and this dialog with it, so show the refusal here too.
+          if (error instanceof Error && leftHoldQueue(error.message)) toast.error(error.message);
+          throw error;
+        })
+      }
       successMessage="Tentative hold placed."
     />
   );

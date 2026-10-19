@@ -10,7 +10,8 @@ import {
 } from "#/features/venue-requests/schema";
 import type { VenueHoldRequest } from "#/features/venue-requests/server-fns";
 
-const { mockInvalidate, mockPlace, mockDecline } = vi.hoisted(() => ({
+const { mockInvalidate, mockPlace, mockDecline, mockToastError } = vi.hoisted(() => ({
+  mockToastError: vi.fn<(msg?: unknown) => void>(),
   mockInvalidate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
   mockPlace: vi.fn<(input: unknown) => Promise<unknown>>().mockResolvedValue({}),
   mockDecline: vi.fn<(input: unknown) => Promise<unknown>>().mockResolvedValue({}),
@@ -27,7 +28,9 @@ vi.mock("#/features/venue-requests/server-fns", () => ({
   setVenueHoldWarning: vi.fn<() => Promise<unknown>>(),
 }));
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn<(msg?: unknown) => void>() } }));
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn<(msg?: unknown) => void>(), error: mockToastError },
+}));
 
 const request: VenueHoldRequest = {
   id: "hold-1",
@@ -83,14 +86,40 @@ describe("VenueHoldRequestsPage", () => {
     );
   });
 
-  it("shows the refusal when another member handled the request first (AC6)", async () => {
+  it("toasts a decline refusal for a request that another member handled (AC6)", async () => {
+    // The reload drops the handled request and its form, so only a toast can show the refusal.
     mockDecline.mockRejectedValueOnce(new Error(VENUE_HOLD_REQUEST_HANDLED_MESSAGE));
     const user = userEvent.setup();
     render(<VenueHoldRequestsPage requests={[request]} />);
     await user.click(screen.getByRole("button", { name: "Decline" }));
     await user.type(screen.getByLabelText("Reason for decline"), "Exams that week");
     await user.click(screen.getByRole("button", { name: "Confirm decline" }));
-    expect(await screen.findByText(VENUE_HOLD_REQUEST_HANDLED_MESSAGE)).toBeTruthy();
+    await waitFor(() =>
+      expect(mockToastError).toHaveBeenCalledWith(VENUE_HOLD_REQUEST_HANDLED_MESSAGE)
+    );
     expect(mockInvalidate).toHaveBeenCalled();
+  });
+
+  it("toasts a placement refusal for an event that left the searchable statuses (AC4)", async () => {
+    const refusal = "This event is confirmed, so it cannot take a new venue booking.";
+    mockPlace.mockRejectedValueOnce(new Error(refusal));
+    const user = userEvent.setup();
+    render(<VenueHoldRequestsPage requests={[request]} />);
+    await user.click(screen.getByRole("button", { name: "Place hold" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByLabelText("Date and time"), "2099-06-10T12:00");
+    await user.click(within(dialog).getByRole("button", { name: "Place hold" }));
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith(refusal));
+  });
+
+  it("keeps a refusal for a request that stays in the queue in the form", async () => {
+    mockDecline.mockRejectedValueOnce(new Error("Could not reach the server"));
+    const user = userEvent.setup();
+    render(<VenueHoldRequestsPage requests={[request]} />);
+    await user.click(screen.getByRole("button", { name: "Decline" }));
+    await user.type(screen.getByLabelText("Reason for decline"), "Exams that week");
+    await user.click(screen.getByRole("button", { name: "Confirm decline" }));
+    expect(await screen.findByText("Could not reach the server")).toBeTruthy();
+    expect(mockToastError).not.toHaveBeenCalled();
   });
 });

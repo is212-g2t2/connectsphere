@@ -795,7 +795,7 @@ export const venueHolds = pgTable(
     expiryChangedAt: timestamp("expiry_changed_at", { withTimezone: true }),
     heldById: text("held_by_id").references(() => user.id, { onDelete: "set null" }),
     releasedById: text("released_by_id").references(() => user.id, { onDelete: "set null" }),
-    // PTR-150: the Venue Staff member who placed or declined a hold request.
+    // PTR-150: the Venue Staff member who placed the request, or who declined it and why.
     placedById: text("placed_by_id").references(() => user.id, { onDelete: "set null" }),
     declineReason: text("decline_reason"),
     declinedById: text("declined_by_id").references(() => user.id, { onDelete: "set null" }),

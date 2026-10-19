@@ -1,6 +1,6 @@
 import { Button, Section, Text } from "@react-email/components";
 
-import { formatDate, formatTime } from "#/features/emails/format";
+import { formatDate, formatPeriod, formatTime } from "#/features/emails/format";
 import { emailButton, emailHeading, emailText } from "./email-styles";
 import { Layout } from "./layout";
 
@@ -11,9 +11,6 @@ interface HoldPeriodProps {
   endsAt: string;
 }
 
-const period = ({ startsAt, endsAt }: HoldPeriodProps) =>
-  `${formatDate(startsAt)}, ${formatTime(startsAt)}–${formatTime(endsAt)}`;
-
 /**
  * PTR-150 AC1: a Coordinator requested a tentative hold. Every Venue Staff member gets this email.
  * It names the venue and the period, never the event (PTR-8).
@@ -23,7 +20,7 @@ export const VenueHoldRequestedEmail = (props: HoldPeriodProps & { queueUrl: str
     <Section>
       <Text style={emailHeading}>Tentative hold requested</Text>
       <Text style={emailText}>
-        {`A Coordinator asks to hold ${props.venueName} for ${period(props)}. Place the hold with an expiry, or decline it.`}
+        {`A Coordinator asks to hold ${props.venueName} for ${formatPeriod(props.startsAt, props.endsAt)}. Place the hold with an expiry, or decline it.`}
       </Text>
       <Button href={props.queueUrl} style={emailButton}>
         View hold requests
@@ -40,7 +37,7 @@ export const VenueHoldPlacedEmail = (
     <Section>
       <Text style={emailHeading}>Tentative hold placed</Text>
       <Text style={emailText}>
-        {`Your tentative hold on ${props.venueName} for ${period(props)} is placed. It expires on ${formatDate(props.expiresAt)}, ${formatTime(props.expiresAt)}.`}
+        {`Your tentative hold on ${props.venueName} for ${formatPeriod(props.startsAt, props.endsAt)} is placed. It expires on ${formatDate(props.expiresAt)}, ${formatTime(props.expiresAt)}.`}
       </Text>
       <Button href={props.calendarUrl} style={emailButton}>
         View venue calendar
@@ -57,7 +54,7 @@ export const VenueHoldDeclinedEmail = (
     <Section>
       <Text style={emailHeading}>Tentative hold request declined</Text>
       <Text style={emailText}>
-        {`Your request to hold ${props.venueName} for ${period(props)} was declined.`}
+        {`Your request to hold ${props.venueName} for ${formatPeriod(props.startsAt, props.endsAt)} was declined.`}
       </Text>
       <Text style={emailText}>{`Reason: ${props.reason}`}</Text>
       <Button href={props.calendarUrl} style={emailButton}>

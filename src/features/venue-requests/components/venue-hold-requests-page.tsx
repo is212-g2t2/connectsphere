@@ -13,6 +13,8 @@ import { PlaceHoldRequestButton } from "#/features/venue-requests/components/hol
 import {
   VENUE_HOLD_DECLINE_REASON_MAX_LENGTH,
   VenueHoldDeclineInput,
+  formIssues,
+  leftHoldQueue,
 } from "#/features/venue-requests/schema";
 import { declineVenueHold } from "#/features/venue-requests/server-fns";
 import type { VenueHoldRequest } from "#/features/venue-requests/server-fns";
@@ -32,26 +34,20 @@ function DeclineHoldRequestForm({
   const form = useForm({
     defaultValues: { reason: "" },
     validators: {
-      onSubmit: ({ value }) => {
-        const parsed = VenueHoldDeclineInput.safeParse({ id: request.id, reason: value.reason });
-        if (parsed.success) return undefined;
-        return { fields: { reason: { message: parsed.error.issues[0].message } } };
-      },
+      onSubmit: ({ value }) => formIssues(VenueHoldDeclineInput, { id: request.id, ...value }),
     },
     onSubmit: async ({ value, formApi }) => {
       try {
-        await declineVenueHold({ data: VenueHoldDeclineInput.parse({ id: request.id, ...value }) });
+        await declineVenueHold({ data: { id: request.id, ...value } });
       } catch (error) {
-        formApi.setErrorMap({
-          onSubmit: {
-            fields: {},
-            form:
-              error instanceof Error && error.message
-                ? error.message
-                : "Could not decline this hold request. Try again.",
-          },
-        });
-        // Another Venue Staff member can handle the request first. Reload, but keep the message.
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Could not decline this hold request. Try again.";
+        // The reload removes a request that left the queue, and this form with it. Show that
+        // refusal as a toast. Keep any other refusal in the form.
+        if (leftHoldQueue(message)) toast.error(message);
+        else formApi.setErrorMap({ onSubmit: { fields: {}, form: message } });
         await router.invalidate({ filter: skipRootFilter }).catch(() => {});
         return;
       }

@@ -323,9 +323,12 @@ export const requestVenueHold = createServerFn({ method: "POST" })
     return { id: hold.id, status: hold.status };
   });
 
-/** PTR-150 AC2: the shared hold-request queue that every Venue Staff member reads. */
+/**
+ * PTR-150 AC2: the shared hold-request queue that every Venue Staff member reads. It takes the
+ * decision verb, as the page and its actions do.
+ */
 export const listVenueHoldRequests = createServerFn({ method: "GET" })
-  .middleware([requireVenueRequestRead])
+  .middleware([requireVenueDecision])
   .handler(async () => {
     const [{ db }, { handleListVenueHoldRequests }] = await loadHoldsServer();
     return handleListVenueHoldRequests(db);

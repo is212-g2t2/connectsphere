@@ -654,6 +654,17 @@ export function parseVenueHoldWarning(data: unknown): z.infer<typeof VenueHoldWa
 
 /** PTR-150 AC6: a hold request that another Venue Staff member placed or declined first. */
 export const VENUE_HOLD_REQUEST_HANDLED_MESSAGE = "This hold request was already handled";
+
+/**
+ * Whether a refusal means that the request has left the queue: another member handled it, or its
+ * event can no longer take a hold. The queue then reloads without the request, so the refusal
+ * must show outside its card.
+ */
+export function leftHoldQueue(message: string): boolean {
+  return (
+    message === VENUE_HOLD_REQUEST_HANDLED_MESSAGE || message.includes(VENUE_EVENT_STATUS_PHRASE)
+  );
+}
 export const VENUE_HOLD_DECLINE_REASON_REQUIRED = "Enter a reason to decline this hold request";
 export const VENUE_HOLD_DECLINE_REASON_MAX_LENGTH = 2000;
 

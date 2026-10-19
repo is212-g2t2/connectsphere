@@ -59,8 +59,11 @@ const log = logger.getChild("venue-holds");
  * `SEARCHABLE_EVENT_STATUSES`, an occupied period, and a pending request of the same event that
  * overlaps. Return the venue and the row to write, with the venue's current buffers.
  */
-async function checkHoldCreation(tx: VenueTx, data: unknown, actor: SessionUser) {
-  const input = parseVenueHoldInput(data);
+async function checkHoldCreation(
+  tx: VenueTx,
+  input: ReturnType<typeof parseVenueHoldInput>,
+  actor: SessionUser
+) {
   // Lock the event before the venue. This waits for a cancellation in progress. A later
   // cancellation waits for this transaction to commit.
   const locked = await keyShareEvent(tx, input.eventId);
@@ -96,8 +99,10 @@ async function checkHoldCreation(tx: VenueTx, data: unknown, actor: SessionUser)
  * PTR-134 AC2: Write the hold's ledger row, with the hold's buffers, in the same transaction.
  */
 export async function handleCreateVenueHold(data: unknown, actor: SessionUser, database: Database) {
+  const input = parseVenueHoldInput(data);
+
   return database.transaction(async tx => {
-    const { occupancy } = await checkHoldCreation(tx, data, actor);
+    const { occupancy } = await checkHoldCreation(tx, input, actor);
     const [created] = await tx
       .insert(venueHolds)
       .values({ ...occupancy, id: crypto.randomUUID(), heldById: actor.id })
@@ -118,8 +123,10 @@ export async function handleRequestVenueHold(
   actor: SessionUser,
   database: Database
 ) {
+  const input = parseVenueHoldInput(data);
+
   const result = await database.transaction(async tx => {
-    const { venue, occupancy } = await checkHoldCreation(tx, data, actor);
+    const { venue, occupancy } = await checkHoldCreation(tx, input, actor);
     const [created] = await tx
       .insert(venueHolds)
       .values({ ...occupancy, id: crypto.randomUUID(), status: "requested", heldById: actor.id })
@@ -531,11 +538,8 @@ async function raiseHoldDecisionNotification(
  * PTR-150 AC3, AC4, AC6: Venue Staff place a hold request with an expiry in the future. Any Venue
  * Staff member can act: the actor need not coordinate the event.
  *
- * Under the event, venue and row locks, refuse an event outside `SEARCHABLE_EVENT_STATUSES` and a
- * venue that is no longer free, and name the reason. Refresh the stored buffers to the venue's
- * current ones, so the hold row and its ledger row agree. The hold becomes `held` with the expiry
- * and `placedById`, and the Coordinator is notified. The same-event overlap rule of hold creation
- * applies too, because a placed hold is the state that hold creation writes.
+ * Refresh the stored buffers to the venue's current ones, so the hold row and its ledger row agree.
+ * Apply the same-event overlap rule of hold creation too, because placement writes the same state.
  */
 export async function handlePlaceVenueHold(data: unknown, actor: SessionUser, database: Database) {
   const { id, expiresAt } = parseVenueHoldPlacement(data);
