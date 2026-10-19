@@ -372,14 +372,12 @@ describe("venue hold expiry sweep (PTR-143)", () => {
     expect(await occupancy()).toHaveLength(1);
   });
 
-  it("never sweeps a hold with no expiry", async () => {
-    // A row placed before this release may have no expiry. Clear the placed one.
-    await setExpiryDirect(holdId, null);
+  it("refuses to clear the expiry of a placed hold (PTR-152)", async () => {
     const before = await allNotices();
-    expect(
-      await sweepVenueHoldExpiries(database as never, new Date("2100-01-01T00:00:00+08:00"))
-    ).toBe(0);
-    expect(await holdRow()).toMatchObject({ status: "held", expiresAt: null });
+    await expect(setExpiryDirect(holdId, null)).rejects.toMatchObject({
+      cause: { constraint: "venue_holds_held_requires_expiry" },
+    });
+    expect(await holdRow()).toMatchObject({ status: "held", expiresAt: "2099-06-14 12:00:00" });
     expect(await allNotices()).toEqual(before);
   });
 
