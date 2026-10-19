@@ -1,12 +1,44 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EventProjection, EventVenueRequest } from "#/features/events/access";
 import { venueSections } from "#/features/events/components/venue-section";
 import type { EventPageData } from "#/features/events/page-data";
 
+const {
+  dismissVenueRequest,
+  convertVenueHold,
+  releaseVenueHold,
+  requestVenueHold,
+  withdrawVenueHoldRequest,
+  invalidate,
+  dismissSuccess,
+} = vi.hoisted(() => ({
+  dismissVenueRequest: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
+  convertVenueHold: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  releaseVenueHold: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
+  requestVenueHold: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
+  withdrawVenueHoldRequest: vi.fn<(input: { data: { id: string } }) => Promise<unknown>>(),
+  invalidate: vi.fn<() => Promise<void>>(),
+  dismissSuccess: vi.fn<(message: string) => void>(),
+}));
+
+vi.mock("sonner", () => ({ toast: { success: dismissSuccess } }));
+
+// Every server function that the venue hold actions import, so rendering a hold row never leaves
+// one of them undefined.
+vi.mock("#/features/venue-requests/server-fns", () => ({
+  dismissVenueRequest,
+  convertVenueHold,
+  releaseVenueHold,
+  requestVenueHold,
+  withdrawVenueHoldRequest,
+}));
+
 vi.mock("@tanstack/react-router", () => ({
+  useRouter: () => ({ invalidate, navigate: () => Promise.resolve() }),
   Link: ({
     children,
     to,
@@ -22,10 +54,6 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
-  useRouter: () => ({
-    invalidate: () => Promise.resolve(),
-    navigate: () => Promise.resolve(),
-  }),
 }));
 
 function projection(
@@ -133,6 +161,11 @@ const releasedEntry = {
     reason: "The organiser moved the session.",
     changedByName: "Ruth Staff",
   },
+} satisfies EventVenueRequest;
+
+/** PTR-165: a settled entry the assigned Coordinator can dismiss. */
+const dismissableRejected = {
+  ...rejectedAdjustable,
 } satisfies EventVenueRequest;
 
 describe("venue section", () => {
@@ -482,6 +515,77 @@ describe("venue section session requirements", () => {
       layout: "Boardroom",
       accessibilityRequirements: "",
       requiredFacilities: "",
+      // PTR-165 AC1: the adjusted request replaces the rejected one, automatically.
+      replacesRequestId: "vr-3",
     });
+  });
+});
+
+describe("dismissing a settled request (PTR-165 AC4)", () => {
+  it("offers the assigned Coordinator a dismiss action that confirms first", async () => {
+    const user = userEvent.setup();
+    dismissVenueRequest.mockResolvedValueOnce({ id: "vr-3" });
+    renderVenue("coordinator", {
+      status: "planning",
+      venueRequests: [{ ...dismissableRejected }],
+    });
+
+    // The row also offers "Adjust request"; the dismissal has its own term so the two do not
+    // repeat "Next step" in one description list.
+    expect(screen.getByText("Or dismiss")).toBeTruthy();
+    const dismiss = screen.getByRole("button", {
+      name: "Dismiss request for Harbor Hall, 5 Dec 2026, 17:00 – 21:00",
+    });
+    await user.click(dismiss);
+    // Do not dismiss the request until the user confirms in the dialog.
+    expect(dismissVenueRequest).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).toContain("Harbor Hall");
+    expect(dialog.textContent).toContain("cannot be undone");
+
+    await user.click(within(dialog).getByRole("button", { name: "Dismiss request" }));
+
+    await waitFor(() => {
+      expect(dismissVenueRequest).toHaveBeenCalledWith({ data: { id: "vr-3" } });
+    });
+    expect(dismissSuccess).toHaveBeenCalledWith("Request dismissed.");
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("names a released row a booking in its dismissal (PTR-165 AC4)", async () => {
+    const user = userEvent.setup();
+    renderVenue("coordinator", {
+      status: "planning",
+      venueRequests: [{ ...releasedEntry }],
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Dismiss booking for Harbor Hall, 5 Dec 2026, 17:00 – 21:00",
+      })
+    );
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).toContain("Dismiss this booking?");
+    expect(dialog.textContent).not.toContain("Dismiss this request?");
+  });
+
+  it("shows the dismissed state and hides the action once it is dismissed", () => {
+    renderVenue("coordinator", {
+      status: "planning",
+      venueRequests: [{ ...dismissableRejected, dismissed: true }],
+    });
+
+    expect(screen.getByText("Dismissed")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Dismiss request/ })).toBeNull();
+  });
+
+  it("hides the dismiss action outside the coordinator's own event", () => {
+    renderVenue("organiser", {
+      status: "planning",
+      venueRequests: [{ ...dismissableRejected }],
+    });
+
+    expect(screen.queryByRole("button", { name: /^Dismiss request/ })).toBeNull();
   });
 });

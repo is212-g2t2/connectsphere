@@ -200,6 +200,9 @@ export interface EventVenueRequest {
   /** Coordinator only (PTR-35): set on a rejected entry while the Coordinator can still adjust
    * it. Other entries omit the field. */
   adjustable?: true;
+  /** PTR-165 AC4: the assigned Coordinator dismissed this settled entry, so it does not block
+   * confirmation. */
+  dismissed?: true;
 }
 
 /**

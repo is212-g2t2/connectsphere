@@ -1191,6 +1191,7 @@ describe("venue request handlers (PTR-31)", () => {
           rejectionReason: null,
           releaseReason: null,
           answered: false,
+          dismissed: false,
           requirements: EVENT_SESSION_SUMMARY,
           canWithdraw: true,
         },
@@ -1258,6 +1259,7 @@ describe("venue request handlers (PTR-31)", () => {
           rejectionReason: null,
           releaseReason: null,
           answered: false,
+          dismissed: false,
           requirements: EVENT_SESSION_SUMMARY,
           canWithdraw: true,
         },
@@ -1269,8 +1271,9 @@ describe("venue request handlers (PTR-31)", () => {
           conflict: null,
           rejectionReason: "Closed for cleaning",
           releaseReason: null,
-          // The later request for this venue answered the rejection (PTR-139).
-          answered: true,
+          // PTR-165: the later request does not name the rejection, so it answers nothing.
+          answered: false,
+          dismissed: false,
           requirements: EVENT_SESSION_SUMMARY,
           canWithdraw: true,
         },

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import {
@@ -22,14 +22,19 @@ import type { NewNotification } from "#/features/notifications/raise.server";
 import {
   VENUE_BOOKING_NOT_APPROVED_MESSAGE,
   VENUE_BOOKING_NOT_BLOCKED_MESSAGE,
+  VENUE_REQUEST_ALREADY_REPLACED_MESSAGE,
   VENUE_REQUEST_DECIDED_MESSAGE,
   VENUE_REQUEST_DUPLICATE_MESSAGE,
+  VENUE_REQUEST_NOT_REPLACEABLE_MESSAGE,
+  VENUE_REQUEST_NOT_SETTLED_MESSAGE,
   VENUE_REQUEST_REJECTED_MESSAGE,
   VENUE_REQUEST_SETTLED_MESSAGE,
   VENUE_EVENT_STATUS_PHRASE,
   VENUE_REQUIREMENTS_PHRASE,
   VENUE_UNAVAILABLE_PHRASE,
-  answeredByLaterRequest,
+  answeredByReplacement,
+  canBeReplaced,
+  isReplaceableStatus,
   parseVenueRejectionInput,
   parseVenueRequestContext,
   parseVenueRequestEventInput,
@@ -183,11 +188,15 @@ function rethrowConstraintViolation(error: unknown, constraint: string, message:
 }
 
 /**
- * The partial unique index refuses a second pending request for the same event, venue and window.
- * `assertNoEventOverlap` names a duplicate first; the index refuses one from a writer outside the
- * venue lock. Map the driver error that `isConstraintViolation` reads to the panel's message.
+ * The partial unique indexes refuse a second pending request for the same event, venue and window,
+ * and a second replacement for one request. `assertNoEventOverlap` names a duplicate first; the
+ * index refuses one from a writer outside the venue lock. Map the driver error that
+ * `isConstraintViolation` reads to the panel's message.
  */
 export function rethrowDuplicate(error: unknown): never {
+  if (isConstraintViolation(error, "venue_requests_replaces_request_id_idx")) {
+    throw new ConflictError(VENUE_REQUEST_ALREADY_REPLACED_MESSAGE);
+  }
   rethrowConstraintViolation(
     error,
     "venue_requests_pending_event_venue_window_idx",
@@ -598,11 +607,12 @@ export async function handleGetVenueRequestContext(
         )
       )
       .orderBy(asc(venueRequests.startsAt), asc(venueRequests.endsAt), asc(venueRequests.id)),
-    // The answer rule reads every request of the event, because a later request at another venue
-    // answers a settled row (PTR-139).
-    selectVenueRequestEntries(database, { requestedById: venueRequests.requestedById }).where(
-      eq(venueRequests.eventId, eventId)
-    ),
+    // The answer rule reads every request of the event, because a replacement can sit at another
+    // venue and a chain can run through it (PTR-165). The replacement picker reads the same rows in
+    // window order.
+    selectVenueRequestEntries(database, { requestedById: venueRequests.requestedById })
+      .where(eq(venueRequests.eventId, eventId))
+      .orderBy(asc(venueRequests.startsAt), asc(venueRequests.endsAt), asc(venueRequests.id)),
   ]);
   const event = eventRows.at(0);
   if (!event) return null;
@@ -624,9 +634,29 @@ export async function handleGetVenueRequestContext(
     database,
     visible.filter(row => row.status === "pending").map(row => row.id)
   );
-  // PTR-139: a settled row that a later non-withdrawn request answered does not block confirmation,
-  // so the panel must not claim that it does.
+  // PTR-165: a settled row that a replacement chain answers, or the Coordinator dismisses, does
+  // not block confirmation, so the panel must not claim that it does.
   const answerRows = eventVenueRows.filter(row => row.status !== "withdrawn");
+  // PTR-165 AC1: the requests of this event that a new request can name as the one it replaces.
+  const replaceable: {
+    id: string;
+    status: VenueRequestStatus;
+    venueName: string;
+    startsAt: string;
+    endsAt: string;
+  }[] = [];
+  if (canRequest) {
+    for (const row of eventVenueRows) {
+      if (!canBeReplaced(row, eventVenueRows)) continue;
+      replaceable.push({
+        id: row.id,
+        status: row.status,
+        venueName: row.venueName,
+        startsAt: toLocalMinuteValue(row.startsAt),
+        endsAt: toLocalMinuteValue(row.endsAt),
+      });
+    }
+  }
 
   return {
     event: {
@@ -636,6 +666,7 @@ export async function handleGetVenueRequestContext(
       ...event.requirements,
     },
     canRequest,
+    replaceable,
     requests: visible.map(row => ({
       id: row.id,
       startsAt: toLocalMinuteValue(row.startsAt),
@@ -645,8 +676,10 @@ export async function handleGetVenueRequestContext(
       /** PTR-139: why a settled row ended, for the caller's own decision. */
       rejectionReason: row.rejectionReason,
       releaseReason: row.releaseReason,
-      /** PTR-139: true on a settled row that a later request answered. */
-      answered: answeredByLaterRequest(row, answerRows),
+      /** PTR-165 AC2: true on a settled row that a replacement chain answered. */
+      answered: answeredByReplacement(row, answerRows),
+      /** PTR-165 AC4: true when the assigned Coordinator dismissed this settled row. */
+      dismissed: row.dismissedAt !== null,
       // The panel tells two sessions apart by attendance and layout only.
       requirements: {
         expectedAttendance: row.requirements.expectedAttendance,
@@ -657,6 +690,38 @@ export async function handleGetVenueRequestContext(
         isWithdrawalActor(row, actor.id, event.assignedCoordinatorId),
     })),
   };
+}
+
+/**
+ * PTR-165 AC1, AC6: read the request that a new request replaces. Refuse a missing or foreign row,
+ * a row that is not rejected, released, or approved, a dismissed row, and a row that already has a
+ * replacement that is not withdrawn. The partial unique index refuses a racing second replacement.
+ */
+async function assertReplaceable(tx: VenueTx, eventId: number, requestId: string): Promise<void> {
+  const rows = await tx
+    .select({
+      status: venueRequests.status,
+      eventId: venueRequests.eventId,
+      dismissedAt: venueRequests.dismissedAt,
+    })
+    .from(venueRequests)
+    .where(eq(venueRequests.id, requestId))
+    .limit(1);
+  const target = rows.at(0);
+  // Refuse a missing row and another event's row in the same way, so the refusal reveals nothing.
+  // The partial unique index is on `replaces_request_id` alone, so the same-event rule lives here.
+  if (!target || target.eventId !== eventId) throw new NotFoundError("Not Found");
+  if (!isReplaceableStatus(target.status) || target.dismissedAt !== null) {
+    throw new ConflictError(VENUE_REQUEST_NOT_REPLACEABLE_MESSAGE);
+  }
+  const live = await tx
+    .select({ id: venueRequests.id })
+    .from(venueRequests)
+    .where(
+      and(eq(venueRequests.replacesRequestId, requestId), ne(venueRequests.status, "withdrawn"))
+    )
+    .limit(1);
+  if (live.length > 0) throw new ConflictError(VENUE_REQUEST_ALREADY_REPLACED_MESSAGE);
 }
 
 /**
@@ -689,6 +754,10 @@ export async function handleCreateVenueRequest(
     // re-planning an event with a suspended booking can request a replacement through this path.
     const event = await loadAssignedEvent(tx, input.eventId, actor.id);
     if (!event) throw new AuthorizationError("Forbidden");
+    // PTR-165 AC1, AC6: the Coordinator may name the request that this one replaces.
+    if (input.replacesRequestId !== undefined) {
+      await assertReplaceable(tx, event.id, input.replacesRequestId);
+    }
 
     // Take the venue lock after the event lock, as every venue writer does. It serializes two
     // creators for one event, so the overlap check sees the other creator's committed row.
@@ -710,6 +779,7 @@ export async function handleCreateVenueRequest(
         requestedById: actor.id,
         startsAt,
         endsAt,
+        replacesRequestId: input.replacesRequestId ?? null,
         ...requirements,
       })
       .returning()
@@ -805,6 +875,46 @@ export async function handleWithdrawVenueRequest(
       .where(eq(venueRequests.id, id))
       .returning();
     return withdrawn;
+  });
+}
+
+/**
+ * PTR-165 AC4: the assigned Coordinator dismisses a rejected or released request that it no longer
+ * needs. The row keeps its state and history, and it stops blocking confirmation. No other role can
+ * dismiss it: the event's current Coordinator is the only actor.
+ */
+export async function handleDismissVenueRequest(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const { id } = parseVenueRequestId(data);
+
+  return database.transaction(async tx => {
+    // Key-share the event first, as withdrawal and release do, so a handover cannot commit between
+    // the assignment read and this dismissal. The lock returns the row the check reads.
+    const event = await keyShareEventForRequest(tx, id);
+    const rows = await tx
+      .select({ status: venueRequests.status })
+      .from(venueRequests)
+      .where(eq(venueRequests.id, id))
+      .for("update");
+    const row = rows.at(0);
+    // Refuse a missing row and another Coordinator's row in the same way, as confirmation does,
+    // so the refusal reveals nothing about the id.
+    if (!row || event?.assignedCoordinatorId !== actor.id) {
+      throw new AuthorizationError("Forbidden");
+    }
+    if (row.status !== "rejected" && row.status !== "released") {
+      throw new ConflictError(VENUE_REQUEST_NOT_SETTLED_MESSAGE);
+    }
+
+    const [dismissed] = await tx
+      .update(venueRequests)
+      .set({ dismissedAt: new Date(), dismissedById: actor.id })
+      .where(eq(venueRequests.id, id))
+      .returning();
+    return dismissed;
   });
 }
 

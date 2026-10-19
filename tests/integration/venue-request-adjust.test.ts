@@ -138,8 +138,8 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       .onConflictDoNothing();
   });
 
-  /** The adjusted request for the suggested venue. */
-  async function adjustRequest() {
+  /** The adjusted request for the suggested venue. PTR-165 AC1: it replaces the rejected one. */
+  async function adjustRequest(replacesRequestId: string) {
     return handleCreateVenueRequest(
       {
         eventId,
@@ -147,6 +147,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
         date: "2027-05-11",
         startTime: "10:00",
         endTime: "13:30",
+        replacesRequestId,
       },
       session(users.coordinator),
       database as never
@@ -246,7 +247,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
   it("queues the adjusted request as a new pending request on the suggested venue (AC2)", async () => {
     const rejected = await rejectedWithSuggestion();
 
-    const adjusted = await adjustRequest();
+    const adjusted = await adjustRequest(rejected.id);
 
     expect(adjusted).toMatchObject({
       status: "pending",
@@ -254,6 +255,8 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
       startsAt: "2027-05-11 10:00:00",
       endsAt: "2027-05-11 13:30:00",
       requestedById: users.coordinator.id,
+      // PTR-165 AC1: the adjusted request names the rejection that it replaces.
+      replacesRequestId: rejected.id,
     });
     expect(adjusted.id).not.toBe(rejected.id);
     // The suggested venue's panel lists the pending request, which its raiser can withdraw.
@@ -269,7 +272,7 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
 
   it("keeps the original rejection and its reason beside the pending request (AC3)", async () => {
     const rejected = await rejectedWithSuggestion();
-    const adjusted = await adjustRequest();
+    const adjusted = await adjustRequest(rejected.id);
 
     const [card] = await handleListEvents(
       { eventId },
@@ -298,10 +301,10 @@ describe("adjusting a request after a suggestion (PTR-35)", () => {
   });
 
   it("changes nothing else on the event: status, equipment and registrations (AC4)", async () => {
-    await rejectedWithSuggestion();
+    const rejected = await rejectedWithSuggestion();
     const before = await eventSnapshot();
 
-    await adjustRequest();
+    await adjustRequest(rejected.id);
 
     const after = await eventSnapshot();
     expect(after).toEqual(before);

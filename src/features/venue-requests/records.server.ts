@@ -11,7 +11,7 @@ import type {
   VenueRequestRelease,
 } from "#/features/events/access";
 import { isBlockRow, isHoldRow, overlapsLedger } from "#/features/venue-requests/occupancy.server";
-import { answeredByLaterRequest } from "#/features/venue-requests/schema";
+import { canBeReplaced } from "#/features/venue-requests/schema";
 import type {
   SessionRequirements,
   VenueRequestAnswerRow,
@@ -84,6 +84,9 @@ const venueRequestEntryColumns = {
   suggestedDate: venueRequests.suggestedDate,
   suggestedStartTime: venueRequests.suggestedStartTime,
   suggestedEndTime: venueRequests.suggestedEndTime,
+  /** PTR-165: the replacement chain and the Coordinator's dismissal. */
+  replacesRequestId: venueRequests.replacesRequestId,
+  dismissedAt: venueRequests.dismissedAt,
   requirements: sessionRequirementColumns,
 };
 
@@ -122,6 +125,8 @@ interface VenueRequestEntryRow {
   suggestedDate: string | null;
   suggestedStartTime: string | null;
   suggestedEndTime: string | null;
+  replacesRequestId: string | null;
+  dismissedAt: Date | null;
   requirements: SessionRequirements;
 }
 
@@ -207,16 +212,17 @@ export async function loadPendingConflictKinds(
 }
 
 /**
- * PTR-35: Return the ids of the rejected rows that the Coordinator can still adjust. The adjust
- * link opens the suggested venue, else the rejected venue. `answeredByLaterRequest` decides when a
- * later request has answered the rejection. Pass the rows of one event. The confirmation gate reads
- * the same rule (PTR-139).
+ * PTR-35, PTR-165 AC5: Return the ids of the rejected rows that the Coordinator can still adjust.
+ * The adjust link opens the suggested venue, else the rejected venue, and marks that this request
+ * replaces the row. `canBeReplaced` therefore decides the mark too: a row whose replacement already
+ * exists, or which the Coordinator dismissed, has nothing left to adjust. Pass the rows of one
+ * event.
  */
 export function adjustableRejectionIds(rows: ReadonlyArray<VenueRequestAnswerRow>): Set<string> {
   const adjustable = new Set<string>();
   for (const row of rows) {
     if (row.status !== "rejected") continue;
-    if (!answeredByLaterRequest(row, rows)) adjustable.add(row.id);
+    if (canBeReplaced(row, rows)) adjustable.add(row.id);
   }
   return adjustable;
 }
@@ -257,11 +263,16 @@ function releaseFromRow(row: VenueRequestEntryRow): VenueRequestRelease {
  * rejection, and a released row carries its release.
  *
  * The caller sets the marks, which need other rows or the viewer's role: the conflict kind, the
- * `adjustable` mark, and `requirements` (Coordinator only).
+ * `adjustable` mark, and `requirements` (Coordinator only). PTR-165 adds `dismissed` from the row
+ * itself; the card derives whether the Coordinator can still dismiss a settled entry.
  */
 export function eventVenueRequestFromRow(
   row: VenueRequestEntryRow,
-  marks: { conflict?: VenueRequestConflict; adjustable?: boolean; requirements?: boolean } = {}
+  marks: {
+    conflict?: VenueRequestConflict;
+    adjustable?: boolean;
+    requirements?: boolean;
+  } = {}
 ): EventVenueRequest {
   return {
     id: row.id,
@@ -275,6 +286,7 @@ export function eventVenueRequestFromRow(
     ...(row.status === "rejected" ? { rejection: rejectionFromRow(row) } : {}),
     ...(row.status === "released" ? { release: releaseFromRow(row) } : {}),
     ...(marks.adjustable ? { adjustable: true as const } : {}),
+    ...(row.dismissedAt !== null ? { dismissed: true as const } : {}),
   };
 }
 

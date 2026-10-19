@@ -2,7 +2,7 @@ import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { can } from "#/features/auth/permissions";
-import { VenueRequestContextInput } from "#/features/venue-requests/schema";
+import { VenueRequestIdInput, VenueRequestContextInput } from "#/features/venue-requests/schema";
 import { getVenueRequestContext } from "#/features/venue-requests/server-fns";
 import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
@@ -35,6 +35,9 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
       .optional()
       .catch(undefined),
     requiredFacilities: z.string().max(VENUE_SEARCH_TEXT_MAX_LENGTH).optional().catch(undefined),
+    // PTR-165 AC1: the rejected request that an adjusted request replaces. It uses the same
+    // text-id rule as every request id.
+    replacesRequestId: VenueRequestIdInput.shape.id.optional().catch(undefined),
   }),
   beforeLoad: ({ context }) => {
     if (!can(context.user.role, { venue: ["read"] })) {

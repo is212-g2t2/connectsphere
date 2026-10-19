@@ -414,6 +414,13 @@
       "when": 1792404490565,
       "tag": "0058_shallow_gorilla_man",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792420412736,
+      "tag": "0059_chemical_winter_soldier",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,7 @@ import {
   createTableRelationsHelpers,
   getTableColumns,
 } from "drizzle-orm";
-import { getTableConfig } from "drizzle-orm/pg-core";
+import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
 import * as schema from "#/db/schema";
 import { EVENT_REQUEST_STATUSES } from "#/features/event-requests/schema";
 import { NOTIFICATION_KINDS } from "#/features/notifications/message";
@@ -208,6 +208,33 @@ describe("Database Schema Definitions", () => {
       "rejected",
       "released",
     ]);
+  });
+
+  it("records a replacement chain and a dismissal on the venue request (PTR-165)", () => {
+    const columns = getTableColumns(venueRequests);
+    expect(columns.replacesRequestId.name).toBe("replaces_request_id");
+    expect(columns.dismissedAt.name).toBe("dismissed_at");
+    expect(columns.dismissedById.name).toBe("dismissed_by_id");
+    for (const column of [columns.replacesRequestId, columns.dismissedAt, columns.dismissedById]) {
+      expect(column.notNull).toBe(false);
+    }
+    // AC6: one replacement that is not withdrawn per request, so every chain has one end.
+    const replacement = getTableConfig(venueRequests).indexes.find(
+      index => index.config.name === "venue_requests_replaces_request_id_idx"
+    );
+    expect(replacement?.config.unique).toBe(true);
+    expect(inspect(replacement?.config.where, { depth: 10 })).toMatch(/withdrawn/);
+    // AC4: only a settled request can be dismissed, and a later withdrawal keeps the history.
+    // Assert the predicate, not only the name: widening it would void the invariant.
+    const dismissal = getTableConfig(venueRequests).checks.find(
+      check => check.name === "venue_requests_dismissal_settled"
+    );
+    if (!dismissal) throw new Error("venue_requests_dismissal_settled is missing");
+    const rendered = new PgDialect().sqlToQuery(dismissal.value).sql;
+    expect(rendered).toContain("'rejected'");
+    expect(rendered).toContain("'released'");
+    expect(rendered).toContain("'withdrawn'");
+    expect(rendered).not.toContain("'pending'");
   });
 
   it("records a rejection's reason and optional suggestion on the venue request (PTR-34)", () => {

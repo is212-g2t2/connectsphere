@@ -78,6 +78,16 @@ describe("VenueRequestInput (PTR-31 criterion 1)", () => {
     expect(VenueRequestInput.safeParse({ ...VALID, venueId: -1 }).success).toBe(false);
     expect(VenueRequestInput.safeParse({ ...VALID, venueId: 1.5 }).success).toBe(false);
   });
+
+  it("accepts the request that this one replaces, and refuses a blank one (PTR-165 AC1)", () => {
+    expect(VenueRequestInput.parse({ ...VALID, replacesRequestId: "rejected-1" })).toEqual({
+      ...VALID,
+      replacesRequestId: "rejected-1",
+    });
+    expect(VenueRequestInput.parse(VALID)).toEqual(VALID);
+    expect(VenueRequestInput.safeParse({ ...VALID, replacesRequestId: "  " }).success).toBe(false);
+    expect(VenueRequestInput.safeParse({ ...VALID, replacesRequestId: 7 }).success).toBe(false);
+  });
 });
 
 describe("session requirements on a request (PTR-138 AC1)", () => {

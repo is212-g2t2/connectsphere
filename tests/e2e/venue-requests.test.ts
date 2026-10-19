@@ -457,7 +457,9 @@ test("[PTR-139] a Coordinator withdraws a rejected request so nothing blocks con
     await expect(list.getByText("Rejected", { exact: true })).toBeVisible();
     await expect(list.getByText("Rejection reason: Closed for floor resurfacing")).toBeVisible();
     await expect(
-      list.getByText("Blocks confirmation until withdrawn or answered by a new request.")
+      list.getByText(
+        "Blocks confirmation until withdrawn, dismissed, or answered by a replacement request."
+      )
     ).toBeVisible();
 
     await page
@@ -471,7 +473,10 @@ test("[PTR-139] a Coordinator withdraws a rejected request so nothing blocks con
       .getByRole("button", { name: "Withdraw request", exact: true })
       .click();
 
-    // The row leaves the list, and its history stays on record.
+    // The row leaves the list, and its history stays on record. The open dialog hides the page from
+    // the accessibility tree, so `toHaveCount(0)` alone can pass before the mutation resolves. Wait
+    // for the loader's empty-panel heading first, which only appears after a successful withdrawal.
+    await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
     await expect(list).toHaveCount(0);
     const [withdrawn] = await database
       .select()

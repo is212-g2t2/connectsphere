@@ -71,12 +71,10 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
         id: venueRequests.id,
         status: venueRequests.status,
         venueName: venues.name,
-        venueId: venueRequests.venueId,
-        suggestedVenueId: venueRequests.suggestedVenueId,
         startsAt: venueRequests.startsAt,
         endsAt: venueRequests.endsAt,
-        createdAt: venueRequests.createdAt,
-        updatedAt: venueRequests.updatedAt,
+        replacesRequestId: venueRequests.replacesRequestId,
+        dismissedAt: venueRequests.dismissedAt,
       })
       .from(venueRequests)
       .innerJoin(venues, eq(venues.id, venueRequests.venueId))
