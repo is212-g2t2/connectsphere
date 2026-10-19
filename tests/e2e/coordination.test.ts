@@ -249,7 +249,7 @@ test("shows the unassigned queue to the Lead and hides it from Coordinators", as
     await signInAsStaff(page, "event_coordinator_lead");
     await page.goto("/coordination");
     await expect(
-      page.getByRole("heading", { name: "Unassigned requests", level: 1 })
+      page.getByRole("heading", { name: "Unassigned requests", level: 2 })
     ).toBeVisible();
     await page.getByRole("link", { name: eventName }).click();
     await waitForHydration(page);
@@ -318,8 +318,9 @@ test("a Lead oversees every Coordinator's assigned events and opens one read-onl
     const coordinatorRow = oversight.locator("li").filter({ hasText: coordinatorName }).first();
     await expect(coordinatorRow.getByRole("heading", { name: coordinatorName })).toBeVisible();
     await expect(coordinatorRow.getByText("1 active event")).toBeVisible();
-    await expect(coordinatorRow.getByText(/3 assigned events/)).toBeVisible();
     await expect(coordinatorRow.getByRole("link", { name: active.eventName })).toBeVisible();
+    await expect(coordinatorRow.locator("summary")).toHaveText("2 closed events");
+    await coordinatorRow.locator("summary").click();
     await expect(coordinatorRow.getByRole("link", { name: completed.eventName })).toBeVisible();
     await expect(coordinatorRow.getByRole("link", { name: rejected.eventName })).toBeVisible();
 

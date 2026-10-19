@@ -91,6 +91,18 @@ describe("coordinator oversight (PTR-149)", () => {
         decidedByCoordinatorName: users.coordinator.name,
         decidedAt: new Date("2026-09-05T00:00:00Z"),
       },
+      // Cancellation needs its own audit fields.
+      {
+        organiserId: users.organiser.id,
+        status: "cancelled" as const,
+        submittedAt: new Date(),
+        assignedCoordinatorId: users.coordinator.id,
+        assignedAt: new Date("2026-09-06T00:00:00Z"),
+        eventName: "Oversight cancelled",
+        cancelledById: users.coordinator.id,
+        cancelledByName: users.coordinator.name,
+        cancelledAt: new Date("2026-09-07T00:00:00Z"),
+      },
       {
         organiserId: users.organiser.id,
         status: "draft" as const,
@@ -113,7 +125,11 @@ describe("coordinator oversight (PTR-149)", () => {
 
     expect(coordinator?.name).toBe(users.coordinator.name);
     expect(coordinator?.events.map(event => event.eventName).toSorted()).toEqual(
-      [...activeStatuses.map(status => `Oversight ${status}`), "Oversight rejected"].toSorted()
+      [
+        ...activeStatuses.map(status => `Oversight ${status}`),
+        "Oversight rejected",
+        "Oversight cancelled",
+      ].toSorted()
     );
     // Assigned work only: the draft has no assignment and stays out.
     expect(coordinator?.events.map(event => event.status)).not.toContain("draft");

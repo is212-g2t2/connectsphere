@@ -21,26 +21,35 @@ import { isActiveEventRequest } from "#/features/event-requests/schema";
 import type { UnassignedEventRequest } from "#/features/event-requests/server-fns";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
-/** A stable empty list, so an omitted `oversight` prop does not re-create an array each render. */
-const NO_OVERSIGHT: CoordinatorOversight[] = [];
+/** Count active events once per Coordinator, so the ranking and the badge agree. */
+function activeEventCount(coordinator: CoordinatorOversight): number {
+  return coordinator.events.filter(event => isActiveEventRequest(event.status)).length;
+}
+
+/** Rank the busiest Coordinators first; break ties by name. */
+function rankByWorkload(oversight: CoordinatorOversight[]): CoordinatorOversight[] {
+  return oversight.toSorted(
+    (a, b) => activeEventCount(b) - activeEventCount(a) || a.name.localeCompare(b.name)
+  );
+}
 
 /**
  * The coordination queue. A Coordinator sees their own assignments. The Event Coordinator Lead
- * sees the unassigned requests instead: submissions wait for allocation (PTR-144), and the Lead
- * opens a row to assign a Coordinator there (PTR-145). PTR-149 adds every Coordinator's workload
- * below the queue. Rows arrive from the route's loader; the detail repeats the ownership check on
- * read. PTR-145 retires the handover, so no transfer action appears anywhere.
+ * sees the unassigned requests instead: submissions wait for allocation (PTR-144), and the
+ * Lead opens a row to assign a Coordinator there (PTR-145). PTR-149 adds every Coordinator's
+ * workload below the queue. Rows arrive from the route's loader; the detail repeats the
+ * ownership check on read. PTR-145 retires the handover, so no transfer action appears anywhere.
  */
 export function CoordinationPage({
   view,
   unassigned,
   assigned,
-  oversight = NO_OVERSIGHT,
+  oversight,
 }: {
   view: "lead" | "coordinator";
   unassigned: UnassignedEventRequest[];
   assigned: AssignedEventRequest[];
-  oversight?: CoordinatorOversight[];
+  oversight: CoordinatorOversight[];
 }) {
   return (
     <Page width="wide">
@@ -49,10 +58,10 @@ export function CoordinationPage({
       </Link>
 
       <PageHeader
-        title={view === "lead" ? "Unassigned requests" : "Coordination"}
+        title="Coordination"
         description={
           view === "lead"
-            ? "Submitted requests that no Coordinator holds yet. Open one to assign it."
+            ? "Assign each submitted request a Coordinator, and compare every Coordinator's active load below."
             : "The requests assigned to you."
         }
       />
@@ -100,7 +109,7 @@ export function CoordinationPage({
       {view === "lead" && (
         <section aria-labelledby="unassigned-heading">
           <h2 id="unassigned-heading" className="display-h2">
-            Waiting for a Coordinator
+            Unassigned requests
           </h2>
 
           {unassigned.length === 0 ? (
@@ -173,8 +182,7 @@ export function CoordinationPage({
             Coordinator oversight
           </h2>
           <p className="mt-2 body-sm text-muted-foreground">
-            Every Event Coordinator and the events assigned to them. An active event is not
-            completed, cancelled or rejected.
+            Compare each Coordinator&apos;s active load. Open an event to reassign it.
           </p>
 
           {oversight.length === 0 ? (
@@ -183,13 +191,15 @@ export function CoordinationPage({
             </p>
           ) : (
             <ul className="mt-4 divide-y divide-border">
-              {oversight.map(coordinator => {
+              {rankByWorkload(oversight).map(coordinator => {
                 const active = coordinator.events.filter(event =>
                   isActiveEventRequest(event.status)
                 );
                 const closed = coordinator.events.filter(
                   event => !isActiveEventRequest(event.status)
                 );
+                const closedLabel =
+                  closed.length === 1 ? "1 closed event" : `${closed.length} closed events`;
                 return (
                   <li key={coordinator.id} className="py-4">
                     <div className="flex flex-wrap items-center gap-2">
@@ -198,15 +208,16 @@ export function CoordinationPage({
                         {coordinator.email}
                       </a>
                       {coordinator.events.length > 0 ? (
-                        <Badge variant="secondary">
-                          {active.length === 1
-                            ? "1 active event"
-                            : `${active.length} active events`}
-                          {" · "}
-                          {coordinator.events.length === 1
-                            ? "1 assigned event"
-                            : `${coordinator.events.length} assigned events`}
-                        </Badge>
+                        <>
+                          <Badge variant="secondary">
+                            {active.length === 1
+                              ? "1 active event"
+                              : `${active.length} active events`}
+                          </Badge>
+                          {closed.length > 0 ? (
+                            <Badge variant="secondary">{closedLabel}</Badge>
+                          ) : null}
+                        </>
                       ) : null}
                     </div>
 
@@ -219,15 +230,27 @@ export function CoordinationPage({
                         {active.length > 0 ? (
                           <>
                             <h4 className="mt-3 eyebrow text-muted-foreground">Active events</h4>
-                            <OversightEventList events={active} />
+                            <OversightEventList
+                              label={`${coordinator.name} active events`}
+                              events={active}
+                            />
                           </>
                         ) : null}
                         {closed.length > 0 ? (
                           <>
-                            <h4 className="mt-3 eyebrow text-muted-foreground">
-                              Completed, cancelled or rejected
-                            </h4>
-                            <OversightEventList events={closed} />
+                            <h4 className="mt-3 eyebrow text-muted-foreground">Closed</h4>
+                            <details className="mt-2">
+                              <summary
+                                aria-label={`Show ${closedLabel} for ${coordinator.name}`}
+                                className="w-fit cursor-pointer body-sm text-muted-foreground"
+                              >
+                                {closedLabel}
+                              </summary>
+                              <OversightEventList
+                                label={`${coordinator.name} closed events`}
+                                events={closed}
+                              />
+                            </details>
                           </>
                         ) : null}
                       </>
@@ -244,11 +267,20 @@ export function CoordinationPage({
 }
 
 /** One Coordinator's events, each opening the read-only Lead view of the event. */
-function OversightEventList({ events }: { events: CoordinatorOversight["events"] }) {
+function OversightEventList({
+  label,
+  events,
+}: {
+  label: string;
+  events: CoordinatorOversight["events"];
+}) {
   return (
-    <ul className="mt-2 space-y-2">
+    <ul aria-label={label} className="mt-2 space-y-2">
       {events.map(event => (
-        <li key={event.id} className="flex flex-wrap items-center gap-2">
+        <li
+          key={event.id}
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-baseline"
+        >
           <Link
             to="/events/$eventId"
             params={{ eventId: String(event.id) }}
@@ -259,7 +291,7 @@ function OversightEventList({ events }: { events: CoordinatorOversight["events"]
           <EventRequestStatusBadge status={event.status} />
           {event.assignedAt ? (
             <span className="body-sm text-muted-foreground">
-              Assigned{" "}
+              <span className="sr-only">Assigned </span>
               <time dateTime={event.assignedAt.toISOString()}>
                 {formatInstant(event.assignedAt)}
               </time>

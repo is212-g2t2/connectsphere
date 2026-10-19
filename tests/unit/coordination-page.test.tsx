@@ -72,7 +72,7 @@ beforeEach(() => {
 
 describe("CoordinationPage lead view (PTR-144)", () => {
   it("lists each unassigned request with its organiser, proposed date and submission time", () => {
-    render(<CoordinationPage view="lead" unassigned={[waiting]} assigned={[]} />);
+    render(<CoordinationPage view="lead" unassigned={[waiting]} assigned={[]} oversight={[]} />);
 
     const row = screen.getAllByRole("row")[1];
     expect(within(row).getByText("Annual dinner")).toBeTruthy();
@@ -86,7 +86,7 @@ describe("CoordinationPage lead view (PTR-144)", () => {
   });
 
   it("says so when every submitted request already has a Coordinator", () => {
-    render(<CoordinationPage view="lead" unassigned={[]} assigned={[]} />);
+    render(<CoordinationPage view="lead" unassigned={[]} assigned={[]} oversight={[]} />);
 
     expect(screen.getByText("Every submitted request has a Coordinator.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
@@ -103,6 +103,7 @@ describe("CoordinationPage lead view (PTR-144)", () => {
           { ...waiting, id: 4, eventName: "Quiet one" },
         ]}
         assigned={[]}
+        oversight={[]}
       />
     );
 
@@ -113,7 +114,9 @@ describe("CoordinationPage lead view (PTR-144)", () => {
   });
 
   it("shows the Coordinator no unassigned section", () => {
-    render(<CoordinationPage view="coordinator" unassigned={[waiting]} assigned={[]} />);
+    render(
+      <CoordinationPage view="coordinator" unassigned={[waiting]} assigned={[]} oversight={[]} />
+    );
 
     expect(screen.queryByRole("heading", { name: "Unassigned requests" })).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
@@ -144,6 +147,12 @@ describe("CoordinationPage oversight (PTR-149)", () => {
         status: "rejected",
         assignedAt: new Date("2026-09-05T02:00:00Z"),
       },
+      {
+        id: 14,
+        eventName: "Called off",
+        status: "cancelled",
+        assignedAt: new Date("2026-09-01T02:00:00Z"),
+      },
     ],
   };
   const bo: CoordinatorOversight = {
@@ -153,29 +162,98 @@ describe("CoordinationPage oversight (PTR-149)", () => {
     events: [],
   };
 
-  it("lists every Coordinator, their active events and every assigned event", () => {
+  it("lists every Coordinator, their active events and their closed events", () => {
     render(<CoordinationPage view="lead" unassigned={[]} assigned={[]} oversight={[ana, bo]} />);
 
     const section = screen.getByRole("region", { name: "Coordinator oversight" });
     expect(within(section).getByRole("heading", { name: "Ana Coordinator" })).toBeTruthy();
     expect(within(section).getByRole("link", { name: "ana@example.com" })).toBeTruthy();
-    expect(within(section).getByText(/1 active event/)).toBeTruthy();
-    expect(within(section).getByText(/3 assigned events/)).toBeTruthy();
+    expect(within(section).getByText("1 active event")).toBeTruthy();
+    // The badge and the closed disclosure each state the closed count.
+    expect(within(section).getAllByText("3 closed events")).toHaveLength(2);
     expect(within(section).getByRole("heading", { name: "Active events" })).toBeTruthy();
-    expect(within(section).getByRole("link", { name: "Active gala" }).getAttribute("href")).toBe(
+    const activeList = within(section).getByRole("list", { name: "Ana Coordinator active events" });
+    expect(within(activeList).getByRole("link", { name: "Active gala" }).getAttribute("href")).toBe(
       "/events/11"
     );
     expect(within(section).getByText("Planning")).toBeTruthy();
-    // Completed and rejected events stay listed under their own heading.
-    expect(
-      within(section).getByRole("heading", { name: "Completed, cancelled or rejected" })
-    ).toBeTruthy();
-    expect(within(section).getByRole("link", { name: "Finished fair" })).toBeTruthy();
-    expect(within(section).getByRole("link", { name: "Turned down" })).toBeTruthy();
+    // Completed, rejected and cancelled events stay listed under their own heading.
+    expect(within(section).getByRole("heading", { name: "Closed" })).toBeTruthy();
+    const closedList = within(section).getByRole("list", { name: "Ana Coordinator closed events" });
+    expect(within(closedList).getByRole("link", { name: "Finished fair" })).toBeTruthy();
+    expect(within(closedList).getByRole("link", { name: "Turned down" })).toBeTruthy();
+    expect(within(closedList).getByRole("link", { name: "Called off" })).toBeTruthy();
 
     // A Coordinator with no events still appears, so the Lead sees the whole team.
     expect(within(section).getByRole("heading", { name: "Bo Coordinator" })).toBeTruthy();
     expect(within(section).getByText("No events are assigned to this Coordinator.")).toBeTruthy();
+  });
+
+  it("ranks Coordinators by active load, then by name", () => {
+    const cara: CoordinatorOversight = {
+      id: "usr_cara",
+      name: "Cara Coordinator",
+      email: "cara@example.com",
+      events: [
+        {
+          id: 21,
+          eventName: "First gala",
+          status: "planning",
+          assignedAt: new Date("2026-09-20T02:00:00Z"),
+        },
+        {
+          id: 22,
+          eventName: "Second gala",
+          status: "submitted",
+          assignedAt: new Date("2026-09-21T02:00:00Z"),
+        },
+      ],
+    };
+    const zed: CoordinatorOversight = {
+      id: "usr_zed",
+      name: "Zed Coordinator",
+      email: "zed@example.com",
+      events: [
+        {
+          id: 31,
+          eventName: "Late gala",
+          status: "confirmed",
+          assignedAt: new Date("2026-09-22T02:00:00Z"),
+        },
+      ],
+    };
+    render(
+      <CoordinationPage
+        view="lead"
+        unassigned={[]}
+        assigned={[]}
+        oversight={[bo, zed, ana, cara]}
+      />
+    );
+
+    const section = screen.getByRole("region", { name: "Coordinator oversight" });
+    const names = within(section)
+      .getAllByRole("heading", { level: 3 })
+      .map(heading => heading.textContent);
+    expect(names).toEqual([
+      "Cara Coordinator",
+      "Ana Coordinator",
+      "Zed Coordinator",
+      "Bo Coordinator",
+    ]);
+  });
+
+  it("holds the closed events in a disclosure that names its count", () => {
+    render(<CoordinationPage view="lead" unassigned={[]} assigned={[]} oversight={[ana]} />);
+
+    const section = screen.getByRole("region", { name: "Coordinator oversight" });
+    const disclosure = within(section)
+      .getByText("3 closed events", { selector: "summary" })
+      .closest("details");
+    expect(disclosure).not.toBeNull();
+    expect(
+      within(disclosure as HTMLElement).getByRole("link", { name: "Called off" })
+    ).toBeTruthy();
   });
 
   it("keeps the oversight list off the Coordinator view", () => {
@@ -195,7 +273,12 @@ describe("CoordinationPage coordinator view (PTR-15 criterion 5)", () => {
       venueBlocked: false,
     };
     const { rerender } = render(
-      <CoordinationPage view="coordinator" unassigned={[]} assigned={[assignedRow]} />
+      <CoordinationPage
+        view="coordinator"
+        unassigned={[]}
+        assigned={[assignedRow]}
+        oversight={[]}
+      />
     );
 
     expect(screen.getByRole("link", { name: "Annual dinner" }).getAttribute("href")).toBe(
@@ -206,7 +289,7 @@ describe("CoordinationPage coordinator view (PTR-15 criterion 5)", () => {
     // PTR-145: the Coordinator gets no transfer action on the list.
     expect(screen.queryByRole("button")).toBeNull();
 
-    rerender(<CoordinationPage view="coordinator" unassigned={[]} assigned={[]} />);
+    rerender(<CoordinationPage view="coordinator" unassigned={[]} assigned={[]} oversight={[]} />);
     expect(screen.getByText("No requests are assigned to you.")).toBeTruthy();
   });
 
@@ -219,7 +302,9 @@ describe("CoordinationPage coordinator view (PTR-15 criterion 5)", () => {
       changeRequestsWaiting: 0,
       venueBlocked: false,
     };
-    render(<CoordinationPage view="coordinator" unassigned={[]} assigned={[decided]} />);
+    render(
+      <CoordinationPage view="coordinator" unassigned={[]} assigned={[decided]} oversight={[]} />
+    );
 
     expect(screen.getByText("Rejected")).toBeTruthy();
   });
@@ -243,6 +328,7 @@ describe("change requests waiting on the Coordinator (PTR-52 AC1)", () => {
           { ...base, id: 2, eventName: "Two waiting", changeRequestsWaiting: 2 },
           { ...base, id: 3, eventName: "None waiting" },
         ]}
+        oversight={[]}
       />
     );
 
@@ -269,6 +355,7 @@ describe("venue blocks on the Coordinator's list (PTR-137 AC1)", () => {
           { ...base, id: 1, eventName: "Blocked one", venueBlocked: true },
           { ...base, id: 2, eventName: "Clear one" },
         ]}
+        oversight={[]}
       />
     );
 

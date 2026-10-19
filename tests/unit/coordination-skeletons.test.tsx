@@ -17,7 +17,7 @@ describe("CoordinationPageSkeleton", () => {
     expect(main?.getAttribute("aria-busy")).toBe("true");
     expect(screen.getByRole("status").textContent).toBe("Loading coordination requests…");
 
-    expect(container.querySelectorAll("ul.divide-y > li")).toHaveLength(3);
+    expect(container.querySelectorAll("ul.divide-y > li")).toHaveLength(5);
     // The header row plus one row per placeholder in the unassigned table.
     expect(container.querySelectorAll("div.divide-y > div")).toHaveLength(5);
   });
