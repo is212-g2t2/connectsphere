@@ -34,18 +34,32 @@ const data = {
   },
 } satisfies EventPageData;
 
-function renderAction() {
-  const section = safetyReReviewSections(data).find(
+function renderAction(page: EventPageData = data) {
+  const section = safetyReReviewSections(page).find(
     candidate => candidate.id === "safety-re-review"
   );
   if (!section) throw new Error("Expected the safety re-review section");
-  render(<>{section.render(data)}</>);
+  render(<>{section.render(page)}</>);
 }
 
 describe("the safety re-review action (PTR-158)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     invalidate.mockResolvedValue();
+  });
+
+  it("says the review no longer covers the arrangements when it is out of date", () => {
+    renderAction({
+      ...data,
+      event: {
+        ...data.event,
+        event: { ...data.event.event, safetyStage: { state: "rejected", current: false } },
+      },
+    });
+
+    expect(
+      screen.getByText(/The last safety review no longer covers the arrangements/)
+    ).toBeTruthy();
   });
 
   it("asks the server for a fresh review of this event", async () => {

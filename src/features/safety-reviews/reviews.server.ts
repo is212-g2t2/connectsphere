@@ -273,9 +273,10 @@ interface SafetyReReviewResult {
  * PTR-158 AC1: the assigned Coordinator asks for a fresh review after a fix the system cannot see.
  * Lock the event row first, as every event writer does, then re-read the review under that lock.
  * Refuse, with the reason named, a foreign or missing event, any status but approved or planning,
- * a latest review that is not rejected or changes requested, a pending review, and incomplete
- * arrangements. A new pending review covers the current fingerprint, and every Safety Officer is
- * told. The refresh is the sweep's job; this action never edits an existing review.
+ * a latest review that is not rejected or changes requested, a pending review, a started event,
+ * and incomplete arrangements. A new pending review covers the current fingerprint, and every
+ * Safety Officer is told. The refresh is the sweep's job; this action never edits an existing
+ * review.
  */
 export async function handleRequestSafetyReReview(
   data: unknown,

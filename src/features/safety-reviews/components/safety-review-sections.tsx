@@ -96,7 +96,8 @@ export function safetyReReviewSections(data: EventPageData): EventSectionDef[] {
 /**
  * PTR-158 AC1: ask for a fresh review after a fix the system cannot see. The server rejects the
  * request with a named reason when the event moved on, another Coordinator holds it, a review is
- * pending, or the arrangements are not complete. Show that reason and re-read the page.
+ * pending, the event has started, or the arrangements are not complete. Show that reason and
+ * re-read the page.
  */
 function ReReviewSection({ stage, eventId }: { stage: SafetyReviewStage; eventId: number }) {
   const router = useRouter();

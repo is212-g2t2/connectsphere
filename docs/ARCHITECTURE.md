@@ -139,9 +139,10 @@ The first approved booking starts the event in venue-local time; the sweep skips
 Confirmation requires an approved review whose fingerprint matches the current arrangements.
 
 Complete venue and equipment arrangements enter safety review and notify every Safety Officer.
+A changed pending review keeps its row and takes the new fingerprint when arrangements are complete.
+
 After a rejected or changes-requested decision, the assigned Coordinator can request a fresh review
 once the arrangements are complete. Every Safety Officer is notified.
-A changed pending review keeps its row and takes the new fingerprint when arrangements are complete.
 The list shows "Updated" after a refresh, or "Withdrawn: arrangements changed" while its fingerprint is stale.
 
 A future confirmed event returns to planning when its latest review no longer gives current approval.
