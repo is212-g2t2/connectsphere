@@ -218,7 +218,8 @@ export function renderNotificationEmail(
       };
     }
     case "event_confirmed": {
-      const { eventName, venueName, startsAt, endsAt, equipment, audience } = notification.payload;
+      const { eventName, venueName, startsAt, endsAt, equipment, audience, venues } =
+        notification.payload;
       return {
         subject,
         element: createElement(EventConfirmedEmail, {
@@ -229,6 +230,7 @@ export function renderNotificationEmail(
           startTime: formatTime(startsAt),
           endTime: formatTime(endsAt),
           equipment,
+          venues,
           eventUrl: `${base}/events/${eventRequestId}`,
         }),
       };
@@ -280,7 +282,8 @@ export function renderNotificationEmail(
       };
     }
     case "event_registered": {
-      const { eventName, venueName, venueLocation, startsAt, endsAt } = notification.payload;
+      const { eventName, venueName, venueLocation, startsAt, endsAt, venues } =
+        notification.payload;
       return {
         subject,
         element: createElement(EventRegisteredEmail, {
@@ -289,6 +292,7 @@ export function renderNotificationEmail(
           venueLocation,
           startsAt,
           endsAt,
+          venues,
           eventUrl: `${base}/events/${eventRequestId}`,
         }),
       };

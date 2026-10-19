@@ -1,6 +1,6 @@
 import { Button, Section, Text } from "@react-email/components";
 
-import { formatDate, formatTime } from "#/features/emails/format";
+import { formatDate, formatPeriod, formatTime } from "#/features/emails/format";
 import { emailButton, emailHeading, emailText } from "./email-styles";
 import { Layout } from "./layout";
 
@@ -12,6 +12,8 @@ interface EventRegisteredEmailProps {
   startsAt: string;
   endsAt: string;
   eventUrl: string;
+  /** Every approved venue and window, in booking creation order. Absent on rows stored before multi-venue. */
+  venues?: { venueName: string; venueLocation: string; startsAt: string; endsAt: string }[];
 }
 
 /** PTR-45 AC7: the Attendee's registration is recorded, with the event information. */
@@ -22,13 +24,11 @@ export const EventRegisteredEmail = ({
   startsAt,
   endsAt,
   eventUrl,
+  venues,
 }: EventRegisteredEmailProps) => {
   // One string per line, not several interpolations: adjacent JSX interpolations are separated
   // by markup comments in the rendered HTML. A booking that ends on a later day names both days.
-  const sameDay = startsAt.slice(0, 10) === endsAt.slice(0, 10);
-  const period = sameDay
-    ? `${formatDate(startsAt)}, ${formatTime(startsAt)}–${formatTime(endsAt)}`
-    : `${formatDate(startsAt)}, ${formatTime(startsAt)} – ${formatDate(endsAt)}, ${formatTime(endsAt)}`;
+  const period = formatPeriod(startsAt, endsAt);
   const venue = venueLocation ? `${venueName}, ${venueLocation}` : venueName;
 
   return (
@@ -38,8 +38,27 @@ export const EventRegisteredEmail = ({
         <Text style={emailText}>
           Your place at <strong>{eventName}</strong> is recorded.
         </Text>
-        <Text style={emailText}>{`When: ${period}`}</Text>
-        <Text style={emailText}>{`Venue: ${venue}`}</Text>
+        {venues && venues.length > 1 ? (
+          <>
+            {venues.map(entry => {
+              const entryPeriod = formatPeriod(entry.startsAt, entry.endsAt);
+              const entryVenue = entry.venueLocation
+                ? `${entry.venueName}, ${entry.venueLocation}`
+                : entry.venueName;
+              return (
+                <Text
+                  key={`${entry.venueName}-${entry.startsAt}`}
+                  style={emailText}
+                >{`When: ${entryPeriod}; Venue: ${entryVenue}`}</Text>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            <Text style={emailText}>{`When: ${period}`}</Text>
+            <Text style={emailText}>{`Venue: ${venue}`}</Text>
+          </>
+        )}
         <Button href={eventUrl} style={emailButton}>
           View the event
         </Button>

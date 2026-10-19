@@ -345,7 +345,7 @@ describe("AttendeeEventPage registration availability (PTR-50)", () => {
     });
 
     expect(
-      screen.getByText("This event is full. The venue capacity of 30 is reached.")
+      screen.getByText("This event is full. The total venue capacity of 30 is reached.")
     ).toBeTruthy();
     expect(screen.queryByText("2 / 1 registered")).toBeNull();
     expect(screen.queryByRole("button", { name: "Register" })).toBeNull();

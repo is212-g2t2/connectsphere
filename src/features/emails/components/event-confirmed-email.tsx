@@ -1,5 +1,6 @@
 import { Button, Section, Text } from "@react-email/components";
 
+import { formatPeriod } from "#/features/emails/format";
 import { emailButton, emailHeading, emailText } from "./email-styles";
 import { Layout } from "./layout";
 
@@ -14,6 +15,8 @@ interface EventConfirmedEmailProps {
   eventUrl: string;
   /** PTR-137 AC6: a registered Attendee's copy names the arrangements, not "your event". */
   audience?: "organiser" | "attendee";
+  /** Every approved venue and window, in booking creation order. Absent on rows stored before multi-venue. */
+  venues?: { venueName: string; startsAt: string; endsAt: string }[];
 }
 
 export const EventConfirmedEmail = ({
@@ -25,6 +28,7 @@ export const EventConfirmedEmail = ({
   equipment,
   eventUrl,
   audience = "organiser",
+  venues,
 }: EventConfirmedEmailProps) => (
   <Layout previewText={`${eventName} is confirmed`}>
     <Section>
@@ -42,10 +46,23 @@ export const EventConfirmedEmail = ({
           place.
         </Text>
       )}
-      <Text style={emailText}>Venue: {venueName}</Text>
-      <Text style={emailText}>
-        When: {date}, {startTime}–{endTime}
-      </Text>
+      {venues && venues.length > 1 ? (
+        <>
+          <Text style={emailText}>Venues:</Text>
+          {venues.map(venue => (
+            <Text key={`${venue.venueName}-${venue.startsAt}`} style={emailText}>
+              {`${venue.venueName}: ${formatPeriod(venue.startsAt, venue.endsAt)}`}
+            </Text>
+          ))}
+        </>
+      ) : (
+        <>
+          <Text style={emailText}>Venue: {venueName}</Text>
+          <Text style={emailText}>
+            When: {date}, {startTime}–{endTime}
+          </Text>
+        </>
+      )}
       {equipment.length > 0 && (
         <>
           <Text style={emailText}>Equipment:</Text>

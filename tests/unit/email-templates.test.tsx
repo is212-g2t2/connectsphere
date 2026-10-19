@@ -422,6 +422,39 @@ describe("Email templates rendering", () => {
     expect(html).not.toContain("Rooftop Pavilion, ");
   });
 
+  it("lists every approved venue for a multi-venue registration (PTR-141 AC4)", async () => {
+    const html = await render(
+      <EventRegisteredEmail
+        eventName="Open Day"
+        venueName="Harbour Hall"
+        venueLocation="Pier 3"
+        startsAt="2026-12-05 10:00:00"
+        endsAt="2026-12-05 16:00:00"
+        eventUrl="http://localhost:3000/events/12"
+        venues={[
+          {
+            venueName: "Harbour Hall",
+            venueLocation: "Pier 3",
+            startsAt: "2026-12-05 10:00:00",
+            endsAt: "2026-12-05 16:00:00",
+          },
+          {
+            venueName: "Rooftop Pavilion",
+            venueLocation: "",
+            startsAt: "2026-12-06 09:00:00",
+            endsAt: "2026-12-06 12:00:00",
+          },
+        ]}
+      />
+    );
+
+    expect(html).toContain("Venue: Harbour Hall, Pier 3");
+    expect(html).toContain("Venue: Rooftop Pavilion");
+    expect(html).toContain("5 December 2026");
+    expect(html).toContain("6 December 2026");
+    expect(html).not.toContain("2026-12-06 09:00:00");
+  });
+
   it("renders RegistrationThresholdEmail at the limit with the places and the event link (PTR-45 AC8)", async () => {
     const html = await render(
       <RegistrationThresholdEmail
@@ -874,6 +907,38 @@ describe("Email templates rendering", () => {
     expect(html).toContain("Harbour Hall");
     expect(html).toContain("View the event");
     expect(html).not.toContain("Your event is confirmed");
+  });
+
+  it("lists every approved venue on a multi-venue confirmation (PTR-141 AC4)", async () => {
+    const html = await render(
+      <EventConfirmedEmail
+        eventName="Community workshop"
+        venueName="Harbour Hall"
+        date="12 October 2026"
+        startTime="14:00"
+        endTime="17:00"
+        equipment={[]}
+        eventUrl="http://localhost:3000/events/42"
+        venues={[
+          {
+            venueName: "Harbour Hall",
+            startsAt: "2026-10-12 14:00:00",
+            endsAt: "2026-10-12 17:00:00",
+          },
+          {
+            venueName: "Rooftop Pavilion",
+            startsAt: "2026-10-13 09:00:00",
+            endsAt: "2026-10-13 12:00:00",
+          },
+        ]}
+      />
+    );
+
+    expect(html).toContain("Harbour Hall");
+    expect(html).toContain("Rooftop Pavilion");
+    expect(html).toContain("12 October 2026");
+    expect(html).toContain("13 October 2026");
+    expect(html).not.toContain("2026-10-13 09:00:00");
   });
 
   it("renders the submitted request for the Organiser and the queue for a Lead (PTR-144)", async () => {

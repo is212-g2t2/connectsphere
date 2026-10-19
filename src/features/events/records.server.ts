@@ -1,4 +1,4 @@
-import { and, asc, eq, exists, inArray, isNotNull, isNull, ne, notExists, or } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
@@ -8,7 +8,6 @@ import {
   eventRegistrations,
   eventRequests,
   safetyReviews,
-  venueOccupancy,
   venueRequests,
   venues,
 } from "#/db/schema";
@@ -36,7 +35,11 @@ import type {
   EventVenue,
 } from "#/features/events/access";
 import { registrationCounts } from "#/features/events/register.server";
-import { placeLimit, registrationAvailability } from "#/features/events/registration";
+import {
+  placeLimit,
+  registrationAvailability,
+  totalVenueCapacity,
+} from "#/features/events/registration";
 import type { RegistrationAvailability } from "#/features/events/registration";
 import { completionRefusalForEvent } from "#/features/events/completion";
 import { parseEventListInput } from "#/features/events/schema";
@@ -44,7 +47,7 @@ import { parseEventRequestId } from "#/features/event-requests/schema";
 import { loadSafetyReviewStage } from "#/features/safety-reviews/fingerprint.server";
 import {
   loadBlockedArrangements,
-  suspendedPieceWhere,
+  notSuspendedByLiveBlock,
 } from "#/features/venues/blocked-arrangements.server";
 import {
   adjustableRejectionIds,
@@ -183,14 +186,18 @@ export function connectedEventCondition(
 }
 
 /**
- * The event's current approved booking: its venue, capacity, and session requirements (PTR-138),
- * which the arrangement fingerprint hashes. Pick the earliest-created approved booking, so the
- * render stays stable. The confirmation booking is not stored (a PTR-24 follow-up). A booking
- * approved after confirmation can change the shown venue.
+ * The event's current approved bookings: the earliest venue for the render, the total capacity
+ * across distinct venues, and session requirements (PTR-138), which the arrangement fingerprint
+ * hashes. Pick the earliest-created approved booking for the venue, so the render stays stable.
+ * The confirmation booking is not stored (a PTR-24 follow-up). A booking approved after
+ * confirmation can change the shown venue.
  */
 export interface CurrentBooking {
   venue: EventVenue;
-  maxCapacity: number;
+  /** The earliest booking's own venue capacity. The Safety Officer's fact reads this. */
+  venueCapacity: number;
+  /** The sum of the distinct venues' capacities. The registration ceiling reads this. */
+  totalCapacity: number;
   session: {
     expectedAttendance: number | null;
     layout: string | null;
@@ -209,6 +216,7 @@ export async function loadCurrentBookings(
   const bookings = await database
     .select({
       eventId: venueRequests.eventId,
+      venueId: venues.id,
       name: venues.name,
       location: venues.location,
       maxCapacity: venues.maxCapacity,
@@ -227,32 +235,33 @@ export async function loadCurrentBookings(
         eq(venueRequests.status, "approved"),
         // PTR-137: a booking a live venue block suspends is not current. A registered Attendee
         // still reaches the event in planning and sees its venue as pending (O-25).
-        notExists(
-          database
-            .select({ id: venueOccupancy.id })
-            .from(venueOccupancy)
-            .where(and(suspendedPieceWhere(), eq(venueOccupancy.venueRequestId, venueRequests.id)))
-        )
+        notSuspendedByLiveBlock(database)
       )
     )
     .orderBy(venueRequests.createdAt, venueRequests.id);
-  for (const booking of bookings) {
-    if (current.has(booking.eventId)) continue;
-    current.set(booking.eventId, {
+  const byEvent = Map.groupBy(bookings, booking => booking.eventId);
+  for (const [eventId, rows] of byEvent) {
+    const first = rows[0];
+    const totalCapacity =
+      totalVenueCapacity(
+        rows.map(row => ({ venueId: row.venueId, venueCapacity: row.maxCapacity }))
+      ) ?? 0;
+    current.set(eventId, {
       venue: {
-        name: booking.name,
-        location: booking.location,
-        date: booking.startsAt.slice(0, 10),
-        endDate: booking.endsAt.slice(0, 10),
-        startTime: booking.startsAt.slice(11, 16),
-        endTime: booking.endsAt.slice(11, 16),
+        name: first.name,
+        location: first.location,
+        date: first.startsAt.slice(0, 10),
+        endDate: first.endsAt.slice(0, 10),
+        startTime: first.startsAt.slice(11, 16),
+        endTime: first.endsAt.slice(11, 16),
       },
-      maxCapacity: booking.maxCapacity,
+      venueCapacity: first.maxCapacity,
+      totalCapacity,
       session: {
-        expectedAttendance: booking.expectedAttendance,
-        layout: booking.layout,
-        accessibilityRequirements: booking.accessibilityRequirements,
-        requiredFacilities: booking.requiredFacilities,
+        expectedAttendance: first.expectedAttendance,
+        layout: first.layout,
+        accessibilityRequirements: first.accessibilityRequirements,
+        requiredFacilities: first.requiredFacilities,
       },
     });
   }
@@ -501,12 +510,15 @@ export async function handleListEvents(
   const confirmed = new Set(confirmedIds);
   const currentVenues = new Map<number, EventVenue>();
   const venueCapacities = new Map<number, number>();
+  const firstVenueCapacities = new Map<number, number>();
   for (const [id, booking] of bookings) {
     currentVenues.set(id, booking.venue);
     // PTR-146: the Safety Officer sees the capacity of any current booking, not only a
     // confirmed event's. The other roles read capacity through the places count.
-    if (confirmed.has(id) || role === "safety_officer")
-      venueCapacities.set(id, booking.maxCapacity);
+    if (confirmed.has(id) || role === "safety_officer") {
+      venueCapacities.set(id, booking.totalCapacity);
+      firstVenueCapacities.set(id, booking.venueCapacity);
+    }
   }
 
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
@@ -639,7 +651,7 @@ export async function handleListEvents(
             startsAt: row.startsAt,
             endsAt: row.endsAt,
           })),
-          venueCapacity: venueCapacities.get(record.id) ?? null,
+          venueCapacity: firstVenueCapacities.get(record.id) ?? null,
           // PTR-146: the Safety Officer's copy states the current booking's own session
           // requirements, which the fingerprint hashes, beside the event's fields.
           sessionRequirements: bookings.get(record.id)?.session ?? null,

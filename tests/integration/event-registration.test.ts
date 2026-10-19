@@ -45,6 +45,7 @@ const placeTakers = attendees.slice(3);
 
 const VENUE_NAME = "Registration Test Hall";
 const SMALL_VENUE_NAME = "Registration Test Room";
+const ANNEX_VENUE_NAME = "Registration Test Annex";
 
 /** Registration runs 1 Nov 09:00 to 1 Dec 17:00 Singapore time. `now` sits in the middle. A test
  * can move it.
@@ -58,6 +59,7 @@ describe("registering for an event (PTR-45)", () => {
   let database: Database;
   let venueId: number;
   let smallVenueId: number;
+  let annexVenueId: number;
   let bookingYear = 2050;
   const created: number[] = [];
 
@@ -79,8 +81,8 @@ describe("registering for an event (PTR-45)", () => {
       .onConflictDoNothing();
     await database
       .delete(schema.venues)
-      .where(inArray(schema.venues.name, [VENUE_NAME, SMALL_VENUE_NAME]));
-    const [venue, smallVenue] = await database
+      .where(inArray(schema.venues.name, [VENUE_NAME, SMALL_VENUE_NAME, ANNEX_VENUE_NAME]));
+    const [venue, smallVenue, annexVenue] = await database
       .insert(schema.venues)
       .values([
         {
@@ -95,16 +97,23 @@ describe("registering for an event (PTR-45)", () => {
           maxCapacity: 2,
           operatingHours: DEFAULT_OPERATING_HOURS,
         },
+        {
+          name: ANNEX_VENUE_NAME,
+          location: "Level 5",
+          maxCapacity: 3,
+          operatingHours: DEFAULT_OPERATING_HOURS,
+        },
       ])
       .returning({ id: schema.venues.id });
     venueId = venue.id;
     smallVenueId = smallVenue.id;
+    annexVenueId = annexVenue.id;
   });
 
   afterAll(async () => {
     await database
       .delete(schema.venues)
-      .where(inArray(schema.venues.name, [VENUE_NAME, SMALL_VENUE_NAME]));
+      .where(inArray(schema.venues.name, [VENUE_NAME, SMALL_VENUE_NAME, ANNEX_VENUE_NAME]));
     await database.delete(schema.user).where(
       inArray(
         schema.user.id,
@@ -188,6 +197,20 @@ describe("registering for an event (PTR-45)", () => {
     return row;
   }
 
+  /** Add another approved booking, in its own year so no two booking windows overlap. */
+  async function book(eventId: number, bookedVenue: number) {
+    bookingYear += 1;
+    await database.insert(schema.venueRequests).values({
+      id: crypto.randomUUID(),
+      eventId,
+      venueId: bookedVenue,
+      requestedById: coordinator.id,
+      startsAt: `${bookingYear}-12-05 10:00:00`,
+      endsAt: `${bookingYear}-12-05 16:00:00`,
+      status: "approved",
+    });
+  }
+
   const register = (eventId: number, as: SessionUser = attendee, now = insidePeriod) =>
     handleRegisterForEvent({ id: eventId }, as, database as never, now);
 
@@ -253,6 +276,14 @@ describe("registering for an event (PTR-45)", () => {
       venueLocation: "Level 3",
       startsAt: `${bookingYear}-12-05 10:00:00`,
       endsAt: `${bookingYear}-12-05 16:00:00`,
+      venues: [
+        {
+          venueName: VENUE_NAME,
+          venueLocation: "Level 3",
+          startsAt: `${bookingYear}-12-05 10:00:00`,
+          endsAt: `${bookingYear}-12-05 16:00:00`,
+        },
+      ],
     });
     const parsed = parseNotificationPayload(notice.kind, notice.payload);
     if (!parsed) throw new Error("event_registered did not parse");
@@ -356,6 +387,19 @@ describe("registering for an event (PTR-45)", () => {
       expect.arrayContaining([expect.objectContaining({ registered: 2, limit: 2 })])
     );
     expect(notices).toHaveLength(2);
+  });
+
+  // ── PTR-141 AC1 ───────────────────────────────────────────────────────────────────────────
+  test("sums the distinct approved venues' capacities and counts a repeat venue once", async () => {
+    const event = await createEvent({ capacity: 10, bookedVenue: smallVenueId });
+    // A second approved venue raises the ceiling from 2 to 5. The same venue booked again
+    // must not raise it again.
+    await book(event.id, annexVenueId);
+    await book(event.id, smallVenueId);
+
+    await registerOthers(event.id, 5);
+
+    expect(await refusal(event.id)).toBe(venueCapacityReachedMessage(5));
   });
 
   // ── AC6 ────────────────────────────────────────────────────────────────────────────────────
