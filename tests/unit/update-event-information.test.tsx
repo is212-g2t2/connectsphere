@@ -367,6 +367,14 @@ describe("warning before a significant change (PTR-23)", () => {
     ).toBe(true);
 
     await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
+    expect(updateEventInformation).not.toHaveBeenCalled();
+    expect(within(dialog).getByText("Enter a reason for this change")).toBeTruthy();
+
+    await user.type(
+      within(dialog).getByLabelText("Reason for this change"),
+      "The organiser confirmed the new date."
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
 
     await waitFor(() =>
       expect(success).toHaveBeenCalledWith(
@@ -374,7 +382,12 @@ describe("warning before a significant change (PTR-23)", () => {
       )
     );
     expect(updateEventInformation).toHaveBeenCalledWith({
-      data: { id: 7, amendments: { expectedAttendance: 150 }, acknowledgeSignificant: true },
+      data: {
+        id: 7,
+        amendments: { expectedAttendance: 150 },
+        acknowledgeSignificant: true,
+        reason: "The organiser confirmed the new date.",
+      },
     });
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
@@ -393,11 +406,20 @@ describe("warning before a significant change (PTR-23)", () => {
     expect(within(dialog).queryByRole("list")).toBeNull();
     expect(within(dialog).queryByText(/will be notified/)).toBeNull();
 
+    await user.type(
+      within(dialog).getByLabelText("Reason for this change"),
+      "The organiser confirmed the new date."
+    );
     await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
 
     await waitFor(() => expect(success).toHaveBeenCalledWith("Event information saved."));
     expect(updateEventInformation).toHaveBeenCalledWith({
-      data: { id: 7, amendments: { expectedAttendance: 150 }, acknowledgeSignificant: true },
+      data: {
+        id: 7,
+        amendments: { expectedAttendance: 150 },
+        acknowledgeSignificant: true,
+        reason: "The organiser confirmed the new date.",
+      },
     });
   });
 
@@ -414,6 +436,10 @@ describe("warning before a significant change (PTR-23)", () => {
     expect(within(dialog).getByText(/must be confirmed again/)).toBeTruthy();
     expect(within(dialog).getByText(/For a future event/)).toBeTruthy();
     expect(updateEventInformation).not.toHaveBeenCalled();
+    await user.type(
+      within(dialog).getByLabelText("Reason for this change"),
+      "The organiser confirmed the new layout."
+    );
     await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
 
     await waitFor(() =>
@@ -422,6 +448,7 @@ describe("warning before a significant change (PTR-23)", () => {
           id: 7,
           amendments: { roomLayoutPreference: "Boardroom" },
           acknowledgeSignificant: true,
+          reason: "The organiser confirmed the new layout.",
         },
       })
     );
@@ -467,6 +494,10 @@ describe("warning before a significant change (PTR-23)", () => {
       await user.click(screen.getByRole("button", { name: "Save changes" }));
       const second = await screen.findByRole("alertdialog");
       expect(within(second).getByText(/holds no venue booking/)).toBeTruthy();
+      await user.type(
+        within(second).getByLabelText("Reason for this change"),
+        "The organiser confirmed the new date."
+      );
       await user.click(within(second).getByRole("button", { name: "Save anyway" }));
       await waitFor(() => expect(updateEventInformation).toHaveBeenCalledTimes(1));
       expect(listEventArrangements).toHaveBeenCalledTimes(2);

@@ -420,6 +420,8 @@ export const eventCancellationRequests = pgTable(
     outcome: eventCancellationOutcome("outcome"),
     /** PTR-54 AC8: why the Coordinator declined; required for a decline, absent otherwise. */
     declineReason: text("decline_reason"),
+    /** PTR-164 AC1: why the Coordinator cancelled; required for a cancellation, absent otherwise. */
+    cancelReason: text("cancel_reason"),
     processedById: text("processed_by_id"),
     processedByName: text("processed_by_name"),
     processedAt: timestamp("processed_at", { withTimezone: true }),
@@ -432,11 +434,15 @@ export const eventCancellationRequests = pgTable(
       .where(sql`${table.outcome} is null`),
     check(
       "event_cancellation_requests_outcome_complete",
-      sql`(${table.outcome} is null and ${table.processedById} is null and ${table.processedByName} is null and ${table.processedAt} is null and ${table.declineReason} is null) or (${table.outcome} is not null and ${table.processedById} is not null and btrim(${table.processedById}) <> '' and ${table.processedByName} is not null and btrim(${table.processedByName}) <> '' and ${table.processedAt} is not null)`
+      sql`(${table.outcome} is null and ${table.processedById} is null and ${table.processedByName} is null and ${table.processedAt} is null and ${table.declineReason} is null and ${table.cancelReason} is null) or (${table.outcome} is not null and ${table.processedById} is not null and btrim(${table.processedById}) <> '' and ${table.processedByName} is not null and btrim(${table.processedByName}) <> '' and ${table.processedAt} is not null)`
     ),
     check(
       "event_cancellation_requests_decline_has_reason",
       sql`(${table.outcome}::text = 'declined' and coalesce(${table.declineReason}, '') ~ '[^[:space:]]') or (${table.outcome} is distinct from 'declined' and ${table.declineReason} is null)`
+    ),
+    check(
+      "event_cancellation_requests_cancel_has_reason",
+      sql`(${table.outcome}::text = 'cancelled' and coalesce(${table.cancelReason}, '') ~ '[^[:space:]]') or (${table.outcome} is distinct from 'cancelled' and ${table.cancelReason} is null)`
     ),
   ]
 );
@@ -461,8 +467,16 @@ export const eventInformationChanges = pgTable(
     changedById: text("changed_by_id").notNull(),
     changedByName: text("changed_by_name").notNull(),
     changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+    /** PTR-164 AC2: why the Coordinator made a significant change. Null on an ordinary edit. */
+    reason: text("reason"),
   },
-  table => [index("event_information_changes_event_request_id_idx").on(table.eventRequestId)]
+  table => [
+    index("event_information_changes_event_request_id_idx").on(table.eventRequestId),
+    check(
+      "event_information_changes_reason_present",
+      sql`${table.reason} is null or coalesce(${table.reason}, '') ~ '[^[:space:]]'`
+    ),
+  ]
 );
 
 export const venues = pgTable(

@@ -182,10 +182,19 @@ const apply = (
   changeRequestId: number,
   amendments: Record<string, unknown>,
   actor: SessionUser = coordinator,
-  acknowledgeSignificant?: true
+  acknowledgeSignificant?: true,
+  reason?: string
 ) =>
   handleUpdateEventInformation(
-    { id: eventId, amendments, changeRequestId, acknowledgeSignificant },
+    {
+      id: eventId,
+      amendments,
+      changeRequestId,
+      acknowledgeSignificant,
+      ...(acknowledgeSignificant
+        ? { reason: reason ?? "The organiser confirmed the change." }
+        : {}),
+    },
     actor,
     database as never
   );
@@ -593,5 +602,42 @@ describe("processing a change request (PTR-52)", () => {
       { outcome: "applied" },
       { outcome: "declined" },
     ]);
+  });
+
+  it("carries the reason on the processed notice for a significant apply, with one notice to the Organiser (PTR-164 AC3)", async () => {
+    const event = await eventAt("approved");
+    const request = await raise(event.id);
+
+    await expect(
+      apply(event.id, request.id, { expectedAttendance: 120 }, coordinator, true, "   ")
+    ).rejects.toThrow("Enter a reason for this change");
+
+    await apply(
+      event.id,
+      request.id,
+      { expectedAttendance: 120 },
+      coordinator,
+      true,
+      "New date fixed."
+    );
+
+    const notices = await organiserNotices(event.id);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].payload).toEqual({
+      outcome: "applied",
+      eventName: recorded.eventName,
+      whatShouldChange: "Expected attendance",
+      reason: "New date fixed.",
+    });
+    const significant = await database
+      .select()
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.eventRequestId, event.id),
+          eq(schema.notifications.kind, "event_significant_change")
+        )
+      );
+    expect(significant.filter(notice => notice.recipientId === organiser.id)).toEqual([]);
   });
 });

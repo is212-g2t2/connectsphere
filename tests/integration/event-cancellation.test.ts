@@ -312,8 +312,12 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
 
   const requestCancellation = (eventId: number, as: SessionUser = organiser) =>
     handleRequestEventCancellation({ id: eventId }, as, database as never);
-  const cancel = (eventId: number, as: SessionUser = coordinator) =>
-    handleCancelEvent({ id: eventId }, as, database as never);
+  const CANCELLATION_REASON = "The venue closed for repairs.";
+  const cancel = (
+    eventId: number,
+    as: SessionUser = coordinator,
+    reason: string = CANCELLATION_REASON
+  ) => handleCancelEvent({ id: eventId, reason }, as, database as never);
   const decline = (eventId: number, reason: string, as: SessionUser = coordinator) =>
     handleDeclineEventCancellation({ id: eventId, reason }, as, database as never);
 
@@ -480,7 +484,12 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       await expect(
         database
           .update(schema.eventCancellationRequests)
-          .set({ outcome: "cancelled", processedAt: new Date(), ...processor })
+          .set({
+            outcome: "cancelled",
+            cancelReason: "The venue closed for repairs.",
+            processedAt: new Date(),
+            ...processor,
+          })
           .where(eq(schema.eventCancellationRequests.id, request.id))
       ).rejects.toMatchObject({
         cause: { constraint: "event_cancellation_requests_outcome_complete" },
@@ -719,6 +728,7 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       expect(techNotice.payload).toEqual({
         audience: "technical_support",
         eventName: event.eventName,
+        reason: CANCELLATION_REASON,
       });
       expect(notificationHref(parsed(techNotice))).toBe(`/events/${event.id}`);
       expect(renderNotificationEmail(parsed(techNotice)).subject).toBe(
@@ -782,7 +792,11 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
         notice => notice.recipientId === organiser.id
       );
       expect(notices).toHaveLength(1);
-      expect(notices[0].payload).toEqual({ audience: "organiser", eventName: event.eventName });
+      expect(notices[0].payload).toEqual({
+        audience: "organiser",
+        eventName: event.eventName,
+        reason: CANCELLATION_REASON,
+      });
       expect(notificationHref(parsed(notices[0]))).toBe(`/events/${event.id}`);
 
       const detail = await handleGetEventRequest({ id: event.id }, organiser, database as never);
@@ -932,6 +946,43 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       await expect(decline(event.id, "   ")).rejects.toThrow("Enter a reason for declining");
       const [request] = await requestsFor(event.id);
       expect(request.outcome).toBeNull();
+    });
+
+    // ── PTR-164 AC1 ──────────────────────────────────────────────────────────────────────
+    describe("cancellation reason (PTR-164 AC1)", () => {
+      test("refuses to cancel without a reason", async () => {
+        const event = await createEvent("confirmed");
+        await requestCancellation(event.id);
+
+        await expect(
+          handleCancelEvent({ id: event.id, reason: "   " }, coordinator, database as never)
+        ).rejects.toThrow("Enter a reason for cancelling");
+        expect((await eventRow(event.id)).status).toBe("confirmed");
+      });
+
+      test("stores the reason and carries it on every notice", async () => {
+        const event = await createEvent("confirmed");
+        await addBooking(event.id);
+        await database.insert(schema.eventRegistrations).values({
+          eventId: event.id,
+          attendeeId: attendee.id,
+        });
+        await requestCancellation(event.id);
+
+        await cancel(event.id, coordinator, "  The venue closed for repairs.  ");
+
+        const [request] = await requestsFor(event.id);
+        expect(request).toMatchObject({
+          outcome: "cancelled",
+          cancelReason: "The venue closed for repairs.",
+        });
+        const notices = await notificationsFor(event.id, "event_cancelled");
+        expect(notices.length).toBe(3);
+        for (const notice of notices) {
+          expect(notice.payload).toMatchObject({ reason: "The venue closed for repairs." });
+          expect(parsed(notice)).toBeTruthy();
+        }
+      });
     });
   });
 

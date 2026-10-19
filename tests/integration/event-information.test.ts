@@ -156,22 +156,29 @@ async function eventAt(
 }
 
 /** Send only changed columns, as the Coordinator's form does. */
+const SIGNIFICANT_REASON = "The organiser confirmed the change.";
 function update(
   id: number,
   amendments: Record<string, unknown>,
   actor: SessionUser = coordinator,
-  acknowledgeSignificant?: true
+  acknowledgeSignificant?: true,
+  reason?: string
 ) {
   return handleUpdateEventInformation(
-    { id, amendments, acknowledgeSignificant },
+    {
+      id,
+      amendments,
+      acknowledgeSignificant,
+      ...(acknowledgeSignificant ? { reason: reason ?? SIGNIFICANT_REASON } : {}),
+    },
     actor,
     database as never
   );
 }
 
 /** A significant change after the Coordinator has read the warning. */
-const updateAcknowledged = (id: number, amendments: Record<string, unknown>) =>
-  update(id, amendments, coordinator, true);
+const updateAcknowledged = (id: number, amendments: Record<string, unknown>, reason?: string) =>
+  update(id, amendments, coordinator, true, reason);
 
 function nextWindow() {
   year += 1;
@@ -622,6 +629,7 @@ describe("warning before a significant change (PTR-23)", () => {
           endsAt: first.endsAt,
           changedFields: ["proposedDates", "expectedAttendance"],
           actorName: coordinator.name,
+          reason: SIGNIFICANT_REASON,
         },
       },
       {
@@ -636,6 +644,17 @@ describe("warning before a significant change (PTR-23)", () => {
           eventName: "PTR23 Renamed",
           changedFields: ["proposedDates", "expectedAttendance"],
           actorName: coordinator.name,
+          reason: SIGNIFICANT_REASON,
+        },
+      },
+      {
+        recipientId: organiser.id,
+        payload: {
+          audience: "organiser",
+          eventName: "PTR23 Renamed",
+          changedFields: ["proposedDates", "expectedAttendance"],
+          actorName: coordinator.name,
+          reason: SIGNIFICANT_REASON,
         },
       },
     ]);
@@ -678,7 +697,7 @@ describe("warning before a significant change (PTR-23)", () => {
     expect((await storedEvent(event.id)).status).toBe("confirmed");
   });
 
-  it("tells no one for a booking or line whose staff account has gone, for a hold, or when nothing is held (AC5)", async () => {
+  it("tells no staff for a booking or line whose staff account has gone, for a hold, or when nothing is held, but still tells the Organiser (AC5, PTR-164 AC3)", async () => {
     const event = await eventAt("approved");
     await addBooking(event.id, "approved", null);
     await addBooking(event.id, "pending");
@@ -687,7 +706,12 @@ describe("warning before a significant change (PTR-23)", () => {
     await addReservedLine(event.id, 2, null);
 
     expect((await updateAcknowledged(event.id, { expectedAttendance: 120 })).notified).toBe(0);
-    expect(await significantChangeNotices(event.id)).toEqual([]);
+    expect(await significantChangeNotices(event.id)).toEqual([
+      expect.objectContaining({
+        recipientId: organiser.id,
+        payload: expect.objectContaining({ audience: "organiser", reason: SIGNIFICANT_REASON }),
+      }),
+    ]);
 
     const bare = await eventAt("approved");
     expect((await updateAcknowledged(bare.id, { expectedAttendance: 120 })).notified).toBe(0);
@@ -734,5 +758,34 @@ describe("warning before a significant change (PTR-23)", () => {
         })
       )
     );
+  });
+
+  it("requires a reason for a significant change, stores it on the change log and tells the Organiser (PTR-164 AC2, AC3)", async () => {
+    const event = await eventAt("approved");
+
+    await expect(
+      handleUpdateEventInformation(
+        { id: event.id, amendments: { expectedAttendance: 120 }, acknowledgeSignificant: true },
+        coordinator,
+        database as never
+      )
+    ).rejects.toThrow("Enter a reason for this change");
+    expect(await changeLog(event.id)).toEqual([]);
+
+    await updateAcknowledged(event.id, { expectedAttendance: 120 }, "  The new date is fixed.  ");
+
+    expect((await changeLog(event.id)).map(row => row.reason)).toEqual(["The new date is fixed."]);
+    const notices = await significantChangeNotices(event.id);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      recipientId: organiser.id,
+      payload: {
+        audience: "organiser",
+        eventName: recorded.eventName,
+        changedFields: ["expectedAttendance"],
+        actorName: coordinator.name,
+        reason: "The new date is fixed.",
+      },
+    });
   });
 });

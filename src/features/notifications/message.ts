@@ -267,17 +267,20 @@ const payloadSchemas = {
    * PTR-54 AC3, AC4, AC7: the event is cancelled, told to each party in their own words. The Venue
    * Staff copy names the booking to release and not the event, as every Venue Staff notice does
    * (PTR-8 AC3). The bookings view it opens names the event, as PTR-37 AC1 requires.
+   * PTR-164 AC1: every copy carries the Coordinator's reason. Optional so stored rows still parse.
    */
   event_cancelled: z.discriminatedUnion("audience", [
     z.object({
       audience: z.enum(["organiser", "attendee", "technical_support"]),
       eventName: z.string(),
+      reason: z.string().optional(),
     }),
     z.object({
       audience: z.literal("venue_staff"),
       venueName: z.string(),
       startsAt: z.string(),
       endsAt: z.string(),
+      reason: z.string().optional(),
     }),
   ]),
   /** PTR-54 AC8: the Coordinator declined the Organiser's cancellation request, with a reason. */
@@ -315,6 +318,8 @@ const payloadSchemas = {
    * PTR-23 AC5: which significant fields changed, told to the staff holding an arrangement. The
    * Venue Staff copy names the booking and not the event, as every Venue Staff notice does
    * (PTR-8 AC3); the Technical Support copy names the event their reservation is for.
+   * PTR-164 AC2, AC3: every copy carries the Coordinator's reason, and the Organiser receives a
+   * copy too. Optional so stored rows still parse.
    */
   event_significant_change: z.discriminatedUnion("audience", [
     z.object({
@@ -324,24 +329,28 @@ const payloadSchemas = {
       endsAt: z.string(),
       changedFields: z.array(z.enum(SIGNIFICANT_FIELDS)).min(1),
       actorName: z.string(),
+      reason: z.string().optional(),
     }),
     z.object({
-      audience: z.literal("technical_support"),
+      audience: z.enum(["technical_support", "organiser"]),
       eventName: z.string(),
       changedFields: z.array(z.enum(SIGNIFICANT_FIELDS)).min(1),
       actorName: z.string(),
+      reason: z.string().optional(),
     }),
   ]),
   /**
    * PTR-52 AC5: what became of the Organiser's change request. A decline always carries the
    * Coordinator's reason; an applied request points the Organiser at the record, which now shows
-   * the new values.
+   * the new values. PTR-164 AC3: an applied significant change carries the change reason instead
+   * of a separate significant-change notice. Optional so stored rows still parse.
    */
   event_change_processed: z.discriminatedUnion("outcome", [
     z.object({
       outcome: z.literal("applied"),
       eventName: z.string(),
       whatShouldChange: z.string(),
+      reason: z.string().optional(),
     }),
     z.object({
       outcome: z.literal("declined"),
