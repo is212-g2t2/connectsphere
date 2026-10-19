@@ -52,8 +52,8 @@ export async function sweepSafetyReviews(database: Database, now?: Date) {
   };
   // Each commit releases the event lock before the next candidate.
   for (const candidate of candidates) {
-    // oxlint-disable-next-line eslint/no-await-in-loop
     try {
+      // oxlint-disable-next-line eslint/no-await-in-loop
       const change = await database.transaction(async tx => {
         // A separate key space from the registration sweep (49, 0).
         await tx.execute(sql`SELECT pg_advisory_xact_lock(148, 0)`);

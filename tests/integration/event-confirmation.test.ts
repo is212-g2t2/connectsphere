@@ -342,8 +342,19 @@ describe("confirming an event (PTR-24)", () => {
       await createBooking(eventId);
 
       await expect(confirmWithoutSafety(eventId)).rejects.toThrow(
-        "No safety review has been raised yet."
+        "No safety review has been raised yet. One is created within a minute of the arrangements being complete."
       );
+    });
+
+    test("confirms a started event without a safety review", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      await database
+        .update(schema.venueRequests)
+        .set({ startsAt: "2020-01-01 09:00:00", endsAt: "2020-01-01 12:30:00" })
+        .where(eq(schema.venueRequests.eventId, eventId));
+
+      expect((await confirmWithoutSafety(eventId)).status).toBe("confirmed");
     });
   });
 

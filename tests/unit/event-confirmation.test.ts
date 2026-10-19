@@ -92,6 +92,26 @@ describe("confirmationBlockers (PTR-24)", () => {
     ).toEqual([message]);
   });
 
+  it("does not require a safety review once the event has started", () => {
+    expect(
+      blockersFor({
+        status: "planning",
+        venueRequests: approvedBooking,
+        equipmentLines: settled,
+        eventStarted: true,
+      })
+    ).toEqual([]);
+    expect(
+      blockersFor({
+        status: "planning",
+        venueRequests: approvedBooking,
+        equipmentLines: settled,
+        eventStarted: true,
+        safetyReview: { state: "rejected", current: true },
+      })
+    ).toEqual([]);
+  });
+
   it("names the missing approved booking and every actionable request", () => {
     expect(blockersFor({ status: "approved", venueRequests: [], equipmentLines: settled })).toEqual(
       [VENUE_BOOKING_OUTSTANDING_MESSAGE]

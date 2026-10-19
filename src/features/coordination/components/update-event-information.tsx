@@ -237,8 +237,8 @@ function UpdateEventInformationBody({
               </h2>
               <p className="mt-2 body-sm text-muted-foreground">
                 A saved change replaces the recorded value for everyone with access to this event. A
-                change to the dates and times, expected attendance, venue requirements or equipment
-                requirements needs your confirmation before it is saved.
+                change to the dates and times, expected attendance, venue requirements, equipment
+                requirements or room-layout preference needs your confirmation before it is saved.
               </p>
             </div>
             <Button
@@ -363,13 +363,9 @@ function SignificantChangeDialog({
           <AlertDialogTitle>This is a significant change</AlertDialogTitle>
           <AlertDialogDescription>
             {items.length === 0
-              ? "This event holds no venue booking, tentative hold or equipment reservation."
-              : "This event holds the arrangements below. Saving does not change, cancel or release any of them: review each one yourself."}
+              ? "This event holds no venue booking, tentative hold or equipment reservation. For a future event, when the arrangements are complete, a new safety review is raised automatically. A future confirmed event with a safety review returns to Planning and must be confirmed again."
+              : "This event holds the arrangements below. Saving does not change, cancel or release any of them: review each one yourself. For a future event, when the arrangements are complete, a new safety review is raised automatically. A future confirmed event with a safety review returns to Planning and must be confirmed again."}
           </AlertDialogDescription>
-          <p className="body-sm text-muted-foreground">
-            This change needs a new safety review. A confirmed event will return to Planning and
-            must be confirmed again.
-          </p>
         </AlertDialogHeader>
         {items.length > 0 && (
           <div className="space-y-3">

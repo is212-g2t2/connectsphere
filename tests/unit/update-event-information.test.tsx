@@ -391,11 +391,7 @@ describe("warning before a significant change (PTR-23)", () => {
     const user = await editAttendance();
 
     const dialog = await screen.findByRole("alertdialog");
-    expect(
-      within(dialog).getByText(
-        "This event holds no venue booking, tentative hold or equipment reservation."
-      )
-    ).toBeTruthy();
+    expect(within(dialog).getByText(/holds no venue booking/)).toBeTruthy();
     expect(within(dialog).queryByRole("list")).toBeNull();
     expect(within(dialog).queryByText(/will be notified/)).toBeNull();
 
@@ -418,6 +414,7 @@ describe("warning before a significant change (PTR-23)", () => {
 
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText(/must be confirmed again/)).toBeTruthy();
+    expect(within(dialog).getByText(/For a future event/)).toBeTruthy();
     expect(updateEventInformation).not.toHaveBeenCalled();
     await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
 

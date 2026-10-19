@@ -387,7 +387,7 @@ const payloadSchemas = {
    */
   event_safety_reconfirmation_required: z.object({
     eventName: z.string(),
-    reason: z.enum(["out_of_date", "rejected", "changes_requested", "pending"]),
+    reason: z.enum(["out_of_date", "rejected", "changes_requested", "pending"]).optional(),
   }),
   /**
    * PTR-146 AC4: the Safety Officer's decision on the event's operational-safety review. The

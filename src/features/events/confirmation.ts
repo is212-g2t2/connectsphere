@@ -31,13 +31,14 @@ export const SAFETY_REVIEW_PENDING_MESSAGE = "The safety review is pending.";
 export const SAFETY_REVIEW_REJECTED_MESSAGE = "The safety review was rejected.";
 export const SAFETY_REVIEW_CHANGES_REQUESTED_MESSAGE = "The Safety Officer requested changes.";
 export const SAFETY_REVIEW_OUTDATED_MESSAGE = "The safety approval is out of date.";
-export const SAFETY_REVIEW_MISSING_MESSAGE = "No safety review has been raised yet.";
+export const SAFETY_REVIEW_MISSING_MESSAGE =
+  "No safety review has been raised yet. One is created within a minute of the arrangements being complete.";
 
 /**
  * One venue request on the event, as `answeredByReplacement` reads it. Times use the
  * `mode: "string"` shape, `YYYY-MM-DD HH:MM:SS`.
  */
-export interface ConfirmationVenueRequest extends VenueRequestAnswerRow {
+interface ConfirmationVenueRequest extends VenueRequestAnswerRow {
   venueName: string;
   startsAt: string;
   endsAt: string;
@@ -79,7 +80,7 @@ function outstandingVenueRequestMessage(request: ConfirmationVenueRequest): stri
   }
 }
 
-export interface ConfirmationInput {
+interface ConfirmationInput {
   status: EventRequestStatus;
   venueRequests: readonly ConfirmationVenueRequest[];
   /** PTR-137: true when a live venue block suspends the approved booking. */
@@ -88,6 +89,8 @@ export interface ConfirmationInput {
   /** PTR-43's stamp: set when Technical Support marked every line arranged. */
   equipmentArrangementsCompletedAt: Date | null;
   safetyReview?: { state: SafetyReviewState; current: boolean } | null;
+  /** PTR-147: a started event keeps its arrangements; the sweep does not raise a new review. */
+  eventStarted?: boolean;
 }
 
 /**
@@ -107,7 +110,7 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
   }
 
   const blockers = arrangementBlockers(input);
-  const safetyBlocker = safetyReviewBlocker(input.safetyReview);
+  const safetyBlocker = input.eventStarted ? null : safetyReviewBlocker(input.safetyReview);
   if (safetyBlocker) blockers.push(safetyBlocker);
   return blockers;
 }

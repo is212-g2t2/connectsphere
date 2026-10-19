@@ -420,6 +420,21 @@ describe("automatic safety review sweep", () => {
     expect(await notices(id)).toHaveLength(0);
   });
 
+  test("skips only the event that deadlocked on notification insertion", async () => {
+    const blocked = await createEvent("confirmed");
+    await createReview(blocked, "old");
+    const processed = await createEvent("confirmed");
+    await createBooking(processed);
+    await createReview(processed, "old");
+    vi.spyOn(notificationWriter, "raiseNotifications").mockRejectedValueOnce(
+      new Error("deadlock", { cause: { code: "40P01" } })
+    );
+
+    await expect(sweep()).resolves.toMatchObject({ eventsReverted: 1 });
+    expect((await readEvent(blocked)).status).toBe("confirmed");
+    expect((await readEvent(processed)).status).toBe("planning");
+  });
+
   test("falls back to every Lead when a confirmed event has no Coordinator", async () => {
     const id = await createEvent("confirmed", { coordinatorId: null });
     await createBooking(id);

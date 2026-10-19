@@ -17,7 +17,6 @@ import {
   vacateVenue,
 } from "#/features/venue-requests/occupancy.server";
 import type { BlockCommitment } from "#/features/venue-requests/occupancy.server";
-import { revertConfirmedEvents } from "#/features/events/revert.server";
 import { keyShareEvent, lockVenue } from "#/features/venue-requests/venue-lock.server";
 import type { LockedEvent, VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { venueBlockConflictMessage } from "#/features/venue-requests/schema";

@@ -751,7 +751,7 @@ export function parseEventInformationInput(data: unknown) {
 
 /**
  * PTR-23 AC1: List fields with significant changes. Proposed dates set the event date, times, and
- * duration. A change to one of these four fields warns the Coordinator before save (AC2) and tells
+ * duration. A change to one of these five fields warns the Coordinator before save (AC2) and tells
  * staff with an arrangement after save (AC5). Changes to other fields, including accessibility
  * requirements, remain ordinary edits (AC4).
  */

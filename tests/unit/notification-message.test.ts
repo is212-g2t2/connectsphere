@@ -232,6 +232,11 @@ describe("notification payload parsing (PTR-55)", () => {
     );
     expect(parseNotificationPayload("no_such_kind", {})).toBeNull();
   });
+
+  it("accepts a legacy safety re-confirmation payload with no reason", () => {
+    const parsed = parse("event_safety_reconfirmation_required", { eventName: "Gala" });
+    expect(parsed.payload).toEqual({ eventName: "Gala" });
+  });
 });
 
 describe("notification summaries (PTR-55 AC2)", () => {

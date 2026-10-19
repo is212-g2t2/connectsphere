@@ -15,6 +15,7 @@ import type { SessionUser } from "#/features/auth/session";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
 import { arrangementFingerprint } from "#/features/safety-reviews/fingerprint.server";
+import { hasEventStarted } from "#/features/safety-reviews/sweep.server";
 import {
   confirmationBlockers,
   confirmationRefusalMessage,
@@ -110,6 +111,7 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       venueBookingSuspended: suspended.length > 0,
       equipmentLines: equipmentRows,
       equipmentArrangementsCompletedAt: request.equipmentArrangementsCompletedAt,
+      eventStarted: hasEventStarted(venueRows, new Date()),
       safetyReview: review
         ? {
             state: review.state,

@@ -433,7 +433,6 @@ export function renderNotificationEmail(
         subject,
         element: createElement(SafetySweepEmail, {
           eventName: notification.payload.eventName,
-          requested: notification.kind === "safety_review_requested",
           eventUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
