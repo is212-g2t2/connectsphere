@@ -11,6 +11,7 @@ import {
   EVENT_CHANGE_REQUEST_CLOSED,
   EVENT_INFORMATION_FIELDS,
   EVENT_REQUEST_STATUS_LABELS,
+  SIGNIFICANT_CHANGE_REASON_REQUIRED_MESSAGE,
   SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE,
   canApplyEventChangeRequest,
   canUpdateEventInformation,
@@ -52,6 +53,10 @@ export interface EventInformationUpdated {
  * PTR-52: A save with `changeRequestId` applies the Organiser's waiting change request. It stays
  * open in every status where a request can be raised. It must change something. Mark the request
  * applied and tell the Organiser in the same transaction (AC2, AC5). Move nothing else (AC4).
+ *
+ * PTR-164 AC2, AC3: a significant save needs a reason, stored on the change log and carried on the
+ * notices. The Organiser receives a significant-change notice too; when the save applies their own
+ * request, the reason goes on the processed notice instead, so they get one notice.
  */
 export async function handleUpdateEventInformation(
   data: unknown,
@@ -100,6 +105,10 @@ export async function handleUpdateEventInformation(
     if (significant.length > 0 && input.acknowledgeSignificant !== true) {
       throw new ConflictError(SIGNIFICANT_CHANGE_UNACKNOWLEDGED_MESSAGE);
     }
+    const reason = significant.length > 0 ? (input.reason?.trim() ?? "") : "";
+    if (significant.length > 0 && reason === "") {
+      throw new Error(SIGNIFICANT_CHANGE_REASON_REQUIRED_MESSAGE);
+    }
 
     await tx
       .update(eventRequests)
@@ -137,20 +146,23 @@ export async function handleUpdateEventInformation(
         // `now()` defaults to the transaction timestamp. It predates a wait on the row lock, so
         // overlapping saves could log out of order.
         changedAt: appliedAt,
+        reason: significant.length > 0 ? reason : null,
       }))
     );
 
     // Use the event's current name. A notice must not use a name this save replaced.
-    const notices =
+    const staff =
       significant.length > 0
         ? await significantChangeNotices(
             tx,
             { id: request.id, eventName: values.eventName },
             significant,
             // Send a role word, not the address. The notice goes to staff outside the event's team.
-            actorName || "The Coordinator"
+            actorName || "The Coordinator",
+            reason
           )
         : [];
+    const eventName = values.eventName.trim() || "Untitled request";
     if (changeRequest) {
       const applied = await tx
         .update(eventChangeRequests)
@@ -166,27 +178,49 @@ export async function handleUpdateEventInformation(
         .returning({ id: eventChangeRequests.id });
       if (applied.length === 0) throw new ConflictError(CHANGE_REQUEST_NOT_WAITING_MESSAGE);
     }
+    // A significant apply carries the reason on the processed notice, so the Organiser gets one
+    // notice. Any other significant save sends the Organiser their own significant-change copy.
+    const organiserNotice: NewNotification[] =
+      significant.length === 0
+        ? []
+        : changeRequest
+          ? []
+          : [
+              {
+                recipientId: request.organiserId,
+                eventRequestId: request.id,
+                kind: "event_significant_change",
+                payload: {
+                  audience: "organiser",
+                  eventName,
+                  changedFields: significant,
+                  actorName: actorName || "The Coordinator",
+                  reason,
+                },
+              },
+            ];
     await raiseNotifications(
       tx,
       changeRequest
         ? [
-            ...notices,
+            ...staff,
             {
               recipientId: request.organiserId,
               eventRequestId: request.id,
               kind: "event_change_processed",
               payload: {
                 outcome: "applied",
-                eventName: values.eventName.trim() || "Untitled request",
+                eventName,
                 whatShouldChange: changeRequest.whatShouldChange,
+                ...(significant.length > 0 ? { reason } : {}),
               },
             },
           ]
-        : notices
+        : [...staff, ...organiserNotice]
     );
 
     // The toast counts the holders told (PTR-23 AC5). It excludes the Organiser's notice.
-    return { changedFields: changes.map(change => change.field), notified: notices.length };
+    return { changedFields: changes.map(change => change.field), notified: staff.length };
   });
 }
 
@@ -287,7 +321,8 @@ async function significantChangeNotices(
   tx: Tx,
   event: { id: number; eventName: string },
   changedFields: SignificantField[],
-  actorName: string
+  actorName: string,
+  reason: string
 ): Promise<NewNotification[]> {
   const { bookings, reservationStaffIds } = await loadArrangementHolders(tx, event.id);
 
@@ -304,6 +339,7 @@ async function significantChangeNotices(
         endsAt,
         changedFields,
         actorName,
+        reason,
       },
     });
   }
@@ -317,6 +353,7 @@ async function significantChangeNotices(
         eventName: event.eventName.trim() || "Untitled event",
         changedFields,
         actorName,
+        reason,
       },
     });
   }

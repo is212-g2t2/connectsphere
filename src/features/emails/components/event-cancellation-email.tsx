@@ -35,7 +35,7 @@ export const EventCancellationRequestedEmail = ({
   );
 };
 
-type EventCancelledEmailProps = { eventUrl: string } & (
+type EventCancelledEmailProps = { eventUrl: string; reason?: string } & (
   | { audience: "organiser" | "attendee" | "technical_support"; eventName: string }
   | { audience: "venue_staff"; venueName: string; startsAt: string; endsAt: string }
 );
@@ -48,7 +48,7 @@ type EventCancelledEmailProps = { eventUrl: string } & (
  */
 export const EventCancelledEmail = (props: EventCancelledEmailProps) => {
   if (props.audience === "venue_staff") {
-    const { venueName, startsAt, endsAt, eventUrl } = props;
+    const { venueName, startsAt, endsAt, eventUrl, reason } = props;
     return (
       <Layout previewText={`Booking to release at ${venueName}`}>
         <Section>
@@ -58,6 +58,9 @@ export const EventCancelledEmail = (props: EventCancelledEmailProps) => {
             {formatTime(startsAt)}–{formatTime(endsAt)} has been cancelled. The booking is still
             held: release it when you are ready.
           </Text>
+          {reason ? (
+            <Text style={{ ...emailText, whiteSpace: "pre-line" }}>Reason: {reason}</Text>
+          ) : null}
           <Button href={eventUrl} style={emailButton}>
             View venue bookings
           </Button>
@@ -66,7 +69,7 @@ export const EventCancelledEmail = (props: EventCancelledEmailProps) => {
     );
   }
 
-  const { audience, eventName, eventUrl } = props;
+  const { audience, eventName, eventUrl, reason } = props;
   return (
     <Layout previewText={`${eventName} has been cancelled`}>
       <Section>
@@ -77,6 +80,9 @@ export const EventCancelledEmail = (props: EventCancelledEmailProps) => {
             ? " Its equipment reservations are still held: release them when you are ready."
             : ""}
         </Text>
+        {reason ? (
+          <Text style={{ ...emailText, whiteSpace: "pre-line" }}>Reason: {reason}</Text>
+        ) : null}
         <Button href={eventUrl} style={emailButton}>
           {audience === "organiser" ? "View your request" : "View the event"}
         </Button>

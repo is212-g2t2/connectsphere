@@ -191,10 +191,12 @@ export function CancellationRequestHistory({ request }: { request: EventRequestD
                 <p className="mt-2 body-md font-medium">
                   {cancellationOutcome(item, coordinatorName)}
                 </p>
-                {item.declineReason ? (
+                {(item.declineReason ?? item.cancelReason) ? (
                   <div className="mt-3 border-l-2 border-border pl-4">
                     <p className="eyebrow text-muted-foreground">Reason</p>
-                    <p className="mt-1 body-md whitespace-pre-line">{item.declineReason}</p>
+                    <p className="mt-1 body-md whitespace-pre-line">
+                      {item.declineReason ?? item.cancelReason}
+                    </p>
                   </div>
                 ) : null}
               </li>

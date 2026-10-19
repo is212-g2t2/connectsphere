@@ -13,7 +13,7 @@ import {
   EVENT_CANCELLATION_CLOSED,
   canRequestEventCancellation,
   parseEventCancellationDeclineInput,
-  parseEventRequestId,
+  parseEventCancellationInput,
 } from "#/features/event-requests/schema";
 import { loadArrangementHolders } from "#/features/events/arrangements.server";
 import {
@@ -73,9 +73,12 @@ function eventName(event: { eventName: string }): string {
  *
  * PTR-156: the same transaction declines every other waiting change request. The cancelling
  * Coordinator is the processor, and the Organiser gets the existing decline notice for each.
+ *
+ * PTR-164 AC1: the Coordinator enters a reason, stored on the cancellation request and carried on
+ * every cancellation notice.
  */
 export async function handleCancelEvent(data: unknown, actor: SessionUser, database: Database) {
-  const input = parseEventRequestId(data);
+  const input = parseEventCancellationInput(data);
 
   return database.transaction(async tx => {
     const { event, request } = await lockEventWithWaitingRequest(tx, input.id, actor);
@@ -99,6 +102,7 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       .update(eventCancellationRequests)
       .set({
         outcome: "cancelled",
+        cancelReason: input.reason,
         processedById: actor.id,
         processedByName: closeOutProcessorName(actor),
         processedAt: now,
@@ -122,13 +126,13 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       .returning({ whatShouldChange: eventChangeRequests.whatShouldChange });
 
     await raiseNotifications(tx, [
-      ...(await staffNotices(tx, event.id, eventName(event))),
-      ...(await attendeeNotices(tx, event.id, eventName(event))),
+      ...(await staffNotices(tx, event.id, eventName(event), input.reason)),
+      ...(await attendeeNotices(tx, event.id, eventName(event), input.reason)),
       {
         recipientId: event.organiserId,
         eventRequestId: event.id,
         kind: "event_cancelled",
-        payload: { audience: "organiser", eventName: eventName(event) },
+        payload: { audience: "organiser", eventName: eventName(event), reason: input.reason },
       },
       ...staleChanges.map(change => ({
         recipientId: event.organiserId,
@@ -165,7 +169,8 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
 async function staffNotices(
   tx: Pick<Database, "select" | "selectDistinct">,
   eventId: number,
-  name: string
+  name: string,
+  reason: string
 ): Promise<NewNotification[]> {
   const { bookings, reservationStaffIds } = await loadArrangementHolders(tx, eventId);
 
@@ -175,7 +180,7 @@ async function staffNotices(
       recipientId: staffId,
       eventRequestId: eventId,
       kind: "event_cancelled",
-      payload: { audience: "venue_staff", venueName, startsAt, endsAt },
+      payload: { audience: "venue_staff", venueName, startsAt, endsAt, reason },
     });
   }
   for (const staffId of reservationStaffIds) {
@@ -183,7 +188,7 @@ async function staffNotices(
       recipientId: staffId,
       eventRequestId: eventId,
       kind: "event_cancelled",
-      payload: { audience: "technical_support", eventName: name },
+      payload: { audience: "technical_support", eventName: name, reason },
     });
   }
   return notices;
@@ -193,7 +198,8 @@ async function staffNotices(
 async function attendeeNotices(
   tx: Pick<Database, "select">,
   eventId: number,
-  name: string
+  name: string,
+  reason: string
 ): Promise<NewNotification[]> {
   const registrations = await tx
     .select({ attendeeId: eventRegistrations.attendeeId })
@@ -208,7 +214,7 @@ async function attendeeNotices(
     recipientId: attendeeId,
     eventRequestId: eventId,
     kind: "event_cancelled",
-    payload: { audience: "attendee", eventName: name },
+    payload: { audience: "attendee", eventName: name, reason },
   }));
 }
 

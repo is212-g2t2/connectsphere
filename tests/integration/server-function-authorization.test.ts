@@ -1130,7 +1130,7 @@ describe("server-function authorization (PTR-69)", () => {
   // PTR-54: only an Event Coordinator processes a cancellation request. The handler checks
   // the assignment.
   describe.each([
-    { name: "cancel event", serverFn: cancelEvent, input: { id: 1 } },
+    { name: "cancel event", serverFn: cancelEvent, input: { id: 1, reason: "The venue closed." } },
     {
       name: "decline event cancellation",
       serverFn: declineEventCancellation,
@@ -1167,6 +1167,14 @@ describe("server-function authorization (PTR-69)", () => {
 
     expect(await messageFrom(declineEventCancellation, { id: 1, reason: " " })).toBe(
       "Enter a reason for declining"
+    );
+  });
+
+  it("refuses a cancellation without a reason before the handler (PTR-164 AC1)", async () => {
+    signIn("event_coordinator");
+
+    expect(await messageFrom(cancelEvent, { id: 1, reason: " " })).toBe(
+      "Enter a reason for cancelling"
     );
   });
 
