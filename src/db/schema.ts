@@ -603,9 +603,17 @@ export const venueRequestStatus = pgEnum("venue_request_status", [
 /**
  * `expired` is for the PTR-143 sweep. PTR-142 adds the literal and never writes it. The migrator
  * runs all pending migrations in one transaction, and no transaction can use an enum value that
- * it adds.
+ * it adds. PTR-150 adds `requested` and `declined`: a hold request waits for Venue Staff to place
+ * or decline it, and occupies no venue time in either state. A predicate that names these values
+ * casts `status` to text, for the same reason.
  */
-export const venueHoldStatus = pgEnum("venue_hold_status", ["held", "released", "expired"]);
+export const venueHoldStatus = pgEnum("venue_hold_status", [
+  "held",
+  "released",
+  "expired",
+  "requested",
+  "declined",
+]);
 
 /**
  * PTR-39 added `not_required` and `unavailable`, which Technical Support sets by hand.
@@ -758,7 +766,8 @@ export const venueRequests = pgTable(
 /**
  * PTR-109: tentative venue holds from an event's assigned Coordinator. A hold reserves a venue
  * before final booking confirmation through its `venue_occupancy` row. Each venue and time slot
- * can have one active hold or one approved booking.
+ * can have one active hold or one approved booking. PTR-150: a `requested` hold has no ledger
+ * row until Venue Staff place it. `held_by_id` stays the requesting Coordinator.
  */
 export const venueHolds = pgTable(
   "venue_holds",
@@ -787,6 +796,10 @@ export const venueHolds = pgTable(
     expiryChangedAt: timestamp("expiry_changed_at", { withTimezone: true }),
     heldById: text("held_by_id").references(() => user.id, { onDelete: "set null" }),
     releasedById: text("released_by_id").references(() => user.id, { onDelete: "set null" }),
+    // PTR-150: the Venue Staff member who placed the request, or who declined it and why.
+    placedById: text("placed_by_id").references(() => user.id, { onDelete: "set null" }),
+    declineReason: text("decline_reason"),
+    declinedById: text("declined_by_id").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -795,6 +808,10 @@ export const venueHolds = pgTable(
   },
   table => [
     check("venue_holds_ends_after_starts", sql`${table.endsAt} > ${table.startsAt}`),
+    check(
+      "venue_holds_decline_reason_matches_status",
+      sql`(${table.status}::text = 'declined' and coalesce(${table.declineReason}, '') ~ '[^[:space:]]') or (${table.status}::text <> 'declined' and ${table.declineReason} is null)`
+    ),
     check("venue_holds_setup_minutes_nonnegative", sql`${table.setupMinutes} >= 0`),
     check("venue_holds_turnaround_minutes_nonnegative", sql`${table.turnaroundMinutes} >= 0`),
     check(
@@ -813,6 +830,8 @@ export const venueHolds = pgTable(
     index("venue_holds_expiry_changed_by_id_idx").on(table.expiryChangedById),
     index("venue_holds_held_by_id_idx").on(table.heldById),
     index("venue_holds_released_by_id_idx").on(table.releasedById),
+    index("venue_holds_placed_by_id_idx").on(table.placedById),
+    index("venue_holds_declined_by_id_idx").on(table.declinedById),
   ]
 );
 
@@ -1101,6 +1120,12 @@ export const notificationKind = pgEnum("notification_kind", [
   "event_submitted",
   /** PTR-146 AC4: the Safety Officer decided the event's operational-safety review. */
   "safety_review_decided",
+  /** PTR-150 AC1: a Coordinator requested a hold, told to every Venue Staff member. */
+  "venue_hold_requested",
+  /** PTR-150 AC3: Venue Staff placed a hold request. */
+  "venue_hold_placed",
+  /** PTR-150 AC5: Venue Staff declined a hold request. */
+  "venue_hold_declined",
 ]);
 
 export const notifications = pgTable(

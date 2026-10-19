@@ -400,6 +400,13 @@
       "when": 1792386068617,
       "tag": "0056_short_human_cannonball",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1792396726717,
+      "tag": "0057_huge_sunfire",
+      "breakpoints": true
     }
   ]
 }

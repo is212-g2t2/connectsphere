@@ -197,6 +197,7 @@ describe("Header role links", () => {
     );
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Hold requests" })).toBeNull();
   });
 
   it("renders only Coordination for an event coordinator lead", () => {
@@ -216,7 +217,7 @@ describe("Header role links", () => {
     expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
   });
 
-  it("renders Venues, Venue calendar, and Approved bookings for venue staff", () => {
+  it("renders Venues, Venue calendar, Approved bookings and Hold requests for venue staff", () => {
     useRouteContext.mockReturnValue({
       user: { ...user, role: "venue_staff" },
       unreadNotifications: 0,
@@ -228,6 +229,10 @@ describe("Header role links", () => {
     expect(screen.getByRole("link", { name: "Venue calendar" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Approved bookings" }).getAttribute("href")).toBe(
       "/venue-bookings"
+    );
+    // PTR-150 AC2: the shared hold-request queue.
+    expect(screen.getByRole("link", { name: "Hold requests" }).getAttribute("href")).toBe(
+      "/venue-holds"
     );
     expect(screen.queryByRole("link", { name: "Coordination" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
@@ -244,6 +249,7 @@ describe("Header role links", () => {
     expect(screen.getByRole("link", { name: "Venues" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Venue calendar" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Approved bookings" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Hold requests" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Coordination" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Event requests" })).toBeNull();
   });

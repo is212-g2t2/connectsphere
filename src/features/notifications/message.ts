@@ -51,6 +51,12 @@ export const NOTIFICATION_KINDS = [
   "event_submitted",
   /** PTR-146 AC4: the Safety Officer decided the event's operational-safety review. */
   "safety_review_decided",
+  /** PTR-150 AC1: a Coordinator requested a hold. Every Venue Staff member receives this notice. */
+  "venue_hold_requested",
+  /** PTR-150 AC3: Venue Staff placed a hold request. The Coordinator receives this notice. */
+  "venue_hold_placed",
+  /** PTR-150 AC5: Venue Staff declined a hold request. The Coordinator receives this notice. */
+  "venue_hold_declined",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -360,6 +366,34 @@ const payloadSchemas = {
     decision: z.enum(["approved", "rejected", "changes_requested"]),
     comments: z.string(),
   }),
+  /**
+   * PTR-150 AC1: a hold request in the shared queue. The text names the venue and the period, never
+   * the event (PTR-8).
+   */
+  venue_hold_requested: z.object({
+    venueHoldId: z.string().min(1),
+    venueName: z.string(),
+    startsAt: z.string(),
+    endsAt: z.string(),
+  }),
+  /** PTR-150 AC3: Venue Staff placed the hold request. The expiry is a venue-local value. */
+  venue_hold_placed: z.object({
+    venueHoldId: z.string().min(1),
+    venueId: z.int().positive(),
+    venueName: z.string(),
+    startsAt: z.string(),
+    endsAt: z.string(),
+    expiresAt: z.string(),
+  }),
+  /** PTR-150 AC5: Venue Staff declined the hold request, with their reason. */
+  venue_hold_declined: z.object({
+    venueHoldId: z.string().min(1),
+    venueId: z.int().positive(),
+    venueName: z.string(),
+    startsAt: z.string(),
+    endsAt: z.string(),
+    reason: z.string(),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -480,6 +514,18 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("safety_review_decided"),
     payload: payloadSchemas.safety_review_decided,
   }),
+  z.object({
+    kind: z.literal("venue_hold_requested"),
+    payload: payloadSchemas.venue_hold_requested,
+  }),
+  z.object({
+    kind: z.literal("venue_hold_placed"),
+    payload: payloadSchemas.venue_hold_placed,
+  }),
+  z.object({
+    kind: z.literal("venue_hold_declined"),
+    payload: payloadSchemas.venue_hold_declined,
+  }),
 ]);
 
 /**
@@ -577,6 +623,12 @@ export function notificationSummary(notification: NotificationPayload): string {
         : `Event request submitted: ${notification.payload.eventName}`;
     case "safety_review_decided":
       return `Safety review ${safetyReviewDecisionLabel(notification.payload.decision)}: ${notification.payload.eventName}`;
+    case "venue_hold_requested":
+      return `Tentative hold requested: ${notification.payload.venueName}`;
+    case "venue_hold_placed":
+      return `Tentative hold placed: ${notification.payload.venueName}`;
+    case "venue_hold_declined":
+      return `Tentative hold request declined: ${notification.payload.venueName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -692,8 +744,14 @@ export function notificationHref(
       // The venue bookings view is the Venue Staff landing page. It lists approved bookings, so
       // the released row itself is not shown there.
       return "/venue-bookings";
+    case "venue_hold_requested":
+      // PTR-150 AC2: the shared queue, where Venue Staff place or decline the request.
+      return "/venue-holds";
+    case "venue_hold_placed":
+    case "venue_hold_declined":
     case "venue_hold_expiry_changed":
       // The venue calendar shows the expiry and the warning for the days of the hold (PTR-142 AC3).
+      // After a decline, it shows what else the venue can take in that window.
       return `/venues/availability?venueId=${notification.payload.venueId}&startDate=${notification.payload.startsAt.slice(0, 10)}&endDate=${notification.payload.endsAt.slice(0, 10)}`;
     case "venue_buffer_conflict": {
       // Open the venue calendar on the whole disputed window. Several periods span a range that
@@ -738,6 +796,11 @@ export function notificationReachable(
   switch (kind) {
     case "handover_requested":
       return facts.eventAccessible || facts.handoverPending;
+    case "venue_hold_requested":
+      // Every Venue Staff member reads the shared queue. The payload names the venue and the
+      // period only, which the venue calendar shows to the same staff, so no event relation is
+      // needed.
+      return true;
     case "venue_booking_requested":
     case "venue_booking_approved":
     case "venue_booking_rejected":
@@ -769,6 +832,8 @@ export function notificationReachable(
     case "venue_buffer_conflict":
     case "event_submitted":
     case "safety_review_decided":
+    case "venue_hold_placed":
+    case "venue_hold_declined":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

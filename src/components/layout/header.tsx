@@ -130,6 +130,15 @@ export function Header() {
                 Approved bookings
               </Link>
             )}
+            {showApprovedBookings && (
+              <Link
+                to="/venue-holds"
+                aria-current={pathname === "/venue-holds" ? "page" : undefined}
+                className={SECTION_LINK_CLASSNAME}
+              >
+                Hold requests
+              </Link>
+            )}
             {showSafetyReviews && (
               <Link
                 to="/safety-reviews"

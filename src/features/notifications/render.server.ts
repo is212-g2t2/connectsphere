@@ -39,6 +39,11 @@ import { VenueBookingChangedEmail } from "#/features/emails/components/venue-boo
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
+import {
+  VenueHoldDeclinedEmail,
+  VenueHoldPlacedEmail,
+  VenueHoldRequestedEmail,
+} from "#/features/emails/components/venue-hold-request-email";
 import { VenueBufferConflictEmail } from "#/features/emails/components/venue-buffer-conflict-email";
 import { EventSubmittedEmail } from "#/features/emails/components/event-submitted-email";
 import { SafetyReviewDecisionEmail } from "#/features/emails/components/safety-review-decision-email";
@@ -418,6 +423,30 @@ export function renderNotificationEmail(
         }),
       };
     }
+    case "venue_hold_requested":
+      return {
+        subject,
+        element: createElement(VenueHoldRequestedEmail, {
+          ...notification.payload,
+          queueUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    case "venue_hold_placed":
+      return {
+        subject,
+        element: createElement(VenueHoldPlacedEmail, {
+          ...notification.payload,
+          calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    case "venue_hold_declined":
+      return {
+        subject,
+        element: createElement(VenueHoldDeclinedEmail, {
+          ...notification.payload,
+          calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
     default: {
       const unhandled: never = notification;
       throw new Error(`No email template for notification kind "${String(unhandled)}"`);

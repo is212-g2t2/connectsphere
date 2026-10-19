@@ -81,13 +81,17 @@ import {
 import {
   amendVenueBooking,
   approveVenueRequest,
+  declineVenueHold,
   getPendingVenueRequestsForEvent,
   getVenueRequestContext,
   listVenueBookings,
+  listVenueHoldRequests,
+  placeVenueHold,
   releaseBlockedVenueBooking,
   releaseVenueBooking,
   rejectVenueRequest,
   requestVenue,
+  requestVenueHold,
   withdrawVenueRequest,
 } from "#/features/venue-requests/server-fns";
 import { handleSaveVenue } from "#/features/venues/records.server";
@@ -630,6 +634,72 @@ describe("server-function authorization (PTR-69)", () => {
             endTime: "12:30",
           })
         ).error
+      ).toBeUndefined();
+    });
+  });
+
+  describe("PTR-150 hold requests", () => {
+    const holdInput = {
+      eventId: 1,
+      venueId: 1,
+      date: "2027-04-20",
+      startTime: "09:00",
+      endTime: "12:30",
+    };
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+      expect(await refusalFrom(requestVenueHold, holdInput)).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(await refusalFrom(listVenueHoldRequests, undefined, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+      expect(
+        await refusalFrom(placeVenueHold, { id: "hold-1", expiresAt: "2027-04-19T12:00" })
+      ).toEqual({ status: 401, body: "Unauthorized" });
+      expect(await refusalFrom(declineVenueHold, { id: "hold-1", reason: "Exams" })).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+    });
+
+    it.each(["attendee", "event_organiser", "venue_staff", "technical_support_staff"])(
+      "refuses %s the hold request before payload validation",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(requestVenueHold, {})).toMatchObject({ status: 403 });
+      }
+    );
+
+    it.each(["attendee", "event_organiser", "event_coordinator", "technical_support_staff"])(
+      "refuses %s the queue and its decisions before payload validation",
+      async role => {
+        signIn(role);
+
+        expect(await refusalFrom(listVenueHoldRequests, undefined, "GET")).toMatchObject({
+          status: 403,
+        });
+        expect(await refusalFrom(placeVenueHold, {})).toMatchObject({ status: 403 });
+        expect(await refusalFrom(declineVenueHold, {})).toMatchObject({ status: 403 });
+      }
+    );
+
+    it("lets a Coordinator request and Venue Staff decide", async () => {
+      signIn("event_coordinator");
+      expect((await call(requestVenueHold, holdInput)).error).toBeUndefined();
+
+      signIn("venue_staff");
+      expect((await call(listVenueHoldRequests, undefined, "GET")).error).toBeUndefined();
+      expect(
+        (await call(placeVenueHold, { id: "hold-1", expiresAt: "2027-04-19T12:00" })).error
+      ).toBeUndefined();
+      expect(
+        (await call(declineVenueHold, { id: "hold-1", reason: "Exams" })).error
       ).toBeUndefined();
     });
   });

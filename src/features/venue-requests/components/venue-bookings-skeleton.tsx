@@ -4,11 +4,18 @@ import { Skeleton } from "#/components/ui/skeleton";
 
 const BOOKING_CARDS = [0, 1, 2];
 
-/** Reserve space for the approved-booking heading and cards while they load. */
-export function VenueBookingsSkeleton() {
+/**
+ * Reserve space for the heading and cards of a Venue Staff queue while they load: the approved
+ * bookings, or the hold requests (PTR-150).
+ */
+export function VenueBookingsSkeleton({
+  label = "Loading approved bookings…",
+}: {
+  label?: string;
+}) {
   return (
     <Page width="wide" aria-busy="true">
-      <output className="sr-only">Loading approved bookings…</output>
+      <output className="sr-only">{label}</output>
 
       <Skeleton className="h-3 w-28" />
       <Skeleton className="mt-3 h-8 w-72" />

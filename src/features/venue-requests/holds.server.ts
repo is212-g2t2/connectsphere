@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, user, venueHolds, venueRequests } from "#/db/schema";
+import { eventRequests, user, venueHolds, venueRequests, venues } from "#/db/schema";
 import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
@@ -11,19 +11,24 @@ import {
   loadLockedVenue,
   raiseVenueRequestNotifications,
   rethrowDuplicate,
+  venueRequestEventStatusMessage,
 } from "#/features/venue-requests/requests.server";
-import { venueLocalTimestamp } from "#/features/venues/availability";
+import { toLocalMinuteValue, venueLocalTimestamp } from "#/features/venues/availability";
+import type { NotificationPayload } from "#/features/notifications/message";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
   VENUE_HOLD_EXPIRY_BEFORE_WARNING_MESSAGE,
   VENUE_HOLD_EXPIRY_PAST_MESSAGE,
+  VENUE_HOLD_REQUEST_HANDLED_MESSAGE,
   VENUE_HOLD_WARNING_NEEDS_EXPIRY_MESSAGE,
   VENUE_HOLD_WARNING_ORDER_MESSAGE,
   VENUE_HOLD_WARNING_PAST_MESSAGE,
   parseVenueHoldConversion,
+  parseVenueHoldDecline,
   parseVenueHoldExpiry,
   parseVenueHoldId,
   parseVenueHoldInput,
+  parseVenueHoldPlacement,
   parseVenueHoldWarning,
 } from "#/features/venue-requests/schema";
 import { canReleaseHold } from "#/features/venue-requests/holds";
@@ -41,11 +46,44 @@ import {
 } from "#/features/venue-requests/venue-lock.server";
 import type { VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { loadAssignedEvent } from "#/features/venues/records.server";
+import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 import { logger } from "#/lib/logger";
 
 type Database = typeof Db;
 
 const log = logger.getChild("venue-holds");
+
+/**
+ * The creation checks that a hold and a hold request share. Lock the event, then the venue. Refuse
+ * a cancelled event, an event that the actor does not coordinate or that is outside
+ * `SEARCHABLE_EVENT_STATUSES`, an occupied period, and a pending request of the same event that
+ * overlaps. Return the venue and the row to write, with the venue's current buffers.
+ */
+async function checkHoldCreation(
+  tx: VenueTx,
+  input: ReturnType<typeof parseVenueHoldInput>,
+  actor: SessionUser
+) {
+  // Lock the event before the venue. This waits for a cancellation in progress. A later
+  // cancellation waits for this transaction to commit.
+  const locked = await keyShareEvent(tx, input.eventId);
+  if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
+  const event = await loadAssignedEvent(tx, input.eventId, actor.id);
+  if (!event) throw new AuthorizationError("Forbidden");
+
+  // Serialize before reading buffers. A simultaneous venue edit uses the same lock.
+  await lockVenue(tx, input.venueId);
+  const venue = await loadLockedVenue(tx, input.venueId);
+  const requested = {
+    eventId: event.id,
+    startsAt: `${input.date} ${input.startTime}:00`,
+    endsAt: `${input.date} ${input.endTime}:00`,
+  };
+  const occupancy = await checkVenueFree(tx, venue, requested);
+  // `checkVenueFree` refuses every block, booking and hold. Only a pending request can refuse here.
+  await assertNoEventOverlap(tx, venue, requested);
+  return { venue, occupancy };
+}
 
 /**
  * PTR-109: Handle tentative venue holds.
@@ -64,25 +102,7 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
   const input = parseVenueHoldInput(data);
 
   return database.transaction(async tx => {
-    // Lock the event before the venue. This waits for a cancellation in progress. A later
-    // cancellation waits for this transaction to commit.
-    const locked = await keyShareEvent(tx, input.eventId);
-    if (locked?.status === "cancelled") throw new ConflictError(CANCELLED_EVENT_ACTIVITY_MESSAGE);
-    const event = await loadAssignedEvent(tx, input.eventId, actor.id);
-    if (!event) throw new AuthorizationError("Forbidden");
-
-    // Serialize before reading buffers. A simultaneous venue edit uses the same lock.
-    await lockVenue(tx, input.venueId);
-    const venue = await loadLockedVenue(tx, input.venueId);
-    const requested = {
-      eventId: event.id,
-      startsAt: `${input.date} ${input.startTime}:00`,
-      endsAt: `${input.date} ${input.endTime}:00`,
-    };
-    const occupancy = await checkVenueFree(tx, venue, requested);
-    // `checkVenueFree` refuses every block, booking and hold. Only a pending request can refuse here.
-    await assertNoEventOverlap(tx, venue, requested);
-
+    const { occupancy } = await checkHoldCreation(tx, input, actor);
     const [created] = await tx
       .insert(venueHolds)
       .values({ ...occupancy, id: crypto.randomUUID(), heldById: actor.id })
@@ -91,6 +111,87 @@ export async function handleCreateVenueHold(data: unknown, actor: SessionUser, d
 
     return created;
   });
+}
+
+/**
+ * PTR-150 AC1: the Coordinator requests a hold. The request passes the creation checks of a hold,
+ * but it is `requested` and has no ledger row, so it reserves no venue time. Every Venue Staff
+ * member is notified in the same transaction. `heldById` is the requesting Coordinator.
+ */
+export async function handleRequestVenueHold(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const input = parseVenueHoldInput(data);
+
+  const result = await database.transaction(async tx => {
+    const { venue, occupancy } = await checkHoldCreation(tx, input, actor);
+    const [created] = await tx
+      .insert(venueHolds)
+      .values({ ...occupancy, id: crypto.randomUUID(), status: "requested", heldById: actor.id })
+      .returning();
+
+    const staffRecipients = await tx
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.role, "venue_staff"));
+    await raiseNotifications(
+      tx,
+      staffRecipients.map(recipient => ({
+        recipientId: recipient.id,
+        eventRequestId: created.eventId,
+        kind: "venue_hold_requested" as const,
+        payload: {
+          venueHoldId: created.id,
+          venueName: venue.name,
+          startsAt: created.startsAt,
+          endsAt: created.endsAt,
+        },
+      }))
+    );
+    return { hold: created, recipientCount: staffRecipients.length };
+  });
+
+  if (result.recipientCount === 0) {
+    log.warn("No Venue Staff to notify of the hold request", { holdId: result.hold.id });
+  }
+  return result.hold;
+}
+
+/**
+ * PTR-150 AC2: the shared queue of hold requests, oldest first. Every Venue Staff member reads the
+ * same queue, as for booking requests. List only events that can still take a hold
+ * (`SEARCHABLE_EVENT_STATUSES`). Return the venue, the window and the requested time, and never
+ * the event or the Coordinator.
+ */
+export async function handleListVenueHoldRequests(database: Pick<Database, "select">) {
+  const rows = await database
+    .select({
+      id: venueHolds.id,
+      venueName: venues.name,
+      startsAt: venueHolds.startsAt,
+      endsAt: venueHolds.endsAt,
+      requestedAt: venueHolds.createdAt,
+    })
+    .from(venueHolds)
+    .innerJoin(eventRequests, eq(eventRequests.id, venueHolds.eventId))
+    .innerJoin(venues, eq(venues.id, venueHolds.venueId))
+    .where(
+      and(
+        eq(venueHolds.status, "requested"),
+        inArray(eventRequests.status, [...SEARCHABLE_EVENT_STATUSES])
+      )
+    )
+    .orderBy(asc(venueHolds.createdAt), asc(venueHolds.id));
+  // Spell every time as a venue-local minute, as the booking list does.
+  return rows.map(row => ({
+    id: row.id,
+    venueName: row.venueName,
+    startsAt: toLocalMinuteValue(row.startsAt),
+    endsAt: toLocalMinuteValue(row.endsAt),
+    requestedAt: toLocalMinuteValue(venueLocalTimestamp(row.requestedAt)),
+  }));
 }
 
 /**
@@ -392,5 +493,129 @@ export async function handleSetVenueHoldWarning(
       .where(eq(venueHolds.id, id))
       .returning();
     return updated;
+  });
+}
+
+/**
+ * Lock a hold request in the order event, venue, hold row. Refuse a request that is no longer
+ * `requested`, so the second of two Venue Staff members gets AC6's refusal. Return the event as
+ * read under its lock and the locked hold.
+ */
+async function lockHoldRequest(tx: VenueTx, id: string) {
+  const event = await keyShareEventForHold(tx, id);
+  if (event === null) throw new NotFoundError("Not Found");
+  const hold = await lockHold(tx, id);
+  if (hold.status !== "requested") throw new ConflictError(VENUE_HOLD_REQUEST_HANDLED_MESSAGE);
+  return { event, hold };
+}
+
+/**
+ * Notify the Coordinator of the event about a placed or declined hold request: the assigned
+ * Coordinator, else the requester. Log when neither account remains.
+ */
+async function raiseHoldDecisionNotification(
+  tx: VenueTx,
+  hold: {
+    id: string;
+    eventId: number;
+    assignedCoordinatorId: string | null;
+    heldById: string | null;
+  },
+  notice: Extract<NotificationPayload, { kind: "venue_hold_placed" | "venue_hold_declined" }>
+) {
+  const recipientId = hold.assignedCoordinatorId ?? hold.heldById;
+  if (recipientId === null) {
+    log.warn("No Coordinator to notify of the hold request decision", { holdId: hold.id });
+    return;
+  }
+  await raiseNotifications(tx, [{ recipientId, eventRequestId: hold.eventId, ...notice }]);
+}
+
+/**
+ * PTR-150 AC3, AC4, AC6: Venue Staff place a hold request with an expiry in the future. Any Venue
+ * Staff member can act: the actor need not coordinate the event.
+ *
+ * Refresh the stored buffers to the venue's current ones, so the hold row and its ledger row agree.
+ * Apply the same-event overlap rule of hold creation too, because placement writes the same state.
+ */
+export async function handlePlaceVenueHold(data: unknown, actor: SessionUser, database: Database) {
+  const { id, expiresAt } = parseVenueHoldPlacement(data);
+  const stored = `${expiresAt.replace("T", " ")}:00`;
+
+  return database.transaction(async tx => {
+    const { event, hold } = await lockHoldRequest(tx, id);
+    if (!SEARCHABLE_EVENT_STATUSES.includes(event.status)) {
+      throw new ConflictError(venueRequestEventStatusMessage(event.status));
+    }
+    if (stored <= venueLocalTimestamp(new Date())) {
+      throw new ConflictError(VENUE_HOLD_EXPIRY_PAST_MESSAGE);
+    }
+
+    const venue = await loadLockedVenue(tx, hold.venueId);
+    const period = { eventId: hold.eventId, startsAt: hold.startsAt, endsAt: hold.endsAt };
+    const occupancy = await checkVenueFree(tx, venue, period);
+    await assertNoEventOverlap(tx, venue, period);
+
+    const [placed] = await tx
+      .update(venueHolds)
+      .set({
+        status: "held",
+        expiresAt: stored,
+        placedById: actor.id,
+        setupMinutes: occupancy.setupMinutes,
+        turnaroundMinutes: occupancy.turnaroundMinutes,
+      })
+      .where(eq(venueHolds.id, id))
+      .returning();
+    await occupyVenue(tx, { ...occupancy, venueHoldId: id });
+
+    await raiseHoldDecisionNotification(tx, hold, {
+      kind: "venue_hold_placed",
+      payload: {
+        venueHoldId: id,
+        venueId: hold.venueId,
+        venueName: venue.name,
+        startsAt: hold.startsAt,
+        endsAt: hold.endsAt,
+        expiresAt: stored,
+      },
+    });
+    return placed;
+  });
+}
+
+/**
+ * PTR-150 AC5, AC6: Venue Staff decline a hold request with a reason. Store the reason and the
+ * decliner, and notify the Coordinator. A request has no ledger row, so the ledger does not change.
+ * A decline needs no event-status check: it frees nothing and commits nothing.
+ */
+export async function handleDeclineVenueHold(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+) {
+  const { id, reason } = parseVenueHoldDecline(data);
+
+  return database.transaction(async tx => {
+    const { hold } = await lockHoldRequest(tx, id);
+    const [declined] = await tx
+      .update(venueHolds)
+      .set({ status: "declined", declineReason: reason, declinedById: actor.id })
+      .where(eq(venueHolds.id, id))
+      .returning();
+
+    const venue = await loadLockedVenue(tx, hold.venueId);
+    await raiseHoldDecisionNotification(tx, hold, {
+      kind: "venue_hold_declined",
+      payload: {
+        venueHoldId: id,
+        venueId: hold.venueId,
+        venueName: venue.name,
+        startsAt: hold.startsAt,
+        endsAt: hold.endsAt,
+        reason,
+      },
+    });
+    return declined;
   });
 }

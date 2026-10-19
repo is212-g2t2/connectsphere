@@ -152,7 +152,13 @@ describe("Database Schema Definitions", () => {
   });
 
   it("defines the venue hold columns and status enum (PTR-109)", () => {
-    expect([...schema.venueHoldStatus.enumValues]).toEqual(["held", "released", "expired"]);
+    expect([...schema.venueHoldStatus.enumValues]).toEqual([
+      "held",
+      "released",
+      "expired",
+      "requested",
+      "declined",
+    ]);
     const columns = getTableColumns(schema.venueHolds);
     expect(columns.eventId.name).toBe("event_id");
     expect(columns.venueId.name).toBe("venue_id");
@@ -172,6 +178,13 @@ describe("Database Schema Definitions", () => {
     expect(columns.expiryChangedAt.name).toBe("expiry_changed_at");
     expect(getTableConfig(schema.venueHolds).checks.map(check => check.name)).toContain(
       "venue_holds_warn_before_expiry"
+    );
+    // PTR-150: the Venue Staff member who placed or declined a hold request, and the reason.
+    expect(columns.placedById.name).toBe("placed_by_id");
+    expect(columns.declinedById.name).toBe("declined_by_id");
+    expect(columns.declineReason.name).toBe("decline_reason");
+    expect(getTableConfig(schema.venueHolds).checks.map(check => check.name)).toContain(
+      "venue_holds_decline_reason_matches_status"
     );
   });
 

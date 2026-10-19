@@ -161,6 +161,28 @@ const validPayloads = {
     decision: "changes_requested",
     comments: "Crowd movement needs a second exit.",
   },
+  venue_hold_requested: {
+    venueHoldId: "hold-1",
+    venueName: "Harbour Hall",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: "2026-10-12 17:00:00",
+  },
+  venue_hold_placed: {
+    venueHoldId: "hold-1",
+    venueId: 3,
+    venueName: "Harbour Hall",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: "2026-10-12 17:00:00",
+    expiresAt: "2026-10-10 12:00:00",
+  },
+  venue_hold_declined: {
+    venueHoldId: "hold-1",
+    venueId: 3,
+    venueName: "Harbour Hall",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: "2026-10-12 17:00:00",
+    reason: "The hall is reserved for exams that week.",
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -271,6 +293,18 @@ describe("notification summaries (PTR-55 AC2)", () => {
     });
     expect(attendee.payload).toMatchObject({ audience: "attendee" });
     expect(notificationHref({ ...attendee, eventRequestId: 7 })).toBe("/events/7");
+  });
+
+  it("names the venue, never the event, on the hold request lines (PTR-150)", () => {
+    expect(
+      notificationSummary(parse("venue_hold_requested", validPayloads.venue_hold_requested))
+    ).toBe("Tentative hold requested: Harbour Hall");
+    expect(notificationSummary(parse("venue_hold_placed", validPayloads.venue_hold_placed))).toBe(
+      "Tentative hold placed: Harbour Hall"
+    );
+    expect(
+      notificationSummary(parse("venue_hold_declined", validPayloads.venue_hold_declined))
+    ).toBe("Tentative hold request declined: Harbour Hall");
   });
 
   it("names the event and venue for the venue buffer conflict line and links to the calendar (PTR-132)", () => {
@@ -573,6 +607,9 @@ describe("notification hrefs (PTR-55 AC4)", () => {
         "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       event_submitted: "/events/7",
       safety_review_decided: "/events/7",
+      venue_hold_requested: "/venue-holds",
+      venue_hold_placed: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
+      venue_hold_declined: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
     };
 
     for (const kind of NOTIFICATION_KINDS) {
@@ -607,6 +644,22 @@ describe("notification reachability (PTR-55 AC5)", () => {
     ).toBe(true);
     expect(
       notificationReachable("handover_requested", {
+        eventAccessible: false,
+        handoverPending: false,
+      })
+    ).toBe(false);
+  });
+
+  it("keeps a hold request visible to Venue Staff without an event relation (PTR-150)", () => {
+    // The shared queue reaches every Venue Staff member. The payload names no event.
+    expect(
+      notificationReachable("venue_hold_requested", {
+        eventAccessible: false,
+        handoverPending: false,
+      })
+    ).toBe(true);
+    expect(
+      notificationReachable("venue_hold_declined", {
         eventAccessible: false,
         handoverPending: false,
       })

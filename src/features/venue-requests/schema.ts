@@ -651,3 +651,42 @@ export function parseVenueHoldWarning(data: unknown): z.infer<typeof VenueHoldWa
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);
   return parsed.data;
 }
+
+/** PTR-150 AC6: a hold request that another Venue Staff member placed or declined first. */
+export const VENUE_HOLD_REQUEST_HANDLED_MESSAGE = "This hold request was already handled";
+
+export const VENUE_HOLD_DECLINE_REASON_REQUIRED = "Enter a reason to decline this hold request";
+export const VENUE_HOLD_DECLINE_REASON_MAX_LENGTH = 2000;
+
+/** PTR-150 AC3: Venue Staff place a hold request with an expiry, as the expiry action sets one. */
+export const parseVenueHoldPlacement = parseVenueHoldExpiry;
+
+/** PTR-150 AC5: Venue Staff decline a hold request and owe the Coordinator a reason. */
+export const VenueHoldDeclineInput = z.object({
+  id: VenueRequestIdInput.shape.id,
+  reason: z
+    .string({ error: VENUE_HOLD_DECLINE_REASON_REQUIRED })
+    .trim()
+    .min(1, VENUE_HOLD_DECLINE_REASON_REQUIRED)
+    .max(
+      VENUE_HOLD_DECLINE_REASON_MAX_LENGTH,
+      `Decline reason must be ${VENUE_HOLD_DECLINE_REASON_MAX_LENGTH} characters or fewer`
+    ),
+});
+
+export function parseVenueHoldDecline(data: unknown): z.infer<typeof VenueHoldDeclineInput> {
+  const parsed = VenueHoldDeclineInput.safeParse(data);
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+  return parsed.data;
+}
+
+/**
+ * Whether a refusal means that the request has left the queue: another member handled it, or its
+ * event can no longer take a hold. The queue then reloads without the request, so the refusal
+ * must show outside its card.
+ */
+export function isLeftHoldQueueMessage(message: string): boolean {
+  return (
+    message === VENUE_HOLD_REQUEST_HANDLED_MESSAGE || message.includes(VENUE_EVENT_STATUS_PHRASE)
+  );
+}
