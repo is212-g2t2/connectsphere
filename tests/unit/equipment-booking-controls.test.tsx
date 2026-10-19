@@ -43,7 +43,7 @@ describe("equipment booking controls", () => {
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
     expect(checkLineAvailability).not.toHaveBeenCalled();
     await user.click(screen.getByRole("combobox", { name: "Session venue booking" }));
-    await user.click(screen.getByRole("option", { name: /14:30/ }));
+    await user.click(await screen.findByRole("option", { name: /14:30/ }));
     await waitFor(() =>
       expect(checkLineAvailability).toHaveBeenCalledWith({
         data: { equipmentRequestId: "line", venueRequestId: "afternoon" },
@@ -70,9 +70,9 @@ describe("equipment booking controls", () => {
       />
     );
     await user.click(screen.getByRole("combobox", { name: "Equipment type" }));
-    await user.click(screen.getByRole("option", { name: "Projector" }));
+    await user.click(await screen.findByRole("option", { name: "Projector" }));
     await user.click(screen.getByRole("combobox", { name: "Session venue booking" }));
-    await user.click(screen.getByRole("option", { name: /09:30/ }));
+    await user.click(await screen.findByRole("option", { name: /09:30/ }));
     await user.click(screen.getByRole("button", { name: "Check availability" }));
     await waitFor(() =>
       expect(checkEquipmentAvailability).toHaveBeenCalledWith({
@@ -84,8 +84,10 @@ describe("equipment booking controls", () => {
         },
       })
     );
-    await user.click(screen.getByRole("combobox", { name: "Session venue booking" }));
-    await user.click(screen.getByRole("option", { name: /14:30/ }));
+    const bookingSelect = screen.getByRole("combobox", { name: "Session venue booking" });
+    await user.click(bookingSelect);
+    await user.click(await screen.findByRole("option", { name: /14:30/ }));
+    expect(bookingSelect.textContent).toContain("14:30");
     await act(async () =>
       pending.resolve({
         equipmentTypeName: "Projector",
