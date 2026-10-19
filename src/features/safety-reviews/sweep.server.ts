@@ -9,6 +9,7 @@ import {
   venueRequests,
   venues,
 } from "#/db/schema";
+import { listLeadIds } from "#/features/event-requests/leads.server";
 import { confirmationBlockers } from "#/features/events/confirmation";
 import { revertConfirmedEvents } from "#/features/events/revert.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
@@ -33,7 +34,7 @@ export function hasEventStarted(
 }
 
 /** Process one event per transaction. Never lock a venue or an arrangement row. */
-export async function sweepSafetyReviews(database: Database, now: Date = new Date()) {
+export async function sweepSafetyReviews(database: Database, now?: Date) {
   const candidates = await database
     .select({ id: eventRequests.id })
     .from(eventRequests)
@@ -47,11 +48,13 @@ export async function sweepSafetyReviews(database: Database, now: Date = new Dat
   };
   // Each commit releases the event lock before the next candidate.
   for (const candidate of candidates) {
+    // Read the clock per event: a run that waits on a lock can pass a later event's start time.
+    const eventNow = now ?? new Date();
     // oxlint-disable-next-line eslint/no-await-in-loop
     const change = await database.transaction(async tx => {
       // A separate key space from the registration sweep (49, 0).
       await tx.execute(sql`SELECT pg_advisory_xact_lock(148, 0)`);
-      return sweepEvent(tx, candidate.id, now);
+      return sweepEvent(tx, candidate.id, eventNow);
     });
     result.reviewsCreated += change.reviewsCreated;
     result.reviewsUpdated += change.reviewsUpdated;
@@ -109,24 +112,14 @@ async function sweepEvent(tx: Transaction, eventId: number, now: Date) {
     if (reverted.size === 0) return result;
     result.eventsReverted = reverted.size;
     const recipients =
-      event.assignedCoordinatorId === null
-        ? (
-            await tx
-              .select({ id: user.id })
-              .from(user)
-              .where(eq(user.role, "event_coordinator_lead"))
-          ).map(row => row.id)
-        : [event.assignedCoordinatorId];
+      event.assignedCoordinatorId === null ? await listLeadIds(tx) : [event.assignedCoordinatorId];
     await raiseNotifications(
       tx,
       recipients.map(recipientId => ({
         recipientId,
         eventRequestId: eventId,
         kind: "event_safety_reconfirmation_required" as const,
-        payload: {
-          eventName: event.eventName.trim() || "Untitled event",
-          reason: review.state === "approved" ? ("out_of_date" as const) : review.state,
-        },
+        payload: { eventName: event.eventName.trim() || "Untitled event" },
       }))
     );
     result.notificationsRaised += recipients.length;
@@ -163,7 +156,9 @@ async function sweepEvent(tx: Transaction, eventId: number, now: Date) {
   const officers = await tx
     .select({ id: user.id })
     .from(user)
-    .where(eq(user.role, "safety_officer"));
+    .where(eq(user.role, "safety_officer"))
+    // Hold the referenced accounts while the notices are inserted, as `listLeadIds` does.
+    .for("share");
   await raiseNotifications(
     tx,
     officers.map(officer => ({

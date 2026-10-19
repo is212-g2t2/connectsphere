@@ -354,6 +354,10 @@ describe("automatic safety review sweep", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].recipientId).toBe(coordinator.id);
     expect((await reviews(id)).filter(row => row.state === "pending")).toHaveLength(1);
+    const payload = parseNotificationPayload(rows[0].kind, rows[0].payload);
+    if (!payload) throw new Error("Notification payload did not parse");
+    const email = renderNotificationEmail({ ...payload, eventRequestId: id });
+    expect(await render(email.element)).toContain("Safety approval required again");
   });
 
   test("preserves legacy confirmed events and approvals that become current again", async () => {

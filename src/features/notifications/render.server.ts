@@ -1,10 +1,10 @@
-import { SafetySweepEmail } from "#/features/emails/components/safety-sweep-email";
 import { createElement } from "react";
 import type { ReactElement } from "react";
 
 import { env } from "#/env";
 import { ClarificationReplyEmail } from "#/features/emails/components/clarification-reply-email";
 import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
+import { SafetySweepEmail } from "#/features/emails/components/safety-sweep-email";
 import { formatDate, formatTime } from "#/features/emails/format";
 import {
   EquipmentArrangementsCompleteEmail,

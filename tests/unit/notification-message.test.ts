@@ -157,7 +157,7 @@ const validPayloads = {
   },
   event_submitted: { eventName: "Gala", audience: "organiser" },
   safety_review_requested: { eventName: "Gala" },
-  event_safety_reconfirmation_required: { eventName: "Gala", reason: "out_of_date" },
+  event_safety_reconfirmation_required: { eventName: "Gala" },
   safety_review_decided: {
     eventName: "Gala",
     decision: "changes_requested",

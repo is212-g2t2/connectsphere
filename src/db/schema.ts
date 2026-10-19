@@ -1163,9 +1163,9 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_hold_expired",
   /** PTR-145: a Lead assigned or reassigned the event's Coordinator. */
   "coordinator_assigned",
-  /** PTR-148: complete arrangements entered safety review, told to every Safety Officer. */
+  /** PTR-148 AC1: complete arrangements entered safety review, told to every Safety Officer. */
   "safety_review_requested",
-  /** PTR-148: the sweep returned a confirmed event to planning, told to its Coordinator. */
+  /** PTR-148 AC4: the sweep returned a confirmed event to planning, told to its Coordinator or every Lead. */
   "event_safety_reconfirmation_required",
 ]);
 

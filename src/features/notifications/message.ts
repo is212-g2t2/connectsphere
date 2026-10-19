@@ -65,7 +65,7 @@ export const NOTIFICATION_KINDS = [
   "coordinator_assigned",
   /** PTR-148 AC2: complete arrangements entered safety review. Every Safety Officer receives this notice. */
   "safety_review_requested",
-  /** PTR-148 AC4: the sweep returned a confirmed event to planning. Its Coordinator receives this notice. */
+  /** PTR-148 AC4: the sweep returned a confirmed event to planning. Its Coordinator receives this notice, or every Lead when the event has none. */
   "event_safety_reconfirmation_required",
 ] as const;
 
@@ -378,14 +378,18 @@ const payloadSchemas = {
     audience: z.enum(["organiser", "lead"]),
   }),
   /**
+   * PTR-148 AC1: complete arrangements entered safety review. Every Safety Officer receives it.
+   */
+  safety_review_requested: z.object({ eventName: z.string() }),
+  /**
+   * PTR-148 AC4: a confirmed event returned to planning. Its Coordinator receives it, or every
+   * Lead when the event has none.
+   */
+  event_safety_reconfirmation_required: z.object({ eventName: z.string() }),
+  /**
    * PTR-146 AC4: the Safety Officer's decision on the event's operational-safety review. The
    * Coordinator receives the tracking comments with it.
    */
-  safety_review_requested: z.object({ eventName: z.string() }),
-  event_safety_reconfirmation_required: z.object({
-    eventName: z.string(),
-    reason: z.enum(["pending", "rejected", "changes_requested", "out_of_date"]),
-  }),
   safety_review_decided: z.object({
     eventName: z.string(),
     decision: z.enum(["approved", "rejected", "changes_requested"]),
