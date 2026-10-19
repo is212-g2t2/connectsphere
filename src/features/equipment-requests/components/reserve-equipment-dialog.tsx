@@ -135,7 +135,7 @@ export function ReserveEquipmentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <form
-          className="space-y-4"
+          className="min-w-0 space-y-4"
           noValidate
           onSubmit={event => {
             event.preventDefault();
@@ -158,6 +158,8 @@ export function ReserveEquipmentDialog({
                   bookings={bookings}
                   value={venueRequestId}
                   onChange={next => {
+                    // Re-picking the same booking changes nothing, and the effect below would not re-run.
+                    if (next === venueRequestId) return;
                     // Bump the version before the effect runs, so a reply for the last booking cannot write ready for this one.
                     requestVersion.current++;
                     // Clear the last window's answer at once, so its numbers and an enabled Confirm do not survive this render.

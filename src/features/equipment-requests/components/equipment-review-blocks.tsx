@@ -181,6 +181,9 @@ export function AvailabilityCheck({
         id="availability-booking"
         bookings={bookings}
         value={venueRequestId}
+        describedBy={
+          venueRequestId === "" && bookings.length > 0 ? "availability-booking-help" : undefined
+        }
         onChange={value => {
           resetOutcome();
           setVenueRequestId(value);
@@ -258,17 +261,12 @@ export function AvailabilityCheck({
       <form.Subscribe selector={state => state.isSubmitting}>
         {isSubmitting => (
           <>
-            {venueRequestId === "" && (
+            {venueRequestId === "" && bookings.length > 0 && (
               <p id="availability-booking-help" className="body-sm text-muted-foreground">
                 Choose a booking to check availability.
               </p>
             )}
-            <Button
-              type="submit"
-              size="sm"
-              disabled={isSubmitting || !venueRequestId}
-              aria-describedby={venueRequestId === "" ? "availability-booking-help" : undefined}
-            >
+            <Button type="submit" size="sm" disabled={isSubmitting || !venueRequestId}>
               {isSubmitting ? "Checking…" : "Check availability"}
             </Button>
           </>

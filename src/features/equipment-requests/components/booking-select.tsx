@@ -19,25 +19,29 @@ export function BookingSelect({
   value,
   onChange,
   disabled,
+  describedBy,
 }: {
   id: string;
   bookings: EquipmentBookingOption[];
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  describedBy?: string;
 }) {
   const selected = bookings.find(booking => booking.id === value);
   return (
-    <Field>
+    <Field className="min-w-0">
       <FieldLabel htmlFor={id}>Session venue booking</FieldLabel>
       <Select
         value={value || null}
         onValueChange={next => onChange(next ?? "")}
         disabled={disabled || bookings.length === 0}
       >
-        <SelectTrigger id={id} className="w-full min-w-0">
+        <SelectTrigger id={id} className="w-full min-w-0" aria-describedby={describedBy}>
           <SelectValue placeholder="Choose an active approved booking">
-            {selected ? <span className="min-w-0 truncate">{bookingLabel(selected)}</span> : null}
+            {selected ? (
+              <span className="min-w-0 flex-1 truncate">{bookingLabel(selected)}</span>
+            ) : null}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>

@@ -128,4 +128,27 @@ describe("equipment booking controls", () => {
     await waitFor(() => expect(within(availability).queryByText(/14:30/)).not.toBeNull());
     expect(within(availability).queryByText(/09:30/)).toBeNull();
   });
+
+  it("keeps its answer when the same booking is picked again", async () => {
+    const user = userEvent.setup();
+    checkLineAvailability.mockReset();
+    checkLineAvailability.mockResolvedValue({ availableQuantity: 5, period: bookings[0] });
+    render(
+      <ReserveEquipmentDialog
+        equipmentRequest={{ id: "line", item: "Projector", quantity: 2 }}
+        bookings={bookings}
+        open
+        onOpenChange={vi.fn<(open: boolean) => void>()}
+      />
+    );
+    await user.click(screen.getByRole("combobox", { name: "Session venue booking" }));
+    await user.click(await screen.findByRole("option", { name: /09:30/ }));
+    const confirm = screen.getByRole("button", { name: "Confirm reservation" });
+    await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
+    // Picking the selected booking again must not strand the dialog in its loading state.
+    await user.click(screen.getByRole("combobox", { name: "Session venue booking" }));
+    await user.click(await screen.findByRole("option", { name: /09:30/ }));
+    expect(screen.getByText(/5 units available/).textContent).toContain("09:30");
+    expect((confirm as HTMLButtonElement).disabled).toBe(false);
+  });
 });
