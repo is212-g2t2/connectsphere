@@ -475,7 +475,9 @@ test("[PTR-139] a Coordinator withdraws a rejected request so nothing blocks con
 
     // The row leaves the list, and its history stays on record. The open dialog hides the page from
     // the accessibility tree, so `toHaveCount(0)` alone can pass before the mutation resolves. Wait
-    // for the loader's empty-panel heading first, which only appears after a successful withdrawal.
+    // for the success toast and the loader's empty-panel heading, which only appear after the
+    // withdrawal finishes.
+    await expect(page.getByText("Venue request withdrawn.", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Request this venue" })).toBeVisible();
     await expect(list).toHaveCount(0);
     const [withdrawn] = await database
