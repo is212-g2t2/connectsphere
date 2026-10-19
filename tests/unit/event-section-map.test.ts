@@ -50,6 +50,7 @@ describe("eventSections", () => {
       "decision",
       "requests",
       "details",
+      "attachments",
     ]);
   });
 
@@ -59,7 +60,7 @@ describe("eventSections", () => {
       event: projection("organiser", { status: "submitted" }),
       organiserRequest: { status: "submitted" },
     } as unknown as EventPageData;
-    expect(ids(data)).toEqual(["requests", "details"]);
+    expect(ids(data)).toEqual(["requests", "details", "attachments"]);
   });
 
   it("shows the recorded decision for a decided organiser event", () => {
@@ -69,7 +70,7 @@ describe("eventSections", () => {
       organiserRequest: { status: "rejected" },
     } as unknown as EventPageData;
 
-    expect(ids(data)).toEqual(["decision", "requests", "details"]);
+    expect(ids(data)).toEqual(["decision", "requests", "details", "attachments"]);
   });
 
   it("hides registrations from a submitted organiser event even with attendees loaded", () => {
@@ -322,11 +323,11 @@ describe("eventSections", () => {
       coordinators: [],
     } as unknown as EventPageData);
 
-    expect(found).toEqual(["request", "assignment"]);
+    expect(found).toEqual(["request", "assignment", "attachments"]);
   });
 
   it("lists only the read-only details section for the lead with no assignment read", () => {
-    expect(ids(page("lead"))).toEqual(["details"]);
+    expect(ids(page("lead"))).toEqual(["details", "attachments"]);
     expect([...railSectionIds(page("lead"))]).toEqual([]);
   });
 
@@ -347,7 +348,7 @@ describe("eventSections", () => {
       },
     } as unknown as EventPageData;
 
-    expect(ids(data)).toEqual(["assignment", "details"]);
+    expect(ids(data)).toEqual(["assignment", "details", "attachments"]);
     expect([...railSectionIds(data)]).toEqual([]);
   });
 });
