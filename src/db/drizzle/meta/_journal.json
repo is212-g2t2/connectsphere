@@ -386,6 +386,13 @@
       "when": 1792355422682,
       "tag": "0054_kind_carmella_unuscione",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1792375051335,
+      "tag": "0055_perpetual_white_queen",
+      "breakpoints": true
     }
   ]
 }

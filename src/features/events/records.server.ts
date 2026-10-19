@@ -7,6 +7,7 @@ import {
   equipmentReservations,
   eventRegistrations,
   eventRequests,
+  safetyReviews,
   venueOccupancy,
   venueRequests,
   venues,
@@ -156,6 +157,16 @@ export function connectedEventCondition(
               .from(eventRegistrations)
               .where(eq(eventRegistrations.attendeeId, user.id))
           )
+        )
+      );
+    case "safety_officer":
+      // PTR-146: the review row is the relationship. Every Safety Officer reads every event with
+      // a review, current or not. `getEventAccess` states the same rule for the in-memory read.
+      return and(
+        visible,
+        inArray(
+          eventRequests.id,
+          database.select({ id: safetyReviews.eventRequestId }).from(safetyReviews)
         )
       );
     default:
@@ -336,12 +347,14 @@ export async function handleListEvents(
   // PTR-24 AC3: Show the Organiser and the Coordinator the current booking of a confirmed event.
   // PTR-144: the Lead reads the confirmation too. Show an Attendee the booking for every event
   // they reach (PTR-44 AC2): published events and events they registered for (PTR-46 AC2). Count
-  // the venue's places for confirmed events only.
+  // the venue's places for confirmed events only. PTR-146 AC5: show the Safety Officer the
+  // booking and capacity of every event under review.
   const wantsBookings =
     role === "event_organiser" ||
     role === "event_coordinator" ||
     role === "event_coordinator_lead" ||
-    role === "attendee";
+    role === "attendee" ||
+    role === "safety_officer";
   // PTR-45 AC10: Show Attendees, Organisers, and Coordinators how many places each confirmed
   // event has taken. Count VIPs (PTR-111) apart. They take venue places only.
   const wantsCounts =
@@ -357,7 +370,10 @@ export async function handleListEvents(
           .from(userTable)
           .where(inArray(userTable.id, holderIds));
   const bookingRead = wantsBookings
-    ? loadCurrentBookings(database, role === "attendee" ? requestIds : confirmedIds)
+    ? loadCurrentBookings(
+        database,
+        role === "attendee" || role === "safety_officer" ? requestIds : confirmedIds
+      )
     : Promise.resolve(new Map<number, { venue: EventVenue; maxCapacity: number }>());
   const countRead = wantsCounts
     ? database
@@ -378,13 +394,26 @@ export async function handleListEvents(
     role === "event_coordinator"
       ? loadBlockedArrangements(database, requestIds)
       : Promise.resolve(new Map<number, BlockedArrangement[]>());
-  const [holderRows, bookings, countRows, conflictKinds, blockedArrangements] = await Promise.all([
-    holderRead,
-    bookingRead,
-    countRead,
-    loadPendingConflictKinds(database, pendingIds),
-    blockedRead,
-  ]);
+  // PTR-146: which of these events carry a safety review. The access check below needs the flag
+  // for the Safety Officer's branch.
+  const safetyReviewRead =
+    role === "safety_officer"
+      ? database
+          .selectDistinct({ eventId: safetyReviews.eventRequestId })
+          .from(safetyReviews)
+          .where(inArray(safetyReviews.eventRequestId, requestIds))
+      : Promise.resolve([] as { eventId: number }[]);
+  const [holderRows, bookings, countRows, conflictKinds, blockedArrangements, safetyReviewRows] =
+    await Promise.all([
+      holderRead,
+      bookingRead,
+      countRead,
+      loadPendingConflictKinds(database, pendingIds),
+      blockedRead,
+      safetyReviewRead,
+    ]);
+
+  const safetyReviewEventIds = new Set(safetyReviewRows.map(row => row.eventId));
 
   const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
 
@@ -401,7 +430,10 @@ export async function handleListEvents(
   const venueCapacities = new Map<number, number>();
   for (const [id, booking] of bookings) {
     currentVenues.set(id, booking.venue);
-    if (confirmed.has(id)) venueCapacities.set(id, booking.maxCapacity);
+    // PTR-146: the Safety Officer sees the capacity of any current booking, not only a
+    // confirmed event's. The other roles read capacity through the places count.
+    if (confirmed.has(id) || role === "safety_officer")
+      venueCapacities.set(id, booking.maxCapacity);
   }
 
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
@@ -433,6 +465,7 @@ export async function handleListEvents(
       status: record.status,
       registrationEnabled: record.registrationEnabled,
       hasOwnRegistration: ownRegistration !== null,
+      hasSafetyReview: safetyReviewEventIds.has(record.id),
     });
 
     if (!access) return [];
@@ -520,6 +553,7 @@ export async function handleListEvents(
                 )
               : null,
           blockedArrangements: blockedArrangements.get(record.id) ?? [],
+          venueCapacity: venueCapacities.get(record.id) ?? null,
         }
       ),
     ];

@@ -16,6 +16,7 @@ import { eventInformationSections } from "#/features/events/components/event-inf
 import { registrationsSections } from "#/features/events/components/registrations-section";
 import { venueSections } from "#/features/events/components/venue-section";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
+import { safetySections } from "#/features/safety-reviews/components/safety-review-sections";
 import { venueRequestSections } from "#/features/venue-requests/components/venue-request-sections";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
@@ -64,6 +65,8 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
       return venueRequestSections(data).filter(section => section.visible(data));
     case "technical_support":
       return equipmentSections(data).filter(section => section.visible(data));
+    case "safety_officer":
+      return safetySections(data).filter(section => section.visible(data));
     default: {
       const unhandled: never = data.event.access;
       throw new Error(`No event sections for access "${String(unhandled)}"`);

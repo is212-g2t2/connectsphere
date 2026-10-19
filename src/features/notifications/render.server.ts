@@ -41,6 +41,7 @@ import { VenueBookingRequestEmail } from "#/features/emails/components/venue-boo
 import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
 import { VenueBufferConflictEmail } from "#/features/emails/components/venue-buffer-conflict-email";
 import { EventSubmittedEmail } from "#/features/emails/components/event-submitted-email";
+import { SafetyReviewDecisionEmail } from "#/features/emails/components/safety-review-decision-email";
 import { notificationHref, notificationSummary } from "#/features/notifications/message";
 import type { NotificationPayload } from "#/features/notifications/message";
 
@@ -405,6 +406,18 @@ export function renderNotificationEmail(
           calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
+    case "safety_review_decided": {
+      const { eventName, decision, comments } = notification.payload;
+      return {
+        subject,
+        element: createElement(SafetyReviewDecisionEmail, {
+          eventName,
+          decision,
+          comments,
+          eventRequestUrl: `${base}/events/${eventRequestId}`,
+        }),
+      };
+    }
     default: {
       const unhandled: never = notification;
       throw new Error(`No email template for notification kind "${String(unhandled)}"`);

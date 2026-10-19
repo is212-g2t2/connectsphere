@@ -1,0 +1,279 @@
+import { useState } from "react";
+
+import { useRouter } from "@tanstack/react-router";
+import { toast } from "sonner";
+
+import { Button } from "#/components/ui/button";
+import { Field, FieldError, FieldLabel } from "#/components/ui/field";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "#/components/ui/table";
+import { Textarea } from "#/components/ui/textarea";
+import { arrangementStateLabel } from "#/features/equipment-requests/schema";
+import { formatInstant, formatVenuePeriod } from "#/features/event-requests/format";
+import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
+import {
+  SAFETY_REVIEW_COMMENTS_MAX,
+  SAFETY_REVIEW_DECISIONS,
+  SAFETY_REVIEW_STATE_LABELS,
+  SAFETY_REVIEW_WITHDRAWN_LABEL,
+} from "#/features/safety-reviews/schema";
+import type { SafetyReviewDecision, SafetyReviewDetail } from "#/features/safety-reviews/schema";
+import { decideSafetyReview } from "#/features/safety-reviews/server-fns";
+import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
+
+/**
+ * PTR-146 AC3 and AC5: the Safety Officer's half of the universal event page. The section carries
+ * the event's arrangement facts (the projection above it), the review, and the decision form. The
+ * form sends the fingerprint the page rendered, so a decision against changed arrangements is
+ * refused instead of recorded.
+ */
+
+const DECISION_LABELS: Record<SafetyReviewDecision, string> = {
+  approved: "Approve",
+  rejected: "Reject",
+  changes_requested: "Request changes",
+};
+
+const DECISION_PENDING_LABELS: Record<SafetyReviewDecision, string> = {
+  approved: "Approving…",
+  rejected: "Rejecting…",
+  changes_requested: "Requesting changes…",
+};
+
+export function safetySections(data: EventPageData): EventSectionDef[] {
+  if (data.kind !== "event" || data.event.access !== "safety_officer") return [];
+  return [
+    {
+      id: "arrangements",
+      label: "Event arrangements",
+      visible: () => true,
+      render: () => <ArrangementsSection data={data} />,
+    },
+    {
+      id: "safety-review",
+      label: "Safety review",
+      visible: () => true,
+      render: () => <SafetyReviewSection data={data} />,
+    },
+  ];
+}
+
+/**
+ * PTR-146 AC5: the facts the Safety Officer assesses: the venue and its capacity, the event's
+ * layout and facilities, and every equipment line. Venue catalogue attributes read live here, so a
+ * catalogue edit never changes the review's fingerprint and still shows on this page.
+ */
+function ArrangementsSection({ data }: { data: Extract<EventPageData, { kind: "event" }> }) {
+  const { event } = data.event;
+  const bookingPeriod = event.venue
+    ? formatVenuePeriod(
+        `${event.venue.date} ${event.venue.startTime}:00`,
+        `${event.venue.endDate} ${event.venue.endTime}:00`
+      )
+    : "No current approved venue";
+
+  return (
+    <div>
+      <h2 className="display-h2">Event arrangements</h2>
+      <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+        <Fact
+          label="Venue"
+          value={
+            event.venue
+              ? `${event.venue.name}, ${event.venue.location}`
+              : "No current approved venue"
+          }
+        />
+        <Fact label="Venue capacity" value={String(event.venueCapacity ?? "Not known")} />
+        {event.venue ? <Fact label="Booking period" value={bookingPeriod} /> : null}
+        <Fact
+          label="Expected attendance"
+          value={String(event.expectedAttendance ?? "Not stated")}
+        />
+        <Fact label="Layout" value={event.layout?.trim() || "Not stated"} />
+        <Fact
+          label="Accessibility"
+          value={event.accessibilityRequirements?.trim() || "Not stated"}
+        />
+        <Fact
+          label="Required facilities"
+          value={event.requiredFacilities?.trim() || "Not stated"}
+        />
+      </dl>
+
+      <h3 className="mt-6 display-h3">Equipment</h3>
+      {event.equipment === undefined || event.equipment.length === 0 ? (
+        <p className="mt-2 body-sm text-muted-foreground">No equipment lines recorded.</p>
+      ) : (
+        <div className="mt-3">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Item</TableHead>
+                <TableHead>Quantity</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>Reserved</TableHead>
+                <TableHead>Notes</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {event.equipment.map(line => (
+                <TableRow key={line.id}>
+                  <TableCell>{line.item}</TableCell>
+                  <TableCell>{line.quantity}</TableCell>
+                  <TableCell>{arrangementStateLabel(line.arrangementStatus)}</TableCell>
+                  <TableCell>{line.reservedQuantity ?? 0}</TableCell>
+                  <TableCell>{line.notes?.trim() || "—"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="eyebrow text-muted-foreground">{label}</dt>
+      <dd className="mt-1 body-sm">{value}</dd>
+    </div>
+  );
+}
+
+function SafetyReviewSection({ data }: { data: Extract<EventPageData, { kind: "event" }> }) {
+  const review = data.safetyReview;
+  if (review === undefined) {
+    return (
+      <p className="body-sm text-muted-foreground">
+        The safety review could not be read. Reload the page.
+      </p>
+    );
+  }
+  if (review === null) {
+    return <p className="body-sm text-muted-foreground">This event has no safety review yet.</p>;
+  }
+
+  if (review.state === "pending" && review.current) {
+    return (
+      <div>
+        <h2 className="display-h2">Safety review</h2>
+        <p className="mt-2 body-sm text-muted-foreground">
+          Assess capacity, layout, emergency access and crowd movement. Your comments go to the
+          event's Coordinator with the decision.
+        </p>
+        <DecisionForm review={review} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h2 className="display-h2">Safety review</h2>
+      {review.state === "pending" ? (
+        <p className="mt-2 body-sm text-muted-foreground">
+          This review is withdrawn. {SAFETY_REVIEW_WITHDRAWN_LABEL}.
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 body-sm">
+            {SAFETY_REVIEW_STATE_LABELS[review.state]}
+            {review.decidedByName ? ` by ${review.decidedByName}` : ""}
+            {review.decidedAt ? ` on ${formatInstant(new Date(review.decidedAt))}` : ""}.
+          </p>
+          {review.comments ? (
+            <p className="mt-2 body-sm whitespace-pre-line text-muted-foreground">
+              {review.comments}
+            </p>
+          ) : null}
+          {!review.current ? (
+            <p className="mt-2 body-sm text-muted-foreground">
+              The arrangements changed after this decision, so a fresh review is needed.
+            </p>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function DecisionForm({ review }: { review: SafetyReviewDetail }) {
+  const router = useRouter();
+  const [comments, setComments] = useState("");
+  const [inFlight, setInFlight] = useState<SafetyReviewDecision | null>(null);
+  const [state, decide, deciding] = useMutation(
+    async (input: { decision: SafetyReviewDecision; comments: string }) => {
+      try {
+        await decideSafetyReview({
+          data: {
+            reviewId: review.id,
+            decision: input.decision,
+            fingerprint: review.fingerprint,
+            comments: input.comments,
+          },
+        });
+      } catch (error) {
+        // A refusal usually means the arrangements moved or another Safety Officer decided. Re-read
+        // either way; the message still surfaces beside the form.
+        await router.invalidate({ filter: skipRootFilter }).catch(() => {
+          // Best effort. The refusal is already shown.
+        });
+        throw error;
+      }
+      await router.invalidate({ filter: skipRootFilter }).catch(() => {
+        // The decision already committed. A failed refresh must not report it as a failure.
+      });
+      toast.success("Safety review decision recorded.");
+    },
+    "Could not record this decision. Try again."
+  );
+
+  return (
+    <div className="mt-4 space-y-4">
+      <Field>
+        <FieldLabel htmlFor={`safety-review-comments-${review.id}`}>Decision comments</FieldLabel>
+        <Textarea
+          id={`safety-review-comments-${review.id}`}
+          value={comments}
+          maxLength={SAFETY_REVIEW_COMMENTS_MAX}
+          onChange={event => setComments(event.target.value)}
+        />
+      </Field>
+
+      <div className="flex flex-wrap gap-3">
+        {SAFETY_REVIEW_DECISIONS.map(decision => (
+          <Button
+            key={decision}
+            type="button"
+            variant={decision === "rejected" ? "destructive" : "outline"}
+            disabled={deciding}
+            aria-label={`${DECISION_LABELS[decision]} this safety review`}
+            onClick={() => {
+              setInFlight(decision);
+              void decide({ decision, comments }).finally(() => setInFlight(null));
+            }}
+          >
+            {inFlight === decision ? DECISION_PENDING_LABELS[decision] : DECISION_LABELS[decision]}
+          </Button>
+        ))}
+      </div>
+
+      {state.status === "error" ? (
+        <FieldError>
+          <p role="alert" className="whitespace-pre-line">
+            {state.error}
+          </p>
+        </FieldError>
+      ) : null}
+    </div>
+  );
+}

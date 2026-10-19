@@ -526,6 +526,62 @@ export const venueUnavailability = pgTable(
   ]
 );
 
+/**
+ * PTR-146: the Safety Officer's decision on one arrangement fingerprint. A null decision is
+ * `pending`. The CHECK below ties the decision fields to the state.
+ */
+export const safetyReviewState = pgEnum("safety_review_state", [
+  "pending",
+  "approved",
+  "rejected",
+  "changes_requested",
+]);
+
+/**
+ * PTR-146: one operational-safety review per arrangement fingerprint. The event's current review
+ * is its most recently created row. A review is current while its fingerprint equals the event's
+ * fingerprint now, so an arrangement change withdraws it without a write. Store the actor's id and
+ * name as snapshots, as the other decision tables do.
+ */
+export const safetyReviews = pgTable(
+  "safety_reviews",
+  {
+    id: serial("id").primaryKey(),
+    eventRequestId: integer("event_request_id")
+      .notNull()
+      .references(() => eventRequests.id, { onDelete: "cascade" }),
+    state: safetyReviewState("state").notNull().default("pending"),
+    /** The arrangement fingerprint this review covers, from `arrangementFingerprint`. */
+    fingerprint: text("fingerprint").notNull(),
+    /** The Safety Officer's tracking comments. Required for a rejection or a change request. */
+    comments: text("comments"),
+    decidedById: text("decided_by_id"),
+    decidedByName: text("decided_by_name"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  table => [
+    check("safety_reviews_fingerprint_present", sql`btrim(${table.fingerprint}) <> ''`),
+    // A pending review has no decision. A decided one has all three decision fields.
+    check(
+      "safety_reviews_decision_complete",
+      sql`(${table.state}::text = 'pending' and ${table.decidedById} is null and ${table.decidedByName} is null and ${table.decidedAt} is null and ${table.comments} is null) or (${table.state}::text <> 'pending' and ${table.decidedById} is not null and btrim(${table.decidedById}) <> '' and ${table.decidedByName} is not null and btrim(${table.decidedByName}) <> '' and ${table.decidedAt} is not null)`
+    ),
+    // PTR-146 AC4: a rejection and a change request explain themselves. An approval may add comments.
+    check(
+      "safety_reviews_comments_match_state",
+      sql`(${table.state}::text = 'pending' and ${table.comments} is null) or (${table.state}::text = 'approved' and (${table.comments} is null or ${table.comments} ~ '[^[:space:]]')) or (${table.state}::text in ('rejected', 'changes_requested') and coalesce(${table.comments}, '') ~ '[^[:space:]]')`
+    ),
+    // One pending review per event. A decided row does not block a later review. Compare the
+    // state directly: a `::text` cast is not immutable and PostgreSQL refuses it in an index
+    // predicate.
+    uniqueIndex("safety_reviews_pending_event_idx")
+      .on(table.eventRequestId)
+      .where(sql`${table.state} = 'pending'`),
+    index("safety_reviews_event_request_id_idx").on(table.eventRequestId),
+  ]
+);
+
 export * from "./auth-schema";
 
 /**
@@ -1039,6 +1095,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_buffer_conflict",
   /** PTR-144: a submitted request, told to the Organiser and to every Event Coordinator Lead. */
   "event_submitted",
+  /** PTR-146 AC4: the Safety Officer decided the event's operational-safety review. */
+  "safety_review_decided",
 ]);
 
 export const notifications = pgTable(

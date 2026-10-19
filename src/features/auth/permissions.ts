@@ -41,6 +41,11 @@ const statement = {
    * assigned Coordinator.
    */
   vip_registration: ["manage"],
+  /**
+   * PTR-146: `read` opens the Safety Officer's review list and the events under review;
+   * `decide` records one approve, reject or change request. Both are on the Safety Officer only.
+   */
+  safety_review: ["read", "decide"],
 } as const;
 
 const ac = createAccessControl(statement);
@@ -99,6 +104,9 @@ const ROLE_PERMISSIONS: Record<Role, ReturnType<typeof ac.newRole>> = {
     equipment_request: ["read", "arrange"],
     equipment: ["reserve", "release"],
   }),
+  // PTR-146: the Safety Officer holds the safety review alone. The handlers re-read the event's
+  // review, so the permission says "may review", not "may review any event".
+  safety_officer: ac.newRole({ safety_review: ["read", "decide"] }),
 };
 
 export type PermissionRequest = RoleAuthorizeRequest<typeof statement>;

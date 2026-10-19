@@ -65,7 +65,13 @@ export function Header() {
     can(role, { event_request: ["coordinate"] }) || can(role, { event_request: ["oversee"] });
   const showVenues = can(role, { venue: ["read"] });
   const showApprovedBookings = can(role, { venue_request: ["decide"] });
-  const showSections = showEventRequests || showCoordination || showVenues || showApprovedBookings;
+  const showSafetyReviews = can(role, { safety_review: ["read"] });
+  const showSections =
+    showEventRequests ||
+    showCoordination ||
+    showVenues ||
+    showApprovedBookings ||
+    showSafetyReviews;
 
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-md">
@@ -122,6 +128,15 @@ export function Header() {
                 className={SECTION_LINK_CLASSNAME}
               >
                 Approved bookings
+              </Link>
+            )}
+            {showSafetyReviews && (
+              <Link
+                to="/safety-reviews"
+                aria-current={pathname === "/safety-reviews" ? "page" : undefined}
+                className={SECTION_LINK_CLASSNAME}
+              >
+                Safety reviews
               </Link>
             )}
           </nav>

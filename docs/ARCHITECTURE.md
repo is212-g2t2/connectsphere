@@ -4,7 +4,7 @@ ConnectSphere is a full-stack React application. TanStack Start renders it on th
 
 ## System Context
 
-Six roles use ConnectSphere through a browser. The system depends on four external services for data, email, error tracking, and scheduled work.
+Seven roles use ConnectSphere through a browser. The system depends on four external services for data, email, error tracking, and scheduled work.
 
 ```mermaid
 C4Context
@@ -14,8 +14,9 @@ C4Context
     Person(lead, "Event Coordinator Lead", "Watches the unassigned queue and every event")
     Person(venueStaff, "Venue Staff", "Approves, rejects, releases, and amends bookings")
     Person(techSupport, "Technical Support Staff", "Arranges and reserves equipment")
+    Person(safetyOfficer, "Safety Officer", "Reviews an event's operational safety")
 
-    System(connectsphere, "ConnectSphere", "Event planning and venue booking for six roles")
+    System(connectsphere, "ConnectSphere", "Event planning and venue booking for seven roles")
     SystemDb_Ext(supabase, "Supabase PostgreSQL", "Stores application data")
     System_Ext(resend, "Resend", "Delivers transactional email")
     System_Ext(sentry, "Sentry", "Tracks errors and traces")
@@ -27,6 +28,7 @@ C4Context
     Rel(lead, connectsphere, "Uses", "HTTPS")
     Rel(venueStaff, connectsphere, "Uses", "HTTPS")
     Rel(techSupport, connectsphere, "Uses", "HTTPS")
+    Rel(safetyOfficer, connectsphere, "Uses", "HTTPS")
     Rel(connectsphere, supabase, "Reads and writes", "SQL")
     Rel(connectsphere, resend, "Sends email", "HTTPS API")
     Rel(connectsphere, sentry, "Reports errors", "HTTPS")
@@ -40,7 +42,7 @@ C4Context
 - **Framework**: [TanStack Start](https://tanstack.com/start). Full-stack React with TanStack Router, server functions, and server-side rendering (SSR).
 - **Server**: [Nitro](https://nitro.unjs.io/). Server-side logic and deployment presets.
 - **ORM and database**: [Drizzle ORM](https://orm.drizzle.team/) with Bun's native SQL driver (`bun:sql` / `drizzle-orm/bun-sql`) for PostgreSQL, with no extra dependency.
-- **Authentication**: [Better Auth](https://better-auth.com/). Email and password authentication with a six-role permission model.
+- **Authentication**: [Better Auth](https://better-auth.com/). Email and password authentication with a seven-role permission model.
 - **Styling**: Tailwind CSS v4 via `@tailwindcss/vite`. The visual system and its tokens are in [`DESIGN.md`](./DESIGN.md).
 - **Theme**: [next-themes](https://github.com/pacocoursey/next-themes). Class-based on `html`, with a mounted client toggle.
 
@@ -124,6 +126,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 8. **Loader freshness**: the router sets `defaultStaleReloadMode: "blocking"`. A revisit waits for its loaders, so a page never renders a cached value that a later change replaced.
 9. **Venue occupancy**: each approved booking, held hold and live block has a `venue_occupancy` row, and `venue_occupancy_no_overlap` refuses overlapping active rows. A block suspends the rows that it covers and a lift restores them; a block that covers a confirmed event's booking also returns the event to planning, where its Coordinator sees the suspended arrangements until the lift or a release. A venue buffer change flags commitments that newly overlap on the venue page and calendar, and notifies the assigned Coordinators ([ADR-7](./adrs/ADR-7-venue-occupancy-ledger.md)).
 10. **Venue requests**: each request stores its session's requirements. The request writers check suitability, availability and overlap with the same event's sessions for each venue on its own.
+11. **Safety reviews**: each review stores the arrangement fingerprint it covers, and an event's current review is its most recent one. A Safety Officer reads the events under review and decides the pending review; a rejection or a change request returns an approved event to planning. Venue catalogue attributes stay outside the fingerprint, so a catalogue edit never reverts an event.
 
 ## Database and Migrations
 
@@ -160,6 +163,7 @@ erDiagram
     event_requests ||--o{ vip_registration_changes : "records"
     event_requests ||--o{ event_information_changes : "records"
     event_requests ||--o{ notifications : "raises"
+    event_requests ||--o{ safety_reviews : "reviews"
 
     venues ||--o{ venue_requests : "receives"
     venues ||--o{ venue_holds : "receives"
@@ -320,6 +324,12 @@ erDiagram
         text kind
         timestamp read_at
     }
+    safety_reviews {
+        int id PK
+        int event_request_id FK
+        text state
+        text fingerprint
+    }
 ```
 
 ## Authentication
@@ -335,35 +345,37 @@ erDiagram
 
 ### Roles
 
-`user.role` holds one of the six values in `RoleSchema` (`src/features/auth/schema/role.ts`). A person who needs two roles holds two accounts. The column is plain `text` with no CHECK constraint, so the single-role guarantee is not structural. `can()` parses `RoleSchema` and fails closed, so a hand-written `"attendee,event_coordinator"` grants nothing, not both roles.
+`user.role` holds one of the seven values in `RoleSchema` (`src/features/auth/schema/role.ts`). A person who needs two roles holds two accounts. The column is plain `text` with no CHECK constraint, so the single-role guarantee is not structural. `can()` parses `RoleSchema` and fails closed, so a hand-written `"attendee,event_coordinator"` grants nothing, not both roles.
 
-`SelfAssignableRoleSchema` is the subset that a stranger can pick at registration (`attendee`, `event_organiser`). The Better Auth `role` field's `validator.input` uses that schema, not `RoleSchema`, so a wider role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.server.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. `bun run db:seed` (`scripts/seed.ts`) provisions the six internal staff accounts (two Coordinators, two Coordinator Leads, Venue Staff, and Technical Support Staff), and no self-service path reaches them.
+`SelfAssignableRoleSchema` is the subset that a stranger can pick at registration (`attendee`, `event_organiser`). The Better Auth `role` field's `validator.input` uses that schema, not `RoleSchema`, so a wider role list never widens what a visitor can claim. A `hooks.before` middleware in `src/lib/auth.server.ts` refuses `role` on `/api/auth/update-user` with a 403, so nobody re-grades their own account. `bun run db:seed` (`scripts/seed.ts`) provisions the seven internal staff accounts (two Coordinators, two Coordinator Leads, Venue Staff, Technical Support Staff, and the Safety Officer), and no self-service path reaches them.
 
 ### Role/function matrix
 
 `src/features/auth/permissions.ts` is the source of truth, and `tests/unit/auth-permissions.test.ts` holds it to this table. Only role-varying functions appear.
 
-| Function                    | Attendee | Event Organiser | Event Coordinator | Event Coordinator Lead | Venue Staff | Technical Support Staff |
-| --------------------------- | :------: | :-------------: | :---------------: | :--------------------: | :---------: | :---------------------: |
-| `event:register`            |    ✅    |        —        |         —         |           —            |      —      |            —            |
-| `event_request:create`      |    —     |       ✅        |         —         |           —            |      —      |            —            |
-| `event_request:coordinate`  |    —     |        —        |        ✅         |           —            |      —      |            —            |
-| `event_request:oversee`     |    —     |        —        |         —         |           ✅           |      —      |            —            |
-| `venue:read`                |    —     |        —        |        ✅         |           —            |     ✅      |           ✅            |
-| `venue:search`              |    —     |        —        |        ✅         |           —            |      —      |            —            |
-| `venue:create`              |    —     |        —        |         —         |           —            |     ✅      |            —            |
-| `venue:update`              |    —     |        —        |         —         |           —            |     ✅      |            —            |
-| `venue_request:request`     |    —     |        —        |        ✅         |           —            |      —      |            —            |
-| `venue_request:read`        |    —     |        —        |         —         |           —            |     ✅      |            —            |
-| `venue_request:decide`      |    —     |        —        |         —         |           —            |     ✅      |            —            |
-| `equipment_request:manage`  |    —     |        —        |        ✅         |           —            |      —      |            —            |
-| `equipment_request:submit`  |    —     |        —        |        ✅         |           —            |      —      |            —            |
-| `equipment_request:read`    |    —     |        —        |         —         |           —            |      —      |           ✅            |
-| `equipment_request:arrange` |    —     |        —        |         —         |           —            |      —      |           ✅            |
-| `equipment:reserve`         |    —     |        —        |         —         |           —            |      —      |           ✅            |
-| `equipment:release`         |    —     |        —        |         —         |           —            |      —      |           ✅            |
-| `vip_registration:manage`   |    —     |       ✅        |        ✅         |           —            |      —      |            —            |
-| `event_registration:read`   |    —     |       ✅        |        ✅         |           —            |      —      |            —            |
+| Function                    | Attendee | Event Organiser | Event Coordinator | Event Coordinator Lead | Venue Staff | Technical Support Staff | Safety Officer |
+| --------------------------- | :------: | :-------------: | :---------------: | :--------------------: | :---------: | :---------------------: | :------------: |
+| `event:register`            |    ✅    |        —        |         —         |           —            |      —      |            —            |       —        |
+| `event_request:create`      |    —     |       ✅        |         —         |           —            |      —      |            —            |       —        |
+| `event_request:coordinate`  |    —     |        —        |        ✅         |           —            |      —      |            —            |       —        |
+| `event_request:oversee`     |    —     |        —        |         —         |           ✅           |      —      |            —            |       —        |
+| `venue:read`                |    —     |        —        |        ✅         |           —            |     ✅      |           ✅            |       —        |
+| `venue:search`              |    —     |        —        |        ✅         |           —            |      —      |            —            |       —        |
+| `venue:create`              |    —     |        —        |         —         |           —            |     ✅      |            —            |       —        |
+| `venue:update`              |    —     |        —        |         —         |           —            |     ✅      |            —            |       —        |
+| `venue_request:request`     |    —     |        —        |        ✅         |           —            |      —      |            —            |       —        |
+| `venue_request:read`        |    —     |        —        |         —         |           —            |     ✅      |            —            |       —        |
+| `venue_request:decide`      |    —     |        —        |         —         |           —            |     ✅      |            —            |       —        |
+| `equipment_request:manage`  |    —     |        —        |        ✅         |           —            |      —      |            —            |       —        |
+| `equipment_request:submit`  |    —     |        —        |        ✅         |           —            |      —      |            —            |       —        |
+| `equipment_request:read`    |    —     |        —        |         —         |           —            |      —      |           ✅            |       —        |
+| `equipment_request:arrange` |    —     |        —        |         —         |           —            |      —      |           ✅            |       —        |
+| `equipment:reserve`         |    —     |        —        |         —         |           —            |      —      |           ✅            |       —        |
+| `equipment:release`         |    —     |        —        |         —         |           —            |      —      |           ✅            |       —        |
+| `vip_registration:manage`   |    —     |       ✅        |        ✅         |           —            |      —      |            —            |       —        |
+| `event_registration:read`   |    —     |       ✅        |        ✅         |           —            |      —      |            —            |       —        |
+| `safety_review:read`        |    —     |        —        |         —         |           —            |      —      |            —            |       ✅       |
+| `safety_review:decide`      |    —     |        —        |         —         |           —            |      —      |            —            |       ✅       |
 
 ### Enforcing it
 

@@ -15,6 +15,8 @@ export const RoleSchema = z.enum([
   "event_coordinator_lead",
   "venue_staff",
   "technical_support_staff",
+  /** PTR-146: reviews an event's operational safety once its arrangements are complete. */
+  "safety_officer",
 ]);
 
 export type Role = z.infer<typeof RoleSchema>;

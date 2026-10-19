@@ -190,6 +190,14 @@ export const seedStaffUsers: SeedUser[] = [
     emailVerified: true,
     role: "technical_support_staff",
   },
+  // PTR-146 AC1: the Safety Officer needs a pre-loaded account, as the other internal roles do.
+  {
+    id: "seed-safety-officer-1",
+    name: "Seeded Safety Officer",
+    email: "safety.officer.seed@example.com",
+    emailVerified: true,
+    role: "safety_officer",
+  },
 ];
 
 export type SeedVenue = Omit<typeof schema.venues.$inferInsert, "id">;

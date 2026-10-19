@@ -35,6 +35,7 @@ const relationship = {
   status: "confirmed" as const,
   registrationEnabled: true,
   hasOwnRegistration: false,
+  hasSafetyReview: false,
 };
 
 describe("event access", () => {
@@ -80,6 +81,20 @@ describe("event access", () => {
       []
     );
     expect(unassigned.event.awaitingAssignment).toBe(true);
+  });
+
+  it("grants a Safety Officer every event with a review, and no event without one (PTR-146)", () => {
+    expect(
+      getEventAccess({
+        ...relationship,
+        role: "safety_officer",
+        userId: "safety-1",
+        hasSafetyReview: true,
+      })
+    ).toBe("safety_officer");
+    expect(
+      getEventAccess({ ...relationship, role: "safety_officer", userId: "safety-1" })
+    ).toBeNull();
   });
 
   it("allows attendees only confirmed events with registration on, or events they are already registered for (PTR-44)", () => {
@@ -301,6 +316,80 @@ describe("event access", () => {
         expect(project(access)).not.toHaveProperty("assignedStaffName");
         expect(project(access)).not.toHaveProperty("arrangeable");
       }
+    });
+  });
+
+  describe("the Safety Officer's projection (PTR-146)", () => {
+    const venue = {
+      name: "Hall A",
+      location: "Fixture location",
+      date: "2026-10-01",
+      endDate: "2026-10-01",
+      startTime: "09:00",
+      endTime: "17:00",
+    };
+    const line = {
+      id: "line-1",
+      item: "Projector",
+      quantity: 2,
+      arrangementStatus: "reserved",
+      notes: "Needs a stand",
+      arrangementNotes: "Reserved from the store",
+      unavailableReason: null,
+      reservedQuantity: 2,
+    };
+
+    it("carries the venue, its capacity, the layout and every equipment detail", () => {
+      const result = projectEvent(request, "safety_officer", null, [line], [], venue, null, {
+        venueCapacity: 120,
+      });
+
+      expect(result.event).toMatchObject({
+        name: "ConnectSphere Demo",
+        status: "submitted",
+        expectedAttendance: 100,
+        layout: "Theatre",
+        accessibilityRequirements: "Step-free access",
+        requiredFacilities: "Projector",
+        venue,
+        venueCapacity: 120,
+        equipment: [
+          {
+            id: "line-1",
+            item: "Projector",
+            quantity: 2,
+            arrangementStatus: "reserved",
+            notes: "Needs a stand",
+            reservedQuantity: 2,
+          },
+        ],
+      });
+      // Technical Support's internal notes and reasons stay with their roles.
+      expect(result.event.equipment?.[0]).not.toHaveProperty("arrangementNotes");
+      expect(result.event.equipment?.[0]).not.toHaveProperty("unavailableReason");
+    });
+
+    it("withholds the booking decisions and the confirmation record", () => {
+      const result = projectEvent(
+        request,
+        "safety_officer",
+        null,
+        [],
+        [
+          {
+            id: "vr-9",
+            status: "pending",
+            venueName: "Hall A",
+            date: "2026-10-01",
+            startTime: "09:00",
+            endTime: "17:00",
+          },
+        ]
+      );
+
+      expect(result.event).not.toHaveProperty("venueRequests");
+      expect(result.event).not.toHaveProperty("confirmation");
+      expect(result.event).not.toHaveProperty("equipmentSubmittedAt");
     });
   });
 
