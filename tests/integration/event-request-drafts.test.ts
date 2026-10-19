@@ -1,7 +1,7 @@
 // oxlint-disable node/no-process-env
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@react-email/render";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "#/db/schema";
@@ -1385,55 +1385,74 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-144, PTR-145)
       }
     });
 
-    it("reassigns while the outgoing Coordinator deletes their account, without a deadlock (AC8)", async () => {
-      const request = await assignedRequest(first.id);
+    it(
+      "reassigns while the outgoing Coordinator deletes their account, without a deadlock (AC8)",
+      { timeout: 20_000 },
+      async () => {
+        const request = await assignedRequest(first.id);
 
-      // Hold the outgoing account so both the reassignment and the deletion queue on it before
-      // they can touch the request row. This exercises the contended order every run; the old
-      // request-row-first order could deadlock here.
-      const locked = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
-      const holder = database.transaction(async tx => {
-        await tx
-          .select({ id: schema.user.id })
-          .from(schema.user)
-          .where(eq(schema.user.id, first.id))
-          .for("update");
-        locked.resolve();
-        await release.promise;
-      });
-      await locked.promise;
+        const gateClient = await pool.connect();
+        try {
+          // Hold the outgoing account, then queue both the reassignment and the deletion behind it.
+          // The reassignment must wait on the user row before it can touch the request row; the old
+          // request-row-first order could deadlock here.
+          await gateClient.query("BEGIN");
+          await gateClient.query('SELECT 1 FROM "user" WHERE id = $1 FOR UPDATE', [first.id]);
 
-      const assignment = handleAssignEventRequest(
-        { id: request.id, coordinatorId: second.id, expectedCoordinatorId: first.id },
-        leadActor,
-        database as never
-      );
-      const deletion = database.delete(schema.user).where(eq(schema.user.id, first.id));
-      release.resolve();
+          const assignment = handleAssignEventRequest(
+            { id: request.id, coordinatorId: second.id, expectedCoordinatorId: first.id },
+            leadActor,
+            database as never
+          );
 
-      try {
-        const [assignmentResult, deletionResult] = await Promise.allSettled([assignment, deletion]);
-        await holder;
-        expect(deletionResult.status).toBe("fulfilled");
-        // Either the move won, or the deletion won and the move refused as stale. A deadlock
-        // would reject the move with a driver error instead of the typed conflict.
-        expect(assignmentResult).toMatchObject(
-          assignmentResult.status === "fulfilled"
-            ? { status: "fulfilled" }
-            : { reason: { status: 409 } }
-        );
-        const [stored] = await database
-          .select()
-          .from(schema.eventRequests)
-          .where(eq(schema.eventRequests.id, request.id));
-        expect(stored.assignedCoordinatorId).toBe(
-          assignmentResult.status === "fulfilled" ? second.id : null
-        );
-      } finally {
-        await database.insert(schema.user).values(first).onConflictDoNothing();
+          // The assignment waits on the user row. The old request-row-first order took the event
+          // lock before the wait, so the NOWAIT probe below is the regression check.
+          await vi.waitFor(
+            async () => {
+              const waiting = await database.execute<{ count: string }>(
+                sql`SELECT count(*)::text AS count FROM pg_stat_activity
+                    WHERE wait_event_type = 'Lock' AND query ILIKE '%for share%'`
+              );
+              expect(Number(waiting.rows[0].count)).toBeGreaterThanOrEqual(1);
+            },
+            { timeout: 10_000, interval: 25 }
+          );
+          const probe = await gateClient.query(
+            "SELECT 1 FROM event_requests WHERE id = $1 FOR UPDATE NOWAIT",
+            [request.id]
+          );
+          expect(probe.rowCount).toBe(1);
+
+          // The Drizzle delete is lazy; the async wrapper executes it now so it queues on the gate.
+          const deletion = (async () =>
+            database.delete(schema.user).where(eq(schema.user.id, first.id)))();
+          await gateClient.query("COMMIT");
+          const [assignmentResult, deletionResult] = await Promise.allSettled([
+            assignment,
+            deletion,
+          ]);
+          expect(deletionResult.status).toBe("fulfilled");
+          // Either the move won, or the deletion won and the move refused as stale. A deadlock
+          // would reject the move with a driver error instead of the typed conflict.
+          expect(assignmentResult).toMatchObject(
+            assignmentResult.status === "fulfilled"
+              ? { status: "fulfilled" }
+              : { reason: { status: 409 } }
+          );
+          const [stored] = await database
+            .select()
+            .from(schema.eventRequests)
+            .where(eq(schema.eventRequests.id, request.id));
+          expect(stored.assignedCoordinatorId).toBe(
+            assignmentResult.status === "fulfilled" ? second.id : null
+          );
+        } finally {
+          await gateClient.query("ROLLBACK").catch(() => {});
+          gateClient.release();
+          await database.insert(schema.user).values(first).onConflictDoNothing();
+        }
       }
-    });
+    );
 
     it("lets the Lead read the holder of an assigned request, without the review flow (AC2)", async () => {
       const request = await assignedRequest(first.id);
