@@ -12,6 +12,7 @@ import {
 import {
   downloadEventRequestAttachment,
   listEventRequestAttachments,
+  removeEventRequestAttachment,
   uploadEventRequestAttachment,
 } from "#/features/event-requests/server-fns";
 import type { EventRequestAttachmentList } from "#/features/event-requests/server-fns";
@@ -19,6 +20,7 @@ import type { EventRequestAttachmentList } from "#/features/event-requests/serve
 const LOAD_FAILED = "Could not load the attachments. Try again.";
 const UPLOAD_FAILED = "Could not attach this file. Try again.";
 const DOWNLOAD_FAILED = "Could not download this file. Try again.";
+const REMOVE_FAILED = "Could not remove this file. Try again.";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -45,6 +47,7 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [removingId, setRemovingId] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -107,6 +110,21 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
       );
     } finally {
       setDownloadingId(null);
+    }
+  }
+
+  async function handleRemove(attachmentId: number) {
+    setRemovingId(attachmentId);
+    setError(null);
+    try {
+      await removeEventRequestAttachment({ data: { id: draftId, attachmentId } });
+      await refresh();
+    } catch (removeError) {
+      setError(
+        removeError instanceof Error && removeError.message ? removeError.message : REMOVE_FAILED
+      );
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -179,6 +197,15 @@ export function DraftAttachments({ draftId }: { draftId: number }) {
                   onClick={() => void handleDownload(attachment.id)}
                 >
                   {downloadingId === attachment.id ? "Downloading…" : "Download"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  disabled={removingId === attachment.id}
+                  onClick={() => void handleRemove(attachment.id)}
+                >
+                  {removingId === attachment.id ? "Removing…" : "Remove"}
                 </Button>
               </li>
             ))}

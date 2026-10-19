@@ -142,12 +142,20 @@ export const deleteEventRequestDraft = createServerFn({ method: "POST" })
   .validator(parseEventRequestId)
   .middleware([requireEventRequestCreate])
   .handler(async ({ data, context }) => {
-    const [{ db }, { handleDeleteEventRequestDraft }] = await Promise.all([
-      import("#/db"),
-      import("#/features/event-requests/drafts.server"),
-    ]);
+    const [{ db }, { handleDeleteEventRequestDraft }, { getAttachmentStorage }] = await Promise.all(
+      [
+        import("#/db"),
+        import("#/features/event-requests/drafts.server"),
+        import("#/features/event-requests/attachments.server"),
+      ]
+    );
 
-    const deleted = await handleDeleteEventRequestDraft(data, context.user, db);
+    const deleted = await handleDeleteEventRequestDraft(
+      data,
+      context.user,
+      db,
+      getAttachmentStorage()
+    );
 
     log.info("Draft deleted", {
       requestId: deleted.id,
@@ -216,6 +224,29 @@ export const downloadEventRequestAttachment = createServerFn({ method: "GET" })
       await Promise.all([import("#/db"), import("#/features/event-requests/attachments.server")]);
 
     return handleDownloadEventRequestAttachment(data, context.user, db, getAttachmentStorage());
+  });
+
+export const removeEventRequestAttachment = createServerFn({ method: "POST" })
+  .validator(parseAttachmentDownload)
+  .middleware([requireEventRequestCreate])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { getAttachmentStorage, handleRemoveEventRequestAttachment }] =
+      await Promise.all([import("#/db"), import("#/features/event-requests/attachments.server")]);
+
+    const removed = await handleRemoveEventRequestAttachment(
+      data,
+      context.user,
+      db,
+      getAttachmentStorage()
+    );
+
+    log.info("Draft attachment removed", {
+      requestId: data.id,
+      attachmentId: removed.id,
+      organiserId: context.user.id,
+    });
+
+    return removed;
   });
 
 export const replyToClarification = createServerFn({ method: "POST" })

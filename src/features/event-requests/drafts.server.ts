@@ -1,9 +1,16 @@
 import { and, asc, desc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { clarificationRequests, eventRequests, user as users } from "#/db/schema";
+import {
+  clarificationRequests,
+  eventRequestAttachments,
+  eventRequests,
+  user as users,
+} from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { removeAttachmentObjects } from "#/features/event-requests/attachments.server";
+import type { AttachmentStorage } from "#/features/event-requests/attachments.server";
 import {
   cancellationRequestedSql,
   listEventCancellationRequests,
@@ -302,14 +309,23 @@ export async function handleGetEventRequestDraft(
 /**
  * Criterion 3: Delete the Organiser's draft. Use `ownDraft` so a submitted request cannot be
  * deleted. This matches `handleSaveEventRequestDraft`'s distinction between another user's row
- * and an owned row that is no longer a draft.
+ * and an owned row that is no longer a draft. The foreign key removes the attachment rows with
+ * the draft; their objects are deleted after the deletion commits. A failed object delete is
+ * logged and never fails the delete.
  */
 export async function handleDeleteEventRequestDraft(
   data: unknown,
   user: SessionUser,
-  database: Database
+  database: Database,
+  storage: AttachmentStorage | null
 ): Promise<EventRequest> {
   const { id } = parseEventRequestId(data);
+
+  // Read the object keys before the delete commits; the cascade leaves no rows to read after.
+  const attachments = await database
+    .select({ objectKey: eventRequestAttachments.objectKey })
+    .from(eventRequestAttachments)
+    .where(eq(eventRequestAttachments.eventRequestId, id));
 
   const deleted = await database.delete(eventRequests).where(ownDraft(id, user.id)).returning();
 
@@ -320,6 +336,11 @@ export async function handleDeleteEventRequestDraft(
 
     throw new AuthorizationError("Forbidden");
   }
+
+  await removeAttachmentObjects(
+    storage,
+    attachments.map(attachment => attachment.objectKey)
+  );
 
   return deleted[0];
 }
