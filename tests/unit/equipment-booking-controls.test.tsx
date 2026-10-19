@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -98,5 +98,34 @@ describe("equipment booking controls", () => {
       })
     );
     expect(screen.queryByText(/Projector: 5 available/)).toBeNull();
+  });
+
+  it("discards a line-check response after its booking changes", async () => {
+    const user = userEvent.setup();
+    const pending = Promise.withResolvers<unknown>();
+    checkLineAvailability.mockReset();
+    checkLineAvailability.mockReturnValueOnce(pending.promise);
+    checkLineAvailability.mockResolvedValue({ availableQuantity: 5, period: bookings[1] });
+    render(
+      <ReserveEquipmentDialog
+        equipmentRequest={{ id: "line", item: "Projector", quantity: 2 }}
+        bookings={bookings}
+        open
+        onOpenChange={vi.fn<(open: boolean) => void>()}
+      />
+    );
+    await user.click(screen.getByRole("combobox", { name: "Session venue booking" }));
+    await user.click(await screen.findByRole("option", { name: /09:30/ }));
+    await waitFor(() =>
+      expect(checkLineAvailability).toHaveBeenCalledWith({
+        data: { equipmentRequestId: "line", venueRequestId: "morning" },
+      })
+    );
+    await user.click(screen.getByRole("combobox", { name: "Session venue booking" }));
+    await user.click(await screen.findByRole("option", { name: /14:30/ }));
+    await act(async () => pending.resolve({ availableQuantity: 5, period: bookings[0] }));
+    const availability = screen.getByText("Availability:").parentElement as HTMLElement;
+    await waitFor(() => expect(within(availability).queryByText(/14:30/)).not.toBeNull());
+    expect(within(availability).queryByText(/09:30/)).toBeNull();
   });
 });

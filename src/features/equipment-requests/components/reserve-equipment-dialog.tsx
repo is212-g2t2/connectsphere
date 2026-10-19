@@ -18,7 +18,7 @@ import { BookingSelect } from "#/features/equipment-requests/components/booking-
 import type { EquipmentBookingOption } from "#/features/equipment-requests/schema";
 import { ReserveEquipmentFormInput } from "#/features/equipment-requests/schema";
 import { checkLineAvailability, reserveEquipment } from "#/features/equipment-requests/server-fns";
-import { formatLocalDateTime } from "#/features/event-requests/format";
+import { formatProposedWindow } from "#/features/event-requests/format";
 import { parseWholeNumber } from "#/features/event-requests/schema";
 import { skipRootFilter } from "#/lib/invalidate";
 
@@ -158,6 +158,8 @@ export function ReserveEquipmentDialog({
                   bookings={bookings}
                   value={venueRequestId}
                   onChange={next => {
+                    // Bump the version before the effect runs, so a reply for the last booking cannot write ready for this one.
+                    requestVersion.current++;
                     // Clear the last window's answer at once, so its numbers and an enabled Confirm do not survive this render.
                     setAvailability({ status: "loading" });
                     setVenueRequestId(next);
@@ -182,14 +184,21 @@ export function ReserveEquipmentDialog({
               <div className="mt-1 flex justify-between gap-3 text-muted-foreground">
                 <span>Availability:</span>
                 {availability.status === "unselected" ? (
-                  <span>Choose a booking to check availability.</span>
+                  <span>
+                    {bookings.length === 0
+                      ? "No active approved venue bookings."
+                      : "Choose a booking to check availability."}
+                  </span>
                 ) : availability.status === "loading" ? (
                   <span aria-live="polite">Checking availability…</span>
                 ) : availability.status === "ready" ? (
                   <span className="text-right">
                     {availability.available} unit{availability.available === 1 ? "" : "s"} available
-                    for {formatLocalDateTime(availability.startsAt)} to{" "}
-                    {formatLocalDateTime(availability.endsAt)}
+                    for{" "}
+                    {formatProposedWindow({
+                      start: availability.startsAt,
+                      end: availability.endsAt,
+                    })}
                     {currentReserved > 0 ? " (excluding this line's current holding)." : "."}
                   </span>
                 ) : (

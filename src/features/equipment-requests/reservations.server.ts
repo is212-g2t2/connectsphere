@@ -149,7 +149,7 @@ async function loadReservableLine(
         args.venueRequestId
       )
     : preview;
-  // Assert the lock target: the same row wins on both reads, so the held lock covers it.
+  // The preview precedes the venue lock, so a commit in the gap can change the choice. Refuse and send the operator back to pick again.
   if (booking.id !== preview.id || booking.venueId !== preview.venueId) {
     throw new ConflictError("The venue booking changed. Try again.");
   }

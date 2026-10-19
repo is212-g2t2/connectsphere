@@ -12,7 +12,10 @@ import {
   venueRequests,
   venues,
 } from "#/db/schema";
-import { selectEquipmentBookings } from "#/features/equipment-requests/bookings.server";
+import {
+  bookingPeriod,
+  selectEquipmentBookings,
+} from "#/features/equipment-requests/bookings.server";
 import { parseUtcTimestamp } from "#/features/equipment-requests/availability";
 import { user as userTable } from "#/db/auth-schema";
 import { RoleSchema } from "#/features/auth/schema/role";
@@ -610,11 +613,11 @@ export async function handleListEvents(
           sessionRequirements: bookings.get(record.id)?.session ?? null,
           equipmentBookings: equipmentBookings
             .filter(booking => booking.eventId === record.id && !booking.suspended)
+            // oxlint-disable-next-line oxc/no-map-spread
             .map(booking => ({
               id: booking.id,
               venueName: booking.venueName,
-              startsAt: toLocalMinuteValue(booking.startsAt),
-              endsAt: toLocalMinuteValue(booking.endsAt),
+              ...bookingPeriod(booking),
             })),
         }
       ),

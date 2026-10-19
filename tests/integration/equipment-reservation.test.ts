@@ -681,6 +681,78 @@ describe("Equipment Reservation Integration (PTR-41)", () => {
     expect(line).toMatchObject({ arrangementStatus: "requested", assignedStaffId: null });
   });
 
+  it("refuses when the sole active booking changes while reserve waits for the venue", async () => {
+    const target = await createEventWithApprovedBooking({
+      name: "Concurrent session swap",
+      startsAt: "2030-02-04 10:00:00",
+      endsAt: "2030-02-04 12:00:00",
+    });
+    await database.insert(schema.venueOccupancy).values({
+      venueRequestId: target.venueRequestId,
+      eventId: target.eventId,
+      venueId: fixtureVenueId,
+      startsAt: "2030-02-04 10:00:00",
+      endsAt: "2030-02-04 12:00:00",
+      active: true,
+    });
+    const gate = await pool.connect();
+    await gate.query("select pg_advisory_lock($1::bigint)", [fixtureVenueId]);
+    const [{ pid }] = (await gate.query<{ pid: number }>("select pg_backend_pid() as pid")).rows;
+    const attempt = handleReserveEquipment(
+      { equipmentRequestId: target.equipmentRequestId, quantity: 1 },
+      session("tech1"),
+      database as never
+    ).then(
+      value => ({ value }),
+      (error: unknown) => ({ error })
+    );
+    try {
+      await expect
+        .poll(
+          async () => {
+            const result = await pool.query<{ waiting: number }>(
+              "select count(*)::int as waiting from pg_stat_activity where wait_event_type = 'Lock' and $1::int = any(pg_blocking_pids(pid))",
+              [pid]
+            );
+            return result.rows[0].waiting;
+          },
+          { timeout: 5000 }
+        )
+        .toBeGreaterThan(0);
+      // Swap the sole active booking while the reserve waits. The re-read meets the new choice.
+      await database.insert(schema.venueRequests).values({
+        id: `vr-${crypto.randomUUID()}`,
+        eventId: target.eventId,
+        venueId: fixtureVenueId2,
+        requestedById: fixtureUsers.coordinator.id,
+        startsAt: "2030-02-04 14:00:00",
+        endsAt: "2030-02-04 16:00:00",
+        status: "approved",
+      });
+      await database
+        .update(schema.venueOccupancy)
+        .set({ active: false })
+        .where(eq(schema.venueOccupancy.venueRequestId, target.venueRequestId));
+    } finally {
+      await gate.query("select pg_advisory_unlock($1::bigint)", [fixtureVenueId]);
+      gate.release();
+    }
+    expect(await attempt).toMatchObject({
+      error: { message: "The venue booking changed. Try again." },
+    });
+    expect(
+      await database
+        .select()
+        .from(schema.equipmentReservations)
+        .where(eq(schema.equipmentReservations.equipmentRequestId, target.equipmentRequestId))
+    ).toEqual([]);
+    const [line] = await database
+      .select()
+      .from(schema.equipmentRequests)
+      .where(eq(schema.equipmentRequests.id, target.equipmentRequestId));
+    expect(line).toMatchObject({ arrangementStatus: "requested", assignedStaffId: null });
+  });
+
   it("uses the chosen session's stored buffers across both checks and reservation", async () => {
     const target = await createEventWithApprovedBooking({
       name: "Session windows",

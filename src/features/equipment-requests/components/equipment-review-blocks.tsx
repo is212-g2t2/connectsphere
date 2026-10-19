@@ -37,7 +37,7 @@ import {
   recordEquipmentUnavailable,
   updateEquipmentArrangement,
 } from "#/features/equipment-requests/server-fns";
-import { formatLocalDateTime } from "#/features/event-requests/format";
+import { formatProposedWindow } from "#/features/event-requests/format";
 import type { EquipmentTypeOption } from "#/features/events/page-data";
 import { parseWholeNumber } from "#/features/event-requests/schema";
 import type { EquipmentLineProjection } from "#/features/events/access";
@@ -141,7 +141,7 @@ export function AvailabilityCheck({
         if (version !== requestVersion.current) return;
         const { startsAt, endsAt } = result.period;
         setOutcome({
-          message: `${result.equipmentTypeName}: ${availabilityMessage(result)} (${formatLocalDateTime(startsAt)} to ${formatLocalDateTime(endsAt)})`,
+          message: `${result.equipmentTypeName}: ${availabilityMessage(result)} (${formatProposedWindow({ start: startsAt, end: endsAt })})`,
           shortfall: result.shortfall,
         });
       } catch (error) {
@@ -257,9 +257,21 @@ export function AvailabilityCheck({
 
       <form.Subscribe selector={state => state.isSubmitting}>
         {isSubmitting => (
-          <Button type="submit" size="sm" disabled={isSubmitting || !venueRequestId}>
-            {isSubmitting ? "Checking…" : "Check availability"}
-          </Button>
+          <>
+            {venueRequestId === "" && (
+              <p id="availability-booking-help" className="body-sm text-muted-foreground">
+                Choose a booking to check availability.
+              </p>
+            )}
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isSubmitting || !venueRequestId}
+              aria-describedby={venueRequestId === "" ? "availability-booking-help" : undefined}
+            >
+              {isSubmitting ? "Checking…" : "Check availability"}
+            </Button>
+          </>
         )}
       </form.Subscribe>
     </form>

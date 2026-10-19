@@ -7,7 +7,7 @@ import { Pool } from "pg";
 
 import * as schema from "#/db/schema";
 import { runSeed } from "../../scripts/seed";
-import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
+import { AuthorizationError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import {
   handleCheckEquipmentAvailability,
@@ -302,7 +302,9 @@ describe("equipment availability (PTR-40)", () => {
     const type = await createType(10);
     const target = await createEvent(null);
 
-    await expect(check(target.eventId, type.id)).rejects.toBeInstanceOf(ConflictError);
+    await expect(check(target.eventId, type.id)).rejects.toThrow(
+      "The event has no active approved venue booking yet"
+    );
   });
 
   test("refuses a missing type", async () => {

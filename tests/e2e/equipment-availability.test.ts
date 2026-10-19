@@ -159,7 +159,7 @@ test("states the shortfall for the event's approved booking period", async ({ pa
   await check(page, type.name, "8");
 
   await expect(page.getByRole("status")).toHaveText(
-    `${type.name}: Short by 3: 5 available, 8 requested (1 Jan 2030, 10:00 to 1 Jan 2030, 12:00)`
+    `${type.name}: Short by 3: 5 available, 8 requested (1 Jan 2030, 10:00 – 12:00)`
   );
 });
 
