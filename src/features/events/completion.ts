@@ -10,6 +10,13 @@ export const COMPLETED_EVENT_ACTIVITY_MESSAGE =
   "Completed events cannot accept new venue bookings, equipment reservations, or registrations.";
 
 /**
+ * PTR-156: why a waiting change or cancellation request closes when its event is completed. The
+ * close-out writes this as the decline reason and sends the existing decline notice, so the
+ * queue holds only requests the Coordinator can still act on.
+ */
+export const EVENT_COMPLETED_CLOSEOUT_REASON = "Event completed";
+
+/**
  * Share one completed-event refusal across all activity write paths. Venue approvals and
  * equipment reservations read the event under lock, then call this after their ownership gate.
  * A refused probe then reveals nothing about an event the caller cannot use. A null status is

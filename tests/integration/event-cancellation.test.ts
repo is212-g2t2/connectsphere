@@ -10,12 +10,16 @@ import { Pool } from "pg";
 import * as schema from "#/db/schema";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
-import { handleGetCoordinationRequest } from "#/features/coordination/assignments.server";
+import {
+  handleGetCoordinationRequest,
+  handleListAssignedEventRequests,
+} from "#/features/coordination/assignments.server";
 import {
   handleReleaseEquipment,
   handleReserveEquipment,
 } from "#/features/equipment-requests/reservations.server";
 import { handleRequestEventCancellation } from "#/features/event-requests/cancellation-requests.server";
+import { handleRaiseEventChangeRequest } from "#/features/event-requests/change-requests.server";
 import {
   handleGetEventRequest,
   handleListUnassignedEventRequests,
@@ -778,6 +782,57 @@ describe("cancelling an event (PTR-53, PTR-54)", () => {
       expect(detail?.cancellationRequests).toEqual([
         expect.objectContaining({ outcome: "cancelled", processedByName: coordinator.name }),
       ]);
+    });
+
+    test("declines other waiting change requests so the queue holds only actionable rows (PTR-156)", async () => {
+      const event = await createEvent("confirmed");
+      const first = await handleRaiseEventChangeRequest(
+        { id: event.id, whatShouldChange: "Expected attendance", requestedValue: "120 attendees" },
+        organiser,
+        database as never
+      );
+      const second = await handleRaiseEventChangeRequest(
+        { id: event.id, whatShouldChange: "Start time", requestedValue: "10:00" },
+        organiser,
+        database as never
+      );
+      await requestCancellation(event.id);
+
+      await cancel(event.id);
+
+      const changes = await database
+        .select()
+        .from(schema.eventChangeRequests)
+        .where(eq(schema.eventChangeRequests.eventRequestId, event.id))
+        .orderBy(schema.eventChangeRequests.id);
+      expect(changes.map(change => change.id)).toEqual([first.id, second.id]);
+      for (const change of changes) {
+        expect(change).toMatchObject({
+          outcome: "declined",
+          declineReason: "Event cancelled",
+          processedById: coordinator.id,
+          processedByName: coordinator.name,
+        });
+        expect(change.processedAt).toBeInstanceOf(Date);
+      }
+      // The consumed cancellation request keeps its own outcome.
+      expect((await requestsFor(event.id)).map(request => request.outcome)).toEqual(["cancelled"]);
+
+      // The Organiser gets the existing decline notice for each closed request.
+      const notices = await notificationsFor(event.id, "event_change_processed");
+      expect(notices).toHaveLength(2);
+      for (const notice of notices) {
+        expect(notice.recipientId).toBe(organiser.id);
+        expect(notice.payload).toMatchObject({
+          outcome: "declined",
+          eventName: event.eventName,
+          reason: "Event cancelled",
+        });
+      }
+
+      // A closed request no longer counts as waiting on the Coordinator's list.
+      const assigned = await handleListAssignedEventRequests(coordinator, database as never);
+      expect(assigned.find(row => row.id === event.id)?.changeRequestsWaiting).toBe(0);
     });
 
     test("declines with a recorded reason, notifies the Organiser and keeps the event (AC8)", async () => {

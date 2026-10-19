@@ -1,6 +1,6 @@
 // oxlint-disable node/no-process-env
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -9,6 +9,8 @@ import { runSeed } from "../../scripts/seed";
 import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { handleReserveEquipment } from "#/features/equipment-requests/reservations.server";
+import { handleRequestEventCancellation } from "#/features/event-requests/cancellation-requests.server";
+import { handleRaiseEventChangeRequest } from "#/features/event-requests/change-requests.server";
 import { EVENT_HAS_NOT_ENDED_MESSAGE } from "#/features/events/completion";
 import { handleCompleteEvent } from "#/features/events/complete.server";
 import { handleListEvents } from "#/features/events/records.server";
@@ -220,6 +222,74 @@ describe("completing an event (PTR-25)", () => {
 
     expect(endedEntry.event.completionUnavailableReason).toBeNull();
     expect(upcomingEntry.event.completionUnavailableReason).toBe(EVENT_HAS_NOT_ENDED_MESSAGE);
+  });
+
+  test("declines waiting change and cancellation requests with the Organiser told (PTR-156)", async () => {
+    const event = await createConfirmedEvent();
+    const change = await handleRaiseEventChangeRequest(
+      { id: event.id, whatShouldChange: "Expected attendance", requestedValue: "120 attendees" },
+      organiser,
+      database as never
+    );
+    await handleRequestEventCancellation({ id: event.id }, organiser, database as never);
+
+    await complete(event.id);
+
+    const changes = await database
+      .select()
+      .from(schema.eventChangeRequests)
+      .where(eq(schema.eventChangeRequests.eventRequestId, event.id));
+    expect(changes).toEqual([
+      expect.objectContaining({
+        id: change.id,
+        outcome: "declined",
+        declineReason: "Event completed",
+        processedById: coordinator.id,
+        processedByName: coordinator.name,
+      }),
+    ]);
+    expect(changes[0].processedAt).toBeInstanceOf(Date);
+    const cancellations = await database
+      .select()
+      .from(schema.eventCancellationRequests)
+      .where(eq(schema.eventCancellationRequests.eventRequestId, event.id));
+    expect(cancellations).toEqual([
+      expect.objectContaining({
+        outcome: "declined",
+        declineReason: "Event completed",
+        processedById: coordinator.id,
+        processedByName: coordinator.name,
+      }),
+    ]);
+
+    // The Organiser gets the existing decline notice for each closed request.
+    const noticesFor = (kind: "event_change_processed" | "event_cancellation_declined") =>
+      database
+        .select()
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.eventRequestId, event.id),
+            eq(schema.notifications.kind, kind)
+          )
+        );
+    const changeNotices = await noticesFor("event_change_processed");
+    expect(changeNotices).toHaveLength(1);
+    expect(changeNotices[0]).toMatchObject({
+      recipientId: organiser.id,
+      payload: {
+        outcome: "declined",
+        eventName: event.eventName,
+        whatShouldChange: "Expected attendance",
+        reason: "Event completed",
+      },
+    });
+    const cancellationNotices = await noticesFor("event_cancellation_declined");
+    expect(cancellationNotices).toHaveLength(1);
+    expect(cancellationNotices[0]).toMatchObject({
+      recipientId: organiser.id,
+      payload: { eventName: event.eventName, reason: "Event completed" },
+    });
   });
 
   test("refuses a new venue booking after completion", async () => {
