@@ -12,31 +12,26 @@ import {
   pendingVenueRequestMessage,
 } from "#/features/events/confirmation";
 
-/** One venue request row with the given status, at a fixed venue and window. */
+/** One venue request row with the given status, at a fixed window. */
 let nextRowId = 0;
 function request(
   status: VenueRequestStatus,
   venueName = "Great Hall",
-  venueId = 1,
-  suggestedVenueId: number | null = null
+  options: { replacesRequestId?: string; dismissedAt?: Date } = {}
 ) {
   return {
     id: `row-${nextRowId++}`,
     status,
     venueName,
-    venueId,
-    suggestedVenueId,
+    replacesRequestId: options.replacesRequestId ?? null,
+    dismissedAt: options.dismissedAt ?? null,
     startsAt: "2030-01-01 09:00:00",
     endsAt: "2030-01-01 12:30:00",
-    createdAt: BASE_TIME,
-    updatedAt: BASE_TIME,
   };
 }
 
-/** Fixed timestamp used as the default createdAt / updatedAt for test rows. */
+/** Fixed timestamp used for a dismissal. */
 const BASE_TIME = new Date("2029-01-01T00:00:00Z");
-/** A timestamp strictly after BASE_TIME, used to simulate a later re-request. */
-const LATER_TIME = new Date("2029-06-01T00:00:00Z");
 
 const approvedBooking = [request("approved")];
 const settled = [
@@ -177,74 +172,24 @@ describe("confirmationBlockers (PTR-24)", () => {
     ]);
   });
 
-  it("allows terminal requests answered by a later request at their target venue", () => {
-    const oldRejection = {
-      ...request("rejected", "Old Hall", 1, 2),
-      updatedAt: BASE_TIME,
-    };
-    const oldRelease = {
-      ...request("released", "Released Hall", 3),
-      updatedAt: BASE_TIME,
-    };
-    const replacementForRejection = {
-      ...request("approved", "Suggested Hall", 2),
-      createdAt: LATER_TIME,
-    };
-    const replacementForRelease = {
-      ...request("approved", "Released Hall", 3),
-      createdAt: LATER_TIME,
-    };
+  it("answers a rejected row only through the request that names it (PTR-165 AC2)", () => {
+    const rejected = request("rejected", "Old Hall");
+    const replacement = request("approved", "Suggested Hall", {
+      replacesRequestId: rejected.id,
+    });
 
     expect(
       blockersFor({
         status: "approved",
-        venueRequests: [oldRejection, oldRelease, replacementForRejection, replacementForRelease],
+        venueRequests: [rejected, replacement],
         equipmentLines: [],
       })
     ).toEqual([]);
   });
 
-  it("does not treat a request at the rejected venue as answering its suggested venue", () => {
-    const rejected = {
-      ...request("rejected", "Old Hall", 1, 2),
-      updatedAt: BASE_TIME,
-    };
-    const approvedAtRejectedVenue = {
-      ...request("approved", "Old Hall", 1),
-      createdAt: LATER_TIME,
-    };
-
-    expect(
-      blockersFor({
-        status: "approved",
-        venueRequests: [rejected, approvedAtRejectedVenue],
-        equipmentLines: [],
-      })
-    ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected."]);
-  });
-
-  it("keeps a rejected row that only a later withdrawn request follows", () => {
-    const rejected = request("rejected", "Old Hall", 1);
-    const withdrawnLater = {
-      ...request("withdrawn", "Old Hall", 1),
-      createdAt: LATER_TIME,
-    };
-
-    expect(
-      blockersFor({
-        status: "approved",
-        venueRequests: [rejected, withdrawnLater, request("approved", "New Hall", 2)],
-        equipmentLines: [],
-      })
-    ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected."]);
-  });
-
-  it("keeps a rejected row that only a later request at another venue follows", () => {
-    const rejected = request("rejected", "Old Hall", 1);
-    const approvedElsewhere = {
-      ...request("approved", "New Hall", 2),
-      createdAt: LATER_TIME,
-    };
+  it("keeps a rejected row when a later request does not name it (PTR-165)", () => {
+    const rejected = request("rejected", "Old Hall");
+    const approvedElsewhere = request("approved", "New Hall");
 
     expect(
       blockersFor({
@@ -255,30 +200,94 @@ describe("confirmationBlockers (PTR-24)", () => {
     ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected."]);
   });
 
-  it("keeps a pending request blocking beside a later request for its venue", () => {
-    const pending = request("pending", "Old Hall", 1);
-    const approvedLater = {
-      ...request("approved", "Old Hall", 1),
-      createdAt: LATER_TIME,
-    };
+  it("decides a chain of replacements by its last request (PTR-165 AC2)", () => {
+    const first = request("rejected", "Old Hall");
+    const second = request("rejected", "Suggested Hall", { replacesRequestId: first.id });
+    const third = request("pending", "Annex", { replacesRequestId: second.id });
 
     expect(
       blockersFor({
         status: "approved",
-        venueRequests: [pending, approvedLater],
+        venueRequests: [request("approved"), first, second, third],
         equipmentLines: [],
       })
-    ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) is still pending."]);
+    ).toEqual(["The booking request for Annex (1 Jan 2030, 09:00 – 12:30) is still pending."]);
+
+    const approvedEnd = request("approved", "Annex", { replacesRequestId: second.id });
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [first, second, approvedEnd],
+        equipmentLines: [],
+      })
+    ).toEqual([]);
   });
 
-  it("answers a released booking with a request raised after it, at any venue (PTR-137)", () => {
-    const released = { ...request("released", "Blocked Hall", 1), updatedAt: LATER_TIME };
-    const raisedAfter = new Date(LATER_TIME.getTime() + 86_400_000);
-    const replacement = {
-      ...request("approved", "Replacement Annex", 2),
-      createdAt: raisedAfter,
-      updatedAt: raisedAfter,
-    };
+  it("does not treat an approved row as the chain's end while it has a replacement (PTR-165 AC2)", () => {
+    // The Coordinator raises a replacement for an approved booking about to be released, and that
+    // replacement is then rejected. The chain ends there, so the first rejection is unanswered.
+    const first = request("rejected", "Old Hall");
+    const approvedMid = request("approved", "Suggested Hall", { replacesRequestId: first.id });
+    const end = request("rejected", "Annex", { replacesRequestId: approvedMid.id });
+
+    expect(
+      blockersFor({
+        status: "planning",
+        venueRequests: [first, approvedMid, end],
+        equipmentLines: [],
+      })
+    ).toEqual([
+      "The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected.",
+      "The booking request for Annex (1 Jan 2030, 09:00 – 12:30) was rejected.",
+    ]);
+
+    // The same chain with an approved end is answered throughout.
+    const approvedEnd = request("approved", "Annex", { replacesRequestId: approvedMid.id });
+    expect(
+      blockersFor({
+        status: "planning",
+        venueRequests: [first, approvedMid, approvedEnd],
+        equipmentLines: [],
+      })
+    ).toEqual([]);
+  });
+
+  it("keeps every row of a chain whose last request is settled (PTR-165 AC2)", () => {
+    const first = request("rejected", "Old Hall");
+    const second = request("released", "Suggested Hall", { replacesRequestId: first.id });
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [request("approved"), first, second],
+        equipmentLines: [],
+      })
+    ).toEqual([
+      "The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected.",
+      "The booking for Suggested Hall (1 Jan 2030, 09:00 – 12:30) was released.",
+    ]);
+  });
+
+  it("ignores a withdrawn replacer, so its predecessor stays unanswered (PTR-165 AC6)", () => {
+    const rejected = request("rejected", "Old Hall");
+    const withdrawn = request("withdrawn", "Suggested Hall", {
+      replacesRequestId: rejected.id,
+    });
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [request("approved"), rejected, withdrawn],
+        equipmentLines: [],
+      })
+    ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected."]);
+  });
+
+  it("answers a released booking through its replacement at another venue (PTR-137, PTR-165)", () => {
+    const released = request("released", "Blocked Hall");
+    const replacement = request("approved", "Replacement Annex", {
+      replacesRequestId: released.id,
+    });
 
     // The Coordinator arranges the replacement after the booking, then releases the booking. The
     // replacement can sit at another venue, and the lift leaves both arrangements standing.
@@ -290,16 +299,7 @@ describe("confirmationBlockers (PTR-24)", () => {
       })
     ).toEqual([]);
 
-    // A request raised before the released booking does not answer it.
-    expect(
-      blockersFor({
-        status: "planning",
-        venueRequests: [released, request("approved", "Replacement Annex", 2)],
-        equipmentLines: [],
-      })
-    ).toEqual(["The booking for Blocked Hall (1 Jan 2030, 09:00 – 12:30) was released."]);
-
-    // Alone, the release stays outstanding until the Coordinator raises a new request.
+    // Alone, the release stays outstanding until the Coordinator raises its replacement.
     expect(
       blockersFor({
         status: "planning",
@@ -309,6 +309,69 @@ describe("confirmationBlockers (PTR-24)", () => {
     ).toEqual([
       VENUE_BOOKING_OUTSTANDING_MESSAGE,
       "The booking for Blocked Hall (1 Jan 2030, 09:00 – 12:30) was released.",
+    ]);
+  });
+
+  it("stops blocking a settled row the Coordinator dismissed (PTR-165 AC4)", () => {
+    const dismissed = request("rejected", "Old Hall", { dismissedAt: BASE_TIME });
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [request("approved"), dismissed],
+        equipmentLines: [],
+      })
+    ).toEqual([]);
+  });
+
+  it("does not let a dismissed replacer answer its predecessor (PTR-165 AC2)", () => {
+    const rejected = request("rejected", "Old Hall");
+    const dismissed = request("rejected", "Suggested Hall", {
+      replacesRequestId: rejected.id,
+      dismissedAt: BASE_TIME,
+    });
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [request("approved"), rejected, dismissed],
+        equipmentLines: [],
+      })
+    ).toEqual(["The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected."]);
+  });
+
+  it("keeps a pending request blocking beside a replacement of another row (PTR-165)", () => {
+    const firstRejection = request("rejected", "Old Hall");
+    const pending = request("pending", "Annex");
+    const approvedReplacement = request("approved", "New Hall", {
+      replacesRequestId: firstRejection.id,
+    });
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [firstRejection, pending, approvedReplacement],
+        equipmentLines: [],
+      })
+    ).toEqual(["The booking request for Annex (1 Jan 2030, 09:00 – 12:30) is still pending."]);
+  });
+
+  it("blocks a corrupt replacement cycle instead of clearing the gate (PTR-165 AC2)", () => {
+    const first = request("rejected", "Old Hall");
+    const second = request("rejected", "Annex", { replacesRequestId: first.id });
+    // Point the first row back at the second. No handler writes this, but the index alone allows
+    // it: both rows name a different request.
+    const loop = { ...first, replacesRequestId: second.id };
+
+    expect(
+      blockersFor({
+        status: "approved",
+        venueRequests: [request("approved"), loop, second],
+        equipmentLines: [],
+      })
+    ).toEqual([
+      "The booking request for Old Hall (1 Jan 2030, 09:00 – 12:30) was rejected.",
+      "The booking request for Annex (1 Jan 2030, 09:00 – 12:30) was rejected.",
     ]);
   });
 

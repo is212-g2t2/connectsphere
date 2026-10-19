@@ -25,12 +25,20 @@ import {
   FieldSet,
 } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { ConflictBadge } from "#/features/venue-requests/components/conflict-badge";
 import { SessionRequirementFields } from "#/features/venue-requests/components/session-requirement-fields";
 import { VenueRequestStatusBadge } from "#/features/venue-requests/components/venue-request-status-badge";
 import {
   SESSION_REQUIREMENT_INPUTS,
+  VENUE_REQUEST_STATUS_LABELS,
   VenueRequestInput,
   formIssues,
   formatSessionSummary,
@@ -65,6 +73,7 @@ interface RequestFormValues extends SessionRequirementFormValues {
   date: string;
   startTime: string;
   endTime: string;
+  replacesRequestId: string;
 }
 
 /** The event fields that start the form: its window and its requirements. */
@@ -83,6 +92,7 @@ function hasCarriedWindow(prefill: VenueRequestPrefill): boolean {
  * carried date without times keeps its date. A request covers one civil day, so leave the times
  * empty for a multi-day event or another day, instead of silently truncating the window. Each
  * session requirement takes its carried value, else the event's requirement (PTR-138 AC1).
+ * PTR-165 AC1: a carried request id marks the request that this one replaces.
  */
 function toFormValues(event: PanelEvent, prefill: VenueRequestPrefill): RequestFormValues {
   const carried = hasCarriedWindow(prefill);
@@ -93,6 +103,7 @@ function toFormValues(event: PanelEvent, prefill: VenueRequestPrefill): RequestF
     date,
     startTime: carried ? (prefill.startTime ?? "") : eventTimes ? (event.startTime ?? "") : "",
     endTime: carried ? (prefill.endTime ?? "") : eventTimes ? (event.endTime ?? "") : "",
+    replacesRequestId: prefill.replacesRequestId ?? "",
     ...sessionRequirementFormValues({
       expectedAttendance: prefill.expectedAttendance ?? event.expectedAttendance,
       layout: prefill.layout ?? event.layout,
@@ -111,14 +122,22 @@ function toRequestInput(eventId: number, venueId: number, values: RequestFormVal
     date: values.date,
     startTime: values.startTime,
     endTime: values.endTime,
+    // PTR-165 AC1: an empty choice means that this request replaces nothing.
+    replacesRequestId: values.replacesRequestId || undefined,
     ...sessionRequirementInput(values),
   };
 }
 
+/** PTR-165 AC1: label one request that a new request can replace, for the form's picker. */
+function replaceableLabel(row: VenueRequestContext["replaceable"][number]): string {
+  const period = formatProposedWindow({ start: row.startsAt, end: row.endsAt });
+  return `${VENUE_REQUEST_STATUS_LABELS[row.status]} — ${row.venueName}, ${period}`;
+}
+
 /**
  * What the confirmation says the button does, by the row's state. A pending request leaves the
- * Venue Staff queue. A rejected or released row no longer blocks confirmation (PTR-139); a later
- * request may already have answered it.
+ * Venue Staff queue. A rejected or released row no longer blocks confirmation (PTR-139, PTR-165);
+ * a replacement request, a dismissal, or a withdrawal may already have cleared it.
  */
 function withdrawDescription(
   status: VenueRequestStatus,
@@ -246,9 +265,11 @@ function VenueRequestRowAction({
           </p>
         ) : (
           <p className={row.answered ? "body-sm text-muted-foreground" : "body-sm text-amber"}>
-            {row.answered
-              ? "Answered by a later request, so it does not block confirmation."
-              : "Blocks confirmation until withdrawn or answered by a new request."}
+            {row.dismissed
+              ? "Dismissed, so it does not block confirmation."
+              : row.answered
+                ? "Answered by a replacement request, so it does not block confirmation."
+                : "Blocks confirmation until withdrawn, dismissed, or answered by a replacement request."}
           </p>
         )}
       </div>
@@ -288,6 +309,8 @@ function VenueRequestRow({ row, venueName }: { row: VenueRequestContextRow; venu
           <span className="body-sm font-medium text-foreground">{period}</span>
           <VenueRequestStatusBadge status={row.status} />
           {row.conflict && <ConflictBadge conflict={row.conflict} />}
+          {/* PTR-165 AC4: every reader sees that the Coordinator dismissed this row. */}
+          {row.dismissed && <span className="body-sm text-muted-foreground">Dismissed</span>}
           {session && <span className="body-sm text-muted-foreground">{session}</span>}
         </div>
         {outcome && <p className="body-sm text-muted-foreground">{outcome}</p>}
@@ -317,7 +340,7 @@ export function VenueRequestPanel({
   prefill?: VenueRequestPrefill | null;
 }) {
   const router = useRouter();
-  const { event, requests, canRequest } = context;
+  const { event, requests, canRequest, replaceable } = context;
   const sameDay = event.endDate === event.eventDate;
   // The route creates a new `prefill` object on each render, so keep the first one. The venue page
   // keys the panel by the carried values, so other values mount a new panel.
@@ -339,6 +362,10 @@ export function VenueRequestPanel({
       try {
         await requestVenue({ data: toRequestInput(event.id, venueId, value) });
         toast.success("Venue request sent.");
+        // PTR-165 AC1: the request that this one replaced is now answered, so it leaves the
+        // picker. Clear the field, or the next submit would name a request that is already
+        // replaced and be refused.
+        formApi.setFieldValue("replacesRequestId", "");
         // The loader owns the list. Rerun it to add the new request above the form.
         await router.invalidate({ filter: skipRootFilter });
       } catch (error) {
@@ -388,7 +415,9 @@ export function VenueRequestPanel({
           accessibilityRequirements,
           requiredFacilities,
         },
-        carriedValues
+        // Keep the current replacement across the reset. The clear effect below drops it when the
+        // event can no longer replace it.
+        { ...carriedValues, replacesRequestId: form.state.values.replacesRequestId }
       )
     );
   }, [
@@ -403,6 +432,15 @@ export function VenueRequestPanel({
     carriedValues,
     form,
   ]);
+
+  // PTR-165 AC1: the picked replacement can stop being replaceable while the form holds it, for
+  // example after a withdrawal reruns the loader. Clear it, so the select never shows one value
+  // while the form submits another. Declare this after the reset, which restores the carried value.
+  useEffect(() => {
+    const chosen = form.state.values.replacesRequestId;
+    if (chosen === "" || replaceable.some(row => row.id === chosen)) return;
+    form.setFieldValue("replacesRequestId", "");
+  }, [form, replaceable]);
 
   // A carried window comes from the search or the rejection card, and the form sits below the
   // venue record. Focus the form heading so the reader lands on the prefilled form.
@@ -546,6 +584,49 @@ export function VenueRequestPanel({
                     )}
                   </form.Field>
                 </div>
+                {/* PTR-165 AC1: mark the settled request, or the booking about to be released,
+                    that this request replaces. */}
+                {replaceable.length > 0 && (
+                  <form.Field name="replacesRequestId">
+                    {field => (
+                      <Field>
+                        <FieldLabel htmlFor="venue-request-replaces">
+                          Replaces (optional)
+                        </FieldLabel>
+                        <Select
+                          value={field.state.value === "" ? null : field.state.value}
+                          onValueChange={value => field.handleChange(value ?? "")}
+                        >
+                          <SelectTrigger
+                            id="venue-request-replaces"
+                            className="w-full"
+                            aria-describedby="venue-request-replaces-hint"
+                            onBlur={field.handleBlur}
+                          >
+                            <SelectValue>
+                              {(value: string | null) => {
+                                const selected = replaceable.find(row => row.id === value);
+                                return selected ? replaceableLabel(selected) : "No replacement";
+                              }}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={null}>No replacement</SelectItem>
+                            {replaceable.map(row => (
+                              <SelectItem key={row.id} value={row.id}>
+                                {replaceableLabel(row)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FieldDescription id="venue-request-replaces-hint">
+                          Choose the rejected or released request, or the booking you are about to
+                          release, that this request replaces.
+                        </FieldDescription>
+                      </Field>
+                    )}
+                  </form.Field>
+                )}
                 {/* PTR-138 AC1: the venue must meet this session's requirements. */}
                 <FieldSet aria-describedby="venue-request-session-hint">
                   <FieldLegend variant="label">Session requirements</FieldLegend>

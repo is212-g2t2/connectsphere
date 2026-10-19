@@ -8,7 +8,8 @@ import type { EventVenueRequest, VenueRequestRejection } from "#/features/events
  * Prefill an adjusted request from a rejected entry: the suggested venue when Venue Staff named
  * one, else the refusing venue. Fall each window part back the same way. Take times only as a
  * pair. PTR-138 AC1: carry the rejected session's requirements too. Leave out a null attendance,
- * so the form uses the event's figure.
+ * so the form uses the event's figure. PTR-165 AC1: the adjusted request replaces the rejected one,
+ * so the form marks that automatically.
  */
 export function adjustedRequest(
   entry: EventVenueRequest,
@@ -23,6 +24,7 @@ export function adjustedRequest(
   layout?: string;
   accessibilityRequirements?: string;
   requiredFacilities?: string;
+  replacesRequestId: string;
 } {
   const suggestion = rejection.suggestion;
   const times =
@@ -46,6 +48,7 @@ export function adjustedRequest(
     date: suggestion?.date ?? entry.date,
     ...times,
     ...session,
+    replacesRequestId: entry.id,
   };
 }
 

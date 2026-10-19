@@ -41,6 +41,7 @@ const openContext: VenueRequestContext = {
     requiredFacilities: "Projector, PA system",
   },
   canRequest: true,
+  replaceable: [],
   requests: [],
 };
 
@@ -60,6 +61,7 @@ const ownPending = {
   rejectionReason: null,
   releaseReason: null,
   answered: false,
+  dismissed: false,
   requirements: eventRequirements,
   canWithdraw: true,
 } satisfies VenueRequestContextRow;
@@ -73,6 +75,7 @@ const approved = {
   rejectionReason: null,
   releaseReason: null,
   answered: false,
+  dismissed: false,
   requirements: { ...eventRequirements, expectedAttendance: 30, layout: "Boardroom" },
   canWithdraw: false,
 } satisfies VenueRequestContextRow;
@@ -95,11 +98,28 @@ const ownReleased = {
   releaseReason: "Air-conditioning failure",
 } satisfies VenueRequestContextRow;
 
-/** A settled row that a later request answered: it no longer blocks confirmation. */
+/** A settled row that a replacement request answered: it no longer blocks confirmation. */
 const answeredRejected = {
   ...ownRejected,
   id: "req-4",
   answered: true,
+} satisfies VenueRequestContextRow;
+
+/** PTR-165 AC1: one request the form offers as the one a new request replaces. */
+const REJECTED_CANDIDATE = {
+  id: "rejected-1",
+  status: "rejected" as const,
+  venueName: "Harbour Hall",
+  startsAt: "2026-10-12T16:00",
+  endsAt: "2026-10-12T17:00",
+};
+
+/** A settled row the assigned Coordinator dismissed. */
+const dismissedRejected = {
+  ...ownRejected,
+  id: "req-5",
+  answered: true,
+  dismissed: true,
 } satisfies VenueRequestContextRow;
 
 function withRows(...requests: VenueRequestContextRow[]): VenueRequestContext {
@@ -254,6 +274,166 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
         expect(requestVenue).toHaveBeenCalled();
       });
       expect(requestVenue.mock.calls[0][0].data).not.toHaveProperty("expectedAttendance");
+    });
+
+    it("offers the event's replaceable requests and sends the chosen one (PTR-165 AC1)", async () => {
+      const user = userEvent.setup();
+      requestVenue.mockResolvedValueOnce({ id: "req-1" });
+      renderPanel({
+        ...openContext,
+        replaceable: [REJECTED_CANDIDATE],
+      });
+
+      await user.click(screen.getByLabelText("Replaces (optional)"));
+      await user.click(
+        await screen.findByRole("option", {
+          name: "Rejected — Harbour Hall, 12 Oct 2026, 16:00 – 17:00",
+        })
+      );
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      await waitFor(() => {
+        expect(requestVenue).toHaveBeenCalledWith({
+          data: expect.objectContaining({ replacesRequestId: "rejected-1" }),
+        });
+      });
+    });
+
+    it("carries the request an adjusted request replaces, and sends it (PTR-165 AC1, AC5)", async () => {
+      const user = userEvent.setup();
+      requestVenue.mockResolvedValueOnce({ id: "req-1" });
+      const candidate = REJECTED_CANDIDATE;
+      render(
+        <VenueRequestPanel
+          venueId={9}
+          venueName="Harbour Hall"
+          context={{ ...openContext, replaceable: [candidate] }}
+          prefill={{
+            date: "2027-04-21",
+            startTime: "10:00",
+            endTime: "13:30",
+            replacesRequestId: candidate.id,
+          }}
+        />
+      );
+
+      expect(screen.getByLabelText("Replaces (optional)").textContent).toContain(
+        "Rejected — Harbour Hall, 12 Oct 2026, 16:00 – 17:00"
+      );
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      await waitFor(() => {
+        expect(requestVenue).toHaveBeenCalledWith({
+          data: expect.objectContaining({ replacesRequestId: candidate.id }),
+        });
+      });
+    });
+
+    it("shows no replacement picker when the event has nothing to replace (PTR-165 AC1)", () => {
+      renderPanel(openContext);
+
+      expect(screen.queryByLabelText("Replaces (optional)")).toBeNull();
+    });
+
+    it("clears a chosen replacement through the No replacement option (PTR-165 AC1)", async () => {
+      const user = userEvent.setup();
+      requestVenue.mockResolvedValue({ id: "req-1" });
+      renderPanel({ ...openContext, replaceable: [REJECTED_CANDIDATE] });
+
+      await user.click(screen.getByLabelText("Replaces (optional)"));
+      await user.click(await screen.findByRole("option", { name: /^Rejected —/ }));
+      await user.click(screen.getByLabelText("Replaces (optional)"));
+      await user.click(await screen.findByRole("option", { name: "No replacement" }));
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      await waitFor(() => {
+        expect(requestVenue).toHaveBeenCalled();
+      });
+      const sent = requestVenue.mock.calls[0][0].data as { replacesRequestId?: string };
+      expect(sent.replacesRequestId).toBeUndefined();
+    });
+
+    it("clears the replacement after a successful send, so the next request does not repeat it (PTR-165 AC1)", async () => {
+      const user = userEvent.setup();
+      requestVenue.mockResolvedValue({ id: "req-1" });
+      renderPanel({ ...openContext, replaceable: [REJECTED_CANDIDATE] });
+
+      await user.click(screen.getByLabelText("Replaces (optional)"));
+      await user.click(await screen.findByRole("option", { name: /^Rejected —/ }));
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Replaces (optional)").textContent).toContain(
+          "No replacement"
+        );
+      });
+    });
+
+    it("drops a carried replacement that the event can no longer replace (PTR-165 AC1)", async () => {
+      const user = userEvent.setup();
+      requestVenue.mockResolvedValueOnce({ id: "req-1" });
+      render(
+        <VenueRequestPanel
+          venueId={9}
+          venueName="Harbour Hall"
+          context={openContext}
+          prefill={{
+            date: "2027-04-21",
+            startTime: "10:00",
+            endTime: "13:30",
+            replacesRequestId: REJECTED_CANDIDATE.id,
+          }}
+        />
+      );
+
+      // Nothing is replaceable, so no control offers the carried id, and the submit leaves it out
+      // rather than naming a request the server would refuse.
+      expect(screen.queryByLabelText("Replaces (optional)")).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+
+      await waitFor(() => {
+        expect(requestVenue).toHaveBeenCalled();
+      });
+      const sent = requestVenue.mock.calls[0][0].data as { replacesRequestId?: string };
+      expect(sent.replacesRequestId).toBeUndefined();
+    });
+
+    it("clears a picked replacement when a reload drops it from the candidates (PTR-165 AC1)", async () => {
+      const user = userEvent.setup();
+      requestVenue.mockResolvedValueOnce({ id: "req-1" });
+      const prefill = {
+        date: "2027-04-21",
+        startTime: "10:00",
+        endTime: "13:30",
+        replacesRequestId: REJECTED_CANDIDATE.id,
+      };
+      const { rerender } = render(
+        <VenueRequestPanel
+          venueId={9}
+          venueName="Harbour Hall"
+          context={{ ...openContext, replaceable: [REJECTED_CANDIDATE] }}
+          prefill={prefill}
+        />
+      );
+      expect(screen.getByLabelText("Replaces (optional)").textContent).toContain("Rejected —");
+
+      // A withdrawal reruns the loader and removes the candidate while the form still holds it.
+      rerender(
+        <VenueRequestPanel
+          venueId={9}
+          venueName="Harbour Hall"
+          context={openContext}
+          prefill={prefill}
+        />
+      );
+
+      expect(screen.queryByLabelText("Replaces (optional)")).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+      await waitFor(() => {
+        expect(requestVenue).toHaveBeenCalled();
+      });
+      const sent = requestVenue.mock.calls[0][0].data as { replacesRequestId?: string };
+      expect(sent.replacesRequestId).toBeUndefined();
     });
 
     it("refuses a layout that names no supported layout before calling the server", async () => {
@@ -434,7 +614,9 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
     });
 
     it("offers its own settled rows for withdrawal, with their state, reason, and gate effect", () => {
-      renderPanel(withRows(approved, ownRejected, ownReleased, answeredRejected));
+      renderPanel(
+        withRows(approved, ownRejected, ownReleased, answeredRejected, dismissedRejected)
+      );
 
       const rows = within(requestList()).getAllByRole("listitem");
       expect(within(rows[0]).getByText("Approved")).toBeTruthy();
@@ -446,14 +628,20 @@ describe("VenueRequestPanel (PTR-31, PTR-138 AC4)", () => {
       expect(within(rows[1]).getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
       expect(
         within(rows[1]).getByText(
-          "Blocks confirmation until withdrawn or answered by a new request."
+          "Blocks confirmation until withdrawn, dismissed, or answered by a replacement request."
         )
       ).toBeTruthy();
       expect(within(rows[2]).getByText("Release reason: Air-conditioning failure")).toBeTruthy();
       expect(within(rows[2]).getByRole("button", { name: /^Withdraw request/ })).toBeTruthy();
-      // An answered row does not block, so it claims no block.
+      // An answered row does not block, so it claims no block (PTR-165 AC2).
       expect(
-        within(rows[3]).getByText("Answered by a later request, so it does not block confirmation.")
+        within(rows[3]).getByText(
+          "Answered by a replacement request, so it does not block confirmation."
+        )
+      ).toBeTruthy();
+      // A dismissed row does not block either (PTR-165 AC4).
+      expect(
+        within(rows[4]).getByText("Dismissed, so it does not block confirmation.")
       ).toBeTruthy();
     });
 

@@ -15,6 +15,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import type {
   ClarificationAmendment,
@@ -717,6 +718,18 @@ export const venueRequests = pgTable(
     layout: text("layout"),
     accessibilityRequirements: text("accessibility_requirements"),
     requiredFacilities: text("required_facilities"),
+    /**
+     * PTR-165 AC1: the rejected or released request, or the approved booking about to be released,
+     * that this request replaces. Null on an ordinary request. AC2 answers a settled row through
+     * its chain of replacements, and the partial unique index below gives each chain one end (AC6).
+     */
+    replacesRequestId: text("replaces_request_id").references((): AnyPgColumn => venueRequests.id, {
+      onDelete: "set null",
+    }),
+    /** PTR-165 AC4: when the assigned Coordinator dismissed this settled request as no longer needed. */
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    /** PTR-165 AC4: who dismissed it. `set null` keeps the row if the account is deleted. */
+    dismissedById: text("dismissed_by_id").references(() => user.id, { onDelete: "set null" }),
     /** When the Coordinator raised the request; PTR-32 uses this for queue order. */
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // As in `venues` and `eventRequests`, record when this row last changed because withdrawal
@@ -741,12 +754,28 @@ export const venueRequests = pgTable(
       "venue_requests_release_has_reason",
       sql`${table.status}::text <> 'released' or coalesce(${table.releaseReason}, '') ~ '[^[:space:]]'`
     ),
+    // PTR-165 AC4: a dismissal is stored only on a settled request, so it can never clear a pending
+    // request's block on confirmation. A later withdrawal keeps the dismissal as history.
+    check(
+      "venue_requests_dismissal_settled",
+      sql`${table.dismissedAt} is null or ${table.status}::text in ('rejected', 'released', 'withdrawn')`
+    ),
     // Criterion 1: refuse an exact double-submit, a second pending request for the same event,
     // venue and window. An event can have several pending requests at one venue at different
     // windows (PTR-138 AC4). This partial index frees the window after withdrawal.
     uniqueIndex("venue_requests_pending_event_venue_window_idx")
       .on(table.eventId, table.venueId, table.startsAt, table.endsAt)
       .where(sql`${table.status} = 'pending'`),
+    // PTR-165 AC6: a request has one replacement that is not withdrawn, so every chain has one end.
+    // A withdrawn replacement frees the request for another one.
+    uniqueIndex("venue_requests_replaces_request_id_idx")
+      .on(table.replacesRequestId)
+      .where(sql`${table.status} <> 'withdrawn'`),
+    // PTR-165: the self-FK and the dismissing user's FK use ON DELETE SET NULL, and Postgres cannot
+    // use either partial index for that lookup. Without these plain indexes, every user and event
+    // delete scans the whole table and can wait on a row another writer holds.
+    index("venue_requests_replaces_request_id_lookup_idx").on(table.replacesRequestId),
+    index("venue_requests_dismissed_by_id_idx").on(table.dismissedById),
     // Look up both directions for each request: a caller's assignments and requests for events
     // the caller can see.
     index("venue_requests_event_id_idx").on(table.eventId),

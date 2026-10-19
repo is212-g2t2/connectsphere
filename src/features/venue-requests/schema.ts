@@ -31,6 +31,17 @@ export const VENUE_REQUEST_SETTLED_MESSAGE =
   "This request has already been settled and can no longer be withdrawn.";
 /** PTR-36: a request that is no longer pending cannot be approved again. */
 export const VENUE_REQUEST_DECIDED_MESSAGE = "This request has already been decided.";
+/**
+ * PTR-165 AC1: a new request replaces only a settled request, or an approved booking that the
+ * Coordinator is about to release.
+ */
+export const VENUE_REQUEST_NOT_REPLACEABLE_MESSAGE =
+  "Only a rejected or released request, or an approved booking, can be replaced.";
+/** PTR-165 AC6: the partial unique index gives every chain one end. */
+export const VENUE_REQUEST_ALREADY_REPLACED_MESSAGE = "This request already has a replacement.";
+/** PTR-165 AC4: only a settled request can be dismissed. */
+export const VENUE_REQUEST_NOT_SETTLED_MESSAGE =
+  "Only a rejected or released request can be dismissed.";
 export const VENUE_BOOKING_NOT_APPROVED_MESSAGE =
   "Only an approved booking can be released or amended.";
 /**
@@ -121,6 +132,23 @@ const SessionRequirementShape = {
 };
 
 /**
+ * Validate an id as text, not as a UUID. The column and seed fixture use text ids, so a UUID check
+ * would reject a request the UI can show.
+ */
+export const VenueRequestIdInput = z.object(
+  {
+    id: z
+      .string({ error: VENUE_REQUEST_ID_MESSAGE })
+      .trim()
+      .min(1, VENUE_REQUEST_ID_MESSAGE)
+      .max(64, VENUE_REQUEST_ID_MESSAGE),
+  },
+  { error: VENUE_REQUEST_ID_MESSAGE }
+);
+
+export type VenueRequestId = z.infer<typeof VenueRequestIdInput>;
+
+/**
  * PTR-31 criterion 1: Require a venue, date, start time, and end time. Fixed-width `HH:MM` strings
  * compare as times, so the refinement can use a string comparison without building a `Date`.
  * Allow one civil day only. A window past midnight does not fit a daily window, as
@@ -134,6 +162,8 @@ export const VenueRequestInput = z
     startTime: Time,
     endTime: Time,
     ...SessionRequirementShape,
+    /** PTR-165 AC1: absent on an ordinary request. */
+    replacesRequestId: VenueRequestIdInput.shape.id.optional(),
   })
   .refine(value => `${value.date}T${value.endTime}` > `${value.date}T${value.startTime}`, {
     path: ["endTime"],
@@ -151,9 +181,11 @@ export type SessionRequirementInput = Pick<
 /**
  * What the venue page carries into the request form: the search's window and session values, or
  * an adjusted request's (PTR-35). The route's search schema checks the shape of each value.
+ * PTR-165 AC1: an adjusted request also carries the rejected request that it replaces.
  */
 export type VenueRequestPrefill = Partial<
-  Pick<VenueRequestValues, "date" | "startTime" | "endTime"> & SessionRequirementInput
+  Pick<VenueRequestValues, "date" | "startTime" | "endTime" | "replacesRequestId"> &
+    SessionRequirementInput
 >;
 
 /** The session requirements as the request and hold-conversion forms hold them: text. */
@@ -236,23 +268,6 @@ export function formatSessionSummary(
 export const VenueRequestContextInput = z.object({ eventId: EventId, venueId: VenueId });
 
 export type VenueRequestContextSelection = z.infer<typeof VenueRequestContextInput>;
-
-/**
- * Validate an id as text, not as a UUID. The column and seed fixture use text ids, so a UUID check
- * would reject a request the UI can show.
- */
-export const VenueRequestIdInput = z.object(
-  {
-    id: z
-      .string({ error: VENUE_REQUEST_ID_MESSAGE })
-      .trim()
-      .min(1, VENUE_REQUEST_ID_MESSAGE)
-      .max(64, VENUE_REQUEST_ID_MESSAGE),
-  },
-  { error: VENUE_REQUEST_ID_MESSAGE }
-);
-
-export type VenueRequestId = z.infer<typeof VenueRequestIdInput>;
 
 /**
  * PTR-138 AC1: convert a hold with the session requirements that the new request carries. An
@@ -439,46 +454,77 @@ export const VENUE_REQUEST_STATUS_LABELS: Record<VenueRequestStatus, string> = {
   released: "Released",
 };
 
-/** The fields of one row that decide whether a later request answers it. */
+/** The fields of one row that decide whether a replacement request answers it. */
 export interface VenueRequestAnswerRow {
   id: string;
   status: VenueRequestStatus;
-  venueId: number;
-  suggestedVenueId: number | null;
-  createdAt: Date;
-  updatedAt: Date;
+  /** PTR-165 AC1: the request this one replaces, or null. */
+  replacesRequestId: string | null;
+  /** PTR-165 AC4: set when the assigned Coordinator dismissed this settled row. */
+  dismissedAt: Date | null;
+}
+
+/** PTR-165 AC1: the states that a replacement request may name. */
+export function isReplaceableStatus(status: VenueRequestStatus): boolean {
+  return status === "approved" || status === "rejected" || status === "released";
 }
 
 /**
- * PTR-35, PTR-139, PTR-137: Decide whether the Coordinator answered this row with a later
- * request. A rejected row is answered at the venue Venue Staff suggested, else at its own venue,
- * by a non-withdrawn request raised after the rejection (`updatedAt`). A released row is answered
- * by a non-withdrawn request at any venue raised after the booking itself (`createdAt`): the
- * release abandons its venue, and the replacement is arranged before the release and may land
- * elsewhere (PTR-137). The venue-request card and the confirmation gate both read this rule, so
- * they cannot drift.
+ * PTR-165 AC6: the request that replaces `row` and is not withdrawn. The partial unique index
+ * keeps at most one, so a lookup is enough. Chain resolution ignores a withdrawn replacer, so it
+ * answers nothing.
  */
-export function answeredByLaterRequest(
+function liveReplacer(
+  row: VenueRequestAnswerRow,
+  rows: readonly VenueRequestAnswerRow[]
+): VenueRequestAnswerRow | undefined {
+  return rows.find(other => other.replacesRequestId === row.id && other.status !== "withdrawn");
+}
+
+/**
+ * PTR-165 AC2, AC4: Decide whether this row no longer blocks confirmation. A dismissed settled row
+ * is answered. Otherwise only a rejected or released row can be answered, and only through the
+ * chain of requests that replace it: the last request in the chain decides, and the row is answered
+ * only when that request is approved or pending. A chain with no live replacer stays unanswered.
+ *
+ * Pass every row of the request's event. A partial list can stop a chain early and clear the
+ * confirmation gate (AC3).
+ *
+ * The venue-request card, the adjust link, and the confirmation gate read this rule, so they cannot
+ * drift (AC5).
+ */
+export function answeredByReplacement(
   row: VenueRequestAnswerRow,
   rows: readonly VenueRequestAnswerRow[]
 ): boolean {
-  // Only a settled row can be answered. A pending or approved row stands on its own.
+  if (row.dismissedAt !== null) return true;
   if (row.status !== "rejected" && row.status !== "released") return false;
-  if (row.status === "rejected") {
-    const targetVenueId = row.suggestedVenueId ?? row.venueId;
-    return rows.some(
-      other =>
-        other.id !== row.id &&
-        other.status !== "withdrawn" &&
-        other.venueId === targetVenueId &&
-        other.createdAt.getTime() > row.updatedAt.getTime()
-    );
+  const seen = new Set([row.id]);
+  let end = row;
+  for (;;) {
+    const replacer = liveReplacer(end, rows);
+    if (!replacer) break;
+    // Only the create handler refuses a cycle. A corrupt row must block confirmation, not clear
+    // it or hang the gate.
+    if (seen.has(replacer.id)) return false;
+    seen.add(replacer.id);
+    end = replacer;
   }
-  return rows.some(
-    other =>
-      other.id !== row.id &&
-      other.status !== "withdrawn" &&
-      other.createdAt.getTime() > row.createdAt.getTime()
+  return end !== row && (end.status === "approved" || end.status === "pending");
+}
+
+/**
+ * PTR-165 AC1, AC6: whether a new request may name `row` as the request it replaces. The adjust
+ * link and the request form's picker read this rule.
+ */
+export function canBeReplaced(
+  row: VenueRequestAnswerRow,
+  rows: readonly VenueRequestAnswerRow[]
+): boolean {
+  return (
+    isReplaceableStatus(row.status) &&
+    row.dismissedAt === null &&
+    liveReplacer(row, rows) === undefined
   );
 }
 

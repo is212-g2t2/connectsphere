@@ -1,8 +1,21 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
+import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "#/components/ui/alert-dialog";
 import { Badge } from "#/components/ui/badge";
-import { buttonVariants } from "#/components/ui/button";
+import { Button, buttonVariants } from "#/components/ui/button";
 import { Card, CardContent } from "#/components/ui/card";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import {
@@ -32,6 +45,9 @@ import {
   formatSessionSummary,
   formatVenueSuggestion,
 } from "#/features/venue-requests/schema";
+import { dismissVenueRequest } from "#/features/venue-requests/server-fns";
+import { useMutation } from "#/hooks/use-mutation";
+import { skipRootFilter } from "#/lib/invalidate";
 import { SEARCHABLE_EVENT_STATUSES } from "#/features/venues/schema";
 
 interface VenueSource {
@@ -121,6 +137,11 @@ function VenueRequestEntry({
 }) {
   const showAdjust =
     canAdjust && entry.adjustable === true && SEARCHABLE_EVENT_STATUSES.includes(eventStatus);
+  // PTR-165 AC4: only the assigned Coordinator dismisses a settled entry, and only once.
+  const showDismiss =
+    canAdjust &&
+    entry.dismissed !== true &&
+    (entry.status === "rejected" || entry.status === "released");
   // PTR-138 AC1: the Coordinator's entries carry their session, which tells two sessions apart.
   const session = entry.requirements ? formatSessionSummary(entry.requirements) : "";
   const period = formatEntryPeriod(entry);
@@ -138,6 +159,7 @@ function VenueRequestEntry({
           <span className="flex flex-wrap items-center gap-2">
             <VenueRequestStatusBadge status={entry.status} />
             {entry.conflict && <ConflictBadge conflict={entry.conflict} />}
+            {entry.dismissed && <span className="body-sm text-muted-foreground">Dismissed</span>}
           </span>
         }
       />
@@ -169,6 +191,9 @@ function VenueRequestEntry({
           )}
         </>
       )}
+      {showDismiss && (
+        <VenueDetail label="Or dismiss" value={<DismissRequestAction entry={entry} />} />
+      )}
     </dl>
   );
 }
@@ -197,6 +222,62 @@ function HoldRequestEntry({ hold, canWithdraw }: { hold: EventHoldRequest; canWi
         />
       )}
     </dl>
+  );
+}
+
+/**
+ * PTR-165 AC4: the assigned Coordinator dismisses a settled request it no longer needs. The row
+ * keeps its history and stops blocking confirmation. The server re-reads the assignment. Dismissing
+ * is a one-way action, so confirm it first, as withdrawal on the venue page does.
+ */
+function DismissRequestAction({ entry }: { entry: EventVenueRequest }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const noun = entry.status === "rejected" ? "request" : "booking";
+  const [dismiss, run, dismissing] = useMutation(async () => {
+    await dismissVenueRequest({ data: { id: entry.id } });
+    setOpen(false);
+    toast.success("Request dismissed.");
+    await router.invalidate({ filter: skipRootFilter });
+  }, "Could not dismiss this request. Try again.");
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={dismissing}
+            aria-label={`Dismiss ${noun} for ${entry.venueName}, ${formatEntryPeriod(entry)}`}
+          />
+        }
+      >
+        Dismiss {noun}
+      </AlertDialogTrigger>
+      <AlertDialogContent size="sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Dismiss this {noun}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The {entry.status} {noun} for {entry.venueName} on {formatEntryPeriod(entry)} stays on
+            record and no longer blocks confirmation. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel size="sm" disabled={dismissing}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction size="sm" disabled={dismissing} onClick={() => void run()}>
+            {dismissing ? "Dismissing…" : `Dismiss ${noun}`}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+        {dismiss.status === "error" && (
+          <p role="alert" className="body-sm text-destructive">
+            {dismiss.error}
+          </p>
+        )}
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

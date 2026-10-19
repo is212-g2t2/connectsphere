@@ -166,10 +166,27 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
     return event;
   }
 
-  /** Raise and approve a booking at `venueId` for the event. The event must accept requests. */
-  async function book(eventId: number, startTime: string, endTime: string, venueId = hallId) {
+  /**
+   * Raise and approve a booking at `venueId` for the event. The event must accept requests.
+   * PTR-165 AC1: `replacesRequestId` names the settled or about-to-be-released request this one
+   * replaces.
+   */
+  async function book(
+    eventId: number,
+    startTime: string,
+    endTime: string,
+    venueId = hallId,
+    replacesRequestId?: string
+  ) {
     const request = await handleCreateVenueRequest(
-      { eventId, venueId, date: DATE, startTime, endTime },
+      {
+        eventId,
+        venueId,
+        date: DATE,
+        startTime,
+        endTime,
+        ...(replacesRequestId === undefined ? {} : { replacesRequestId }),
+      },
       coordinator,
       database as never
     );
@@ -483,8 +500,9 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
     const { eventId, bookingId } = await confirmedEventWithBooking();
     const block = await recordBlock("09:00", "13:00");
 
-    // AC3: the replacement goes through the built request path and its own approval.
-    const replacementId = await book(eventId, "10:00", "12:00", annexId);
+    // AC3: the replacement goes through the built request path and its own approval. PTR-165 AC1:
+    // it names the suspended booking that it replaces, raised before the release.
+    const replacementId = await book(eventId, "10:00", "12:00", annexId, bookingId);
     const released = await release(bookingId);
 
     expect(released).toMatchObject({

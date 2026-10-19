@@ -21,7 +21,10 @@ import { handleConfirmEvent } from "#/features/events/confirm.server";
 import { handleListEvents } from "#/features/events/records.server";
 import { notificationSummary } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
-import { handleWithdrawVenueRequest } from "#/features/venue-requests/requests.server";
+import {
+  handleDismissVenueRequest,
+  handleWithdrawVenueRequest,
+} from "#/features/venue-requests/requests.server";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -314,12 +317,13 @@ describe("confirming an event (PTR-24)", () => {
       });
     });
 
-    test("confirms after later bookings answer rejected and released history", async () => {
+    test("confirms after replacements answer rejected and released history (PTR-165 AC2)", async () => {
       const eventId = await createEvent();
-      const earlier = new Date("2020-01-01T00:00:00Z");
+      const releasedId = crypto.randomUUID();
+      const rejectedId = crypto.randomUUID();
       await database.insert(schema.venueRequests).values([
         {
-          id: crypto.randomUUID(),
+          id: releasedId,
           eventId,
           venueId,
           requestedById: coordinator.id,
@@ -327,21 +331,16 @@ describe("confirming an event (PTR-24)", () => {
           endsAt: "2041-06-10 12:30:00",
           status: "released",
           releaseReason: "No longer needed",
-          createdAt: earlier,
-          updatedAt: earlier,
         },
         {
-          id: crypto.randomUUID(),
+          id: rejectedId,
           eventId,
           venueId,
-          suggestedVenueId: otherVenueId,
           requestedById: coordinator.id,
           startsAt: "2042-06-10 09:00:00",
           endsAt: "2042-06-10 12:30:00",
           status: "rejected",
           rejectionReason: "Fully booked",
-          createdAt: earlier,
-          updatedAt: earlier,
         },
         {
           id: crypto.randomUUID(),
@@ -351,6 +350,7 @@ describe("confirming an event (PTR-24)", () => {
           startsAt: "2043-06-10 09:00:00",
           endsAt: "2043-06-10 12:30:00",
           status: "approved",
+          replacesRequestId: releasedId,
         },
         {
           id: crypto.randomUUID(),
@@ -360,14 +360,67 @@ describe("confirming an event (PTR-24)", () => {
           startsAt: "2044-06-10 09:00:00",
           endsAt: "2044-06-10 12:30:00",
           status: "approved",
+          replacesRequestId: rejectedId,
         },
       ] satisfies (typeof schema.venueRequests.$inferInsert)[]);
 
       expect((await confirm(eventId)).status).toBe("confirmed");
     });
 
-    // PTR-139: the Coordinator abandons a refused or released venue, so no later request for it
-    // exists and the supersede rule cannot answer the row. Withdrawing it clears the gate.
+    test("refuses a settled row that an unnamed later booking follows (PTR-165)", async () => {
+      const eventId = await createEvent();
+      await database.insert(schema.venueRequests).values({
+        id: crypto.randomUUID(),
+        eventId,
+        venueId,
+        requestedById: coordinator.id,
+        startsAt: "2041-06-10 09:00:00",
+        endsAt: "2041-06-10 12:30:00",
+        status: "rejected",
+        rejectionReason: "Fully booked",
+      });
+      // An ordinary later booking answers nothing: only a request that names the settled row does.
+      await createBooking(eventId);
+
+      expect(await refusal(eventId)).toContain(`The booking request for ${venueName}`);
+      expect((await readEvent(eventId)).status).toBe("approved");
+    });
+
+    // PTR-165 AC4: dismissing a settled row clears the gate without changing its state.
+    test.each(["rejected", "released"] as const)(
+      "confirms after the Coordinator dismisses a %s request it no longer needs",
+      async status => {
+        const eventId = await createEvent();
+        await createBooking(eventId);
+        const [settled] = await database
+          .insert(schema.venueRequests)
+          .values({
+            id: crypto.randomUUID(),
+            eventId,
+            venueId: otherVenueId,
+            requestedById: coordinator.id,
+            startsAt: "2041-07-10 09:00:00",
+            endsAt: "2041-07-10 12:30:00",
+            status,
+            ...(status === "rejected"
+              ? { rejectionReason: "Fully booked" }
+              : { releaseReason: "No longer needed" }),
+          })
+          .returning({ id: schema.venueRequests.id });
+
+        expect(await refusal(eventId)).toContain(
+          status === "rejected" ? "was rejected" : "was released"
+        );
+
+        await handleDismissVenueRequest({ id: settled.id }, coordinator, database as never);
+
+        expect((await confirm(eventId)).status).toBe("confirmed");
+        expect((await readEvent(eventId)).status).toBe("confirmed");
+      }
+    );
+
+    // PTR-139: the Coordinator abandons a refused or released venue, so no replacement for it
+    // exists. Withdrawing it clears the gate.
     test.each(["rejected", "released"] as const)(
       "confirms after the Coordinator withdraws a %s request it no longer needs",
       async status => {

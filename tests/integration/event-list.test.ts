@@ -1152,12 +1152,13 @@ describe("event list handler (PTR-8)", () => {
           updatedAt: new Date("2026-10-05T00:00:00Z"),
         });
 
-        // The released row is newer and sits at the rejected venue, so the rejection is no
-        // longer adjustable.
+        // PTR-165 AC5: only a request that names the rejection answers it, so the rejection stays
+        // adjustable beside the released row.
         expect(await coordinatorCard(fixtures.closed.id)).toEqual([
           {
             ...rejectedEntry("el-venue-rejected-before-release"),
             requirements: CLOSED_REQUIREMENTS,
+            adjustable: true,
           },
           {
             id: "el-venue-released-after-rejection",
@@ -1173,6 +1174,42 @@ describe("event list handler (PTR-8)", () => {
             },
           },
         ]);
+      });
+
+      it("answers a rejection only through the request that names it, and marks a dismissal (PTR-165)", async () => {
+        await insertRejected("el-venue-rejected-named");
+        await database.insert(schema.venueRequests).values({
+          id: "el-venue-replacement-named",
+          eventId: fixtures.closed.id,
+          venueId: fixtureVenueId,
+          requestedById: fixtureUsers.coordinator.id,
+          startsAt: "2026-11-07 09:00:00",
+          endsAt: "2026-11-07 12:00:00",
+          status: "approved",
+          replacesRequestId: "el-venue-rejected-named",
+        });
+        await database.insert(schema.venueRequests).values({
+          id: "el-venue-rejected-dismissed",
+          eventId: fixtures.closed.id,
+          venueId: fixtureVenueId,
+          requestedById: fixtureUsers.coordinator.id,
+          startsAt: "2026-11-08 09:00:00",
+          endsAt: "2026-11-08 12:00:00",
+          status: "rejected",
+          rejectionReason: "Fully booked",
+          dismissedAt: new Date("2026-10-06T00:00:00Z"),
+          dismissedById: fixtureUsers.coordinator.id,
+        });
+
+        const card = (await coordinatorCard(fixtures.closed.id)) ?? [];
+
+        expect(card.find(entry => entry.id === "el-venue-rejected-named")).not.toHaveProperty(
+          "adjustable"
+        );
+        expect(card.find(entry => entry.id === "el-venue-rejected-dismissed")).toMatchObject({
+          status: "rejected",
+          dismissed: true,
+        });
       });
 
       it("keeps the rejection when the replacement request is withdrawn", async () => {

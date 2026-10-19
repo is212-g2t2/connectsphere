@@ -40,6 +40,7 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
   const reason = `Closed for floor resurfacing ${randomUUID().slice(0, 8)}`;
   let venueIds: number[] = [];
   let eventId: number | undefined;
+  let rejectedId: string;
 
   try {
     await database.insert(schema.user).values({
@@ -75,8 +76,9 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
       .returning({ id: schema.eventRequests.id });
     eventId = event.id;
     // PTR-34 records the rejection with a reason and a full suggestion for another room.
+    rejectedId = randomUUID();
     await database.insert(schema.venueRequests).values({
-      id: randomUUID(),
+      id: rejectedId,
       eventId,
       venueId: venueIds[0],
       requestedById: SEED_COORDINATOR_ID,
@@ -110,6 +112,8 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     await expect(page.getByLabel("Date (required)")).toHaveValue("2037-10-14");
     await expect(page.getByLabel("Start time (required)")).toHaveValue("10:00");
     await expect(page.getByLabel("End time (required)")).toHaveValue("13:30");
+    // PTR-165 AC1: the adjusted request already names the rejection that it replaces.
+    await expect(page.getByLabel("Replaces (optional)")).toContainText(`Rejected — ${refusedName}`);
     await expect(
       page.getByText(/carried over from the search or the rejected request/)
     ).toBeVisible();
@@ -122,11 +126,18 @@ test("[PTR-35] the Coordinator adjusts a rejected request from the suggestion an
     await expect(panel.getByText("Pending", { exact: true })).toBeVisible();
     await expect(panel.getByRole("heading", { name: `Requests for ${eventName}` })).toBeFocused();
     const rows = await database
-      .select({ status: schema.venueRequests.status, venueId: schema.venueRequests.venueId })
+      .select({
+        status: schema.venueRequests.status,
+        venueId: schema.venueRequests.venueId,
+        replacesRequestId: schema.venueRequests.replacesRequestId,
+      })
       .from(schema.venueRequests)
       .where(eq(schema.venueRequests.eventId, eventId));
     expect(rows.map(row => row.status).toSorted()).toEqual(["pending", "rejected"]);
-    expect(rows.find(row => row.status === "pending")?.venueId).toBe(venueIds[1]);
+    const adjusted = rows.find(row => row.status === "pending");
+    expect(adjusted?.venueId).toBe(venueIds[1]);
+    // PTR-165 AC1: the form's carried value reaches the row.
+    expect(adjusted?.replacesRequestId).toBe(rejectedId);
 
     // AC3 and AC4: both entries stay on the card with their own states. The new request at the
     // suggested venue answers the rejection, so its adjust link hides. Its reason and Rejected

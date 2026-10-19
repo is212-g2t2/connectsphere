@@ -3,92 +3,105 @@ import { describe, expect, it } from "vitest";
 import { adjustableRejectionIds } from "#/features/venue-requests/records.server";
 import type { VenueRequestStatus } from "#/features/venue-requests/schema";
 
-const HALL = 1;
-const ROOM = 2;
-const REJECTED_AT = new Date("2027-04-02T00:00:00Z");
-const BEFORE = new Date("2027-04-01T00:00:00Z");
-const AFTER = new Date("2027-04-03T00:00:00Z");
+const DISMISSED_AT = new Date("2027-04-02T00:00:00Z");
 
-/** A rejected row at the hall, rejected at `REJECTED_AT`. */
-function rejection(overrides: { id?: string; suggestedVenueId?: number } = {}) {
+/** One row of the event with the fields that the replacement chain reads. */
+function request(
+  id: string,
+  status: VenueRequestStatus,
+  options: { replacesRequestId?: string; dismissedAt?: Date } = {}
+) {
   return {
-    id: overrides.id ?? "rejected",
-    status: "rejected" as const,
-    venueId: HALL,
-    suggestedVenueId: overrides.suggestedVenueId ?? null,
-    createdAt: BEFORE,
-    updatedAt: REJECTED_AT,
+    id,
+    status,
+    replacesRequestId: options.replacesRequestId ?? null,
+    dismissedAt: options.dismissedAt ?? null,
   };
 }
 
-/** Another row of the same event. */
-function request(id: string, status: VenueRequestStatus, venueId: number, createdAt: Date) {
-  return { id, status, venueId, suggestedVenueId: null, createdAt, updatedAt: createdAt };
+/** A three-row chain: `first` is replaced by `second`, and `second` by `third`. */
+function chain(end: VenueRequestStatus) {
+  return [
+    request("first", "rejected"),
+    request("second", "rejected", { replacesRequestId: "first" }),
+    request("third", end, { replacesRequestId: "second" }),
+  ];
 }
 
-describe("adjustableRejectionIds (PTR-35, PTR-138)", () => {
-  it("marks a rejected row with no newer request at its venue", () => {
-    expect(adjustableRejectionIds([rejection()])).toEqual(new Set(["rejected"]));
+describe("adjustableRejectionIds (PTR-35, PTR-165 AC5)", () => {
+  it("marks a rejected row with no replacement", () => {
+    expect(adjustableRejectionIds([request("rejected", "rejected")])).toEqual(
+      new Set(["rejected"])
+    );
   });
 
-  it("never marks a row in another state", () => {
-    const rows = (["pending", "approved", "released", "withdrawn"] as const).map(status =>
-      request(status, status, HALL, BEFORE)
-    );
+  it.each(["pending", "approved", "released", "withdrawn"] as const)(
+    "never marks a %s row",
+    status => {
+      expect(adjustableRejectionIds([request("row", status)])).toEqual(new Set());
+    }
+  );
+
+  it.each(["approved", "pending"] as const)(
+    "drops the mark once a %s replacement answers the rejection",
+    status => {
+      const rows = [
+        request("rejected", "rejected"),
+        request("new", status, { replacesRequestId: "rejected" }),
+      ];
+
+      expect(adjustableRejectionIds(rows)).toEqual(new Set());
+    }
+  );
+
+  it("keeps the mark when the replacement was withdrawn", () => {
+    const rows = [
+      request("rejected", "rejected"),
+      request("new", "withdrawn", { replacesRequestId: "rejected" }),
+    ];
+
+    expect(adjustableRejectionIds(rows)).toEqual(new Set(["rejected"]));
+  });
+
+  it("decides a chain by its last request", () => {
+    expect(adjustableRejectionIds(chain("approved"))).toEqual(new Set());
+    expect(adjustableRejectionIds(chain("pending"))).toEqual(new Set());
+    // The chain ends at the third rejection, which no replacement answers yet, so only it is left
+    // to adjust: the first two already have a live replacement (PTR-165 AC5, AC6).
+    expect(adjustableRejectionIds(chain("rejected"))).toEqual(new Set(["third"]));
+  });
+
+  it("keeps the mark when a later request does not name the rejection", () => {
+    const rows = [request("rejected", "rejected"), request("new", "approved")];
+
+    expect(adjustableRejectionIds(rows)).toEqual(new Set(["rejected"]));
+  });
+
+  it("drops the mark when the Coordinator dismissed the rejection", () => {
+    const rows = [request("rejected", "rejected", { dismissedAt: DISMISSED_AT })];
 
     expect(adjustableRejectionIds(rows)).toEqual(new Set());
   });
 
-  it.each(["pending", "approved", "rejected", "released"] as const)(
-    "drops the mark once a newer %s request exists at the rejected venue",
-    status => {
-      const marked = adjustableRejectionIds([rejection(), request("newer", status, HALL, AFTER)]);
-
-      expect(marked.has("rejected")).toBe(false);
-    }
-  );
-
-  it("keeps the mark beside a newer withdrawn request at the venue", () => {
-    const rows = [rejection(), request("withdrawn", "withdrawn", HALL, AFTER)];
-
-    expect(adjustableRejectionIds(rows)).toEqual(new Set(["rejected"]));
-  });
-
-  it("keeps the mark beside a newer request at another venue", () => {
-    const rows = [rejection(), request("room", "approved", ROOM, AFTER)];
-
-    expect(adjustableRejectionIds(rows)).toEqual(new Set(["rejected"]));
-  });
-
-  it("keeps the mark beside a request created before or at the rejection", () => {
+  it("keeps the mark when the live replacer is itself replaced (PTR-165 AC2)", () => {
     const rows = [
-      rejection(),
-      request("older", "pending", HALL, BEFORE),
-      request("same-time", "pending", HALL, REJECTED_AT),
+      request("first", "rejected"),
+      request("approved-mid", "approved", { replacesRequestId: "first" }),
+      request("end", "rejected", { replacesRequestId: "approved-mid" }),
     ];
 
-    expect(adjustableRejectionIds(rows)).toEqual(new Set(["rejected"]));
-  });
-
-  it("targets the suggested venue when Venue Staff suggested one", () => {
-    const suggested = rejection({ suggestedVenueId: ROOM });
-
-    // A newer request at the rejected venue does not answer a suggestion for another venue.
-    expect(adjustableRejectionIds([suggested, request("hall", "pending", HALL, AFTER)])).toEqual(
-      new Set(["rejected"])
-    );
-    expect(adjustableRejectionIds([suggested, request("room", "pending", ROOM, AFTER)])).toEqual(
-      new Set()
-    );
+    // The chain ends at a rejected request, so `first` is unanswered, and it already has a live
+    // replacer. Only the chain's end is left to adjust.
+    expect(adjustableRejectionIds(rows)).toEqual(new Set(["end"]));
   });
 
   it("decides each rejected row on its own", () => {
     const rows = [
-      rejection({ id: "first" }),
-      { ...rejection({ id: "second" }), createdAt: AFTER, updatedAt: AFTER },
+      request("first", "rejected"),
+      request("second", "rejected"),
+      request("replacement", "approved", { replacesRequestId: "second" }),
     ];
 
-    // The second rejection is a newer request at the hall, so only it stays adjustable.
-    expect(adjustableRejectionIds(rows)).toEqual(new Set(["second"]));
+    expect(adjustableRejectionIds(rows)).toEqual(new Set(["first"]));
   });
 });

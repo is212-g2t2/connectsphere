@@ -395,6 +395,7 @@ describe("VenueDetailPage", () => {
         requiredFacilities: "Projector, PA system",
       },
       canRequest: true,
+      replaceable: [],
       requests: [],
     };
     const { rerender } = render(
@@ -426,6 +427,7 @@ describe("VenueDetailPage", () => {
               rejectionReason: null,
               releaseReason: null,
               answered: false,
+              dismissed: false,
               requirements: {
                 expectedAttendance: 80,
                 layout: "Theatre seating",

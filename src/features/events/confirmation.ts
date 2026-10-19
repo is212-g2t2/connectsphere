@@ -3,7 +3,7 @@ import { isArrangedLine, isEquipmentArrangementsSatisfied } from "#/features/eve
 import { formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
-import { answeredByLaterRequest } from "#/features/venue-requests/schema";
+import { answeredByReplacement } from "#/features/venue-requests/schema";
 import type { VenueRequestAnswerRow } from "#/features/venue-requests/schema";
 
 /**
@@ -28,7 +28,7 @@ export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
   "Technical Support has not marked the equipment arrangements complete.";
 
 /**
- * One venue request on the event, as `answeredByLaterRequest` reads it. Times use the
+ * One venue request on the event, as `answeredByReplacement` reads it. Times use the
  * `mode: "string"` shape, `YYYY-MM-DD HH:MM:SS`.
  */
 interface ConfirmationVenueRequest extends VenueRequestAnswerRow {
@@ -88,9 +88,9 @@ interface ConfirmationInput {
  * unconfirmable status is the only reason given: cancelled or completed events have no
  * outstanding arrangements.
  *
- * Otherwise each request that was not withdrawn must be approved or answered. A `rejected` row is
- * answered by a later non-withdrawn request at its target venue after the rejection; a `released`
- * row by a later non-withdrawn request at any venue after the booking was raised. Name each
+ * Otherwise each request that was not withdrawn must be approved or answered. A `rejected` or
+ * `released` row is answered only through its chain of replacements: the last request in the chain
+ * must be approved or pending, or the Coordinator must have dismissed the row (PTR-165). Name each
  * unanswered pending, rejected, or released booking, and each missing equipment arrangement. An
  * event with no equipment lines has nothing to settle, so the venue bookings alone govern (AC5).
  */
@@ -106,7 +106,7 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
     blockers.push(VENUE_BOOKING_SUSPENDED_MESSAGE);
   }
   for (const request of input.venueRequests) {
-    if (answeredByLaterRequest(request, input.venueRequests)) continue;
+    if (answeredByReplacement(request, input.venueRequests)) continue;
     const blocker = outstandingVenueRequestMessage(request);
     if (blocker) blockers.push(blocker);
   }

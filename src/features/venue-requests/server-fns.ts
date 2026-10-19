@@ -137,6 +137,26 @@ export const withdrawVenueRequest = createServerFn({ method: "POST" })
   });
 
 /**
+ * PTR-165 AC4: the assigned Coordinator dismisses a rejected or released request it no longer
+ * needs, so it stops blocking confirmation. The handler re-reads the event's assignment.
+ */
+export const dismissVenueRequest = createServerFn({ method: "POST" })
+  .validator(parseVenueRequestId)
+  .middleware([requireVenueRequest])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleDismissVenueRequest }] = await loadServer();
+    const request = await handleDismissVenueRequest(data, context.user, db);
+
+    log.info("Venue request dismissed", {
+      requestId: request.id,
+      eventId: request.eventId,
+      actorId: context.user.id,
+    });
+
+    return request;
+  });
+
+/**
  * PTR-36: The Venue Staff permission to approve a pending request. The handler checks the queue
  * again, so this function grants a role permission, not access to a specific row.
  */
