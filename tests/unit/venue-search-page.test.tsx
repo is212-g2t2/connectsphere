@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionUser } from "#/features/auth/session";
 import { VenueListPage, requestSearch } from "#/features/venues/components/venue-list-page";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { DEFAULT_OPERATING_HOURS, INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
 import type { VenueSearchResult } from "#/features/venues/server-fns";
 
 const { navigate } = vi.hoisted(() => ({ navigate: vi.fn<(options: unknown) => void>() }));
@@ -54,6 +54,7 @@ function result(overrides: Partial<VenueSearchResult> = {}): VenueSearchResult {
     filters: {},
     venues: [matchingVenue],
     unsuitable: [],
+    layouts: [...INITIAL_ROOM_LAYOUTS],
     ...overrides,
   };
 }

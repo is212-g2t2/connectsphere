@@ -1,6 +1,7 @@
 import { cn } from "cn";
 
 import { layoutLabel } from "#/features/venues/schema";
+import type { RoomLayout } from "#/features/venues/schema";
 
 /** The four operational requirements both projections carry. Nothing else. */
 interface EventRequirementFields {
@@ -20,7 +21,10 @@ interface Requirement {
  * empty event leaves nothing to restate. Show a named layout by its label. Show other text as
  * stored.
  */
-function requirementPairs(event: EventRequirementFields): Requirement[] {
+function requirementPairs(
+  event: EventRequirementFields,
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[]
+): Requirement[] {
   // Treat whitespace-only text as absent. A blank-looking field drops out. Keep `0`. It is a
   // real answer.
   const layout = event.layout?.trim() ?? "";
@@ -30,7 +34,12 @@ function requirementPairs(event: EventRequirementFields): Requirement[] {
     event.expectedAttendance === null || event.expectedAttendance === undefined
       ? null
       : { label: "Expected attendance", value: String(event.expectedAttendance) },
-    layout ? { label: "Layout", value: layoutLabel(layout) } : null,
+    layout
+      ? {
+          label: "Layout",
+          value: layouts ? layoutLabel(layout, layouts) : layoutLabel(layout),
+        }
+      : null,
     accessibilityRequirements ? { label: "Accessibility", value: accessibilityRequirements } : null,
     requiredFacilities ? { label: "Facilities", value: requiredFacilities } : null,
   ];
@@ -42,8 +51,12 @@ function requirementPairs(event: EventRequirementFields): Requirement[] {
  * and the extra blocks the host shows beside it (its venue requests). Hosts skip their eyebrow
  * when the block is empty.
  */
-export function hasEventRequirements(event: EventRequirementFields, hasExtra: boolean): boolean {
-  return hasExtra || requirementPairs(event).length > 0;
+export function hasEventRequirements(
+  event: EventRequirementFields,
+  hasExtra: boolean,
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[]
+): boolean {
+  return hasExtra || requirementPairs(event, layouts).length > 0;
 }
 
 /**
@@ -53,12 +66,15 @@ export function hasEventRequirements(event: EventRequirementFields, hasExtra: bo
  */
 export function EventRequirements({
   event,
+  layouts,
   className,
 }: {
   event: EventRequirementFields;
+  /** The maintained list. Absent callers show the six initials. */
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[];
   className?: string;
 }) {
-  const items = requirementPairs(event);
+  const items = requirementPairs(event, layouts);
   if (items.length === 0) return null;
 
   return (

@@ -14,8 +14,6 @@ import {
 import { Input } from "#/components/ui/input";
 import {
   DEFAULT_OPERATING_HOURS,
-  LAYOUT_LABELS,
-  VENUE_LAYOUTS,
   VenueFormInput,
   WEEKDAY_LABELS,
   WEEKDAYS,
@@ -23,6 +21,7 @@ import {
 import type {
   DayFormValues,
   OperatingHours,
+  RoomLayout,
   VenueFormValues,
   VenueValues,
   Weekday,
@@ -119,10 +118,13 @@ function textField(
 
 export function VenueForm({
   initial,
+  layouts,
   submitLabel = "Save venue",
   onSave,
 }: {
   initial?: VenueFormInitial;
+  /** The maintained list, from the route loader. New types appear here without a code change. */
+  layouts: readonly RoomLayout[];
   submitLabel?: string;
   onSave: (values: VenueValues) => Promise<void>;
 }) {
@@ -191,20 +193,20 @@ export function VenueForm({
             <FieldSet>
               <FieldLegend>Supported room layouts</FieldLegend>
               <div className="grid gap-3 sm:grid-cols-3">
-                {VENUE_LAYOUTS.map(layout => (
-                  <Field key={layout} orientation="horizontal">
+                {layouts.map(layout => (
+                  <Field key={layout.key} orientation="horizontal">
                     <Checkbox
-                      id={`layout-${layout}`}
-                      checked={field.state.value.includes(layout)}
+                      id={`layout-${layout.key}`}
+                      checked={field.state.value.includes(layout.key)}
                       onCheckedChange={checked =>
                         field.handleChange(
                           checked
-                            ? [...field.state.value, layout]
-                            : field.state.value.filter(value => value !== layout)
+                            ? [...field.state.value, layout.key]
+                            : field.state.value.filter(value => value !== layout.key)
                         )
                       }
                     />
-                    <FieldLabel htmlFor={`layout-${layout}`}>{LAYOUT_LABELS[layout]}</FieldLabel>
+                    <FieldLabel htmlFor={`layout-${layout.key}`}>{layout.label}</FieldLabel>
                   </Field>
                 ))}
               </div>

@@ -9,8 +9,10 @@ import type { SuitabilityCriterion } from "#/features/venues/records.server";
 import {
   AVAILABILITY_RANGE_MESSAGE,
   DEFAULT_OPERATING_HOURS,
+  INITIAL_ROOM_LAYOUTS,
   LAYOUT_MESSAGE,
   VENUE_SEARCH_TIME_MESSAGE,
+  assertKnownLayoutText,
   parseVenueSearchRequest,
 } from "#/features/venues/schema";
 
@@ -207,8 +209,13 @@ describe("PTR-29 suitability rules", () => {
     );
   });
 
-  it("refuses a layout filter that names no supported layout", () => {
-    expect(() => parseVenueSearchRequest({ layout: "stadium" })).toThrow(LAYOUT_MESSAGE);
+  it("leaves layout text to the handler, which refuses a filter that names no layout", () => {
+    expect(parseVenueSearchRequest({ layout: "stadium" })).toMatchObject({ layout: "stadium" });
+    expect(() => assertKnownLayoutText("stadium")).toThrow(LAYOUT_MESSAGE);
+    expect(() => assertKnownLayoutText("stadium", INITIAL_ROOM_LAYOUTS)).toThrow(LAYOUT_MESSAGE);
+    expect(assertKnownLayoutText("theatre seating", INITIAL_ROOM_LAYOUTS)).toBeUndefined();
+    expect(assertKnownLayoutText(undefined, INITIAL_ROOM_LAYOUTS)).toBeUndefined();
+    expect(assertKnownLayoutText("", INITIAL_ROOM_LAYOUTS)).toBeUndefined();
   });
 
   it("refuses a window that crosses midnight, whatever the venue's hours", () => {

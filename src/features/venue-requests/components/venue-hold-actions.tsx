@@ -35,8 +35,8 @@ import {
 import { SessionRequirementFields } from "#/features/venue-requests/components/session-requirement-fields";
 import {
   VENUE_HOLD_REQUEST_NOTE,
-  VenueHoldConversionInput,
   VenueRequestInput,
+  createVenueHoldConversionInput,
   formIssues,
   sessionRequirementFormValues,
   sessionRequirementInput,
@@ -45,6 +45,8 @@ import type {
   SessionRequirementFormValues,
   SessionRequirements,
 } from "#/features/venue-requests/schema";
+import { INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
+import type { RoomLayout } from "#/features/venues/schema";
 import {
   convertVenueHold,
   releaseVenueHold,
@@ -182,9 +184,12 @@ function toConversionInput(holdId: string, values: SessionRequirementFormValues)
 export function ConvertVenueHoldButton({
   holdId,
   requirements,
+  layouts = INITIAL_ROOM_LAYOUTS,
 }: {
   holdId: string;
   requirements: SessionRequirements;
+  /** The maintained list. The form refuses a typo against it. */
+  layouts?: readonly Pick<RoomLayout, "key" | "label">[];
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -192,7 +197,7 @@ export function ConvertVenueHoldButton({
     defaultValues: sessionRequirementFormValues(requirements),
     validators: {
       onSubmit: ({ value }) =>
-        formIssues(VenueHoldConversionInput, toConversionInput(holdId, value)),
+        formIssues(createVenueHoldConversionInput(layouts), toConversionInput(holdId, value)),
     },
     onSubmit: async ({ value, formApi }) => {
       try {

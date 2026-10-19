@@ -8,7 +8,8 @@ import type { VenueRequestContext } from "#/features/venue-requests/server-fns";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
 import { VenueDetailPageSkeleton } from "#/features/venues/components/venue-detail-page-skeleton";
 import { TIME_SHAPE, VENUE_SEARCH_TEXT_MAX_LENGTH, VenueIdInput } from "#/features/venues/schema";
-import { getVenue } from "#/features/venues/server-fns";
+import { getVenue, listRoomLayouts } from "#/features/venues/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 import type { VenueWithConflicts } from "#/features/venues/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
@@ -53,6 +54,7 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
     context,
   }): Promise<{
     venue: VenueWithConflicts;
+    layouts: readonly RoomLayout[];
     requestContext: VenueRequestContext | null;
     requestContextFailed: boolean;
   }> => {
@@ -74,8 +76,9 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
         }).data ?? null)
       : null;
 
-    const [venueResult, contextResult] = await Promise.all([
+    const [venueResult, layouts, contextResult] = await Promise.all([
       getVenue({ data: parsed.data }),
+      listRoomLayouts(),
       // Request context is optional. Keep the venue page available if the context load fails.
       // Set a retryable error flag; do not use the `null` value for a venue opened without an event.
       selection
@@ -91,16 +94,18 @@ export const Route = createFileRoute("/_authenticated/venues/$venueId")({
 
     return {
       venue: venueResult.venue,
+      layouts,
       requestContext: contextResult?.context ?? null,
       requestContextFailed: contextResult?.failed ?? false,
     };
   },
   component: () => {
-    const { venue, requestContext, requestContextFailed } = Route.useLoaderData();
+    const { venue, layouts, requestContext, requestContextFailed } = Route.useLoaderData();
     const { saved, eventId: _eventId, ...prefill } = Route.useSearch();
     return (
       <VenueDetailPage
         venue={venue}
+        layouts={layouts}
         requestContext={requestContext}
         requestContextFailed={requestContextFailed}
         user={Route.useRouteContext().user}

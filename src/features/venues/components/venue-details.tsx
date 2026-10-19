@@ -1,11 +1,18 @@
-import { LAYOUT_LABELS, WEEKDAY_LABELS, WEEKDAYS } from "#/features/venues/schema";
-import type { VenueValues } from "#/features/venues/schema";
+import { WEEKDAY_LABELS, WEEKDAYS, layoutLabelForKey } from "#/features/venues/schema";
+import type { RoomLayout, VenueValues } from "#/features/venues/schema";
 
 /**
  * Render a venue record read-only for roles that can view but not edit it (PTR-26 criterion 4).
  * Show the same data as the form in a description list.
  */
-export function VenueDetails({ venue }: { venue: Omit<VenueValues, "id"> }) {
+export function VenueDetails({
+  venue,
+  layouts,
+}: {
+  venue: Omit<VenueValues, "id">;
+  /** The maintained list, from the route loader. A rename shows here under the new label. */
+  layouts: readonly RoomLayout[];
+}) {
   return (
     <dl className="grid gap-6 sm:grid-cols-2">
       <Detail term="Location">{venue.location}</Detail>
@@ -15,7 +22,7 @@ export function VenueDetails({ venue }: { venue: Omit<VenueValues, "id"> }) {
       <Detail term="Facilities">{listOrNone(venue.facilities)}</Detail>
       <Detail term="Accessibility features">{listOrNone(venue.accessibilityFeatures)}</Detail>
       <Detail term="Supported room layouts">
-        {listOrNone(venue.supportedLayouts.map(layout => LAYOUT_LABELS[layout]))}
+        {listOrNone(venue.supportedLayouts.map(key => layoutLabelForKey(key, layouts)))}
       </Detail>
       <div className="sm:col-span-2">
         <dt className="eyebrow text-muted-foreground">Operating hours</dt>

@@ -16,7 +16,7 @@ import { projectAvailability } from "#/features/venues/availability";
 import type { AvailabilityRecord, VenueBufferConflict } from "#/features/venues/availability";
 import { VenueCalendarPage } from "#/features/venues/components/venue-calendar-page";
 import { VenueDetailPage } from "#/features/venues/components/venue-detail-page";
-import { DEFAULT_OPERATING_HOURS } from "#/features/venues/schema";
+import { DEFAULT_OPERATING_HOURS, INITIAL_ROOM_LAYOUTS } from "#/features/venues/schema";
 import type { Venue, VenueAvailability } from "#/features/venues/server-fns";
 
 const { navigate, invalidate } = vi.hoisted(() => ({
@@ -251,6 +251,7 @@ describe("PTR-132-TC09: VenueDetailPage lists flagged commitments", () => {
     render(
       <VenueDetailPage
         venue={{ ...baseVenue, bufferConflicts: conflicts }}
+        layouts={INITIAL_ROOM_LAYOUTS}
         user={staffUser}
         justCreated={true}
         requestContext={null}
