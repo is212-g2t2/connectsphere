@@ -536,17 +536,24 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
     });
 
     it("rolls back the hold and answers the venue-conflict refusal", async () => {
-      expect(await raceUnlockedBlock(() => hold("10:30", "11:30"))).toMatchObject({
+      const eventId = await createEvent("PTR-133 refused ledger hold");
+      expect(await raceUnlockedBlock(() => hold("10:30", "11:30", eventId))).toMatchObject({
         name: "ConflictError",
         message: VENUE_OCCUPANCY_CONFLICT_MESSAGE,
       });
       // The request row remains, because a request reserves no venue time. The placement writes
-      // neither a held hold nor a ledger row.
+      // neither a held row nor a ledger row.
       expect(
         await database
           .select()
           .from(schema.venueHolds)
-          .where(and(eq(schema.venueHolds.venueId, hallId), eq(schema.venueHolds.status, "held")))
+          .where(eq(schema.venueHolds.eventId, eventId))
+      ).toMatchObject([{ status: "requested" }]);
+      expect(
+        await database
+          .select()
+          .from(schema.venueOccupancy)
+          .where(eq(schema.venueOccupancy.eventId, eventId))
       ).toEqual([]);
     });
 

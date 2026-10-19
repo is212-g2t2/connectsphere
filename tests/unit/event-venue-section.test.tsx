@@ -315,7 +315,7 @@ describe("venue section", () => {
     expect(screen.getByRole("button", { name: "Withdraw hold request" })).toBeTruthy();
   });
 
-  it("shows a requested hold to the organiser without a withdrawal action", () => {
+  it("does not list a requested hold for the organiser", () => {
     renderVenue("organiser", {
       status: "planning",
       holdRequests: [
@@ -328,7 +328,9 @@ describe("venue section", () => {
       ],
     });
 
-    expect(screen.getByText("Hold requests")).toBeTruthy();
+    // The server projection sends hold requests to the Coordinator only. The view also drops any
+    // value it does receive, so an organiser never sees the hold or its action.
+    expect(screen.queryByText("Hold requests")).toBeNull();
     expect(screen.queryByRole("button", { name: "Withdraw hold request" })).toBeNull();
   });
 

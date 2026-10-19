@@ -34,6 +34,7 @@ import {
 } from "#/components/ui/select";
 import { SessionRequirementFields } from "#/features/venue-requests/components/session-requirement-fields";
 import {
+  VENUE_HOLD_REQUEST_NOTE,
   VenueHoldConversionInput,
   VenueRequestInput,
   formIssues,
@@ -148,8 +149,7 @@ export function WithdrawVenueHoldRequestButton({ holdId }: { holdId: string }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Withdraw hold request</AlertDialogTitle>
           <AlertDialogDescription>
-            This removes the request from the Venue Staff queue. It never reserved venue time, so
-            the period stays first come, first served.
+            This removes the request from the Venue Staff queue. It never reserved venue time.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -363,8 +363,7 @@ export function RequestVenueHoldDialog({
         <DialogHeader>
           <DialogTitle>Request a hold</DialogTitle>
           <DialogDescription>
-            Ask Venue Staff to hold {venueName} for an event. A request protects nothing until Venue
-            Staff place it; the period stays first come, first served at placement.
+            Ask Venue Staff to hold {venueName} for an event. {VENUE_HOLD_REQUEST_NOTE}
           </DialogDescription>
         </DialogHeader>
 

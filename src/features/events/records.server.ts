@@ -457,9 +457,10 @@ export async function handleListEvents(
     role === "event_coordinator"
       ? loadBlockedArrangements(database, requestIds)
       : Promise.resolve(new Map<number, BlockedArrangement[]>());
-  // PTR-151: the Coordinator's hold requests, for the event's venue section only.
+  // PTR-151: the Coordinator's hold requests, for the event's venue section only. The event list
+  // carries no venue section, so skip this read unless the caller names one event.
   const holdRequestRead =
-    role === "event_coordinator"
+    role === "event_coordinator" && eventId !== undefined
       ? loadVenueHoldRequests(database, { eventIds: requestIds })
       : Promise.resolve([]);
   const [holderRows, bookings, countRows, conflictKinds, blockedArrangements, holdRequestRows] =

@@ -99,7 +99,7 @@ function venueSource(data: EventPageData): VenueSource | null {
     confirmation: event.confirmation ?? null,
     searchable: true,
     blocked: event.blockedArrangements ?? [],
-    holdRequests: event.holdRequests ?? [],
+    holdRequests: data.event.access === "coordinator" ? (event.holdRequests ?? []) : [],
   };
 }
 

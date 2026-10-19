@@ -566,5 +566,60 @@ describe("hold requests (PTR-150)", () => {
         },
       ]);
     });
+
+    it("omits the request from the event projection for the organiser", async () => {
+      await requestHold();
+      const [projection] = await handleListEvents(
+        { eventId },
+        session(users.organiser),
+        database as never
+      );
+      expect(projection.event).not.toHaveProperty("holdRequests");
+    });
+
+    it("drops the request from both surfaces once Venue Staff place it", async () => {
+      const hold = await requestHold();
+      await place(hold.id);
+
+      const calendar = await handleGetVenueAvailability(
+        { venueId, startDate: window.date, endDate: window.date },
+        users.coordinator.id,
+        database as never
+      );
+      expect(calendar?.requestedHolds).toEqual([]);
+
+      const [projection] = await handleListEvents(
+        { eventId },
+        session(users.coordinator),
+        database as never
+      );
+      expect(projection.event.holdRequests).toEqual([]);
+    });
+
+    it("keeps a request visible to its owner after the event leaves the searchable statuses", async () => {
+      const hold = await requestHold();
+      await setEventStatus("confirmed");
+
+      const ownerView = await handleGetVenueAvailability(
+        { venueId, startDate: window.date, endDate: window.date },
+        users.coordinator.id,
+        database as never
+      );
+      expect(ownerView?.requestedHolds).toEqual([
+        {
+          id: hold.id,
+          startsAt: "2099-06-15T09:00:00",
+          endsAt: "2099-06-15T12:00:00",
+          canWithdraw: true,
+        },
+      ]);
+
+      const otherView = await handleGetVenueAvailability(
+        { venueId, startDate: window.date, endDate: window.date },
+        users.otherCoordinator.id,
+        database as never
+      );
+      expect(otherView?.requestedHolds).toEqual([]);
+    });
   });
 });

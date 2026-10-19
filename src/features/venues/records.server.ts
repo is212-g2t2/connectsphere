@@ -582,36 +582,33 @@ export async function loadVenueHolds(
  * `requested` hold reserves no venue time, so no availability projection subtracts it. The
  * caller shows it with its ownership check and keeps the owner ids on the server.
  */
-export interface VenueHoldRequestRow {
+interface VenueHoldRequestRow {
   id: string;
-  venueId: number;
   eventId: number;
   venueName: string;
   startsAt: string;
   endsAt: string;
+  eventStatus: EventRequestStatus;
   heldById: string | null;
   assignedCoordinatorId: string | null;
 }
 
 /**
  * Read requested holds by event or by venue and range. Pass `eventIds` for the event's venue
- * section, or `venueId` and `range` for the calendar. An empty `eventIds` reads nothing.
+ * section, or `venueId` and `range` for the calendar.
  */
 export async function loadVenueHoldRequests(
   database: Pick<Database, "select">,
-  filter: {
-    eventIds?: readonly number[];
-    venueId?: number;
-    range?: { startsAt: string; endsAt: string };
-  }
+  filter:
+    | { eventIds: readonly number[] }
+    | { venueId: number; range: { startsAt: string; endsAt: string } }
 ): Promise<VenueHoldRequestRow[]> {
-  if (filter.eventIds !== undefined && filter.eventIds.length === 0) return [];
   const conditions = [eq(venueHolds.status, "requested")];
-  if (filter.eventIds !== undefined) {
+  if ("eventIds" in filter) {
+    if (filter.eventIds.length === 0) return [];
     conditions.push(inArray(venueHolds.eventId, [...filter.eventIds]));
-  }
-  if (filter.venueId !== undefined) conditions.push(eq(venueHolds.venueId, filter.venueId));
-  if (filter.range) {
+  } else {
+    conditions.push(eq(venueHolds.venueId, filter.venueId));
     conditions.push(lt(venueHolds.startsAt, filter.range.endsAt));
     conditions.push(gt(venueHolds.endsAt, filter.range.startsAt));
   }
@@ -619,11 +616,11 @@ export async function loadVenueHoldRequests(
   const rows = await database
     .select({
       id: venueHolds.id,
-      venueId: venueHolds.venueId,
       eventId: venueHolds.eventId,
       venueName: venues.name,
       startsAt: venueHolds.startsAt,
       endsAt: venueHolds.endsAt,
+      eventStatus: eventRequests.status,
       heldById: venueHolds.heldById,
       assignedCoordinatorId: eventRequests.assignedCoordinatorId,
     })
@@ -635,11 +632,11 @@ export async function loadVenueHoldRequests(
 
   return rows.map(row => ({
     id: row.id,
-    venueId: row.venueId,
     eventId: row.eventId,
     venueName: row.venueName,
     startsAt: normalizeDatabaseTimestamp(row.startsAt),
     endsAt: normalizeDatabaseTimestamp(row.endsAt),
+    eventStatus: row.eventStatus,
     heldById: row.heldById,
     assignedCoordinatorId: row.assignedCoordinatorId,
   }));
@@ -1073,13 +1070,20 @@ export async function handleGetVenueAvailability(
     startDate: selection.startDate,
     endDate: selection.endDate,
     // PTR-151: a requested hold shows on the calendar but reserves no time, so it stays out of
-    // `projectAvailability`.
-    requestedHolds: requestedHolds.map(hold => ({
-      id: hold.id,
-      startsAt: hold.startsAt,
-      endsAt: hold.endsAt,
-      canWithdraw: canReleaseHold(hold, viewerId),
-    })),
+    // `projectAvailability`. Show a request on a searchable event to every reader, as the queue
+    // does. A request whose event left the statuses stays visible to its owner, so it can still be
+    // withdrawn.
+    requestedHolds: requestedHolds
+      .filter(
+        hold =>
+          SEARCHABLE_EVENT_STATUSES.includes(hold.eventStatus) || canReleaseHold(hold, viewerId)
+      )
+      .map(hold => ({
+        id: hold.id,
+        startsAt: hold.startsAt,
+        endsAt: hold.endsAt,
+        canWithdraw: canReleaseHold(hold, viewerId),
+      })),
     ...projectAvailability(
       { startsAt, endsAt },
       {

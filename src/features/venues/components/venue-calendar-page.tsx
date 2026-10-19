@@ -423,7 +423,9 @@ export function VenueCalendarPage({
                             · {schedule.venue.name}
                           </p>
                         </div>
-                        {hold.canWithdraw && <WithdrawVenueHoldRequestButton holdId={hold.id} />}
+                        {hold.canWithdraw && canHold && (
+                          <WithdrawVenueHoldRequestButton holdId={hold.id} />
+                        )}
                       </li>
                     ))}
                   </ul>
