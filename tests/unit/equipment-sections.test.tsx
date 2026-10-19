@@ -81,7 +81,6 @@ function page(
 ): EventPageData {
   return {
     kind: "event",
-    viewerId: "viewer-1",
     event: {
       access,
       event: {

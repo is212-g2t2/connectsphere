@@ -53,8 +53,6 @@ vi.mock("#/lib/logger", () => ({
   logger: { getChild: () => ({ warn: mockWarn, info: mockInfo }) },
 }));
 
-const VIEWER_ID = "viewer-1";
-
 /** One pending venue request entry as the projection lists it. */
 const PENDING_ENTRY = {
   id: "vr-1",
@@ -102,9 +100,9 @@ describe("loadEventPageData", () => {
     const event = projection("attendee", { status: "confirmed", registrationEnabled: true });
     mockListEvents.mockResolvedValue([event]);
 
-    const data = await loadEventPageData(7, "attendee", VIEWER_ID);
+    const data = await loadEventPageData(7, "attendee");
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    expect(data).toEqual({ kind: "event", event });
     expect(mockGetEventRequest).not.toHaveBeenCalled();
     expect(mockListEventRegistrations).not.toHaveBeenCalled();
   });
@@ -112,19 +110,19 @@ describe("loadEventPageData", () => {
   it("returns null for an attendee event with no page", async () => {
     mockListEvents.mockResolvedValue([projection("attendee", { status: "submitted" })]);
 
-    await expect(loadEventPageData(7, "attendee", VIEWER_ID)).resolves.toBeNull();
+    await expect(loadEventPageData(7, "attendee")).resolves.toBeNull();
   });
 
   it("returns null when the event is missing", async () => {
     mockListEvents.mockResolvedValue([]);
 
-    await expect(loadEventPageData(7, "attendee", VIEWER_ID)).resolves.toBeNull();
+    await expect(loadEventPageData(7, "attendee")).resolves.toBeNull();
   });
 
   it("lets a non-Forbidden listEvents error propagate", async () => {
     mockListEvents.mockRejectedValue(new Error("connection refused"));
 
-    await expect(loadEventPageData(7, "attendee", VIEWER_ID)).rejects.toThrow("connection refused");
+    await expect(loadEventPageData(7, "attendee")).rejects.toThrow("connection refused");
   });
 
   it("gathers the organiser extras", async () => {
@@ -135,12 +133,11 @@ describe("loadEventPageData", () => {
     mockGetEventRequest.mockResolvedValue({ request });
     mockListEventRegistrations.mockResolvedValue(attendees);
 
-    const data = await loadEventPageData(7, "event_organiser", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_organiser");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       organiserRequest: request,
       attendees,
     });
@@ -154,12 +151,11 @@ describe("loadEventPageData", () => {
     mockListEvents.mockResolvedValue([event]);
     mockGetEventRequest.mockResolvedValue({ request });
 
-    const data = await loadEventPageData(7, "event_organiser", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_organiser");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       organiserRequest: request,
       attendees: undefined,
     });
@@ -173,12 +169,11 @@ describe("loadEventPageData", () => {
     mockGetEventRequest.mockRejectedValue(new Error("request store down"));
     mockListEventRegistrations.mockResolvedValue(attendees);
 
-    const data = await loadEventPageData(7, "event_organiser", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_organiser");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       organiserRequest: null,
       attendees,
     });
@@ -191,12 +186,11 @@ describe("loadEventPageData", () => {
     mockGetEventRequest.mockResolvedValue({ request });
     mockListEventRegistrations.mockRejectedValue(new Error("registration store down"));
 
-    const data = await loadEventPageData(7, "event_organiser", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_organiser");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       organiserRequest: request,
       attendees: null,
     });
@@ -210,12 +204,11 @@ describe("loadEventPageData", () => {
     mockGetCoordinationRequest.mockResolvedValue(request);
     mockListEventRegistrations.mockResolvedValue(attendees);
 
-    const data = await loadEventPageData(7, "event_coordinator", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_coordinator");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       coordination: { request },
       attendees,
     });
@@ -230,12 +223,11 @@ describe("loadEventPageData", () => {
     mockListEvents.mockResolvedValue([event]);
     mockGetCoordinationRequest.mockResolvedValue(request);
 
-    const data = await loadEventPageData(7, "event_coordinator", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_coordinator");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       coordination: { request },
       attendees: undefined,
     });
@@ -249,12 +241,11 @@ describe("loadEventPageData", () => {
     mockGetCoordinationRequest.mockRejectedValue(new Error("coordination store down"));
     mockListEventRegistrations.mockResolvedValue(attendees);
 
-    const data = await loadEventPageData(7, "event_coordinator", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_coordinator");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       coordination: null,
       attendees,
     });
@@ -274,12 +265,11 @@ describe("loadEventPageData", () => {
     mockGetPendingVenueRequestsForEvent.mockResolvedValue(requests);
     mockListVenueOptions.mockResolvedValue(venues);
 
-    const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
+    const data = await loadEventPageData(7, "venue_staff");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       venueDecisions: { requests, venues },
     });
     expect(mockGetPendingVenueRequestsForEvent).toHaveBeenCalledOnce();
@@ -292,12 +282,11 @@ describe("loadEventPageData", () => {
     mockListEvents.mockResolvedValue([event]);
     mockGetPendingVenueRequestsForEvent.mockResolvedValue([{ id: "vr-1" }]);
 
-    const data = await loadEventPageData(7, "attendee", VIEWER_ID);
+    const data = await loadEventPageData(7, "attendee");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       venueDecisions: { requests: [{ id: "vr-1" }], venues: [] },
     });
     expect(mockListVenueOptions).not.toHaveBeenCalled();
@@ -309,9 +298,9 @@ describe("loadEventPageData", () => {
     });
     mockListEvents.mockResolvedValue([event]);
 
-    const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
+    const data = await loadEventPageData(7, "venue_staff");
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    expect(data).toEqual({ kind: "event", event });
     expect(mockGetPendingVenueRequestsForEvent).not.toHaveBeenCalled();
     expect(mockListVenueOptions).not.toHaveBeenCalled();
   });
@@ -320,9 +309,9 @@ describe("loadEventPageData", () => {
     const event = projection("venue_staff", {});
     mockListEvents.mockResolvedValue([event]);
 
-    const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
+    const data = await loadEventPageData(7, "venue_staff");
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    expect(data).toEqual({ kind: "event", event });
     expect(mockGetPendingVenueRequestsForEvent).not.toHaveBeenCalled();
     expect(mockListVenueOptions).not.toHaveBeenCalled();
   });
@@ -333,13 +322,12 @@ describe("loadEventPageData", () => {
     mockGetPendingVenueRequestsForEvent.mockResolvedValue([]);
     mockListVenueOptions.mockResolvedValue([]);
 
-    const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
+    const data = await loadEventPageData(7, "venue_staff");
 
     // A settled request is an ordinary answer, so the page can tell it from a failed read.
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       venueDecisions: { requests: [], venues: [] },
     });
     expect(mockWarn).not.toHaveBeenCalled();
@@ -351,9 +339,9 @@ describe("loadEventPageData", () => {
     mockGetPendingVenueRequestsForEvent.mockRejectedValue(new Error("venue store down"));
     mockListVenueOptions.mockResolvedValue([]);
 
-    const data = await loadEventPageData(7, "venue_staff", VIEWER_ID);
+    const data = await loadEventPageData(7, "venue_staff");
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID });
+    expect(data).toEqual({ kind: "event", event });
     expect(mockWarn).toHaveBeenCalledOnce();
   });
 
@@ -363,9 +351,9 @@ describe("loadEventPageData", () => {
     mockListEvents.mockResolvedValue([event]);
     mockListEquipmentTypes.mockResolvedValue(equipmentTypes);
 
-    const data = await loadEventPageData(7, "technical_support_staff", VIEWER_ID);
+    const data = await loadEventPageData(7, "technical_support_staff");
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID, equipmentTypes });
+    expect(data).toEqual({ kind: "event", event, equipmentTypes });
   });
 
   it("keeps the page when the equipment catalogue fails", async () => {
@@ -373,9 +361,9 @@ describe("loadEventPageData", () => {
     mockListEvents.mockResolvedValue([event]);
     mockListEquipmentTypes.mockRejectedValue(new Error("catalogue down"));
 
-    const data = await loadEventPageData(7, "technical_support_staff", VIEWER_ID);
+    const data = await loadEventPageData(7, "technical_support_staff");
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID, equipmentTypes: null });
+    expect(data).toEqual({ kind: "event", event, equipmentTypes: null });
   });
 
   it("opens the lead triage view with the assignment candidates for an unassigned projection", async () => {
@@ -387,9 +375,9 @@ describe("loadEventPageData", () => {
     mockGetOversightRequest.mockResolvedValue(request);
     mockListCoordinators.mockResolvedValue(coordinators);
 
-    const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_coordinator_lead");
 
-    expect(data).toEqual({ kind: "triage", viewerId: VIEWER_ID, request, coordinators });
+    expect(data).toEqual({ kind: "triage", request, coordinators });
     expect(mockGetOversightRequest).toHaveBeenCalledWith({ data: { id: 7 } });
   });
 
@@ -401,12 +389,11 @@ describe("loadEventPageData", () => {
     mockGetOversightRequest.mockResolvedValue(request);
     mockListCoordinators.mockResolvedValue(coordinators);
 
-    const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_coordinator_lead");
 
     expect(data).toEqual({
       kind: "event",
       event,
-      viewerId: VIEWER_ID,
       coordination: { request, coordinators },
     });
   });
@@ -416,9 +403,9 @@ describe("loadEventPageData", () => {
     mockListEvents.mockResolvedValue([event]);
     mockGetOversightRequest.mockRejectedValue(new Error("coordination store down"));
 
-    const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_coordinator_lead");
 
-    expect(data).toEqual({ kind: "event", event, viewerId: VIEWER_ID, coordination: null });
+    expect(data).toEqual({ kind: "event", event, coordination: null });
   });
 
   it("opens the lead triage view for an unassigned request past review", async () => {
@@ -432,15 +419,15 @@ describe("loadEventPageData", () => {
     mockGetOversightRequest.mockResolvedValue(request);
     mockListCoordinators.mockResolvedValue(coordinators);
 
-    const data = await loadEventPageData(7, "event_coordinator_lead", VIEWER_ID);
+    const data = await loadEventPageData(7, "event_coordinator_lead");
 
-    expect(data).toEqual({ kind: "triage", viewerId: VIEWER_ID, request, coordinators });
+    expect(data).toEqual({ kind: "triage", request, coordinators });
   });
 
   it("returns null on Forbidden for a Coordinator with no assigned event", async () => {
     mockListEvents.mockRejectedValue(new Error("Forbidden"));
 
-    await expect(loadEventPageData(7, "event_coordinator", VIEWER_ID)).resolves.toBeNull();
+    await expect(loadEventPageData(7, "event_coordinator")).resolves.toBeNull();
     expect(mockGetOversightRequest).not.toHaveBeenCalled();
     expect(mockGetCoordinationRequest).not.toHaveBeenCalled();
   });
@@ -448,7 +435,7 @@ describe("loadEventPageData", () => {
   it("returns null on Forbidden for a role that cannot oversee", async () => {
     mockListEvents.mockRejectedValue(new Error("Forbidden"));
 
-    await expect(loadEventPageData(7, "attendee", VIEWER_ID)).resolves.toBeNull();
+    await expect(loadEventPageData(7, "attendee")).resolves.toBeNull();
     expect(mockGetOversightRequest).not.toHaveBeenCalled();
   });
 
@@ -457,7 +444,7 @@ describe("loadEventPageData", () => {
     mockGetOversightRequest.mockRejectedValue(new Error("Forbidden"));
     mockListCoordinators.mockResolvedValue([]);
 
-    await expect(loadEventPageData(7, "event_coordinator_lead", VIEWER_ID)).resolves.toBeNull();
+    await expect(loadEventPageData(7, "event_coordinator_lead")).resolves.toBeNull();
   });
 
   it("rethrows a non-refusal oversight failure", async () => {
@@ -465,7 +452,7 @@ describe("loadEventPageData", () => {
     mockGetOversightRequest.mockRejectedValue(new Error("oversight store down"));
     mockListCoordinators.mockResolvedValue([]);
 
-    await expect(loadEventPageData(7, "event_coordinator_lead", VIEWER_ID)).rejects.toThrow(
+    await expect(loadEventPageData(7, "event_coordinator_lead")).rejects.toThrow(
       "oversight store down"
     );
   });

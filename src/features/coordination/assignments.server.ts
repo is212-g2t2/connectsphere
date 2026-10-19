@@ -47,10 +47,6 @@ type Database = typeof Db;
 const organisers = alias(user, "organiser");
 const coordinators = alias(user, "coordinator");
 
-/** A Lead's stale page names a holder who no longer holds the request. */
-const ASSIGNMENT_CHANGED_MESSAGE =
-  "This assignment has changed. Refresh the request and try again.";
-
 export async function handleListAssignedEventRequests(actor: SessionUser, database: Database) {
   return database
     .select({
@@ -207,7 +203,7 @@ export async function handleAssignEventRequest(
     }
     // Refuse a stale page before any write: the Lead saw a different holder.
     if (request.assignedCoordinatorId !== input.expectedCoordinatorId) {
-      throw new ConflictError(ASSIGNMENT_CHANGED_MESSAGE);
+      throw new ConflictError("This assignment has changed. Refresh the request and try again.");
     }
     if (request.assignedCoordinatorId === input.coordinatorId) {
       throw new ConflictError("This Coordinator is already assigned to the request.");

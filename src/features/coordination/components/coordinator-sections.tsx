@@ -782,7 +782,7 @@ function LeadAssignmentBody({
                             coordinator => coordinator.id === value
                           );
                           return selected
-                            ? coordinatorOptionLabel(selected)
+                            ? `${selected.name} (${selected.email})`
                             : "Choose an Event Coordinator";
                         }}
                       </SelectValue>
@@ -790,7 +790,7 @@ function LeadAssignmentBody({
                     <SelectContent>
                       {coordinators.map(coordinator => (
                         <SelectItem key={coordinator.id} value={coordinator.id}>
-                          {coordinatorOptionLabel(coordinator)}
+                          {coordinator.name} ({coordinator.email})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -816,10 +816,6 @@ function LeadAssignmentBody({
       </Card>
     </div>
   );
-}
-
-function coordinatorOptionLabel(coordinator: Coordinator) {
-  return `${coordinator.name} (${coordinator.email})`;
 }
 
 /**

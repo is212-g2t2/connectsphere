@@ -88,7 +88,6 @@ function eventData(
 ): EventPageData {
   return {
     kind: "event",
-    viewerId: viewer.id,
     event: {
       access,
       event: {
@@ -110,18 +109,12 @@ function triageData(
 ): EventPageData {
   return {
     kind: "triage",
-    viewerId: viewer.id,
     request,
     coordinators: team,
   } as unknown as EventPageData;
 }
 
-function renderSection(
-  data: EventPageData,
-  id: string,
-  closing = false,
-  sectionsFor = closing ? coordinatorClosingSections : coordinatorSections
-) {
+function renderSection(data: EventPageData, id: string, sectionsFor = coordinatorSections) {
   cleanup();
   const section = sectionsFor(data).find(candidate => candidate.id === id);
   expect(section).toBeDefined();
@@ -478,7 +471,7 @@ function leadEventData(
 }
 
 function renderLeadSection(data: EventPageData, id: string) {
-  return renderSection(data, id, false, leadAssignmentSections);
+  return renderSection(data, id, leadAssignmentSections);
 }
 
 describe("Lead assignment section (PTR-145)", () => {
@@ -603,7 +596,11 @@ describe("cancellation section", () => {
 
 describe("confirm section", () => {
   it("offers confirmation for a plannable assigned event", () => {
-    renderSection(eventData("planning", owned({ status: "planning" })), "confirm", true);
+    renderSection(
+      eventData("planning", owned({ status: "planning" })),
+      "confirm",
+      coordinatorClosingSections
+    );
     expect(screen.getByRole("heading", { name: "Confirm event" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Confirm event/ })).toBeTruthy();
   });
@@ -635,7 +632,7 @@ describe("complete section", () => {
     const data = confirmedData("The event end date and time has not passed.");
     expect(completeSection(data)?.label).toBe("Complete event");
     expect(completeSection(data)?.visible(data)).toBe(true);
-    renderSection(data, "complete", true);
+    renderSection(data, "complete", coordinatorClosingSections);
     expect(screen.getByRole("heading", { name: "Complete event" })).toBeTruthy();
     const trigger = screen.getByRole("button", { name: "Complete event: Winter Skills Workshop" });
     expect(trigger.hasAttribute("disabled")).toBe(true);
@@ -655,7 +652,7 @@ describe("complete section", () => {
 
   it("enables the action when no disabled reason is present", () => {
     const data = confirmedData(null);
-    renderSection(data, "complete", true);
+    renderSection(data, "complete", coordinatorClosingSections);
     expect(
       screen
         .getByRole("button", { name: "Complete event: Winter Skills Workshop" })
@@ -694,7 +691,7 @@ describe("releases section", () => {
     renderSection(
       eventData("cancelled", owned({ status: "cancelled", outstandingReleases: releases })),
       "releases",
-      true
+      coordinatorClosingSections
     );
     expect(screen.getByText(/Harbor Hall/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "release it on the venue calendar" })).toBeTruthy();
@@ -704,7 +701,7 @@ describe("releases section", () => {
     const { container } = renderSection(
       eventData("cancelled", owned({ status: "cancelled" })),
       "releases",
-      true
+      coordinatorClosingSections
     );
     expect(container.textContent).toBe("");
   });

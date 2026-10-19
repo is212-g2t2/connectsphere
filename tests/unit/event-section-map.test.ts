@@ -25,7 +25,7 @@ function page(
   access: EventProjection["access"],
   event: Partial<EventProjection["event"]> = {}
 ): EventPageData {
-  return { kind: "event", event: projection(access, event), viewerId: "viewer-1" };
+  return { kind: "event", event: projection(access, event) };
 }
 
 function ids(data: EventPageData): string[] {
@@ -41,7 +41,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("organiser", { name: "Open Day", expectedAttendance: 60 }),
-      viewerId: "viewer-1",
       organiserRequest: { status: "confirmed" },
     } as unknown as EventPageData;
     expect(ids(data)).toEqual([
@@ -58,7 +57,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("organiser", { status: "submitted" }),
-      viewerId: "viewer-1",
       organiserRequest: { status: "submitted" },
     } as unknown as EventPageData;
     expect(ids(data)).toEqual(["requests", "details"]);
@@ -68,7 +66,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("organiser", { status: "rejected" }),
-      viewerId: "viewer-1",
       organiserRequest: { status: "rejected" },
     } as unknown as EventPageData;
 
@@ -79,7 +76,6 @@ describe("eventSections", () => {
     const data: EventPageData = {
       kind: "event",
       event: projection("organiser", { status: "submitted" }),
-      viewerId: "viewer-1",
       attendees: [],
     };
 
@@ -102,7 +98,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "under_review" }),
-      viewerId: "viewer-1",
       coordination: {
         request: {
           clarifications: [{ id: 11 }],
@@ -136,7 +131,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "planning" }),
-      viewerId: "viewer-1",
       coordination: { request: {}, coordinators: [] },
     } as unknown as EventPageData;
     const found = ids(data);
@@ -151,7 +145,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "cancelled" }),
-      viewerId: "viewer-1",
       coordination: {
         request: {
           clarifications: [],
@@ -177,7 +170,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "cancelled" }),
-      viewerId: "viewer-1",
       coordination: {
         request: {
           clarifications: [],
@@ -205,7 +197,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("coordinator", { status: "confirmed" }),
-      viewerId: "viewer-1",
       coordination: { request: {}, coordinators: [] },
     } as unknown as EventPageData;
     const found = ids(data);
@@ -261,7 +252,6 @@ describe("eventSections", () => {
     expect(
       ids({
         kind: "event",
-        viewerId: "viewer-1",
         event: projection("venue_staff", {
           venueRequests: [
             {
@@ -289,7 +279,6 @@ describe("eventSections", () => {
   it("lists the request detail and the Lead's assignment form in triage (PTR-145)", () => {
     const found = ids({
       kind: "triage",
-      viewerId: "lead-1",
       request: {
         status: "submitted",
         cancellationRequests: [],
@@ -311,7 +300,6 @@ describe("eventSections", () => {
     const data = {
       kind: "event",
       event: projection("lead", { status: "planning", awaitingAssignment: false }),
-      viewerId: "lead-1",
       coordination: {
         request: {
           id: 1042,

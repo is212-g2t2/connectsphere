@@ -9,7 +9,8 @@ interface CoordinatorAssignedEmailProps {
   coordinatorName: string;
   previousCoordinatorName?: string;
   audience: "coordinator" | "outgoing_coordinator" | "organiser";
-  eventUrl: string;
+  /** Absent on the outgoing Coordinator's copy, which no longer reaches the event. */
+  eventUrl?: string;
 }
 
 /**
@@ -33,9 +34,11 @@ export const CoordinatorAssignedEmail = ({
             <strong>{eventName}</strong> no longer belongs to you.{" "}
             <strong>{coordinatorName}</strong> is now its Coordinator.
           </Text>
-          <Button href={eventUrl} style={emailButton}>
-            View the event
-          </Button>
+          {eventUrl ? (
+            <Button href={eventUrl} style={emailButton}>
+              View the event
+            </Button>
+          ) : null}
         </Section>
       </Layout>
     );
@@ -59,9 +62,11 @@ export const CoordinatorAssignedEmail = ({
           <Text style={emailText}>
             {text} <strong>{eventName}</strong>.
           </Text>
-          <Button href={eventUrl} style={emailButton}>
-            View the event
-          </Button>
+          {eventUrl ? (
+            <Button href={eventUrl} style={emailButton}>
+              View the event
+            </Button>
+          ) : null}
         </Section>
       </Layout>
     );
@@ -77,9 +82,11 @@ export const CoordinatorAssignedEmail = ({
             ? ` It moved from ${previousCoordinatorName}.`
             : ""}
         </Text>
-        <Button href={eventUrl} style={emailButton}>
-          View the event
-        </Button>
+        {eventUrl ? (
+          <Button href={eventUrl} style={emailButton}>
+            View the event
+          </Button>
+        ) : null}
       </Section>
     </Layout>
   );

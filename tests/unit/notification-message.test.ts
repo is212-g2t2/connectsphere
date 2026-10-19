@@ -338,6 +338,8 @@ describe("notification summaries (PTR-55 AC2)", () => {
       audience: "outgoing_coordinator",
     });
     expect(notificationSummary(outgoing)).toBe("Event reassigned: Gala");
+    // The outgoing Coordinator no longer reaches the event, so their copy carries no dead link.
+    expect(notificationHref({ ...outgoing, eventRequestId: 7 })).toBeNull();
   });
 
   it("names the venue, never the event, on the hold request lines (PTR-150)", () => {

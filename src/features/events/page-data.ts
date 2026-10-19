@@ -27,7 +27,6 @@ export type EventPageData =
   | {
       kind: "event";
       event: EventProjection;
-      viewerId: string;
       organiserRequest?: EventRequestDetail | null;
       /**
        * PTR-145: the assignment read. Only the Lead's page fills `coordinators`; the
@@ -56,7 +55,6 @@ export type EventPageData =
     }
   | {
       kind: "triage";
-      viewerId: string;
       request: CoordinationRequest;
       /** PTR-145: every Event Coordinator, the Lead's assignment candidates. */
       coordinators: Coordinator[];

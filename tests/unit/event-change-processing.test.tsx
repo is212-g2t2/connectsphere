@@ -144,7 +144,6 @@ function coordinatorPage(overrides: Partial<CoordinationRequest> = {}): EventPag
   const coordination = { ...request, ...overrides };
   return {
     kind: "event",
-    viewerId: "coord-a",
     event: {
       access: "coordinator",
       event: {
@@ -248,7 +247,6 @@ describe("the Coordinator's decisions on a change request (PTR-52)", () => {
       <EventDetailPage
         data={{
           kind: "triage",
-          viewerId: "coord-b",
           request: { ...request, status: "submitted" },
           coordinators: [],
         }}
@@ -670,7 +668,6 @@ function organiserPage(overrides: Partial<CoordinationRequest> = {}): EventPageD
   const organiserRequest = { ...view, ...overrides };
   return {
     kind: "event",
-    viewerId: "org",
     event: {
       access: "organiser",
       event: { id: organiserRequest.id, name: organiserRequest.eventName, status: "approved" },

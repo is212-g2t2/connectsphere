@@ -72,7 +72,7 @@ function organiserPage(): EventPageData {
       status: "confirmed",
     },
   };
-  return { kind: "event", viewerId: "viewer-1", event, organiserRequest: request };
+  return { kind: "event", event, organiserRequest: request };
 }
 
 function coordinatorPage(): EventPageData {
@@ -88,7 +88,6 @@ function coordinatorPage(): EventPageData {
   };
   return {
     kind: "event",
-    viewerId: "viewer-1",
     event,
     coordination: { request: coordinationRequest, coordinators: [] },
   };
@@ -127,7 +126,7 @@ function leadPage(): EventPageData {
       },
     },
   };
-  return { kind: "event", viewerId: "lead-1", event };
+  return { kind: "event", event };
 }
 
 describe("event information section", () => {

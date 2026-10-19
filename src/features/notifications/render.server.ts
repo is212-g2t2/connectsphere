@@ -467,7 +467,10 @@ export function renderNotificationEmail(
         subject,
         element: createElement(CoordinatorAssignedEmail, {
           ...notification.payload,
-          eventUrl: `${base}/events/${eventRequestId}`,
+          // The outgoing Coordinator no longer reaches the event, so their copy carries no link.
+          ...(notification.payload.audience === "outgoing_coordinator"
+            ? {}
+            : { eventUrl: `${base}/events/${eventRequestId}` }),
         }),
       };
     default: {

@@ -745,11 +745,15 @@ export function notificationHref(
     case "event_decided":
     case "event_confirmed":
     case "safety_review_decided":
-    case "coordinator_assigned":
       // PTR-146: the assigned Coordinator opens the event page, and so does a Lead, who reaches
-      // every non-draft event (PTR-144). PTR-145: so does every party of an assignment, and a
-      // retired handover record points at the event (PTR-145 AC5).
+      // every non-draft event (PTR-144). PTR-145: a retired handover record points at the event.
       return `/events/${eventRequestId}`;
+    case "coordinator_assigned":
+      // The outgoing Coordinator no longer reaches the event, so their copy carries no link; the
+      // incoming Coordinator and the Organiser open it.
+      return notification.payload.audience === "outgoing_coordinator"
+        ? null
+        : `/events/${eventRequestId}`;
     case "equipment_requested":
       return `/events/${eventRequestId}`;
     case "event_registered":

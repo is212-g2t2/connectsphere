@@ -1385,6 +1385,39 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-144, PTR-145)
       }
     });
 
+    it("leaves an open handover offer row inert in the table (AC5)", async () => {
+      const request = await submittedRequest(first.id);
+      const [offer] = await database
+        .insert(schema.eventHandovers)
+        .values({
+          eventRequestId: request.id,
+          fromCoordinatorId: first.id,
+          toCoordinatorId: second.id,
+        })
+        .returning();
+
+      await handleAssignEventRequest(
+        {
+          id: request.id,
+          coordinatorId: tieBreakCoordinator.id,
+          expectedCoordinatorId: first.id,
+        },
+        leadActor,
+        database as never
+      );
+
+      // The retired offer is neither answered nor deleted; no reader or writer remains.
+      const [stored] = await database
+        .select()
+        .from(schema.eventHandovers)
+        .where(eq(schema.eventHandovers.id, offer.id));
+      expect(stored).toMatchObject({
+        decision: null,
+        fromCoordinatorId: first.id,
+        toCoordinatorId: second.id,
+      });
+    });
+
     it(
       "reassigns while the outgoing Coordinator deletes their account, without a deadlock (AC8)",
       { timeout: 20_000 },

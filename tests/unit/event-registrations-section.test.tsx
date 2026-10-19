@@ -68,7 +68,7 @@ function page(extra: Partial<Extract<EventPageData, { kind: "event" }>> = {}): E
       places: { registered: 38, vip: 4, limit: 60, capacity: 60 },
     },
   };
-  return { kind: "event", event, viewerId: "viewer-1", attendees, ...extra };
+  return { kind: "event", event, attendees, ...extra };
 }
 
 function renderRegistrations(data: EventPageData) {

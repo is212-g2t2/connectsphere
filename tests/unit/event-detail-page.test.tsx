@@ -56,7 +56,6 @@ describe("EventDetailPage", () => {
       <EventDetailPage
         data={{
           kind: "event",
-          viewerId: "viewer-1",
           event: projection("attendee", { registrationAvailability: { state: "open" } }),
         }}
       />
@@ -72,7 +71,6 @@ describe("EventDetailPage", () => {
         data={
           {
             kind: "event",
-            viewerId: "viewer-1",
             event: projection("organiser", { expectedAttendance: 60 }),
             organiserRequest: {
               id: 1042,
@@ -180,7 +178,6 @@ describe("EventDetailPage", () => {
       <EventDetailPage
         data={{
           kind: "event",
-          viewerId: "viewer-1",
           event: projection("technical_support", { venue: undefined }),
         }}
       />
@@ -197,7 +194,6 @@ describe("EventDetailPage", () => {
       <EventDetailPage
         data={{
           kind: "event",
-          viewerId: "viewer-1",
           event: projection("venue_staff", {
             venueRequests: [],
           }),
@@ -214,7 +210,6 @@ describe("EventDetailPage", () => {
         data={
           {
             kind: "triage",
-            viewerId: "lead-1",
             request: {
               eventName: "Unassigned open day",
               status: "submitted",
@@ -246,7 +241,6 @@ describe("EventDetailPage", () => {
         data={
           {
             kind: "triage",
-            viewerId: "lead-1",
             request: {
               eventName: "Unassigned open day",
               status: "submitted",

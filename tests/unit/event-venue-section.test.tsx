@@ -80,7 +80,6 @@ function eventData(
 ): EventPageData {
   return {
     kind: "event",
-    viewerId: "viewer-1",
     event: projection(access, event),
   };
 }
@@ -386,7 +385,6 @@ describe("venue section", () => {
   it("shows the triage venue entries read-only, with the rejection reason and no adjust link", () => {
     const data = {
       kind: "triage",
-      viewerId: "viewer-1",
       request: {
         id: 1036,
         status: "submitted",
@@ -411,7 +409,6 @@ describe("venue section", () => {
   it("hides the triage adjust link when the rejected entry is not adjustable", () => {
     const data = {
       kind: "triage",
-      viewerId: "viewer-1",
       request: {
         id: 1036,
         status: "submitted",
@@ -433,7 +430,6 @@ describe("venue section", () => {
   it("hides the triage venue without venue entries", () => {
     const data = {
       kind: "triage",
-      viewerId: "viewer-1",
       request: { id: 1036, status: "submitted", venueRequests: [] },
       coordinators: [],
     } as unknown as EventPageData;

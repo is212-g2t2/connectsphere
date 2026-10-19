@@ -37,14 +37,14 @@ describe("event route loader", () => {
     }
   );
 
-  it("delegates to loadEventPageData with the parsed id, the caller role and the viewer id", async () => {
+  it("delegates to loadEventPageData with the parsed id and the caller role", async () => {
     const data = { kind: "event", event: { id: 7 } };
     mockLoadEventPageData.mockResolvedValue(data);
 
     await expect(
       loader({ params: { eventId: "7" }, context: { user: { id: "u-1", role: "venue_staff" } } })
     ).resolves.toEqual(data);
-    expect(mockLoadEventPageData).toHaveBeenCalledWith(7, "venue_staff", "u-1");
+    expect(mockLoadEventPageData).toHaveBeenCalledWith(7, "venue_staff");
   });
 
   it.each(["attendee", "event_organiser", "venue_staff"])(

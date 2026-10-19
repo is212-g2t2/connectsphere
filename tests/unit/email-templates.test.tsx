@@ -132,12 +132,14 @@ describe("Email templates rendering", () => {
         coordinatorName="Bailey"
         previousCoordinatorName="Alex"
         audience="outgoing_coordinator"
-        eventUrl={eventUrl}
       />
     );
     expect(outgoing).toContain("Event reassigned");
     expect(outgoing).toContain("no longer belongs to you");
     expect(outgoing).toContain("Bailey");
+    // The outgoing Coordinator lost the event, so the copy carries no link to it.
+    expect(outgoing).not.toContain("View the event");
+    expect(outgoing).not.toContain(eventUrl);
 
     const organiser = await render(
       <CoordinatorAssignedEmail
