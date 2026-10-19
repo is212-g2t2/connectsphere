@@ -118,36 +118,42 @@ export async function handleGetCoordinationRequest(
   // nonexistent request answers the same 404, and the message carries no request data.
   if (!request) throw new AuthorizationError("Forbidden");
 
-  const [clarifications, changeRequests, cancellationRequests, outstandingReleases, venueRequests] =
-    await Promise.all([
-      database
-        .select()
-        .from(clarificationRequests)
-        .where(eq(clarificationRequests.eventRequestId, id))
-        .orderBy(asc(clarificationRequests.createdAt)),
-      listEventChangeRequests(id, database),
-      listEventCancellationRequests(id, database),
-      // PTR-54 AC2: what a cancelled event still holds, read live so a release takes it off.
-      request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
-      // The triage venue section reads the event's live venue requests from here.
-      loadVenueRequestsForEvent(database, id),
-    ]);
+  // PTR-145: the reassignment form reads only the holder of an assigned request, so the Lead's
+  // read skips the review-flow sub-reads it would not render. The queue detail (unassigned) and
+  // the Coordinator's own view keep them.
+  const reviewFlow =
+    readsQueue && request.assignedCoordinatorId !== null
+      ? null
+      : await Promise.all([
+          database
+            .select()
+            .from(clarificationRequests)
+            .where(eq(clarificationRequests.eventRequestId, id))
+            .orderBy(asc(clarificationRequests.createdAt)),
+          listEventChangeRequests(id, database),
+          listEventCancellationRequests(id, database),
+          // PTR-54 AC2: what a cancelled event still holds, read live so a release takes it off.
+          request.status === "cancelled" ? loadOutstandingReleases(database, id) : null,
+          // The triage venue section reads the event's live venue requests from here.
+          loadVenueRequestsForEvent(database, id),
+        ]);
 
   return {
     ...request,
-    clarifications,
-    changeRequests,
-    cancellationRequests,
-    outstandingReleases,
-    venueRequests,
+    clarifications: reviewFlow?.[0] ?? [],
+    changeRequests: reviewFlow?.[1] ?? [],
+    cancellationRequests: reviewFlow?.[2] ?? [],
+    outstandingReleases: reviewFlow?.[3] ?? null,
+    venueRequests: reviewFlow?.[4] ?? [],
   };
 }
 
 /**
  * PTR-145: the Lead assigns an unassigned request, or reassigns an assigned one. The move takes
- * effect at once; the incoming Coordinator never accepts or declines. The request row is locked
- * before it is read, so two Leads cannot act on the same observation: the later call sees the
- * first move and refuses a stale expected Coordinator without changing anything (criterion 8).
+ * effect at once; the incoming Coordinator never accepts or declines. The candidate recipients
+ * are locked in one order, then the request row: two Leads cannot act on the same observation,
+ * so the later call sees the first move and refuses a stale expected Coordinator without changing
+ * anything (criterion 8).
  *
  * A request from submission through confirmation is assignable. A draft, a rejected request, a
  * completed event and a cancelled event are closed (criterion 3). The audit row records the
@@ -163,29 +169,58 @@ export async function handleAssignEventRequest(
   const input = parseAssignmentInput(data);
 
   return database.transaction(async tx => {
+    // Lock the candidate recipient accounts in one id order before the event row. An account
+    // deletion takes a user row first and the request row second (through its FK action), so
+    // locking users first keeps that inversion from deadlocking the assignment. The pre-read is
+    // unlocked; the row lock below re-validates the holder it names.
+    const preRead = (
+      await tx
+        .select({
+          organiserId: eventRequests.organiserId,
+          assignedCoordinatorId: eventRequests.assignedCoordinatorId,
+        })
+        .from(eventRequests)
+        .where(eq(eventRequests.id, input.id))
+    ).at(0);
+    if (!preRead) throw new NotFoundError("Not Found");
+    const recipientIds = [
+      ...new Set(
+        [input.coordinatorId, preRead.organiserId, preRead.assignedCoordinatorId].filter(
+          (id): id is string => id !== null
+        )
+      ),
+    ].toSorted();
+    await tx
+      .select({ id: user.id })
+      .from(user)
+      .where(inArray(user.id, recipientIds))
+      .orderBy(asc(user.id))
+      .for("share");
+
     const request = (
       await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
     ).at(0);
     if (!request) throw new NotFoundError("Not Found");
 
+    // AC3 first: a closed request names its own refusal, even from a stale page.
+    if (!canAssignEventRequest(request.status)) {
+      throw new ConflictError("This request can no longer be assigned.");
+    }
     // Refuse a stale page before any write: the Lead saw a different holder.
     if (request.assignedCoordinatorId !== input.expectedCoordinatorId) {
       throw new ConflictError(ASSIGNMENT_CHANGED_MESSAGE);
-    }
-    if (!canAssignEventRequest(request.status)) {
-      throw new ConflictError("This request can no longer be assigned.");
     }
     if (request.assignedCoordinatorId === input.coordinatorId) {
       throw new ConflictError("This Coordinator is already assigned to the request.");
     }
 
-    // Hold the incoming account while its role is validated and the assignment is committed.
+    // The recipient lock above holds the incoming account while its role is validated and the
+    // assignment is committed.
     const incoming = (
       await tx
         .select({ id: user.id, name: user.name, email: user.email })
         .from(user)
         .where(and(eq(user.id, input.coordinatorId), eq(user.role, "event_coordinator")))
-        .for("share")
     ).at(0);
     if (!incoming) throw new ConflictError("Choose an existing Event Coordinator.");
 

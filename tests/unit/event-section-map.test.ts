@@ -302,9 +302,31 @@ describe("eventSections", () => {
     expect(found).toEqual(["request", "assignment"]);
   });
 
-  it("lists only the read-only details section for the lead, with no rail actions", () => {
+  it("lists only the read-only details section for the lead with no assignment read", () => {
     expect(ids(page("lead"))).toEqual(["details"]);
     expect([...railSectionIds(page("lead"))]).toEqual([]);
+  });
+
+  it("shows the Lead the assignment form on an assigned event, with no rail action", () => {
+    const data = {
+      kind: "event",
+      event: projection("lead", { status: "planning", awaitingAssignment: false }),
+      viewerId: "lead-1",
+      coordination: {
+        request: {
+          id: 1042,
+          status: "planning",
+          assignedCoordinatorId: "coord-a",
+          coordinator: { name: "Coordinator A", email: "coordinator.a@example.com" },
+        },
+        coordinators: [
+          { id: "coord-a", name: "Coordinator A", email: "coordinator.a@example.com" },
+        ],
+      },
+    } as unknown as EventPageData;
+
+    expect(ids(data)).toEqual(["assignment", "details"]);
+    expect([...railSectionIds(data)]).toEqual([]);
   });
 });
 

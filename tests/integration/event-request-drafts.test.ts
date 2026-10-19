@@ -1135,7 +1135,7 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-144, PTR-145)
         eventRequestId: request.id,
       } as never);
       expect(rendered.subject).toBe(`Event assigned to you: ${request.eventName.trim()}`);
-      expect(await render(rendered.element)).toContain(first.name);
+      expect(await render(rendered.element)).toContain("is now yours to coordinate");
     });
 
     it("reassigns immediately, keeps the audit trail, and notifies all three parties (AC2, AC7)", async () => {
@@ -1222,7 +1222,10 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-144, PTR-145)
           leadActor,
           database as never
         )
-      ).rejects.toMatchObject({ status: 409 });
+      ).rejects.toMatchObject({
+        status: 409,
+        message: "This request can no longer be assigned.",
+      });
 
       for (const status of ["rejected", "completed", "cancelled"] as const) {
         const request = await assignedRequest(first.id);
@@ -1233,7 +1236,10 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-144, PTR-145)
             leadActor,
             database as never
           )
-        ).rejects.toMatchObject({ status: 409 });
+        ).rejects.toMatchObject({
+          status: 409,
+          message: "This request can no longer be assigned.",
+        });
         const [stored] = await database
           .select()
           .from(schema.eventRequests)
@@ -1276,6 +1282,12 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-144, PTR-145)
           .select()
           .from(schema.eventAssignments)
           .where(eq(schema.eventAssignments.eventRequestId, request.id))
+      ).toEqual([]);
+      expect(
+        await database
+          .select()
+          .from(schema.notifications)
+          .where(eq(schema.notifications.eventRequestId, request.id))
       ).toEqual([]);
     });
 
@@ -1373,8 +1385,43 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-144, PTR-145)
       }
     });
 
-    it("lets the Lead read an assigned request for the reassignment form (AC2)", async () => {
+    it("reassigns while the outgoing Coordinator deletes their account, without a deadlock (AC8)", async () => {
       const request = await assignedRequest(first.id);
+      const [assignment, deletion] = await Promise.allSettled([
+        handleAssignEventRequest(
+          { id: request.id, coordinatorId: second.id, expectedCoordinatorId: first.id },
+          leadActor,
+          database as never
+        ),
+        database.delete(schema.user).where(eq(schema.user.id, first.id)),
+      ]);
+      try {
+        expect(deletion.status).toBe("fulfilled");
+        // Either the move won, or the deletion won and the move refused as stale. A deadlock
+        // would reject the move with a driver error instead of the typed conflict.
+        expect(assignment).toMatchObject(
+          assignment.status === "fulfilled" ? { status: "fulfilled" } : { reason: { status: 409 } }
+        );
+        const [stored] = await database
+          .select()
+          .from(schema.eventRequests)
+          .where(eq(schema.eventRequests.id, request.id));
+        expect(stored.assignedCoordinatorId).toBe(
+          assignment.status === "fulfilled" ? second.id : null
+        );
+      } finally {
+        await database.insert(schema.user).values(first).onConflictDoNothing();
+      }
+    });
+
+    it("lets the Lead read the holder of an assigned request, without the review flow (AC2)", async () => {
+      const request = await assignedRequest(first.id);
+      await handleRaiseEventChangeRequest(
+        { id: request.id, whatShouldChange: "Venue", requestedValue: "Harbour Hall" },
+        organiser,
+        database as never
+      );
+
       const view = await handleGetCoordinationRequest(
         { id: request.id },
         leadActor,
@@ -1385,6 +1432,16 @@ describe("Coordinating event requests (PTR-15, PTR-17, PTR-20, PTR-144, PTR-145)
         assignedCoordinatorId: first.id,
         coordinator: { name: first.name, email: first.email },
       });
+      // The reassignment form reads only the holder; the review-flow sub-reads stay off the wire.
+      expect(view.changeRequests).toEqual([]);
+
+      // The assigned Coordinator keeps the full read.
+      const coordinatorView = await handleGetCoordinationRequest(
+        { id: request.id },
+        first,
+        database as never
+      );
+      expect(coordinatorView.changeRequests).toHaveLength(1);
     });
   });
 

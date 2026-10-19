@@ -42,12 +42,18 @@ export const CoordinatorAssignedEmail = ({
   }
 
   if (audience === "organiser") {
-    const text =
-      action === "reassign" && previousCoordinatorName
-        ? `${coordinatorName} replaces ${previousCoordinatorName} as the Coordinator for`
-        : `${coordinatorName} is the Coordinator for`;
+    const reassigned = action === "reassign" && previousCoordinatorName !== undefined;
+    const text = reassigned
+      ? `${coordinatorName} replaces ${previousCoordinatorName} as the Coordinator for`
+      : `${coordinatorName} is the Coordinator for`;
     return (
-      <Layout previewText={`Event Coordinator assigned: ${eventName}`}>
+      <Layout
+        previewText={
+          reassigned
+            ? `Event Coordinator changed: ${eventName}`
+            : `Event Coordinator assigned: ${eventName}`
+        }
+      >
         <Section>
           <Text style={emailHeading}>The event has a Coordinator</Text>
           <Text style={emailText}>

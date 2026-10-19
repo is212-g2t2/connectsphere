@@ -85,7 +85,7 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
  * is a record, a wide table, or a heavy form. Those need the main column.
  */
 export function railSectionIds(data: EventPageData): Set<string> {
-  // PTR-144: the Lead's unassigned detail is read-only, so it has no rail action.
+  // PTR-144: the Lead's detail has no rail action; the assignment form sits in the main column.
   if (data.kind === "triage") return new Set();
   switch (data.event.access) {
     case "coordinator":

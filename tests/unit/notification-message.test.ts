@@ -687,12 +687,15 @@ describe("notification reachability (PTR-55 AC5)", () => {
     expect(notificationReachable(confirmed, { eventAccessible: true })).toBe(true);
   });
 
-  it("keeps a retired handover record readable without an event relation (PTR-145 AC5)", () => {
-    const handover = parse("handover_requested", validPayloads.handover_requested);
-    expect(notificationReachable(handover, { eventAccessible: false })).toBe(true);
+  it("keeps every retired handover record readable without an event relation (PTR-145 AC5)", () => {
+    for (const kind of ["handover_requested", "handover_accepted", "handover_declined"] as const) {
+      expect(
+        notificationReachable(parse(kind, validPayloads[kind]), { eventAccessible: false })
+      ).toBe(true);
+    }
   });
 
-  it("keeps the outgoing Coordinator's own reassignment notice readable (PTR-145 AC2)", () => {
+  it("keeps the Coordinator parties' assignment notices readable (PTR-145 AC1, AC2)", () => {
     const outgoing = parse("coordinator_assigned", {
       eventName: "Gala",
       action: "reassign",
@@ -701,10 +704,19 @@ describe("notification reachability (PTR-55 AC5)", () => {
     });
     expect(notificationReachable(outgoing, { eventAccessible: false })).toBe(true);
 
-    // The incoming Coordinator and the Organiser reach the event, so they ride that relationship.
     const incoming = parse("coordinator_assigned", validPayloads.coordinator_assigned);
-    expect(notificationReachable(incoming, { eventAccessible: false })).toBe(false);
+    expect(notificationReachable(incoming, { eventAccessible: false })).toBe(true);
     expect(notificationReachable(incoming, { eventAccessible: true })).toBe(true);
+
+    // The Organiser always reaches the event; that relationship is the rule.
+    const organiser = parse("coordinator_assigned", {
+      eventName: "Gala",
+      action: "assign",
+      coordinatorName: "Bob",
+      audience: "organiser",
+    });
+    expect(notificationReachable(organiser, { eventAccessible: false })).toBe(false);
+    expect(notificationReachable(organiser, { eventAccessible: true })).toBe(true);
   });
 
   it("keeps a hold request visible to Venue Staff without an event relation (PTR-150)", () => {
@@ -716,10 +728,10 @@ describe("notification reachability (PTR-55 AC5)", () => {
   });
 
   it("rides the event relationship for the hold warning and the expiry (PTR-143)", () => {
-    const facts = { eventAccessible: false, handoverPending: true };
     for (const kind of ["venue_hold_expiring", "venue_hold_expired"] as const) {
-      expect(notificationReachable(kind, facts)).toBe(false);
-      expect(notificationReachable(kind, { ...facts, eventAccessible: true })).toBe(true);
+      const payload = parse(kind, validPayloads[kind]);
+      expect(notificationReachable(payload, { eventAccessible: false })).toBe(false);
+      expect(notificationReachable(payload, { eventAccessible: true })).toBe(true);
     }
   });
 

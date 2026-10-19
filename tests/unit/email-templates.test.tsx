@@ -151,6 +151,32 @@ describe("Email templates rendering", () => {
     );
     expect(organiser).toContain("replaces Alex");
     expect(organiser).toContain("Bailey");
+    // The preview matches the subject the inbox shows.
+    expect(organiser).toContain("Event Coordinator changed");
+
+    const organiserAssigned = await render(
+      <CoordinatorAssignedEmail
+        eventName="Community workshop"
+        action="assign"
+        coordinatorName="Bailey"
+        audience="organiser"
+        eventUrl={eventUrl}
+      />
+    );
+    expect(organiserAssigned).toContain("is the Coordinator for");
+    expect(organiserAssigned).toContain("Event Coordinator assigned");
+
+    const incomingReassigned = await render(
+      <CoordinatorAssignedEmail
+        eventName="Community workshop"
+        action="reassign"
+        coordinatorName="Bailey"
+        previousCoordinatorName="Alex"
+        audience="coordinator"
+        eventUrl={eventUrl}
+      />
+    );
+    expect(incomingReassigned).toContain("It moved from Alex");
   });
 
   it("renders a retired handover request against the event (PTR-145 AC5)", async () => {

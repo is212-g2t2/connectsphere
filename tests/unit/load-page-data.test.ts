@@ -216,7 +216,7 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       viewerId: VIEWER_ID,
-      coordination: { request, coordinators: [] },
+      coordination: { request },
       attendees,
     });
     expect(mockGetCoordinationRequest).toHaveBeenCalledWith({ data: { id: 7 } });
@@ -236,7 +236,7 @@ describe("loadEventPageData", () => {
       kind: "event",
       event,
       viewerId: VIEWER_ID,
-      coordination: { request, coordinators: [] },
+      coordination: { request },
       attendees: undefined,
     });
     expect(mockListEventRegistrations).not.toHaveBeenCalled();

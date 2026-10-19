@@ -66,7 +66,7 @@ export async function loadEventPageData(
       // candidate list.
       const [coordination, attendees] = await Promise.all([
         getCoordinationRequest({ data: { id: eventId } }).then(
-          request => ({ request, coordinators: [] }),
+          request => ({ request }),
           () => null
         ),
         loadAttendees(projection, eventId),

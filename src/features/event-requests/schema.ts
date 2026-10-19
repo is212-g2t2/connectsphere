@@ -431,7 +431,7 @@ export function isReviewStatus(status: EventRequestStatus): boolean {
  * Coordinator, and a rejected, completed or cancelled request is closed. Keep this list in one
  * home, so the server refusal and the assignment form cannot disagree.
  */
-export const ASSIGNABLE_EVENT_REQUEST_STATUSES = [
+const ASSIGNABLE_EVENT_REQUEST_STATUSES = [
   "submitted",
   "under_review",
   "awaiting_organiser",

@@ -29,9 +29,13 @@ export type EventPageData =
       event: EventProjection;
       viewerId: string;
       organiserRequest?: EventRequestDetail | null;
+      /**
+       * PTR-145: the assignment read. Only the Lead's page fills `coordinators`; the
+       * Coordinator's page carries the request alone.
+       */
       coordination?: {
         request: CoordinationRequest;
-        coordinators: Coordinator[];
+        coordinators?: Coordinator[];
       } | null;
       /**
        * Venue Staff only: the full pending requests that one read loaded, and the venue options

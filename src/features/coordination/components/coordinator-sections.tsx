@@ -657,21 +657,16 @@ function ChangesBody({ data }: { data: EventPageData }) {
  * A move takes effect at once, and the server refuses a stale observation (criterion 8).
  */
 export function leadAssignmentSections(data: EventPageData): EventSectionDef[] {
-  if (data.kind === "triage") {
-    return [
-      {
-        id: "assignment",
-        label: "Assign Coordinator",
-        visible: () => canAssignEventRequest(data.request.status),
-        render: () => (
-          <LeadAssignmentBody request={data.request} coordinators={data.coordinators} />
-        ),
-      },
-    ];
-  }
-  // Only the Lead's event page carries the coordination read and an assignment form.
-  if (data.event.access !== "lead" || !data.coordination) return [];
-  const { request, coordinators } = data.coordination;
+  // Only the queue detail and the Lead's event page carry the assignment read.
+  const request =
+    data.kind === "triage"
+      ? data.request
+      : data.event.access === "lead"
+        ? (data.coordination?.request ?? null)
+        : null;
+  const coordinators =
+    data.kind === "triage" ? data.coordinators : (data.coordination?.coordinators ?? []);
+  if (!request) return [];
   return [
     {
       id: "assignment",
@@ -716,8 +711,18 @@ function LeadAssignmentBody({
     validators: { onSubmit: CoordinatorSelection },
     onSubmit: async ({ value, formApi }) => {
       const outcome = await assign(value.coordinatorId);
-      // Clear the selection only once the move is recorded.
-      if (outcome.status === "success") formApi.reset();
+      if (outcome.status === "success") {
+        // Clear the selection only once the move is recorded.
+        formApi.reset();
+        return;
+      }
+      // A refusal is usually a stale page. Re-read, so the form carries the current holder and
+      // its expected Coordinator rather than resubmitting a value the server already refused.
+      try {
+        await router.invalidate({ filter: skipRootFilter });
+      } catch {
+        // The refusal still stands; a missed refresh must not mask it.
+      }
     },
   });
 

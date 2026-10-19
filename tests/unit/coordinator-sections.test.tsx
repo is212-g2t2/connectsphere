@@ -83,13 +83,14 @@ function coordinationRequest(overrides: Record<string, unknown> = {}): Coordinat
 function eventData(
   status: EventRequestStatus,
   request: CoordinationRequest,
-  team: Coordinator[] = coordinators
+  team: Coordinator[] = coordinators,
+  access: "coordinator" | "lead" = "coordinator"
 ): EventPageData {
   return {
     kind: "event",
     viewerId: viewer.id,
     event: {
-      access: "coordinator",
+      access,
       event: {
         id: 7,
         name: "Winter Skills Workshop",
@@ -115,10 +116,14 @@ function triageData(
   } as unknown as EventPageData;
 }
 
-function renderSection(data: EventPageData, id: string, closing = false) {
+function renderSection(
+  data: EventPageData,
+  id: string,
+  closing = false,
+  sectionsFor = closing ? coordinatorClosingSections : coordinatorSections
+) {
   cleanup();
-  const sections = closing ? coordinatorClosingSections(data) : coordinatorSections(data);
-  const section = sections.find(candidate => candidate.id === id);
+  const section = sectionsFor(data).find(candidate => candidate.id === id);
   expect(section).toBeDefined();
   // The event page holds the change-request apply. Its sections share it (PTR-52).
   return render(<ChangeRequestApplyProvider>{section?.render(data)}</ChangeRequestApplyProvider>);
@@ -469,29 +474,11 @@ function leadEventData(
   request: CoordinationRequest,
   team: Coordinator[] = coordinators
 ): EventPageData {
-  return {
-    kind: "event",
-    viewerId: "lead-1",
-    event: {
-      access: "lead",
-      event: {
-        id: 7,
-        name: "Winter Skills Workshop",
-        status,
-        eventDate: null,
-        startTime: null,
-        endTime: null,
-      },
-    },
-    coordination: { request, coordinators: team },
-  } as unknown as EventPageData;
+  return eventData(status, request, team, "lead");
 }
 
 function renderLeadSection(data: EventPageData, id: string) {
-  cleanup();
-  const section = leadAssignmentSections(data).find(candidate => candidate.id === id);
-  expect(section).toBeDefined();
-  return render(<>{section?.render(data)}</>);
+  return renderSection(data, id, false, leadAssignmentSections);
 }
 
 describe("Lead assignment section (PTR-145)", () => {
@@ -553,6 +540,8 @@ describe("Lead assignment section (PTR-145)", () => {
       "This assignment has changed. Refresh the request and try again."
     );
     expect(success).not.toHaveBeenCalled();
+    // The refusal usually means the page is stale; re-read so the retry carries the new holder.
+    expect(invalidate).toHaveBeenCalled();
   });
 
   it("marks an assigned-but-orphaned coordinator as unavailable", () => {

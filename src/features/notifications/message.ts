@@ -738,19 +738,17 @@ export function notificationHref(
       return notification.payload.audience === "lead"
         ? "/coordination"
         : `/events/${eventRequestId}`;
-    case "handover_declined":
-    case "handover_requested":
-      // PTR-145 retires the handover: its records stay readable, and every link points at the
-      // event (an account that no longer reaches the event gets the ordinary 404).
-      return `/events/${eventRequestId}`;
     case "clarification_requested":
     case "handover_accepted":
+    case "handover_declined":
+    case "handover_requested":
     case "event_decided":
     case "event_confirmed":
     case "safety_review_decided":
     case "coordinator_assigned":
       // PTR-146: the assigned Coordinator opens the event page, and so does a Lead, who reaches
-      // every non-draft event (PTR-144). PTR-145: so does every party of an assignment.
+      // every non-draft event (PTR-144). PTR-145: so does every party of an assignment, and a
+      // retired handover record points at the event (PTR-145 AC5).
       return `/events/${eventRequestId}`;
     case "equipment_requested":
       return `/events/${eventRequestId}`;
@@ -855,9 +853,17 @@ export function notificationReachable(
 ): boolean {
   switch (notification.kind) {
     case "handover_requested":
+    case "handover_accepted":
+    case "handover_declined":
+      // PTR-145 AC5: a handover record is the recipient's own history and stays readable.
       return true;
     case "coordinator_assigned":
-      return notification.payload.audience === "outgoing_coordinator" || facts.eventAccessible;
+      // The Coordinator parties own their assignment notices; the Organiser reaches the event.
+      return (
+        notification.payload.audience === "outgoing_coordinator" ||
+        notification.payload.audience === "coordinator" ||
+        facts.eventAccessible
+      );
     case "venue_hold_requested":
       // Every Venue Staff member reads the shared queue. The payload names the venue and the
       // period only, which the venue calendar shows to the same staff, so no event relation is
@@ -870,8 +876,6 @@ export function notificationReachable(
     case "clarification_requested":
     case "clarification_replied":
     case "event_change_requested":
-    case "handover_accepted":
-    case "handover_declined":
     case "event_decided":
     case "event_confirmed":
     case "equipment_requested":
