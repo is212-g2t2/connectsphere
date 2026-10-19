@@ -94,6 +94,35 @@ function coordinatorPage(): EventPageData {
   };
 }
 
+function completedOrganiserPage(actualAttendance: number | null): EventPageData {
+  const data = organiserPage();
+  if (data.kind !== "event") throw new Error("fixture must be an event page");
+  return {
+    ...data,
+    organiserRequest: { ...request, status: "completed", actualAttendance },
+  };
+}
+
+function completedCoordinatorPage(actualAttendance: number | null): EventPageData {
+  const event: EventProjection = {
+    access: "coordinator",
+    event: {
+      id: 1042,
+      eventDate: "2026-11-04",
+      startTime: "10:00",
+      endTime: "16:00",
+      status: "completed",
+      expectedAttendance: 60,
+      actualAttendance,
+    },
+  };
+  return {
+    kind: "event",
+    event,
+    coordination: { request: coordinationRequest, coordinators: [] },
+  };
+}
+
 function leadPage(): EventPageData {
   const event: EventProjection = {
     access: "lead",
@@ -209,5 +238,57 @@ describe("event information section", () => {
     expect(coordinatorDefs).toHaveLength(1);
     expect(coordinatorDefs[0].visible(withoutCoordination)).toBe(false);
     expect(coordinatorDefs[0].render(withoutCoordination)).toBeNull();
+  });
+
+  describe("actual attendance on a completed event (PTR-157 AC2)", () => {
+    it("shows the organiser the recorded turnout beside the expected count", () => {
+      const data = completedOrganiserPage(87);
+      const defs = eventInformationSections(data);
+      expect(defs).toHaveLength(1);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByText("Expected attendance")).toBeTruthy();
+      expect(screen.getByText("Actual attendance")).toBeTruthy();
+      expect(screen.getByText("87")).toBeTruthy();
+    });
+
+    it("tells the organiser when no turnout was recorded", () => {
+      const data = completedOrganiserPage(null);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByText("Actual attendance")).toBeTruthy();
+      expect(screen.getByText("Not recorded")).toBeTruthy();
+    });
+
+    it("shows the organiser no turnout before completion", () => {
+      const data = organiserPage();
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.queryByText("Actual attendance")).toBeNull();
+    });
+
+    it("shows the coordinator the read-only turnout record for a completed event", () => {
+      const data = completedCoordinatorPage(87);
+      const defs = eventInformationSections(data);
+      expect(defs).toHaveLength(1);
+      expect(defs[0].label).toBe("Event record");
+      expect(defs[0].visible(data)).toBe(true);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByRole("heading", { name: "Event record" })).toBeTruthy();
+      expect(screen.getByText("60")).toBeTruthy();
+      expect(screen.getByText("87")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Edit event information" })).toBeNull();
+    });
+
+    it("tells the coordinator when no turnout was recorded", () => {
+      const data = completedCoordinatorPage(null);
+      const defs = eventInformationSections(data);
+      render(<>{defs[0].render(data)}</>);
+
+      expect(screen.getByText("Not recorded")).toBeTruthy();
+    });
   });
 });
