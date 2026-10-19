@@ -52,8 +52,7 @@ export async function sweepSafetyReviews(database: Database, now?: Date) {
     const change = await database.transaction(async tx => {
       // A separate key space from the registration sweep (49, 0).
       await tx.execute(sql`SELECT pg_advisory_xact_lock(148, 0)`);
-      // Read the clock after the lock: a wait can cross a later event's start time.
-      return sweepEvent(tx, candidate.id, now ?? new Date());
+      return sweepEvent(tx, candidate.id, now);
     });
     result.reviewsCreated += change.reviewsCreated;
     result.reviewsUpdated += change.reviewsUpdated;
@@ -63,7 +62,7 @@ export async function sweepSafetyReviews(database: Database, now?: Date) {
   return result;
 }
 
-async function sweepEvent(tx: Transaction, eventId: number, now: Date) {
+async function sweepEvent(tx: Transaction, eventId: number, now: Date | undefined) {
   const result = {
     reviewsCreated: 0,
     reviewsUpdated: 0,
@@ -74,6 +73,8 @@ async function sweepEvent(tx: Transaction, eventId: number, now: Date) {
     await tx.select().from(eventRequests).where(eq(eventRequests.id, eventId)).for("update")
   ).at(0);
   if (!event || !["approved", "planning", "confirmed"].includes(event.status)) return result;
+  // Read the clock after the row lock: a lock wait can cross the event's start time.
+  const clock = now ?? new Date();
   const venueRows = await tx
     .select({
       id: venueRequests.id,
@@ -91,7 +92,7 @@ async function sweepEvent(tx: Transaction, eventId: number, now: Date) {
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
     .where(eq(venueRequests.eventId, eventId));
-  if (hasEventStarted(venueRows, now)) return result;
+  if (hasEventStarted(venueRows, clock)) return result;
   const review = (
     await tx
       .select()
@@ -146,7 +147,7 @@ async function sweepEvent(tx: Transaction, eventId: number, now: Date) {
   if (review?.state === "pending") {
     await tx
       .update(safetyReviews)
-      .set({ fingerprint, refreshedAt: now })
+      .set({ fingerprint, refreshedAt: clock })
       .where(eq(safetyReviews.id, review.id));
     result.reviewsUpdated = 1;
     return result;

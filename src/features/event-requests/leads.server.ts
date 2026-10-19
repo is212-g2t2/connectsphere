@@ -9,8 +9,8 @@ import { user } from "#/db/schema";
  * client-reachable import reaches it.
  *
  * PTR-144: a submission and a change or cancellation request on an unassigned event notify every
- * Event Coordinator Lead. PTR-148: so does a safety revert that returns the event to planning. The
- * fan-out reads the accounts here, so the rule has one home.
+ * Event Coordinator Lead, on an unassigned event. PTR-148: so does a safety revert that returns
+ * the event to planning. The fan-out reads the accounts here, so the rule has one home.
  */
 type Database = typeof Db;
 /**
