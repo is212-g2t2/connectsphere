@@ -132,6 +132,55 @@ describe("completing an event (PTR-25)", () => {
     expect(saved.completedByName).toBe(coordinator.name);
     expect(saved.completedAt).toBeInstanceOf(Date);
     expect(saved.completedAt?.getTime()).toBeGreaterThanOrEqual(before);
+    expect(saved.actualAttendance).toBeNull();
+  });
+
+  test("records the given actual attendance on completion (PTR-157 AC1)", async () => {
+    const event = await createConfirmedEvent();
+
+    await handleCompleteEvent(
+      { id: event.id, actualAttendance: 42 },
+      coordinator,
+      database as never
+    );
+
+    const [saved] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, event.id));
+    expect(saved.status).toBe("completed");
+    expect(saved.actualAttendance).toBe(42);
+  });
+
+  test("records a zero turnout on completion (PTR-157 AC1)", async () => {
+    const event = await createConfirmedEvent();
+
+    await handleCompleteEvent(
+      { id: event.id, actualAttendance: 0 },
+      coordinator,
+      database as never
+    );
+
+    const [saved] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, event.id));
+    expect(saved.actualAttendance).toBe(0);
+  });
+
+  test("refuses a negative turnout before any write (PTR-157 AC1)", async () => {
+    const event = await createConfirmedEvent();
+
+    await expect(
+      handleCompleteEvent({ id: event.id, actualAttendance: -1 }, coordinator, database as never)
+    ).rejects.toThrow("Actual attendance must be a whole number of zero or more");
+
+    const [saved] = await database
+      .select()
+      .from(schema.eventRequests)
+      .where(eq(schema.eventRequests.id, event.id));
+    expect(saved.status).toBe("confirmed");
+    expect(saved.actualAttendance).toBeNull();
   });
 
   test("completes a past event end even when its approved booking is in the future", async () => {
@@ -291,6 +340,19 @@ describe("completing an event (PTR-25)", () => {
         .where(eq(schema.eventRequests.id, event.id))
     ).rejects.toMatchObject({
       cause: { code: "23514", constraint: "event_requests_completion_matches_status" },
+    });
+  });
+
+  test("rejects a negative actual attendance at the database (PTR-157)", async () => {
+    const event = await createConfirmedEvent();
+
+    await expect(
+      database
+        .update(schema.eventRequests)
+        .set({ actualAttendance: -1 })
+        .where(eq(schema.eventRequests.id, event.id))
+    ).rejects.toMatchObject({
+      cause: { code: "23514", constraint: "event_requests_actual_attendance_nonnegative" },
     });
   });
 });

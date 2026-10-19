@@ -308,6 +308,14 @@ describe("Database Schema Definitions", () => {
     expect(checks).toContain("event_requests_completion_matches_status");
   });
 
+  it("defines the actual attendance column and its nonnegative CHECK (PTR-157)", () => {
+    const columns = getTableColumns(eventRequests);
+    expect(columns.actualAttendance.name).toBe("actual_attendance");
+    expect(columns.actualAttendance.notNull).toBe(false);
+    const checks = getTableConfig(eventRequests).checks.map(check => check.name);
+    expect(checks).toContain("event_requests_actual_attendance_nonnegative");
+  });
+
   it("defines relations between user, session, and account", () => {
     expect(userRelations.table).toBe(user);
     expect(sessionRelations.table).toBe(session);

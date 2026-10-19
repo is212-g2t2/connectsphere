@@ -8,9 +8,11 @@ import {
   COMPLETION_REFUSAL_HEADING,
   EVENT_HAS_NOT_ENDED_MESSAGE,
 } from "#/features/events/completion";
+import { ACTUAL_ATTENDANCE_MESSAGE } from "#/features/event-requests/schema";
 
 const { completeEvent, invalidate, success } = vi.hoisted(() => ({
-  completeEvent: vi.fn<(input: { data: { id: number } }) => Promise<unknown>>(),
+  completeEvent:
+    vi.fn<(input: { data: { id: number; actualAttendance?: number } }) => Promise<unknown>>(),
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
 }));
@@ -114,5 +116,33 @@ describe("CompleteEventAction (PTR-25)", () => {
       screen.getByRole("button", { name: "Complete event: Demo Day" }).hasAttribute("disabled")
     ).toBe(false);
     expect(document.querySelector('[data-slot="tooltip-trigger"]')).toBeNull();
+  });
+
+  it("records the entered turnout with the completion (PTR-157 AC1)", async () => {
+    completeEvent.mockResolvedValue({});
+    const user = userEvent.setup();
+    render(<CompleteEventAction eventId={7} eventName="Demo Day" />);
+    await user.click(screen.getByRole("button", { name: "Complete event: Demo Day" }));
+    await user.type(await screen.findByLabelText("Actual attendance (optional)"), "42");
+    await user.click(await screen.findByRole("button", { name: /^Complete$/ }));
+
+    await waitFor(() =>
+      expect(completeEvent).toHaveBeenCalledWith({ data: { id: 7, actualAttendance: 42 } })
+    );
+    await waitFor(() => expect(success).toHaveBeenCalledWith("Event completed."));
+  });
+
+  it("refuses a negative turnout and keeps the action disabled (PTR-157 AC1)", async () => {
+    const user = userEvent.setup();
+    render(<CompleteEventAction eventId={7} eventName="Demo Day" />);
+    await user.click(screen.getByRole("button", { name: "Complete event: Demo Day" }));
+    await user.type(await screen.findByLabelText("Actual attendance (optional)"), "-5");
+
+    expect(await screen.findByText(ACTUAL_ATTENDANCE_MESSAGE)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /^Complete$/ })).toHaveProperty(
+      "disabled",
+      true
+    );
+    expect(completeEvent).not.toHaveBeenCalled();
   });
 });

@@ -442,6 +442,13 @@
       "when": 1792597327884,
       "tag": "0062_numerous_iron_lad",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1792606692402,
+      "tag": "0063_numerous_human_torch",
+      "breakpoints": true
     }
   ]
 }

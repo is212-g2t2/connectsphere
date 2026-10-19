@@ -143,6 +143,8 @@ interface EventRecord {
   confirmedAt?: Date | null;
   confirmedByName?: string | null;
   expectedAttendance: number | null;
+  /** PTR-157: the recorded turnout. Null when the Coordinator recorded none. */
+  actualAttendance?: number | null;
   roomLayoutPreference: string;
   accessibilityRequirements: string;
   venueRequirements: string;
@@ -344,6 +346,8 @@ export interface EventProjection {
     registrationClosesAt?: string | null;
     registrationEnabled?: boolean;
     expectedAttendance?: number | null;
+    /** PTR-157: the recorded turnout. Organiser and Coordinator only. Null when unrecorded. */
+    actualAttendance?: number | null;
     layout?: string | null;
     accessibilityRequirements?: string | null;
     requiredFacilities?: string | null;
@@ -612,6 +616,7 @@ export function projectEvent(
           registrationOpensAt: record.registrationOpensAt,
           registrationClosesAt: record.registrationClosesAt,
           expectedAttendance: record.expectedAttendance,
+          actualAttendance: record.actualAttendance ?? null,
           layout: record.roomLayoutPreference,
           accessibilityRequirements: record.accessibilityRequirements,
           requiredFacilities: record.venueRequirements,

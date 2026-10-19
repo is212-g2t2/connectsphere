@@ -59,6 +59,7 @@ const approved: CoordinationRequest = {
   purpose: "Fundraiser",
   proposedDates: [{ start: "2030-12-01T18:00", end: "2030-12-01T22:00" }],
   expectedAttendance: 100,
+  actualAttendance: null,
   description: "",
   eventType: "",
   venueRequirements: "",
