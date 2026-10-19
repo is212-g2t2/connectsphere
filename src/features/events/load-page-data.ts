@@ -11,6 +11,7 @@ import type { EventProjection, RegisteredAttendee } from "#/features/events/acce
 import { hasRegistrationRecord } from "#/features/events/components/registrations-section";
 import type { EventPageData } from "#/features/events/page-data";
 import { listEventRegistrations, listEvents } from "#/features/events/server-fns";
+import { getEventSafetyReview } from "#/features/safety-reviews/server-fns";
 import { getPendingVenueRequestsForEvent } from "#/features/venue-requests/server-fns";
 import { listVenueOptions } from "#/features/venues/server-fns";
 import { logger } from "#/lib/logger";
@@ -111,6 +112,18 @@ export async function loadEventPageData(
       // A catalogue fault must not take the page down. `null` lets the page report the failed list.
       const equipmentTypes = await listEquipmentTypes().catch(() => null);
       return { kind: "event", event: projection, viewerId, equipmentTypes };
+    }
+    case "safety_officer": {
+      // PTR-146: the review the Safety Officer decides. A failed read leaves `safetyReview` unset,
+      // so the page renders the event's facts without a decision form.
+      const safetyReview = await getEventSafetyReview({ data: { id: eventId } }).catch(error => {
+        log.warn("Safety review read failed", {
+          eventId,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        return undefined;
+      });
+      return { kind: "event", event: projection, viewerId, safetyReview };
     }
     default:
       return null;

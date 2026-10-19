@@ -7,6 +7,7 @@ import {
   equipmentReservations,
   eventRegistrations,
   eventRequests,
+  safetyReviews,
   venueOccupancy,
   venueRequests,
   venues,
@@ -158,6 +159,16 @@ export function connectedEventCondition(
           )
         )
       );
+    case "safety_officer":
+      // PTR-146: the review row is the relationship. Every Safety Officer reads every event with
+      // a review, current or not. `getEventAccess` states the same rule for the in-memory read.
+      return and(
+        visible,
+        inArray(
+          eventRequests.id,
+          database.select({ id: safetyReviews.eventRequestId }).from(safetyReviews)
+        )
+      );
     default:
       // An unknown or missing role gets no events.
       return undefined;
@@ -165,15 +176,27 @@ export function connectedEventCondition(
 }
 
 /**
- * Read each event's current approved booking with its venue and capacity. Pick the
- * earliest-created approved booking, so the render stays stable. The confirmation booking is not
- * stored (a PTR-24 follow-up). A booking approved after confirmation can change the shown venue.
+ * The event's current approved booking: its venue, capacity, and session requirements (PTR-138),
+ * which the arrangement fingerprint hashes. Pick the earliest-created approved booking, so the
+ * render stays stable. The confirmation booking is not stored (a PTR-24 follow-up). A booking
+ * approved after confirmation can change the shown venue.
  */
-async function loadCurrentBookings(
+export interface CurrentBooking {
+  venue: EventVenue;
+  maxCapacity: number;
+  session: {
+    expectedAttendance: number | null;
+    layout: string | null;
+    accessibilityRequirements: string | null;
+    requiredFacilities: string | null;
+  };
+}
+
+export async function loadCurrentBookings(
   database: Pick<Database, "select">,
   eventIds: number[]
-): Promise<Map<number, { venue: EventVenue; maxCapacity: number }>> {
-  const current = new Map<number, { venue: EventVenue; maxCapacity: number }>();
+): Promise<Map<number, CurrentBooking>> {
+  const current = new Map<number, CurrentBooking>();
   if (eventIds.length === 0) return current;
 
   const bookings = await database
@@ -184,6 +207,10 @@ async function loadCurrentBookings(
       maxCapacity: venues.maxCapacity,
       startsAt: venueRequests.startsAt,
       endsAt: venueRequests.endsAt,
+      expectedAttendance: venueRequests.expectedAttendance,
+      layout: venueRequests.layout,
+      accessibilityRequirements: venueRequests.accessibilityRequirements,
+      requiredFacilities: venueRequests.requiredFacilities,
     })
     .from(venueRequests)
     .innerJoin(venues, eq(venues.id, venueRequests.venueId))
@@ -214,6 +241,12 @@ async function loadCurrentBookings(
         endTime: booking.endsAt.slice(11, 16),
       },
       maxCapacity: booking.maxCapacity,
+      session: {
+        expectedAttendance: booking.expectedAttendance,
+        layout: booking.layout,
+        accessibilityRequirements: booking.accessibilityRequirements,
+        requiredFacilities: booking.requiredFacilities,
+      },
     });
   }
   return current;
@@ -259,6 +292,14 @@ export async function handleListEvents(
             registrationCapacity: eventRequests.registrationCapacity,
             registrationOpensAt: eventRequests.registrationOpensAt,
             registrationClosesAt: eventRequests.registrationClosesAt,
+            // PTR-146: the row's own review presence. The safety arm of `connectedEventCondition`
+            // states the same rule in SQL, so the in-memory access check cannot drift from it.
+            hasSafetyReview: exists(
+              database
+                .select({ id: safetyReviews.id })
+                .from(safetyReviews)
+                .where(eq(safetyReviews.eventRequestId, eventRequests.id))
+            ).mapWith(Boolean),
           })
           .from(eventRequests)
           .where(
@@ -336,12 +377,14 @@ export async function handleListEvents(
   // PTR-24 AC3: Show the Organiser and the Coordinator the current booking of a confirmed event.
   // PTR-144: the Lead reads the confirmation too. Show an Attendee the booking for every event
   // they reach (PTR-44 AC2): published events and events they registered for (PTR-46 AC2). Count
-  // the venue's places for confirmed events only.
+  // the venue's places for confirmed events only. PTR-146 AC5: show the Safety Officer the
+  // booking and capacity of every event under review.
   const wantsBookings =
     role === "event_organiser" ||
     role === "event_coordinator" ||
     role === "event_coordinator_lead" ||
-    role === "attendee";
+    role === "attendee" ||
+    role === "safety_officer";
   // PTR-45 AC10: Show Attendees, Organisers, and Coordinators how many places each confirmed
   // event has taken. Count VIPs (PTR-111) apart. They take venue places only.
   const wantsCounts =
@@ -357,8 +400,11 @@ export async function handleListEvents(
           .from(userTable)
           .where(inArray(userTable.id, holderIds));
   const bookingRead = wantsBookings
-    ? loadCurrentBookings(database, role === "attendee" ? requestIds : confirmedIds)
-    : Promise.resolve(new Map<number, { venue: EventVenue; maxCapacity: number }>());
+    ? loadCurrentBookings(
+        database,
+        role === "attendee" || role === "safety_officer" ? requestIds : confirmedIds
+      )
+    : Promise.resolve(new Map<number, CurrentBooking>());
   const countRead = wantsCounts
     ? database
         .select({ eventId: eventRegistrations.eventId, ...registrationCounts })
@@ -401,7 +447,10 @@ export async function handleListEvents(
   const venueCapacities = new Map<number, number>();
   for (const [id, booking] of bookings) {
     currentVenues.set(id, booking.venue);
-    if (confirmed.has(id)) venueCapacities.set(id, booking.maxCapacity);
+    // PTR-146: the Safety Officer sees the capacity of any current booking, not only a
+    // confirmed event's. The other roles read capacity through the places count.
+    if (confirmed.has(id) || role === "safety_officer")
+      venueCapacities.set(id, booking.maxCapacity);
   }
 
   const registeredCounts = new Map<number, { registered: number; vips: number }>(
@@ -433,6 +482,7 @@ export async function handleListEvents(
       status: record.status,
       registrationEnabled: record.registrationEnabled,
       hasOwnRegistration: ownRegistration !== null,
+      hasSafetyReview: record.hasSafetyReview,
     });
 
     if (!access) return [];
@@ -520,6 +570,10 @@ export async function handleListEvents(
                 )
               : null,
           blockedArrangements: blockedArrangements.get(record.id) ?? [],
+          venueCapacity: venueCapacities.get(record.id) ?? null,
+          // PTR-146: the Safety Officer's copy states the current booking's own session
+          // requirements, which the fingerprint hashes, beside the event's fields.
+          sessionRequirements: bookings.get(record.id)?.session ?? null,
         }
       ),
     ];

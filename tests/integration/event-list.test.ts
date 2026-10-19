@@ -566,6 +566,7 @@ describe("event list handler (PTR-8)", () => {
             status: row.status,
             registrationEnabled: row.registrationEnabled ?? false,
             hasOwnRegistration: false,
+            hasSafetyReview: false,
           })
         ).toBe("lead");
       }

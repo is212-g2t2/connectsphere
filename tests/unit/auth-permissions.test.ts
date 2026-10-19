@@ -26,6 +26,8 @@ const EXPECTED: Record<
     equipmentRelease: boolean;
     vipManage: boolean;
     eventRegistrationRead: boolean;
+    safetyReviewRead: boolean;
+    safetyReviewDecide: boolean;
   }
 > = {
   attendee: {
@@ -44,6 +46,8 @@ const EXPECTED: Record<
     equipmentRelease: false,
     vipManage: false,
     eventRegistrationRead: false,
+    safetyReviewRead: false,
+    safetyReviewDecide: false,
   },
   event_organiser: {
     eventRegister: false,
@@ -61,6 +65,8 @@ const EXPECTED: Record<
     equipmentRelease: false,
     vipManage: true,
     eventRegistrationRead: true,
+    safetyReviewRead: false,
+    safetyReviewDecide: false,
   },
   event_coordinator: {
     eventRegister: false,
@@ -78,6 +84,8 @@ const EXPECTED: Record<
     equipmentRelease: false,
     vipManage: true,
     eventRegistrationRead: true,
+    safetyReviewRead: false,
+    safetyReviewDecide: false,
   },
   event_coordinator_lead: {
     eventRegister: false,
@@ -95,6 +103,8 @@ const EXPECTED: Record<
     equipmentRelease: false,
     vipManage: false,
     eventRegistrationRead: false,
+    safetyReviewRead: false,
+    safetyReviewDecide: false,
   },
   venue_staff: {
     eventRegister: false,
@@ -112,6 +122,8 @@ const EXPECTED: Record<
     equipmentRelease: false,
     vipManage: false,
     eventRegistrationRead: false,
+    safetyReviewRead: false,
+    safetyReviewDecide: false,
   },
   technical_support_staff: {
     eventRegister: false,
@@ -129,6 +141,28 @@ const EXPECTED: Record<
     equipmentRelease: true,
     vipManage: false,
     eventRegistrationRead: false,
+    safetyReviewRead: false,
+    safetyReviewDecide: false,
+  },
+  // PTR-146: the Safety Officer holds the safety review alone.
+  safety_officer: {
+    eventRegister: false,
+    event_request: false,
+    coordinate: false,
+    oversee: false,
+    venueRead: false,
+    venueSearch: false,
+    venueCreate: false,
+    venueUpdate: false,
+    venueRequest: false,
+    venueRequestRead: false,
+    venueDecide: false,
+    equipmentReserve: false,
+    equipmentRelease: false,
+    vipManage: false,
+    eventRegistrationRead: false,
+    safetyReviewRead: true,
+    safetyReviewDecide: true,
   },
 };
 
@@ -149,6 +183,8 @@ describe("role/function matrix (PTR-7, PTR-9, PTR-15, PTR-26, PTR-31, PTR-32, PT
     expect(can(role, { equipment: ["release"] })).toBe(EXPECTED[role].equipmentRelease);
     expect(can(role, { vip_registration: ["manage"] })).toBe(EXPECTED[role].vipManage);
     expect(can(role, { event_registration: ["read"] })).toBe(EXPECTED[role].eventRegistrationRead);
+    expect(can(role, { safety_review: ["read"] })).toBe(EXPECTED[role].safetyReviewRead);
+    expect(can(role, { safety_review: ["decide"] })).toBe(EXPECTED[role].safetyReviewDecide);
   });
 
   describe("fails closed", () => {

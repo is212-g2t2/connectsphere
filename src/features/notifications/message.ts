@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { ARRANGEMENT_STATES } from "#/features/equipment-requests/schema";
 import { SIGNIFICANT_FIELDS } from "#/features/event-requests/schema";
+import { safetyReviewDecisionLabel } from "#/features/safety-reviews/schema";
 
 /**
  * PTR-55: the notification kinds the application raises. The Postgres enum in
@@ -48,6 +49,8 @@ export const NOTIFICATION_KINDS = [
   "venue_buffer_conflict",
   /** PTR-144: a submitted request, told to the Organiser and to every Event Coordinator Lead. */
   "event_submitted",
+  /** PTR-146 AC4: the Safety Officer decided the event's operational-safety review. */
+  "safety_review_decided",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -348,6 +351,15 @@ const payloadSchemas = {
     eventName: z.string(),
     audience: z.enum(["organiser", "lead"]),
   }),
+  /**
+   * PTR-146 AC4: the Safety Officer's decision on the event's operational-safety review. The
+   * Coordinator receives the tracking comments with it.
+   */
+  safety_review_decided: z.object({
+    eventName: z.string(),
+    decision: z.enum(["approved", "rejected", "changes_requested"]),
+    comments: z.string(),
+  }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -464,6 +476,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("event_submitted"),
     payload: payloadSchemas.event_submitted,
   }),
+  z.object({
+    kind: z.literal("safety_review_decided"),
+    payload: payloadSchemas.safety_review_decided,
+  }),
 ]);
 
 /**
@@ -559,6 +575,8 @@ export function notificationSummary(notification: NotificationPayload): string {
       return notification.payload.audience === "lead"
         ? `New event request awaiting a Coordinator: ${notification.payload.eventName}`
         : `Event request submitted: ${notification.payload.eventName}`;
+    case "safety_review_decided":
+      return `Safety review ${safetyReviewDecisionLabel(notification.payload.decision)}: ${notification.payload.eventName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -619,6 +637,9 @@ export function notificationHref(
     case "handover_accepted":
     case "event_decided":
     case "event_confirmed":
+    case "safety_review_decided":
+      // PTR-146: the assigned Coordinator opens the event page, and so does a Lead, who reaches
+      // every non-draft event (PTR-144).
       return `/events/${eventRequestId}`;
     case "equipment_requested":
       return `/events/${eventRequestId}`;
@@ -747,6 +768,7 @@ export function notificationReachable(
     case "venue_hold_expiry_changed":
     case "venue_buffer_conflict":
     case "event_submitted":
+    case "safety_review_decided":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

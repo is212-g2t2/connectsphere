@@ -9,6 +9,7 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import * as schema from "#/db/schema";
 import { EVENT_REQUEST_STATUSES } from "#/features/event-requests/schema";
 import { NOTIFICATION_KINDS } from "#/features/notifications/message";
+import { SAFETY_REVIEW_STATES } from "#/features/safety-reviews/schema";
 import {
   user,
   session,
@@ -46,6 +47,28 @@ describe("Database Schema Definitions", () => {
 
   it("keeps the notification kind list identical to the Postgres enum (PTR-55)", () => {
     expect([...schema.notificationKind.enumValues]).toEqual([...NOTIFICATION_KINDS]);
+  });
+
+  it("defines the safety review table, its states and its one-pending-review index (PTR-146)", () => {
+    expect([...schema.safetyReviewState.enumValues]).toEqual([...SAFETY_REVIEW_STATES]);
+    const columns = getTableColumns(schema.safetyReviews);
+    expect(columns.eventRequestId.name).toBe("event_request_id");
+    expect(columns.fingerprint.name).toBe("fingerprint");
+    expect(columns.comments.name).toBe("comments");
+    expect(columns.decidedById.name).toBe("decided_by_id");
+    expect(columns.decidedByName.name).toBe("decided_by_name");
+    expect(columns.decidedAt.name).toBe("decided_at");
+    expect(columns.createdAt.name).toBe("created_at");
+    const config = getTableConfig(schema.safetyReviews);
+    const checks = config.checks.map(check => check.name);
+    expect(checks).toContain("safety_reviews_decision_complete");
+    expect(checks).toContain("safety_reviews_comments_match_state");
+    const pending = config.indexes.find(
+      index => index.config.name === "safety_reviews_pending_event_idx"
+    );
+    expect(pending?.config.unique).toBe(true);
+    const predicate = inspect(pending?.config.where, { depth: 10 });
+    expect(predicate).toMatch(/pending/);
   });
 
   it("defines the notification queue columns (PTR-55)", () => {

@@ -25,6 +25,7 @@ import { Route as AuthenticatedCoordinationIndexRouteImport } from './routes/_au
 import { Route as AuthenticatedEventRequestsIndexRouteImport } from './routes/_authenticated/event-requests/index'
 import { Route as AuthenticatedEventRequestsNewRouteImport } from './routes/_authenticated/event-requests/new'
 import { Route as AuthenticatedEventsEventIdRouteRouteImport } from './routes/_authenticated/events/$eventId/route'
+import { Route as AuthenticatedSafetyReviewsIndexRouteImport } from './routes/_authenticated/safety-reviews/index'
 import { Route as AuthenticatedVenueBookingsIndexRouteImport } from './routes/_authenticated/venue-bookings/index'
 import { Route as AuthenticatedVenuesIndexRouteImport } from './routes/_authenticated/venues/index'
 import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authenticated/venues/$venueId'
@@ -119,6 +120,12 @@ const AuthenticatedEventsEventIdRouteRoute =
     path: '/events/$eventId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedSafetyReviewsIndexRoute =
+  AuthenticatedSafetyReviewsIndexRouteImport.update({
+    id: '/safety-reviews/',
+    path: '/safety-reviews/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedVenueBookingsIndexRoute =
   AuthenticatedVenueBookingsIndexRouteImport.update({
     id: '/venue-bookings/',
@@ -192,6 +199,7 @@ export interface FileRoutesByFullPath {
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/coordination/': typeof AuthenticatedCoordinationIndexRoute
   '/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
+  '/safety-reviews/': typeof AuthenticatedSafetyReviewsIndexRoute
   '/venue-bookings/': typeof AuthenticatedVenueBookingsIndexRoute
   '/venues/': typeof AuthenticatedVenuesIndexRoute
   '/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
@@ -217,6 +225,7 @@ export interface FileRoutesByTo {
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/coordination': typeof AuthenticatedCoordinationIndexRoute
   '/event-requests': typeof AuthenticatedEventRequestsIndexRoute
+  '/safety-reviews': typeof AuthenticatedSafetyReviewsIndexRoute
   '/venue-bookings': typeof AuthenticatedVenueBookingsIndexRoute
   '/venues': typeof AuthenticatedVenuesIndexRoute
   '/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
@@ -245,6 +254,7 @@ export interface FileRoutesById {
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
   '/_authenticated/coordination/': typeof AuthenticatedCoordinationIndexRoute
   '/_authenticated/event-requests/': typeof AuthenticatedEventRequestsIndexRoute
+  '/_authenticated/safety-reviews/': typeof AuthenticatedSafetyReviewsIndexRoute
   '/_authenticated/venue-bookings/': typeof AuthenticatedVenueBookingsIndexRoute
   '/_authenticated/venues/': typeof AuthenticatedVenuesIndexRoute
   '/_authenticated/event-requests/reopenDraft/$id': typeof AuthenticatedEventRequestsReopenDraftIdRoute
@@ -273,6 +283,7 @@ export interface FileRouteTypes {
     | '/api/cron/notifications'
     | '/coordination/'
     | '/event-requests/'
+    | '/safety-reviews/'
     | '/venue-bookings/'
     | '/venues/'
     | '/event-requests/reopenDraft/$id'
@@ -298,6 +309,7 @@ export interface FileRouteTypes {
     | '/api/cron/notifications'
     | '/coordination'
     | '/event-requests'
+    | '/safety-reviews'
     | '/venue-bookings'
     | '/venues'
     | '/event-requests/reopenDraft/$id'
@@ -325,6 +337,7 @@ export interface FileRouteTypes {
     | '/api/cron/notifications'
     | '/_authenticated/coordination/'
     | '/_authenticated/event-requests/'
+    | '/_authenticated/safety-reviews/'
     | '/_authenticated/venue-bookings/'
     | '/_authenticated/venues/'
     | '/_authenticated/event-requests/reopenDraft/$id'
@@ -459,6 +472,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedEventsEventIdRouteRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/safety-reviews/': {
+      id: '/_authenticated/safety-reviews/'
+      path: '/safety-reviews'
+      fullPath: '/safety-reviews/'
+      preLoaderRoute: typeof AuthenticatedSafetyReviewsIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/venue-bookings/': {
       id: '/_authenticated/venue-bookings/'
       path: '/venue-bookings'
@@ -550,6 +570,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
   AuthenticatedCoordinationIndexRoute: typeof AuthenticatedCoordinationIndexRoute
   AuthenticatedEventRequestsIndexRoute: typeof AuthenticatedEventRequestsIndexRoute
+  AuthenticatedSafetyReviewsIndexRoute: typeof AuthenticatedSafetyReviewsIndexRoute
   AuthenticatedVenueBookingsIndexRoute: typeof AuthenticatedVenueBookingsIndexRoute
   AuthenticatedVenuesIndexRoute: typeof AuthenticatedVenuesIndexRoute
   AuthenticatedEventRequestsReopenDraftIdRoute: typeof AuthenticatedEventRequestsReopenDraftIdRoute
@@ -567,6 +588,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
   AuthenticatedCoordinationIndexRoute: AuthenticatedCoordinationIndexRoute,
   AuthenticatedEventRequestsIndexRoute: AuthenticatedEventRequestsIndexRoute,
+  AuthenticatedSafetyReviewsIndexRoute: AuthenticatedSafetyReviewsIndexRoute,
   AuthenticatedVenueBookingsIndexRoute: AuthenticatedVenueBookingsIndexRoute,
   AuthenticatedVenuesIndexRoute: AuthenticatedVenuesIndexRoute,
   AuthenticatedEventRequestsReopenDraftIdRoute:

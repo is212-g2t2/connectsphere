@@ -47,13 +47,14 @@ describe("seeded staff accounts (PTR-59)", () => {
       .from(schema.user)
       .where(inArray(schema.user.id, staffIds));
 
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
     expect(new Set(rows.map(row => row.role))).toEqual(
       new Set([
         "event_coordinator",
         "event_coordinator_lead",
         "venue_staff",
         "technical_support_staff",
+        "safety_officer",
       ])
     );
     expect(rows.filter(row => row.role === "event_coordinator")).toHaveLength(2);
@@ -66,7 +67,7 @@ describe("seeded staff accounts (PTR-59)", () => {
       .from(schema.account)
       .where(inArray(schema.account.userId, staffIds));
 
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
     for (const row of rows) {
       expect(row.providerId).toBe("credential");
       expect(row.password).toBeTruthy();
@@ -99,8 +100,8 @@ describe("seeded staff accounts (PTR-59)", () => {
       .from(schema.account)
       .where(inArray(schema.account.userId, staffIds));
 
-    expect(users).toHaveLength(6);
-    expect(accounts).toHaveLength(6);
+    expect(users).toHaveLength(7);
+    expect(accounts).toHaveLength(7);
   });
 
   it("records one demo request when two seeds run at once", async () => {

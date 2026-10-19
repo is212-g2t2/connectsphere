@@ -4,6 +4,7 @@ import type { Coordinator, CoordinationRequest } from "#/features/coordination/s
 import type { listEquipmentTypes } from "#/features/equipment-requests/server-fns";
 import type { EventProjection, RegisteredAttendee } from "#/features/events/access";
 import type { EventRequestDetail } from "#/features/event-requests/server-fns";
+import type { SafetyReviewDetail } from "#/features/safety-reviews/schema";
 import type { PendingVenueRequestDetail } from "#/features/venue-requests/server-fns";
 
 /** One equipment type the availability checker offers, as `listEquipmentTypes` returns it. */
@@ -42,6 +43,11 @@ export type EventPageData =
       };
       equipmentTypes?: EquipmentTypeOption[] | null;
       attendees?: RegisteredAttendee[] | null;
+      /**
+       * PTR-146: Safety Officer only. The event's current review. Unset when the read failed;
+       * `null` when the event has no review.
+       */
+      safetyReview?: SafetyReviewDetail | null;
     }
   | {
       kind: "triage";

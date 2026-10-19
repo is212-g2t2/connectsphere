@@ -169,7 +169,7 @@ components:
 
 ## Brand & Style
 
-ConnectSphere is an internal event-operations platform with a consumer-style public entry, in the manner of Luma. It spans six roles (attendee, organiser, coordinator, coordinator lead, venue staff, and technical support), and each role has its own dashboard. The system must stay legible where it is dense (approval queues, tables, checklists), and it must stay inviting on the public discover and event pages.
+ConnectSphere is an internal event-operations platform with a consumer-style public entry, in the manner of Luma. It spans seven roles (attendee, organiser, coordinator, coordinator lead, venue staff, technical support, and safety officer), and each role has its own dashboard. The system must stay legible where it is dense (approval queues, tables, checklists), and it must stay inviting on the public discover and event pages.
 
 The visual character is **editorial and quiet**. It uses warm off-white paper, near-black ink, a single neutral "harbor" accent for anything actionable, and two reserved semantic colors for status only. The system uses no brand blue and no saturated primary. Restraint is the brand. Corners are soft, motion is minimal, and the one moment of visual flourish is the pink-to-amber gradient for headline text and event cover art.
 

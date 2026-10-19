@@ -68,6 +68,12 @@ import {
 } from "#/features/events/server-fns";
 import { listNotifications, markNotificationsRead } from "#/features/notifications/server-fns";
 import {
+  decideSafetyReview,
+  getEventSafetyReview,
+  listSafetyReviews,
+} from "#/features/safety-reviews/server-fns";
+import { SAFETY_REVIEW_COMMENTS_REQUIRED_MESSAGE } from "#/features/safety-reviews/schema";
+import {
   VENUE_REJECTION_REASON_REQUIRED,
   VENUE_REQUEST_DATE_MESSAGE,
   VENUE_REQUEST_ID_MESSAGE,
@@ -803,6 +809,70 @@ describe("server-function authorization (PTR-69)", () => {
     });
   });
 
+  // PTR-146: the safety review read and decision belong to the Safety Officer alone. The handlers
+  // re-read the review and the event under the lock.
+  describe("PTR-146 safety reviews", () => {
+    const decisionInput = {
+      reviewId: 1,
+      decision: "approved",
+      fingerprint: "abc",
+      comments: "",
+    };
+    const endpoints = [
+      { fn: listSafetyReviews, data: undefined, method: "GET" as const },
+      { fn: getEventSafetyReview, data: { id: 1 }, method: "GET" as const },
+      { fn: decideSafetyReview, data: decisionInput, method: "POST" as const },
+    ];
+
+    it("answers 401 without a session", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+      for (const endpoint of endpoints) {
+        // oxlint-disable-next-line no-await-in-loop
+        expect(await refusalFrom(endpoint.fn, endpoint.data, endpoint.method)).toEqual({
+          status: 401,
+          body: "Unauthorized",
+        });
+      }
+    });
+
+    it.each([
+      "attendee",
+      "event_organiser",
+      "event_coordinator",
+      "event_coordinator_lead",
+      "venue_staff",
+      "technical_support_staff",
+    ])("refuses %s before payload validation", async role => {
+      signIn(role);
+      for (const endpoint of endpoints) {
+        // oxlint-disable-next-line no-await-in-loop
+        expect(await refusalFrom(endpoint.fn, {}, endpoint.method)).toMatchObject({ status: 403 });
+      }
+    });
+
+    it("lets the Safety Officer through every boundary", async () => {
+      signIn("safety_officer");
+      for (const endpoint of endpoints) {
+        // oxlint-disable-next-line no-await-in-loop
+        expect((await call(endpoint.fn, endpoint.data, endpoint.method)).error).toBeUndefined();
+      }
+    });
+
+    it("refuses a decision without comments, a fingerprint or a review, before the handler", async () => {
+      signIn("safety_officer");
+
+      expect(
+        await messageFrom(decideSafetyReview, { ...decisionInput, decision: "rejected" })
+      ).toBe(SAFETY_REVIEW_COMMENTS_REQUIRED_MESSAGE);
+      expect(await messageFrom(decideSafetyReview, { ...decisionInput, fingerprint: "" })).toBe(
+        "Reload the review before you decide"
+      );
+      expect(
+        await messageFrom(decideSafetyReview, { decision: "approved", fingerprint: "abc" })
+      ).toBe("Choose a safety review");
+    });
+  });
+
   // PTR-137: only an Event Coordinator releases a booking a venue block suspended; the handler
   // checks the assignment and the block.
   describe("PTR-137 release blocked venue booking", () => {
@@ -1123,6 +1193,7 @@ describe("server-function authorization (PTR-69)", () => {
       "event_coordinator",
       "venue_staff",
       "technical_support_staff",
+      "safety_officer",
     ])("lets a signed-in %s through the session guard", async role => {
       signIn(role);
 
@@ -1440,6 +1511,7 @@ describe("server-function authorization (PTR-69)", () => {
       "event_coordinator",
       "venue_staff",
       "technical_support_staff",
+      "safety_officer",
     ])("lets a signed-in %s read the current user (PTR-98)", async role => {
       signIn(role);
 

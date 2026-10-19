@@ -156,6 +156,11 @@ const validPayloads = {
     turnaroundMinutes: 30,
   },
   event_submitted: { eventName: "Gala", audience: "organiser" },
+  safety_review_decided: {
+    eventName: "Gala",
+    decision: "changes_requested",
+    comments: "Crowd movement needs a second exit.",
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -195,6 +200,19 @@ describe("notification summaries (PTR-55 AC2)", () => {
   it("names the event for the equipment lines", () => {
     const parsed = parse("equipment_arrangements_completed", { eventName: "Gala", lineCount: 3 });
     expect(notificationSummary(parsed)).toBe("Equipment arrangements complete for Gala");
+  });
+
+  it("names the event and the decision for the safety review line (PTR-146)", () => {
+    const rejected = parse("safety_review_decided", {
+      eventName: "Gala",
+      decision: "rejected",
+      comments: "The exits cannot take the crowd.",
+    });
+    expect(notificationSummary(rejected)).toBe("Safety review rejected: Gala");
+    expect(notificationHref({ ...rejected, eventRequestId: 7 })).toBe("/events/7");
+
+    const changes = parse("safety_review_decided", validPayloads.safety_review_decided);
+    expect(notificationSummary(changes)).toBe("Safety review changes requested: Gala");
   });
 
   it("reads the released/reduced action from the held quantity", () => {
@@ -554,6 +572,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       venue_buffer_conflict:
         "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       event_submitted: "/events/7",
+      safety_review_decided: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {
@@ -588,6 +607,25 @@ describe("notification reachability (PTR-55 AC5)", () => {
     ).toBe(true);
     expect(
       notificationReachable("handover_requested", {
+        eventAccessible: false,
+        handoverPending: false,
+      })
+    ).toBe(false);
+  });
+
+  it("opens the event page for the safety decision (PTR-146)", () => {
+    // The assigned Coordinator and every Lead (PTR-144) reach a non-draft event, so the decision
+    // rides the ordinary event relationship.
+    const decision = parse("safety_review_decided", validPayloads.safety_review_decided);
+    expect(notificationHref({ ...decision, eventRequestId: 7 })).toBe("/events/7");
+    expect(
+      notificationReachable("safety_review_decided", {
+        eventAccessible: true,
+        handoverPending: false,
+      })
+    ).toBe(true);
+    expect(
+      notificationReachable("safety_review_decided", {
         eventAccessible: false,
         handoverPending: false,
       })

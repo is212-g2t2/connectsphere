@@ -112,6 +112,7 @@ describe("getEventAccess: lead (PTR-144)", () => {
     status: "confirmed" as const,
     registrationEnabled: true,
     hasOwnRegistration: false,
+    hasSafetyReview: false,
   };
   test("oversee reads every event, assigned or not", () => {
     expect(getEventAccess({ ...base, role: "event_coordinator_lead" })).toBe("lead");
@@ -138,6 +139,7 @@ describe("getEventAccess: coordinator", () => {
     status: "confirmed" as const,
     registrationEnabled: true,
     hasOwnRegistration: false,
+    hasSafetyReview: false,
   };
   test("only the assigned coordinator", () => {
     expect(getEventAccess({ ...base, role: "event_coordinator" })).toBe("coordinator");

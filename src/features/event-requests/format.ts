@@ -89,6 +89,22 @@ export function formatVenuePeriod(startsAt: string, endsAt: string): string {
 }
 
 /**
+ * One booking window as a single line, from the `EventVenue` shape. The stored spelling needs
+ * seconds, which `EventVenue` does not carry.
+ */
+export function formatVenueWindow(venue: {
+  date: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+}): string {
+  return formatVenuePeriod(
+    `${venue.date} ${venue.startTime}:00`,
+    `${venue.endDate} ${venue.endTime}:00`
+  );
+}
+
+/**
  * A venue block's period: a bounded block reads like a venue period, with the end day named only
  * when it differs; an open-ended one ends "until lifted". The venue calendar's block panel and
  * the Coordinator's blocked-arrangements panel both use it.
