@@ -1,6 +1,6 @@
 import { Button, Section, Text } from "@react-email/components";
 
-import { formatDate, formatTime } from "#/features/emails/format";
+import { formatDate, formatPeriod, formatTime } from "#/features/emails/format";
 import { emailButton, emailHeading, emailText } from "./email-styles";
 import { Layout } from "./layout";
 
@@ -57,3 +57,52 @@ export const VenueHoldExpiryEmail = ({
     </Section>
   </Layout>
 );
+
+interface HoldNoticeProps {
+  notice: "expiring" | "expired";
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
+  expiresAt: string;
+  calendarUrl: string;
+}
+
+/** The two PTR-143 notices. The heading is also the inbox summary line and the email subject. */
+const HOLD_NOTICE = {
+  expiring: {
+    heading: "Tentative hold expires soon",
+    body: (venueName: string, period: string, expiresAt: string) =>
+      `The tentative hold on ${venueName} for ${period} expires on ${when(expiresAt)}. Convert it to a booking request, or ask Venue Staff to extend it.`,
+  },
+  expired: {
+    heading: "Tentative hold expired",
+    body: (venueName: string, period: string, expiresAt: string) =>
+      `The tentative hold on ${venueName} for ${period} expired on ${when(expiresAt)}, and the venue is free again. Submit a new booking request if you still need the venue.`,
+  },
+} as const;
+
+/**
+ * PTR-143 AC1 and AC2: the hold reached its warning time, or the sweep expired it and freed its
+ * venue time. The assigned Coordinator receives either notice.
+ */
+export const VenueHoldNoticeEmail = ({
+  notice,
+  venueName,
+  startsAt,
+  endsAt,
+  expiresAt,
+  calendarUrl,
+}: HoldNoticeProps) => {
+  const { heading, body } = HOLD_NOTICE[notice];
+  return (
+    <Layout previewText={`${heading}: ${venueName}`}>
+      <Section>
+        <Text style={emailHeading}>{heading}</Text>
+        <Text style={emailText}>{body(venueName, formatPeriod(startsAt, endsAt), expiresAt)}</Text>
+        <Button href={calendarUrl} style={emailButton}>
+          View venue calendar
+        </Button>
+      </Section>
+    </Layout>
+  );
+};

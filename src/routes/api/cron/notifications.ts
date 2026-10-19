@@ -5,7 +5,8 @@ import { logger } from "#/lib/logger";
 
 /**
  * PTR-55: Cloud Scheduler calls this worker every minute with the `CRON_TOKEN` bearer token.
- * First sweep registration boundaries, then run one delivery batch.
+ * First sweep registration boundaries, then expire the due tentative holds, then run one delivery
+ * batch. Each sweep has its own failure handling, so one failure does not stop the others.
  * Return the work result so Cloud Scheduler can show each run.
  * Import the delivery module and `#/db` dynamically. A static `#/db/schema` import from a route
  * would ship the full schema to the client build. The bundle-safety test does not scan `src/routes`.
@@ -19,12 +20,17 @@ export const Route = createFileRoute("/api/cron/notifications")({
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }
 
-        const [{ db }, { deliverPendingNotifications }, { sweepRegistrationWindows }] =
-          await Promise.all([
-            import("#/db"),
-            import("#/features/notifications/deliver.server"),
-            import("#/features/events/registration-boundaries.server"),
-          ]);
+        const [
+          { db },
+          { deliverPendingNotifications },
+          { sweepRegistrationWindows },
+          { sweepVenueHoldExpiries },
+        ] = await Promise.all([
+          import("#/db"),
+          import("#/features/notifications/deliver.server"),
+          import("#/features/events/registration-boundaries.server"),
+          import("#/features/venue-requests/hold-expiry.server"),
+        ]);
 
         let raised: number | "failed" = 0;
         try {
@@ -35,8 +41,17 @@ export const Route = createFileRoute("/api/cron/notifications")({
           });
           raised = "failed";
         }
+        let expired: number | "failed" = 0;
+        try {
+          expired = await sweepVenueHoldExpiries(db);
+        } catch (error) {
+          logger.getChild("cron").error("Hold expiry sweep failed", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+          });
+          expired = "failed";
+        }
         const delivered = await deliverPendingNotifications(db);
-        return Response.json({ raised, ...delivered });
+        return Response.json({ raised, expired, ...delivered });
       },
     },
   },

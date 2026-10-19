@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Route } from "#/routes/api/cron/notifications";
 
-const { mockEnv, mockDeliver, mockSweep } = vi.hoisted(() => {
+const { mockEnv, mockDeliver, mockSweep, mockExpire } = vi.hoisted(() => {
   const env: { CRON_TOKEN?: string } = {};
   return {
     mockEnv: env,
     mockDeliver: vi.fn<(database: unknown) => Promise<unknown>>(),
     mockSweep: vi.fn<(database: unknown) => Promise<number>>(),
+    mockExpire: vi.fn<(database: unknown) => Promise<number>>(),
   };
 });
 
@@ -14,6 +15,9 @@ vi.mock("#/env", () => ({ env: mockEnv }));
 vi.mock("#/db", () => ({ db: {} }));
 vi.mock("#/features/events/registration-boundaries.server", () => ({
   sweepRegistrationWindows: mockSweep,
+}));
+vi.mock("#/features/venue-requests/hold-expiry.server", () => ({
+  sweepVenueHoldExpiries: mockExpire,
 }));
 vi.mock("#/features/notifications/deliver.server", () => ({
   deliverPendingNotifications: mockDeliver,
@@ -42,6 +46,7 @@ describe("POST /api/cron/notifications", () => {
     vi.clearAllMocks();
     mockEnv.CRON_TOKEN = "cron-token";
     mockDeliver.mockResolvedValue({ sent: 0, failed: 0, pending: 0 });
+    mockExpire.mockResolvedValue(0);
   });
 
   it("returns 401 when no Authorization header is sent", async () => {
@@ -73,12 +78,20 @@ describe("POST /api/cron/notifications", () => {
   it("runs one delivery batch and answers with its result when the token matches", async () => {
     mockDeliver.mockResolvedValue({ sent: 2, failed: 1, pending: 3 });
     mockSweep.mockResolvedValue(5);
+    mockExpire.mockResolvedValue(4);
 
     const response = await getPostHandler()({ request: cronRequest("Bearer cron-token") });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ raised: 5, sent: 2, failed: 1, pending: 3 });
+    await expect(response.json()).resolves.toEqual({
+      raised: 5,
+      expired: 4,
+      sent: 2,
+      failed: 1,
+      pending: 3,
+    });
     expect(mockSweep).toHaveBeenCalledOnce();
+    expect(mockExpire).toHaveBeenCalledOnce();
     expect(mockDeliver).toHaveBeenCalledOnce();
   });
 
@@ -91,11 +104,33 @@ describe("POST /api/cron/notifications", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       raised: "failed",
+      expired: 0,
       sent: 1,
       failed: 0,
       pending: 0,
     });
     expect(mockSweep).toHaveBeenCalledOnce();
+    expect(mockExpire).toHaveBeenCalledOnce();
+    expect(mockDeliver).toHaveBeenCalledOnce();
+  });
+
+  it("answers with expired: 'failed' and proceeds if the hold sweep throws", async () => {
+    mockSweep.mockResolvedValue(2);
+    mockExpire.mockRejectedValue(new Error("Database connection lost"));
+    mockDeliver.mockResolvedValue({ sent: 1, failed: 0, pending: 0 });
+
+    const response = await getPostHandler()({ request: cronRequest("Bearer cron-token") });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      raised: 2,
+      expired: "failed",
+      sent: 1,
+      failed: 0,
+      pending: 0,
+    });
+    expect(mockSweep).toHaveBeenCalledOnce();
+    expect(mockExpire).toHaveBeenCalledOnce();
     expect(mockDeliver).toHaveBeenCalledOnce();
   });
 });
