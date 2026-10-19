@@ -31,6 +31,7 @@ import { Route as AuthenticatedVenueHoldsIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedVenuesIndexRouteImport } from './routes/_authenticated/venues/index'
 import { Route as AuthenticatedVenuesVenueIdRouteImport } from './routes/_authenticated/venues/$venueId'
 import { Route as AuthenticatedVenuesAvailabilityRouteImport } from './routes/_authenticated/venues/availability'
+import { Route as AuthenticatedVenuesLayoutsRouteImport } from './routes/_authenticated/venues/layouts'
 import { Route as AuthenticatedVenuesNewRouteImport } from './routes/_authenticated/venues/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronNotificationsRouteImport } from './routes/api/cron/notifications'
@@ -157,6 +158,12 @@ const AuthenticatedVenuesAvailabilityRoute =
     path: '/venues/availability',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedVenuesLayoutsRoute =
+  AuthenticatedVenuesLayoutsRouteImport.update({
+    id: '/venues/layouts',
+    path: '/venues/layouts',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedVenuesNewRoute = AuthenticatedVenuesNewRouteImport.update({
   id: '/venues/new',
   path: '/venues/new',
@@ -201,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
+  '/venues/layouts': typeof AuthenticatedVenuesLayoutsRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
@@ -228,6 +236,7 @@ export interface FileRoutesByTo {
   '/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
   '/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
+  '/venues/layouts': typeof AuthenticatedVenuesLayoutsRoute
   '/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
@@ -258,6 +267,7 @@ export interface FileRoutesById {
   '/_authenticated/event-requests/new': typeof AuthenticatedEventRequestsNewRoute
   '/_authenticated/venues/$venueId': typeof AuthenticatedVenuesVenueIdRoute
   '/_authenticated/venues/availability': typeof AuthenticatedVenuesAvailabilityRoute
+  '/_authenticated/venues/layouts': typeof AuthenticatedVenuesLayoutsRoute
   '/_authenticated/venues/new': typeof AuthenticatedVenuesNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/notifications': typeof ApiCronNotificationsRoute
@@ -288,6 +298,7 @@ export interface FileRouteTypes {
     | '/event-requests/new'
     | '/venues/$venueId'
     | '/venues/availability'
+    | '/venues/layouts'
     | '/venues/new'
     | '/api/auth/$'
     | '/api/cron/notifications'
@@ -315,6 +326,7 @@ export interface FileRouteTypes {
     | '/event-requests/new'
     | '/venues/$venueId'
     | '/venues/availability'
+    | '/venues/layouts'
     | '/venues/new'
     | '/api/auth/$'
     | '/api/cron/notifications'
@@ -344,6 +356,7 @@ export interface FileRouteTypes {
     | '/_authenticated/event-requests/new'
     | '/_authenticated/venues/$venueId'
     | '/_authenticated/venues/availability'
+    | '/_authenticated/venues/layouts'
     | '/_authenticated/venues/new'
     | '/api/auth/$'
     | '/api/cron/notifications'
@@ -527,6 +540,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedVenuesAvailabilityRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/venues/layouts': {
+      id: '/_authenticated/venues/layouts'
+      path: '/venues/layouts'
+      fullPath: '/venues/layouts'
+      preLoaderRoute: typeof AuthenticatedVenuesLayoutsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/venues/new': {
       id: '/_authenticated/venues/new'
       path: '/venues/new'
@@ -587,6 +607,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedEventRequestsNewRoute: typeof AuthenticatedEventRequestsNewRoute
   AuthenticatedVenuesVenueIdRoute: typeof AuthenticatedVenuesVenueIdRoute
   AuthenticatedVenuesAvailabilityRoute: typeof AuthenticatedVenuesAvailabilityRoute
+  AuthenticatedVenuesLayoutsRoute: typeof AuthenticatedVenuesLayoutsRoute
   AuthenticatedVenuesNewRoute: typeof AuthenticatedVenuesNewRoute
   AuthenticatedCoordinationIndexRoute: typeof AuthenticatedCoordinationIndexRoute
   AuthenticatedEventRequestsIndexRoute: typeof AuthenticatedEventRequestsIndexRoute
@@ -606,6 +627,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedEventRequestsNewRoute: AuthenticatedEventRequestsNewRoute,
   AuthenticatedVenuesVenueIdRoute: AuthenticatedVenuesVenueIdRoute,
   AuthenticatedVenuesAvailabilityRoute: AuthenticatedVenuesAvailabilityRoute,
+  AuthenticatedVenuesLayoutsRoute: AuthenticatedVenuesLayoutsRoute,
   AuthenticatedVenuesNewRoute: AuthenticatedVenuesNewRoute,
   AuthenticatedCoordinationIndexRoute: AuthenticatedCoordinationIndexRoute,
   AuthenticatedEventRequestsIndexRoute: AuthenticatedEventRequestsIndexRoute,

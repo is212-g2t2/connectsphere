@@ -448,8 +448,8 @@ export const venues = pgTable(
     turnaroundMinutes: integer("turnaround_minutes").notNull().default(0),
     facilities: text("facilities").array().notNull().default([]),
     accessibilityFeatures: text("accessibility_features").array().notNull().default([]),
-    // `VenueInput` limits values to `VENUE_LAYOUTS`. This is not a PostgreSQL enum, so widening
-    // the list requires a code change, not an `ALTER TYPE` migration.
+    // PTR-161: keys name the maintained `room_layouts` rows. The save handler refuses an
+    // unknown key, so the list widens without a code change.
     supportedLayouts: text("supported_layouts")
       .array()
       .$type<VenueLayout[]>()
@@ -471,6 +471,13 @@ export const venues = pgTable(
 );
 
 /** Keep each buffer change and its actor after later edits or account deletion. */
+export const roomLayouts = pgTable("room_layouts", {
+  /** Stable key. Venues store keys, so a rename changes only the label. */
+  key: text("key").primaryKey(),
+  /** Display label. Unique so free-text matching stays unambiguous. */
+  label: text("label").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 export const venueBufferChanges = pgTable(
   "venue_buffer_changes",
   {

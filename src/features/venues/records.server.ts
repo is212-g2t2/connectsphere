@@ -49,7 +49,8 @@ import type {
 } from "#/features/venues/availability";
 import {
   DUPLICATE_NAME_MESSAGE,
-  LAYOUT_LABELS,
+  INITIAL_ROOM_LAYOUTS,
+  LAYOUT_MESSAGE,
   SEARCHABLE_EVENT_STATUSES,
   VENUE_BLOCK_RETRY_MESSAGE,
   crossesMidnight,
@@ -59,7 +60,12 @@ import {
   parseVenueInput,
   parseVenueSearchRequest,
 } from "#/features/venues/schema";
-import type { OperatingHours, VenueLayout, VenueSearch } from "#/features/venues/schema";
+import type {
+  OperatingHours,
+  RoomLayout,
+  VenueLayout,
+  VenueSearch,
+} from "#/features/venues/schema";
 import type { VenueWithConflicts } from "#/features/venues/server-fns";
 import { isConstraintViolation } from "#/lib/db-errors";
 import { logger } from "#/lib/logger";
@@ -265,7 +271,8 @@ export function requirementFailures(
     VenueSuitabilityCandidate,
     "maxCapacity" | "facilities" | "accessibilityFeatures" | "supportedLayouts"
   >,
-  requirements: VenueRequirements
+  requirements: VenueRequirements,
+  layouts: readonly Pick<RoomLayout, "key" | "label">[] = INITIAL_ROOM_LAYOUTS
 ): SuitabilityFailure[] {
   const failures: SuitabilityFailure[] = [];
 
@@ -281,13 +288,15 @@ export function requirementFailures(
     });
   }
   if (requirements.layout) {
-    const requested = parseLayouts(requirements.layout);
+    const requested = parseLayouts(requirements.layout, layouts);
     if (!requested.some(layout => venue.supportedLayouts.includes(layout))) {
       // An event's free-text preference skips the search form's guard and may name no known
       // layout. The message then names the requested preference.
       const wanted =
         requested.length > 0
-          ? requested.map(layout => LAYOUT_LABELS[layout]).join(" or ")
+          ? requested
+              .map(key => layouts.find(layout => layout.key === key)?.label ?? key)
+              .join(" or ")
           : requirements.layout;
       failures.push({ criterion: "layout", message: `Does not offer ${wanted}` });
     }
@@ -323,9 +332,10 @@ export function evaluateVenueSuitability(
   filters: VenueSearch,
   blocks: readonly AvailabilityRecord[],
   bookings: readonly AvailabilityRecord[],
-  holds: readonly AvailabilityRecord[] = []
+  holds: readonly AvailabilityRecord[] = [],
+  layouts: readonly Pick<RoomLayout, "key" | "label">[] = INITIAL_ROOM_LAYOUTS
 ): SuitabilityVerdict {
-  const failures = requirementFailures(venue, filters);
+  const failures = requirementFailures(venue, filters, layouts);
   if (filters.location && !normalise(venue.location).includes(normalise(filters.location))) {
     // `requirementFailures` names capacity first. Location goes after it.
     const afterCapacity = failures[0]?.criterion === "capacity" ? 1 : 0;
@@ -763,6 +773,12 @@ export async function handleSearchVenues(
     Object.entries(suppliedValues).filter(([, value]) => value !== undefined)
   ) as Partial<VenueSearch>;
   const filters: VenueSearch = { ...defaults, ...supplied };
+  const { handleListRoomLayouts } = await import("#/features/venues/layouts.server");
+  const layouts = await handleListRoomLayouts(database);
+  // A typo must not silently match nothing. An empty result reads as "none available".
+  if (filters.layout !== undefined && parseLayouts(filters.layout, layouts).length === 0) {
+    throw new Error(LAYOUT_MESSAGE);
+  }
   // The suitability verdict stays in JS (`evaluateVenueSuitability` below): a SQL pre-filter
   // would drop the failure reasons the unsuitable list must name.
   const venueRows = await handleListVenues(database);
@@ -792,13 +808,14 @@ export async function handleSearchVenues(
       filters,
       blocksByVenue.get(venue.id) ?? [],
       bookingsByVenue.get(venue.id) ?? [],
-      holdsByVenue.get(venue.id) ?? []
+      holdsByVenue.get(venue.id) ?? [],
+      layouts
     );
     if (verdict.suitable) suitable.push(venue);
     else unsuitable.push({ venue, failures: verdict.failures });
   }
 
-  return { event, filters, venues: suitable, unsuitable };
+  return { event, filters, venues: suitable, unsuitable, layouts };
 }
 
 interface VenueBufferConflictRow {
@@ -1155,6 +1172,9 @@ export async function handleSaveVenue(
   actorId: string
 ): Promise<VenueWithConflicts> {
   const { id, ...fields } = parseVenueInput(data);
+  const { loadRoomLayoutKeys, assertKnownLayoutKeys } =
+    await import("#/features/venues/layouts.server");
+  assertKnownLayoutKeys(fields.supportedLayouts, await loadRoomLayoutKeys(database));
 
   for (let attempt = 0; attempt <= 2; attempt++) {
     try {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  INITIAL_ROOM_LAYOUTS,
   LAYOUT_MESSAGE,
   VENUE_ID_MESSAGE,
   VENUE_SEARCH_ATTENDANCE_MESSAGE,
@@ -20,6 +21,8 @@ import {
   VenueAmendmentInput,
   VenueReleaseInput,
   VenueRequestInput,
+  createVenueHoldConversionInput,
+  createVenueRequestInput,
   parseVenueHoldConversion,
   parseVenueRejectionInput,
   parseVenueRequestContext,
@@ -113,10 +116,19 @@ describe("session requirements on a request (PTR-138 AC1)", () => {
     expect(VenueRequestInput.parse({ ...VALID, layout: "  " })).toMatchObject({ layout: "" });
   });
 
-  it("refuses a layout that names no supported layout, as the search does", () => {
-    expect(firstIssue(VenueRequestInput.safeParse({ ...VALID, layout: "Round tables" }))).toBe(
-      LAYOUT_MESSAGE
-    );
+  it("leaves layout text to the handler, which refuses a layout that names no layout", () => {
+    expect(VenueRequestInput.safeParse({ ...VALID, layout: "Round tables" }).success).toBe(true);
+    expect(
+      firstIssue(
+        createVenueRequestInput(INITIAL_ROOM_LAYOUTS).safeParse({
+          ...VALID,
+          layout: "Round tables",
+        })
+      )
+    ).toBe(LAYOUT_MESSAGE);
+    expect(
+      createVenueRequestInput(INITIAL_ROOM_LAYOUTS).parse({ ...VALID, layout: "Boardroom seating" })
+    ).toMatchObject({ layout: "Boardroom seating" });
   });
 
   it.each([0, -5, 2.5, 3_000_000_000, "30"])("refuses an attendance of %j", attendance => {
@@ -142,9 +154,15 @@ describe("session requirements on a request (PTR-138 AC1)", () => {
       id: "hold-1",
       expectedAttendance: 30,
     });
-    expect(() => parseVenueHoldConversion({ id: "hold-1", layout: "Round tables" })).toThrow(
-      LAYOUT_MESSAGE
-    );
+    expect(parseVenueHoldConversion({ id: "hold-1", layout: "Round tables" })).toMatchObject({
+      id: "hold-1",
+    });
+    expect(() =>
+      createVenueHoldConversionInput(INITIAL_ROOM_LAYOUTS).parse({
+        id: "hold-1",
+        layout: "Round tables",
+      })
+    ).toThrow(LAYOUT_MESSAGE);
   });
 });
 

@@ -4,6 +4,8 @@ import { can } from "#/features/auth/permissions";
 import { requirePermission } from "#/features/auth/session";
 import {
   parseAvailabilityRequest,
+  parseRoomLayoutInput,
+  parseRoomLayoutKey,
   parseVenueBlockId,
   parseVenueBlockInput,
   parseVenueId,
@@ -44,6 +46,16 @@ export const requireVenueWrite = requirePermission(data => ({ venue: [venueActio
  * `requireVenueWrite` would ask for `venue:create`.
  */
 export const requireVenueBlock = requirePermission({ venue: ["update"] });
+
+/**
+ * Venue Staff maintain the room layout list with `venue:update`. Coordinators and Technical
+ * Support read it through `requireVenueRead` for forms, filters, and suitability.
+ */
+export const requireRoomLayoutWrite = requirePermission({ venue: ["update"] });
+
+async function loadLayoutServer() {
+  return Promise.all([import("#/db"), import("#/features/venues/layouts.server")]);
+}
 
 async function loadBlockServer() {
   return Promise.all([import("#/db"), import("#/features/venues/blocks.server")]);
@@ -158,4 +170,51 @@ export const liftVenueBlock = createServerFn({ method: "POST" })
     });
 
     return block;
+  });
+
+/** List every room layout type by label. Forms, filters, and suitability read this list. */
+export const listRoomLayouts = createServerFn({ method: "GET" })
+  .middleware([requireVenueRead])
+  .handler(async () => {
+    const [{ db }, { handleListRoomLayouts }] = await loadLayoutServer();
+    return handleListRoomLayouts(db);
+  });
+
+/** Shape one layout row as the client sees it. Derive it here so routes avoid the server module. */
+export type RoomLayoutOption = Awaited<ReturnType<typeof listRoomLayouts>>[number];
+
+/**
+ * Add a layout type, or rename one by saving its key with a new label. Venues store keys,
+ * so a rename keeps every tick under the new label.
+ */
+export const saveRoomLayout = createServerFn({ method: "POST" })
+  .validator(parseRoomLayoutInput)
+  .middleware([requireRoomLayoutWrite])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleSaveRoomLayout }] = await loadLayoutServer();
+    const layout = await handleSaveRoomLayout(data, db);
+
+    log.info("Room layout saved", {
+      layoutKey: layout.key,
+      actorId: context.user.id,
+    });
+
+    return layout;
+  });
+
+/**
+ * Delete a layout type that no venue supports. A layout that a venue supports is refused,
+ * and the refusal names the venues.
+ */
+export const deleteRoomLayout = createServerFn({ method: "POST" })
+  .validator(parseRoomLayoutKey)
+  .middleware([requireRoomLayoutWrite])
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleDeleteRoomLayout }] = await loadLayoutServer();
+    await handleDeleteRoomLayout(data, db);
+
+    log.info("Room layout deleted", {
+      layoutKey: data.key,
+      actorId: context.user.id,
+    });
   });

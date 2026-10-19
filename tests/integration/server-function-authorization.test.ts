@@ -102,12 +102,15 @@ import {
   VENUE_ID_MESSAGE,
 } from "#/features/venues/schema";
 import {
+  deleteRoomLayout,
   getVenue,
   getVenueAvailability,
   liftVenueBlock,
+  listRoomLayouts,
   listVenueOptions,
   listVenues,
   recordVenueBlock,
+  saveRoomLayout,
   saveVenue,
   searchVenues,
 } from "#/features/venues/server-fns";
@@ -433,6 +436,49 @@ describe("server-function authorization (PTR-69)", () => {
         ).toBeUndefined();
       }
     );
+
+    describe("room layouts (PTR-161)", () => {
+      const layoutRecord = { key: "auth-theatre", label: "Auth Theatre" };
+
+      it("answers 401 to an unauthenticated layout read and write", async () => {
+        vi.mocked(auth.api.getSession).mockResolvedValue(null);
+
+        expect(await refusalFrom(listRoomLayouts, undefined, "GET")).toEqual({
+          status: 401,
+          body: "Unauthorized",
+        });
+        expect(await refusalFrom(saveRoomLayout, layoutRecord)).toEqual({
+          status: 401,
+          body: "Unauthorized",
+        });
+        expect(await refusalFrom(deleteRoomLayout, { key: "theatre" })).toEqual({
+          status: 401,
+          body: "Unauthorized",
+        });
+      });
+
+      it("refuses an external role the layout list", async () => {
+        signIn("event_organiser");
+
+        expect(await refusalFrom(listRoomLayouts, undefined, "GET")).toEqual({
+          status: 403,
+          body: "Forbidden",
+        });
+      });
+
+      it("lets Venue Staff write layouts and refuses a reader the write", async () => {
+        signIn("event_coordinator");
+
+        expect(await refusalFrom(saveRoomLayout, layoutRecord)).toMatchObject({ status: 403 });
+        expect(await refusalFrom(deleteRoomLayout, { key: "theatre" })).toMatchObject({
+          status: 403,
+        });
+
+        signIn("venue_staff");
+
+        expect((await call(listRoomLayouts, undefined, "GET")).error).toBeUndefined();
+      });
+    });
 
     describe("venue blocks (PTR-136)", () => {
       /**

@@ -18,6 +18,19 @@ import { liftBlockRows, occupyBlock, recordBlockRows } from "#/features/venues/b
 
 export type SeedUser = typeof schema.user.$inferInsert;
 
+/**
+ * The six room layouts that ship with PTR-161, under their current keys. The 0062 data
+ * migration inserts them; the seed repeats them so a seeded database holds them too.
+ */
+export const seedRoomLayouts: (typeof schema.roomLayouts.$inferInsert)[] = [
+  { key: "theatre", label: "Theatre" },
+  { key: "classroom", label: "Classroom" },
+  { key: "boardroom", label: "Boardroom" },
+  { key: "banquet", label: "Banquet" },
+  { key: "exhibition", label: "Exhibition" },
+  { key: "other", label: "Other" },
+];
+
 export const seedUsers: SeedUser[] = [
   {
     id: "test-user-1",
@@ -892,6 +905,7 @@ export async function runSeed(database: Database): Promise<void> {
     .onConflictDoNothing();
 
   await database.insert(schema.venues).values(seedVenues).onConflictDoNothing();
+  await database.insert(schema.roomLayouts).values(seedRoomLayouts).onConflictDoNothing();
   await database.insert(schema.equipmentTypes).values(seedEquipmentTypes).onConflictDoNothing();
 
   const equipmentTypeRows = await database

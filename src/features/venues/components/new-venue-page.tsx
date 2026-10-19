@@ -3,10 +3,11 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { Page, PageHeader } from "#/components/layout/page";
 import { VenueForm } from "#/features/venues/components/venue-form";
 import { saveVenue } from "#/features/venues/server-fns";
+import type { RoomLayout } from "#/features/venues/schema";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 /** Record a venue. The route owns the `venue:create` guard. This page owns the form. */
-export function NewVenuePage() {
+export function NewVenuePage({ layouts }: { layouts: readonly RoomLayout[] }) {
   const navigate = useNavigate();
 
   return (
@@ -21,6 +22,7 @@ export function NewVenuePage() {
       />
 
       <VenueForm
+        layouts={layouts}
         submitLabel="Create venue"
         onSave={async values => {
           const venue = await saveVenue({ data: values });
