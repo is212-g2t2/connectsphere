@@ -17,6 +17,7 @@ import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { formatInstant, formatVenueWindow } from "#/features/event-requests/format";
+import { isConfirmableStatus } from "#/features/events/confirmation";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import {
   SAFETY_REVIEW_COMMENTS_MAX,
@@ -25,7 +26,11 @@ import {
   SAFETY_REVIEW_WITHDRAWN_LABEL,
   SafetyReviewDecisionInput,
 } from "#/features/safety-reviews/schema";
-import type { SafetyReviewDecision, SafetyReviewDetail } from "#/features/safety-reviews/schema";
+import type {
+  SafetyReviewDecision,
+  SafetyReviewDetail,
+  SafetyReviewStage,
+} from "#/features/safety-reviews/schema";
 import { decideSafetyReview, requestSafetyReReview } from "#/features/safety-reviews/server-fns";
 import { formIssues } from "#/features/venue-requests/schema";
 import { useMutation } from "#/hooks/use-mutation";
@@ -76,14 +81,14 @@ export function safetySections(data: EventPageData): EventSectionDef[] {
 export function safetyReReviewSections(data: EventPageData): EventSectionDef[] {
   if (data.kind !== "event" || data.event.access !== "coordinator") return [];
   const { status, safetyStage } = data.event.event;
-  if (status !== "approved" && status !== "planning") return [];
+  if (!isConfirmableStatus(status)) return [];
   if (safetyStage?.state !== "rejected" && safetyStage?.state !== "changes_requested") return [];
   return [
     {
       id: "safety-re-review",
       label: "Safety re-review",
       visible: () => true,
-      render: () => <ReReviewSection eventId={data.event.event.id} />,
+      render: () => <ReReviewSection stage={safetyStage} eventId={data.event.event.id} />,
     },
   ];
 }
@@ -93,15 +98,21 @@ export function safetyReReviewSections(data: EventPageData): EventSectionDef[] {
  * request with a named reason when the event moved on, another Coordinator holds it, a review is
  * pending, or the arrangements are not complete. Show that reason and re-read the page.
  */
-function ReReviewSection({ eventId }: { eventId: number }) {
+function ReReviewSection({ stage, eventId }: { stage: SafetyReviewStage; eventId: number }) {
   const router = useRouter();
-  const [result, request, requesting] = useMutation(async () => {
+  const [, request, requesting] = useMutation(async () => {
     try {
       await requestSafetyReReview({ data: { id: eventId } });
     } catch (error) {
-      // A refusal usually means the event or its review moved on. Re-read before showing it.
+      // A refusal usually means the event or its review moved on. Re-read, and report the reason
+      // as a toast: the refreshed stage can hide this section, so an inline alert can vanish.
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not request a safety re-review. Try again."
+      );
       await router.invalidate({ filter: skipRootFilter }).catch(() => {
-        // Best effort. The refusal is already shown.
+        // Best effort. The toast is already shown.
       });
       throw error;
     }
@@ -113,19 +124,19 @@ function ReReviewSection({ eventId }: { eventId: number }) {
 
   return (
     <div>
-      <h2 className="display-h2">Safety re-review</h2>
+      <h2 className="display-h3">Safety re-review</h2>
       <p className="mt-2 body-sm text-muted-foreground">
-        The last safety review was rejected or asked for changes. Request a fresh review after a fix
-        the system cannot see. Every Safety Officer is notified.
+        {stage.current
+          ? stage.state === "rejected"
+            ? "The last safety review was rejected."
+            : "The last safety review asked for changes."
+          : "The last safety review no longer covers the arrangements."}{" "}
+        Request a fresh review after you address the concerns outside the system. Every Safety
+        Officer is notified.
       </p>
       <Button type="button" className="mt-4" disabled={requesting} onClick={() => void request()}>
         {requesting ? "Requesting…" : "Request safety re-review"}
       </Button>
-      {result.status === "error" ? (
-        <p role="alert" className="mt-4 body-sm text-destructive">
-          {result.error}
-        </p>
-      ) : null}
     </div>
   );
 }

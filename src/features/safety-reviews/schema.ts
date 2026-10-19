@@ -90,6 +90,9 @@ export const SAFETY_REVIEW_NOT_REJECTED_MESSAGE =
   "This event has no rejected or changes-requested safety review.";
 export const SAFETY_REVIEW_ARRANGEMENTS_INCOMPLETE_MESSAGE =
   "The arrangements are not complete yet. The safety review starts when they are.";
+/** PTR-148's start rule applies to the manual path too: a started event gets no new review. */
+export const SAFETY_REVIEW_STARTED_MESSAGE =
+  "This event has already started, so it no longer needs a safety review.";
 
 export const SAFETY_REVIEW_COMMENTS_MAX = 2000;
 export const SAFETY_REVIEW_COMMENTS_MESSAGE = `Comments must be ${SAFETY_REVIEW_COMMENTS_MAX} characters or fewer`;

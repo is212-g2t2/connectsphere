@@ -356,6 +356,7 @@ describe("railSectionIds", () => {
   it("rails the coordinator's compact actions", () => {
     expect([...railSectionIds(page("coordinator", { status: "confirmed" }))]).toEqual([
       "cancellation",
+      "safety-re-review",
       "confirm",
       "complete",
     ]);

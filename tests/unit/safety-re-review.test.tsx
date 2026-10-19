@@ -7,15 +7,16 @@ import type { EventPageData } from "#/features/events/page-data";
 import { safetyReReviewSections } from "#/features/safety-reviews/components/safety-review-sections";
 import { SAFETY_REVIEW_ALREADY_PENDING_MESSAGE } from "#/features/safety-reviews/schema";
 
-const { requestSafetyReReview, invalidate, success } = vi.hoisted(() => ({
+const { requestSafetyReReview, invalidate, success, errorToast } = vi.hoisted(() => ({
   requestSafetyReReview: vi.fn<(input: { data: unknown }) => Promise<unknown>>(),
   invalidate: vi.fn<() => Promise<void>>(),
   success: vi.fn<(message: string) => void>(),
+  errorToast: vi.fn<(message: string) => void>(),
 }));
 
 vi.mock("#/features/safety-reviews/server-fns", () => ({ requestSafetyReReview }));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => ({ invalidate }) }));
-vi.mock("sonner", () => ({ toast: { success } }));
+vi.mock("sonner", () => ({ toast: { success, error: errorToast } }));
 
 const data = {
   kind: "event",
@@ -61,15 +62,17 @@ describe("the safety re-review action (PTR-158)", () => {
     expect(invalidate).toHaveBeenCalled();
   });
 
-  it("shows the server's named refusal and re-reads the page", async () => {
+  it("shows the server's named refusal as a toast and re-reads the page", async () => {
     requestSafetyReReview.mockRejectedValue(new Error(SAFETY_REVIEW_ALREADY_PENDING_MESSAGE));
     const user = userEvent.setup();
     renderAction();
 
     await user.click(screen.getByRole("button", { name: "Request safety re-review" }));
 
-    const [alert] = await screen.findAllByRole("alert");
-    expect(alert.textContent).toContain(SAFETY_REVIEW_ALREADY_PENDING_MESSAGE);
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(SAFETY_REVIEW_ALREADY_PENDING_MESSAGE)
+    );
+    // The refreshed stage can hide the section, so the message must not depend on it.
     expect(success).not.toHaveBeenCalled();
     expect(invalidate).toHaveBeenCalled();
   });

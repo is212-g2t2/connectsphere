@@ -85,15 +85,16 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
 
 /**
  * Place compact actions on the sticky rail instead of the main stack. These are the Coordinator's
- * cancellation, confirm, and complete, plus Venue Staff's record-a-decision. Every other section
- * is a record, a wide table, or a heavy form. Those need the main column.
+ * cancellation, safety re-review, confirm, and complete, plus Venue Staff's record-a-decision.
+ * Every other section is a record, a wide table, or a heavy form. Those need the main column.
  */
 export function railSectionIds(data: EventPageData): Set<string> {
   // PTR-144: the Lead's detail has no rail action; the assignment form sits in the main column.
   if (data.kind === "triage") return new Set();
   switch (data.event.access) {
     case "coordinator":
-      return new Set(["cancellation", "confirm", "complete"]);
+      // PTR-158: put the action that unblocks confirmation beside the confirmation it unblocks.
+      return new Set(["cancellation", "safety-re-review", "confirm", "complete"]);
     case "venue_staff":
       return new Set(["decision"]);
     default:

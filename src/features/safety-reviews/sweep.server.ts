@@ -37,6 +37,31 @@ export function hasEventStarted(
   return first !== undefined && first <= venueLocalTimestamp(now);
 }
 
+/**
+ * PTR-148: tell every Safety Officer that an event waits for review. Hold the accounts while the
+ * rows are inserted. Both entry paths call this, so the recipients and the payload cannot drift.
+ */
+export async function notifySafetyOfficers(
+  tx: Transaction,
+  event: { id: number; eventName: string }
+): Promise<number> {
+  const officers = await tx
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.role, "safety_officer"))
+    .for("share");
+  await raiseNotifications(
+    tx,
+    officers.map(officer => ({
+      recipientId: officer.id,
+      eventRequestId: event.id,
+      kind: "safety_review_requested" as const,
+      payload: { eventName: event.eventName.trim() || "Untitled event" },
+    }))
+  );
+  return officers.length;
+}
+
 /** Process one event per transaction. Never lock a venue or an arrangement row. */
 export async function sweepSafetyReviews(database: Database, now?: Date) {
   const candidates = await database
@@ -164,22 +189,7 @@ async function sweepEvent(tx: Transaction, eventId: number, now: Date | undefine
     return result;
   }
   await tx.insert(safetyReviews).values({ eventRequestId: eventId, fingerprint });
-  const officers = await tx
-    .select({ id: user.id })
-    .from(user)
-    .where(eq(user.role, "safety_officer"))
-    // Hold the referenced accounts while the notices are inserted, as `listLeadIds` does.
-    .for("share");
-  await raiseNotifications(
-    tx,
-    officers.map(officer => ({
-      recipientId: officer.id,
-      eventRequestId: eventId,
-      kind: "safety_review_requested" as const,
-      payload: { eventName: event.eventName.trim() || "Untitled event" },
-    }))
-  );
   result.reviewsCreated = 1;
-  result.notificationsRaised += officers.length;
+  result.notificationsRaised += await notifySafetyOfficers(tx, event);
   return result;
 }

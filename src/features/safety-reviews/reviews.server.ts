@@ -5,7 +5,6 @@ import {
   equipmentRequests,
   eventRequests,
   safetyReviews,
-  user,
   venueOccupancy,
   venueRequests,
   venues,
@@ -14,7 +13,7 @@ import { AuthorizationError, ConflictError, NotFoundError } from "#/features/aut
 import type { SessionUser } from "#/features/auth/session";
 import { listLeadIds } from "#/features/event-requests/leads.server";
 import { EVENT_REQUEST_STATUS_LABELS, parseEventRequestId } from "#/features/event-requests/schema";
-import { arrangementBlockers } from "#/features/events/confirmation";
+import { arrangementBlockers, isConfirmableStatus } from "#/features/events/confirmation";
 import { loadCurrentBookings } from "#/features/events/records.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
@@ -32,12 +31,14 @@ import {
   SAFETY_REVIEW_REQUEST_RETRY_MESSAGE,
   SAFETY_REVIEW_RETRY_MESSAGE,
   SAFETY_REVIEW_STALE_MESSAGE,
+  SAFETY_REVIEW_STARTED_MESSAGE,
 } from "#/features/safety-reviews/schema";
 import type {
   PendingSafetyReview,
   SafetyReviewDecision,
   SafetyReviewDetail,
 } from "#/features/safety-reviews/schema";
+import { hasEventStarted, notifySafetyOfficers } from "#/features/safety-reviews/sweep.server";
 import { isDeadlock } from "#/features/venue-requests/occupancy.server";
 import { suspendedPieceWhere } from "#/features/venues/blocked-arrangements.server";
 import { logger } from "#/lib/logger";
@@ -263,7 +264,7 @@ export async function handleDecideSafetyReview(
 }
 
 /** The pending review the Coordinator's request created. */
-export interface SafetyReReviewResult {
+interface SafetyReReviewResult {
   reviewId: number;
   eventId: number;
 }
@@ -293,7 +294,7 @@ export async function handleRequestSafetyReReview(
       if (!event || event.status === "draft" || event.assignedCoordinatorId !== actor.id) {
         throw new AuthorizationError("Forbidden");
       }
-      if (event.status !== "approved" && event.status !== "planning") {
+      if (!isConfirmableStatus(event.status)) {
         throw new ConflictError(
           `This event's safety review cannot be requested again while its status is ${EVENT_REQUEST_STATUS_LABELS[event.status].toLowerCase()}.`
         );
@@ -308,11 +309,10 @@ export async function handleRequestSafetyReReview(
           .limit(1)
           .for("update")
       ).at(0);
-      if (!review) throw new ConflictError(SAFETY_REVIEW_NOT_REJECTED_MESSAGE);
-      if (review.state === "pending") {
+      if (review?.state === "pending") {
         throw new ConflictError(SAFETY_REVIEW_ALREADY_PENDING_MESSAGE);
       }
-      if (review.state !== "rejected" && review.state !== "changes_requested") {
+      if (review?.state !== "rejected" && review?.state !== "changes_requested") {
         throw new ConflictError(SAFETY_REVIEW_NOT_REJECTED_MESSAGE);
       }
 
@@ -339,6 +339,11 @@ export async function handleRequestSafetyReReview(
           .where(and(suspendedPieceWhere(event.id), isNotNull(venueOccupancy.venueRequestId)))
           .limit(1),
       ]);
+      // PTR-148 AC4: a started event keeps its arrangements. The sweep skips it, so this path
+      // must not leave an undecidable pending review behind.
+      if (hasEventStarted(venueRows, new Date())) {
+        throw new ConflictError(SAFETY_REVIEW_STARTED_MESSAGE);
+      }
       const blockers = arrangementBlockers({
         venueRequests: venueRows,
         venueBookingSuspended: suspended.length > 0,
@@ -359,22 +364,8 @@ export async function handleRequestSafetyReReview(
       ).at(0);
       if (!created) throw new ConflictError(SAFETY_REVIEW_REQUEST_RETRY_MESSAGE);
 
-      // PTR-158 AC1: every Safety Officer receives the notice. Hold the accounts while the rows
-      // are inserted, as the sweep does.
-      const officers = await tx
-        .select({ id: user.id })
-        .from(user)
-        .where(eq(user.role, "safety_officer"))
-        .for("share");
-      await raiseNotifications(
-        tx,
-        officers.map(officer => ({
-          recipientId: officer.id,
-          eventRequestId: event.id,
-          kind: "safety_review_requested" as const,
-          payload: { eventName: event.eventName.trim() || "Untitled event" },
-        }))
-      );
+      // PTR-158 AC1: every Safety Officer receives the notice. The sweep uses the same fan-out.
+      await notifySafetyOfficers(tx, event);
 
       return { reviewId: created.id, eventId: event.id };
     })
