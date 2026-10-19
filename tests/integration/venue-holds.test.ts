@@ -1860,6 +1860,7 @@ describe("tentative venue holds (PTR-109)", () => {
           endsAt: "2027-06-15 12:00:00",
           status: "held",
           heldById: tempCoordAId,
+          expiresAt: "2027-06-14 12:00:00",
         })
         .returning();
 

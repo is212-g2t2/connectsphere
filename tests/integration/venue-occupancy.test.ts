@@ -306,6 +306,7 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
           venueId: hallId,
           startsAt: `${DATE} 08:00:00`,
           endsAt: `${DATE} 09:45:00`,
+          expiresAt: `${DATE} 07:00:00`,
         })
         .returning({ id: schema.venueHolds.id });
 
@@ -637,6 +638,7 @@ describe("venue occupancy ledger (PTR-133, PTR-134)", () => {
         venueId: hallId,
         startsAt: `${DATE} 11:00:00`,
         endsAt: `${DATE} 12:00:00`,
+        expiresAt: `${DATE} 10:00:00`,
       });
 
       expect(await commitmentsWithoutRow()).toEqual(["ptr-133-missing", "ptr-133-missing-hold"]);

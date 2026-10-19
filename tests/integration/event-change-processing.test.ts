@@ -406,6 +406,7 @@ describe("processing a change request (PTR-52)", () => {
       eventId: event.id,
       venueId,
       heldById: coordinator.id,
+      expiresAt: "2099-12-01 00:00:00",
       ...nextWindow(),
     });
     await database
