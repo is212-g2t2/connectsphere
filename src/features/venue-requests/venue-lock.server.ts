@@ -67,6 +67,24 @@ export type LockedEvent = {
  * the new values. A later cancellation or assignment waits for this transaction.
  */
 export async function keyShareEvent(tx: VenueTx, eventId: number): Promise<LockedEvent | null> {
+  return readEventUnderLock(tx, eventId, "key share");
+}
+
+/**
+ * PTR-163: lock the event `FOR NO KEY UPDATE` before a write that can change the place count.
+ * `keyShareEvent` does not conflict with a registration's `FOR NO KEY UPDATE`, so two writers can
+ * read the same "before" places and both announce the same freed place. Take this lock before the
+ * before-read. The lock order stays event, then venue.
+ */
+export async function lockEvent(tx: VenueTx, eventId: number): Promise<LockedEvent | null> {
+  return readEventUnderLock(tx, eventId, "no key update");
+}
+
+async function readEventUnderLock(
+  tx: VenueTx,
+  eventId: number,
+  lock: "key share" | "no key update"
+): Promise<LockedEvent | null> {
   const rows = await tx
     .select({
       id: eventRequests.id,
@@ -76,7 +94,7 @@ export async function keyShareEvent(tx: VenueTx, eventId: number): Promise<Locke
     })
     .from(eventRequests)
     .where(eq(eventRequests.id, eventId))
-    .for("key share");
+    .for(lock);
   return rows.at(0) ?? null;
 }
 
@@ -108,10 +126,11 @@ export async function keyShareEvents(
  * key. Do not take it while holding the request row; confirmation locks the event before requests,
  * which would cause a deadlock.
  */
-async function keyShareEventOf(
+async function eventOfLockedRow(
   tx: VenueTx,
   table: typeof venueRequests | typeof venueHolds,
-  id: string
+  id: string,
+  lock: "key share" | "no key update"
 ): Promise<LockedEvent | null> {
   const rows = await tx
     .select({ eventId: table.eventId })
@@ -120,7 +139,7 @@ async function keyShareEventOf(
     .limit(1);
   const preview = rows.at(0);
   if (!preview) return null; // The row lock that follows reports Not Found.
-  return keyShareEvent(tx, preview.eventId);
+  return lock === "key share" ? keyShareEvent(tx, preview.eventId) : lockEvent(tx, preview.eventId);
 }
 
 /** Key-share a venue request's event before any venue row lock. */
@@ -128,7 +147,18 @@ export async function keyShareEventForRequest(
   tx: VenueTx,
   requestId: string
 ): Promise<LockedEvent | null> {
-  return keyShareEventOf(tx, venueRequests, requestId);
+  return eventOfLockedRow(tx, venueRequests, requestId, "key share");
+}
+
+/**
+ * PTR-163: lock a venue request's event `FOR NO KEY UPDATE` before a venue row lock, for a write
+ * that compares the places before and after.
+ */
+export async function lockEventForRequest(
+  tx: VenueTx,
+  requestId: string
+): Promise<LockedEvent | null> {
+  return eventOfLockedRow(tx, venueRequests, requestId, "no key update");
 }
 
 /** Key-share a hold's event before any venue row lock. */
@@ -136,7 +166,7 @@ export async function keyShareEventForHold(
   tx: VenueTx,
   holdId: string
 ): Promise<LockedEvent | null> {
-  return keyShareEventOf(tx, venueHolds, holdId);
+  return eventOfLockedRow(tx, venueHolds, holdId, "key share");
 }
 
 /**

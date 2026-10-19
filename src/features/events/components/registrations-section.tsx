@@ -3,6 +3,7 @@ import { useRouter } from "@tanstack/react-router";
 
 import { Button } from "#/components/ui/button";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
+import { formatInstant } from "#/features/event-requests/format";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import { AttendeeTable } from "#/features/events/components/attendee-table";
 import { AddVipDialog, RemoveVipButton } from "#/features/events/components/vip-registrations";
@@ -21,10 +22,20 @@ const REGISTRATION_STATUSES: readonly EventRequestStatus[] = [
 export function hasRegistrationRecord(status: EventRequestStatus): boolean {
   return REGISTRATION_STATUSES.some(candidate => candidate === status);
 }
+
+/** Format a waiting-list join time (`registeredAt`) for the list. Pass other shapes through. */
+function formatJoined(value: string): string {
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? value : formatInstant(new Date(time));
+}
 /** Shared attendee list: places count and every registration in one table. Always visible. */
 function RegistrationsBody({ data }: { data: Extract<EventPageData, { kind: "event" }> }) {
   const { event } = data.event;
   const router = useRouter();
+  // The list carries registrations and the waiting list together. Show registrations in the
+  // table and the waiting list below it, each in the join order the query returns.
+  const registered = (data.attendees ?? []).filter(attendee => attendee.status === "registered");
+  const waitingList = (data.attendees ?? []).filter(attendee => attendee.status === "waitlisted");
   // Keep this stable across renders. The table then keeps its column identity, search, and filter.
   const rowActions = useCallback(
     (attendee: RegisteredAttendee) =>
@@ -69,11 +80,31 @@ function RegistrationsBody({ data }: { data: Extract<EventPageData, { kind: "eve
             </Button>
           </p>
         ) : (
-          <AttendeeTable
-            attendees={data.attendees ?? []}
-            tableActions={<AddVipDialog eventId={event.id} />}
-            rowActions={rowActions}
-          />
+          <>
+            <AttendeeTable
+              attendees={registered}
+              tableActions={<AddVipDialog eventId={event.id} />}
+              rowActions={rowActions}
+            />
+            {waitingList.length > 0 ? (
+              <div className="mt-8">
+                <h3 className="font-semibold">Waiting list ({waitingList.length})</h3>
+                {/* The list arrives in join order. Keep that order here. */}
+                <ul className="mt-3 space-y-2">
+                  {waitingList.map((attendee, index) => (
+                    <li key={attendee.attendeeId} className="body-sm">
+                      <span className="font-medium">
+                        {index + 1}. {attendee.name || "Unnamed attendee"}
+                      </span>{" "}
+                      <span className="break-words text-muted-foreground">
+                        {attendee.email} · waiting since {formatJoined(attendee.registeredAt)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </div>

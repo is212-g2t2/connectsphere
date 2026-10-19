@@ -20,6 +20,8 @@ import {
 } from "#/features/event-requests/schema";
 import type { ClarificationField, SignificantField } from "#/features/event-requests/schema";
 import { loadArrangementHolders } from "#/features/events/arrangements.server";
+import { announcePlaceAvailable, readPlaceState } from "#/features/events/register.server";
+import { didFreePlace } from "#/features/events/registration";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 
@@ -109,6 +111,19 @@ export async function handleUpdateEventInformation(
         registrationClosesAt: values.registrationClosesAt ?? null,
       })
       .where(eq(eventRequests.id, request.id));
+
+    // A raised registration capacity can open a place for the waiting list. The counts stay
+    // the same; only the ceiling moves.
+    if (
+      typeof values.registrationCapacity === "number" &&
+      typeof request.registrationCapacity === "number" &&
+      values.registrationCapacity > request.registrationCapacity
+    ) {
+      const before = await readPlaceState(tx, request.id, request.registrationCapacity);
+      if (didFreePlace(before, { ...before, registrationCapacity: values.registrationCapacity })) {
+        await announcePlaceAvailable(tx, request.id, values.eventName.trim() || "Untitled event");
+      }
+    }
 
     const appliedAt = new Date();
     const actorName = actor.name?.trim();

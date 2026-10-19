@@ -394,9 +394,15 @@ export async function restoreBlockCommitments(
   const restored: BlockCommitment[] = [];
   for (const row of rows) {
     if (row.bookingStatus === "approved" || row.holdStatus === "held") {
+      // A concurrent release can delete the row after the caller read it. Report only the rows
+      // this statement re-activated, so the lift raises no notice for a gone commitment.
       // oxlint-disable-next-line eslint/no-await-in-loop -- restore rows in read order
-      await tx.update(venueOccupancy).set({ active: true }).where(eq(venueOccupancy.id, row.id));
-      restored.push(row);
+      const updated = await tx
+        .update(venueOccupancy)
+        .set({ active: true })
+        .where(eq(venueOccupancy.id, row.id))
+        .returning({ id: venueOccupancy.id });
+      if (updated.length > 0) restored.push(row);
     } else {
       // oxlint-disable-next-line eslint/no-await-in-loop -- drop rows whose source is gone
       await tx.delete(venueOccupancy).where(eq(venueOccupancy.id, row.id));

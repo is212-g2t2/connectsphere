@@ -252,7 +252,7 @@ export interface AttendeeRegistrationProjection {
   eventName: string;
   eventStatus: EventRequestStatus;
   registrationEnabled: boolean;
-  registrationStatus: "registered" | "withdrawn";
+  registrationStatus: "registered" | "waitlisted" | "withdrawn";
   eventDate: string | null;
   endDate: string | null;
   startTime: string | null;
@@ -284,6 +284,8 @@ export interface RegisteredAttendee {
   email: string;
   vip: boolean;
   registeredAt: string;
+  /** `registered` holds a place; `waitlisted` waits for one in join order. */
+  status: "registered" | "waitlisted";
 }
 
 /**

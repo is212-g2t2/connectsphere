@@ -632,11 +632,13 @@ export const equipmentArrangementStatus = pgEnum("equipment_arrangement_status",
 /**
  * PTR-45 AC4: each registration has one of these statuses. Only `registered` counts against
  * capacity. PTR-47 changes the registration's row, so `withdrawn` preserves its history. Removed
- * VIP registrations also use `withdrawn` (PTR-111 AC6).
+ * VIP registrations also use `withdrawn` (PTR-111 AC6). PTR-163 adds `waitlisted`: an Attendee
+ * waiting for a place at a full event. It holds no place.
  */
 export const eventRegistrationStatus = pgEnum("event_registration_status", [
   "registered",
   "withdrawn",
+  "waitlisted",
 ]);
 
 /**
@@ -1167,6 +1169,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "safety_review_requested",
   /** PTR-148 AC4, PTR-147 AC5: the sweep returned a confirmed event to planning, told to its Coordinator or every Lead. */
   "event_safety_reconfirmation_required",
+  /** PTR-163 AC2: a place opened at a full event with a waiting list. Each waitlisted Attendee hears it once per transition. */
+  "registration_place_available",
 ]);
 
 export const notifications = pgTable(

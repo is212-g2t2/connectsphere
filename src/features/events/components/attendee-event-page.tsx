@@ -8,6 +8,10 @@ import { formatLocalDateTime } from "#/features/event-requests/format";
 import type { EventProjection } from "#/features/events/access";
 import { RegisterAction } from "#/features/events/components/register-action";
 import { WithdrawAction } from "#/features/events/components/withdraw-action";
+import {
+  JoinWaitingListAction,
+  LeaveWaitingListAction,
+} from "#/features/events/components/waiting-list-action";
 import { REGISTRATION_NOT_OPEN_MESSAGE, eventFullMessage } from "#/features/events/registration";
 import type { RegistrationAvailability } from "#/features/events/registration";
 import { eventSchedule } from "#/features/events/schedule";
@@ -63,6 +67,7 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
   // Prefer a current approved booking over the original proposal.
   const { date, endDate, startTime, endTime, spansDays, crossesMidnight } = eventSchedule(details);
   const isRegistered = details.registration?.status === "registered";
+  const isWaitlisted = details.registration?.status === "waitlisted";
   // Mirror the cancelled leg of the route's `hasAttendeePage`. The page and the route then agree.
   const isCancelled = details.status === "cancelled";
   // Completed events take no activity writes. The page offers no withdrawal for them.
@@ -176,6 +181,19 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
                     <WithdrawAction eventId={details.id} eventName={details.name ?? "this event"} />
                   ) : null}
                 </>
+              ) : isWaitlisted ? (
+                <>
+                  <p className="mt-2 font-semibold">You&apos;re on the waiting list</p>
+                  <p className="mt-1 body-sm text-muted-foreground">
+                    We&apos;ll notify you when a place opens. Places go first come, first served.
+                  </p>
+                  {period}
+                  {places}
+                  {availability?.state === "open" && !isCompleted ? (
+                    <RegisterAction eventId={details.id} eventName={details.name ?? "this event"} />
+                  ) : null}
+                  {!isCompleted ? <LeaveWaitingListAction eventId={details.id} /> : null}
+                </>
               ) : period ? (
                 <>
                   {period}
@@ -184,6 +202,14 @@ export function AttendeeEventPage({ event }: { event: EventProjection }) {
                   {availability?.state === "full" ? null : places}
                   {availability?.state === "open" ? (
                     <RegisterAction eventId={details.id} eventName={details.name ?? "this event"} />
+                  ) : availability?.state === "full" ? (
+                    <>
+                      <RegistrationUnavailable availability={availability} />
+                      <JoinWaitingListAction
+                        eventId={details.id}
+                        eventName={details.name ?? "this event"}
+                      />
+                    </>
                   ) : (
                     <RegistrationUnavailable availability={availability} />
                   )}

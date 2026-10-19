@@ -67,6 +67,8 @@ export const NOTIFICATION_KINDS = [
   "safety_review_requested",
   /** PTR-148 AC4 and PTR-147 AC5: the sweep returned a confirmed event to planning. Its Coordinator receives this notice, or every Lead when the event has none. */
   "event_safety_reconfirmation_required",
+  /** PTR-163 AC2: a place opened at a full event with a waiting list. */
+  "registration_place_available",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -465,6 +467,11 @@ const payloadSchemas = {
     previousCoordinatorName: nonEmpty.optional(),
     audience: z.enum(["coordinator", "outgoing_coordinator", "organiser"]),
   }),
+  /**
+   * PTR-163 AC2: a place opened for a waitlisted Attendee. Places stay first come, first
+   * served; the notice reserves nothing.
+   */
+  registration_place_available: z.object({ eventName: nonEmpty }),
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -617,6 +624,10 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("coordinator_assigned"),
     payload: payloadSchemas.coordinator_assigned,
   }),
+  z.object({
+    kind: z.literal("registration_place_available"),
+    payload: payloadSchemas.registration_place_available,
+  }),
 ]);
 
 /**
@@ -738,6 +749,8 @@ export function notificationSummary(notification: NotificationPayload): string {
       }
       return `Event assigned to you: ${eventName}`;
     }
+    case "registration_place_available":
+      return `A place is available for ${notification.payload.eventName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -808,6 +821,8 @@ export function notificationHref(
     case "equipment_requested":
       return `/events/${eventRequestId}`;
     case "event_registered":
+      return `/events/${eventRequestId}`;
+    case "registration_place_available":
       return `/events/${eventRequestId}`;
     case "registration_threshold_reached":
     case "registration_place_freed":
@@ -938,6 +953,7 @@ export function notificationReachable(
     case "equipment_unavailable":
     case "equipment_released":
     case "event_registered":
+    case "registration_place_available":
     case "registration_threshold_reached":
     case "event_cancellation_requested":
     case "event_cancelled":

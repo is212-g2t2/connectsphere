@@ -210,6 +210,7 @@ const validPayloads = {
     eventName: "Gala",
     reason: "out_of_date",
   },
+  registration_place_available: { eventName: "Gala" },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -451,6 +452,11 @@ describe("notification summaries (PTR-55 AC2)", () => {
     expect(
       notificationSummary(parse("registration_opened", validPayloads.registration_opened))
     ).toBe("Registration has opened for Gala");
+    expect(
+      notificationSummary(
+        parse("registration_place_available", validPayloads.registration_place_available)
+      )
+    ).toBe("A place is available for Gala");
     expect(
       notificationSummary(parse("registration_closed", validPayloads.registration_closed))
     ).toBe("Registration has closed for Gala");
@@ -716,6 +722,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       venue_hold_expired: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       coordinator_assigned: "/events/7",
       event_safety_reconfirmation_required: "/events/7",
+      registration_place_available: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

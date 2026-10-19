@@ -1,4 +1,4 @@
-import { and, eq, ilike, notExists, or, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, notExists, or, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import {
@@ -17,17 +17,22 @@ import { isPublishedForAttendees } from "#/features/events/access";
 import type { VipAttendee } from "#/features/events/access";
 import {
   ALREADY_REGISTERED_MESSAGE,
+  ALREADY_WAITLISTED_MESSAGE,
   NOT_A_VIP_MESSAGE,
+  NOT_WAITLISTED_MESSAGE,
   REGISTRATION_NOT_OPEN_MESSAGE,
   VIPS_CLOSED_MESSAGE,
   VIP_ALREADY_REGISTERED_MESSAGE,
   VIP_NOT_ATTENDEE_MESSAGE,
+  didFreePlace,
   placeLimit,
   placeMark,
   registrationRefusal,
   totalVenueCapacity,
   venueCapacityReachedMessage,
+  waitingListJoinRefusal,
 } from "#/features/events/registration";
+import type { PlaceCounts } from "#/features/events/registration";
 import {
   VIP_SEARCH_LIMIT,
   parseVipRegistrationInput,
@@ -98,8 +103,9 @@ export async function handleRegisterForEvent(
     }
 
     // Keep one row per Attendee and event. A withdrawn registration returns to `registered`
-    // (PTR-47 AC5). It returns as the Attendee's own row, even when it was a removed VIP
-    // registration. Leave a `registered` row unchanged, so no row comes back (AC6).
+    // (PTR-47 AC5). A waitlisted registration does too: registering claims the freed place and
+    // leaves the list (PTR-163 AC3). It returns as the Attendee's own row, even when it was a
+    // removed VIP registration. Leave a `registered` row unchanged, so no row comes back (AC6).
     const registration = (
       await tx
         .insert(eventRegistrations)
@@ -107,7 +113,7 @@ export async function handleRegisterForEvent(
         .onConflictDoUpdate({
           target: [eventRegistrations.eventId, eventRegistrations.attendeeId],
           set: { status: "registered", registeredAt: sql`now()`, vip: false },
-          setWhere: eq(eventRegistrations.status, "withdrawn"),
+          setWhere: inArray(eventRegistrations.status, ["withdrawn", "waitlisted"]),
         })
         .returning({
           status: eventRegistrations.status,
@@ -225,7 +231,7 @@ export async function handleAddVipRegistration(
     }
 
     // Reuse the Attendee's one row for the event. A withdrawn registration of either kind
-    // becomes this VIP registration.
+    // becomes this VIP registration, as does a waiting-list row: the Attendee leaves the list.
     const registration = (
       await tx
         .insert(eventRegistrations)
@@ -233,7 +239,7 @@ export async function handleAddVipRegistration(
         .onConflictDoUpdate({
           target: [eventRegistrations.eventId, eventRegistrations.attendeeId],
           set: { status: "registered", registeredAt: sql`now()`, vip: true },
-          setWhere: eq(eventRegistrations.status, "withdrawn"),
+          setWhere: inArray(eventRegistrations.status, ["withdrawn", "waitlisted"]),
         })
         .returning({ attendeeId: eventRegistrations.attendeeId })
     ).at(0);
@@ -272,6 +278,14 @@ export async function handleRemoveVipRegistration(
   await database.transaction(async tx => {
     const event = requireManagedEvent(await readEvent(tx, input.id, { lock: true }), actor);
 
+    // Take the counts before the flip. A removed VIP drops `vips` and can open a place for the
+    // waiting list while `registered` stays unchanged.
+    const bookings = await approvedBookings(tx, event.id);
+    const totalCapacity = totalVenueCapacity(bookings);
+    const capacity = event.registrationCapacity;
+    const countsBefore =
+      totalCapacity !== null && capacity !== null ? await countRegistrations(tx, event.id) : null;
+
     const removed = await tx
       .update(eventRegistrations)
       .set({ status: "withdrawn" })
@@ -291,7 +305,154 @@ export async function handleRemoveVipRegistration(
       change: "removed",
       actorId: actor.id,
     });
+
+    if (countsBefore !== null && totalCapacity !== null && capacity !== null) {
+      const before = {
+        registeredCount: countsBefore.registered,
+        vipCount: countsBefore.vips,
+        venueCapacity: totalCapacity,
+        registrationCapacity: capacity,
+      };
+      if (didFreePlace(before, { ...before, vipCount: countsBefore.vips - 1 })) {
+        await announcePlaceAvailable(tx, event.id, eventName(event));
+      }
+    }
   });
+}
+
+/**
+ * Join the waiting list of a full event with an open window. The event row lock queues
+ * concurrent joins with registrations and withdrawals. A withdrawn row becomes `waitlisted`;
+ * a `registered` or `waitlisted` row is refused. The join raises no notice: the Attendee sees
+ * the status on the event page and the dashboard.
+ */
+export async function handleJoinWaitingList(
+  data: unknown,
+  actor: SessionUser,
+  database: Database,
+  now = new Date()
+) {
+  const input = parseEventRequestId(data);
+
+  return database.transaction(async tx => {
+    const event = await readEvent(tx, input.id, { lock: true });
+
+    // Only a published event takes a waiting list. Refuse a missing event and an
+    // unpublished one in the same way, as registration does.
+    if (!event || !isPublishedForAttendees(event)) throw new AuthorizationError("Forbidden");
+
+    const bookings = await approvedBookings(tx, event.id);
+    const totalCapacity = totalVenueCapacity(bookings);
+    const { registered, vips } = await countRegistrations(tx, event.id);
+    const own = await registrationStatus(tx, event.id, actor.id);
+
+    const refusal = waitingListJoinRefusal({
+      ...event,
+      now: toLocalMinuteValue(venueLocalTimestamp(now)),
+      alreadyRegistered: own === "registered",
+      alreadyWaitlisted: own === "waitlisted",
+      registeredCount: registered,
+      vipCount: vips,
+      venueCapacity: totalCapacity,
+    });
+    if (refusal) throw new ConflictError(refusal);
+
+    const registration = (
+      await tx
+        .insert(eventRegistrations)
+        .values({ eventId: event.id, attendeeId: actor.id, status: "waitlisted" })
+        .onConflictDoUpdate({
+          target: [eventRegistrations.eventId, eventRegistrations.attendeeId],
+          set: { status: "waitlisted", registeredAt: sql`now()`, vip: false },
+          setWhere: eq(eventRegistrations.status, "withdrawn"),
+        })
+        .returning({
+          status: eventRegistrations.status,
+          registeredAt: eventRegistrations.registeredAt,
+        })
+    ).at(0);
+    // A race with another join or registration took the row first. Name what the caller holds now.
+    if (!registration) {
+      throw new ConflictError(
+        own === "registered" ? ALREADY_REGISTERED_MESSAGE : ALREADY_WAITLISTED_MESSAGE
+      );
+    }
+
+    return { status: registration.status, registeredAt: registration.registeredAt.toISOString() };
+  });
+}
+
+/**
+ * Leave the waiting list. One statement flips `waitlisted` to `withdrawn`, so no event lock is
+ * needed: leaving frees no place. Answer a missing row and a foreign id in the same way, so a
+ * probe learns nothing about the id.
+ */
+export async function handleLeaveWaitingList(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+): Promise<void> {
+  const input = parseEventRequestId(data);
+
+  const left = await database
+    .update(eventRegistrations)
+    .set({ status: "withdrawn" })
+    .where(
+      and(
+        eq(eventRegistrations.eventId, input.id),
+        eq(eventRegistrations.attendeeId, actor.id),
+        eq(eventRegistrations.status, "waitlisted")
+      )
+    )
+    .returning({ eventId: eventRegistrations.eventId });
+  if (left.length === 0) throw new ConflictError(NOT_WAITLISTED_MESSAGE);
+}
+
+/** Read the event's current places: its `registered` counts and its total venue ceiling. */
+export async function readPlaceState(
+  tx: Pick<Database, "select">,
+  eventId: number,
+  registrationCapacity: number | null
+): Promise<PlaceCounts> {
+  const counts = await countRegistrations(tx, eventId);
+  const bookings = await approvedBookings(tx, eventId);
+  return {
+    registeredCount: counts.registered,
+    vipCount: counts.vips,
+    venueCapacity: totalVenueCapacity(bookings),
+    registrationCapacity,
+  };
+}
+
+/**
+ * Tell every waitlisted Attendee that a place opened. The caller proves the full-to-not-full
+ * transition with `didFreePlace` and calls this once for it. Places stay first come, first
+ * served: the notice reserves nothing and promotes nobody.
+ */
+export async function announcePlaceAvailable(
+  tx: Pick<Database, "select" | "insert">,
+  eventId: number,
+  eventNameValue: string
+): Promise<number> {
+  const waitlisted = await tx
+    .select({ attendeeId: eventRegistrations.attendeeId })
+    .from(eventRegistrations)
+    .where(
+      and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.status, "waitlisted"))
+    )
+    .orderBy(asc(eventRegistrations.registeredAt), asc(eventRegistrations.attendeeId));
+  if (waitlisted.length === 0) return 0;
+
+  await raiseNotifications(
+    tx,
+    waitlisted.map(({ attendeeId }) => ({
+      recipientId: attendeeId,
+      eventRequestId: eventId,
+      kind: "registration_place_available" as const,
+      payload: { eventName: eventNameValue },
+    }))
+  );
+  return waitlisted.length;
 }
 
 /**
@@ -393,6 +554,22 @@ async function announcePlaceMark(
       payload: { eventName: eventName(event), registered, limit, audience },
     }))
   );
+}
+
+/** The Attendee's registration status for the event, or null when they hold no row. */
+async function registrationStatus(
+  database: Pick<Database, "select">,
+  eventId: number,
+  attendeeId: string
+): Promise<"registered" | "withdrawn" | "waitlisted" | null> {
+  const rows = await database
+    .select({ status: eventRegistrations.status })
+    .from(eventRegistrations)
+    .where(
+      and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.attendeeId, attendeeId))
+    )
+    .limit(1);
+  return rows.at(0)?.status ?? null;
 }
 
 /** Check whether the Attendee holds a `registered` registration of either kind. */

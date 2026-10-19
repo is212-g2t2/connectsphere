@@ -3,6 +3,10 @@ import type { EventRequestStatus } from "#/features/event-requests/schema";
 export const REGISTRATION_NOT_OPEN_MESSAGE = "Registration is not open for this event.";
 export const ALREADY_REGISTERED_MESSAGE = "You are already registered for this event.";
 export const EVENT_FULL_MESSAGE = "This event is full.";
+export const ALREADY_WAITLISTED_MESSAGE = "You are already on the waiting list for this event.";
+export const NOT_WAITLISTED_MESSAGE = "You are not on the waiting list for this event.";
+export const EVENT_NOT_FULL_MESSAGE =
+  "This event still has places. Register instead of joining the waiting list.";
 export const VIP_ALREADY_REGISTERED_MESSAGE = "This Attendee is already registered for this event.";
 export const VIP_NOT_ATTENDEE_MESSAGE = "This Attendee account was not found.";
 export const NOT_A_VIP_MESSAGE = "This Attendee holds no VIP registration for this event.";
@@ -73,6 +77,20 @@ interface RegistrationInput extends RegistrationTerms {
   alreadyRegistered: boolean;
 }
 
+/** Joining the waiting list also refuses an Attendee who already waits. */
+interface WaitingListInput extends RegistrationTerms {
+  alreadyRegistered: boolean;
+  alreadyWaitlisted: boolean;
+}
+
+/** The places that decide a full-to-not-full transition. Waitlisted rows hold no place. */
+export interface PlaceCounts {
+  registeredCount: number;
+  vipCount: number;
+  venueCapacity: number | null;
+  registrationCapacity: number | null;
+}
+
 /**
  * PTR-50: Tell an Attendee about registration before they try. `full` names the total venue
  * capacity when the venues set the limit (PTR-45 AC5), else null. `unavailable` covers an event
@@ -132,6 +150,55 @@ export function registrationRefusal(input: RegistrationInput): string | null {
     default:
       return REGISTRATION_NOT_OPEN_MESSAGE;
   }
+}
+
+/**
+ * Whether the Attendee may join the waiting list. Join only a full event while its window is
+ * open. A place left means registering instead. A closed window means the sweep already cleared
+ * the list.
+ */
+export function waitingListJoinRefusal(input: WaitingListInput): string | null {
+  if (input.alreadyRegistered) return ALREADY_REGISTERED_MESSAGE;
+  if (input.alreadyWaitlisted) return ALREADY_WAITLISTED_MESSAGE;
+
+  const availability = termsAvailability(input);
+  switch (availability.state) {
+    case "full":
+      return null;
+    case "open":
+      return EVENT_NOT_FULL_MESSAGE;
+    default:
+      return REGISTRATION_NOT_OPEN_MESSAGE;
+  }
+}
+
+/** Whether the counts stand at capacity. Null capacities mean unavailable, never full. */
+function isFullPlaces(state: PlaceCounts): boolean {
+  if (state.venueCapacity === null || state.registrationCapacity === null) return false;
+  return (
+    state.registeredCount + state.vipCount >= state.venueCapacity ||
+    state.registeredCount >= state.registrationCapacity
+  );
+}
+
+/**
+ * Whether freeing places moved the event from full to not full. Notify each waitlisted Attendee
+ * once when true. An unavailable after-state (no booking or no terms) is not a freed place.
+ */
+export function didFreePlace(before: PlaceCounts, after: PlaceCounts): boolean {
+  if (after.venueCapacity === null || after.registrationCapacity === null) return false;
+  return isFullPlaces(before) && !isFullPlaces(after);
+}
+
+/** The server's named waiting-list refusals. Other failures use the generic text. */
+export function isWaitingListRefusal(message: string): boolean {
+  return (
+    message === REGISTRATION_NOT_OPEN_MESSAGE ||
+    message === ALREADY_REGISTERED_MESSAGE ||
+    message === ALREADY_WAITLISTED_MESSAGE ||
+    message === EVENT_NOT_FULL_MESSAGE ||
+    message === NOT_WAITLISTED_MESSAGE
+  );
 }
 
 /**

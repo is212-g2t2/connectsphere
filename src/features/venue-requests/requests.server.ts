@@ -14,6 +14,8 @@ import type { SessionUser } from "#/features/auth/session";
 import { eventTiming, isVenueQueueRow } from "#/features/events/access";
 import { CANCELLED_EVENT_ACTIVITY_MESSAGE } from "#/features/events/cancellation";
 import { assertEventAcceptsActivity } from "#/features/events/completion";
+import { announcePlaceAvailable, readPlaceState } from "#/features/events/register.server";
+import { didFreePlace } from "#/features/events/registration";
 import { formatProposedWindow, formatVenuePeriod } from "#/features/event-requests/format";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
@@ -66,6 +68,7 @@ import {
   assertSameVenue,
   keyShareEvent,
   keyShareEventForRequest,
+  lockEventForRequest,
   lockVenue,
   lockVenueForRequest,
 } from "#/features/venue-requests/venue-lock.server";
@@ -1045,7 +1048,9 @@ export async function handleApproveVenueRequest(
     // For each venue, take the advisory lock before the row lock. Read the venue first, then
     // re-read it under the lock to confirm it did not change.
     // A cancellation holds the event row. This lock waits for it, then reads the new status (PTR-54 AC9).
-    const event = await keyShareEventForRequest(tx, id);
+    // PTR-163: an approval can raise the venue ceiling and free a place. `FOR NO KEY UPDATE`
+    // serializes the before and after place reads against a concurrent registration.
+    const event = await lockEventForRequest(tx, id);
     const lockedVenueId = await lockVenueForRequest(tx, id);
 
     const rows = await selectVenueRequestEntries(tx, {
@@ -1082,6 +1087,24 @@ export async function handleApproveVenueRequest(
     assertMeetsRequirements(venue, row.requirements);
     const occupancy = await checkVenueTakesBooking(tx, venue, row);
 
+    // A new approved booking can raise the total venue ceiling and open a place for the
+    // waiting list. Read the places before the approval; the counts stay the same. Skip the
+    // reads while the event has no registration terms: it holds no waiting list.
+    const eventTerms = (
+      await tx
+        .select({
+          registrationCapacity: eventRequests.registrationCapacity,
+          eventName: eventRequests.eventName,
+        })
+        .from(eventRequests)
+        .where(eq(eventRequests.id, row.eventId))
+        .limit(1)
+    ).at(0);
+    const waitlistBefore =
+      eventTerms && eventTerms.registrationCapacity !== null
+        ? await readPlaceState(tx, row.eventId, eventTerms.registrationCapacity)
+        : null;
+
     // The row lock and status check make this the only writer of the row.
     const [approved] = await tx
       .update(venueRequests)
@@ -1104,6 +1127,16 @@ export async function handleApproveVenueRequest(
         endsAt: approved.endsAt,
       },
     }));
+    if (waitlistBefore && eventTerms) {
+      const after = await readPlaceState(tx, row.eventId, eventTerms.registrationCapacity);
+      if (didFreePlace(waitlistBefore, after)) {
+        await announcePlaceAvailable(
+          tx,
+          row.eventId,
+          eventTerms.eventName.trim() || "Untitled event"
+        );
+      }
+    }
     return approved;
   });
 }

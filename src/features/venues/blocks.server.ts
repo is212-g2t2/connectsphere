@@ -1,9 +1,12 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, venueUnavailability, venues } from "#/db/schema";
+import { eventRegistrations, eventRequests, venueUnavailability, venues } from "#/db/schema";
 import { ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
+import { announcePlaceAvailable, readPlaceState } from "#/features/events/register.server";
+import { didFreePlace } from "#/features/events/registration";
+import type { PlaceCounts } from "#/features/events/registration";
 import { revertConfirmedEvents } from "#/features/events/revert.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
@@ -17,7 +20,7 @@ import {
   vacateVenue,
 } from "#/features/venue-requests/occupancy.server";
 import type { BlockCommitment } from "#/features/venue-requests/occupancy.server";
-import { keyShareEvent, lockVenue } from "#/features/venue-requests/venue-lock.server";
+import { keyShareEvent, lockEvent, lockVenue } from "#/features/venue-requests/venue-lock.server";
 import type { LockedEvent, VenueTx } from "#/features/venue-requests/venue-lock.server";
 import { venueBlockConflictMessage } from "#/features/venue-requests/schema";
 import { venueLocalTimestamp } from "#/features/venues/availability";
@@ -57,23 +60,27 @@ export function assertBlockStartNotPast(date: string, now: Date): void {
 }
 
 /**
- * Key-share each event of the rows once, in ascending id order. Record and lift take the venue
- * lock first and then these event locks (ADR-7). Return the rows with the event status, name and
- * assigned Coordinator read under the event lock. A cancellation or a reassignment that committed
- * before the lock then counts in the notices.
+ * Lock each event of the rows once, in ascending id order. Record takes the venue lock first and
+ * then these event locks; lift takes the event locks first and then the venue lock. Both orders
+ * are safe: a key-share read does not wait for a `FOR NO KEY UPDATE` writer (ADR-7). Return the
+ * rows with the event status, name and assigned Coordinator read under the event lock. A
+ * cancellation or a reassignment that committed before the lock then counts in the notices.
  *
  * The requester and the hold owner need no refresh: only the booking and hold writers set them,
  * under the venue lock. An account deletion can still clear them.
  */
 async function keyShareEvents(
   tx: VenueTx,
-  rows: readonly BlockCommitment[]
+  rows: readonly BlockCommitment[],
+  lock: "key share" | "no key update" = "key share"
 ): Promise<BlockCommitment[]> {
   const eventIds = [...new Set(rows.map(row => row.eventId))].toSorted((a, b) => a - b);
+  const lockOne = (eventId: number) =>
+    lock === "key share" ? keyShareEvent(tx, eventId) : lockEvent(tx, eventId);
   const events = new Map<number, LockedEvent>();
   for (const eventId of eventIds) {
-    // oxlint-disable-next-line eslint/no-await-in-loop -- key-share in ascending id order
-    const event = await keyShareEvent(tx, eventId);
+    // oxlint-disable-next-line eslint/no-await-in-loop -- locks in ascending id order
+    const event = await lockOne(eventId);
     if (event) events.set(event.id, event);
   }
   return rows.map(row => {
@@ -166,6 +173,49 @@ async function eventsInPlanning(
 }
 
 /**
+ * Snapshot the places of the events whose bookings a lift restores. A lift restores bookings for
+ * several events at once, so snapshot before the lift and compare after: only a full-to-not-full
+ * transition notifies. Read only those events, so an unrelated event whose count moves mid-lift
+ * is never announced (PTR-163 AC2) and the venue lock does not cover other events' rows.
+ */
+async function readWaitlistedPlaces(
+  tx: Pick<Database, "select" | "selectDistinct">,
+  eventIds: readonly number[]
+): Promise<Map<number, PlaceCounts & { eventName: string }>> {
+  if (eventIds.length === 0) return new Map();
+  const rows = await tx
+    .selectDistinct({ eventId: eventRegistrations.eventId })
+    .from(eventRegistrations)
+    .where(
+      and(
+        eq(eventRegistrations.status, "waitlisted"),
+        inArray(eventRegistrations.eventId, [...eventIds])
+      )
+    );
+  if (rows.length === 0) return new Map();
+  const events = await tx
+    .select({
+      id: eventRequests.id,
+      eventName: eventRequests.eventName,
+      registrationCapacity: eventRequests.registrationCapacity,
+    })
+    .from(eventRequests)
+    .where(
+      inArray(
+        eventRequests.id,
+        rows.map(row => row.eventId)
+      )
+    );
+  const states = new Map<number, PlaceCounts & { eventName: string }>();
+  for (const event of events) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- lifts restore few events
+    const state = await readPlaceState(tx, event.id, event.registrationCapacity);
+    states.set(event.id, { ...state, eventName: event.eventName });
+  }
+  return states;
+}
+
+/**
  * Write the ledger rows of a block row: read the active commitments that the block covers,
  * key-share their events, suspend the commitments, then write the block's own ledger row. The
  * caller holds the venue lock. Return the covered commitments, with the event status read under
@@ -241,23 +291,32 @@ export async function recordBlockRows(
 }
 
 /**
- * Lift a block. The caller holds the venue lock and read the block row `FOR UPDATE`. Refuse a
- * block that is already lifted. Key-share the suspended events, delete the block's ledger row,
- * restore the suspended commitments that are still live, and stamp the lift. Raise no notices.
- * Return the lifted row and the restored commitments.
+ * Lift a block. The caller holds the event locks and the venue lock, and read the block row
+ * `FOR UPDATE`. Refuse a block that is already lifted. Delete the block's ledger row, restore the
+ * suspended commitments that are still live, and stamp the lift. Raise no notices. Return the
+ * lifted row and the restored commitments.
+ *
+ * `restorable` is the caller's load of the suspended commitments, already locked `FOR NO KEY
+ * UPDATE`. Without it, this function loads and locks them for a caller that runs no place check.
  *
  * A new active row inside the block refuses the lift, and the transaction rolls back.
  */
 export async function liftBlockRows(
   tx: VenueTx,
   block: VenueBlockRow,
-  actorId: string
+  actorId: string,
+  restorable?: BlockCommitment[]
 ): Promise<{ block: VenueBlockRow; restored: BlockCommitment[] }> {
   if (block.liftedAt !== null) throw new ConflictError(VENUE_BLOCK_ALREADY_LIFTED_MESSAGE);
 
-  const restorable = await keyShareEvents(tx, await loadRestorableCommitments(tx, block));
+  // PTR-163: a lift can free a place. The handler locks the restored events `FOR NO KEY UPDATE`
+  // before its place snapshot, so a concurrent registration cannot commit in between and make
+  // both writers announce the same freed place. A caller that runs no place check locks them here.
+  const locked =
+    restorable ??
+    (await keyShareEvents(tx, await loadRestorableCommitments(tx, block), "no key update"));
   await vacateVenue(tx, { venueUnavailabilityId: block.id });
-  const restored = await restoreBlockCommitments(tx, restorable).catch((error: unknown) => {
+  const restored = await restoreBlockCommitments(tx, locked).catch((error: unknown) => {
     if (isConstraintViolation(error, "venue_occupancy_no_overlap")) {
       log.warn("Refused a venue block lift that a new row overlaps", { blockId: block.id });
       throw new ConflictError(VENUE_BLOCK_LIFT_OVERLAP_MESSAGE);
@@ -334,14 +393,27 @@ export async function handleLiftVenueBlock(data: unknown, actor: SessionUser, da
 
   return database
     .transaction(async tx => {
+      // Read the block without a lock first. Its restorable bookings decide the event locks.
       const preview = await tx
-        .select({ venueId: venueUnavailability.venueId })
+        .select({ block: venueUnavailability })
         .from(venueUnavailability)
         .where(eq(venueUnavailability.id, id))
         .limit(1);
       const previewRow = preview.at(0);
       if (!previewRow) throw new NotFoundError("Not Found");
-      await lockVenue(tx, previewRow.venueId);
+      // PTR-163: lock the events whose bookings the lift restores `FOR NO KEY UPDATE` before the
+      // place snapshot. The lock order is event first, then venue, as every other writer takes it.
+      const restorable = await keyShareEvents(
+        tx,
+        await loadRestorableCommitments(tx, previewRow.block),
+        "no key update"
+      );
+      await lockVenue(tx, previewRow.block.venueId);
+
+      // Snapshot the restored events' waiting lists before the lift restores the bookings.
+      const waitlistedBefore = await readWaitlistedPlaces(tx, [
+        ...new Set(restorable.map(commitment => commitment.eventId)),
+      ]);
 
       const rows = await tx
         .select({ block: venueUnavailability, venueName: venues.name })
@@ -353,7 +425,7 @@ export async function handleLiftVenueBlock(data: unknown, actor: SessionUser, da
       const row = rows.at(0);
       if (!row) throw new NotFoundError("Not Found");
 
-      const { block, restored } = await liftBlockRows(tx, row.block, actor.id);
+      const { block, restored } = await liftBlockRows(tx, row.block, actor.id, restorable);
       await notifyBlockChange(tx, restored, {
         action: "lifted",
         venueName: row.venueName,
@@ -362,6 +434,14 @@ export async function handleLiftVenueBlock(data: unknown, actor: SessionUser, da
           ...new Set(restored.map(commitment => commitment.eventId)),
         ]),
       });
+      for (const [eventId, before] of waitlistedBefore) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- lifts restore few events
+        const after = await readPlaceState(tx, eventId, before.registrationCapacity);
+        if (didFreePlace(before, after)) {
+          // oxlint-disable-next-line eslint/no-await-in-loop -- lifts restore few events
+          await announcePlaceAvailable(tx, eventId, before.eventName.trim() || "Untitled event");
+        }
+      }
       return block;
     })
     .catch(rethrowBlockDeadlock);

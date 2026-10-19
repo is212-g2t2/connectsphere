@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import { eventCancellationRequests, eventRegistrations, eventRequests } from "#/db/schema";
@@ -104,6 +104,15 @@ export async function handleCancelEvent(data: unknown, actor: SessionUser, datab
       },
     ]);
 
+    // A cancelled event clears its waiting list. The waitlisted Attendees above already hold
+    // their cancellation notice.
+    await tx
+      .update(eventRegistrations)
+      .set({ status: "withdrawn" })
+      .where(
+        and(eq(eventRegistrations.eventId, event.id), eq(eventRegistrations.status, "waitlisted"))
+      );
+
     return cancelled;
   });
 }
@@ -141,7 +150,7 @@ async function staffNotices(
   return notices;
 }
 
-/** PTR-54 AC4: Return every Attendee with a `registered` row, including VIPs. */
+/** PTR-54 AC4: Return every Attendee with a `registered` row, including VIPs, and every waitlisted Attendee. */
 async function attendeeNotices(
   tx: Pick<Database, "select">,
   eventId: number,
@@ -151,7 +160,10 @@ async function attendeeNotices(
     .select({ attendeeId: eventRegistrations.attendeeId })
     .from(eventRegistrations)
     .where(
-      and(eq(eventRegistrations.eventId, eventId), eq(eventRegistrations.status, "registered"))
+      and(
+        eq(eventRegistrations.eventId, eventId),
+        inArray(eventRegistrations.status, ["registered", "waitlisted"])
+      )
     );
   return registrations.map(({ attendeeId }) => ({
     recipientId: attendeeId,
