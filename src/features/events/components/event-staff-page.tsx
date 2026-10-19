@@ -14,6 +14,7 @@ import { EventRequestStatusBadge } from "#/features/event-requests/components/st
 import { UNTITLED_REQUEST } from "#/features/event-requests/components/request-list-page";
 import { formatProposedWindow } from "#/features/event-requests/format";
 import { eventInformationSections } from "#/features/events/components/event-information-section";
+import { eventAttachmentSections } from "#/features/events/components/event-attachments";
 import { registrationsSections } from "#/features/events/components/registrations-section";
 import { venueSections } from "#/features/events/components/venue-section";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
@@ -37,6 +38,7 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
       ...coordinatorSections(data),
       ...leadAssignmentSections(data),
       ...venueSections(data),
+      ...eventAttachmentSections(data),
     ].filter(section => section.visible(data));
   }
   switch (data.event.access) {
@@ -45,9 +47,11 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
     case "lead":
       // PTR-144: the Lead reads the record. PTR-145 adds the assignment form; the rest of the
       // page stays read-only.
-      return [...leadAssignmentSections(data), ...eventInformationSections(data)].filter(section =>
-        section.visible(data)
-      );
+      return [
+        ...leadAssignmentSections(data),
+        ...eventInformationSections(data),
+        ...eventAttachmentSections(data),
+      ].filter(section => section.visible(data));
     case "organiser":
       return [
         ...venueSections(data),
@@ -55,6 +59,7 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
         ...equipmentSections(data),
         ...organiserRequestSections(data),
         ...eventInformationSections(data),
+        ...eventAttachmentSections(data),
       ].filter(section => section.visible(data));
     case "coordinator": {
       const [confirm, complete, releases] = coordinatorClosingSections(data);
@@ -66,6 +71,7 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
         ...safetyReReviewSections(data),
         confirm,
         ...eventInformationSections(data),
+        ...eventAttachmentSections(data),
         releases,
         complete,
       ].filter(section => section.visible(data));
@@ -75,7 +81,9 @@ export function eventSections(data: EventPageData): EventSectionDef[] {
     case "technical_support":
       return equipmentSections(data).filter(section => section.visible(data));
     case "safety_officer":
-      return safetySections(data).filter(section => section.visible(data));
+      return [...safetySections(data), ...eventAttachmentSections(data)].filter(section =>
+        section.visible(data)
+      );
     default: {
       const unhandled: never = data.event.access;
       throw new Error(`No event sections for access "${String(unhandled)}"`);
