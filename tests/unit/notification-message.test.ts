@@ -183,6 +183,22 @@ const validPayloads = {
     endsAt: "2026-10-12 17:00:00",
     reason: "The hall is reserved for exams that week.",
   },
+  venue_hold_expiring: {
+    venueHoldId: "hold-1",
+    venueId: 3,
+    venueName: "Harbour Hall",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: "2026-10-12 17:00:00",
+    expiresAt: "2026-10-10 12:00:00",
+  },
+  venue_hold_expired: {
+    venueHoldId: "hold-1",
+    venueId: 3,
+    venueName: "Harbour Hall",
+    startsAt: "2026-10-12 14:00:00",
+    endsAt: "2026-10-12 17:00:00",
+    expiresAt: "2026-10-10 12:00:00",
+  },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
 /** Parse or fail the test with the kind named. A bad fixture never passes as a silent null. */
@@ -571,6 +587,15 @@ describe("notification hrefs (PTR-55 AC4)", () => {
     );
   });
 
+  it("summarises a hold warning and an expired hold with their venues (PTR-143)", () => {
+    expect(
+      notificationSummary(parse("venue_hold_expiring", validPayloads.venue_hold_expiring))
+    ).toBe("Tentative hold expires soon: Harbour Hall");
+    expect(notificationSummary(parse("venue_hold_expired", validPayloads.venue_hold_expired))).toBe(
+      "Tentative hold expired: Harbour Hall"
+    );
+  });
+
   it("sends every kind to its default surface with no facts", () => {
     const expected: Record<NotificationKind, string | null> = {
       venue_booking_requested: null,
@@ -610,6 +635,8 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       venue_hold_requested: "/venue-holds",
       venue_hold_placed: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       venue_hold_declined: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
+      venue_hold_expiring: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
+      venue_hold_expired: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
     };
 
     for (const kind of NOTIFICATION_KINDS) {
@@ -664,6 +691,14 @@ describe("notification reachability (PTR-55 AC5)", () => {
         handoverPending: false,
       })
     ).toBe(false);
+  });
+
+  it("rides the event relationship for the hold warning and the expiry (PTR-143)", () => {
+    const facts = { eventAccessible: false, handoverPending: true };
+    for (const kind of ["venue_hold_expiring", "venue_hold_expired"] as const) {
+      expect(notificationReachable(kind, facts)).toBe(false);
+      expect(notificationReachable(kind, { ...facts, eventAccessible: true })).toBe(true);
+    }
   });
 
   it("opens the event page for the safety decision (PTR-146)", () => {

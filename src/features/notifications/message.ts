@@ -57,6 +57,10 @@ export const NOTIFICATION_KINDS = [
   "venue_hold_placed",
   /** PTR-150 AC5: Venue Staff declined a hold request. The Coordinator receives this notice. */
   "venue_hold_declined",
+  /** PTR-143 AC2: a held hold reached its warning time. The assigned Coordinator is reminded. */
+  "venue_hold_expiring",
+  /** PTR-143 AC1, AC2: the sweep expired a held hold and freed its venue time. */
+  "venue_hold_expired",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -74,6 +78,16 @@ const VenueSuggestionSchema = z.object({
   date: z.string().nullable(),
   startTime: z.string().nullable(),
   endTime: z.string().nullable(),
+});
+
+/** PTR-143: the warning and the expiry notice carry the same hold facts. */
+const VenueHoldNoticeSchema = z.object({
+  venueHoldId: z.string().min(1),
+  venueId: z.int().positive(),
+  venueName: z.string(),
+  startsAt: z.string(),
+  endsAt: z.string(),
+  expiresAt: z.string(),
 });
 
 const payloadSchemas = {
@@ -394,6 +408,13 @@ const payloadSchemas = {
     endsAt: z.string(),
     reason: z.string(),
   }),
+  /**
+   * PTR-143 AC2: the hold reached its recorded warning time. The assigned Coordinator is reminded
+   * before the expiry that follows. The times are venue-local values.
+   */
+  venue_hold_expiring: VenueHoldNoticeSchema,
+  /** PTR-143 AC1, AC2: the sweep expired the hold. Its venue time is free again. */
+  venue_hold_expired: VenueHoldNoticeSchema,
 } satisfies Record<NotificationKind, z.ZodType>;
 
 export type NotificationPayloads = {
@@ -526,6 +547,14 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("venue_hold_declined"),
     payload: payloadSchemas.venue_hold_declined,
   }),
+  z.object({
+    kind: z.literal("venue_hold_expiring"),
+    payload: payloadSchemas.venue_hold_expiring,
+  }),
+  z.object({
+    kind: z.literal("venue_hold_expired"),
+    payload: payloadSchemas.venue_hold_expired,
+  }),
 ]);
 
 /**
@@ -629,6 +658,10 @@ export function notificationSummary(notification: NotificationPayload): string {
       return `Tentative hold placed: ${notification.payload.venueName}`;
     case "venue_hold_declined":
       return `Tentative hold request declined: ${notification.payload.venueName}`;
+    case "venue_hold_expiring":
+      return `Tentative hold expires soon: ${notification.payload.venueName}`;
+    case "venue_hold_expired":
+      return `Tentative hold expired: ${notification.payload.venueName}`;
     default: {
       const unhandled: never = notification;
       throw new Error(`No notification summary for kind "${String(unhandled)}"`);
@@ -750,6 +783,8 @@ export function notificationHref(
     case "venue_hold_placed":
     case "venue_hold_declined":
     case "venue_hold_expiry_changed":
+    case "venue_hold_expiring":
+    case "venue_hold_expired":
       // The venue calendar shows the expiry and the warning for the days of the hold (PTR-142 AC3).
       // After a decline, it shows what else the venue can take in that window.
       return `/venues/availability?venueId=${notification.payload.venueId}&startDate=${notification.payload.startsAt.slice(0, 10)}&endDate=${notification.payload.endsAt.slice(0, 10)}`;
@@ -834,6 +869,8 @@ export function notificationReachable(
     case "safety_review_decided":
     case "venue_hold_placed":
     case "venue_hold_declined":
+    case "venue_hold_expiring":
+    case "venue_hold_expired":
       return facts.eventAccessible;
     default: {
       const unhandled: never = kind;

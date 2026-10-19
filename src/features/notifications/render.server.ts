@@ -38,7 +38,10 @@ import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/compon
 import { VenueBookingChangedEmail } from "#/features/emails/components/venue-booking-changed-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
-import { VenueHoldExpiryEmail } from "#/features/emails/components/venue-hold-expiry-email";
+import {
+  VenueHoldExpiryEmail,
+  VenueHoldNoticeEmail,
+} from "#/features/emails/components/venue-hold-expiry-email";
 import {
   VenueHoldDeclinedEmail,
   VenueHoldPlacedEmail,
@@ -400,6 +403,16 @@ export function renderNotificationEmail(
         subject,
         element: createElement(VenueHoldExpiryEmail, {
           ...notification.payload,
+          calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    case "venue_hold_expiring":
+    case "venue_hold_expired":
+      return {
+        subject,
+        element: createElement(VenueHoldNoticeEmail, {
+          ...notification.payload,
+          notice: notification.kind === "venue_hold_expired" ? "expired" : "expiring",
           calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };

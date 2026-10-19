@@ -1126,6 +1126,10 @@ export const notificationKind = pgEnum("notification_kind", [
   "venue_hold_placed",
   /** PTR-150 AC5: Venue Staff declined a hold request. */
   "venue_hold_declined",
+  /** PTR-143 AC2: a held hold reached its warning time. The assigned Coordinator is reminded. */
+  "venue_hold_expiring",
+  /** PTR-143 AC1, AC2: the sweep expired a held hold and freed its venue time. */
+  "venue_hold_expired",
 ]);
 
 export const notifications = pgTable(
