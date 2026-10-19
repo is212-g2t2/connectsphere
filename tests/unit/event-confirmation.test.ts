@@ -7,6 +7,11 @@ import {
   VENUE_BOOKING_OUTSTANDING_MESSAGE,
   VENUE_BOOKING_SUSPENDED_MESSAGE,
   EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE,
+  SAFETY_REVIEW_CHANGES_REQUESTED_MESSAGE,
+  SAFETY_REVIEW_MISSING_MESSAGE,
+  SAFETY_REVIEW_OUTDATED_MESSAGE,
+  SAFETY_REVIEW_PENDING_MESSAGE,
+  SAFETY_REVIEW_REJECTED_MESSAGE,
   confirmationBlockers,
   confirmationRefusalMessage,
   pendingVenueRequestMessage,
@@ -47,7 +52,11 @@ function blockersFor(
     equipmentArrangementsCompletedAt?: Date | null;
   }
 ) {
-  return confirmationBlockers({ equipmentArrangementsCompletedAt: completedAt, ...input });
+  return confirmationBlockers({
+    equipmentArrangementsCompletedAt: completedAt,
+    safetyReview: { state: "approved", current: true },
+    ...input,
+  });
 }
 
 describe("confirmationBlockers (PTR-24)", () => {
@@ -61,6 +70,26 @@ describe("confirmationBlockers (PTR-24)", () => {
         })
       ).toEqual([]);
     }
+  });
+
+  it.each([
+    [{ state: "pending", current: true }, SAFETY_REVIEW_PENDING_MESSAGE],
+    [{ state: "pending", current: false }, SAFETY_REVIEW_PENDING_MESSAGE],
+    [{ state: "rejected", current: true }, SAFETY_REVIEW_REJECTED_MESSAGE],
+    [{ state: "rejected", current: false }, SAFETY_REVIEW_REJECTED_MESSAGE],
+    [{ state: "changes_requested", current: true }, SAFETY_REVIEW_CHANGES_REQUESTED_MESSAGE],
+    [{ state: "changes_requested", current: false }, SAFETY_REVIEW_CHANGES_REQUESTED_MESSAGE],
+    [{ state: "approved", current: false }, SAFETY_REVIEW_OUTDATED_MESSAGE],
+    [null, SAFETY_REVIEW_MISSING_MESSAGE],
+  ] as const)("requires current safety approval: %s", (safetyReview, message) => {
+    expect(
+      blockersFor({
+        status: "planning",
+        venueRequests: approvedBooking,
+        equipmentLines: settled,
+        safetyReview,
+      })
+    ).toEqual([message]);
   });
 
   it("names the missing approved booking and every actionable request", () => {

@@ -1,10 +1,11 @@
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import {
   equipmentRequests,
   eventRegistrations,
   eventRequests,
+  safetyReviews,
   venueOccupancy,
   venueRequests,
   venues,
@@ -13,6 +14,7 @@ import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
+import { arrangementFingerprint } from "#/features/safety-reviews/fingerprint.server";
 import {
   confirmationBlockers,
   confirmationRefusalMessage,
@@ -31,11 +33,12 @@ import { suspendedPieceWhere } from "#/features/venues/blocked-arrangements.serv
 type Database = typeof Db;
 
 /**
- * PTR-24 AC1/AC2/AC4: The assigned Coordinator confirms an event once its arrangements are in
- * place. Lock the equipment lines, the event row, and the venue requests before the gate reads
- * them. A booking released or a line changed at the same moment then waits and shows its new
- * state. Confirm against the new state, not against arrangements that no longer hold. Record who
- * confirmed and when on the event in the same statement as the status.
+ * PTR-24 AC1/AC2/AC4 and PTR-147: The assigned Coordinator confirms an event once its arrangements
+ * and current safety approval are in place. Lock the equipment lines, the event row, and the venue
+ * requests before the gate reads them. A booking released or a line changed at the same moment then
+ * waits and shows its new state. Confirm against the new state, not against arrangements or safety
+ * approval that no longer hold. Record who confirmed and when on the event in the same statement as
+ * the status.
  *
  * An unanswered venue request blocks confirmation (PTR-138/PTR-139). An approval in progress
  * holds the event lock, so confirmation waits for it. A later approval reads `confirmed` and
@@ -89,12 +92,30 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       .from(venueOccupancy)
       .where(and(suspendedPieceWhere(request.id), isNotNull(venueOccupancy.venueRequestId)))
       .limit(1);
+    const review = (
+      await tx
+        .select({
+          state: safetyReviews.state,
+          fingerprint: safetyReviews.fingerprint,
+        })
+        .from(safetyReviews)
+        .where(eq(safetyReviews.eventRequestId, request.id))
+        .orderBy(desc(safetyReviews.createdAt), desc(safetyReviews.id))
+        .limit(1)
+    ).at(0);
+    const currentFingerprint = review ? await arrangementFingerprint(tx, request.id) : null;
     const blockers = confirmationBlockers({
       status: request.status,
       venueRequests: venueRows,
       venueBookingSuspended: suspended.length > 0,
       equipmentLines: equipmentRows,
       equipmentArrangementsCompletedAt: request.equipmentArrangementsCompletedAt,
+      safetyReview: review
+        ? {
+            state: review.state,
+            current: currentFingerprint !== null && currentFingerprint === review.fingerprint,
+          }
+        : null,
     });
     if (blockers.length > 0) throw new ConflictError(confirmationRefusalMessage(blockers));
 

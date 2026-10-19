@@ -42,8 +42,8 @@ export const eventRequestStatus = pgEnum("event_request_status", [
   "rejected",
   "awaiting_organiser",
   // PTR-21 criterion 1: add the remaining stages now. PTR-24, PTR-25 and PTR-54 can then write
-  // `confirmed`, `completed` and `cancelled`. `planning` is the stage between approval and
-  // confirmation in brief section 5, steps 6–9.
+  // `confirmed`, `completed` and `cancelled`. `planning` covers arrangement work and the safety
+  // review gate before confirmation in brief section 5, steps 6–9.
   "planning",
   "confirmed",
   "completed",
@@ -1165,7 +1165,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "coordinator_assigned",
   /** PTR-148 AC1: complete arrangements entered safety review, told to every Safety Officer. */
   "safety_review_requested",
-  /** PTR-148 AC4: the sweep returned a confirmed event to planning, told to its Coordinator or every Lead. */
+  /** PTR-148 AC4, PTR-147 AC5: the sweep returned a confirmed event to planning, told to its Coordinator or every Lead. */
   "event_safety_reconfirmation_required",
 ]);
 

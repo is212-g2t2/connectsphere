@@ -366,6 +366,10 @@ function SignificantChangeDialog({
               ? "This event holds no venue booking, tentative hold or equipment reservation."
               : "This event holds the arrangements below. Saving does not change, cancel or release any of them: review each one yourself."}
           </AlertDialogDescription>
+          <p className="body-sm text-muted-foreground">
+            This change needs a new safety review. A confirmed event will return to Planning and
+            must be confirmed again.
+          </p>
         </AlertDialogHeader>
         {items.length > 0 && (
           <div className="space-y-3">

@@ -5,11 +5,12 @@ import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { answeredByReplacement } from "#/features/venue-requests/schema";
 import type { VenueRequestAnswerRow } from "#/features/venue-requests/schema";
+import type { SafetyReviewState } from "#/features/safety-reviews/schema";
 
 /**
  * PTR-24 AC1/AC2: List the stages an event can be confirmed from. `approved` is where a decision
- * leaves the request. `planning` is the stage between approval and confirmation. Keep it here so
- * a later story that writes it need not widen the gate.
+ * leaves the request. `planning` covers arrangement work and the safety review gate before
+ * confirmation.
  */
 const CONFIRMABLE_STATUSES = [
   "approved",
@@ -26,12 +27,17 @@ export const VENUE_BOOKING_OUTSTANDING_MESSAGE = "There is no approved venue boo
 export const VENUE_BOOKING_SUSPENDED_MESSAGE = "Its venue booking is suspended by a venue block.";
 export const EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE =
   "Technical Support has not marked the equipment arrangements complete.";
+export const SAFETY_REVIEW_PENDING_MESSAGE = "The safety review is pending.";
+export const SAFETY_REVIEW_REJECTED_MESSAGE = "The safety review was rejected.";
+export const SAFETY_REVIEW_CHANGES_REQUESTED_MESSAGE = "The Safety Officer requested changes.";
+export const SAFETY_REVIEW_OUTDATED_MESSAGE = "The safety approval is out of date.";
+export const SAFETY_REVIEW_MISSING_MESSAGE = "No safety review has been raised yet.";
 
 /**
  * One venue request on the event, as `answeredByReplacement` reads it. Times use the
  * `mode: "string"` shape, `YYYY-MM-DD HH:MM:SS`.
  */
-interface ConfirmationVenueRequest extends VenueRequestAnswerRow {
+export interface ConfirmationVenueRequest extends VenueRequestAnswerRow {
   venueName: string;
   startsAt: string;
   endsAt: string;
@@ -73,7 +79,7 @@ function outstandingVenueRequestMessage(request: ConfirmationVenueRequest): stri
   }
 }
 
-interface ConfirmationInput {
+export interface ConfirmationInput {
   status: EventRequestStatus;
   venueRequests: readonly ConfirmationVenueRequest[];
   /** PTR-137: true when a live venue block suspends the approved booking. */
@@ -81,6 +87,7 @@ interface ConfirmationInput {
   equipmentLines: readonly { item: string; arrangementStatus: string }[];
   /** PTR-43's stamp: set when Technical Support marked every line arranged. */
   equipmentArrangementsCompletedAt: Date | null;
+  safetyReview?: { state: SafetyReviewState; current: boolean } | null;
 }
 
 /**
@@ -99,6 +106,22 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
     return [`Its status is ${EVENT_REQUEST_STATUS_LABELS[input.status].toLowerCase()}.`];
   }
 
+  const blockers = arrangementBlockers(input);
+  const safetyBlocker = safetyReviewBlocker(input.safetyReview);
+  if (safetyBlocker) blockers.push(safetyBlocker);
+  return blockers;
+}
+
+/** Return arrangement blockers without the event's safety review. Used by the review sweep. */
+export function arrangementBlockers(
+  input: Pick<
+    ConfirmationInput,
+    | "venueRequests"
+    | "venueBookingSuspended"
+    | "equipmentLines"
+    | "equipmentArrangementsCompletedAt"
+  >
+): string[] {
   const blockers: string[] = [];
   if (!input.venueRequests.some(request => request.status === "approved")) {
     blockers.push(VENUE_BOOKING_OUTSTANDING_MESSAGE);
@@ -124,6 +147,24 @@ export function confirmationBlockers(input: ConfirmationInput): string[] {
     blockers.push(EQUIPMENT_COMPLETION_OUTSTANDING_MESSAGE);
   }
   return blockers;
+}
+
+function safetyReviewBlocker(review: ConfirmationInput["safetyReview"]): string | null {
+  if (!review) return SAFETY_REVIEW_MISSING_MESSAGE;
+  switch (review.state) {
+    case "approved":
+      return review.current ? null : SAFETY_REVIEW_OUTDATED_MESSAGE;
+    case "pending":
+      return SAFETY_REVIEW_PENDING_MESSAGE;
+    case "rejected":
+      return SAFETY_REVIEW_REJECTED_MESSAGE;
+    case "changes_requested":
+      return SAFETY_REVIEW_CHANGES_REQUESTED_MESSAGE;
+    default: {
+      const unhandled: never = review.state;
+      throw new Error(`Unhandled safety review state in confirmation gate: ${String(unhandled)}`);
+    }
+  }
 }
 
 /** Build the refusal message: a heading, then each reason on its own line. */

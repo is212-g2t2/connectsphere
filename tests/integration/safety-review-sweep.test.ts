@@ -367,9 +367,12 @@ describe("automatic safety review sweep", () => {
     expect(rows[0].recipientId).toBe(coordinator.id);
     expect((await reviews(id)).filter(row => row.state === "pending")).toHaveLength(1);
     const payload = parseNotificationPayload(rows[0].kind, rows[0].payload);
-    if (!payload) throw new Error("Notification payload did not parse");
+    if (!payload || payload.kind !== "event_safety_reconfirmation_required") {
+      throw new Error("Notification payload did not parse");
+    }
+    expect(payload.payload.reason).toBe("out_of_date");
     const email = renderNotificationEmail({ ...payload, eventRequestId: id });
-    expect(await render(email.element)).toContain("Safety approval required again");
+    expect(await render(email.element)).toContain("Safety approval needs renewal");
   });
 
   test("preserves legacy confirmed events and approvals that become current again", async () => {
@@ -443,9 +446,15 @@ describe("automatic safety review sweep", () => {
       await sweep();
       expect((await readEvent(id)).status).toBe("planning");
       expect(await reviews(id)).toHaveLength(1);
-      expect(
-        (await notices(id)).filter(row => row.kind === "event_safety_reconfirmation_required")
-      ).toHaveLength(1);
+      const rows = (await notices(id)).filter(
+        row => row.kind === "event_safety_reconfirmation_required"
+      );
+      expect(rows).toHaveLength(1);
+      const payload = parseNotificationPayload(rows[0].kind, rows[0].payload);
+      if (!payload || payload.kind !== "event_safety_reconfirmation_required") {
+        throw new Error("Notification payload did not parse");
+      }
+      expect(payload.payload.reason).toBe(state);
     }
   );
 

@@ -52,6 +52,7 @@ import { VenueBufferConflictEmail } from "#/features/emails/components/venue-buf
 import { EventSubmittedEmail } from "#/features/emails/components/event-submitted-email";
 import { CoordinatorAssignedEmail } from "#/features/emails/components/coordinator-assigned-email";
 import { SafetyReviewDecisionEmail } from "#/features/emails/components/safety-review-decision-email";
+import { EventSafetyReconfirmationEmail } from "#/features/emails/components/event-safety-reconfirmation-email";
 import { notificationHref, notificationSummary } from "#/features/notifications/message";
 import type { NotificationPayload } from "#/features/notifications/message";
 
@@ -428,7 +429,6 @@ export function renderNotificationEmail(
         }),
       };
     case "safety_review_requested":
-    case "event_safety_reconfirmation_required":
       return {
         subject,
         element: createElement(SafetySweepEmail, {
@@ -482,6 +482,14 @@ export function renderNotificationEmail(
           ...(notification.payload.audience === "outgoing_coordinator"
             ? {}
             : { eventUrl: `${base}/events/${eventRequestId}` }),
+        }),
+      };
+    case "event_safety_reconfirmation_required":
+      return {
+        subject,
+        element: createElement(EventSafetyReconfirmationEmail, {
+          ...notification.payload,
+          eventRequestUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     default: {

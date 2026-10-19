@@ -157,7 +157,6 @@ const validPayloads = {
   },
   event_submitted: { eventName: "Gala", audience: "organiser" },
   safety_review_requested: { eventName: "Gala" },
-  event_safety_reconfirmation_required: { eventName: "Gala" },
   safety_review_decided: {
     eventName: "Gala",
     decision: "changes_requested",
@@ -206,6 +205,10 @@ const validPayloads = {
     action: "assign",
     coordinatorName: "Bob",
     audience: "coordinator",
+  },
+  event_safety_reconfirmation_required: {
+    eventName: "Gala",
+    reason: "out_of_date",
   },
 } satisfies Record<(typeof NOTIFICATION_KINDS)[number], unknown>;
 
@@ -662,7 +665,6 @@ describe("notification hrefs (PTR-55 AC4)", () => {
         "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       event_submitted: "/events/7",
       safety_review_requested: "/events/7",
-      event_safety_reconfirmation_required: "/events/7",
       safety_review_decided: "/events/7",
       venue_hold_requested: "/venue-holds",
       venue_hold_placed: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
@@ -670,6 +672,7 @@ describe("notification hrefs (PTR-55 AC4)", () => {
       venue_hold_expiring: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       venue_hold_expired: "/venues/availability?venueId=3&startDate=2026-10-12&endDate=2026-10-12",
       coordinator_assigned: "/events/7",
+      event_safety_reconfirmation_required: "/events/7",
     };
 
     for (const kind of NOTIFICATION_KINDS) {

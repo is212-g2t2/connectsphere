@@ -136,6 +136,7 @@ The reasons for foundational choices are in [`docs/adrs/`](./adrs/):
 The notification cron runs the safety sweep every minute, with separate failure handling.
 Each event has its own transaction and event lock. The sweep re-reads its status and arrangements under that lock.
 The first approved booking starts the event in venue-local time; the sweep skips events that have started.
+Confirmation requires an approved review whose fingerprint matches the current arrangements.
 
 Complete venue and equipment arrangements enter safety review and notify every Safety Officer.
 A changed pending review keeps its row and takes the new fingerprint when arrangements are complete.

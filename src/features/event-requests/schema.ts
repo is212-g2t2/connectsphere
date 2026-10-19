@@ -752,14 +752,15 @@ export function parseEventInformationInput(data: unknown) {
 /**
  * PTR-23 AC1: List fields with significant changes. Proposed dates set the event date, times, and
  * duration. A change to one of these four fields warns the Coordinator before save (AC2) and tells
- * staff with an arrangement after save (AC5). Changes to other fields, including room layout and
- * accessibility requirements, remain ordinary edits (AC4).
+ * staff with an arrangement after save (AC5). Changes to other fields, including accessibility
+ * requirements, remain ordinary edits (AC4).
  */
 export const SIGNIFICANT_FIELDS = [
   "proposedDates",
   "expectedAttendance",
   "venueRequirements",
   "equipmentRequirements",
+  "roomLayoutPreference",
 ] as const satisfies readonly ClarificationField[];
 
 export type SignificantField = (typeof SIGNIFICANT_FIELDS)[number];

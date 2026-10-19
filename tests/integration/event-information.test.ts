@@ -508,6 +508,7 @@ describe("warning before a significant change (PTR-23)", () => {
         { expectedAttendance: 120 },
         { venueRequirements: "A projector wall and a stage" },
         { equipmentRequirements: [{ type: "Projector", quantity: 2 }] },
+        { roomLayoutPreference: "Cabaret" },
         // One significant field is enough, even with ordinary fields.
         { eventName: "PTR23 Renamed", expectedAttendance: 120 },
       ].map(amendments =>
@@ -534,7 +535,6 @@ describe("warning before a significant change (PTR-23)", () => {
 
     const result = await update(event.id, {
       eventName: "PTR23 Renamed",
-      roomLayoutPreference: "Cabaret",
       accessibilityRequirements: "Hearing loop",
       registrationEnabled: true,
       registrationCapacity: 60,
@@ -545,7 +545,6 @@ describe("warning before a significant change (PTR-23)", () => {
     expect(result.notified).toBe(0);
     expect(result.changedFields).toEqual([
       "eventName",
-      "roomLayoutPreference",
       "accessibilityRequirements",
       "attendeeRegistration",
     ]);

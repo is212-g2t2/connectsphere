@@ -345,6 +345,7 @@ describe("warning before a significant change (PTR-23)", () => {
     ).toBeTruthy();
     expect(within(dialog).getByText(/holds the arrangements below/)).toBeTruthy();
     expect(within(dialog).getByText(/does not change, cancel or release any of them/)).toBeTruthy();
+    expect(within(dialog).getByText(/must be confirmed again/)).toBeTruthy();
     const items = within(dialog)
       .getAllByRole("listitem")
       .map(item => item.textContent);
@@ -404,6 +405,31 @@ describe("warning before a significant change (PTR-23)", () => {
     expect(updateEventInformation).toHaveBeenCalledWith({
       data: { id: 7, amendments: { expectedAttendance: 150 }, acknowledgeSignificant: true },
     });
+  });
+
+  it("shows the safety and re-confirmation warning for a layout preference change", async () => {
+    listEventArrangements.mockResolvedValue(nothingHeld);
+    updateEventInformation.mockResolvedValue(saved(["roomLayoutPreference"]));
+    const user = await openForm();
+
+    const layout = screen.getByLabelText<HTMLInputElement>("Room-layout preference (optional)");
+    await user.type(layout, "Boardroom");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText(/must be confirmed again/)).toBeTruthy();
+    expect(updateEventInformation).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Save anyway" }));
+
+    await waitFor(() =>
+      expect(updateEventInformation).toHaveBeenCalledWith({
+        data: {
+          id: 7,
+          amendments: { roomLayoutPreference: "Boardroom" },
+          acknowledgeSignificant: true,
+        },
+      })
+    );
   });
 
   it.each([
