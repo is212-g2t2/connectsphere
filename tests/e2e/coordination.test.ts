@@ -173,6 +173,8 @@ test("a Lead reassigns immediately and notifies the outgoing, incoming and Organ
     ids.push(organiser.id);
     const request = await seedAssignedRequest(ids, outgoing.id, {
       eventName: `Reassign ${randomUUID()}`,
+      // Keep the registered Organiser as the owner, so its notification has a recipient to check.
+      organiserId: organiser.id,
     });
     const eventName = request.eventName;
 
@@ -183,6 +185,8 @@ test("a Lead reassigns immediately and notifies the outgoing, incoming and Organ
     await page.locator("#lead-assignment-coordinator").click();
     await page.getByRole("option", { name: incoming.email }).click();
     await page.getByRole("button", { name: "Reassign Coordinator" }).click();
+    // The move commits before the page re-reads; the current holder then names the incoming one.
+    await expect(page.getByRole("link", { name: incoming.email })).toBeVisible();
 
     const [stored] = await database
       .select()
