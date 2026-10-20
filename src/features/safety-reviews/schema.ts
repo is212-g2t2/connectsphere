@@ -31,6 +31,31 @@ export const SAFETY_REVIEW_STATE_LABELS: Record<SafetyReviewState, string> = {
   changes_requested: "Safety changes requested",
 };
 
+/** PTR-158 AC2: a review that no longer covers the arrangements cannot give a current stage. */
+export const SAFETY_REVIEW_OUT_OF_DATE_LABEL = "Safety review out of date";
+
+/** PTR-158 AC2: the review facts the event's detail page needs to name its stage. */
+export interface SafetyReviewStage {
+  state: SafetyReviewState;
+  /** False when the arrangements changed after the review was raised or decided. */
+  current: boolean;
+}
+
+/**
+ * PTR-158 AC2: the stage label an Organiser or Coordinator reads instead of the plain status.
+ * Safety sits between planning and confirmation, so a confirmed or closed event keeps its status.
+ * A review that no longer covers the arrangements reads out of date, whatever its state.
+ */
+export function safetyReviewStageLabel(
+  status: EventRequestStatus,
+  review: SafetyReviewStage | null | undefined
+): string | null {
+  if (status !== "approved" && status !== "planning") return null;
+  if (!review) return null;
+  if (!review.current) return SAFETY_REVIEW_OUT_OF_DATE_LABEL;
+  return SAFETY_REVIEW_STATE_LABELS[review.state];
+}
+
 /** PTR-146: the decision as prose, shared by the notification summary and the email. */
 export function safetyReviewDecisionLabel(decision: SafetyReviewDecision): string {
   return decision.replaceAll("_", " ");
@@ -51,6 +76,23 @@ export const SAFETY_REVIEW_STALE_MESSAGE = "Arrangements changed since you opene
 /** PTR-146: a deadlock aborts the decision; the caller retries, as the venue block writers do. */
 export const SAFETY_REVIEW_RETRY_MESSAGE =
   "Another change conflicted with this decision. Try again.";
+/** PTR-158: the same retry rule for the Coordinator's re-review request. */
+export const SAFETY_REVIEW_REQUEST_RETRY_MESSAGE =
+  "Another change conflicted with this request. Try again.";
+
+/**
+ * PTR-158 AC1: the Coordinator asks for a fresh review after a fix the system cannot see. The
+ * action needs a rejected or changes-requested review, complete arrangements, and no pending one.
+ */
+export const SAFETY_REVIEW_ALREADY_PENDING_MESSAGE =
+  "A safety review is already pending for this event.";
+export const SAFETY_REVIEW_NOT_REJECTED_MESSAGE =
+  "This event has no rejected or changes-requested safety review.";
+export const SAFETY_REVIEW_ARRANGEMENTS_INCOMPLETE_MESSAGE =
+  "The arrangements are not complete yet. The safety review starts when they are.";
+/** PTR-148's start rule applies to the manual path too: a started event gets no new review. */
+export const SAFETY_REVIEW_STARTED_MESSAGE =
+  "This event has already started, so it no longer needs a safety review.";
 
 export const SAFETY_REVIEW_COMMENTS_MAX = 2000;
 export const SAFETY_REVIEW_COMMENTS_MESSAGE = `Comments must be ${SAFETY_REVIEW_COMMENTS_MAX} characters or fewer`;

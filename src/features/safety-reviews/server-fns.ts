@@ -18,6 +18,8 @@ async function loadServer() {
 
 const requireSafetyReviewRead = requirePermission({ safety_review: ["read"] });
 const requireSafetyReviewDecide = requirePermission({ safety_review: ["decide"] });
+/** PTR-158: the Coordinator asks for a fresh review. The handler re-reads the assignment. */
+const requireEventCoordinate = requirePermission({ event_request: ["coordinate"] });
 
 /**
  * PTR-146 AC2: the Safety Officer's review list. The permission opens the list; the handler reads
@@ -57,6 +59,27 @@ export const decideSafetyReview = createServerFn({ method: "POST" })
       reviewId: result.reviewId,
       eventId: result.eventId,
       decision: result.state,
+      actorId: context.user.id,
+    });
+
+    return result;
+  });
+
+/**
+ * PTR-158 AC1: the assigned Coordinator asks for a fresh review after a fix the system cannot
+ * see. The permission says the caller may coordinate; the handler re-reads the assignment and
+ * every precondition under the event lock.
+ */
+export const requestSafetyReReview = createServerFn({ method: "POST" })
+  .middleware([requireEventCoordinate])
+  .validator(parseEventRequestId)
+  .handler(async ({ data, context }) => {
+    const [{ db }, { handleRequestSafetyReReview }] = await loadServer();
+    const result = await handleRequestSafetyReReview(data, context.user, db);
+
+    log.info("Safety re-review requested", {
+      reviewId: result.reviewId,
+      eventId: result.eventId,
       actorId: context.user.id,
     });
 

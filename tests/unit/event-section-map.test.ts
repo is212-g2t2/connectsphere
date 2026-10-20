@@ -141,6 +141,40 @@ describe("eventSections", () => {
     expect(found).not.toContain("releases");
   });
 
+  it("shows the safety re-review action only after a rejected or changes-requested review", () => {
+    const rejected = page("coordinator", {
+      status: "planning",
+      safetyStage: { state: "rejected", current: true },
+    });
+    const changes = page("coordinator", {
+      status: "approved",
+      safetyStage: { state: "changes_requested", current: false },
+    });
+    const pending = page("coordinator", {
+      status: "planning",
+      safetyStage: { state: "pending", current: true },
+    });
+    const approved = page("coordinator", {
+      status: "planning",
+      safetyStage: { state: "approved", current: true },
+    });
+    const confirmed = page("coordinator", {
+      status: "confirmed",
+      safetyStage: { state: "rejected", current: true },
+    });
+    const organiser = page("organiser", {
+      status: "planning",
+      safetyStage: { state: "rejected", current: true },
+    });
+
+    expect(ids(rejected)).toContain("safety-re-review");
+    expect(ids(changes)).toContain("safety-re-review");
+    expect(ids(pending)).not.toContain("safety-re-review");
+    expect(ids(approved)).not.toContain("safety-re-review");
+    expect(ids(confirmed)).not.toContain("safety-re-review");
+    expect(ids(organiser)).not.toContain("safety-re-review");
+  });
+
   it("shows the releases section for a cancelled coordinator event", () => {
     const data = {
       kind: "event",
@@ -322,6 +356,7 @@ describe("railSectionIds", () => {
   it("rails the coordinator's compact actions", () => {
     expect([...railSectionIds(page("coordinator", { status: "confirmed" }))]).toEqual([
       "cancellation",
+      "safety-re-review",
       "confirm",
       "complete",
     ]);

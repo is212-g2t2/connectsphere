@@ -41,6 +41,7 @@ import type { RegistrationAvailability } from "#/features/events/registration";
 import { completionRefusalForEvent } from "#/features/events/completion";
 import { parseEventListInput } from "#/features/events/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
+import { loadSafetyReviewStage } from "#/features/safety-reviews/fingerprint.server";
 import {
   loadBlockedArrangements,
   suspendedPieceWhere,
@@ -463,15 +464,29 @@ export async function handleListEvents(
     role === "event_coordinator" && eventId !== undefined
       ? loadVenueHoldRequests(database, { eventIds: requestIds })
       : Promise.resolve([]);
-  const [holderRows, bookings, countRows, conflictKinds, blockedArrangements, holdRequestRows] =
-    await Promise.all([
-      holderRead,
-      bookingRead,
-      countRead,
-      loadPendingConflictKinds(database, pendingIds),
-      blockedRead,
-      holdRequestRead,
-    ]);
+  // PTR-158 AC2: the Organiser and Coordinator read the safety stage on the detail page only.
+  // Lists and cards keep the plain status, so skip the review and fingerprint reads there.
+  const safetyStageRead =
+    eventId !== undefined && (role === "event_organiser" || role === "event_coordinator")
+      ? loadSafetyReviewStage(database, eventId)
+      : Promise.resolve(undefined);
+  const [
+    holderRows,
+    bookings,
+    countRows,
+    conflictKinds,
+    blockedArrangements,
+    holdRequestRows,
+    safetyStage,
+  ] = await Promise.all([
+    holderRead,
+    bookingRead,
+    countRead,
+    loadPendingConflictKinds(database, pendingIds),
+    blockedRead,
+    holdRequestRead,
+    safetyStageRead,
+  ]);
 
   const holderNames = new Map(holderRows.map(row => [row.id, row.name]));
 
@@ -628,6 +643,8 @@ export async function handleListEvents(
           // PTR-146: the Safety Officer's copy states the current booking's own session
           // requirements, which the fingerprint hashes, beside the event's fields.
           sessionRequirements: bookings.get(record.id)?.session ?? null,
+          // PTR-158 AC2: only the named event's read fills this, and only for the two roles.
+          safetyStage,
           equipmentBookings: equipmentBookings
             .filter(booking => booking.eventId === record.id && !booking.suspended)
             // oxlint-disable-next-line oxc/no-map-spread

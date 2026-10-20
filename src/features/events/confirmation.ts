@@ -5,7 +5,7 @@ import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { answeredByReplacement } from "#/features/venue-requests/schema";
 import type { VenueRequestAnswerRow } from "#/features/venue-requests/schema";
-import type { SafetyReviewState } from "#/features/safety-reviews/schema";
+import type { SafetyReviewStage } from "#/features/safety-reviews/schema";
 
 /**
  * PTR-24 AC1/AC2: List the stages an event can be confirmed from. `approved` is where a decision
@@ -88,7 +88,7 @@ interface ConfirmationInput {
   equipmentLines: readonly { item: string; arrangementStatus: string }[];
   /** PTR-43's stamp: set when Technical Support marked every line arranged. */
   equipmentArrangementsCompletedAt: Date | null;
-  safetyReview?: { state: SafetyReviewState; current: boolean } | null;
+  safetyReview?: SafetyReviewStage | null;
   /** PTR-147: a started event keeps its arrangements; the sweep does not raise a new review. */
   eventStarted?: boolean;
 }

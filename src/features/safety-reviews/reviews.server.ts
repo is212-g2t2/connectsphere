@@ -1,11 +1,19 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
-import { eventRequests, safetyReviews } from "#/db/schema";
-import { ConflictError, NotFoundError } from "#/features/auth/session";
+import {
+  equipmentRequests,
+  eventRequests,
+  safetyReviews,
+  venueOccupancy,
+  venueRequests,
+  venues,
+} from "#/db/schema";
+import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { listLeadIds } from "#/features/event-requests/leads.server";
 import { EVENT_REQUEST_STATUS_LABELS, parseEventRequestId } from "#/features/event-requests/schema";
+import { arrangementBlockers, isConfirmableStatus } from "#/features/events/confirmation";
 import { loadCurrentBookings } from "#/features/events/records.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import {
@@ -15,17 +23,24 @@ import {
 } from "#/features/safety-reviews/fingerprint.server";
 import {
   parseSafetyReviewDecision,
+  SAFETY_REVIEW_ALREADY_PENDING_MESSAGE,
+  SAFETY_REVIEW_ARRANGEMENTS_INCOMPLETE_MESSAGE,
   SAFETY_REVIEW_NOT_PENDING_MESSAGE,
+  SAFETY_REVIEW_NOT_REJECTED_MESSAGE,
   SAFETY_REVIEW_OUTDATED_MESSAGE,
+  SAFETY_REVIEW_REQUEST_RETRY_MESSAGE,
   SAFETY_REVIEW_RETRY_MESSAGE,
   SAFETY_REVIEW_STALE_MESSAGE,
+  SAFETY_REVIEW_STARTED_MESSAGE,
 } from "#/features/safety-reviews/schema";
 import type {
   PendingSafetyReview,
   SafetyReviewDecision,
   SafetyReviewDetail,
 } from "#/features/safety-reviews/schema";
+import { hasEventStarted, notifySafetyOfficers } from "#/features/safety-reviews/sweep.server";
 import { isDeadlock } from "#/features/venue-requests/occupancy.server";
+import { suspendedPieceWhere } from "#/features/venues/blocked-arrangements.server";
 import { logger } from "#/lib/logger";
 
 /**
@@ -245,7 +260,117 @@ export async function handleDecideSafetyReview(
 
       return { reviewId: review.id, eventId: event.id, state: input.decision };
     })
-    .catch(rethrowDecisionDeadlock);
+    .catch(error => rethrowSafetyReviewDeadlock(error, SAFETY_REVIEW_RETRY_MESSAGE));
+}
+
+/** The pending review the Coordinator's request created. */
+interface SafetyReReviewResult {
+  reviewId: number;
+  eventId: number;
+}
+
+/**
+ * PTR-158 AC1: the assigned Coordinator asks for a fresh review after a fix the system cannot see.
+ * Lock the event row first, as every event writer does, then re-read the review under that lock.
+ * Refuse, with the reason named, a foreign or missing event, any status but approved or planning,
+ * a latest review that is not rejected or changes requested, a pending review, a started event,
+ * and incomplete arrangements. A new pending review covers the current fingerprint, and every
+ * Safety Officer is told. The refresh is the sweep's job; this action never edits an existing
+ * review.
+ */
+export async function handleRequestSafetyReReview(
+  data: unknown,
+  actor: SessionUser,
+  database: Database
+): Promise<SafetyReReviewResult> {
+  const input = parseEventRequestId(data);
+
+  return database
+    .transaction(async tx => {
+      const event = (
+        await tx.select().from(eventRequests).where(eq(eventRequests.id, input.id)).for("update")
+      ).at(0);
+      // Refuse a missing event and another user's event in the same way. The refusal then reveals
+      // nothing about the id.
+      if (!event || event.status === "draft" || event.assignedCoordinatorId !== actor.id) {
+        throw new AuthorizationError("Forbidden");
+      }
+      if (!isConfirmableStatus(event.status)) {
+        throw new ConflictError(
+          `This event's safety review cannot be requested again while its status is ${EVENT_REQUEST_STATUS_LABELS[event.status].toLowerCase()}.`
+        );
+      }
+
+      const review = (
+        await tx
+          .select()
+          .from(safetyReviews)
+          .where(eq(safetyReviews.eventRequestId, event.id))
+          .orderBy(desc(safetyReviews.createdAt), desc(safetyReviews.id))
+          .limit(1)
+          .for("update")
+      ).at(0);
+      if (review?.state === "pending") {
+        throw new ConflictError(SAFETY_REVIEW_ALREADY_PENDING_MESSAGE);
+      }
+      if (review?.state !== "rejected" && review?.state !== "changes_requested") {
+        throw new ConflictError(SAFETY_REVIEW_NOT_REJECTED_MESSAGE);
+      }
+
+      // PTR-148's entry rule: the arrangements must be complete before a review covers them. Read
+      // the same inputs as the sweep and the confirmation gate.
+      const [venueRows, equipment, suspended] = await Promise.all([
+        tx
+          .select({
+            id: venueRequests.id,
+            status: venueRequests.status,
+            venueName: venues.name,
+            startsAt: venueRequests.startsAt,
+            endsAt: venueRequests.endsAt,
+            replacesRequestId: venueRequests.replacesRequestId,
+            dismissedAt: venueRequests.dismissedAt,
+          })
+          .from(venueRequests)
+          .innerJoin(venues, eq(venues.id, venueRequests.venueId))
+          .where(eq(venueRequests.eventId, event.id)),
+        tx.select().from(equipmentRequests).where(eq(equipmentRequests.eventId, event.id)),
+        tx
+          .select({ id: venueOccupancy.id })
+          .from(venueOccupancy)
+          .where(and(suspendedPieceWhere(event.id), isNotNull(venueOccupancy.venueRequestId)))
+          .limit(1),
+      ]);
+      // PTR-148 AC4: a started event keeps its arrangements. The sweep skips it, so this path
+      // must not leave an undecidable pending review behind.
+      if (hasEventStarted(venueRows, new Date())) {
+        throw new ConflictError(SAFETY_REVIEW_STARTED_MESSAGE);
+      }
+      const blockers = arrangementBlockers({
+        venueRequests: venueRows,
+        venueBookingSuspended: suspended.length > 0,
+        equipmentLines: equipment,
+        equipmentArrangementsCompletedAt: event.equipmentArrangementsCompletedAt,
+      });
+      if (blockers.length > 0) {
+        throw new ConflictError(SAFETY_REVIEW_ARRANGEMENTS_INCOMPLETE_MESSAGE);
+      }
+
+      const fingerprint = await arrangementFingerprint(tx, event.id);
+      if (fingerprint === null) throw new NotFoundError("This event is not there.");
+      const created = (
+        await tx
+          .insert(safetyReviews)
+          .values({ eventRequestId: event.id, fingerprint })
+          .returning({ id: safetyReviews.id })
+      ).at(0);
+      if (!created) throw new ConflictError(SAFETY_REVIEW_REQUEST_RETRY_MESSAGE);
+
+      // PTR-158 AC1: every Safety Officer receives the notice. The sweep uses the same fan-out.
+      await notifySafetyOfficers(tx, event);
+
+      return { reviewId: created.id, eventId: event.id };
+    })
+    .catch(error => rethrowSafetyReviewDeadlock(error, SAFETY_REVIEW_REQUEST_RETRY_MESSAGE));
 }
 
 /**
@@ -253,10 +378,10 @@ export async function handleDecideSafetyReview(
  * the event row and then key-shares every Lead account for the fan-out; a Lead deletion takes the
  * account first and then its event rows, so Postgres can abort one of two concurrent writers.
  */
-function rethrowDecisionDeadlock(error: unknown): never {
+function rethrowSafetyReviewDeadlock(error: unknown, message: string): never {
   if (isDeadlock(error)) {
-    log.warn("Refused a safety review decision that deadlocked", { sqlstate: "40P01" });
-    throw new ConflictError(SAFETY_REVIEW_RETRY_MESSAGE);
+    log.warn("Refused a safety review write that deadlocked", { sqlstate: "40P01" });
+    throw new ConflictError(message);
   }
   throw error;
 }

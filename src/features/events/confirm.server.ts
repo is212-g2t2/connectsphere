@@ -1,11 +1,10 @@
-import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import {
   equipmentRequests,
   eventRegistrations,
   eventRequests,
-  safetyReviews,
   venueOccupancy,
   venueRequests,
   venues,
@@ -14,7 +13,7 @@ import { AuthorizationError, ConflictError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { parseEventRequestId } from "#/features/event-requests/schema";
-import { arrangementFingerprint } from "#/features/safety-reviews/fingerprint.server";
+import { loadSafetyReviewStage } from "#/features/safety-reviews/fingerprint.server";
 import { hasEventStarted } from "#/features/safety-reviews/sweep.server";
 import {
   confirmationBlockers,
@@ -93,18 +92,7 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       .from(venueOccupancy)
       .where(and(suspendedPieceWhere(request.id), isNotNull(venueOccupancy.venueRequestId)))
       .limit(1);
-    const review = (
-      await tx
-        .select({
-          state: safetyReviews.state,
-          fingerprint: safetyReviews.fingerprint,
-        })
-        .from(safetyReviews)
-        .where(eq(safetyReviews.eventRequestId, request.id))
-        .orderBy(desc(safetyReviews.createdAt), desc(safetyReviews.id))
-        .limit(1)
-    ).at(0);
-    const currentFingerprint = review ? await arrangementFingerprint(tx, request.id) : null;
+    const safetyReview = await loadSafetyReviewStage(tx, request.id);
     const blockers = confirmationBlockers({
       status: request.status,
       venueRequests: venueRows,
@@ -112,12 +100,7 @@ export async function handleConfirmEvent(data: unknown, actor: SessionUser, data
       equipmentLines: equipmentRows,
       equipmentArrangementsCompletedAt: request.equipmentArrangementsCompletedAt,
       eventStarted: hasEventStarted(venueRows, new Date()),
-      safetyReview: review
-        ? {
-            state: review.state,
-            current: currentFingerprint !== null && currentFingerprint === review.fingerprint,
-          }
-        : null,
+      safetyReview,
     });
     if (blockers.length > 0) throw new ConflictError(confirmationRefusalMessage(blockers));
 

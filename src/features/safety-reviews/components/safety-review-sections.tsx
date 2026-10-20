@@ -17,6 +17,7 @@ import { arrangementStateLabel } from "#/features/equipment-requests/schema";
 import { EVENT_REQUEST_STATUS_LABELS } from "#/features/event-requests/schema";
 import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { formatInstant, formatVenueWindow } from "#/features/event-requests/format";
+import { isConfirmableStatus } from "#/features/events/confirmation";
 import type { EventPageData, EventSectionDef } from "#/features/events/page-data";
 import {
   SAFETY_REVIEW_COMMENTS_MAX,
@@ -25,9 +26,14 @@ import {
   SAFETY_REVIEW_WITHDRAWN_LABEL,
   SafetyReviewDecisionInput,
 } from "#/features/safety-reviews/schema";
-import type { SafetyReviewDecision, SafetyReviewDetail } from "#/features/safety-reviews/schema";
-import { decideSafetyReview } from "#/features/safety-reviews/server-fns";
+import type {
+  SafetyReviewDecision,
+  SafetyReviewDetail,
+  SafetyReviewStage,
+} from "#/features/safety-reviews/schema";
+import { decideSafetyReview, requestSafetyReReview } from "#/features/safety-reviews/server-fns";
 import { formIssues } from "#/features/venue-requests/schema";
+import { useMutation } from "#/hooks/use-mutation";
 import { skipRootFilter } from "#/lib/invalidate";
 
 /**
@@ -65,6 +71,75 @@ export function safetySections(data: EventPageData): EventSectionDef[] {
       render: () => <SafetyReviewSection data={data} />,
     },
   ];
+}
+
+/**
+ * PTR-158 AC1: the assigned Coordinator's one safety action. It shows on an approved or planning
+ * event whose review was rejected or asked for changes. The server re-reads every precondition
+ * under the event lock, so a stale page only receives the named refusal.
+ */
+export function safetyReReviewSections(data: EventPageData): EventSectionDef[] {
+  if (data.kind !== "event" || data.event.access !== "coordinator") return [];
+  const { status, safetyStage } = data.event.event;
+  if (!isConfirmableStatus(status)) return [];
+  if (safetyStage?.state !== "rejected" && safetyStage?.state !== "changes_requested") return [];
+  return [
+    {
+      id: "safety-re-review",
+      label: "Safety re-review",
+      visible: () => true,
+      render: () => <ReReviewSection stage={safetyStage} eventId={data.event.event.id} />,
+    },
+  ];
+}
+
+/**
+ * PTR-158 AC1: ask for a fresh review after a fix the system cannot see. The server rejects the
+ * request with a named reason when the event moved on, another Coordinator holds it, a review is
+ * pending, the event has started, or the arrangements are not complete. Show that reason and
+ * re-read the page.
+ */
+function ReReviewSection({ stage, eventId }: { stage: SafetyReviewStage; eventId: number }) {
+  const router = useRouter();
+  const [, request, requesting] = useMutation(async () => {
+    try {
+      await requestSafetyReReview({ data: { id: eventId } });
+    } catch (error) {
+      // A refusal usually means the event or its review moved on. Re-read, and report the reason
+      // as a toast: the refreshed stage can hide this section, so an inline alert can vanish.
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not request a safety re-review. Try again."
+      );
+      await router.invalidate({ filter: skipRootFilter }).catch(() => {
+        // Best effort. The toast is already shown.
+      });
+      throw error;
+    }
+    toast.success("Safety re-review requested. Every Safety Officer will be notified.");
+    await router.invalidate({ filter: skipRootFilter }).catch(() => {
+      // The review already exists. A failed refresh must not report it as a failure.
+    });
+  }, "Could not request a safety re-review. Try again.");
+
+  return (
+    <div>
+      <h2 className="display-h3">Safety re-review</h2>
+      <p className="mt-2 body-sm text-muted-foreground">
+        {stage.current
+          ? stage.state === "rejected"
+            ? "The last safety review was rejected."
+            : "The last safety review asked for changes."
+          : "The last safety review no longer covers the arrangements."}{" "}
+        Request a fresh review after you address the concerns outside the system. Every Safety
+        Officer is notified.
+      </p>
+      <Button type="button" className="mt-4" disabled={requesting} onClick={() => void request()}>
+        {requesting ? "Requesting…" : "Request safety re-review"}
+      </Button>
+    </div>
+  );
 }
 
 /**

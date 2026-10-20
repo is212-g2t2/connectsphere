@@ -1,15 +1,17 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import type { db as Db } from "#/db";
 import {
   equipmentRequests,
   equipmentReservations,
   eventRequests,
+  safetyReviews,
   venueOccupancy,
   venueRequests,
 } from "#/db/schema";
+import type { SafetyReviewStage } from "#/features/safety-reviews/schema";
 import { suspendedPieceWhere } from "#/features/venues/blocked-arrangements.server";
 
 /**
@@ -228,4 +230,28 @@ export async function arrangementFingerprint(
 ): Promise<string | null> {
   const input = (await loadArrangementFingerprintInputs(database, [eventId])).get(eventId);
   return input === undefined ? null : arrangementFingerprintOf(input);
+}
+
+/**
+ * PTR-158: the event's latest review and whether it covers the arrangements now. Null before the
+ * first review. The stage label, the confirmation gate and the event detail read share this rule.
+ */
+export async function loadSafetyReviewStage(
+  database: Pick<Database, "select">,
+  eventId: number
+): Promise<SafetyReviewStage | null> {
+  const review = (
+    await database
+      .select({ state: safetyReviews.state, fingerprint: safetyReviews.fingerprint })
+      .from(safetyReviews)
+      .where(eq(safetyReviews.eventRequestId, eventId))
+      .orderBy(desc(safetyReviews.createdAt), desc(safetyReviews.id))
+      .limit(1)
+  ).at(0);
+  if (!review) return null;
+  const fingerprint = await arrangementFingerprint(database, eventId);
+  return {
+    state: review.state,
+    current: fingerprint !== null && fingerprint === review.fingerprint,
+  };
 }

@@ -3,12 +3,15 @@ import { CalendarDays, Clock3 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 import { Page } from "#/components/layout/page";
+import { Badge } from "#/components/ui/badge";
 import { Skeleton } from "#/components/ui/skeleton";
 import { EventRequestStatusBadge } from "#/features/event-requests/components/status-badge";
 import { formatLocalDate } from "#/features/event-requests/format";
 import { AttendeeEventPage } from "#/features/events/components/attendee-event-page";
 import { eventTitle } from "#/features/events/components/event-card";
 import type { EventPageData } from "#/features/events/page-data";
+import { safetyReviewStageLabel } from "#/features/safety-reviews/schema";
+import type { SafetyReviewStage } from "#/features/safety-reviews/schema";
 import { NAV_LINK_CLASSNAME } from "#/lib/utils";
 
 // The staff sections ride in a second chunk. The attendee early return below never reaches
@@ -44,6 +47,12 @@ export function EventDetailPage({ data }: { data: EventPageData }) {
 
   const { access, event } = data.event;
   const title = eventTitle(data.event);
+  // PTR-158 AC2: the Organiser and Coordinator read the safety stage until confirmation. Lists
+  // and cards keep the plain status, because their projections carry no `safetyStage`.
+  const stageLabel =
+    access === "organiser" || access === "coordinator"
+      ? safetyReviewStageLabel(event.status, event.safetyStage)
+      : null;
 
   return (
     <Page width="wide">
@@ -54,7 +63,13 @@ export function EventDetailPage({ data }: { data: EventPageData }) {
       <div className="mt-6">
         <p className="eyebrow text-muted-foreground">{access.replaceAll("_", " ")} access</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <EventRequestStatusBadge status={event.status} />
+          {stageLabel ? (
+            <Badge variant={stageVariant(event.safetyStage)} aria-label={`Stage: ${stageLabel}`}>
+              {stageLabel}
+            </Badge>
+          ) : (
+            <EventRequestStatusBadge status={event.status} />
+          )}
         </div>
         <h1 className="mt-3 font-semibold event-title">{title}</h1>
         {event.description ? (
@@ -88,6 +103,16 @@ export function EventDetailPage({ data }: { data: EventPageData }) {
       </div>
     </Page>
   );
+}
+
+/**
+ * PTR-158 AC2: a current approval reads as settled and a current rejection as stopped. Every
+ * other safety stage, including an out-of-date one, is still in progress.
+ */
+function stageVariant(stage: SafetyReviewStage | null | undefined) {
+  if (stage?.current && stage.state === "approved") return "confirmed" as const;
+  if (stage?.current && stage.state === "rejected") return "stopped" as const;
+  return "progress" as const;
 }
 
 /** Hold the sections' place below the sync header while their chunk loads. */

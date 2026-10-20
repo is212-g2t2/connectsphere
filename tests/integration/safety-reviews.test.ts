@@ -10,7 +10,7 @@ import { render } from "@react-email/components";
 
 import * as schema from "#/db/schema";
 import { runSeed } from "../../scripts/seed";
-import { ConflictError, NotFoundError } from "#/features/auth/session";
+import { AuthorizationError, ConflictError, NotFoundError } from "#/features/auth/session";
 import type { SessionUser } from "#/features/auth/session";
 import { handleListEvents } from "#/features/events/records.server";
 import { deliverPendingNotifications } from "#/features/notifications/deliver.server";
@@ -21,11 +21,16 @@ import {
   handleDecideSafetyReview,
   handleGetEventSafetyReview,
   handleListSafetyReviews,
+  handleRequestSafetyReReview,
 } from "#/features/safety-reviews/reviews.server";
 import {
+  SAFETY_REVIEW_ALREADY_PENDING_MESSAGE,
+  SAFETY_REVIEW_ARRANGEMENTS_INCOMPLETE_MESSAGE,
   SAFETY_REVIEW_NOT_PENDING_MESSAGE,
+  SAFETY_REVIEW_NOT_REJECTED_MESSAGE,
   SAFETY_REVIEW_OUTDATED_MESSAGE,
   SAFETY_REVIEW_STALE_MESSAGE,
+  SAFETY_REVIEW_STARTED_MESSAGE,
 } from "#/features/safety-reviews/schema";
 import { handleLiftVenueBlock, handleRecordVenueBlock } from "#/features/venues/blocks.server";
 
@@ -266,7 +271,20 @@ describe("reviewing an event's operational safety (PTR-146)", () => {
     return (error as Error).message;
   };
 
-  const notificationsFor = (eventId: number, kind: "safety_review_decided") =>
+  const requestReReview = (eventId: number, as: SessionUser = coordinator) =>
+    handleRequestSafetyReReview({ id: eventId }, as, database as never);
+
+  /** Re-review refusals are conflicts with a named reason, as every review write refuses. */
+  const reReviewRefusal = async (eventId: number, as: SessionUser = coordinator) => {
+    const error = await requestReReview(eventId, as).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConflictError);
+    return (error as Error).message;
+  };
+
+  const notificationsFor = (
+    eventId: number,
+    kind: "safety_review_decided" | "safety_review_requested"
+  ) =>
     database
       .select()
       .from(schema.notifications)
@@ -703,6 +721,168 @@ describe("reviewing an event's operational safety (PTR-146)", () => {
       await expect(
         handleListEvents({ eventId }, safetyOfficer, database as never)
       ).rejects.toMatchObject({ name: "AuthorizationError", message: "Forbidden" });
+    });
+  });
+
+  // ── PTR-158 AC1 ───────────────────────────────────────────────────────────────────────────
+  describe("the Coordinator asks for a fresh review", () => {
+    test("creates a pending review for the current arrangements and tells every Safety Officer", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      const rejected = await createReview(eventId);
+      await decide(rejected.id, {
+        decision: "changes_requested",
+        fingerprint: rejected.fingerprint,
+        comments: "Add a second exit.",
+      });
+
+      const result = await requestReReview(eventId);
+
+      const newReview = await readReview(result.reviewId);
+      expect(newReview).toMatchObject({
+        eventRequestId: eventId,
+        state: "pending",
+        fingerprint: await currentFingerprint(eventId),
+      });
+      expect(newReview.id).not.toBe(rejected.id);
+      expect((await readEvent(eventId)).status).toBe("planning");
+
+      const officers = await database
+        .select({ id: schema.user.id })
+        .from(schema.user)
+        .where(eq(schema.user.role, "safety_officer"));
+      const notices = await notificationsFor(eventId, "safety_review_requested");
+      expect(officers.length).toBeGreaterThan(0);
+      expect(notices.map(row => row.recipientId).toSorted()).toEqual(
+        officers.map(row => row.id).toSorted()
+      );
+      expect(notices[0].payload).toMatchObject({
+        eventName: expect.stringContaining("Safety review test"),
+      });
+
+      // Every Safety Officer can open the event and the notice from their inbox.
+      const raised = notices.find(notice => notice.recipientId === safetyOfficer.id);
+      expect(raised).toBeDefined();
+      const inbox = await handleListNotifications(safetyOfficer, database);
+      const entry = inbox.find(item => item.id === raised?.id);
+      expect(entry?.summary).toContain("Safety review requested");
+      expect(entry?.href).toBe(`/events/${eventId}`);
+    });
+
+    test("refuses a review that is still pending, with the reason named", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      await createReview(eventId);
+
+      expect(await reReviewRefusal(eventId)).toBe(SAFETY_REVIEW_ALREADY_PENDING_MESSAGE);
+      expect(await notificationsFor(eventId, "safety_review_requested")).toHaveLength(0);
+    });
+
+    test("refuses when the latest review approved the arrangements", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      const review = await createReview(eventId);
+      await decide(review.id, { decision: "approved", fingerprint: review.fingerprint });
+
+      expect(await reReviewRefusal(eventId)).toBe(SAFETY_REVIEW_NOT_REJECTED_MESSAGE);
+    });
+
+    test("refuses an event with no review", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+
+      expect(await reReviewRefusal(eventId)).toBe(SAFETY_REVIEW_NOT_REJECTED_MESSAGE);
+    });
+
+    test("refuses arrangements that are not complete", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      const review = await createReview(eventId);
+      await decide(review.id, {
+        decision: "rejected",
+        fingerprint: review.fingerprint,
+        comments: "No.",
+      });
+      await createLine(eventId, "Projector", "requested");
+
+      expect(await reReviewRefusal(eventId)).toBe(SAFETY_REVIEW_ARRANGEMENTS_INCOMPLETE_MESSAGE);
+    });
+
+    test.each(["confirmed", "cancelled", "completed", "submitted"] as const)(
+      "refuses a %s event, naming its status",
+      async status => {
+        const eventId = await createEvent(status);
+        await createBooking(eventId);
+        await createReview(eventId);
+
+        expect(await reReviewRefusal(eventId)).toContain(`status is ${status}`);
+      }
+    );
+
+    test("refuses an event that has already started", async () => {
+      const eventId = await createEvent();
+      const bookingId = await createBooking(eventId);
+      const review = await createReview(eventId);
+      await decide(review.id, {
+        decision: "rejected",
+        fingerprint: review.fingerprint,
+        comments: "No.",
+      });
+      await database
+        .update(schema.venueRequests)
+        .set({ startsAt: "2020-01-01 09:00:00", endsAt: "2020-01-01 12:00:00" })
+        .where(eq(schema.venueRequests.id, bookingId));
+
+      expect(await reReviewRefusal(eventId)).toBe(SAFETY_REVIEW_STARTED_MESSAGE);
+    });
+
+    test("refuses a Coordinator the event is not assigned to", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      const review = await createReview(eventId);
+      await decide(review.id, {
+        decision: "rejected",
+        fingerprint: review.fingerprint,
+        comments: "No.",
+      });
+
+      await expect(
+        requestReReview(eventId, actor("other-coordinator", "event_coordinator"))
+      ).rejects.toBeInstanceOf(AuthorizationError);
+    });
+
+    test("refuses a missing event as Forbidden", async () => {
+      await expect(requestReReview(987_654_321)).rejects.toBeInstanceOf(AuthorizationError);
+    });
+  });
+
+  // ── PTR-158 AC2 ───────────────────────────────────────────────────────────────────────────
+  describe("the safety stage on the detail page", () => {
+    test("fills the stage for the Organiser and Coordinator, and only on the named event", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+
+      const [beforeReview] = await handleListEvents({ eventId }, coordinator, database as never);
+      expect(beforeReview.event.safetyStage).toBeNull();
+
+      await createReview(eventId);
+      const [current] = await handleListEvents({ eventId }, coordinator, database as never);
+      expect(current.event.safetyStage).toEqual({ state: "pending", current: true });
+
+      // No other role receives the stage, even on the named event.
+      const [officerView] = await handleListEvents({ eventId }, safetyOfficer, database as never);
+      const [leadView] = await handleListEvents({ eventId }, lead, database as never);
+      expect(officerView.event).not.toHaveProperty("safetyStage");
+      expect(leadView.event).not.toHaveProperty("safetyStage");
+
+      await createLine(eventId, "Projector", "reserved");
+      const [organiserView] = await handleListEvents({ eventId }, organiser, database as never);
+      expect(organiserView.event.safetyStage).toEqual({ state: "pending", current: false });
+
+      // The list read carries no stage, so cards keep the plain status.
+      const list = await handleListEvents({}, coordinator, database as never);
+      const row = list.find(projection => projection.event.id === eventId);
+      expect(row?.event).not.toHaveProperty("safetyStage");
     });
   });
 
