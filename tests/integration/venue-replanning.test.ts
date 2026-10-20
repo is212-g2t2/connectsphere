@@ -13,6 +13,7 @@ import { handleListEvents } from "#/features/events/records.server";
 import { handleRegisterForEvent } from "#/features/events/register.server";
 import { handleUpdateEventInformation } from "#/features/events/update.server";
 import { requestAndPlaceHold } from "./hold-request";
+import { arrangementFingerprint } from "#/features/safety-reviews/fingerprint.server";
 import {
   handleApproveVenueRequest,
   handleCreateVenueRequest,
@@ -216,7 +217,21 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
         ...extra,
       })
       .where(eq(schema.eventRequests.id, event.id));
+    await addSafetyApproval(event.id);
     return { eventId: event.id, bookingId };
+  }
+
+  async function addSafetyApproval(eventId: number) {
+    const fingerprint = await arrangementFingerprint(database, eventId);
+    if (fingerprint === null) throw new Error("Expected the event to exist");
+    await database.insert(schema.safetyReviews).values({
+      eventRequestId: eventId,
+      state: "approved",
+      fingerprint,
+      decidedById: "ptr-137-safety-officer",
+      decidedByName: "PTR-137 Safety Officer",
+      decidedAt: new Date(),
+    });
   }
 
   async function recordBlock(
@@ -332,6 +347,7 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
         confirmedAt: new Date("2027-01-01T00:00:00Z"),
       })
       .where(eq(schema.eventRequests.id, event.id));
+    await addSafetyApproval(event.id);
 
     const block = await recordBlock("13:00", "17:00");
 
@@ -523,6 +539,7 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
     expect((await bookingRow(bookingId)).status).toBe("released");
     expect(await ledgerForRequest(bookingId)).toEqual([]);
     expect((await bookingRow(replacementId)).status).toBe("approved");
+    await addSafetyApproval(eventId);
     // Ready to re-confirm: exactly one approved booking, so the gate passes.
     const confirmed = await handleConfirmEvent({ id: eventId }, coordinator, database as never);
     expect(confirmed.status).toBe("confirmed");
@@ -597,6 +614,7 @@ describe("re-planning an event whose venue becomes unavailable (PTR-137)", () =>
     await database
       .insert(schema.eventRegistrations)
       .values({ eventId, attendeeId: users.attendee.id });
+    await addSafetyApproval(eventId);
     const block = await recordBlock("09:00", "13:00");
 
     // The registered Attendee still reaches the event, but its suspended booking is not shown as

@@ -55,15 +55,15 @@ describe("event information updates (PTR-22)", () => {
 });
 
 describe("significant changes (PTR-23)", () => {
-  it("treats the date and time, expected attendance, venue requirements and equipment requirements as significant, and every other field as ordinary (AC1)", () => {
+  it("treats the date and time, attendance, venue and equipment requirements, and layout preference as significant (AC1)", () => {
     expect([...SIGNIFICANT_FIELDS]).toEqual([
       "proposedDates",
       "expectedAttendance",
       "venueRequirements",
       "equipmentRequirements",
+      "roomLayoutPreference",
     ]);
-    // The room layout and accessibility requirements stay ordinary (PO decision). The
-    // significant fields return in list order.
+    // Accessibility requirements remain ordinary. The significant fields return in list order.
     expect(
       significantFields([
         "purpose",
@@ -72,6 +72,6 @@ describe("significant changes (PTR-23)", () => {
         "accessibilityRequirements",
         "proposedDates",
       ])
-    ).toEqual(["proposedDates", "expectedAttendance"]);
+    ).toEqual(["proposedDates", "expectedAttendance", "roomLayoutPreference"]);
   });
 });

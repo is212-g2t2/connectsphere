@@ -10,15 +10,19 @@ import {
   venues,
 } from "#/db/schema";
 import { listLeadIds } from "#/features/event-requests/leads.server";
-import { confirmationBlockers } from "#/features/events/confirmation";
+import { arrangementBlockers } from "#/features/events/confirmation";
 import { revertConfirmedEvents } from "#/features/events/revert.server";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import { arrangementFingerprint } from "#/features/safety-reviews/fingerprint.server";
+import { isDeadlock } from "#/features/venue-requests/occupancy.server";
 import { suspendedPieceWhere } from "#/features/venues/blocked-arrangements.server";
 import { venueLocalTimestamp } from "#/features/venues/availability";
+import { logger } from "#/lib/logger";
 
 type Database = typeof Db;
 type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+const log = logger.getChild("safety-reviews");
 
 /** The first approved session starts the event, including a suspended booking. */
 export function hasEventStarted(
@@ -48,16 +52,23 @@ export async function sweepSafetyReviews(database: Database, now?: Date) {
   };
   // Each commit releases the event lock before the next candidate.
   for (const candidate of candidates) {
-    // oxlint-disable-next-line eslint/no-await-in-loop
-    const change = await database.transaction(async tx => {
-      // A separate key space from the registration sweep (49, 0).
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(148, 0)`);
-      return sweepEvent(tx, candidate.id, now);
-    });
-    result.reviewsCreated += change.reviewsCreated;
-    result.reviewsUpdated += change.reviewsUpdated;
-    result.eventsReverted += change.eventsReverted;
-    result.notificationsRaised += change.notificationsRaised;
+    try {
+      // oxlint-disable-next-line eslint/no-await-in-loop
+      const change = await database.transaction(async tx => {
+        // A separate key space from the registration sweep (49, 0).
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(148, 0)`);
+        return sweepEvent(tx, candidate.id, now);
+      });
+      result.reviewsCreated += change.reviewsCreated;
+      result.reviewsUpdated += change.reviewsUpdated;
+      result.eventsReverted += change.eventsReverted;
+      result.notificationsRaised += change.notificationsRaised;
+    } catch (error) {
+      // A Lead deletion takes the account before its event rows; a sweep notice takes the event
+      // before the account. Postgres can abort either writer, so skip this event and retry next run.
+      if (!isDeadlock(error)) throw error;
+      log.warn("Skipped a safety sweep event that deadlocked", { sqlstate: "40P01" });
+    }
   }
   return result;
 }
@@ -113,13 +124,14 @@ async function sweepEvent(tx: Transaction, eventId: number, now: Date | undefine
     result.eventsReverted = reverted.size;
     const recipients =
       event.assignedCoordinatorId === null ? await listLeadIds(tx) : [event.assignedCoordinatorId];
+    const reason = review.state === "approved" ? "out_of_date" : review.state;
     await raiseNotifications(
       tx,
       recipients.map(recipientId => ({
         recipientId,
         eventRequestId: eventId,
         kind: "event_safety_reconfirmation_required" as const,
-        payload: { eventName: event.eventName.trim() || "Untitled event" },
+        payload: { eventName: event.eventName.trim() || "Untitled event", reason },
       }))
     );
     result.notificationsRaised += recipients.length;
@@ -135,8 +147,7 @@ async function sweepEvent(tx: Transaction, eventId: number, now: Date | undefine
       .limit(1),
   ]);
   if (
-    confirmationBlockers({
-      status: "planning",
+    arrangementBlockers({
       venueRequests: venueRows,
       venueBookingSuspended: suspended.length > 0,
       equipmentLines: equipment,

@@ -367,9 +367,12 @@ describe("automatic safety review sweep", () => {
     expect(rows[0].recipientId).toBe(coordinator.id);
     expect((await reviews(id)).filter(row => row.state === "pending")).toHaveLength(1);
     const payload = parseNotificationPayload(rows[0].kind, rows[0].payload);
-    if (!payload) throw new Error("Notification payload did not parse");
+    if (!payload || payload.kind !== "event_safety_reconfirmation_required") {
+      throw new Error("Notification payload did not parse");
+    }
+    expect(payload.payload.reason).toBe("out_of_date");
     const email = renderNotificationEmail({ ...payload, eventRequestId: id });
-    expect(await render(email.element)).toContain("Safety approval required again");
+    expect(await render(email.element)).toContain("Safety approval needs renewal");
   });
 
   test("preserves legacy confirmed events and approvals that become current again", async () => {
@@ -417,6 +420,21 @@ describe("automatic safety review sweep", () => {
     expect(await notices(id)).toHaveLength(0);
   });
 
+  test("skips only the event that deadlocked on notification insertion", async () => {
+    const blocked = await createEvent("confirmed");
+    await createReview(blocked, "old");
+    const processed = await createEvent("confirmed");
+    await createBooking(processed);
+    await createReview(processed, "old");
+    vi.spyOn(notificationWriter, "raiseNotifications").mockRejectedValueOnce(
+      new Error("deadlock", { cause: { code: "40P01" } })
+    );
+
+    await expect(sweep()).resolves.toMatchObject({ eventsReverted: 1 });
+    expect((await readEvent(blocked)).status).toBe("confirmed");
+    expect((await readEvent(processed)).status).toBe("planning");
+  });
+
   test("falls back to every Lead when a confirmed event has no Coordinator", async () => {
     const id = await createEvent("confirmed", { coordinatorId: null });
     await createBooking(id);
@@ -443,9 +461,15 @@ describe("automatic safety review sweep", () => {
       await sweep();
       expect((await readEvent(id)).status).toBe("planning");
       expect(await reviews(id)).toHaveLength(1);
-      expect(
-        (await notices(id)).filter(row => row.kind === "event_safety_reconfirmation_required")
-      ).toHaveLength(1);
+      const rows = (await notices(id)).filter(
+        row => row.kind === "event_safety_reconfirmation_required"
+      );
+      expect(rows).toHaveLength(1);
+      const payload = parseNotificationPayload(rows[0].kind, rows[0].payload);
+      if (!payload || payload.kind !== "event_safety_reconfirmation_required") {
+        throw new Error("Notification payload did not parse");
+      }
+      expect(payload.payload.reason).toBe(state);
     }
   );
 

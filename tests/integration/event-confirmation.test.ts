@@ -19,6 +19,7 @@ import {
 } from "#/features/events/confirmation";
 import { handleConfirmEvent } from "#/features/events/confirm.server";
 import { handleListEvents } from "#/features/events/records.server";
+import { arrangementFingerprint } from "#/features/safety-reviews/fingerprint.server";
 import { notificationSummary } from "#/features/notifications/message";
 import { renderNotificationEmail } from "#/features/notifications/render.server";
 import {
@@ -214,8 +215,45 @@ describe("confirming an event (PTR-24)", () => {
   const readEvent = async (id: number) =>
     (await database.select().from(schema.eventRequests).where(eq(schema.eventRequests.id, id)))[0];
 
-  const confirm = (eventId: number, as: SessionUser = coordinator) =>
-    handleConfirmEvent({ id: eventId }, as, database as never);
+  async function confirm(eventId: number, as: SessionUser = coordinator) {
+    if (as.id === coordinator.id) {
+      const existing = await database
+        .select({ id: schema.safetyReviews.id })
+        .from(schema.safetyReviews)
+        .where(eq(schema.safetyReviews.eventRequestId, eventId))
+        .limit(1);
+      if (existing.length === 0) {
+        const fingerprint = await arrangementFingerprint(database, eventId);
+        if (fingerprint !== null) {
+          await database.insert(schema.safetyReviews).values({
+            eventRequestId: eventId,
+            state: "approved",
+            fingerprint,
+            decidedById: "seed-safety-officer-1",
+            decidedByName: "Seed Safety Officer",
+            decidedAt: new Date(),
+          });
+        }
+      }
+    }
+    return handleConfirmEvent({ id: eventId }, as, database as never);
+  }
+
+  async function addSafetyApproval(eventId: number) {
+    const fingerprint = await arrangementFingerprint(database, eventId);
+    if (fingerprint === null) throw new Error("Expected the event to exist");
+    await database.insert(schema.safetyReviews).values({
+      eventRequestId: eventId,
+      state: "approved",
+      fingerprint,
+      decidedById: "seed-safety-officer-1",
+      decidedByName: "Seed Safety Officer",
+      decidedAt: new Date(),
+    });
+  }
+
+  const confirmWithoutSafety = (eventId: number) =>
+    handleConfirmEvent({ id: eventId }, coordinator, database as never);
 
   const refusal = async (eventId: number, as: SessionUser = coordinator) => {
     const error = await confirm(eventId, as).catch((caught: unknown) => caught);
@@ -268,6 +306,55 @@ describe("confirming an event (PTR-24)", () => {
 
       expect(message).toContain("no approved venue booking");
       expect(message).not.toContain("equipment");
+    });
+
+    test.each([
+      ["pending", "The safety review is pending."],
+      ["rejected", "The safety review was rejected."],
+      ["changes_requested", "The Safety Officer requested changes."],
+      ["out_of_date", "The safety approval is out of date."],
+    ] as const)("refuses a %s safety review", async (state, expectedMessage) => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      const fingerprint = await arrangementFingerprint(database, eventId);
+      if (fingerprint === null) throw new Error("Expected the event to exist");
+      await database.insert(schema.safetyReviews).values({
+        eventRequestId: eventId,
+        state: state === "out_of_date" ? "approved" : state,
+        fingerprint: state === "out_of_date" ? "stale-fingerprint" : fingerprint,
+        ...(state === "pending"
+          ? {}
+          : {
+              decidedById: "seed-safety-officer-1",
+              decidedByName: "Seed Safety Officer",
+              decidedAt: new Date(),
+              ...(state === "rejected" || state === "changes_requested"
+                ? { comments: "Review decision reason." }
+                : {}),
+            }),
+      });
+
+      await expect(confirmWithoutSafety(eventId)).rejects.toThrow(expectedMessage);
+    });
+
+    test("refuses confirmation when no safety review exists", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+
+      await expect(confirmWithoutSafety(eventId)).rejects.toThrow(
+        "No safety review has been raised yet. One is created within a minute of the arrangements being complete."
+      );
+    });
+
+    test("confirms a started event without a safety review", async () => {
+      const eventId = await createEvent();
+      await createBooking(eventId);
+      await database
+        .update(schema.venueRequests)
+        .set({ startsAt: "2020-01-01 09:00:00", endsAt: "2020-01-01 12:30:00" })
+        .where(eq(schema.venueRequests.eventId, eventId));
+
+      expect((await confirmWithoutSafety(eventId)).status).toBe("confirmed");
     });
   });
 
@@ -450,6 +537,7 @@ describe("confirming an event (PTR-24)", () => {
         );
 
         await handleWithdrawVenueRequest({ id: settled.id }, coordinator, database as never);
+        await addSafetyApproval(eventId);
 
         expect((await confirm(eventId)).status).toBe("confirmed");
         expect((await readEvent(eventId)).status).toBe("confirmed");

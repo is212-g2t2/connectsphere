@@ -65,7 +65,7 @@ export const NOTIFICATION_KINDS = [
   "coordinator_assigned",
   /** PTR-148 AC2: complete arrangements entered safety review. Every Safety Officer receives this notice. */
   "safety_review_requested",
-  /** PTR-148 AC4: the sweep returned a confirmed event to planning. Its Coordinator receives this notice, or every Lead when the event has none. */
+  /** PTR-148 AC4 and PTR-147 AC5: the sweep returned a confirmed event to planning. Its Coordinator receives this notice, or every Lead when the event has none. */
   "event_safety_reconfirmation_required",
 ] as const;
 
@@ -382,10 +382,13 @@ const payloadSchemas = {
    */
   safety_review_requested: z.object({ eventName: z.string() }),
   /**
-   * PTR-148 AC4: a confirmed event returned to planning. Its Coordinator receives it, or every
-   * Lead when the event has none.
+   * PTR-148 AC4 and PTR-147 AC5: a confirmed event returned to planning because its review is no
+   * longer current. Its Coordinator receives it, or every Lead when the event has none.
    */
-  event_safety_reconfirmation_required: z.object({ eventName: z.string() }),
+  event_safety_reconfirmation_required: z.object({
+    eventName: z.string(),
+    reason: z.enum(["out_of_date", "rejected", "changes_requested", "pending"]).optional(),
+  }),
   /**
    * PTR-146 AC4: the Safety Officer's decision on the event's operational-safety review. The
    * Coordinator receives the tracking comments with it.
@@ -691,7 +694,7 @@ export function notificationSummary(notification: NotificationPayload): string {
     case "safety_review_requested":
       return `Safety review requested: ${notification.payload.eventName}`;
     case "event_safety_reconfirmation_required":
-      return `Safety approval required again: ${notification.payload.eventName}`;
+      return `Safety approval needs renewal: ${notification.payload.eventName}`;
     case "safety_review_decided":
       return `Safety review ${safetyReviewDecisionLabel(notification.payload.decision)}: ${notification.payload.eventName}`;
     case "venue_hold_requested":

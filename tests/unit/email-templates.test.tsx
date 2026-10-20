@@ -36,6 +36,7 @@ import {
 } from "#/features/emails/components/venue-hold-request-email";
 import { VenueBookingReleasedByCoordinatorEmail } from "#/features/emails/components/venue-booking-released-by-coordinator-email";
 import { EventConfirmedEmail } from "#/features/emails/components/event-confirmed-email";
+import { EventSafetyReconfirmationEmail } from "#/features/emails/components/event-safety-reconfirmation-email";
 import { VenueBookingRejectedEmail } from "#/features/emails/components/venue-booking-rejected-email";
 import { VenueBookingRequestEmail } from "#/features/emails/components/venue-booking-request-email";
 import { VerificationEmail } from "#/features/emails/components/verification-email";
@@ -901,5 +902,44 @@ describe("Email templates rendering", () => {
     expect(leadHtml).toContain("waits for a Coordinator to be assigned");
     expect(leadHtml).toContain("http://localhost:3000/coordination");
     expect(leadHtml).toContain("View the queue");
+  });
+
+  it("tells the Coordinator to get the safety review approved and confirm again (PTR-147)", async () => {
+    const eventUrl = "http://localhost:3000/events/42";
+    const outOfDate = await render(
+      <EventSafetyReconfirmationEmail
+        eventName="Community workshop"
+        reason="out_of_date"
+        eventRequestUrl={eventUrl}
+      />
+    );
+    expect(outOfDate).toContain("Safety approval needs renewal");
+    expect(outOfDate).toContain("the arrangements changed after the safety review");
+    expect(outOfDate).toContain(
+      "The Coordinator must get the safety review approved, then confirm the event again."
+    );
+    expect(outOfDate).toContain(eventUrl);
+
+    const rejected = await render(
+      <EventSafetyReconfirmationEmail
+        eventName="Community workshop"
+        reason="rejected"
+        eventRequestUrl={eventUrl}
+      />
+    );
+    expect(rejected).toContain("Safety approval needs renewal");
+    expect(rejected).toContain("the safety review was rejected");
+    expect(rejected).toContain(
+      "The Coordinator must get the safety review approved, then confirm the event again."
+    );
+    expect(rejected).toContain(eventUrl);
+
+    // PTR-148 rows queued before this deploy carry no reason. Keep them readable.
+    const legacy = await render(
+      <EventSafetyReconfirmationEmail eventName="Community workshop" eventRequestUrl={eventUrl} />
+    );
+    expect(legacy).toContain("Safety approval needs renewal");
+    expect(legacy).toContain("its safety approval is no longer current");
+    expect(legacy).toContain(eventUrl);
   });
 });

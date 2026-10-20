@@ -5,6 +5,7 @@
 // booking, so tests run in parallel with no shared demo rows.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -116,6 +117,47 @@ const statusOf = async (id: number) =>
   (await database.select().from(schema.eventRequests).where(eq(schema.eventRequests.id, id)))[0]
     .status;
 
+async function addSafetyApproval(eventId: number) {
+  const fingerprint = execFileSync(
+    "bun",
+    [
+      "-e",
+      `
+        import { SQL } from "bun";
+        import { drizzle } from "drizzle-orm/bun-sql";
+        import * as schema from "./src/db/schema.ts";
+        import { arrangementFingerprint } from "./src/features/safety-reviews/fingerprint.server.ts";
+
+        const client = new SQL(process.env.DATABASE_URL, { prepare: false, max: 1 });
+        try {
+          const database = drizzle({ client, schema });
+          const fingerprint = await arrangementFingerprint(
+            database,
+            Number(process.env.SAFETY_EVENT_ID)
+          );
+          if (fingerprint === null) throw new Error("Expected the event to exist");
+          console.log(fingerprint);
+        } finally {
+          await client.close();
+        }
+      `,
+    ],
+    {
+      encoding: "utf8",
+      env: { ...process.env, SAFETY_EVENT_ID: String(eventId) },
+    }
+  ).trim();
+  if (fingerprint.length === 0) throw new Error("Expected the event fingerprint");
+  await database.insert(schema.safetyReviews).values({
+    eventRequestId: eventId,
+    state: "approved",
+    fingerprint,
+    decidedById: "seed-safety-officer-1",
+    decidedByName: "Seed Safety Officer",
+    decidedAt: new Date(),
+  });
+}
+
 async function openEventPage(page: Page, id: number) {
   await signInWithSeedPassword(page, COORDINATOR_EMAIL);
   await page.goto(`/events/${id}`);
@@ -136,6 +178,7 @@ test.describe("AC1: confirming", () => {
         { item: "Microphone", arrangementStatus: "not_required" },
       ],
     });
+    await addSafetyApproval(id);
     await openEventPage(page, id);
 
     await confirmFromPage(page, name);
@@ -156,6 +199,7 @@ test.describe("AC1: confirming", () => {
   // AC5
   test("confirms on the venue booking alone when no equipment is recorded", async ({ page }) => {
     const { id, name } = await createEvent({ booking: "approved" });
+    await addSafetyApproval(id);
     await openEventPage(page, id);
 
     await confirmFromPage(page, name);
@@ -185,6 +229,7 @@ test.describe("AC2: refusal", () => {
     // The dialog stays open on a refusal. The named items show inside it.
     const alert = page.getByRole("alertdialog").getByRole("alert");
     await expect(alert).toContainText("This event cannot be confirmed yet:");
+    await expect(alert).toContainText("No safety review has been raised yet.");
     await expect(alert).toContainText("There is no approved venue booking.");
     // PTR-138: the pending request is a blocker of its own, named by venue.
     await expect(alert).toContainText(`The booking request for ${venueName} (`);
@@ -200,6 +245,7 @@ test.describe("AC3 and AC4: the Organiser", () => {
       booking: "approved",
       lines: [{ item: "Projector", arrangementStatus: "reserved" }],
     });
+    await addSafetyApproval(id);
     await openEventPage(page, id);
     await confirmFromPage(page, name);
     await expect(
