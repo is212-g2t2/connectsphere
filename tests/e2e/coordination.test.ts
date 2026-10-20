@@ -249,7 +249,7 @@ test("shows the unassigned queue to the Lead and hides it from Coordinators", as
     await signInAsStaff(page, "event_coordinator_lead");
     await page.goto("/coordination");
     await expect(
-      page.getByRole("heading", { name: "Unassigned requests", level: 1 })
+      page.getByRole("heading", { name: "Unassigned requests", level: 2 })
     ).toBeVisible();
     await page.getByRole("link", { name: eventName }).click();
     await waitForHydration(page);
@@ -272,6 +272,77 @@ test("shows the unassigned queue to the Lead and hides it from Coordinators", as
     await coordinatorContext.close();
   }
 });
+test("a Lead oversees every Coordinator's assigned events and opens one read-only", async ({
+  page,
+}) => {
+  const ids: string[] = [];
+  try {
+    const coordinatorId = randomUUID();
+    ids.push(coordinatorId);
+    const coordinatorName = "Oversight Coordinator";
+    await database.insert(schema.user).values({
+      id: coordinatorId,
+      name: coordinatorName,
+      email: `${coordinatorId}@example.invalid`,
+      role: "event_coordinator",
+    });
+    const decided = {
+      decidedByCoordinatorId: coordinatorId,
+      decidedByCoordinatorName: coordinatorName,
+      decidedAt: new Date(),
+    };
+    const active = await seedAssignedRequest(ids, coordinatorId, {
+      eventName: `Oversight active ${randomUUID()}`,
+      status: "planning",
+      ...decided,
+    });
+    const completed = await seedAssignedRequest(ids, coordinatorId, {
+      eventName: `Oversight completed ${randomUUID()}`,
+      status: "completed",
+      ...decided,
+      completedById: coordinatorId,
+      completedByName: coordinatorName,
+      completedAt: new Date(),
+    });
+    const rejected = await seedAssignedRequest(ids, coordinatorId, {
+      eventName: `Oversight rejected ${randomUUID()}`,
+      status: "rejected",
+      ...decided,
+      decisionReason: "The date cannot be supported.",
+    });
+
+    await signInAsStaff(page, "event_coordinator_lead");
+    await page.goto("/coordination");
+    const oversight = page.getByRole("region", { name: "Coordinator oversight" });
+    await expect(oversight).toBeVisible();
+    const coordinatorRow = oversight.locator("li").filter({ hasText: coordinatorName }).first();
+    await expect(coordinatorRow.getByRole("heading", { name: coordinatorName })).toBeVisible();
+    await expect(coordinatorRow.getByText("1 active event")).toBeVisible();
+    await expect(coordinatorRow.getByRole("link", { name: active.eventName })).toBeVisible();
+    await expect(coordinatorRow.locator("summary")).toHaveText("2 closed events");
+    await coordinatorRow.locator("summary").click();
+    await expect(coordinatorRow.getByRole("link", { name: completed.eventName })).toBeVisible();
+    await expect(coordinatorRow.getByRole("link", { name: rejected.eventName })).toBeVisible();
+
+    // An event opened from oversight is read-only: the reassignment form is its only action.
+    await coordinatorRow.getByRole("link", { name: active.eventName }).click();
+    await waitForHydration(page);
+    await expect(page.getByRole("heading", { name: active.eventName })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Assign a Coordinator" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reassign Coordinator" })).toBeVisible();
+    for (const action of [
+      "Take up for review",
+      "Record a decision",
+      "Confirm event",
+      "Complete event",
+    ]) {
+      await expect(page.getByRole("button", { name: action })).toHaveCount(0);
+    }
+  } finally {
+    await database.delete(schema.user).where(inArray(schema.user.id, ids));
+  }
+});
+
 test("lists a submitted request assigned to the Coordinator", async ({ page }) => {
   const ids: string[] = [];
   try {

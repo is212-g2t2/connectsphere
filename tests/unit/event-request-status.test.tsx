@@ -8,6 +8,8 @@ import {
   EVENT_REQUEST_STATUS_STAGES,
   EVENT_REQUEST_STATUS_VARIANTS,
   EVENT_REQUEST_STATUSES,
+  canAssignEventRequest,
+  isActiveEventRequest,
 } from "#/features/event-requests/schema";
 
 /** PTR-21 criterion 1 names the defined set, plus `awaiting_organiser`, which PTR-18 writes when
@@ -64,6 +66,12 @@ describe("Event request statuses (PTR-21)", () => {
   it("names the pill as a status for assistive technology", () => {
     render(<EventRequestStatusBadge status="planning" />);
     expect(screen.getByLabelText("Status: Planning").textContent).toBe("Planning");
+  });
+
+  it("counts every assignable status as active, and only those", () => {
+    for (const status of EVENT_REQUEST_STATUSES) {
+      expect(isActiveEventRequest(status)).toBe(canAssignEventRequest(status));
+    }
   });
 
   it("records a decision on every status from approved onward, and only there", () => {

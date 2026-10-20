@@ -3,7 +3,10 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { can } from "#/features/auth/permissions";
 import { CoordinationPage } from "#/features/coordination/components/coordination-page";
 import { CoordinationPageSkeleton } from "#/features/coordination/components/coordination-page-skeleton";
-import { listAssignedEventRequests } from "#/features/coordination/server-fns";
+import {
+  listAssignedEventRequests,
+  listCoordinatorOversight,
+} from "#/features/coordination/server-fns";
 import { listUnassignedEventRequests } from "#/features/event-requests/server-fns";
 import { createSeoHead } from "#/lib/seo";
 
@@ -19,18 +22,21 @@ export const Route = createFileRoute("/_authenticated/coordination/")({
   },
   loader: async ({ context }) => {
     // PTR-144: the Lead reads the unassigned queue, the Coordinator their assignments. Each view
-    // loads only the list it shows (PTR-145).
+    // loads only the list it shows (PTR-145). PTR-149 adds the Lead's oversight of every
+    // Coordinator's workload.
     if (can(context.user.role, { event_request: ["oversee"] })) {
       return {
         view: "lead" as const,
         unassigned: await listUnassignedEventRequests(),
         assigned: [],
+        oversight: await listCoordinatorOversight(),
       };
     }
     return {
       view: "coordinator" as const,
       unassigned: [],
       assigned: await listAssignedEventRequests(),
+      oversight: [],
     };
   },
   component: () => <CoordinationPage {...Route.useLoaderData()} />,

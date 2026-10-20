@@ -15,6 +15,7 @@ import {
   getCoordinationRequest,
   getOversightRequest,
   listAssignedEventRequests,
+  listCoordinatorOversight,
   listCoordinators,
   takeUpEventRequestForReview,
 } from "#/features/coordination/server-fns";
@@ -1502,6 +1503,33 @@ describe("server-function authorization (PTR-69)", () => {
 
       signIn("event_coordinator_lead");
       expect((await call(listUnassignedEventRequests, undefined, "GET")).error).toBeUndefined();
+    });
+
+    it("answers 401 and 403 on the oversight list, and lets a Lead through (PTR-149)", async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+      expect(await refusalFrom(listCoordinatorOversight, undefined, "GET")).toEqual({
+        status: 401,
+        body: "Unauthorized",
+      });
+
+      for (const role of [
+        "attendee",
+        "event_organiser",
+        "event_coordinator",
+        "venue_staff",
+        "technical_support_staff",
+        "safety_officer",
+      ]) {
+        signIn(role);
+        // oxlint-disable-next-line no-await-in-loop -- one mock session at a time names the refused role
+        expect(await refusalFrom(listCoordinatorOversight, undefined, "GET")).toEqual({
+          status: 403,
+          body: "Forbidden",
+        });
+      }
+
+      signIn("event_coordinator_lead");
+      expect((await call(listCoordinatorOversight, undefined, "GET")).error).toBeUndefined();
     });
 
     it("answers 401 and 403 on the oversight read, and lets a Lead through (PTR-144)", async () => {

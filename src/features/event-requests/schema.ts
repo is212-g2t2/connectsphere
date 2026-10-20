@@ -444,6 +444,22 @@ export function canAssignEventRequest(status: EventRequestStatus): boolean {
   return ASSIGNABLE_EVENT_REQUEST_STATUSES.some(assignable => assignable === status);
 }
 
+/**
+ * PTR-149: the Lead's oversight counts an assigned event as active until it is rejected, completed
+ * or cancelled. A draft is never assigned, and it is not active work. Keep the rule in one home so
+ * the oversight list cannot drift from the workload it reports.
+ */
+const INACTIVE_EVENT_REQUEST_STATUSES = [
+  "draft",
+  "rejected",
+  "completed",
+  "cancelled",
+] as const satisfies readonly EventRequestStatus[];
+
+export function isActiveEventRequest(status: EventRequestStatus): boolean {
+  return !INACTIVE_EVENT_REQUEST_STATUSES.some(inactive => inactive === status);
+}
+
 export const EVENT_CHANGE_REQUEST_CLOSED = "This event can no longer be changed.";
 
 // ── Processing a change request (PTR-52) ────────────────────────────────────

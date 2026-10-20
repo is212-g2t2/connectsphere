@@ -367,7 +367,7 @@ test.describe("Coordinator assignment (PTR-144)", () => {
       await signInAsStaff(leadPage, "event_coordinator_lead");
       await leadPage.goto("/coordination");
       await expect(
-        leadPage.getByRole("heading", { name: "Unassigned requests", level: 1 })
+        leadPage.getByRole("heading", { name: "Unassigned requests", level: 2 })
       ).toBeVisible();
       await expect(leadPage.getByRole("link", { name: eventName })).toBeVisible();
 

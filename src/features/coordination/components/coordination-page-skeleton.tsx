@@ -3,10 +3,11 @@ import { Skeleton } from "#/components/ui/skeleton";
 
 const ASSIGNED_ROWS = [0, 1, 2];
 const UNASSIGNED_ROWS = [0, 1, 2, 3];
+const OVERSIGHT_ROWS = [0, 1];
 
 /**
- * The coordination list's loading shape (PTR-16): back link, page heading and both assignment
- * sections, so a slow loader shows the page it is about to become rather than a blank screen.
+ * The coordination list's loading shape (PTR-16): back link, page heading and every assignment
+ * section, so a slow loader shows the page it is about to become rather than a blank screen.
  */
 export function CoordinationPageSkeleton() {
   return (
@@ -49,6 +50,19 @@ export function CoordinationPageSkeleton() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="mt-10">
+        <Skeleton className="h-8 w-56" />
+        <Skeleton className="mt-2 h-4 w-72" />
+        <ul className="mt-4 divide-y divide-border">
+          {OVERSIGHT_ROWS.map(row => (
+            <li key={row} className="py-3">
+              <Skeleton className="h-4 w-56" />
+              <Skeleton className="mt-1 h-3.5 w-40" />
+            </li>
+          ))}
+        </ul>
       </section>
     </Page>
   );

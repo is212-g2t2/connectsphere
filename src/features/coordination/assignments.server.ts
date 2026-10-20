@@ -27,6 +27,7 @@ import {
   parseClarificationBody,
   parseEventRequestId,
 } from "#/features/event-requests/schema";
+import type { EventRequestStatus } from "#/features/event-requests/schema";
 import { raiseNotifications } from "#/features/notifications/raise.server";
 import type { NewNotification } from "#/features/notifications/raise.server";
 
@@ -75,6 +76,59 @@ export async function handleListCoordinators(database: Database) {
     .from(user)
     .where(eq(user.role, "event_coordinator"))
     .orderBy(asc(user.name), asc(user.id));
+}
+
+type CoordinatorOversightEvent = {
+  id: number;
+  eventName: string;
+  status: EventRequestStatus;
+  assignedAt: Date | null;
+};
+
+/**
+ * PTR-149 criterion 1: every Event Coordinator with every assigned event, system-wide. A
+ * Coordinator with no events still appears, so the Lead sees the whole team. Drafts are never
+ * assigned and stay out. The page decides which events are active with `isActiveEventRequest`.
+ */
+export async function handleListCoordinatorOversight(database: Database) {
+  const rows = await database
+    .select({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      eventId: eventRequests.id,
+      eventName: eventRequests.eventName,
+      status: eventRequests.status,
+      assignedAt: eventRequests.assignedAt,
+    })
+    .from(user)
+    .leftJoin(
+      eventRequests,
+      and(eq(eventRequests.assignedCoordinatorId, user.id), ne(eventRequests.status, "draft"))
+    )
+    .where(eq(user.role, "event_coordinator"))
+    .orderBy(asc(user.name), asc(user.id), desc(eventRequests.assignedAt), desc(eventRequests.id));
+
+  const byCoordinator = new Map<
+    string,
+    { id: string; name: string; email: string; events: CoordinatorOversightEvent[] }
+  >();
+  for (const row of rows) {
+    let coordinator = byCoordinator.get(row.id);
+    if (!coordinator) {
+      coordinator = { id: row.id, name: row.name, email: row.email, events: [] };
+      byCoordinator.set(row.id, coordinator);
+    }
+    if (row.eventId !== null && row.eventName !== null && row.status !== null) {
+      coordinator.events.push({
+        id: row.eventId,
+        eventName: row.eventName,
+        status: row.status,
+        assignedAt: row.assignedAt,
+      });
+    }
+  }
+  return [...byCoordinator.values()];
 }
 
 /**
