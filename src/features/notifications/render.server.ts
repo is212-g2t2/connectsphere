@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import { env } from "#/env";
 import { ClarificationReplyEmail } from "#/features/emails/components/clarification-reply-email";
 import { ClarificationRequestEmail } from "#/features/emails/components/clarification-request-email";
+import { SafetySweepEmail } from "#/features/emails/components/safety-sweep-email";
 import { formatDate, formatTime } from "#/features/emails/format";
 import {
   EquipmentArrangementsCompleteEmail,
@@ -424,6 +425,16 @@ export function renderNotificationEmail(
         element: createElement(VenueBufferConflictEmail, {
           ...notification.payload,
           calendarUrl: `${base}${notificationHref(notification) ?? ""}`,
+        }),
+      };
+    case "safety_review_requested":
+    case "event_safety_reconfirmation_required":
+      return {
+        subject,
+        element: createElement(SafetySweepEmail, {
+          eventName: notification.payload.eventName,
+          requested: notification.kind === "safety_review_requested",
+          eventUrl: `${base}${notificationHref(notification) ?? ""}`,
         }),
       };
     case "safety_review_decided": {

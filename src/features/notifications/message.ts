@@ -63,6 +63,10 @@ export const NOTIFICATION_KINDS = [
   "venue_hold_expired",
   /** PTR-145: a Lead assigned or reassigned the event's Coordinator. */
   "coordinator_assigned",
+  /** PTR-148 AC2: complete arrangements entered safety review. Every Safety Officer receives this notice. */
+  "safety_review_requested",
+  /** PTR-148 AC4: the sweep returned a confirmed event to planning. Its Coordinator receives this notice, or every Lead when the event has none. */
+  "event_safety_reconfirmation_required",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -374,6 +378,15 @@ const payloadSchemas = {
     audience: z.enum(["organiser", "lead"]),
   }),
   /**
+   * PTR-148 AC1: complete arrangements entered safety review. Every Safety Officer receives it.
+   */
+  safety_review_requested: z.object({ eventName: z.string() }),
+  /**
+   * PTR-148 AC4: a confirmed event returned to planning. Its Coordinator receives it, or every
+   * Lead when the event has none.
+   */
+  event_safety_reconfirmation_required: z.object({ eventName: z.string() }),
+  /**
    * PTR-146 AC4: the Safety Officer's decision on the event's operational-safety review. The
    * Coordinator receives the tracking comments with it.
    */
@@ -545,6 +558,14 @@ const notificationPayloadSchema = z.discriminatedUnion("kind", [
     payload: payloadSchemas.event_submitted,
   }),
   z.object({
+    kind: z.literal("safety_review_requested"),
+    payload: payloadSchemas.safety_review_requested,
+  }),
+  z.object({
+    kind: z.literal("event_safety_reconfirmation_required"),
+    payload: payloadSchemas.event_safety_reconfirmation_required,
+  }),
+  z.object({
     kind: z.literal("safety_review_decided"),
     payload: payloadSchemas.safety_review_decided,
   }),
@@ -667,6 +688,10 @@ export function notificationSummary(notification: NotificationPayload): string {
       return notification.payload.audience === "lead"
         ? `New event request awaiting a Coordinator: ${notification.payload.eventName}`
         : `Event request submitted: ${notification.payload.eventName}`;
+    case "safety_review_requested":
+      return `Safety review requested: ${notification.payload.eventName}`;
+    case "event_safety_reconfirmation_required":
+      return `Safety approval required again: ${notification.payload.eventName}`;
     case "safety_review_decided":
       return `Safety review ${safetyReviewDecisionLabel(notification.payload.decision)}: ${notification.payload.eventName}`;
     case "venue_hold_requested":
@@ -744,6 +769,8 @@ export function notificationHref(
     case "handover_requested":
     case "event_decided":
     case "event_confirmed":
+    case "safety_review_requested":
+    case "event_safety_reconfirmation_required":
     case "safety_review_decided":
       // PTR-146: the assigned Coordinator opens the event page, and so does a Lead, who reaches
       // every non-draft event (PTR-144). PTR-145: a retired handover record points at the event.
@@ -901,6 +928,8 @@ export function notificationReachable(
     case "venue_hold_expiry_changed":
     case "venue_buffer_conflict":
     case "event_submitted":
+    case "safety_review_requested":
+    case "event_safety_reconfirmation_required":
     case "safety_review_decided":
     case "venue_hold_placed":
     case "venue_hold_declined":

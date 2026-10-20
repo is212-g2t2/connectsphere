@@ -73,7 +73,9 @@ export function SafetyReviewsPage({ reviews }: { reviews: PendingSafetyReview[] 
                   </TableCell>
                   <TableCell>
                     {review.current ? (
-                      <Badge variant="progress">Awaiting decision</Badge>
+                      <Badge variant="progress">
+                        {review.updated ? "Updated" : "Awaiting decision"}
+                      </Badge>
                     ) : (
                       <Badge variant="stopped">{SAFETY_REVIEW_WITHDRAWN_LABEL}</Badge>
                     )}

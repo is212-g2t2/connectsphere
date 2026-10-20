@@ -51,6 +51,7 @@ export async function handleListSafetyReviews(database: Database): Promise<Pendi
       eventId: safetyReviews.eventRequestId,
       fingerprint: safetyReviews.fingerprint,
       createdAt: safetyReviews.createdAt,
+      refreshedAt: safetyReviews.refreshedAt,
       eventName: eventRequests.eventName,
       eventStatus: eventRequests.status,
     })
@@ -82,6 +83,7 @@ export async function handleListSafetyReviews(database: Database): Promise<Pendi
       eventStatus: row.eventStatus,
       venue: bookings.get(row.eventId)?.venue ?? null,
       createdAt: row.createdAt.toISOString(),
+      updated: row.refreshedAt !== null,
       // A review on a deleted event cannot happen (the foreign key cascades), so a missing input
       // means the read raced the event's deletion. Treat it as not current.
       current: input !== undefined && arrangementFingerprintOf(input) === row.fingerprint,
